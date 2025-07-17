@@ -84,16 +84,20 @@ If you see *"Hello from Docker!"* your setup is good to go.
 ```bash
 # Clone the repo
 git clone https://github.com/estcarisimo/smoking-pi.git
-cd smoking-pi/minimal
+cd smoking-pi/
 
-# Build & run
-./scripts/build-and-run.sh        # helper script (see repo)
-# – or –
 docker build -t smokeping:latest .
 docker run -d -p 80:80 --name smokeping smokeping:latest
 ```
 
 Browse to **http\://\<pi‑ip>/cgi-bin/smokeping.cgi** — you should see SmokePing graphs start populating within a few minutes.
+
+to terminate it
+```bash
+docker stop smokeping       # container exits
+docker rm smokeping         # now it’s gone
+```
+
 
 ---
 
@@ -169,7 +173,7 @@ docker run -d \
 Open a browser:
 
 ```text
-http://<HOST_IP>/
+http://<HOST_IP>/cgi-bin/smokeping.cgi
 ```
 
 > If running locally on the Pi, `http://localhost/cgi-bin/smokeping.cgi` works.

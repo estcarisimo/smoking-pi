@@ -1,0 +1,20 @@
+*** Probes ***
++ FPing
+binary = /usr/bin/fping
+step = 300
+pings = 10
+
++EchoPingDNS
+binary = /usr/bin/echoping
+step = 300
+pings = 5
+
++DNS
+binary = /usr/bin/dig
+step = 300
+pings = 5
+
++EchoPingHttp
+binary = /usr/bin/echoping
+step = 300
+pings = 3

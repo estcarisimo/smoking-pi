@@ -5,7 +5,7 @@ A modular, multi‑flavour toolkit for running **SmokePing** latency monitoring�
 ```text
 .
 ├── minimal/           # lightweight Dockerfile (SmokePing + Lighttpd only)
-├── grafana-influx/    # docker‑compose stack (InfluxDB v2 + Grafana)  ← WIP
+├── grafana-influx/    # docker‑compose stack (InfluxDB v2 + Grafana)  ← ✅ stable
 ├── kubernetes/        # Helm chart & manifests (Ingress, PVCs, Prometheus) ← roadmap
 └── docs/              # architecture diagrams, HOWTOs shared by all variants
 ```
@@ -15,7 +15,7 @@ A modular, multi‑flavour toolkit for running **SmokePing** latency monitoring�
 ## 1  Quick start ( minimal variant )
 
 ```bash
-git clone https://github.com/<your‑user>/smoking‑pi.git
+git clone https://github.com/estcarisimo/smoking‑pi.git
 cd smoking‑pi/minimal
 docker build -t smokeping:mini .
 docker run -d --name smokeping -p 80:80 smokeping:mini
@@ -45,7 +45,7 @@ docker run -d --name smokeping \
 | Folder                | Status         | What’s inside                                                |
 | --------------------- | -------------- | ------------------------------------------------------------ |
 | **`minimal/`**        | ✓ stable       | Debian Slim + SmokePing + Lighttpd + fping. Ideal for Pi/VM. |
-| **`grafana-influx/`** | 🚧 in progress | `docker‑compose.yml` with InfluxDB v2 & Grafana dashboards.  |
+| **`grafana-influx/`** | ✓ stable  | `docker‑compose.yml` with InfluxDB v2 & Grafana dashboards.  |
 | **`kubernetes/`**     | 📝 roadmap     | Helm chart (StatefulSet, Ingress, TLS, Prometheus).          |
 | **`docs/`**           | ↘ shared       | Diagrams, ADRs, HOWTOs common to every flavour.              |
 
