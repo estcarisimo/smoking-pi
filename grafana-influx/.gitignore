@@ -1,0 +1,14 @@
+# Environment file with passwords
+.env
+
+# Docker volumes data
+*-data/
+
+# Grafana data
+grafana-data/
+
+# InfluxDB data
+influxdb-data/
+
+# SmokePing data
+smokeping-data/

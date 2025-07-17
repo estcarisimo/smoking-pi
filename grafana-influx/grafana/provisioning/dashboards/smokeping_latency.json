@@ -1,0 +1,136 @@
+{
+  "uid": "smokeping-lat-pct-v28",
+  "id": null,
+  "title": "SmokePing Latency & Loss – Percentiles / Mean",
+  "schemaVersion": 37,
+  "version": 29,
+  "tags": ["smokeping"],
+  "time": { "from": "now-6h", "to": "now" },
+
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "target",
+        "datasource": { "uid": "influxdb" },
+        "query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"latency\", predicate: (r) => r._measurement != \"dns_latency\" and r.target != \"Cloudflare\" and r.target != \"Quad9\", tag: \"target\")"
+      }
+    ]
+  },
+
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Latency – [[target]] (ms)",
+      "datasource": { "uid": "influxdb" },
+      "repeat": "target",
+      "repeatDirection": "h",
+      "maxPerRow": 2,
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "lineWidth": 1, "fillOpacity": 15 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "median" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 2 },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 3 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "mean" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1.5 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.lineStyle",   "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 2 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p10" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 2 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p20" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 2 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p80" },
+            "properties": [
+              { "id": "custom.fillOpacity", "value": 40 },
+              { "id": "custom.fillBelowTo", "value": "p20" },
+              { "id": "custom.zindex",      "value": 1 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p90" },
+            "properties": [
+              { "id": "custom.fillOpacity", "value": 25 },
+              { "id": "custom.fillBelowTo", "value": "p10" },
+              { "id": "custom.zindex",      "value": 0 }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"median\")"
+        },
+        {
+          "refId": "B",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> mean() |> set(key:\"_field\", value:\"mean\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"mean\")"
+        },
+        {
+          "refId": "C",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.10, method:\"exact_mean\") |> set(key:\"_field\", value:\"p10\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p10\")"
+        },
+        {
+          "refId": "D",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.20, method:\"exact_mean\") |> set(key:\"_field\", value:\"p20\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p20\")"
+        },
+        {
+          "refId": "E",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.80, method:\"exact_mean\") |> set(key:\"_field\", value:\"p80\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p80\")"
+        },
+        {
+          "refId": "F",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.90, method:\"exact_mean\") |> set(key:\"_field\", value:\"p90\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p90\")"
+        }
+      ]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "Loss – [[target]] (%)",
+      "datasource": { "uid": "influxdb" },
+      "repeat": "target",
+      "repeatDirection": "h",
+      "maxPerRow": 2,
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "lineWidth": 2 } } },
+      "targets": [ { "refId": "loss", "queryType": "flux", "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target==\"[[target]]\" and r._field==\"loss\")" } ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: SmokePing          # folder name shown in Grafana’s UI
+    folder: SmokePing
+    type: file
+    editable: true
+
+    options:
+      path: /etc/grafana/provisioning/dashboards   # <— where the JSON lives
+      updateIntervalSeconds: 30                    # hot-reload every 30 s
