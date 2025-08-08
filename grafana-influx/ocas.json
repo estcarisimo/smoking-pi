@@ -1,0 +1,61 @@
+{
+  "netflix_oca_targets": [
+    {
+      "host": "netflix.com",
+      "metadata": {
+        "domain": "netflix.com",
+        "location": "Global CDN",
+        "type": "fallback"
+      },
+      "name": "netflix_main",
+      "probe": "FPing",
+      "title": "Netflix Main Site"
+    },
+    {
+      "host": "fast.com",
+      "metadata": {
+        "domain": "fast.com",
+        "location": "Global CDN",
+        "type": "fallback"
+      },
+      "name": "netflix_fast",
+      "probe": "FPing",
+      "title": "Netflix Speed Test (Fast.com)"
+    },
+    {
+      "host": "openconnect.netflix.com",
+      "metadata": {
+        "domain": "openconnect.netflix.com",
+        "location": "Global CDN",
+        "type": "fallback"
+      },
+      "name": "netflix_openconnect",
+      "probe": "FPing",
+      "title": "Netflix Open Connect"
+    },
+    {
+      "host": "api.netflix.com",
+      "metadata": {
+        "domain": "api.netflix.com",
+        "location": "Global CDN",
+        "type": "fallback"
+      },
+      "name": "netflix_api",
+      "probe": "FPing",
+      "title": "Netflix API Server"
+    },
+    {
+      "host": "198.38.96.0",
+      "metadata": {
+        "domain": "",
+        "location": "US",
+        "type": "fallback"
+      },
+      "name": "netflix_oca_ip1",
+      "probe": "FPing",
+      "title": "Netflix OCA Server (Direct IP)"
+    }
+  ],
+  "total_count": 5,
+  "timestamp": "2025-07-29T03:32:42.283959"
+}

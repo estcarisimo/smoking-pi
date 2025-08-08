@@ -1,0 +1,611 @@
+{% extends "base.html" %}
+
+{% block title %}Add Target - SmokePing Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .validation-feedback {
+        display: none;
+    }
+    .validation-feedback.show {
+        display: block;
+    }
+    .form-control.is-valid {
+        border-color: #28a745;
+    }
+    .form-control.is-invalid {
+        border-color: #dc3545;
+    }
+    .probe-info {
+        font-size: 0.875rem;
+        color: #6c757d;
+    }
+    .form-check-card {
+        padding: 0.75rem;
+        border: 2px solid #dee2e6;
+        border-radius: 0.375rem;
+        transition: all 0.2s ease-in-out;
+        cursor: pointer;
+    }
+    .form-check-card:hover {
+        border-color: #adb5bd;
+        background-color: #f8f9fa;
+    }
+    .form-check-card input[type="radio"]:checked + label {
+        color: #0d6efd;
+    }
+    .form-check-card:has(input[type="radio"]:checked) {
+        border-color: #0d6efd;
+        background-color: #e7f3ff;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">
+                    <i class="bi bi-plus-circle"></i> Add Custom Target
+                </h4>
+            </div>
+            <div class="card-body">
+                <form method="POST" id="targetForm">
+                    <div class="mb-3">
+                        <label for="target_type" class="form-label">
+                            Target Type <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select" id="target_type" name="target_type" required>
+                            <option value="icmp" selected>ICMP Ping</option>
+                            <option value="dns">DNS Query</option>
+                        </select>
+                        <small class="form-text text-muted">
+                            Choose between ICMP ping monitoring or DNS query monitoring.
+                        </small>
+                    </div>
+
+                    <div class="mb-3" id="probe-selection-field">
+                        <label class="form-label fw-bold">
+                            <i class="bi bi-router"></i> Probe Selection 
+                            <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="Choose how to determine the probe type"></i>
+                        </label>
+                        <div class="card card-body bg-light">
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <div class="form-check form-check-card h-100">
+                                        <input class="form-check-input" type="radio" name="force_probe" id="probe_auto" value="auto" checked>
+                                        <label class="form-check-label w-100" for="probe_auto">
+                                            <div class="text-center">
+                                                <span class="badge bg-secondary fs-6 mb-1">Auto-detect</span>
+                                                <small class="form-text text-muted d-block">Automatically choose best probe</small>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check form-check-card h-100">
+                                        <input class="form-check-input" type="radio" name="force_probe" id="probe_ipv4" value="FPing">
+                                        <label class="form-check-label w-100" for="probe_ipv4">
+                                            <div class="text-center">
+                                                <span class="badge bg-primary fs-6 mb-1">IPv4 Only</span>
+                                                <small class="form-text text-muted d-block">Force IPv4 (FPing)</small>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check form-check-card h-100">
+                                        <input class="form-check-input" type="radio" name="force_probe" id="probe_ipv6" value="FPing6">
+                                        <label class="form-check-label w-100" for="probe_ipv6">
+                                            <div class="text-center">
+                                                <span class="badge bg-info fs-6 mb-1">IPv6 Only</span>
+                                                <small class="form-text text-muted d-block">Force IPv6 (FPing6)</small>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-2" id="ipv6-reachability-status" style="display: none;">
+                            <div class="alert alert-info alert-sm">
+                                <i class="bi bi-info-circle"></i> <span id="ipv6-status-message"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="hostname" class="form-label">
+                            <span id="hostname-label">Hostname or IP Address</span> <span class="text-danger" id="hostname-required">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="hostname" name="hostname" 
+                               value="{{ hostname or '' }}" required
+                               placeholder="e.g., example.com or 192.168.1.1">
+                        <div class="validation-feedback" id="hostname-feedback"></div>
+                        <small class="form-text text-muted" id="hostname-help">
+                            Enter a valid hostname or IP address. IPv6 addresses are supported.
+                        </small>
+                    </div>
+
+                    <div class="mb-3" id="dns-query-field" style="display: none;">
+                        <label for="dns_query" class="form-label">
+                            DNS Query Domain <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="dns_query" name="dns_query" 
+                               value="{{ dns_query or '' }}" 
+                               placeholder="e.g., google.com">
+                        <div class="validation-feedback" id="dns-query-feedback"></div>
+                        <small class="form-text text-muted">
+                            The domain name to query when testing this DNS server.
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="name" class="form-label">
+                            Target Name <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="name" name="name" 
+                               value="{{ name or '' }}" required
+                               placeholder="e.g., my_server"
+                               pattern="^[a-zA-Z][a-zA-Z0-9_]{0,19}$">
+                        <div class="validation-feedback" id="name-feedback"></div>
+                        <small class="form-text text-muted">
+                            Alphanumeric characters and underscores only. Must start with a letter. Max 20 characters.
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="title" class="form-label">Display Title</label>
+                        <input type="text" class="form-control" id="title" name="title" 
+                               value="{{ title or '' }}"
+                               placeholder="e.g., My Web Server">
+                        <small class="form-text text-muted">
+                            Optional. If not provided, the target name will be used.
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Detected Probe Type</label>
+                        <div class="form-control-plaintext" id="probe-display">
+                            <span class="badge bg-secondary">Auto-detect</span>
+                            <span class="probe-info">Enter a hostname to auto-detect probe type</span>
+                        </div>
+                        <small class="form-text text-muted">
+                            The probe type will be automatically determined based on the hostname/IP.
+                        </small>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('targets.list_targets') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Back to List
+                        </a>
+                        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+                            <i class="bi bi-check-circle"></i> Add Target
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Probe Type Reference -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">Probe Types Reference</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <h6><span class="badge bg-secondary">FPing</span> IPv4 ICMP</h6>
+                        <ul class="small">
+                            <li>Standard ping for IPv4 addresses</li>
+                            <li>Works with hostnames that resolve to IPv4</li>
+                            <li>10 pings every 5 minutes</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-4">
+                        <h6><span class="badge bg-info">FPing6</span> IPv6 ICMP</h6>
+                        <ul class="small">
+                            <li>Ping for IPv6 addresses</li>
+                            <li>Works with hostnames that resolve to IPv6</li>
+                            <li>10 pings every 5 minutes</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-4">
+                        <h6><span class="badge bg-success">DNS</span> DNS Query</h6>
+                        <ul class="small">
+                            <li>DNS lookup response time</li>
+                            <li>Tests DNS server performance</li>
+                            <li>10 queries every 5 minutes</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let validationTimer;
+
+// Handle target type changes
+document.getElementById('target_type').addEventListener('change', function() {
+    const targetType = this.value;
+    const dnsQueryField = document.getElementById('dns-query-field');
+    const probeSelectionField = document.getElementById('probe-selection-field');
+    const hostnameLabel = document.getElementById('hostname-label');
+    const hostnameHelp = document.getElementById('hostname-help');
+    const hostnameRequired = document.getElementById('hostname-required');
+    const hostnameInput = document.getElementById('hostname');
+    const dnsQueryInput = document.getElementById('dns_query');
+    
+    if (targetType === 'dns') {
+        // Show DNS-specific fields, hide probe selection
+        dnsQueryField.style.display = 'block';
+        probeSelectionField.style.display = 'none';
+        dnsQueryInput.required = true;
+        
+        // Update labels for DNS context
+        hostnameLabel.textContent = 'DNS Resolver';
+        hostnameHelp.textContent = 'Enter the IP address or hostname of the DNS resolver to monitor. If left blank, it will use the default DNS server.';
+        
+        // Make hostname optional for DNS targets
+        hostnameRequired.style.display = 'none';
+        hostnameInput.required = false;
+        
+        // Update probe display
+        updateProbeDisplayForDNS();
+    } else {
+        // Hide DNS-specific fields, show probe selection
+        dnsQueryField.style.display = 'none';
+        probeSelectionField.style.display = 'block';
+        dnsQueryInput.required = false;
+        
+        // Reset labels for ICMP context
+        hostnameLabel.textContent = 'Hostname or IP Address';
+        hostnameHelp.textContent = 'Enter a valid hostname or IP address. IPv6 addresses are supported.';
+        
+        // Make hostname required for ICMP targets
+        hostnameRequired.style.display = 'inline';
+        hostnameInput.required = true;
+    }
+    
+    // Re-validate current inputs
+    const hostname = document.getElementById('hostname').value.trim();
+    if (hostname) {
+        validateHostname(hostname);
+    }
+    updateSubmitButton();
+});
+
+// Auto-generate name from hostname
+document.getElementById('hostname').addEventListener('input', function() {
+    const hostname = this.value.trim();
+    const nameField = document.getElementById('name');
+    
+    // Only auto-generate if name field is empty
+    if (!nameField.value) {
+        const generatedName = generateTargetName(hostname);
+        nameField.value = generatedName;
+        validateName(generatedName);
+    }
+    
+    // Validate hostname with debouncing
+    clearTimeout(validationTimer);
+    validationTimer = setTimeout(() => validateHostname(hostname), 500);
+});
+
+document.getElementById('name').addEventListener('input', function() {
+    validateName(this.value);
+});
+
+document.getElementById('dns_query').addEventListener('input', function() {
+    validateDNSQuery(this.value.trim());
+});
+
+// Handle probe selection changes
+let currentIPv6Info = null; // Store the last IPv6 info from API
+document.querySelectorAll('input[name="force_probe"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const hostname = document.getElementById('hostname').value.trim();
+        if (hostname) {
+            // Trigger probe type detection with current IPv6 info
+            detectProbeType(hostname, currentIPv6Info);
+            // Update IPv6 status based on new selection
+            if (currentIPv6Info) {
+                handleIPv6ReachabilityStatus(currentIPv6Info);
+            }
+        }
+    });
+});
+
+function generateTargetName(hostname) {
+    if (!hostname) return '';
+    
+    // Remove common TLDs
+    let name = hostname.toLowerCase();
+    const tlds = ['.com', '.org', '.net', '.edu', '.gov', '.co.uk', '.io', '.co'];
+    tlds.forEach(tld => name = name.replace(tld, ''));
+    
+    // Replace dots and hyphens with underscores
+    name = name.replace(/[.-]/g, '_');
+    
+    // Remove any non-alphanumeric characters except underscores
+    name = name.replace(/[^a-zA-Z0-9_]/g, '');
+    
+    // Ensure it starts with a letter
+    if (name && /^\d/.test(name)) {
+        name = 'site_' + name;
+    }
+    
+    // Truncate to 20 characters
+    if (name.length > 20) {
+        name = name.substring(0, 20);
+    }
+    
+    return name || 'target';
+}
+
+function validateHostname(hostname) {
+    const field = document.getElementById('hostname');
+    const feedback = document.getElementById('hostname-feedback');
+    const probeDisplay = document.getElementById('probe-display');
+    
+    if (!hostname) {
+        field.classList.remove('is-valid', 'is-invalid');
+        feedback.classList.remove('show');
+        probeDisplay.innerHTML = '<span class="badge bg-secondary">Auto-detect</span> <span class="probe-info">Enter a hostname to auto-detect probe type</span>';
+        
+        // Clear IPv6 info and status
+        currentIPv6Info = null;
+        document.getElementById('ipv6-reachability-status').style.display = 'none';
+        
+        updateSubmitButton();
+        return;
+    }
+    
+    fetch('/api/validate-hostname', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ hostname: hostname })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.valid) {
+            field.classList.remove('is-invalid');
+            field.classList.add('is-valid');
+            feedback.classList.remove('show');
+            
+            // Store IPv6 info for later use
+            currentIPv6Info = data.ipv6_info;
+            
+            // Handle IPv6 reachability status
+            handleIPv6ReachabilityStatus(data.ipv6_info);
+            
+            // Detect probe type with IPv6 info
+            detectProbeType(hostname, data.ipv6_info);
+        } else {
+            field.classList.remove('is-valid');
+            field.classList.add('is-invalid');
+            feedback.textContent = data.error;
+            feedback.classList.add('show');
+            probeDisplay.innerHTML = '<span class="badge bg-danger">Invalid</span> <span class="probe-info">Fix hostname to detect probe type</span>';
+            
+            // Clear IPv6 info and hide status for invalid hostnames
+            currentIPv6Info = null;
+            document.getElementById('ipv6-reachability-status').style.display = 'none';
+        }
+        updateSubmitButton();
+    })
+    .catch(error => {
+        field.classList.remove('is-valid', 'is-invalid');
+        feedback.classList.remove('show');
+        console.error('Validation error:', error);
+        
+        // Clear IPv6 info on error
+        currentIPv6Info = null;
+        document.getElementById('ipv6-reachability-status').style.display = 'none';
+        
+        updateSubmitButton();
+    });
+}
+
+function detectProbeType(hostname, ipv6Info = null) {
+    const targetType = document.getElementById('target_type').value;
+    const probeDisplay = document.getElementById('probe-display');
+    const selectedProbe = document.querySelector('input[name="force_probe"]:checked').value;
+    
+    if (targetType === 'dns') {
+        probeDisplay.innerHTML = '<span class="badge bg-success">DNS</span> <span class="probe-info">DNS query response time</span>';
+    } else {
+        let probeHtml = '';
+        let ipv6Indicator = '';
+        
+        // Check if hostname has IPv6 capabilities (from API or basic check)
+        const hasIPv6 = ipv6Info ? ipv6Info.has_ipv6 : hostname.includes(':');
+        if (hasIPv6) {
+            ipv6Indicator = ' <span class="text-info">(v6)</span>';
+        }
+        
+        if (selectedProbe === 'FPing') {
+            probeHtml = '<span class="badge bg-primary">FPing</span> <span class="probe-info">IPv4 ICMP ping (forced)</span>';
+        } else if (selectedProbe === 'FPing6') {
+            probeHtml = '<span class="badge bg-info">FPing6</span> <span class="probe-info">IPv6 ICMP ping (forced)' + ipv6Indicator + '</span>';
+        } else {
+            // Auto-detect mode - use API recommendation if available
+            if (ipv6Info && ipv6Info.recommended_probe === 'FPing6') {
+                probeHtml = '<span class="badge bg-info">FPing6</span> <span class="probe-info">IPv6 ICMP ping (recommended)' + ipv6Indicator + '</span>';
+            } else if (ipv6Info && ipv6Info.recommended_probe === 'FPing') {
+                probeHtml = '<span class="badge bg-primary">FPing</span> <span class="probe-info">IPv4 ICMP ping (recommended)</span>';
+            } else {
+                // Fallback to basic detection
+                if (hostname.includes(':')) {
+                    probeHtml = '<span class="badge bg-info">FPing6</span> <span class="probe-info">IPv6 ICMP ping' + ipv6Indicator + '</span>';
+                } else if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+                    probeHtml = '<span class="badge bg-primary">FPing</span> <span class="probe-info">IPv4 ICMP ping</span>';
+                } else {
+                    probeHtml = '<span class="badge bg-secondary">FPing</span> <span class="probe-info">ICMP ping (version auto-detected)</span>';
+                }
+            }
+        }
+        
+        probeDisplay.innerHTML = probeHtml;
+    }
+}
+
+function updateProbeDisplayForDNS() {
+    const probeDisplay = document.getElementById('probe-display');
+    probeDisplay.innerHTML = '<span class="badge bg-success">DNS</span> <span class="probe-info">DNS query response time</span>';
+}
+
+function handleIPv6ReachabilityStatus(ipv6Info) {
+    const statusDiv = document.getElementById('ipv6-reachability-status');
+    const messageSpan = document.getElementById('ipv6-status-message');
+    const selectedProbe = document.querySelector('input[name="force_probe"]:checked').value;
+    
+    if (!ipv6Info || !ipv6Info.has_ipv6) {
+        // No IPv6 capabilities detected
+        statusDiv.style.display = 'none';
+        return;
+    }
+    
+    let message = '';
+    let alertClass = 'alert-info';
+    
+    if (selectedProbe === 'FPing6' || (selectedProbe === 'auto' && ipv6Info.recommended_probe === 'FPing6')) {
+        // IPv6 probe is selected or recommended
+        if (!ipv6Info.ipv6_global_reachable) {
+            message = '<strong>Warning:</strong> This system does not have global IPv6 connectivity. IPv6 monitoring may fail.';
+            alertClass = 'alert-warning';
+        } else if (!ipv6Info.destination_ipv6_global) {
+            message = '<strong>Warning:</strong> Destination appears to have only link-local IPv6 addresses. IPv6 monitoring may not work properly.';
+            alertClass = 'alert-warning';
+        } else {
+            message = '<strong>Good:</strong> IPv6 monitoring is fully supported - both system and destination have global IPv6 connectivity.';
+            alertClass = 'alert-success';
+        }
+    } else if (selectedProbe === 'auto' && ipv6Info.has_ipv6) {
+        // Auto mode with IPv6 available but falling back to IPv4
+        if (!ipv6Info.ipv6_global_reachable) {
+            message = '<strong>Info:</strong> IPv6 detected but no global connectivity. Using IPv4 monitoring instead.';
+            alertClass = 'alert-info';
+        } else if (!ipv6Info.destination_ipv6_global) {
+            message = '<strong>Info:</strong> IPv6 detected but destination has limited IPv6. Using IPv4 monitoring instead.';
+            alertClass = 'alert-info';
+        }
+    }
+    
+    if (message) {
+        statusDiv.className = 'mt-2';
+        statusDiv.innerHTML = `<div class="alert ${alertClass} alert-sm"><i class="bi bi-info-circle"></i> ${message}</div>`;
+        statusDiv.style.display = 'block';
+    } else {
+        statusDiv.style.display = 'none';
+    }
+}
+
+function validateDNSQuery(domain) {
+    const field = document.getElementById('dns_query');
+    const feedback = document.getElementById('dns-query-feedback');
+    
+    if (!domain) {
+        field.classList.remove('is-valid', 'is-invalid');
+        feedback.classList.remove('show');
+        updateSubmitButton();
+        return;
+    }
+    
+    // Basic domain validation
+    const domainPattern = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9](?:\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9])*$/;
+    
+    if (domainPattern.test(domain)) {
+        field.classList.remove('is-invalid');
+        field.classList.add('is-valid');
+        feedback.classList.remove('show');
+    } else {
+        field.classList.remove('is-valid');
+        field.classList.add('is-invalid');
+        feedback.textContent = 'Please enter a valid domain name (e.g., example.com)';
+        feedback.classList.add('show');
+    }
+    
+    updateSubmitButton();
+}
+
+function validateName(name) {
+    const field = document.getElementById('name');
+    const feedback = document.getElementById('name-feedback');
+    
+    if (!name) {
+        field.classList.remove('is-valid', 'is-invalid');
+        feedback.classList.remove('show');
+        updateSubmitButton();
+        return;
+    }
+    
+    const pattern = /^[a-zA-Z][a-zA-Z0-9_]{0,19}$/;
+    if (pattern.test(name)) {
+        field.classList.remove('is-invalid');
+        field.classList.add('is-valid');
+        feedback.classList.remove('show');
+    } else {
+        field.classList.remove('is-valid');
+        field.classList.add('is-invalid');
+        
+        if (!/^[a-zA-Z]/.test(name)) {
+            feedback.textContent = 'Name must start with a letter';
+        } else if (name.length > 20) {
+            feedback.textContent = 'Name too long (max 20 characters)';
+        } else {
+            feedback.textContent = 'Name can only contain letters, numbers, and underscores';
+        }
+        feedback.classList.add('show');
+    }
+    updateSubmitButton();
+}
+
+function updateSubmitButton() {
+    const hostnameValid = document.getElementById('hostname').classList.contains('is-valid');
+    const nameValid = document.getElementById('name').classList.contains('is-valid');
+    const hostnameEmpty = !document.getElementById('hostname').value.trim();
+    const nameEmpty = !document.getElementById('name').value.trim();
+    
+    const targetType = document.getElementById('target_type').value;
+    let dnsQueryValid = true;
+    let dnsQueryEmpty = true;
+    
+    if (targetType === 'dns') {
+        dnsQueryValid = document.getElementById('dns_query').classList.contains('is-valid');
+        dnsQueryEmpty = !document.getElementById('dns_query').value.trim();
+    }
+    
+    const submitBtn = document.getElementById('submitBtn');
+    
+    // For DNS targets, hostname is optional but DNS query and name are required
+    if (targetType === 'dns') {
+        const enable = (nameValid && dnsQueryValid && (hostnameValid || hostnameEmpty)) || (nameEmpty && dnsQueryEmpty && hostnameEmpty);
+        submitBtn.disabled = !enable;
+    } else {
+        // For ICMP targets, original logic
+        const enable = (hostnameValid && nameValid) || (hostnameEmpty && nameEmpty);
+        submitBtn.disabled = !enable;
+    }
+}
+
+// Initial validation on page load if fields have values
+window.addEventListener('load', function() {
+    const hostname = document.getElementById('hostname').value.trim();
+    const name = document.getElementById('name').value.trim();
+    
+    if (hostname) {
+        validateHostname(hostname);
+    }
+    if (name) {
+        validateName(name);
+    }
+});
+</script>
+{% endblock %}

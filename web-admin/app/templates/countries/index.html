@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block title %}Countries - Smoking Pi{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Supported Countries</h1>
+    <div class="input-group" style="max-width: 300px;">
+        <span class="input-group-text">
+            <i class="bi bi-search"></i>
+        </span>
+        <input type="text" class="form-control" id="countrySearch" placeholder="Search countries...">
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5 class="card-title">Total Countries</h5>
+                <h2 class="text-primary">{{ countries|length }}</h2>
+                <small class="text-muted">Available for monitoring</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Data Sources</h5>
+                <div class="row">
+                    <div class="col-6">
+                        <span class="badge bg-primary me-2">CrUX</span>
+                        Chrome User Experience Report
+                    </div>
+                    <div class="col-6">
+                        <span class="badge bg-success me-2">Cloudflare</span>
+                        Radar Top Sites
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Countries List</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-striped mb-0" id="countriesTable">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Country</th>
+                        <th>Data Sources</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for country in countries %}
+                    <tr>
+                        <td>
+                            <code class="badge bg-secondary">{{ country.code.upper() }}</code>
+                        </td>
+                        <td>
+                            <strong>{{ country.name }}</strong>
+                        </td>
+                        <td>
+                            {% if country.crux_available %}
+                                <span class="badge bg-primary me-1">CrUX</span>
+                            {% endif %}
+                            {% if country.cloudflare_available %}
+                                <span class="badge bg-success me-1">Cloudflare</span>
+                            {% endif %}
+                            {% if not country.crux_available and not country.cloudflare_available %}
+                                <span class="text-muted">None</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm" role="group">
+                                {% if country.crux_available %}
+                                <button class="btn btn-outline-primary btn-sm" onclick="testCountry('{{ country.code }}', 'crux')">
+                                    <i class="bi bi-play"></i> Test CrUX
+                                </button>
+                                {% endif %}
+                                {% if country.cloudflare_available %}
+                                <button class="btn btn-outline-success btn-sm" onclick="testCountry('{{ country.code }}', 'cloudflare')">
+                                    <i class="bi bi-play"></i> Test Cloudflare
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Test Results Modal -->
+<div class="modal fade" id="testModal" tabindex="-1" aria-labelledby="testModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="testModalLabel">Country Test Results</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="testResults">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Testing country data source...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Search functionality
+    document.getElementById('countrySearch').addEventListener('input', function(e) {
+        const query = e.target.value.toLowerCase();
+        const rows = document.querySelectorAll('#countriesTable tbody tr');
+        
+        rows.forEach(row => {
+            const code = row.cells[0].textContent.toLowerCase();
+            const name = row.cells[1].textContent.toLowerCase();
+            
+            if (code.includes(query) || name.includes(query)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    });
+    
+    function testCountry(countryCode, source) {
+        const modal = new bootstrap.Modal(document.getElementById('testModal'));
+        document.getElementById('testModalLabel').textContent = `Testing ${countryCode.toUpperCase()} - ${source.toUpperCase()}`;
+        modal.show();
+        
+        // Reset results
+        document.getElementById('testResults').innerHTML = `
+            <div class="text-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Testing ${source} data for ${countryCode.toUpperCase()}...</p>
+            </div>
+        `;
+        
+        // Fetch test data
+        fetch(`/sources/api/fetch/${source}?country=${countryCode}&limit=10`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.sites && data.sites.length > 0) {
+                    let html = `
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle"></i> Successfully fetched ${data.sites.length} sites from ${source.toUpperCase()}
+                        </div>
+                        <h6>Sample Sites:</h6>
+                        <ul class="list-group">
+                    `;
+                    
+                    data.sites.slice(0, 10).forEach(site => {
+                        html += `<li class="list-group-item">${site}</li>`;
+                    });
+                    
+                    html += '</ul>';
+                    document.getElementById('testResults').innerHTML = html;
+                } else {
+                    document.getElementById('testResults').innerHTML = `
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle"></i> No data available for ${countryCode.toUpperCase()} from ${source.toUpperCase()}
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                document.getElementById('testResults').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-x-circle"></i> Error testing ${source}: ${error}
+                    </div>
+                `;
+            });
+    }
+</script>
+{% endblock %}

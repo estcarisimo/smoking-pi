@@ -1,0 +1,26 @@
+apiVersion: 1
+
+providers:
+  - name: Side-by-Side Pings    # folder name shown in Grafana's UI
+    folder: Side-by-Side Pings
+    type: file
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/side-by-side-pings   # <— where the JSON lives
+      updateIntervalSeconds: 30                                      # hot-reload every 30 s
+
+  - name: Individual Pings      # folder name shown in Grafana's UI
+    folder: Individual Pings
+    type: file
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/individual-pings    # <— where the JSON lives
+      updateIntervalSeconds: 30                                     # hot-reload every 30 s
+
+  - name: DNS Resolution Times  # folder name shown in Grafana's UI
+    folder: DNS Resolution Times
+    type: file
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/dns-resolution-times # <— where the JSON lives
+      updateIntervalSeconds: 30                                       # hot-reload every 30 s

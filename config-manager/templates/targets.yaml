@@ -1,0 +1,73 @@
+# SmokePing Targets Configuration Template
+# This file defines all active monitoring targets
+#
+# Generated automatically by bootstrap - modify as needed
+
+active_targets:
+  # Popular websites for basic connectivity testing
+  top_sites:
+    - name: google_com
+      host: google.com
+      title: google.com
+      probe: FPing
+      category: top_sites
+    - name: facebook_com
+      host: facebook.com
+      title: facebook.com
+      probe: FPing
+      category: top_sites
+    - name: amazon_com
+      host: amazon.com
+      title: amazon.com
+      probe: FPing
+      category: top_sites
+    - name: nytimes_com
+      host: nytimes.com
+      title: nytimes.com
+      probe: FPing
+      category: top_sites
+    - name: apple_com
+      host: apple.com
+      title: apple.com
+      probe: FPing
+      category: top_sites
+
+  # Netflix Open Connect Appliances - populated dynamically
+  netflix_oca: []
+
+  # Public DNS resolvers
+  dns_resolvers:
+    - name: GoogleDNS
+      host: 8.8.8.8
+      title: Google DNS
+      probe: DNS
+      lookup: google.com
+      category: dns_resolvers
+    - name: CloudflareDNS
+      host: 1.1.1.1
+      title: Cloudflare DNS
+      probe: DNS
+      lookup: cloudflare.com
+      category: dns_resolvers
+    - name: Quad9DNS
+      host: 9.9.9.9
+      title: Quad9 DNS
+      probe: DNS
+      lookup: quad9.net
+      category: dns_resolvers
+
+  # Custom targets - add your own here
+  custom:
+    - name: uba_ar
+      host: uba.ar
+      title: uba.ar
+      probe: FPing
+      category: custom
+
+# Metadata about the configuration
+metadata:
+  last_updated: "1970-01-01T00:00:00"
+  total_targets: 9
+  bandwidth_estimate_mbps: 0.0
+  version: "1.0"
+  created_by: "bootstrap"

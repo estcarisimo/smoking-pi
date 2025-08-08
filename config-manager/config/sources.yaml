@@ -1,0 +1,102 @@
+# SmokePing Target Sources Configuration
+# This file defines all available sources for monitoring targets
+
+# Built-in static targets
+static:
+  websites:
+    - name: Google
+      host: google.com
+      title: Google
+    - name: Facebook
+      host: facebook.com
+      title: Facebook
+    - name: Amazon
+      host: amazon.com
+      title: Amazon
+    - name: NYTimes
+      host: nytimes.com
+      title: New York Times
+    - name: Apple
+      host: apple.com
+      title: Apple
+    - name: UBA
+      host: uba.ar
+      title: Universidad de Buenos Aires
+
+  ipv6_websites:
+    - name: Google_IPv6
+      host: 2001:4860:4860::8844
+      title: Google IPv6
+      probe: FPing6
+    - name: Cloudflare_IPv6
+      host: 2606:4700::1
+      title: Cloudflare IPv6
+      probe: FPing6
+
+  dns_resolvers:
+    - name: GoogleDNS
+      host: 8.8.8.8
+      title: Google DNS
+      probe: DNS
+      lookup: google.com
+    - name: GoogleDNS_IPv6
+      host: 2001:4860:4860::8888
+      title: Google DNS (IPv6)
+      probe: DNS
+      lookup: google.com
+    - name: CloudflareDNS
+      host: 1.1.1.1
+      title: Cloudflare DNS
+      probe: DNS
+      lookup: cloudflare.com
+    - name: CloudflareDNS_IPv6
+      host: 2606:4700:4700::1111
+      title: Cloudflare DNS (IPv6)
+      probe: DNS
+      lookup: cloudflare.com
+    - name: Quad9DNS
+      host: 9.9.9.9
+      title: Quad9 DNS
+      probe: DNS
+      lookup: quad9.net
+
+# Dynamic sources configuration
+dynamic:
+  netflix_oca:
+    enabled: true
+    refresh_interval: 86400  # 24 hours in seconds
+    max_targets: 10
+    
+  tranco:
+    enabled: true
+    list_size: 100
+    countries:
+      - global
+      - us
+      - ar
+      - br
+    refresh_interval: 604800  # 7 days
+    
+  crux:
+    enabled: true
+    list_size: 100
+    countries:
+      - global
+      - us
+      - ar
+      - br
+    base_url: https://github.com/zakird/crux-top-lists/raw/master/data/
+    
+  cloudflare_radar:
+    enabled: true
+    list_size: 100
+    countries:
+      - global
+      - us
+      - ar
+      - br
+    base_url: https://radar.cloudflare.com/domains/
+
+# Custom user targets (managed by web UI)
+custom:
+  targets: []

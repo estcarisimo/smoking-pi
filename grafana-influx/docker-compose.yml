@@ -1,0 +1,102 @@
+version: '3.9'
+
+services:
+  smokeping:
+    build: ./smokeping
+    network_mode: host
+    volumes:
+      - smokeping-data:/var/lib/smokeping
+      - ./smokeping/config:/etc/smokeping/config.d
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      INFLUX_URL: http://localhost:8086
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_ORG: ${INFLUX_ORG}
+      INFLUX_BUCKET: ${INFLUX_BUCKET}
+      RRD_DIR: ${RRD_DIR}
+      TZ: ${TZ:-UTC}
+    depends_on:
+      - influxdb
+
+  influxdb:
+    build: ./influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
+      TZ: ${TZ:-UTC}
+
+  grafana:
+    build: ./grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_BUCKET: ${INFLUX_BUCKET}
+      INFLUX_ORG: ${INFLUX_ORG}
+      GF_LOG_LEVEL: debug
+      GF_PROVISIONING_LOG_LEVEL: debug
+      TZ: ${TZ:-UTC}
+    depends_on:
+      - influxdb
+
+  web-admin:
+    build: ../web-admin
+    ports:
+      - "0.0.0.0:8080:8080"  # Explicitly bind to all interfaces
+    volumes:
+      - ../config-manager/config:/app/config
+      - ../web-admin/app:/app/app  # Mount source code for development
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      CONFIG_DIR: /app/config
+      FLASK_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8080
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      TZ: ${TZ:-UTC}
+      SMOKEPING_RESTART_CMD: docker-compose restart smokeping
+    depends_on:
+      - smokeping
+      - config-manager
+    networks:
+      - default
+
+  config-manager:
+    build: ../config-manager
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ../config-manager/config:/app/config
+      - ../config-manager/output:/app/output
+      - ./smokeping/config:/app/smokeping-config
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      CONFIG_DIR: /app/config
+      OUTPUT_DIR: /app/output
+      TZ: ${TZ:-UTC}
+
+volumes:
+  smokeping-data:
+  influxdb-data:
+  grafana-data:

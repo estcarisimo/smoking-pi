@@ -1,0 +1,52 @@
+version: '3.9'
+
+services:
+  smokeping:
+    build: .
+    ports:
+      - "8081:80"  # Changed from 8080 to avoid conflicts
+    volumes:
+      - smokeping-data:/var/lib/smokeping
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      TZ: ${TZ:-UTC}
+    restart: unless-stopped
+
+  # Optional: Uncomment to enable web administration interface
+  # web-admin:
+  #   build: ../web-admin
+  #   ports:
+  #     - "8080:8080"  # Web admin on preferred port 8080
+  #   volumes:
+  #     - ../config-manager/config:/app/config
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - /etc/timezone:/etc/timezone:ro
+  #   environment:
+  #     CONFIG_DIR: /app/config
+  #     FLASK_ENV: production
+  #     SECRET_KEY: ${SECRET_KEY:-please-change-this-key}
+  #     TZ: ${TZ:-UTC}
+  #     SMOKEPING_RESTART_CMD: docker-compose restart smokeping
+  #   depends_on:
+  #     - smokeping
+  #     - config-manager
+
+  # Optional: Uncomment to enable configuration management
+  # config-manager:
+  #   build: ../config-manager
+  #   volumes:
+  #     - ../config-manager/config:/app/config
+  #     - ../config-manager/output:/app/output
+  #     - ./config:/app/smokeping-config
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - /etc/timezone:/etc/timezone:ro
+  #   environment:
+  #     CONFIG_DIR: /app/config
+  #     OUTPUT_DIR: /app/output
+  #     TZ: ${TZ:-UTC}
+  #   command: ["sh", "-c", "echo 'Config manager ready for minimal variant'; while true; do sleep 3600; done"]
+
+volumes:
+  smokeping-data:

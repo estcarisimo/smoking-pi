@@ -1,0 +1,632 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Smoking Pi{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Smoking Pi Dashboard</h1>
+
+<!-- Status Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">SmokePing Status</h5>
+                <div class="status-badge">
+                    <span class="status-indicator {% if smokeping_running %}status-running{% else %}status-stopped{% endif %}"></span>
+                    <span id="status-text">{% if smokeping_running %}Running{% else %}Stopped{% endif %}</span>
+                </div>
+                {% if not smokeping_running %}
+                <div class="mt-2" id="why-stopped-container">
+                    <button class="btn btn-sm btn-outline-info" onclick="showSmokePingLogs()">
+                        <i class="bi bi-question-circle"></i> Why did it stop?
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Total Targets</h5>
+                <div class="target-count">{{ total_targets }}</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Bandwidth Usage</h5>
+                <div class="bandwidth-info">
+                    <strong>{{ bandwidth_kbps }} Kbps</strong><br>
+                    <small>({{ bandwidth_mbps }} Mbps)</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Last Updated</h5>
+                <small id="last-updated-time" data-utc-time="{{ last_updated }}">{{ last_updated }}</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- OCA Management -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="bi bi-globe-americas"></i> Netflix OCA Management
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <p class="mb-1">
+                    <strong>Active OCA Servers:</strong> <span id="oca-count" class="badge bg-primary">Loading...</span>
+                </p>
+                <p class="mb-0">
+                    <small class="text-muted">Last refreshed: <span id="oca-last-updated">Loading...</span></small>
+                </p>
+            </div>
+            <div class="col-md-6 text-end">
+                <button class="btn btn-outline-primary" onclick="refreshOCAs()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh OCAs
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Target Categories -->
+<h2 class="mb-3">Active Targets by Category</h2>
+<div class="row">
+    {% for category, count in target_counts.items() %}
+    <div class="col-md-6 mb-3" id="category-{{ category }}">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    {{ category|format_category_name }}
+                    <span class="badge bg-primary float-end" id="category-count-{{ category }}">{{ count }}</span>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="target-list" id="category-body-{{ category }}" style="max-height: 200px; overflow-y: auto;">
+                    {% if active_targets[category] %}
+                        <ul class="list-unstyled mb-0">
+                            {% for target in active_targets[category][:10] %}
+                            <li class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="bi bi-dot"></i>
+                                    <strong>{{ target.name }}</strong> - {{ target.host }}
+                                    {% if target.probe != 'FPing' %}
+                                        <span class="badge bg-secondary">{{ target.probe }}</span>
+                                    {% endif %}
+                                </div>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteTarget('{{ category }}', '{{ target.name }}', '{{ target.host }}')" title="Delete target">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </li>
+                            {% endfor %}
+                            {% if active_targets[category]|length > 10 %}
+                            <li class="text-muted">
+                                <i class="bi bi-three-dots"></i>
+                                and {{ active_targets[category]|length - 10 }} more...
+                            </li>
+                            {% endif %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted mb-0">No targets configured</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Quick Actions -->
+<div class="mt-4">
+    <h3>Quick Actions</h3>
+    <div class="btn-group" role="group">
+        <a href="{{ url_for('sources.index') }}" class="btn btn-outline-primary">
+            <i class="bi bi-globe"></i> Manage Top Sites
+        </a>
+        <a href="{{ url_for('targets.add_target') }}" class="btn btn-outline-primary">
+            <i class="bi bi-plus-circle"></i> Add Custom Target
+        </a>
+        <button class="btn btn-outline-success" onclick="refreshStatus()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh Status
+        </button>
+    </div>
+</div>
+
+<!-- SmokePing Logs Modal -->
+<div class="modal fade" id="logsModal" tabindex="-1" aria-labelledby="logsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="logsModalLabel">SmokePing Logs (Last 200 lines)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="log-status" class="alert alert-info mb-3">
+                    <strong>Container Status:</strong> <span id="container-status">Loading...</span><br>
+                    <strong>Exit Code:</strong> <span id="exit-code">Loading...</span>
+                </div>
+                <div id="log-content" style="height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6;">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-success" onclick="restartSmokePing()">
+                    <i class="bi bi-arrow-clockwise"></i> Restart SmokePing
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Target Confirmation Modal -->
+<div class="modal fade" id="deleteTargetModal" tabindex="-1" aria-labelledby="deleteTargetModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteTargetModalLabel">Confirm Target Deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this target?</p>
+                <div class="alert alert-warning">
+                    <strong>Target:</strong> <span id="delete-target-name"></span><br>
+                    <strong>Host:</strong> <span id="delete-target-host"></span><br>
+                    <strong>Category:</strong> <span id="delete-target-category"></span>
+                </div>
+                <p class="text-muted">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-btn">Delete Target</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<style>
+    .log-error { color: #dc3545; font-weight: bold; }
+    .log-warning { color: #ffc107; }
+    .log-info { color: #212529; }
+</style>
+<script>
+    // Function to format ISO date strings to user's local timezone with nice formatting
+    function formatLocalDateTime(isoString) {
+        if (!isoString || isoString === 'Never') return 'Never';
+        try {
+            // Treat backend timestamp as UTC (add Z if not present)
+            const utcString = isoString + (isoString.endsWith('Z') || isoString.includes('+') || isoString.includes('-', 10) ? '' : 'Z');
+            const date = new Date(utcString);
+            
+            // Check if date is valid
+            if (isNaN(date.getTime())) return isoString;
+            
+            // Use a nice format that automatically detects user's timezone
+            // Example: "Jul 31, 2024 at 8:43 PM CDT"
+            return date.toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'short', 
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                timeZoneName: 'short'
+            });
+        } catch (e) {
+            return isoString;
+        }
+    }
+
+    function refreshStatus() {
+        fetch('/api/status')
+            .then(response => response.json())
+            .then(data => {
+                // Update status indicator
+                const indicator = document.querySelector('.status-indicator');
+                const statusText = indicator.nextElementSibling;
+                
+                if (data.smokeping_running) {
+                    indicator.className = 'status-indicator status-running';
+                    statusText.textContent = 'Running';
+                    
+                    // Hide "Why did it stop?" button
+                    const whyStoppedContainer = document.getElementById('why-stopped-container');
+                    if (whyStoppedContainer) {
+                        whyStoppedContainer.style.display = 'none';
+                    }
+                } else {
+                    indicator.className = 'status-indicator status-stopped';
+                    statusText.textContent = 'Stopped';
+                    
+                    // Show "Why did it stop?" button
+                    let whyStoppedContainer = document.getElementById('why-stopped-container');
+                    if (!whyStoppedContainer) {
+                        // Create the button container if it doesn't exist
+                        whyStoppedContainer = document.createElement('div');
+                        whyStoppedContainer.className = 'mt-2';
+                        whyStoppedContainer.id = 'why-stopped-container';
+                        whyStoppedContainer.innerHTML = `
+                            <button class="btn btn-sm btn-outline-info" onclick="showSmokePingLogs()">
+                                <i class="bi bi-question-circle"></i> Why did it stop?
+                            </button>
+                        `;
+                        statusText.parentElement.parentElement.appendChild(whyStoppedContainer);
+                    } else {
+                        whyStoppedContainer.style.display = 'block';
+                    }
+                }
+                
+                // Update target count
+                document.querySelector('.target-count').textContent = data.total_targets;
+                
+                // Update last updated time
+                if (data.last_updated) {
+                    const lastUpdatedElement = document.getElementById('last-updated-time');
+                    if (lastUpdatedElement) {
+                        lastUpdatedElement.textContent = formatLocalDateTime(data.last_updated);
+                        lastUpdatedElement.title = `UTC: ${data.last_updated}`;
+                    }
+                }
+            })
+            .catch(error => console.error('Error fetching status:', error));
+    }
+    
+    // Auto-refresh every 30 seconds
+    setInterval(refreshStatus, 30000);
+    
+    // Load OCA status on page load
+    loadOCAStatus();
+    
+    // Check for OCA refresh success message
+    const ocaRefreshSuccess = sessionStorage.getItem('oca_refresh_success');
+    if (ocaRefreshSuccess) {
+        // Show success toast
+        showToast('Success', ocaRefreshSuccess, 'success');
+        // Clear the message so it doesn't show again
+        sessionStorage.removeItem('oca_refresh_success');
+    }
+    
+    function showSmokePingLogs() {
+        const modal = new bootstrap.Modal(document.getElementById('logsModal'));
+        modal.show();
+        
+        // Fetch logs
+        fetch('/api/smokeping/logs')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update status
+                    document.getElementById('container-status').textContent = data.status;
+                    document.getElementById('exit-code').textContent = data.exit_code;
+                    
+                    // Update status alert color
+                    const statusDiv = document.getElementById('log-status');
+                    if (data.status === 'running') {
+                        statusDiv.className = 'alert alert-success mb-3';
+                    } else if (data.exit_code !== 0) {
+                        statusDiv.className = 'alert alert-danger mb-3';
+                    } else {
+                        statusDiv.className = 'alert alert-warning mb-3';
+                    }
+                    
+                    // Display logs with highlighting
+                    const logContent = document.getElementById('log-content');
+                    logContent.innerHTML = '';
+                    
+                    data.logs.forEach(log => {
+                        const logLine = document.createElement('div');
+                        logLine.className = `log-${log.level}`;
+                        logLine.textContent = log.text;
+                        logContent.appendChild(logLine);
+                    });
+                    
+                    // Scroll to bottom to show most recent logs
+                    logContent.scrollTop = logContent.scrollHeight;
+                } else {
+                    document.getElementById('log-content').innerHTML = 
+                        '<div class="alert alert-danger">Failed to fetch logs: ' + data.error + '</div>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('log-content').innerHTML = 
+                    '<div class="alert alert-danger">Error fetching logs: ' + error + '</div>';
+            });
+    }
+    
+    function restartSmokePing() {
+        if (!confirm('Are you sure you want to restart SmokePing?')) {
+            return;
+        }
+        
+        fetch('/api/smokeping/restart', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('SmokePing restarted successfully!');
+                // Close modal and refresh status
+                bootstrap.Modal.getInstance(document.getElementById('logsModal')).hide();
+                refreshStatus();
+            } else {
+                alert('Failed to restart SmokePing: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error restarting SmokePing: ' + error);
+        });
+    }
+    
+    function loadOCAStatus() {
+        fetch('/api/ocas/status')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('oca-count').textContent = data.oca_count || 0;
+                
+                // Format last updated time
+                if (data.last_updated) {
+                    document.getElementById('oca-last-updated').textContent = formatLocalDateTime(data.last_updated);
+                } else {
+                    document.getElementById('oca-last-updated').textContent = 'Never';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching OCA status:', error);
+                document.getElementById('oca-count').textContent = 'Error';
+                document.getElementById('oca-last-updated').textContent = 'Error';
+            });
+    }
+    
+    function refreshOCAs() {
+        if (!confirm('Refresh Netflix OCA servers? This may take a moment.')) {
+            return;
+        }
+        
+        // Show loading state
+        const btn = event.target.closest('button');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Refreshing...';
+        
+        fetch('/api/ocas/refresh', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            console.log('OCA refresh response status:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('OCA refresh response data:', data);
+            if (data && data.success === true) {
+                console.log('Success! Updating OCA list dynamically...');
+                
+                // Show success toast
+                showToast('Success', data.message || 'OCA servers refreshed successfully', 'success');
+                
+                // Update OCA status (count and last updated)
+                loadOCAStatus();
+                
+                // Fetch and update the Netflix OCA target list
+                fetch(`/api/targets/netflix_oca?t=${Date.now()}`, {
+                    credentials: 'same-origin',  // Include cookies for authentication
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'  // Mark as AJAX request
+                    }
+                })
+                    .then(response => {
+                        console.log('Target fetch response status:', response.status);
+                        if (response.status === 401) {
+                            throw new Error('Authentication required');
+                        }
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(targetData => {
+                        console.log('Target data received:', targetData);
+                        if (targetData.success) {
+                            // Update the target list HTML
+                            const targetBody = document.getElementById('category-body-netflix_oca');
+                            if (targetBody) {
+                                console.log('Updating target body with new HTML');
+                                targetBody.innerHTML = targetData.html;
+                            } else {
+                                console.error('Could not find category-body-netflix_oca element');
+                            }
+                            
+                            // Update the count badge
+                            const countBadge = document.getElementById('category-count-netflix_oca');
+                            if (countBadge) {
+                                countBadge.textContent = targetData.count;
+                            }
+                        } else {
+                            console.error('Target data success=false:', targetData);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error updating target list:', error);
+                    })
+                    .finally(() => {
+                        // Restore button state
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                    });
+                    
+            } else {
+                console.log('Error in response:', data);
+                const errorMsg = (data && data.error) ? data.error : 'Unknown error occurred';
+                showToast('Error', 'Failed to refresh OCAs: ' + errorMsg, 'danger');
+                // Restore button state on error
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        })
+        .catch(error => {
+            console.error('Error in OCA refresh:', error);
+            showToast('Error', 'Error refreshing OCAs: ' + error, 'danger');
+            // Restore button state on error
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        });
+    }
+    
+    function showToast(title, message, type = 'info') {
+        // Create toast container if it doesn't exist
+        let toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            toastContainer.className = 'position-fixed top-0 end-0 p-3';
+            toastContainer.style.zIndex = '1050';
+            document.body.appendChild(toastContainer);
+        }
+        
+        // Create toast
+        const toastId = 'toast-' + Date.now();
+        const toastHtml = `
+            <div id="${toastId}" class="toast align-items-center text-white bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="d-flex">
+                    <div class="toast-body">
+                        <strong>${title}:</strong> ${message}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+            </div>
+        `;
+        
+        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+        
+        // Show toast
+        const toastElement = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastElement, { delay: 5000 });
+        toast.show();
+        
+        // Remove from DOM after hidden
+        toastElement.addEventListener('hidden.bs.toast', () => {
+            toastElement.remove();
+        });
+    }
+    
+    // Convert timestamps to local timezone
+    function convertTimestampsToLocal() {
+        // Convert main last updated time
+        const lastUpdatedElement = document.getElementById('last-updated-time');
+        if (lastUpdatedElement) {
+            const timestamp = lastUpdatedElement.getAttribute('data-utc-time') || lastUpdatedElement.textContent.trim();
+            const formatted = formatLocalDateTime(timestamp);
+            if (formatted && formatted !== timestamp && formatted !== 'Never') {
+                lastUpdatedElement.textContent = formatted;
+                lastUpdatedElement.title = `UTC: ${timestamp}`;
+            }
+        }
+    }
+    
+    // Initialize timezone conversion when page loads
+    function initializeTimezoneConversion() {
+        convertTimestampsToLocal();
+    }
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeTimezoneConversion);
+    } else {
+        initializeTimezoneConversion();
+    }
+    
+    // Also try after a short delay to ensure everything is rendered
+    setTimeout(initializeTimezoneConversion, 100);
+    
+    // Target deletion functionality
+    let currentDeleteTarget = null;
+    
+    function deleteTarget(category, targetName, targetHost) {
+        // Store the target info for deletion
+        currentDeleteTarget = {
+            category: category,
+            name: targetName,
+            host: targetHost
+        };
+        
+        // Update modal content
+        document.getElementById('delete-target-name').textContent = targetName;
+        document.getElementById('delete-target-host').textContent = targetHost;
+        document.getElementById('delete-target-category').textContent = category;
+        
+        // Show the modal
+        const modal = new bootstrap.Modal(document.getElementById('deleteTargetModal'));
+        modal.show();
+    }
+    
+    // Handle the confirm delete button
+    document.getElementById('confirm-delete-btn').addEventListener('click', function() {
+        if (!currentDeleteTarget) return;
+        
+        // Show loading state
+        const btn = this;
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Deleting...';
+        
+        // Make delete request
+        fetch('/api/targets/delete', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(currentDeleteTarget)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Close modal
+                bootstrap.Modal.getInstance(document.getElementById('deleteTargetModal')).hide();
+                
+                // Show success toast
+                showToast('Success', `Target "${currentDeleteTarget.name}" deleted successfully`, 'success');
+                
+                // Refresh the page to update the target lists
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                showToast('Error', 'Failed to delete target: ' + (data.error || 'Unknown error'), 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting target:', error);
+            showToast('Error', 'Error deleting target: ' + error, 'danger');
+        })
+        .finally(() => {
+            // Restore button state
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            currentDeleteTarget = null;
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,15 @@
+*** Slaves ***
+
+secrets = /etc/smokeping/smokeping_secrets
+
+# Slaves configuration
+# Define monitoring slaves here if needed
+# For single-node deployment, this file can be empty
+
+# Example slave configuration:
+# +slave1
+# display_name=Remote Monitoring Node 1  
+# location=Data Center 1
+# color=0000ff
+
+# No slaves configured for this deployment
