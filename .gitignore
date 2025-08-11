@@ -58,11 +58,6 @@ smokemail
 # InfluxDB & Time-Series Data
 # =============================================================================
 
-# InfluxDB data directories
-influxdb/
-influxdb2/
-influx.bolt
-
 # InfluxDB backup files
 *.influx
 *.backup
@@ -281,3 +276,6 @@ debug.sh
 
 # Config Manager runtime artifacts
 config-manager/output/
+
+# TODO
+TODO/
