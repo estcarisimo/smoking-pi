@@ -44,27 +44,49 @@ class OCAFetcher:
         oca_repo_path = Path("/app/oca-locator")
         if not oca_repo_path.exists():
             logger.error("Netflix OCA locator repository not found at /app/oca-locator")
+            logger.error("Repository should be cloned during container build. Check Dockerfile.")
             return None
         
         try:
-            # Use the working Python module command that we tested
-            logger.info("Running Netflix OCA locator via Python module...")
+            # Check if the repository has the expected structure
+            main_module = oca_repo_path / "src" / "netflix_oca_locator"
+            if not main_module.exists():
+                logger.error(f"Netflix OCA locator module not found at {main_module}")
+                logger.error("Repository structure may have changed. Check the repository.")
+                return None
+            
+            logger.info("Running Netflix OCA locator via CLI...")
+            # Use the correct CLI command with JSON output
             result = subprocess.run([
-                "python3", "-m", "src.netflix_oca_locator", "main", "--output", "json", "--quiet"
-            ], cwd=str(oca_repo_path), capture_output=True, text=True, timeout=120)
+                "python3", "-m", "netflix_oca_locator", "main", "--output", "json", "--quiet"
+            ], cwd="/app", capture_output=True, text=True, timeout=120)
             
             if result.returncode == 0:
-                # The tool outputs to oca_results.json in the working directory
-                output_file = oca_repo_path / "oca_results.json"
-                if output_file.exists():
-                    with open(output_file, 'r') as f:
-                        data = json.load(f)
-                    logger.info(f"Successfully ran Netflix OCA locator, found {data.get('total_ocas', 0)} OCA servers")
-                    return data
-                else:
-                    logger.error("Netflix OCA locator completed but no output file found")
+                logger.info("Netflix OCA locator completed successfully")
+                logger.info(f"OCA locator output: {result.stdout}")
+                
+                # Look for output files in the working directory (/app)
+                possible_outputs = [
+                    Path("/app/oca_results.json"),
+                    Path("/app/results.json"),
+                    Path("/app/netflix_oca_results.json")
+                ]
+                
+                for output_file in possible_outputs:
+                    if output_file.exists():
+                        logger.info(f"Found OCA results file: {output_file}")
+                        with open(output_file, 'r') as f:
+                            data = json.load(f)
+                        logger.info(f"Successfully parsed OCA data, found {data.get('total_ocas', len(data.get('oca_servers', [])))} OCA servers")
+                        return data
+                
+                logger.warning("Netflix OCA locator completed but no output file found")
+                logger.warning(f"Checked paths: {[str(p) for p in possible_outputs]}")
+                
             else:
-                logger.warning(f"Netflix OCA locator failed: {result.stderr}")
+                logger.error(f"Netflix OCA locator failed: {result.stderr}")
+                logger.error(f"Return code: {result.returncode}")
+                logger.error(f"Stdout: {result.stdout}")
         
         except subprocess.TimeoutExpired:
             logger.error("Netflix OCA locator timed out after 120 seconds")
@@ -73,19 +95,20 @@ class OCAFetcher:
         except Exception as e:
             logger.error(f"Error running Netflix OCA locator: {e}")
         
+        logger.warning("Netflix OCA locator failed to produce valid results")
         return None
     
     def fetch_oca_servers(self) -> Optional[Dict]:
         """Run the OCA locator and return the JSON output"""
         logger.info("Fetching Netflix OCA servers...")
         
-        # Try the new direct approach first
+        # Run the OCA locator tool
         oca_data = self.run_oca_locator()
         if oca_data:
-            logger.info("Successfully fetched OCA data using direct command approach")
+            logger.info("Successfully fetched OCA data using Netflix OCA Servers Locator")
             return oca_data
         
-        logger.warning("Direct OCA locator approach failed, falling back to legacy method")
+        logger.error("Netflix OCA locator failed - no OCA discovery method succeeded")
         return None
     
     def parse_oca_data(self, data: Dict, max_targets: int = 10) -> List[Dict]:
@@ -113,6 +136,7 @@ class OCAFetcher:
                 
                 # Get city name directly from the server data
                 city_name = server.get('city', 'Unknown')
+                logger.info(f"DEBUG: Step 1 - original city from server: '{city_name}'")
                 
                 # Extract location code from domain name (e.g., ord003 -> ORD)
                 location_code = "Unknown"
@@ -127,6 +151,11 @@ class OCAFetcher:
                 # Handle city name extraction - remove state suffix if present
                 if city_name and ', ' in city_name:
                     city_name = city_name.split(',')[0].strip()  # "Chicago, IL" -> "Chicago"
+                logger.info(f"DEBUG: Step 2 - after removing state suffix: '{city_name}'")
+                
+                # Sanitize city name for SmokePing - remove all special characters including periods
+                safe_city_name = city_name.replace('.', '').replace(' ', '_').replace(',', '').replace('-', '_').replace('(', '').replace(')', '')
+                logger.info(f"DEBUG: Step 3 - after sanitization: '{safe_city_name}'")
                 
                 # Create meaningful name from domain  
                 if domain:
@@ -137,9 +166,11 @@ class OCAFetcher:
                             cache_id = part
                             break
                     # Use format: Chicago_ORD_c730_1 (SmokePing safe)
-                    name = f"{city_name}_{location_code}_{cache_id}_{idx+1}".replace(' ', '_')
+                    name = f"{safe_city_name}_{location_code}_{cache_id}_{idx+1}"
+                    logger.info(f"DEBUG: Step 4 - final name: '{name}'")
                 else:
-                    name = f"{city_name}_{location_code}_{idx+1}".replace(' ', '_')
+                    name = f"{safe_city_name}_{location_code}_{idx+1}"
+                    logger.info(f"DEBUG: Step 4 - final name (no domain): '{name}'")
                 
                 # Create title in format: domain (City CODE/cache_id)
                 if domain and city_name != "Unknown":
@@ -147,8 +178,9 @@ class OCAFetcher:
                 else:
                     title = f"{domain}" if domain else f"Netflix OCA {location_code}"
                 
-                # Log real OCA server detection
+                # Log real OCA server detection with debug info
                 logger.info(f"Real Netflix OCA server {name}: {domain} -> {ip} (IPv{ip_obj.version}) -> {probe}")
+                logger.info(f"Debug: original_city='{server.get('city')}', cleaned_city='{city_name}', safe_city='{safe_city_name}'")
                 
                 target = {
                     'name': name,
@@ -183,103 +215,45 @@ class OCAFetcher:
         return targets
     
     def get_fallback_oca_targets(self) -> List[Dict]:
-        """Return fallback OCA targets when Docker approach fails"""
-        logger.info("Using fallback OCA targets")
-        
-        # These are real Netflix infrastructure servers and domains
-        # This is a basic fallback when the dynamic discovery fails
-        fallback_servers = [
-            {
-                'host': 'netflix.com',
-                'name': 'netflix_main',
-                'title': 'Netflix Main Site',
-                'location': 'Global CDN',
-                'probe': 'FPing'
-            },
-            {
-                'host': 'fast.com',
-                'name': 'netflix_fast',
-                'title': 'Netflix Speed Test (Fast.com)',
-                'location': 'Global CDN',
-                'probe': 'FPing'
-            },
-            {
-                'host': 'openconnect.netflix.com',
-                'name': 'netflix_openconnect',
-                'title': 'Netflix Open Connect',
-                'location': 'Global CDN',
-                'probe': 'FPing'
-            },
-            {
-                'host': 'api.netflix.com',
-                'name': 'netflix_api',
-                'title': 'Netflix API Server',
-                'location': 'Global CDN',
-                'probe': 'FPing'
-            },
-            {
-                'host': '198.38.96.0',
-                'name': 'netflix_oca_ip1',
-                'title': 'Netflix OCA Server (Direct IP)',
-                'location': 'US',
-                'probe': 'FPing'
-            }
-        ]
-        
-        targets = []
-        for server in fallback_servers:
-            try:
-                # Validate hostname/IP address
-                host = server['host']
-                try:
-                    # Check if it's an IP address
-                    ip_obj = ipaddress.ip_address(host)
-                    # It's a valid IP, use it directly
-                    probe = "FPing" if ip_obj.version == 4 else "FPing6"
-                    server['probe'] = probe
-                    logger.info(f"OCA target {server['name']}: Direct IP {host} (IPv{ip_obj.version}) -> {probe}")
-                except ValueError:
-                    # It's a hostname, try to resolve it to validate and get IP info
-                    try:
-                        import socket
-                        resolved_ip = socket.gethostbyname(host)
-                        # Check what IP version it resolved to
-                        try:
-                            resolved_obj = ipaddress.ip_address(resolved_ip)
-                            logger.info(f"OCA target {server['name']}: Hostname {host} -> {resolved_ip} (IPv{resolved_obj.version})")
-                        except ValueError:
-                            logger.info(f"OCA target {server['name']}: Hostname {host} -> {resolved_ip}")
-                        # Hostname resolves, keep the specified probe
-                    except socket.gaierror:
-                        logger.warning(f"Cannot resolve hostname: {host}")
-                        continue
+        """DISABLED: No fallback targets per TODO-257"""
+        logger.warning("Fallback OCA targets completely disabled per TODO-257")
+        logger.warning("Netflix OCA section will remain empty when real OCA discovery fails")
+        logger.warning("This prevents addition of generic Netflix domains (netflix.com, fast.com, etc.)")
+        return []
+    
+    def generate_smokeping_config(self) -> bool:
+        """Generate and deploy SmokePing configuration after target updates"""
+        try:
+            logger.info("Triggering SmokePing configuration regeneration...")
+            
+            # Run config generator with deployment to grafana-influx
+            result = subprocess.run([
+                sys.executable, 
+                str(Path(__file__).parent / "config_generator.py"),
+                "--deploy-to", "grafana-influx"
+            ], 
+            cwd=Path(__file__).parent.parent,
+            capture_output=True, 
+            text=True, 
+            timeout=60
+            )
+            
+            if result.returncode == 0:
+                logger.info("Successfully regenerated and deployed SmokePing configuration")
+                logger.debug(f"Config generator output: {result.stdout}")
+                return True
+            else:
+                logger.error(f"Config generator failed: {result.stderr}")
+                logger.error(f"Return code: {result.returncode}")
+                logger.error(f"Stdout: {result.stdout}")
+                return False
                 
-                target = {
-                    'name': server['name'],
-                    'host': server['host'],
-                    'title': server['title'],
-                    'probe': server['probe'],
-                    'metadata': {
-                        'location': server['location'],
-                        'type': 'fallback',
-                        'domain': server['host'] if not server['host'].replace('.', '').isdigit() else ''
-                    }
-                }
-                targets.append(target)
-                logger.debug(f"Added fallback OCA target: {server['name']} ({server['host']})")
-                
-            except Exception as e:
-                logger.warning(f"Error processing fallback server {server}: {e}")
-                continue
-        
-        logger.info(f"Generated {len(targets)} fallback OCA targets with domain names")
-        
-        # Log summary of IPv4/IPv6 distribution
-        ipv4_count = sum(1 for t in targets if t['probe'] == 'FPing')
-        ipv6_count = sum(1 for t in targets if t['probe'] == 'FPing6')
-        logger.info(f"Fallback OCA IPv4/IPv6 distribution: {ipv4_count} IPv4 targets, {ipv6_count} IPv6 targets")
-        
-        return targets
+        except subprocess.TimeoutExpired:
+            logger.error("Config generator timed out after 60 seconds")
+            return False
+        except Exception as e:
+            logger.error(f"Error running config generator: {e}")
+            return False
     
     def update_targets(self, oca_targets: List[Dict]) -> bool:
         """Update the targets.yaml file with new OCA servers"""
@@ -294,18 +268,27 @@ class OCAFetcher:
             new_count = len(oca_targets)
             
             if old_count > 0:
-                logger.info(f"Replacing {old_count} existing Netflix OCA targets with {new_count} new targets")
+                if new_count > 0:
+                    logger.info(f"Replacing {old_count} existing Netflix OCA targets with {new_count} new targets")
+                else:
+                    logger.info(f"Removing {old_count} existing Netflix OCA targets (no new targets found)")
                 for old_target in old_oca_targets:
                     logger.debug(f"Removing old OCA target: {old_target.get('name', 'unknown')} ({old_target.get('host', 'unknown')})")
             else:
-                logger.info(f"Adding {new_count} new Netflix OCA targets (no existing targets to replace)")
+                if new_count > 0:
+                    logger.info(f"Adding {new_count} new Netflix OCA targets (no existing targets to replace)")
+                else:
+                    logger.info("No existing Netflix OCA targets and no new targets found - keeping empty section")
             
             # Update OCA targets (this replaces the entire netflix_oca list)
             targets_config['active_targets']['netflix_oca'] = oca_targets
             
             # Log new targets being added
-            for new_target in oca_targets:
-                logger.info(f"Added new OCA target: {new_target.get('name', 'unknown')} ({new_target.get('host', 'unknown')}) - {new_target.get('title', 'unknown')}")
+            if oca_targets:
+                for new_target in oca_targets:
+                    logger.info(f"Added new OCA target: {new_target.get('name', 'unknown')} ({new_target.get('host', 'unknown')}) - {new_target.get('title', 'unknown')}")
+            else:
+                logger.info("Netflix OCA section cleared - no real OCA servers found")
             
             # Update metadata
             targets_config['metadata']['last_updated'] = datetime.now().isoformat()
@@ -326,6 +309,10 @@ class OCAFetcher:
                 yaml.dump(targets_config, f, default_flow_style=False, sort_keys=False)
             
             logger.info(f"Updated targets.yaml with {len(oca_targets)} OCA servers")
+            
+            # Trigger SmokePing configuration regeneration
+            self.generate_smokeping_config()
+            
             return True
             
         except Exception as e:
@@ -352,23 +339,24 @@ class OCAFetcher:
             return False
         
         # Fetch OCA servers
-        logger.info("Starting OCA server discovery process...")
+        logger.info("Starting Netflix OCA server discovery process...")
         oca_data = self.fetch_oca_servers()
         if not oca_data:
-            logger.warning("Failed to fetch OCA servers via Docker - known issue with upstream repository")
-            logger.info("Switching to fallback Netflix infrastructure targets")
-            # Use fallback OCA targets
-            oca_targets = self.get_fallback_oca_targets()
-            if not oca_targets:
-                logger.error("Failed to generate fallback OCA servers")
-                return False
+            logger.error("Netflix OCA discovery failed - no real OCA servers found")
+            logger.info("Netflix OCA section will be cleared (no fallback domains per TODO-257)")
+            logger.info("Check container logs and network connectivity for OCA discovery issues")
+            # Use empty targets list (no fallback)
+            oca_targets = []
         else:
-            logger.info("Successfully fetched dynamic OCA data, parsing targets...")
+            logger.info("Successfully fetched real Netflix OCA data, parsing targets...")
             # Parse the fetched data
             oca_targets = self.parse_oca_data(oca_data, max_targets)
             if not oca_targets:
-                logger.warning("No valid OCA targets found in dynamic data, using fallback")
-                oca_targets = self.get_fallback_oca_targets()
+                logger.warning("No valid OCA targets found in discovery data - clearing Netflix OCA section")
+                logger.warning("This may indicate an issue with OCA data parsing or filtering")
+                oca_targets = []
+            else:
+                logger.info(f"Successfully parsed {len(oca_targets)} real Netflix OCA servers")
         
         # Update targets file
         if not self.update_targets(oca_targets):

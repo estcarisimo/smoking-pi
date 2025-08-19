@@ -16,6 +16,21 @@ import yaml
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from .bootstrap import validate_all_configs, run_bootstrap
 
+# Import database models if available
+try:
+    # Add parent directory to path for imports
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    
+    from models import (
+        get_db_session, Target, TargetCategory, Probe, SystemMetadata,
+        TargetRepository, CategoryRepository, ProbeRepository
+    )
+    DATABASE_AVAILABLE = True
+except ImportError as e:
+    DATABASE_AVAILABLE = False
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -37,7 +52,7 @@ SMOKEPING_CONFIGS = {
 
 
 class ConfigGenerator:
-    """Generates SmokePing configuration files from YAML sources"""
+    """Generates SmokePing configuration files from YAML or database sources"""
     
     def __init__(self):
         self.env = Environment(
@@ -47,9 +62,123 @@ class ConfigGenerator:
         )
         self.targets_config = None
         self.probes_config = None
+        self.use_database = self._check_database_available()
+        logger.info(f"Config generator initialized with database support: {self.use_database}")
+    
+    def _check_database_available(self) -> bool:
+        """Check if database is available and has migrated data"""
+        if not DATABASE_AVAILABLE:
+            return False
+        
+        try:
+            session = get_db_session()
+            try:
+                # Check if migration marker exists
+                marker = session.query(SystemMetadata).filter(
+                    SystemMetadata.key == 'yaml_migration_completed'
+                ).first()
+                return marker is not None
+            finally:
+                session.close()
+        except Exception as e:
+            logger.warning(f"Database not available: {e}")
+            return False
     
     def load_configurations(self) -> bool:
-        """Load YAML configuration files"""
+        """Load configuration from database or YAML files"""
+        if self.use_database:
+            return self._load_from_database()
+        else:
+            return self._load_from_yaml()
+    
+    def _load_from_database(self) -> bool:
+        """Load configuration from PostgreSQL database"""
+        try:
+            session = get_db_session()
+            try:
+                target_repo = TargetRepository(session)
+                targets = target_repo.get_all(active_only=True)
+                
+                # Convert database targets to YAML-like structure
+                active_targets = {}
+                for target in targets:
+                    category_name = target.category.name
+                    if category_name not in active_targets:
+                        active_targets[category_name] = []
+                    
+                    target_dict = {
+                        'name': target.name,
+                        'host': target.host,
+                        'title': target.title,
+                        'probe': target.probe.name
+                    }
+                    
+                    if target.lookup:
+                        target_dict['lookup'] = target.lookup
+                    
+                    # Add Netflix OCA metadata if present
+                    if target.asn or target.cache_id or target.city:
+                        target_dict['metadata'] = {
+                            'asn': target.asn,
+                            'cache_id': target.cache_id,
+                            'city': target.city,
+                            'domain': target.domain,
+                            'iata_code': target.iata_code,
+                            'latitude': float(target.latitude) if target.latitude else None,
+                            'longitude': float(target.longitude) if target.longitude else None,
+                            'location_code': target.location_code,
+                            'raw_city': target.raw_city,
+                            'type': target.metadata_type
+                        }
+                    
+                    active_targets[category_name].append(target_dict)
+                
+                self.targets_config = {
+                    'active_targets': active_targets,
+                    'metadata': {
+                        'source': 'database',
+                        'total_targets': len(targets),
+                        'last_updated': datetime.now().isoformat()
+                    }
+                }
+                
+                # Load probes from database
+                probes = session.query(Probe).all()
+                probes_config = {}
+                default_probe = None
+                
+                for probe in probes:
+                    probe_dict = {
+                        'binary': probe.binary_path,
+                        'step': probe.step_seconds,
+                        'pings': probe.pings
+                    }
+                    if probe.forks:
+                        probe_dict['forks'] = probe.forks
+                    
+                    probes_config[probe.name] = probe_dict
+                    
+                    if probe.is_default:
+                        default_probe = probe.name
+                
+                self.probes_config = {
+                    'probes': probes_config,
+                    'default_probe': default_probe or 'FPing'
+                }
+                
+                logger.info(f"Successfully loaded configuration from database: {len(targets)} targets, {len(probes)} probes")
+                return True
+                
+            finally:
+                session.close()
+                
+        except Exception as e:
+            logger.error(f"Failed to load from database, falling back to YAML: {e}")
+            self.use_database = False
+            return self._load_from_yaml()
+    
+    def _load_from_yaml(self) -> bool:
+        """Load configuration from YAML files (fallback)"""
         try:
             # Load targets configuration
             with open(CONFIG_DIR / "targets.yaml", 'r') as f:
@@ -59,7 +188,7 @@ class ConfigGenerator:
             with open(CONFIG_DIR / "probes.yaml", 'r') as f:
                 self.probes_config = yaml.safe_load(f)
             
-            logger.info("Successfully loaded configuration files")
+            logger.info("Successfully loaded configuration from YAML files")
             return True
             
         except FileNotFoundError as e:
@@ -239,14 +368,15 @@ class ConfigGenerator:
     
     def run(self, deploy_to: Optional[str] = None, dry_run: bool = False) -> bool:
         """Main execution flow"""
-        # Ensure config files exist and are valid
-        if not validate_all_configs():
-            logger.warning("Some config files are invalid, attempting bootstrap recovery...")
-            if not run_bootstrap():
-                logger.error("Bootstrap recovery failed")
-                return False
+        # For YAML mode, ensure config files exist and are valid
+        if not self.use_database:
+            if not validate_all_configs():
+                logger.warning("Some config files are invalid, attempting bootstrap recovery...")
+                if not run_bootstrap():
+                    logger.error("Bootstrap recovery failed")
+                    return False
         
-        # Load configurations
+        # Load configurations (from database or YAML)
         if not self.load_configurations():
             return False
         

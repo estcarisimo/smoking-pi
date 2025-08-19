@@ -16,6 +16,8 @@ No scripts to run, no configuration to modify, no environment detection needed. 
 - ✅ **Dynamically enables/disables FPing6 probe** based on capability
 - ✅ **Uses host networking** for automatic IPv6 inheritance
 - ✅ **Handles IPv6 targets gracefully** when IPv6 is unavailable
+- ✅ **Initializes PostgreSQL database** with schema and default data
+- ✅ **Configures database migrations** from existing YAML automatically
 
 ## 🔍 How It Works
 
@@ -32,15 +34,19 @@ The container entrypoint automatically:
 2. **Connectivity Test**: Pings `2001:4860:4860::8888` and `2606:4700:4700::1111` 
 3. **Dynamic Configuration**: Adds/removes FPing6 probe as needed
 4. **Target Management**: Enables/disables IPv6 targets based on capability
+5. **Database Initialization**: PostgreSQL schema creation with default DNS resolvers
+6. **YAML Migration**: Automatic detection and migration of existing YAML configurations
 
 ### Deployment Scenarios
 
 | Environment | Detection Result | Behavior |
 |-------------|------------------|----------|
-| **IPv6-Enabled Network** | ✅ IPv6 Active | FPing6 probe enabled, Google6 target monitored |
-| **IPv4-Only Network** | ❌ No IPv6 | FPing6 disabled, IPv6 targets commented out |
-| **Corporate/Restricted** | 🔄 Auto-adapt | Graceful fallback based on actual connectivity |
-| **Cloud Instance** | 🌐 Provider-dependent | Works with any cloud IPv6 configuration |
+| **IPv6-Enabled Network** | ✅ IPv6 Active | FPing6 probe enabled, Google6 target monitored, database initialized |
+| **IPv4-Only Network** | ❌ No IPv6 | FPing6 disabled, IPv6 targets commented out, database initialized |
+| **Corporate/Restricted** | 🔄 Auto-adapt | Graceful fallback based on connectivity, database migrations work |
+| **Cloud Instance** | 🌐 Provider-dependent | Works with any cloud IPv6 configuration, PostgreSQL auto-configured |
+| **Fresh Install** | 🆕 No Config | Database initialized with default DNS resolvers and target categories |
+| **Existing YAML** | 📦 Migration | Automatic detection and zero-downtime migration to PostgreSQL |
 
 ## 📊 Benefits
 
@@ -49,6 +55,8 @@ The container entrypoint automatically:
 - **No configuration files** to modify
 - **No environment variables** to set
 - **No network planning** required
+- **No database setup** - PostgreSQL schema auto-created
+- **No data migration** - Existing YAML configs migrate automatically
 
 ### Environment Portability  
 - **Same docker-compose.yml** works everywhere
@@ -69,6 +77,11 @@ The container entrypoint automatically:
 [entrypoint] Configuring IPv6 support (zero-touch detection)…
 [entrypoint] IPv6 detected and reachable - enabling FPing6 probe
 [entrypoint] FPing6 probe added to configuration
+[entrypoint] Initializing PostgreSQL database schema…
+[entrypoint] Database initialized with default target categories
+[entrypoint] Checking for existing YAML configuration…
+[entrypoint] YAML configuration detected - migrating to database
+[entrypoint] Migration completed successfully
 [entrypoint] Starting SmokePing…
 ```
 

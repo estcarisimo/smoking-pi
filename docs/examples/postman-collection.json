@@ -1,0 +1,747 @@
+{
+  "info": {
+    "name": "SmokePing API Collection",
+    "description": "Complete API collection for the SmokePing network monitoring system",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "config_manager_url",
+      "value": "http://localhost:5000",
+      "description": "Config Manager API base URL"
+    },
+    {
+      "key": "web_admin_url", 
+      "value": "http://localhost:8080",
+      "description": "Web Admin API base URL"
+    },
+    {
+      "key": "api_token",
+      "value": "smokeping_api_your_token_here",
+      "description": "API authentication token (future implementation)"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{api_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health & Status",
+      "item": [
+        {
+          "name": "Config Manager Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/health",
+              "host": ["{{config_manager_url}}"],
+              "path": ["health"]
+            },
+            "description": "Check if the config manager service is healthy"
+          },
+          "response": [
+            {
+              "name": "Healthy Response",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{config_manager_url}}/health",
+                  "host": ["{{config_manager_url}}"],
+                  "path": ["health"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"healthy\",\n  \"service\": \"config-manager\",\n  \"timestamp\": \"2024-01-01T12:00:00.000000\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "System Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/status",
+              "host": ["{{config_manager_url}}"],
+              "path": ["status"]
+            },
+            "description": "Get comprehensive system status including database, SmokePing, and configuration status"
+          },
+          "response": [
+            {
+              "name": "Complete Status",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{config_manager_url}}/status",
+                  "host": ["{{config_manager_url}}"],
+                  "path": ["status"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"healthy\",\n  \"database\": {\n    \"available\": true,\n    \"migrated\": true,\n    \"targets_count\": 25,\n    \"categories_count\": 4,\n    \"probes_count\": 2\n  },\n  \"configs\": {\n    \"targets\": true,\n    \"probes\": true,\n    \"sources\": true\n  },\n  \"smokeping\": {\n    \"running\": true,\n    \"status\": \"running\"\n  },\n  \"mode\": \"database\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Web Admin Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/api/status",
+              "host": ["{{web_admin_url}}"],
+              "path": ["api", "status"]
+            },
+            "description": "Get enhanced system status through web admin gateway"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Configuration Management",
+      "item": [
+        {
+          "name": "Get All Configurations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/config",
+              "host": ["{{config_manager_url}}"],
+              "path": ["config"]
+            },
+            "description": "Retrieve all configuration data (targets, probes, sources)"
+          }
+        },
+        {
+          "name": "Get Targets Configuration",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/config/targets",
+              "host": ["{{config_manager_url}}"],
+              "path": ["config", "targets"]
+            },
+            "description": "Retrieve targets configuration"
+          }
+        },
+        {
+          "name": "Get Probes Configuration",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/config/probes",
+              "host": ["{{config_manager_url}}"],
+              "path": ["config", "probes"]
+            },
+            "description": "Retrieve probes configuration"
+          }
+        },
+        {
+          "name": "Get Sources Configuration",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/config/sources",
+              "host": ["{{config_manager_url}}"],
+              "path": ["config", "sources"]
+            },
+            "description": "Retrieve sources configuration"
+          }
+        },
+        {
+          "name": "Update Targets Configuration",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active_targets\": {\n    \"websites\": [\n      {\n        \"name\": \"google\",\n        \"host\": \"google.com\",\n        \"title\": \"Google Search\",\n        \"probe\": \"FPing\"\n      },\n      {\n        \"name\": \"cloudflare\",\n        \"host\": \"1.1.1.1\",\n        \"title\": \"Cloudflare DNS\",\n        \"probe\": \"FPing\"\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{config_manager_url}}/config/targets",
+              "host": ["{{config_manager_url}}"],
+              "path": ["config", "targets"]
+            },
+            "description": "Update targets configuration (YAML mode only)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Target Management (Database)",
+      "item": [
+        {
+          "name": "List All Targets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/targets",
+              "host": ["{{config_manager_url}}"],
+              "path": ["targets"]
+            },
+            "description": "Get all targets from database"
+          }
+        },
+        {
+          "name": "List Active Targets Only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/targets?active_only=true",
+              "host": ["{{config_manager_url}}"],
+              "path": ["targets"],
+              "query": [
+                {
+                  "key": "active_only",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Get only active targets"
+          }
+        },
+        {
+          "name": "Filter Targets by Category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/targets?category=websites",
+              "host": ["{{config_manager_url}}"],
+              "path": ["targets"],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "websites"
+                }
+              ]
+            },
+            "description": "Get targets filtered by category"
+          }
+        },
+        {
+          "name": "Create New Target",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"example\",\n  \"host\": \"example.com\",\n  \"title\": \"Example Website\",\n  \"category_id\": 1,\n  \"probe_id\": 1,\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{config_manager_url}}/targets",
+              "host": ["{{config_manager_url}}"],
+              "path": ["targets"]
+            },
+            "description": "Create a new monitoring target"
+          },
+          "response": [
+            {
+              "name": "Target Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"example\",\n  \"host\": \"example.com\",\n  \"title\": \"Example Website\",\n  \"category_id\": 1,\n  \"probe_id\": 1,\n  \"is_active\": true\n}"
+                },
+                "url": {
+                  "raw": "{{config_manager_url}}/targets",
+                  "host": ["{{config_manager_url}}"],
+                  "path": ["targets"]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": 26,\n  \"name\": \"example\",\n  \"host\": \"example.com\",\n  \"title\": \"Example Website\",\n  \"is_active\": true,\n  \"category\": {\n    \"id\": 1,\n    \"name\": \"websites\",\n    \"display_name\": \"Websites\"\n  },\n  \"probe\": {\n    \"id\": 1,\n    \"name\": \"FPing\",\n    \"binary_path\": \"/usr/bin/fping\"\n  },\n  \"created_at\": \"2024-01-01T12:00:00\",\n  \"updated_at\": \"2024-01-01T12:00:00\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Target",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Example Website\",\n  \"is_active\": false\n}"
+            },
+            "url": {
+              "raw": "{{config_manager_url}}/targets/26",
+              "host": ["{{config_manager_url}}"],
+              "path": ["targets", "26"]
+            },
+            "description": "Update an existing target"
+          }
+        },
+        {
+          "name": "Toggle Target Status",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/targets/26/toggle",
+              "host": ["{{config_manager_url}}"],
+              "path": ["targets", "26", "toggle"]
+            },
+            "description": "Toggle target active/inactive status"
+          }
+        },
+        {
+          "name": "Delete Target",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/targets/26",
+              "host": ["{{config_manager_url}}"],
+              "path": ["targets", "26"]
+            },
+            "description": "Delete a target from the database"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Categories & Probes",
+      "item": [
+        {
+          "name": "Get All Categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/categories",
+              "host": ["{{config_manager_url}}"],
+              "path": ["categories"]
+            },
+            "description": "Retrieve all target categories"
+          }
+        },
+        {
+          "name": "Get All Probes",
+          "request": {
+            "method": "GET", 
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/probes",
+              "host": ["{{config_manager_url}}"],
+              "path": ["probes"]
+            },
+            "description": "Retrieve all probe configurations"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service Operations",
+      "item": [
+        {
+          "name": "Generate Configuration",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/generate",
+              "host": ["{{config_manager_url}}"],
+              "path": ["generate"]
+            },
+            "description": "Generate SmokePing configuration files"
+          }
+        },
+        {
+          "name": "Restart SmokePing",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/restart",
+              "host": ["{{config_manager_url}}"],
+              "path": ["restart"]
+            },
+            "description": "Restart the SmokePing service"
+          }
+        },
+        {
+          "name": "Apply Changes (Web Admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/api/apply",
+              "host": ["{{web_admin_url}}"],
+              "path": ["api", "apply"]
+            },
+            "description": "Apply configuration changes (generate + restart)"
+          }
+        },
+        {
+          "name": "Refresh Netflix OCA",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{config_manager_url}}/oca/refresh",
+              "host": ["{{config_manager_url}}"],
+              "path": ["oca", "refresh"]
+            },
+            "description": "Refresh Netflix Open Connect Appliance data"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Site Discovery",
+      "item": [
+        {
+          "name": "Fetch Tranco Top Sites",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/sources/api/fetch/tranco?limit=10",
+              "host": ["{{web_admin_url}}"],
+              "path": ["sources", "api", "fetch", "tranco"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Fetch top sites from Tranco ranking"
+          }
+        },
+        {
+          "name": "Fetch CrUX Top Sites",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/sources/api/fetch/crux?country=us&limit=10",
+              "host": ["{{web_admin_url}}"],
+              "path": ["sources", "api", "fetch", "crux"],
+              "query": [
+                {
+                  "key": "country",
+                  "value": "us"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Fetch top sites from Chrome UX Report"
+          }
+        },
+        {
+          "name": "Fetch Cloudflare Radar Sites",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/sources/api/fetch/cloudflare?country=US&limit=10",
+              "host": ["{{web_admin_url}}"],
+              "path": ["sources", "api", "fetch", "cloudflare"],
+              "query": [
+                {
+                  "key": "country",
+                  "value": "US"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Fetch top sites from Cloudflare Radar (requires API token)"
+          }
+        },
+        {
+          "name": "Import Selected Sites",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"selected_sites\": [\n    {\n      \"domain\": \"example.com\",\n      \"title\": \"Example Site\",\n      \"category\": \"websites\"\n    },\n    {\n      \"domain\": \"test.com\",\n      \"title\": \"Test Site\",\n      \"category\": \"websites\"\n    }\n  ],\n  \"replace_existing\": false\n}"
+            },
+            "url": {
+              "raw": "{{web_admin_url}}/sources/api/update",
+              "host": ["{{web_admin_url}}"],
+              "path": ["sources", "api", "update"]
+            },
+            "description": "Import selected sites from discovery"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Web Admin Gateway",
+      "item": [
+        {
+          "name": "Bandwidth Estimation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/api/bandwidth",
+              "host": ["{{web_admin_url}}"],
+              "path": ["api", "bandwidth"]
+            },
+            "description": "Get bandwidth usage estimates"
+          }
+        },
+        {
+          "name": "Validate Hostname",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hostname\": \"example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{web_admin_url}}/api/validate-hostname",
+              "host": ["{{web_admin_url}}"],
+              "path": ["api", "validate-hostname"]
+            },
+            "description": "Validate hostname with IPv6 and DNS resolution info"
+          }
+        },
+        {
+          "name": "Get SmokePing Logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/api/smokeping/logs?lines=50",
+              "host": ["{{web_admin_url}}"],
+              "path": ["api", "smokeping", "logs"],
+              "query": [
+                {
+                  "key": "lines",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Retrieve SmokePing container logs"
+          }
+        },
+        {
+          "name": "Restart SmokePing (Web Admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/api/smokeping/restart",
+              "host": ["{{web_admin_url}}"],
+              "path": ["api", "smokeping", "restart"]
+            },
+            "description": "Restart SmokePing via web admin"
+          }
+        },
+        {
+          "name": "OCA Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/api/ocas/status",
+              "host": ["{{web_admin_url}}"],
+              "path": ["api", "ocas", "status"]
+            },
+            "description": "Get Netflix OCA status and count"
+          }
+        },
+        {
+          "name": "Refresh OCA (Web Admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{web_admin_url}}/api/ocas/refresh",
+              "host": ["{{web_admin_url}}"],
+              "path": ["api", "ocas", "refresh"]
+            },
+            "description": "Refresh Netflix OCA data via web admin"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error Testing",
+      "item": [
+        {
+          "name": "Invalid Target Creation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"host\": \"invalid_host\",\n  \"category_id\": 999\n}"
+            },
+            "url": {
+              "raw": "{{config_manager_url}}/targets",
+              "host": ["{{config_manager_url}}"],
+              "path": ["targets"]
+            },
+            "description": "Test error handling with invalid target data"
+          }
+        },
+        {
+          "name": "Non-existent Target Update",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated\"\n}"
+            },
+            "url": {
+              "raw": "{{config_manager_url}}/targets/99999",
+              "host": ["{{config_manager_url}}"],
+              "path": ["targets", "99999"]
+            },
+            "description": "Test error handling for non-existent target"
+          }
+        },
+        {
+          "name": "Invalid Configuration Update",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invalid\": \"configuration\"\n}"
+            },
+            "url": {
+              "raw": "{{config_manager_url}}/config/targets",
+              "host": ["{{config_manager_url}}"],
+              "path": ["config", "targets"]
+            },
+            "description": "Test error handling for invalid configuration"
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set timestamp for requests",
+          "pm.globals.set('timestamp', new Date().toISOString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test for successful responses",
+          "pm.test('Response is successful', function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+          "});",
+          "",
+          "// Global test for JSON response",
+          "pm.test('Response is JSON', function () {",
+          "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+          "});",
+          "",
+          "// Global test for response time",
+          "pm.test('Response time is reasonable', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});"
+        ]
+      }
+    }
+  ]
+}

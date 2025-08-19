@@ -29,7 +29,7 @@ def index():
         
         # Load current active targets via config API
         targets_config = config_api.get_targets_config()
-        active_websites = [t['host'] for t in targets_config.get('active_targets', {}).get('websites', [])]
+        active_websites = [t['host'] for t in targets_config.get('active_targets', {}).get('top_sites', [])]
         
     except Exception as e:
         current_app.logger.error(f"Failed to load configuration: {e}")
@@ -96,7 +96,7 @@ def fetch_source(source):
 
 @sources_bp.route('/api/update', methods=['POST'])
 def update_targets():
-    """Update active targets with selected sites"""
+    """Update active targets with selected sites (database-aware)"""
     data = request.get_json()
     
     if not data or 'sites' not in data:
@@ -107,51 +107,13 @@ def update_targets():
         return jsonify({'error': 'Maximum 100 sites allowed'}), 400
     
     try:
-        # Load current targets via config API
-        targets_data = config_api.get_targets_config()
+        # Use the database-aware method that automatically handles fallback
+        result = config_api.update_targets_from_sites(selected_sites, 'top_sites')
         
-        # Convert selected sites to target format
-        new_targets = []
-        for idx, site in enumerate(selected_sites):
-            # Clean domain name for SmokePing
-            name = site.replace('.', '_').replace('-', '_')
-            if name[0].isdigit():
-                name = f"site_{name}"
-            
-            new_targets.append({
-                'name': name[:20],  # Limit name length
-                'host': site,
-                'title': site,
-                'probe': 'FPing'
-            })
-        
-        # Update websites section
-        targets_data['active_targets']['websites'] = new_targets
-        
-        # Update metadata
-        if 'metadata' not in targets_data:
-            targets_data['metadata'] = {}
-        targets_data['metadata']['last_updated'] = datetime.now().isoformat()
-        total_targets = sum(
-            len(v) for v in targets_data['active_targets'].values() 
-            if isinstance(v, list)
-        )
-        targets_data['metadata']['total_targets'] = total_targets
-        
-        # Save configuration via config API
-        success = config_api.update_targets_config(targets_data)
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'message': f'Updated {len(new_targets)} website targets',
-                'total_targets': total_targets
-            })
+        if result['success']:
+            return jsonify(result)
         else:
-            return jsonify({
-                'success': False,
-                'error': 'Failed to update configuration'
-            }), 500
+            return jsonify(result), 500
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500

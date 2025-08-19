@@ -1,57 +1,54 @@
-# SmokePing Target Sources Configuration
+# SmokePing Target Sources Configuration Template
 # This file defines all available sources for monitoring targets
+#
+# Generated automatically by bootstrap - modify as needed
 
 # Built-in static targets
 static:
   websites:
-    - name: Google
+    - name: google_com
       host: google.com
       title: Google
-    - name: Facebook
+      probe: FPing
+    - name: facebook_com
       host: facebook.com
       title: Facebook
-    - name: Amazon
+      probe: FPing
+    - name: amazon_com
       host: amazon.com
       title: Amazon
-    - name: NYTimes
+      probe: FPing
+    - name: nytimes_com
       host: nytimes.com
       title: New York Times
-    - name: Apple
+      probe: FPing
+    - name: apple_com
       host: apple.com
       title: Apple
-    - name: UBA
+      probe: FPing
+    - name: uba_ar
       host: uba.ar
       title: Universidad de Buenos Aires
+      probe: FPing
 
+  # IPv6 websites (disabled by default)
   ipv6_websites:
-    - name: Google_IPv6
+    - name: google_ipv6
       host: 2001:4860:4860::8844
       title: Google IPv6
       probe: FPing6
-    - name: Cloudflare_IPv6
-      host: 2606:4700::1
-      title: Cloudflare IPv6
-      probe: FPing6
+      enabled: false
 
+  # DNS resolvers
   dns_resolvers:
     - name: GoogleDNS
       host: 8.8.8.8
       title: Google DNS
       probe: DNS
       lookup: google.com
-    - name: GoogleDNS_IPv6
-      host: 2001:4860:4860::8888
-      title: Google DNS (IPv6)
-      probe: DNS
-      lookup: google.com
     - name: CloudflareDNS
       host: 1.1.1.1
       title: Cloudflare DNS
-      probe: DNS
-      lookup: cloudflare.com
-    - name: CloudflareDNS_IPv6
-      host: 2606:4700:4700::1111
-      title: Cloudflare DNS (IPv6)
       probe: DNS
       lookup: cloudflare.com
     - name: Quad9DNS
@@ -60,43 +57,21 @@ static:
       probe: DNS
       lookup: quad9.net
 
-# Dynamic sources configuration
+# Dynamic target sources
 dynamic:
   netflix_oca:
     enabled: true
-    refresh_interval: 86400  # 24 hours in seconds
     max_targets: 10
-    
-  tranco:
-    enabled: true
-    list_size: 100
-    countries:
-      - global
-      - us
-      - ar
-      - br
-    refresh_interval: 604800  # 7 days
-    
-  crux:
-    enabled: true
-    list_size: 100
-    countries:
-      - global
-      - us
-      - ar
-      - br
-    base_url: https://github.com/zakird/crux-top-lists/raw/master/data/
-    
-  cloudflare_radar:
-    enabled: true
-    list_size: 100
-    countries:
-      - global
-      - us
-      - ar
-      - br
-    base_url: https://radar.cloudflare.com/domains/
+    refresh_interval: "daily"
+    description: "Netflix Open Connect Appliances discovered dynamically"
 
-# Custom user targets (managed by web UI)
-custom:
-  targets: []
+# External target providers (future use)
+external:
+  # Example: Atlas probes, RIPE Atlas, etc.
+  enabled: false
+
+# Metadata
+metadata:
+  version: "1.0"
+  created_by: "bootstrap"
+  description: "Target source definitions for SmokePing monitoring"

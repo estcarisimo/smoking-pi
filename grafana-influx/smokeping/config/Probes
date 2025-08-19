@@ -12,5 +12,6 @@ pings = 10
 
 + DNS
 binary = /usr/bin/dig
-pings = 5
 step = 300
+pings = 5
+forks = 5

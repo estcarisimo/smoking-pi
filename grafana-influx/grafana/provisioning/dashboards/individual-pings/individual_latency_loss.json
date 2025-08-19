@@ -11,9 +11,40 @@
     "list": [
       {
         "type": "query",
+        "name": "status",
+        "label": "Status",
+        "datasource": { "uid": "postgresql-targets" },
+        "query": "SELECT DISTINCT CASE WHEN t.is_active THEN 'active' ELSE 'inactive' END as status FROM targets t ORDER BY status DESC",
+        "hide": 0,
+        "multi": false,
+        "includeAll": true,
+        "allValue": "all",
+        "current": {
+          "selected": true,
+          "text": "active",
+          "value": "active"
+        },
+        "options": [
+          { "selected": true, "text": "active", "value": "active" },
+          { "selected": false, "text": "inactive", "value": "inactive" },
+          { "selected": false, "text": "All", "value": "all" }
+        ]
+      },
+      {
+        "type": "query",
         "name": "target",
-        "datasource": { "uid": "influxdb" },
-        "query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"latency\", predicate: (r) => r._measurement != \"dns_latency\" and r.target != \"Cloudflare\" and r.target != \"Quad9\", tag: \"target\")"
+        "label": "Target",
+        "datasource": { "uid": "postgresql-targets" },
+        "query": "SELECT t.name as __text, t.name as __value FROM targets t JOIN target_categories c ON t.category_id = c.id WHERE c.name != 'dns_resolvers' AND (CASE WHEN $status = 'all' THEN true WHEN $status = 'active' THEN t.is_active = true WHEN $status = 'inactive' THEN t.is_active = false ELSE true END) ORDER BY t.name",
+        "hide": 0,
+        "multi": true,
+        "includeAll": true,
+        "allValue": "*",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        }
       }
     ]
   },

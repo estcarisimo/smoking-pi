@@ -1,6 +1,19 @@
 version: '3.9'
 
 services:
+  # Zero-touch password initialization service
+  init-passwords:
+    image: alpine:latest
+    volumes:
+      - .:/workspace
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "apk add --no-cache openssl && \
+       sh /workspace/init-passwords-docker.sh"
+    restart: "no"
+
   smokeping:
     build: ./smokeping
     network_mode: host
@@ -17,6 +30,7 @@ services:
       RRD_DIR: ${RRD_DIR}
       TZ: ${TZ:-UTC}
     depends_on:
+      - init-passwords
       - influxdb
 
   influxdb:
@@ -35,6 +49,8 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
       TZ: ${TZ:-UTC}
+    depends_on:
+      - init-passwords
 
   grafana:
     build: ./grafana
@@ -50,10 +66,12 @@ services:
       INFLUX_TOKEN: ${INFLUX_TOKEN}
       INFLUX_BUCKET: ${INFLUX_BUCKET}
       INFLUX_ORG: ${INFLUX_ORG}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       GF_LOG_LEVEL: debug
       GF_PROVISIONING_LOG_LEVEL: debug
       TZ: ${TZ:-UTC}
     depends_on:
+      - init-passwords
       - influxdb
 
   web-admin:
@@ -74,9 +92,13 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       TZ: ${TZ:-UTC}
       SMOKEPING_RESTART_CMD: docker-compose restart smokeping
+      # PostgreSQL connection
+      DATABASE_URL: postgresql://smokeping:${POSTGRES_PASSWORD}@postgres:5432/smokeping_targets
     depends_on:
+      - init-passwords
       - smokeping
       - config-manager
+      - postgres
     networks:
       - default
 
@@ -95,8 +117,31 @@ services:
       CONFIG_DIR: /app/config
       OUTPUT_DIR: /app/output
       TZ: ${TZ:-UTC}
+      # PostgreSQL connection
+      DATABASE_URL: postgresql://smokeping:${POSTGRES_PASSWORD}@postgres:5432/smokeping_targets
+    depends_on:
+      - init-passwords
+      - postgres
+
+  postgres:
+    image: postgres:15
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      POSTGRES_DB: smokeping_targets
+      POSTGRES_USER: smokeping
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ:-UTC}
+    depends_on:
+      - init-passwords
 
 volumes:
   smokeping-data:
   influxdb-data:
   grafana-data:
+  postgres-data:

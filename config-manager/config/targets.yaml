@@ -1,18 +1,18 @@
 active_targets:
   custom:
   - category: custom
-    host: lisa.cs.northwestern.edu
-    name: Lisa
+    host: ns1.uba.ar
+    name: UBA
     probe: FPing
-    title: Lisa Aqualab
+    title: UBA
   - category: custom
     host: www.google.com
     name: Google6
     probe: FPing6
     title: Google6
-  - name: UBA
-    host: ns1.uba.ar
-    title: UBA NS
+  - name: UdeSA
+    host: www.udesa.edu.ar
+    title: UdeSA
     probe: FPing
     category: custom
   dns_resolvers:
@@ -35,36 +35,36 @@ active_targets:
     probe: DNS
     title: Quad9 DNS
   netflix_oca:
-  - host: 23.246.37.138
+  - host: 23.246.36.193
     metadata:
       asn: '2906'
-      cache_id: c172
+      cache_id: c122
       city: Chicago
-      domain: ipv4-c172-ord003-ix.1.oca.nflxvideo.net
+      domain: ipv4-c122-ord003-ix.1.oca.nflxvideo.net
       iata_code: ORD
       latitude: 41.87556
       location_code: ORD
       longitude: -87.62442
       raw_city: Chicago, IL
       type: real_oca
-    name: Chicago_ORD_c172_1
+    name: Chicago_ORD_c122_1
     probe: FPing
-    title: ipv4-c172-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c172_1)
-  - host: 45.57.121.76
+    title: ipv4-c122-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c122_1)
+  - host: 23.246.37.180
     metadata:
       asn: '2906'
-      cache_id: c739
+      cache_id: c106
       city: Chicago
-      domain: ipv4-c739-ord001-ix.1.oca.nflxvideo.net
+      domain: ipv4-c106-ord003-ix.1.oca.nflxvideo.net
       iata_code: ORD
       latitude: 41.87556
       location_code: ORD
       longitude: -87.62442
       raw_city: Chicago, IL
       type: real_oca
-    name: Chicago_ORD_c739_2
+    name: Chicago_ORD_c106_2
     probe: FPing
-    title: ipv4-c739-ord001-ix.1.oca.nflxvideo.net (Chicago ORD/c739_2)
+    title: ipv4-c106-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c106_2)
   - host: 45.57.120.66
     metadata:
       asn: '2906'
@@ -80,36 +80,36 @@ active_targets:
     name: Chicago_ORD_c211_3
     probe: FPing
     title: ipv4-c211-ord001-dev-ix.1.oca.nflxvideo.net (Chicago ORD/c211_3)
-  - host: 23.246.36.197
+  - host: 45.57.121.70
     metadata:
       asn: '2906'
-      cache_id: c132
+      cache_id: c733
       city: Chicago
-      domain: ipv4-c132-ord003-ix.1.oca.nflxvideo.net
+      domain: ipv4-c733-ord001-ix.1.oca.nflxvideo.net
       iata_code: ORD
       latitude: 41.87556
       location_code: ORD
       longitude: -87.62442
       raw_city: Chicago, IL
       type: real_oca
-    name: Chicago_ORD_c132_4
+    name: Chicago_ORD_c733_4
     probe: FPing
-    title: ipv4-c132-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c132_4)
-  - host: 45.57.63.152
+    title: ipv4-c733-ord001-ix.1.oca.nflxvideo.net (Chicago ORD/c733_4)
+  - host: 45.57.62.146
     metadata:
       asn: '2906'
-      cache_id: c302
-      city: Washington
-      domain: ipv4-c302-was001-ix.1.oca.nflxvideo.net
-      iata_code: OCA
-      latitude: 25.3229581
+      cache_id: c273
+      city: Washington D.C.
+      domain: ipv4-c273-was001-ix.1.oca.nflxvideo.net
+      iata_code: WAS
+      latitude: 38.89504
       location_code: WAS
-      longitude: -80.276666
-      raw_city: Ocean Reef Club Airport, 60
+      longitude: -77.036545
+      raw_city: Washington D.C., DC
       type: real_oca
-    name: Washington_WAS_c302_5
+    name: Washington_DC_WAS_c273_5
     probe: FPing
-    title: ipv4-c302-was001-ix.1.oca.nflxvideo.net (Washington WAS/c302_5)
+    title: ipv4-c273-was001-ix.1.oca.nflxvideo.net (Washington D.C. WAS/c273_5)
   top_sites:
   - category: top_sites
     host: google.com
@@ -139,5 +139,7 @@ active_targets:
 metadata:
   bandwidth_estimate_mbps: 0.0
   bootstrap_completed: true
-  last_updated: '2025-08-06T03:34:08.189423'
+  created_by: bootstrap
+  last_updated: '2025-08-15T17:47:43.584942'
   total_targets: 16
+  version: '1.0'

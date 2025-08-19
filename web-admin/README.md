@@ -4,7 +4,7 @@
   <img src="../img/logo.jpg" alt="Smoking Pi Logo" width="100"/>
 </div>
 
-A lightweight Flask web application for managing SmokePing targets through a browser interface with bulk operations and auto-discovery capabilities.
+A database-first Flask web application for managing SmokePing targets through PostgreSQL with a browser interface, bulk operations, migration tools, and auto-discovery capabilities.
 
 ## Features
 
@@ -30,10 +30,12 @@ A lightweight Flask web application for managing SmokePing targets through a bro
 - Target name auto-generation
 
 ### ⚙️ Configuration Management
-- Centralized YAML-based configuration
-- Auto-generates SmokePing format files
-- Validates probe references
-- One-click configuration deployment
+- **Database-First Architecture**: Primary target storage in PostgreSQL
+- **Active/Inactive Status**: Toggle targets without deletion via web interface
+- **Migration Tools**: Seamless YAML-to-database migration with backup
+- **Auto-generates SmokePing**: Configuration files from database in real-time
+- **Hybrid Fallback**: Automatic detection with YAML compatibility mode
+- **RESTful API**: Full CRUD operations with validation
 
 ## Architecture
 
@@ -58,8 +60,15 @@ web-admin/
 
 ## Configuration
 
-The web interface manages configurations in `/app/config/`:
+### Database-First Mode (Default)
+The web interface manages targets in **PostgreSQL database**:
+- **targets**: Main target table with active/inactive status
+- **target_categories**: Target categorization (dns_resolvers, top_sites, netflix_oca, custom)
+- **Database schema**: Normalized with proper relationships and constraints
+- **Migration support**: Automatic migration from existing YAML configurations
 
+### YAML Fallback Mode
+Automatic fallback to YAML when database unavailable:
 - **sources.yaml**: Available target sources
 - **targets.yaml**: Currently active targets  
 - **probes.yaml**: SmokePing probe definitions
@@ -69,7 +78,8 @@ The web interface manages configurations in `/app/config/`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `FLASK_ENV` | `production` | Flask environment |
-| `CONFIG_DIR` | `/app/config` | Configuration directory |
+| `DATABASE_URL` | `postgresql://smokeping:password@postgres:5432/smokeping_targets` | PostgreSQL connection string |
+| `CONFIG_DIR` | `/app/config` | YAML fallback configuration directory |
 | `PORT` | `8080` | HTTP server port |
 | `HOST` | `0.0.0.0` | Bind address |
 | `SECRET_KEY` | `dev-secret-key` | Flask secret key |
@@ -101,20 +111,33 @@ docker run -p 8080:8080 \
 - `POST /api/apply` - Apply configuration changes
 - `GET /api/bandwidth` - Get bandwidth estimates
 
-### Target Management  
-- `POST /api/validate-hostname` - Validate hostname/IP
+### Target Management (Database)
+- `GET /api/targets` - List all targets with active/inactive status
+- `POST /api/targets` - Create new target with validation
+- `PUT /api/targets/<id>` - Update target (including active/inactive toggle)
+- `DELETE /api/targets/<id>` - Delete target from database
+- `POST /api/validate-hostname` - Validate hostname/IP with DNS checking
+- `POST /api/migrate` - Migrate YAML configuration to database
 
-### Source Integration
-- `GET /sources/api/fetch/<source>` - Fetch top sites
-- `POST /sources/api/update` - Update active targets
+### Source Integration  
+- `GET /sources/api/fetch/<source>` - Fetch top sites from external sources
+- `POST /sources/api/update` - Update active targets in database
 
 ## Integration with SmokePing
 
-The web interface integrates with the config-manager system:
+The web interface integrates with the database-first architecture:
 
-1. **Configuration Generation**: Updates YAML files in config-manager
-2. **SmokePing Deployment**: Calls config-generator to update SmokePing files
-3. **Service Restart**: Restarts SmokePing to apply changes
+### Database Mode (Default)
+1. **Target Management**: Stores all targets directly in PostgreSQL database
+2. **Real-time Configuration**: Config-manager reads from database to generate SmokePing files
+3. **Active/Inactive Control**: Toggle targets without deletion, immediate config regeneration  
+4. **Grafana Integration**: Dashboard template variables populate from same PostgreSQL database
+5. **Service Restart**: Automatic SmokePing restart when database changes detected
+
+### YAML Fallback Mode  
+1. **Configuration Generation**: Updates YAML files in config-manager when database unavailable
+2. **SmokePing Deployment**: Calls config-generator to update SmokePing files from YAML
+3. **Migration Support**: Provides tools to migrate YAML configs to database
 
 ## Security Considerations
 

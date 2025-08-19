@@ -18,3 +18,23 @@ datasources:
 
     secureJsonData:
       token: ${INFLUX_TOKEN}
+
+  - name: PostgreSQL
+    uid: postgresql-targets
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    database: smokeping_targets
+    user: smokeping
+    editable: false
+
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 100
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+      postgresVersion: 1500
+      timescaledb: false
+      
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}

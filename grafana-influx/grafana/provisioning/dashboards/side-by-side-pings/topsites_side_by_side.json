@@ -1,188 +1,209 @@
 {
-"uid": "topsites-side-by-side-v1",
-"id": null,
-"title": "TopSites Latency – Side-by-Side",
-"schemaVersion": 37,
-"version": 1,
-"tags": ["smokeping", "topsites"],
-"time": { "from": "now-6h", "to": "now" },
+  "uid": "top_sites-side-by-side-v1",
+  "id": null,
+  "title": "Top Sites – Side-by-Side",
+  "schemaVersion": 37,
+  "version": 1,
+  "tags": ["smokeping", "top_sites"],
+  "time": { "from": "now-6h", "to": "now" },
 
-"templating": {
-"list": [
-{
-"type": "query",
-"name": "target",
-"datasource": { "uid": "influxdb" },
-"query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"latency\", predicate: (r) => r._measurement != \"dns_latency\" and (r.target == \"Google\" or r.target == \"Facebook\" or r.target == \"Amazon\" or r.target == \"NYT\" or r.target == \"Apple\"), tag: \"target\")",
-"hide": 0,
-"multi": true,
-"includeAll": true,
-"allValue": "*",
-"current": {
-  "selected": true,
-  "text": "All",
-  "value": "$__all"
-}
-}
-]
-},
-
-"panels": [
-{
-"type": "timeseries",
-"title": "Latency – [[target]]",
-"datasource": { "uid": "influxdb" },
-"repeat": "target",
-"repeatDirection": "h",
-"maxPerRow": 4,
-"gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
-  "fieldConfig": {
-    "defaults": {
-      "unit": "ms",
-      "custom": { "lineWidth": 1, "fillOpacity": 15 }
-    },
-    "overrides": [
+  "templating": {
+    "list": [
       {
-        "matcher": { "id": "byName", "options": "median" },
-        "properties": [
-          { "id": "custom.lineWidth",   "value": 2 },
-          { "id": "custom.fillOpacity", "value": 0 },
-          { "id": "custom.zindex",      "value": 3 },
-          { "id": "displayName",        "value": "Median" }
+        "type": "query",
+        "name": "status",
+        "label": "Status",
+        "datasource": { "uid": "postgresql-targets" },
+        "query": "SELECT DISTINCT CASE WHEN t.is_active THEN 'active' ELSE 'inactive' END as status FROM targets t JOIN target_categories c ON t.category_id = c.id WHERE c.name = 'top_sites' ORDER BY status DESC",
+        "hide": 0,
+        "multi": false,
+        "includeAll": true,
+        "allValue": "all",
+        "current": {
+          "selected": true,
+          "text": "active",
+          "value": "active"
+        },
+        "options": [
+          { "selected": true, "text": "active", "value": "active" },
+          { "selected": false, "text": "inactive", "value": "inactive" },
+          { "selected": false, "text": "All", "value": "all" }
         ]
       },
       {
-        "matcher": { "id": "byName", "options": "mean" },
-        "properties": [
-          { "id": "custom.lineWidth",   "value": 1.5 },
-          { "id": "custom.drawStyle",   "value": "line" },
-          { "id": "custom.lineStyle",   "value": { "dash": [10, 10], "fill": "dash" } },
-          { "id": "custom.fillOpacity", "value": 0 },
-          { "id": "custom.zindex",      "value": 2 },
-          { "id": "displayName",        "value": "Mean" }
-        ]
-      },
-      {
-        "matcher": { "id": "byName", "options": "p10" },
-        "properties": [
-          { "id": "custom.lineWidth",   "value": 1 },
-          { "id": "custom.drawStyle",   "value": "line" },
-          { "id": "custom.fillOpacity", "value": 0 },
-          { "id": "custom.zindex",      "value": 2 },
-          { "id": "displayName",        "value": "P10" }
-        ]
-      },
-      {
-        "matcher": { "id": "byName", "options": "p20" },
-        "properties": [
-          { "id": "custom.lineWidth",   "value": 1 },
-          { "id": "custom.drawStyle",   "value": "line" },
-          { "id": "custom.fillOpacity", "value": 0 },
-          { "id": "custom.zindex",      "value": 2 },
-          { "id": "displayName",        "value": "P20" }
-        ]
-      },
-      {
-        "matcher": { "id": "byName", "options": "p80" },
-        "properties": [
-          { "id": "custom.fillOpacity", "value": 40 },
-          { "id": "custom.fillBelowTo", "value": "p20" },
-          { "id": "custom.zindex",      "value": 1 },
-          { "id": "displayName",        "value": "P80" }
-        ]
-      },
-      {
-        "matcher": { "id": "byName", "options": "p90" },
-        "properties": [
-          { "id": "custom.fillOpacity", "value": 25 },
-          { "id": "custom.fillBelowTo", "value": "p10" },
-          { "id": "custom.zindex",      "value": 0 },
-          { "id": "displayName",        "value": "P90" }
-        ]
-      },
-      {
-        "matcher": { "id": "byName", "options": "unreachable" },
-        "properties": [
-          { "id": "custom.drawStyle",   "value": "bars" },
-          { "id": "custom.fillOpacity", "value": 40 },
-          { "id": "color.mode",         "value": "fixed" },
-          { "id": "color.fixedColor",   "value": "dark-red" },
-          { "id": "custom.zindex",      "value": 4 },
-          { "id": "displayName",        "value": "Downtime" }
-        ]
-      },
-      {
-        "matcher": { "id": "byName", "options": "min" },   
-        "properties": [
-          { "id": "custom.lineWidth",   "value": 1 },
-          { "id": "custom.drawStyle",   "value": "line" },
-          { "id": "custom.fillOpacity", "value": 0 },         
-          { "id": "custom.zindex",      "value": 2 },         
-          { "id": "displayName",        "value": "Min" }
-        ]
-      },
-      {
-        "matcher": { "id": "byName", "options": "max" },
-        "properties": [
-          { "id": "custom.lineWidth",   "value": 1 },
-          { "id": "custom.drawStyle",   "value": "line" },
-          { "id": "custom.fillOpacity", "value": 25 },        
-          { "id": "custom.fillBelowTo", "value": "min" },  
-          { "id": "custom.zindex",      "value": 1 },
-          { "id": "displayName",        "value": "Max" }
-        ]
+        "type": "query",
+        "name": "target",
+        "label": "Target",
+        "datasource": { "uid": "postgresql-targets" },
+        "query": "SELECT t.name as __text, t.name as __value FROM targets t JOIN target_categories c ON t.category_id = c.id WHERE c.name = 'top_sites' AND (CASE WHEN $status = 'all' THEN true WHEN $status = 'active' THEN t.is_active = true WHEN $status = 'inactive' THEN t.is_active = false ELSE true END) ORDER BY t.name",
+        "hide": 0,
+        "multi": true,
+        "includeAll": true,
+        "allValue": "*",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        }
       }
     ]
   },
 
-  "targets": [
+  "panels": [
     {
-      "refId": "A",
-      "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"median\")"
-    },
-    {
-      "refId": "B",
-      "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> mean() |> set(key:\"_field\", value:\"mean\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"mean\")"
-    },
-    {
-      "refId": "C",
-      "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.10, method:\"exact_mean\") |> set(key:\"_field\", value:\"p10\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p10\")"
-    },
-    {
-      "refId": "D",
-      "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.20, method:\"exact_mean\") |> set(key:\"_field\", value:\"p20\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p20\")"
-    },
-    {
-      "refId": "E",
-      "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.80, method:\"exact_mean\") |> set(key:\"_field\", value:\"p80\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p80\")"
-    },
-    {
-      "refId": "F",
-      "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.90, method:\"exact_mean\") |> set(key:\"_field\", value:\"p90\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p90\")"
-    },
-    {
-      "refId": "G",
-      "queryType": "flux",
-      "query": "import \"math\"\nfrom(bucket:\"latency\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/ and not math.isNaN(f: r._value))  |> aggregateWindow(every: 1m, fn: min, createEmpty:false) |> group(columns:[\"target\", \"_time\"])\n  |> min() |> group(columns:[\"target\"])\n  |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 }))\n  |> rename(columns:{_value: \"min\"})\n  |> keep(columns:[\"_time\", \"min\"])\n  |> yield(name:\"min\")"
-    },
-    {
-      "refId": "H",
-      "queryType": "flux",
-      "query": "import \"math\"\nfrom(bucket:\"latency\")  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/ and not math.isNaN(f: r._value))\n  |> aggregateWindow(every: 1m, fn: max, createEmpty:false)\n  |> group(columns:[\"target\", \"_time\"])\n  |> max()\n  |> group(columns:[\"target\"])\n  |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 }))\n  |> rename(columns:{_value: \"max\"})\n  |> keep(columns:[\"_time\", \"max\"])\n  |> yield(name:\"max\")"
-    },
-    {
-      "refId": "I",
-      "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field == \"loss\") |> aggregateWindow(every:15m, fn: mean, createEmpty:true) |> map(fn:(r)=> ({ r with _value: if r._value >= 1.0 then 500.0 else 0.0 })) |> filter(fn:(r)=> r._value > 0) |> set(key:\"_field\", value:\"unreachable\") |> yield(name:\"unreachable\")"
+      "type": "timeseries",
+      "title": "Top Sites Target – [[target]]",
+      "datasource": { "uid": "influxdb" },
+      "repeat": "target",
+      "repeatDirection": "h",
+      "maxPerRow": 3,
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "lineWidth": 1, "fillOpacity": 15 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "median" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 2 },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 3 },
+              { "id": "displayName",        "value": "Median" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "mean" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1.5 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.lineStyle",   "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 2 },
+              { "id": "displayName",        "value": "Mean" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p10" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 2 },
+              { "id": "displayName",        "value": "P10" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p20" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 2 },
+              { "id": "displayName",        "value": "P20" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p80" },
+            "properties": [
+              { "id": "custom.fillOpacity", "value": 40 },
+              { "id": "custom.fillBelowTo", "value": "p20" },
+              { "id": "custom.zindex",      "value": 1 },
+              { "id": "displayName",        "value": "P80" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p90" },
+            "properties": [
+              { "id": "custom.fillOpacity", "value": 25 },
+              { "id": "custom.fillBelowTo", "value": "p10" },
+              { "id": "custom.zindex",      "value": 0 },
+              { "id": "displayName",        "value": "P90" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "unreachable" },
+            "properties": [
+              { "id": "custom.drawStyle",   "value": "bars" },
+              { "id": "custom.fillOpacity", "value": 40 },
+              { "id": "color.mode",         "value": "fixed" },
+              { "id": "color.fixedColor",   "value": "dark-red" },
+              { "id": "custom.zindex",      "value": 4 },
+              { "id": "displayName",        "value": "Downtime" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "min" },   
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },         
+              { "id": "custom.zindex",      "value": 2 },         
+              { "id": "displayName",        "value": "Min" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "max" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.fillOpacity", "value": 25 },        
+              { "id": "custom.fillBelowTo", "value": "min" },  
+              { "id": "custom.zindex",      "value": 1 },
+              { "id": "displayName",        "value": "Max" }
+            ]
+          }
+        ]
+      },
+
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target == \"[[target]]\" and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"median\")"
+        },
+        {
+          "refId": "B",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> mean() |> set(key:\"_field\", value:\"mean\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"mean\")"
+        },
+        {
+          "refId": "C",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.10, method:\"exact_mean\") |> set(key:\"_field\", value:\"p10\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p10\")"
+        },
+        {
+          "refId": "D",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.20, method:\"exact_mean\") |> set(key:\"_field\", value:\"p20\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p20\")"
+        },
+        {
+          "refId": "E",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.80, method:\"exact_mean\") |> set(key:\"_field\", value:\"p80\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p80\")"
+        },
+        {
+          "refId": "F",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.90, method:\"exact_mean\") |> set(key:\"_field\", value:\"p90\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p90\")"
+        },
+        {
+          "refId": "G",
+          "queryType": "flux",
+          "query": "import \"math\"\nfrom(bucket:\"latency\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement == \"latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/ and not math.isNaN(f: r._value))  |> aggregateWindow(every: 1m, fn: min, createEmpty:false) |> group(columns:[\"target\", \"_time\"])\n  |> min() |> group(columns:[\"target\"])\n  |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 }))\n  |> rename(columns:{_value: \"min\"})\n  |> keep(columns:[\"_time\", \"min\"])\n  |> yield(name:\"min\")"
+        },
+        {
+          "refId": "H",
+          "queryType": "flux",
+          "query": "import \"math\"\nfrom(bucket:\"latency\")  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement == \"latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/ and not math.isNaN(f: r._value))\n  |> aggregateWindow(every: 1m, fn: max, createEmpty:false)\n  |> group(columns:[\"target\", \"_time\"])\n  |> max()\n  |> group(columns:[\"target\"])\n  |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 }))\n  |> rename(columns:{_value: \"max\"})\n  |> keep(columns:[\"_time\", \"max\"])\n  |> yield(name:\"max\")"
+        },
+        {
+          "refId": "I",
+          "queryType": "flux",
+          "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target == \"[[target]]\" and r._field == \"loss\") |> aggregateWindow(every:15m, fn: mean, createEmpty:true) |> map(fn:(r)=> ({ r with _value: if r._value >= 1.0 then 500.0 else 0.0 })) |> filter(fn:(r)=> r._value > 0) |> set(key:\"_field\", value:\"unreachable\") |> yield(name:\"unreachable\")"
+        }
+      ]
     }
   ]
-}
-
-]
 }

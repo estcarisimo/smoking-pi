@@ -26,7 +26,18 @@ cd minimal
 docker-compose up -d
 ```
 - SmokePing: http://localhost:8081
-- Web Admin: http://localhost:8080
+- Web Admin: http://localhost:8080 (YAML-based configuration)
+
+### With Database Integration (Optional)
+```bash
+cd minimal
+# Uncomment web-admin, config-manager, and postgres services in docker-compose.yml
+# Add DATABASE_URL environment variable
+docker-compose up -d
+```
+- SmokePing: http://localhost:8081
+- Web Admin: http://localhost:8080 (Database-first with active/inactive controls)
+- PostgreSQL: localhost:5432 (Database for centralized target management)
 
 ## 📋 Table of Contents
 
@@ -92,10 +103,19 @@ docker-compose up -d
 - Web Admin: http://localhost:8080
 
 ### What Web Admin Provides
+
+#### YAML Mode (Basic)
 - **Target Management**: Add/remove monitoring targets
 - **Configuration**: YAML-based configuration editing
 - **Site Discovery**: Netflix OCA, Tranco, Chrome UX top sites
 - **Restart Control**: Restart SmokePing after configuration changes
+
+#### Database Mode (Advanced)
+- **PostgreSQL Integration**: Centralized target management in database
+- **Active/Inactive Status**: Toggle targets without deletion
+- **Migration Tools**: Seamless YAML-to-database migration
+- **RESTful API**: Full CRUD operations for target management
+- **Real-time Configuration**: Automatic SmokePing config generation from database
 
 ---
 
@@ -109,6 +129,10 @@ TZ=America/New_York
 
 # Web Admin Interface (if enabled)
 SECRET_KEY=your-secure-secret-key
+
+# Database Integration (optional)
+DATABASE_URL=postgresql://smokeping:password@postgres:5432/smokeping_targets
+POSTGRES_PASSWORD=your-secure-db-password
 ```
 
 ### Custom SmokePing Config
@@ -198,22 +222,33 @@ docker-compose down -v
 | SmokePing | ✅ | ✅ |
 | Web Admin | Optional | ✅ |
 | Config Manager | Optional | ✅ |
+| PostgreSQL Database | Optional | ✅ |
+| Active/Inactive Status | Optional | ✅ |
+| Database Migration | Optional | ✅ |
 | InfluxDB | ❌ | ✅ |
 | Grafana | ❌ | ✅ |
-| Resource Usage | Low | High |
-| Use Case | Basic monitoring | Advanced analytics |
+| PostgreSQL Template Variables | ❌ | ✅ |
+| Resource Usage | Low-Medium | High |
+| Use Case | Basic-Advanced monitoring | Professional monitoring |
 
 ### When to Use Minimal
-- Limited resources (Raspberry Pi)
-- Simple latency monitoring needs
-- No advanced visualization requirements
-- Want traditional SmokePing RRD graphs
+- **Limited resources** (basic Raspberry Pi)
+- **Simple to advanced** latency monitoring needs (with optional database)
+- **Traditional SmokePing** RRD graphs preferred
+- **Flexible scaling**: Start simple, add database features as needed
 
 ### When to Use Full Stack
-- Need advanced dashboards
-- Historical data analysis
-- Multiple monitoring integrations
-- Professional monitoring setup
+- **Professional monitoring** with advanced dashboards
+- **Historical data analysis** with InfluxDB and Grafana
+- **Template-driven dashboards** with PostgreSQL integration
+- **Complete monitoring solution** out-of-the-box
+
+### Database Integration Benefits (Both Variants)
+- **Active/Inactive Control**: Toggle targets without deletion
+- **Centralized Management**: Single database for all target configuration
+- **Migration Support**: Seamless transition from YAML to database
+- **RESTful API**: Programmatic target management
+- **Real-time Configuration**: Automatic SmokePing config generation
 
 ---
 

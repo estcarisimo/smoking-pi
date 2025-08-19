@@ -1,5 +1,6 @@
 # Environment file with passwords
 .env
+.passwords-generated
 
 # Docker volumes data
 *-data/

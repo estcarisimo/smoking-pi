@@ -6,6 +6,8 @@ Handles first-run setup and config file recovery per TODO-218.md
 
 import logging
 import shutil
+import subprocess
+import sys
 import yaml
 from datetime import datetime
 from pathlib import Path
@@ -95,6 +97,40 @@ class ConfigBootstrap:
             
         except Exception as e:
             logger.error(f"Failed to copy template {config_name}: {e}")
+            return False
+    
+    def generate_smokeping_config(self) -> bool:
+        """Generate SmokePing configuration files using config generator"""
+        try:
+            logger.info("Generating SmokePing configuration files...")
+            
+            # Run config generator with deployment to grafana-influx
+            result = subprocess.run([
+                sys.executable, 
+                str(BASE_DIR / "scripts" / "config_generator.py"),
+                "--deploy-to", "grafana-influx"
+            ], 
+            cwd=BASE_DIR,
+            capture_output=True, 
+            text=True, 
+            timeout=60
+            )
+            
+            if result.returncode == 0:
+                logger.info("Successfully generated and deployed SmokePing configuration")
+                logger.debug(f"Config generator output: {result.stdout}")
+                return True
+            else:
+                logger.error(f"Config generator failed: {result.stderr}")
+                logger.error(f"Return code: {result.returncode}")
+                logger.error(f"Stdout: {result.stdout}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error("Config generator timed out after 60 seconds")
+            return False
+        except Exception as e:
+            logger.error(f"Error running config generator: {e}")
             return False
     
     def update_targets_metadata(self) -> None:
@@ -190,6 +226,13 @@ class ConfigBootstrap:
         
         if success_count == total_count:
             logger.info(f"Bootstrap completed successfully ({success_count}/{total_count} configs OK)")
+            
+            # Generate SmokePing configuration
+            if self.generate_smokeping_config():
+                logger.info("SmokePing configuration generated and deployed successfully")
+            else:
+                logger.warning("SmokePing configuration generation failed, but bootstrap was successful")
+                
             return True
         else:
             logger.error(f"Bootstrap completed with errors ({success_count}/{total_count} configs OK)")

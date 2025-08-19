@@ -8,10 +8,18 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     docker.io \
+    whois \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone Netflix OCA Locator repository to /app/oca-locator (for direct usage)
 RUN git clone https://github.com/estcarisimo/Netflix-OCA-Servers-Locator.git /app/oca-locator
+
+# Install Netflix OCA Locator dependencies
+WORKDIR /app/oca-locator
+RUN pip install --no-cache-dir -e .
+
+# Return to main app directory  
+WORKDIR /app
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
@@ -23,6 +31,7 @@ COPY templates/ ./templates/
 COPY scripts/ ./scripts/
 COPY test_*.py ./
 COPY api.py ./
+COPY models.py ./
 
 # Make scripts executable
 RUN chmod +x scripts/*.py

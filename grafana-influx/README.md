@@ -4,23 +4,24 @@
   <img src="../img/logo.jpg" alt="Smoking Pi Logo" width="150"/>
 </div>
 
-Complete network monitoring solution with **SmokePing**, **InfluxDB**, **Grafana**, **Web Admin**, and **Config Manager** – all containerized with zero-touch deployment and enhanced DNS monitoring.
+Complete network monitoring solution with **SmokePing**, **InfluxDB**, **Grafana**, **PostgreSQL**, **Web Admin**, and **Config Manager** – all containerized with database-first architecture, zero-touch deployment, and enhanced DNS monitoring.
 
 ## 🎯 What's Included
 
 * **SmokePing** – Core latency monitoring with RRD data collection and DNS resolution timing
 * **InfluxDB 2.x** – Modern time-series database with dual measurements (`latency` + `dns_latency`)
-* **Grafana** – Professional dashboards with 3 organized folders and percentile analysis
-* **Web Admin** – Target management interface with bulk operations and auto-discovery
-* **Config Manager** – Automated YAML-based configuration system
-* **RRD→InfluxDB Exporter** – Real-time data synchronization for all 37+ targets
+* **Grafana** – Professional dashboards with PostgreSQL-driven template variables and percentile analysis
+* **PostgreSQL** – Centralized target management database with normalized schema and active/inactive status
+* **Web Admin** – Database-first target management interface with bulk operations and migration tools
+* **Config Manager** – Database-aware configuration system with automatic YAML fallback
+* **RRD→InfluxDB Exporter** – Real-time data synchronization for all target categories
 
 ## 🚀 Quick Start
 
 ```bash
 cd grafana-influx
-./init-passwords.sh     # Generate secure credentials
-docker-compose up -d    # Deploy full stack
+./init-passwords-docker.sh  # Generate secure credentials (including PostgreSQL)
+docker-compose up -d         # Deploy full stack with PostgreSQL database
 ```
 
 **Access Points:**
@@ -31,6 +32,14 @@ docker-compose up -d    # Deploy full stack
 
 ## ✨ Latest Improvements
 
+### 🆕 **PostgreSQL Database Integration**
+- **Database-First Architecture**: All targets stored in normalized PostgreSQL database with proper relationships
+- **Active/Inactive Status**: Toggle targets on/off without deletion, with web interface controls
+- **Seamless Migration**: Zero-downtime migration from existing YAML configurations to database
+- **RESTful API**: Full CRUD operations for programmatic target management with validation
+- **Hybrid Fallback**: Intelligent detection with automatic YAML compatibility mode
+- **Grafana Integration**: Dashboard template variables now populate directly from PostgreSQL
+
 ### **Enhanced Dashboard Organization**
 - **3 Separate Folders**: Side-by-Side Pings, Individual Pings, DNS Resolution Times
 - **Template Variable Fixes**: Dashboard dropdowns now properly populate with target names
@@ -39,7 +48,7 @@ docker-compose up -d    # Deploy full stack
 ### **Robust Data Pipeline**
 - **Dual Measurements**: `latency` measurement for ping data, `dns_latency` for DNS resolution
 - **Complete Export Coverage**: Handles all target categories (TopSites, Custom, Netflix, DNS)
-- **Real-time Synchronization**: Python exporter processes all 37+ RRD files every 60 seconds
+- **Real-time Synchronization**: Python exporter processes all RRD files every 60 seconds
 
 ### **DNS Resolution Monitoring**
 - **Multiple Resolvers**: Google DNS, Cloudflare, Quad9 with dedicated dashboard
@@ -93,28 +102,37 @@ docker-compose ps
 ## 2. Architecture
 
 ```text
+                    🔐 Init-Passwords (setup)
+                    │ Generates credentials:
+                    │ • INFLUX_TOKEN
+                    │ • POSTGRES_PASSWORD  
+                    │ • SECRET_KEY
+                    │ • DOCKER_INFLUXDB_INIT_PASSWORD
+                    ▼
 ┌─────────────┐  Config YAML   ┌──────────────┐
 │Config Manager│──────────────▶│  SmokePing   │─┐
 └─────────────┘                │   (8081)     │ │
        ▲                       └──────────────┘ │
-       │                              │         │ RRD files
-┌─────────────┐                       │         │
-│ Web Admin   │◀──────────────────────┘         ▼
-│   (8080)    │                       ┌──────────────┐  Flux queries  ┌─────────────┐
-└─────────────┘                       │ InfluxDB 2.x │──────────────▶│  Grafana    │
-                                      │   (8086)     │                │  (3000)     │
-                                      └──────────────┘                └─────────────┘
-                                            ▲                                ▲
-                                            │ exporter.py                    │
-                                            └────────────────────────────────┘
+       │ Database-first               │         │ RRD files
+       │                              │         │
+┌─────────────┐   ┌──────────────┐    │         ▼
+│ Web Admin   │──▶│ PostgreSQL   │    │ ┌──────────────┐  Flux queries  ┌─────────────┐
+│   (8080)    │   │   (5432)     │    │ │ InfluxDB 2.x │──────────────▶│  Grafana    │
+└─────────────┘   └──────────────┘    │ │   (8086)     │                │  (3000)     │
+                         ▲             │ └──────────────┘                └─────────────┘
+                         │             │       ▲                                ▲
+                         └─────────────┘       │ exporter.py               │ PostgreSQL
+                                               └───────────────────────────┘ Template Vars
 ```
 
 ### 🔄 Data Flow
-1. **Configuration**: Config Manager generates SmokePing targets from YAML
-2. **Collection**: SmokePing probes targets every 5 minutes → RRD storage
-3. **Export**: Python exporter monitors RRD changes → pushes to InfluxDB
-4. **Visualization**: Grafana queries InfluxDB with Flux → professional dashboards
-5. **Management**: Web Admin interface manages targets → triggers config regeneration
+1. **Database Management**: PostgreSQL stores all monitoring targets with active/inactive status and metadata
+2. **Dynamic Configuration**: Config manager generates SmokePing config from database in real-time
+3. **Template Variables**: Grafana dashboards populate dropdowns directly from PostgreSQL
+4. **Network Probing**: SmokePing monitors only active targets every 5 minutes → RRD storage
+5. **Data Export**: Python exporter monitors RRD changes → pushes to InfluxDB with target categorization
+6. **Professional Visualization**: Grafana dashboards with database-driven analytics and filtering
+7. **Management**: Web Admin interface manages database targets → triggers automatic config regeneration
 
 ### 🎯 Key Features
 - **Zero-Touch Deployment**: Automated setup with secure credential generation
@@ -389,6 +407,8 @@ providers:
 | `INFLUX_TOKEN`  | API token with write perms      | Generated by `init-passwords.sh` |
 | `INFLUX_ORG`    | InfluxDB organisation           | `smokingpi`                  |
 | `INFLUX_BUCKET` | Bucket name                     | `latency`                    |
+| `DATABASE_URL`  | PostgreSQL connection string    | `postgresql://smokeping:${POSTGRES_PASSWORD}@postgres:5432/smokeping_targets` |
+| `POSTGRES_PASSWORD` | PostgreSQL database password | Generated by `init-passwords.sh` |
 | `RRD_DIR`       | Where SmokePing stores RRDs     | `/var/lib/smokeping`         |
 | `TZ`            | Timezone for all services       | `UTC` (auto-detected)        |
 | `SECRET_KEY`    | Flask web admin secret key      | `change-me-in-production`    |
@@ -408,6 +428,10 @@ INFLUX_URL=http://influxdb:8086
 INFLUX_TOKEN=<generated-secure-token>
 INFLUX_ORG=smokingpi
 INFLUX_BUCKET=latency
+
+# PostgreSQL database
+DATABASE_URL=postgresql://smokeping:${POSTGRES_PASSWORD}@postgres:5432/smokeping_targets
+POSTGRES_PASSWORD=<generated-secure-password>
 
 # SmokePing RRD directory
 RRD_DIR=/var/lib/smokeping
