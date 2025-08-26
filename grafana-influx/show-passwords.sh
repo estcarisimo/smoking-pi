@@ -87,8 +87,13 @@ echo
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${WHITE}🌐 Grafana Credentials${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "  ${PURPLE}Username:${NC}     admin"
-echo -e "  ${PURPLE}Password:${NC}     admin ${YELLOW}(change on first login!)${NC}"
+echo -e "  ${PURPLE}Username:${NC}     ${GF_SECURITY_ADMIN_USER:-admin}"
+if [ -n "$GF_SECURITY_ADMIN_PASSWORD" ]; then
+    echo -e "  ${PURPLE}Password:${NC}     ${YELLOW}${GF_SECURITY_ADMIN_PASSWORD}${NC}"
+else
+    echo -e "  ${PURPLE}Password:${NC}     admin ${YELLOW}(default - change on first login!)${NC}"
+    echo -e "  ${RED}⚠️  Run ./init-passwords-docker.sh to generate secure password${NC}"
+fi
 
 echo
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -110,6 +115,17 @@ echo
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${WHITE}🔧 Web Admin Interface${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  ${PURPLE}Login URL:${NC}    http://localhost:8080/auth/login"
+if [ -n "$WEB_ADMIN_USERNAME" ]; then
+    echo -e "  ${PURPLE}Username:${NC}     ${YELLOW}${WEB_ADMIN_USERNAME}${NC}"
+else
+    echo -e "  ${PURPLE}Username:${NC}     admin ${YELLOW}(default)${NC}"
+fi
+if [ -n "$WEB_ADMIN_PASSWORD" ]; then
+    echo -e "  ${PURPLE}Password:${NC}     ${YELLOW}${WEB_ADMIN_PASSWORD}${NC}"
+else
+    echo -e "  ${RED}Password:     Not set in .env file${NC}"
+fi
 if [ -n "$SECRET_KEY" ]; then
     echo -e "  ${PURPLE}Secret Key:${NC}   ${YELLOW}$SECRET_KEY${NC}"
 else

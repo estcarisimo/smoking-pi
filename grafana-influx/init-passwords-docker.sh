@@ -60,6 +60,9 @@ if [ "$need_generation" = "true" ]; then
     INFLUX_TOKEN=$(generate_password 32)
     SECRET_KEY=$(generate_password 48)
     POSTGRES_PASSWORD=$(generate_password 32)
+    WEB_ADMIN_PASSWORD=$(generate_password 32)
+    GRAFANA_ADMIN_PASSWORD=$(generate_password 32)
+    GRAFANA_SECRET_KEY=$(generate_password 48)
     
     # Detect timezone
     echo "🌍 Detecting system timezone..."
@@ -94,6 +97,13 @@ TZ=${DETECTED_TZ}
 
 # Web Admin Interface
 SECRET_KEY=${SECRET_KEY}
+WEB_ADMIN_USERNAME=admin
+WEB_ADMIN_PASSWORD=${WEB_ADMIN_PASSWORD}
+
+# Grafana admin credentials
+GF_SECURITY_ADMIN_USER=admin
+GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+GF_SECURITY_SECRET_KEY=${GRAFANA_SECRET_KEY}
 
 # -------------------------------------------------------------------
 # IMPORTANT: This file contains sensitive information.
@@ -111,7 +121,10 @@ EOF
     echo "   InfluxDB Password: ${INFLUX_PASSWORD:0:8}..."
     echo "   InfluxDB Token: ${INFLUX_TOKEN:0:8}..."
     echo "   PostgreSQL Password: ${POSTGRES_PASSWORD:0:8}..."
-    echo "   Secret Key: ${SECRET_KEY:0:8}..."
+    echo "   Web Admin Password: ${WEB_ADMIN_PASSWORD:0:8}..."
+    echo "   Grafana Password: ${GRAFANA_ADMIN_PASSWORD:0:8}..."
+    echo "   Grafana Secret Key: ${GRAFANA_SECRET_KEY:0:8}..."
+    echo "   Web Admin Secret Key: ${SECRET_KEY:0:8}..."
     echo ""
     echo "💡 Run ./show-passwords.sh to see full credentials"
     echo ""
@@ -126,7 +139,13 @@ Timezone: ${DETECTED_TZ}
 
 InfluxDB Admin Password: ${INFLUX_PASSWORD}
 InfluxDB API Token: ${INFLUX_TOKEN}
+PostgreSQL Password: ${POSTGRES_PASSWORD}
+Web Admin Username: admin
+Web Admin Password: ${WEB_ADMIN_PASSWORD}
 Web Admin Secret Key: ${SECRET_KEY}
+Grafana Admin Username: admin
+Grafana Admin Password: ${GRAFANA_ADMIN_PASSWORD}
+Grafana Secret Key: ${GRAFANA_SECRET_KEY}
 
 Save these credentials securely!
 This file will be deleted after first viewing.

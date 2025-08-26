@@ -36,15 +36,17 @@ Professional monitoring with Grafana dashboards, InfluxDB time-series database, 
 
 ```bash
 cd grafana-influx/
-./init-passwords.sh     # Generate secure credentials
-docker-compose up -d    # Deploy full stack
+./init-passwords-docker.sh     # Generate secure credentials
+docker-compose up -d            # Deploy full stack
 ```
 
 **Access Points:**
-- **Grafana**: http://localhost:3000 (admin/admin) - Professional dashboards
-- **Web Admin**: http://localhost:8080 - Target management interface  
+- **Grafana**: http://localhost:3000 (secure auto-generated password) - Professional dashboards
+- **Web Admin**: http://localhost:8080 (secure auto-generated password) - Target management interface  
 - **SmokePing**: http://localhost:8081 - Classic SmokePing interface
 - **InfluxDB**: http://localhost:8086 - Time-series database
+
+> 💡 **View credentials**: Run `./show-passwords.sh` to see all auto-generated passwords
 
 ### Option B: Minimal Setup
 Single-container deployment ideal for Raspberry Pi or resource-constrained environments.
@@ -98,11 +100,11 @@ docker run -d --name smokeping -p 80:80 smokeping:mini
 ```
 
 **7 Container Architecture (6 main + setup):**
-- **Init-Passwords**: Secure credential generation (runs first, then exits)
+- **Init-Passwords**: Secure credential generation with auto-generated passwords for all services
 - **SmokePing**: Network latency probing (FPing + DNS + RRD export)
 - **InfluxDB**: Modern time-series database for historical analysis
-- **Grafana**: Professional dashboards with percentile analysis
-- **Web Admin**: Target management interface with site discovery
+- **Grafana**: Professional dashboards with auto-generated admin password and secure cookie signing
+- **Web Admin**: Target management interface with auto-generated secure credentials
 - **Config Manager**: Database-aware configuration generation and deployment
 - **PostgreSQL**: Centralized target management and metadata storage
 

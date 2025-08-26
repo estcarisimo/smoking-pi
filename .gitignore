@@ -11,6 +11,10 @@
 .env.*.local
 *.env
 
+# Password generation artifacts
+.passwords-generated
+.env.backup.*
+
 # Docker secrets & passwords
 docker-secrets/
 secrets/

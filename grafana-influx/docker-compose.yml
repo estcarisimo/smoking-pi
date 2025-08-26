@@ -1,19 +1,6 @@
 version: '3.9'
 
 services:
-  # Zero-touch password initialization service
-  init-passwords:
-    image: alpine:latest
-    volumes:
-      - .:/workspace
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
-    entrypoint: ["/bin/sh", "-c"]
-    command: |
-      "apk add --no-cache openssl && \
-       sh /workspace/init-passwords-docker.sh"
-    restart: "no"
-
   smokeping:
     build: ./smokeping
     network_mode: host
@@ -30,7 +17,6 @@ services:
       RRD_DIR: ${RRD_DIR}
       TZ: ${TZ:-UTC}
     depends_on:
-      - init-passwords
       - influxdb
 
   influxdb:
@@ -44,13 +30,11 @@ services:
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}
+      DOCKER_INFLUXDB_INIT_PASSWORD: "${DOCKER_INFLUXDB_INIT_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG}
       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUX_TOKEN:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       TZ: ${TZ:-UTC}
-    depends_on:
-      - init-passwords
 
   grafana:
     build: ./grafana
@@ -66,12 +50,14 @@ services:
       INFLUX_TOKEN: ${INFLUX_TOKEN}
       INFLUX_BUCKET: ${INFLUX_BUCKET}
       INFLUX_ORG: ${INFLUX_ORG}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       GF_LOG_LEVEL: debug
       GF_PROVISIONING_LOG_LEVEL: debug
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
+      GF_SECURITY_SECRET_KEY: "${GF_SECURITY_SECRET_KEY:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       TZ: ${TZ:-UTC}
     depends_on:
-      - init-passwords
       - influxdb
 
   web-admin:
@@ -89,13 +75,14 @@ services:
       FLASK_ENV: production
       HOST: 0.0.0.0
       PORT: 8080
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      SECRET_KEY: "${SECRET_KEY:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
+      WEB_ADMIN_USERNAME: ${WEB_ADMIN_USERNAME:-admin}
+      WEB_ADMIN_PASSWORD: "${WEB_ADMIN_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       TZ: ${TZ:-UTC}
       SMOKEPING_RESTART_CMD: docker-compose restart smokeping
       # PostgreSQL connection
-      DATABASE_URL: postgresql://smokeping:${POSTGRES_PASSWORD}@postgres:5432/smokeping_targets
+      DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}@postgres:5432/smokeping_targets"
     depends_on:
-      - init-passwords
       - smokeping
       - config-manager
       - postgres
@@ -118,9 +105,8 @@ services:
       OUTPUT_DIR: /app/output
       TZ: ${TZ:-UTC}
       # PostgreSQL connection
-      DATABASE_URL: postgresql://smokeping:${POSTGRES_PASSWORD}@postgres:5432/smokeping_targets
+      DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}@postgres:5432/smokeping_targets"
     depends_on:
-      - init-passwords
       - postgres
 
   postgres:
@@ -135,10 +121,8 @@ services:
     environment:
       POSTGRES_DB: smokeping_targets
       POSTGRES_USER: smokeping
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       TZ: ${TZ:-UTC}
-    depends_on:
-      - init-passwords
 
 volumes:
   smokeping-data:
