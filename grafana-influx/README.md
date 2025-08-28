@@ -20,8 +20,9 @@ Complete network monitoring solution with **SmokePing**, **InfluxDB**, **Grafana
 
 ```bash
 cd grafana-influx
-./init-passwords-docker.sh  # Generate secure credentials (including PostgreSQL)
-docker-compose up -d         # Deploy full stack with PostgreSQL database
+./init-passwords-docker.sh  # 1. Generate secure credentials (required first!)
+docker-compose up -d         # 2. Deploy full stack (will fail without step 1)
+./show-passwords.sh         # 3. View all generated credentials
 ```
 
 **Access Points:**
@@ -83,14 +84,19 @@ docker-compose up -d         # Deploy full stack with PostgreSQL database
 git clone https://github.com/estcarisimo/smoking-pi.git
 cd smoking-pi/grafana-influx
 
-# Generate secure credentials and auto-detect timezone
+# STEP 1: Generate secure credentials (REQUIRED - run this first!)
 ./init-passwords-docker.sh
+# This creates .env file with auto-generated passwords
 
-# Deploy full stack
+# STEP 2: Deploy full stack
 docker-compose up -d
+# Note: Will fail with clear error if passwords not generated
 
-# Check deployment status
+# STEP 3: Check deployment status
 docker-compose ps
+
+# STEP 4: View credentials
+./show-passwords.sh
 ```
 
 ### Verify Services
@@ -104,15 +110,16 @@ docker-compose ps
 ## 2. Architecture
 
 ```text
-                    🔐 Init-Passwords (setup)
-                    │ Generates credentials:
-                    │ • INFLUX_TOKEN
-                    │ • POSTGRES_PASSWORD  
-                    │ • SECRET_KEY
-                    │ • DOCKER_INFLUXDB_INIT_PASSWORD
-                    │ • GF_SECURITY_ADMIN_PASSWORD
-                    │ • GF_SECURITY_SECRET_KEY
-                    ▼
+        🔐 User runs: ./init-passwords-docker.sh
+        │ (Generates secure credentials in .env file)
+        │ • INFLUX_TOKEN
+        │ • POSTGRES_PASSWORD  
+        │ • SECRET_KEY
+        │ • DOCKER_INFLUXDB_INIT_PASSWORD
+        │ • GF_SECURITY_ADMIN_PASSWORD
+        │ • GF_SECURITY_SECRET_KEY
+        │ • WEB_ADMIN_PASSWORD
+        ▼
 ┌─────────────┐  Config YAML   ┌──────────────┐
 │Config Manager│──────────────▶│  SmokePing   │─┐
 └─────────────┘                │   (8081)     │ │
@@ -170,7 +177,7 @@ grafana-influx/
 │         ├─ smokeping_latency_compare.json
 │         └─ smokeping_resolvers.json
 ├─ docker-compose.yml
-├─ init-passwords-docker.sh     # Password generation script
+├─ init-passwords-docker.sh     # User-run password generation script (run first!)
 ├─ .env.template         # Environment template
 ├─ .gitignore           # Prevents committing secrets
 └─ README.md            # you‑are‑here
@@ -425,7 +432,7 @@ providers:
 
 Set them in **`docker-compose.yml`** or in `.env`.
 
-> **⚠️ Security Note:** Always run `./init-passwords-docker.sh` before deploying to generate secure random passwords. The `.env` file is gitignored to prevent accidental commits of secrets.
+> **⚠️ Security Note:** You MUST run `./init-passwords-docker.sh` before deploying. Docker Compose will fail to start without this step, ensuring secure random passwords are always generated. The `.env` file is gitignored to prevent accidental commits of secrets.
 
 ### Complete `.env` file (copy‑me)
 

@@ -90,7 +90,7 @@ docker run -d --name smokeping -p 80:80 smokeping:mini
 
 ### Full Stack Components
 ```
-🔐 Init-Passwords (setup) → Generates secure credentials
+🔐 User runs: ./init-passwords-docker.sh → Generates secure credentials
                                     ↓
 🌐 Network Targets → 📊 SmokePing → 💾 InfluxDB → 📈 Grafana
                                   ↗
@@ -99,14 +99,15 @@ docker run -d --name smokeping -p 80:80 smokeping:mini
                       🗄️ PostgreSQL Database
 ```
 
-**7 Container Architecture (6 main + setup):**
-- **Init-Passwords**: Secure credential generation with auto-generated passwords for all services
+**6 Container Architecture:**
 - **SmokePing**: Network latency probing (FPing + DNS + RRD export)
 - **InfluxDB**: Modern time-series database for historical analysis
 - **Grafana**: Professional dashboards with auto-generated admin password and secure cookie signing
 - **Web Admin**: Target management interface with auto-generated secure credentials
 - **Config Manager**: Database-aware configuration generation and deployment
 - **PostgreSQL**: Centralized target management and metadata storage
+
+> 🔐 **Security First**: Run `./init-passwords-docker.sh` before deployment to generate secure passwords for all services
 
 ### Data Flow
 1. **Target Management**: PostgreSQL database stores all monitoring targets and metadata

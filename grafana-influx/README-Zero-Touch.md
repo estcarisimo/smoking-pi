@@ -1,16 +1,23 @@
-# True Zero-Touch IPv6/IPv4 Deployment
+# Secure Zero-Touch IPv6/IPv4 Deployment
 
-This SmokePing deployment automatically detects and configures IPv6 support **at runtime** with no setup scripts required.
+This SmokePing deployment provides secure password generation combined with automatic IPv6 detection and configuration at runtime.
 
-## 🚀 Zero-Touch Quick Start
+## 🚀 Quick Start (Two-Step Security)
 
 ```bash
-# That's it - truly zero-touch!
+# Step 1: Generate secure passwords (REQUIRED)
+./init-passwords-docker.sh
+
+# Step 2: Deploy the stack
 docker-compose up -d
+
+# Step 3: View your credentials
+./show-passwords.sh
 ```
 
-No scripts to run, no configuration to modify, no environment detection needed. The system automatically:
+The system automatically:
 
+- 🔐 **Generates secure passwords** for all services (InfluxDB, Grafana, PostgreSQL, Web Admin)
 - ✅ **Detects IPv6 at container startup** (not at build time)
 - ✅ **Tests global IPv6 connectivity** to ensure functionality  
 - ✅ **Dynamically enables/disables FPing6 probe** based on capability
@@ -50,13 +57,14 @@ The container entrypoint automatically:
 
 ## 📊 Benefits
 
-### True Zero-Touch
-- **No setup scripts** - Just `docker-compose up -d`
-- **No configuration files** to modify
-- **No environment variables** to set
-- **No network planning** required
+### Secure Zero-Touch Benefits
+- **Secure by default** - All passwords auto-generated, no defaults
+- **Fail-safe deployment** - Docker won't start without password generation
+- **No configuration files** to modify for IPv6/network setup
+- **No manual environment variables** - All generated automatically
+- **No network planning** required - Auto-detects capabilities
 - **No database setup** - PostgreSQL schema auto-created
-- **No data migration** - Existing YAML configs migrate automatically
+- **No data migration scripts** - Existing YAML configs migrate automatically
 
 ### Environment Portability  
 - **Same docker-compose.yml** works everywhere

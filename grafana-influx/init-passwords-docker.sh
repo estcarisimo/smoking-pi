@@ -1,12 +1,12 @@
 #!/bin/sh
-# Zero-touch password initialization script
-# Runs inside Alpine container to generate passwords if needed
+# Password initialization script for SmokePing stack
+# Run this script BEFORE starting docker-compose
 
 set -e
 
-ENV_FILE="/workspace/.env"
-ENV_TEMPLATE="/workspace/.env.template"
-ENV_BACKUP="/workspace/.env.backup"
+ENV_FILE="./.env"
+ENV_TEMPLATE="./.env.template"
+ENV_BACKUP="./.env.backup"
 
 # Function to generate secure random string
 generate_password() {
@@ -130,7 +130,7 @@ EOF
     echo ""
     
     # Also create a one-time display file for immediate viewing
-    cat > "/workspace/.passwords-generated" << EOF
+    cat > "./.passwords-generated" << EOF
 🎉 Zero-Touch Deployment Complete!
 =================================
 
@@ -151,7 +151,7 @@ Save these credentials securely!
 This file will be deleted after first viewing.
 EOF
     
-    chmod 600 "/workspace/.passwords-generated"
+    chmod 600 "./.passwords-generated"
 fi
 
 echo "✅ Initialization complete!"
