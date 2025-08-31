@@ -9,12 +9,59 @@ import subprocess
 from datetime import datetime
 import docker
 import re
+import requests
 from app.services.config_api import ConfigAPIGateway
 
 api_bp = Blueprint('api', __name__)
 
 # Initialize config API gateway
 config_api = ConfigAPIGateway()
+
+def get_smokeping_container_name():
+    """Get SmokePing container name from config-manager API"""
+    try:
+        # Query config-manager API
+        response = requests.get(
+            'http://config-manager:5000/api/containers/smokeping',
+            timeout=5
+        )
+        
+        if response.ok:
+            data = response.json()
+            if data.get('success'):
+                container_name = data.get('container_name')
+                current_app.logger.info(f"Got SmokePing container name from API: {container_name}")
+                return container_name
+        
+        current_app.logger.warning(f"Config-manager API returned error: {response.text}")
+        
+    except Exception as e:
+        current_app.logger.error(f"Failed to get container name from API: {e}")
+    
+    # Fallback to local resolution
+    current_app.logger.warning("Falling back to local container resolution")
+    try:
+        client = docker.from_env()
+        
+        # Try common patterns
+        patterns = [
+            'grafana-influx-smokeping-1',  # Compose v2
+            'grafana-influx_smokeping_1',   # Compose v1
+            'smokeping',                    # Custom name
+        ]
+        
+        for pattern in patterns:
+            try:
+                client.containers.get(pattern)
+                return pattern
+            except docker.errors.NotFound:
+                continue
+                
+    except Exception as local_error:
+        current_app.logger.error(f"Local fallback also failed: {local_error}")
+    
+    # Ultimate fallback
+    return 'grafana-influx_smokeping_1'
 
 @api_bp.route('/status')
 def get_status():
@@ -175,7 +222,7 @@ def get_smokeping_logs():
         # Try Docker SDK first
         try:
             client = docker.from_env()
-            container = client.containers.get('grafana-influx-smokeping-1')
+            container = client.containers.get(get_smokeping_container_name())
             
             # Get last 200 lines of logs
             logs = container.logs(tail=200, timestamps=True).decode('utf-8')
@@ -212,7 +259,7 @@ def get_smokeping_logs():
             current_app.logger.warning(f"Docker SDK error: {type(docker_error).__name__}: {str(docker_error)}")
             # Fallback to docker CLI
             result = subprocess.run([
-                'docker', 'logs', '--tail', '200', '-t', 'grafana-influx-smokeping-1'
+                'docker', 'logs', '--tail', '200', '-t', get_smokeping_container_name()
             ], capture_output=True, text=True)
             
             if result.returncode != 0:
@@ -238,7 +285,7 @@ def get_smokeping_logs():
             
             # Get container status via CLI
             status_result = subprocess.run([
-                'docker', 'inspect', '-f', '{{.State.Status}}', 'grafana-influx-smokeping-1'
+                'docker', 'inspect', '-f', '{{.State.Status}}', get_smokeping_container_name()
             ], capture_output=True, text=True)
             
             status = status_result.stdout.strip() if status_result.returncode == 0 else 'unknown'
@@ -265,7 +312,7 @@ def restart_smokeping():
         # Try Docker SDK first
         try:
             client = docker.from_env()
-            container = client.containers.get('grafana-influx-smokeping-1')
+            container = client.containers.get(get_smokeping_container_name())
             
             # Restart the container
             container.restart()
@@ -280,7 +327,7 @@ def restart_smokeping():
             current_app.logger.warning(f"Docker SDK error on restart: {type(docker_error).__name__}: {str(docker_error)}")
             # Fallback to docker CLI
             result = subprocess.run([
-                'docker', 'restart', 'grafana-influx-smokeping-1'
+                'docker', 'restart', get_smokeping_container_name()
             ], capture_output=True, text=True)
             
             if result.returncode != 0:

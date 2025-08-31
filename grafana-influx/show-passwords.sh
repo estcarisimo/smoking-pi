@@ -203,7 +203,7 @@ echo -e "${YELLOW}PostgreSQL Commands:${NC}"
 echo -e "  ${CYAN}Database status:${NC}  curl -s http://localhost:5000/status"
 echo -e "  ${CYAN}List targets:${NC}     curl -s http://localhost:5000/targets"
 echo -e "  ${CYAN}Toggle target:${NC}    curl -X POST http://localhost:5000/targets/{id}/toggle"
-echo -e "  ${CYAN}Run migration:${NC}    docker exec grafana-influx-config-manager-1 python3 /app/scripts/migrate_yaml_to_db.py"
+echo -e "  ${CYAN}Run migration:${NC}    docker exec \$(curl -s http://localhost:5000/api/containers/config-manager | grep -o '\"container_name\":\"[^\"]*\"' | cut -d'\"' -f4) python3 /app/scripts/migrate_yaml_to_db.py"
 
 echo
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

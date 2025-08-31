@@ -12,6 +12,8 @@ from typing import Dict, Any, Optional, List
 import yaml
 import subprocess
 import time
+import os
+import docker
 
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
@@ -799,6 +801,118 @@ def get_probes():
         return jsonify({'error': str(e)}), 500
 
 
+# Container resolution endpoints
+def resolve_container_name(service_name: str) -> str:
+    """Resolve actual container name for a compose service"""
+    try:
+        client = docker.from_env()
+        
+        # First, try to find by service label
+        for container in client.containers.list():
+            if container.labels.get('com.docker.compose.service') == service_name:
+                return container.name
+        
+        # Get project name from environment or use default
+        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'grafana-influx')
+        
+        # Try common naming patterns
+        patterns = [
+            f'{project_name}-{service_name}-1',  # Compose v2
+            f'{project_name}_{service_name}_1',   # Compose v1
+            service_name,                         # Custom container name
+        ]
+        
+        for pattern in patterns:
+            try:
+                client.containers.get(pattern)
+                return pattern
+            except docker.errors.NotFound:
+                continue
+                
+        # If still not found, look for any container with service name
+        for container in client.containers.list():
+            if service_name in container.name.lower():
+                return container.name
+                
+    except Exception as e:
+        logger.error(f"Error resolving container name for {service_name}: {str(e)}")
+        raise Exception(f"Container for service '{service_name}' not found")
+    
+    raise Exception(f"Container for service '{service_name}' not found")
+
+
+@app.route('/api/containers/<service_name>', methods=['GET'])
+def get_container_name(service_name):
+    """Get actual container name for a compose service"""
+    try:
+        container_name = resolve_container_name(service_name)
+        return jsonify({
+            'success': True,
+            'service': service_name,
+            'container_name': container_name
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'service': service_name,
+            'error': str(e)
+        }), 404
+
+
+@app.route('/api/containers', methods=['GET'])
+def list_containers():
+    """List all containers in the compose stack"""
+    try:
+        client = docker.from_env()
+        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'grafana-influx')
+        
+        containers = []
+        for container in client.containers.list():
+            # Check if container belongs to our compose project
+            if container.labels.get('com.docker.compose.project') == project_name or \
+               project_name in container.name:
+                containers.append({
+                    'name': container.name,
+                    'service': container.labels.get('com.docker.compose.service', 'unknown'),
+                    'status': container.status,
+                    'id': container.short_id
+                })
+        
+        return jsonify({
+            'success': True,
+            'project': project_name,
+            'containers': containers
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/containers/<service_name>/status', methods=['GET'])
+def get_container_status(service_name):
+    """Get status of a specific container"""
+    try:
+        container_name = resolve_container_name(service_name)
+        client = docker.from_env()
+        container = client.containers.get(container_name)
+        
+        return jsonify({
+            'success': True,
+            'service': service_name,
+            'container_name': container_name,
+            'status': container.status,
+            'health': container.attrs.get('State', {}).get('Health', {}).get('Status', 'none')
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'service': service_name,
+            'error': str(e)
+        }), 404
+
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Endpoint not found'}), 404
@@ -835,6 +949,12 @@ def api_documentation():
         <li><strong>POST /targets/{id}/toggle</strong> - Toggle target active status</li>
         <li><strong>GET /categories</strong> - Get all target categories</li>
         <li><strong>GET /probes</strong> - Get all probe configurations</li>
+    </ul>
+    <h2>Container Management Endpoints:</h2>
+    <ul>
+        <li><strong>GET /api/containers</strong> - List all containers in the stack</li>
+        <li><strong>GET /api/containers/{service}</strong> - Get actual container name for a service</li>
+        <li><strong>GET /api/containers/{service}/status</strong> - Get container status and health</li>
     </ul>
     <p>The API automatically detects whether to use PostgreSQL database or YAML files based on migration status.</p>
     <p>For detailed API documentation with schemas, run the api_docs.py server on port 5001</p>

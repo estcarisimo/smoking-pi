@@ -23,14 +23,27 @@ def get_smokeping_status():
     except Exception as e:
         current_app.logger.warning(f"Failed to get SmokePing status via API: {e}")
     
-    # Fallback to direct Docker command check
+    # Fallback to direct Docker command check using config-manager API
     try:
-        result = subprocess.run([
-            'docker', 'ps', '--filter', 'name=grafana-influx-smokeping-1', '--format', '{{.Names}}'
-        ], capture_output=True, text=True, timeout=10)
+        import requests
+        response = requests.get('http://config-manager:5000/api/containers/smokeping/status', timeout=5)
+        if response.ok:
+            data = response.json()
+            return data.get('success', False) and data.get('status') == 'running'
+    except Exception as api_error:
+        current_app.logger.warning(f"API fallback failed: {api_error}")
         
-        # Check if the command succeeded and the container name is in output
-        return result.returncode == 0 and 'grafana-influx-smokeping-1' in result.stdout
+        # Ultimate fallback to Docker command with pattern matching
+        try:
+            result = subprocess.run([
+                'docker', 'ps', '--filter', 'label=com.docker.compose.service=smokeping', '--format', '{{.Names}}'
+            ], capture_output=True, text=True, timeout=10)
+            
+            # Check if any smokeping container is running
+            return result.returncode == 0 and result.stdout.strip() != ""
+        except Exception as docker_error:
+            current_app.logger.error(f"Docker fallback failed: {docker_error}")
+            return False
     except Exception as e:
         current_app.logger.error(f"Failed to check SmokePing status: {e}")
         return False

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Password initialization script for SmokePing stack
 # Run this script BEFORE starting docker-compose
 

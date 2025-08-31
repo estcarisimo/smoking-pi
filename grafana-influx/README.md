@@ -76,7 +76,9 @@ docker-compose up -d         # 2. Deploy full stack (will fail without step 1)
 
 ### Prerequisites
 - Docker & Docker Compose installed
+- User added to docker group (or use sudo): `sudo usermod -aG docker $USER`
 - Ports 8080, 8081, 3000, 8086 available
+- Bash shell (for init-passwords-docker.sh script)
 
 ### Zero-Touch Setup
 ```bash
@@ -575,6 +577,15 @@ The shipped JSONs are seeds – duplicate & extend them via Grafana's UI: add lo
 - **Memory**: Increase Docker memory allocation for InfluxDB
 - **Storage**: Monitor disk usage - InfluxDB data grows over time
 - **Network**: High-frequency probing can impact network performance
+
+**Docker permission errors?**
+- *Permission denied*: Add user to docker group: `sudo usermod -aG docker $USER`
+- After adding to group: Log out and log back in for changes to take effect
+- Alternative: Run docker commands with `sudo`
+
+**Script errors?**
+- *Bad substitution*: Ensure you have bash installed (script requires bash, not sh)
+- *Container naming*: Web admin auto-detects container names for both Compose v1/v2
 
 ### Maintenance
 

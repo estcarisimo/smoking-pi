@@ -312,11 +312,15 @@ class ConfigGenerator:
                 # Deploy to Docker container
                 import subprocess
                 
+                # Get actual SmokePing container name
+                from api import resolve_container_name
+                smokeping_container = resolve_container_name('smokeping')
+                
                 # Copy Targets file to SmokePing container
                 targets_result = subprocess.run([
                     'docker', 'cp', 
                     str(OUTPUT_DIR / "Targets"),
-                    'grafana-influx-smokeping-1:/etc/smokeping/config.d/Targets'
+                    f'{smokeping_container}:/etc/smokeping/config.d/Targets'
                 ], capture_output=True, text=True, timeout=30)
                 
                 if targets_result.returncode != 0:
@@ -327,7 +331,7 @@ class ConfigGenerator:
                 probes_result = subprocess.run([
                     'docker', 'cp', 
                     str(OUTPUT_DIR / "Probes"),
-                    'grafana-influx-smokeping-1:/etc/smokeping/config.d/Probes'
+                    f'{smokeping_container}:/etc/smokeping/config.d/Probes'
                 ], capture_output=True, text=True, timeout=30)
                 
                 if probes_result.returncode != 0:
@@ -338,7 +342,7 @@ class ConfigGenerator:
                 
                 # Restart SmokePing service to reload configuration
                 restart_result = subprocess.run([
-                    'docker', 'exec', 'grafana-influx-smokeping-1',
+                    'docker', 'exec', smokeping_container,
                     'service', 'smokeping', 'restart'
                 ], capture_output=True, text=True, timeout=30)
                 

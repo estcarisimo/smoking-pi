@@ -15,9 +15,20 @@ def refresh_ocas_task():
     logger.info("Starting scheduled OCA refresh...")
     
     try:
+        # Get config-manager container name from API
+        try:
+            import requests
+            response = requests.get('http://config-manager:5000/api/containers/config-manager', timeout=5)
+            if response.ok and response.json().get('success'):
+                config_manager_container = response.json().get('container_name')
+            else:
+                config_manager_container = 'grafana-influx_config-manager_1'  # fallback
+        except:
+            config_manager_container = 'grafana-influx_config-manager_1'  # fallback
+        
         # Try via docker exec on config-manager
         result = subprocess.run([
-            'docker', 'exec', 'grafana-influx-config-manager-1',
+            'docker', 'exec', config_manager_container,
             'python3', '/app/config-manager/scripts/oca_fetcher.py'
         ], capture_output=True, text=True)
         
