@@ -11,7 +11,9 @@ ENV_BACKUP="./.env.backup"
 # Function to generate secure random string
 generate_password() {
     length=${1:-32}
-    openssl rand -base64 $length | tr -d '='
+    # Use URL-safe base64 to avoid problematic characters (/, +)
+    # Replace / with _ and + with - for URL/path safety
+    openssl rand -base64 $length | tr -d '=' | tr '/' '_' | tr '+' '-'
 }
 
 # Function to detect timezone
