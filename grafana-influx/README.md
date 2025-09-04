@@ -21,7 +21,7 @@ Complete network monitoring solution with **SmokePing**, **InfluxDB**, **Grafana
 ```bash
 cd grafana-influx
 ./init-passwords-docker.sh  # 1. Generate secure credentials (required first!)
-docker-compose up -d         # 2. Deploy full stack (will fail without step 1)
+./docker-compose-up.sh       # 2. Deploy stack with automatic token sync
 ./show-passwords.sh         # 3. View all generated credentials
 ```
 
@@ -31,6 +31,8 @@ docker-compose up -d         # 2. Deploy full stack (will fail without step 1)
 - Grafana: http://localhost:3000 (secure auto-generated password) - Professional dashboards
 - InfluxDB: http://localhost:8086 - Time-series database API
 
+> 💡 **Important**: Use `./docker-compose-up.sh` instead of `docker-compose up -d` to ensure proper InfluxDB token synchronization
+> 
 > 💡 **View all credentials**: Run `./show-passwords.sh` to display all auto-generated passwords
 
 ## ✨ Latest Improvements
