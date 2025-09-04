@@ -37,7 +37,8 @@ Professional monitoring with Grafana dashboards, InfluxDB time-series database, 
 ```bash
 cd grafana-influx/
 ./init-passwords-docker.sh     # Generate secure credentials
-docker-compose up -d            # Deploy full stack
+./docker-compose-up.sh          # Deploy with automatic token synchronization
+./show-passwords.sh             # View all generated passwords
 ```
 
 **Access Points:**
@@ -46,7 +47,7 @@ docker-compose up -d            # Deploy full stack
 - **SmokePing**: http://localhost:8081 - Classic SmokePing interface
 - **InfluxDB**: http://localhost:8086 - Time-series database
 
-> 💡 **View credentials**: Run `./show-passwords.sh` to see all auto-generated passwords
+> 💡 **Important**: Use `./docker-compose-up.sh` instead of `docker-compose up -d` to ensure proper token synchronization between InfluxDB and Grafana
 
 ### Option B: Minimal Setup
 Single-container deployment ideal for Raspberry Pi or resource-constrained environments.
@@ -83,6 +84,8 @@ docker run -d --name smokeping -p 80:80 smokeping:mini
 - **Web Administration**: Browser-based target management with bulk operations
 - **Configuration Management**: Database-first with YAML fallback system
 - **Auto-Discovery**: Netflix OCA servers, top sites from multiple ranking sources
+- **Token Synchronization**: Automatic InfluxDB token sync prevents "no data" issues
+- **Password Management**: Secure credential generation with volume state detection
 
 ---
 
@@ -90,11 +93,11 @@ docker run -d --name smokeping -p 80:80 smokeping:mini
 
 ### Full Stack Components
 ```
-🔐 User runs: ./init-passwords-docker.sh → Generates secure credentials
+🔐 User runs: ./docker-compose-up.sh → Auto-generates credentials + Token Sync
                                     ↓
 🌐 Network Targets → 📊 SmokePing → 💾 InfluxDB → 📈 Grafana
-                                  ↗
-                    🔧 Config Manager ← 🌐 Web Admin
+                                  ↗            ↗
+                    🔧 Config Manager ← 🌐 Web Admin    🔄 Token Sync
                             ↕
                       🗄️ PostgreSQL Database
 ```
@@ -181,10 +184,12 @@ docker run -d --name smokeping -p 80:80 smokeping:mini
 ## 🚦 Getting Started
 
 1. **Choose Your Deployment**: Full stack for production, minimal for testing
-2. **Follow Setup Guide**: Each variant has detailed setup instructions
+2. **Run Setup Script**: Use `./docker-compose-up.sh` for automated deployment with token sync
 3. **Configure Targets**: Use web admin or edit YAML configuration
-4. **Access Dashboards**: View real-time monitoring data
+4. **Access Dashboards**: View real-time monitoring data (no "empty panels" issues)
 5. **Customize**: Add your own targets and modify dashboards
+
+> ⚠️ **Common Pitfall**: Using `docker-compose up -d` directly can cause "panels show no data" due to token mismatches. Always use `./docker-compose-up.sh` for reliable deployment.
 
 ---
 

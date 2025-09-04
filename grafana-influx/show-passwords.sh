@@ -63,36 +63,69 @@ if [ "$EXTERNAL_IP" != "Unable to detect" ]; then
     echo -e "  Web Admin:   http://${EXTERNAL_IP}:8080"
 fi
 
-echo
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${WHITE}🔐 InfluxDB Credentials${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "  ${PURPLE}Organization:${NC} ${INFLUX_ORG}"
-echo -e "  ${PURPLE}Bucket:${NC}       ${INFLUX_BUCKET}"
-echo -e "  ${PURPLE}Admin User:${NC}   admin"
-
-if [ -n "$DOCKER_INFLUXDB_INIT_PASSWORD" ]; then
-    echo -e "  ${PURPLE}Admin Pass:${NC}   ${YELLOW}$DOCKER_INFLUXDB_INIT_PASSWORD${NC}"
-else
-    echo -e "  ${RED}Admin Pass:   Not set in .env file${NC}"
-fi
-
-if [ -n "$INFLUX_TOKEN" ]; then
-    echo -e "  ${PURPLE}API Token:${NC}    ${YELLOW}$INFLUX_TOKEN${NC}"
-else
-    echo -e "  ${RED}API Token:    Not set in .env file${NC}"
-fi
 
 echo
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${WHITE}🌐 Grafana Credentials${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  ${PURPLE}URL:${NC}          http://localhost:3000"
 echo -e "  ${PURPLE}Username:${NC}     ${GF_SECURITY_ADMIN_USER:-admin}"
 if [ -n "$GF_SECURITY_ADMIN_PASSWORD" ]; then
     echo -e "  ${PURPLE}Password:${NC}     ${YELLOW}${GF_SECURITY_ADMIN_PASSWORD}${NC}"
+    
+    # Check if Grafana container is running
+    if docker-compose ps 2>/dev/null | grep -q "grafana.*Up"; then
+        echo -e "  ${GREEN}✅ Grafana is running${NC}"
+    else
+        echo -e "  ${RED}❌ Grafana is not running${NC}"
+        echo -e "     ${YELLOW}Run: docker-compose up -d grafana${NC}"
+    fi
 else
     echo -e "  ${PURPLE}Password:${NC}     admin ${YELLOW}(default - change on first login!)${NC}"
     echo -e "  ${RED}⚠️  Run ./init-passwords-docker.sh to generate secure password${NC}"
+fi
+echo
+echo -e "  ${CYAN}Troubleshooting Grafana Login:${NC}"
+echo -e "  • If password doesn't work, restart Grafana:"
+echo -e "    ${YELLOW}docker-compose restart grafana${NC}"
+echo -e "  • Wait 30 seconds after restart for password reset"
+echo -e "  • For persistent issues, reset the volume:"
+echo -e "    ${YELLOW}docker-compose down grafana${NC}"
+echo -e "    ${YELLOW}docker volume rm grafana-influx_grafana-data${NC}"
+echo -e "    ${YELLOW}docker-compose up -d grafana${NC}"
+
+echo
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${WHITE}💾 InfluxDB Database${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  ${PURPLE}URL:${NC}          http://localhost:8086"
+echo -e "  ${PURPLE}Organization:${NC} ${INFLUX_ORG}"
+echo -e "  ${PURPLE}Bucket:${NC}       ${INFLUX_BUCKET}"
+echo -e "  ${PURPLE}Admin User:${NC}   admin"
+if [ -n "$DOCKER_INFLUXDB_INIT_PASSWORD" ]; then
+    echo -e "  ${PURPLE}Admin Pass:${NC}   ${YELLOW}$DOCKER_INFLUXDB_INIT_PASSWORD${NC}"
+else
+    echo -e "  ${RED}Admin Pass:   Not set in .env file${NC}"
+fi
+if [ -n "$INFLUX_TOKEN" ]; then
+    echo -e "  ${PURPLE}API Token:${NC}    ${YELLOW}$INFLUX_TOKEN${NC}"
+    
+    # Test InfluxDB connectivity
+    if curl -s -H "Authorization: Token $INFLUX_TOKEN" http://localhost:8086/api/v2/buckets?org=$INFLUX_ORG >/dev/null 2>&1; then
+        echo -e "  ${GREEN}✅ InfluxDB token is valid${NC}"
+    else
+        echo -e "  ${RED}❌ InfluxDB token authentication failed${NC}"
+        echo -e "     ${YELLOW}⚠️  Grafana dashboards will show 'unauthorized access' errors${NC}"
+        echo ""
+        echo -e "     ${CYAN}🛠️  QUICK FIX:${NC}"
+        echo -e "     ${YELLOW}docker-compose down${NC}"
+        echo -e "     ${YELLOW}docker volume rm grafana-influx_influxdb-data${NC}"
+        echo -e "     ${YELLOW}docker-compose up -d${NC}"
+        echo ""
+        echo -e "     ${CYAN}🔍 For detailed diagnosis:${NC} ${YELLOW}./verify-influxdb.sh${NC}"
+    fi
+else
+    echo -e "  ${RED}API Token:    Not set in .env file${NC}"
 fi
 
 echo
@@ -104,6 +137,32 @@ if [ -n "$POSTGRES_PASSWORD" ]; then
     echo -e "  ${PURPLE}Username:${NC}     smokeping"
     echo -e "  ${PURPLE}Password:${NC}     ${YELLOW}$POSTGRES_PASSWORD${NC}"
     echo -e "  ${PURPLE}Host:${NC}         localhost:5432 (container: postgres:5432)"
+    
+    # Test PostgreSQL connectivity from config-manager
+    if docker exec grafana-influx_postgres_1 psql -U smokeping -d smokeping_targets -c "SELECT 1;" >/dev/null 2>&1; then
+        # Check if database has targets
+        TARGET_COUNT=$(docker exec grafana-influx_postgres_1 psql -U smokeping -d smokeping_targets -t -c "SELECT COUNT(*) FROM targets;" 2>/dev/null | xargs)
+        if [ -n "$TARGET_COUNT" ] && [ "$TARGET_COUNT" -gt 0 ]; then
+            echo -e "  ${GREEN}✅ PostgreSQL connection works ($TARGET_COUNT targets found)${NC}"
+        else
+            echo -e "  ${YELLOW}⚠️  PostgreSQL works but database is empty (0 targets)${NC}"
+            echo -e "     ${YELLOW}Config-manager may be in YAML fallback mode${NC}"
+            echo ""
+            echo -e "     ${CYAN}🔍 For diagnosis:${NC} ${YELLOW}./verify-postgres.sh${NC}"
+        fi
+    else
+        echo -e "  ${RED}❌ PostgreSQL connection failed${NC}"
+        echo -e "     ${YELLOW}⚠️  Config-manager will use YAML fallback mode${NC}"
+        echo -e "     ${YELLOW}⚠️  Grafana template variables will fail${NC}"
+        echo ""
+        echo -e "     ${CYAN}🛠️  QUICK FIX:${NC}"
+        echo -e "     ${YELLOW}docker-compose down${NC}"
+        echo -e "     ${YELLOW}docker volume rm grafana-influx_postgres-data${NC}"
+        echo -e "     ${YELLOW}docker-compose up -d${NC}"
+        echo ""
+        echo -e "     ${CYAN}🔍 For detailed diagnosis:${NC} ${YELLOW}./verify-postgres.sh${NC}"
+    fi
+    
     if [ -n "$DATABASE_URL" ]; then
         echo -e "  ${PURPLE}URL:${NC}          ${YELLOW}$DATABASE_URL${NC}"
     fi

@@ -12,6 +12,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker, Session
 from sqlalchemy.sql import func
 import os
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -145,15 +149,49 @@ class SystemMetadata(Base):
         return f"<SystemMetadata(key='{self.key}', value='{self.value}')>"
 
 # Database connection and session management
+def retry_db_connection(max_retries: int = 5, delay: float = 2.0):
+    """Decorator to retry database operations with exponential backoff"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        logger.error(f"Database operation failed after {max_retries} attempts: {e}")
+                        raise
+                    wait_time = delay * (2 ** attempt)
+                    logger.warning(f"Database connection attempt {attempt + 1} failed: {e}")
+                    logger.info(f"Retrying in {wait_time:.1f} seconds...")
+                    time.sleep(wait_time)
+            return None
+        return wrapper
+    return decorator
+
+
 class DatabaseManager:
-    """Database connection and session management"""
+    """Database connection and session management with retry logic"""
     
     def __init__(self, database_url: Optional[str] = None):
         if database_url is None:
             database_url = os.getenv('DATABASE_URL', 'postgresql://smokeping:password@localhost:5432/smokeping_targets')
         
-        self.engine = create_engine(database_url, echo=False)
+        self.database_url = database_url
+        self.engine = None
+        self.SessionLocal = None
+        self._initialize_with_retry()
+    
+    @retry_db_connection(max_retries=10, delay=1.0)
+    def _initialize_with_retry(self):
+        """Initialize database connection with retry logic"""
+        logger.info(f"Attempting to connect to database...")
+        self.engine = create_engine(self.database_url, echo=False)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        
+        # Test the connection
+        with self.engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        logger.info("Database connection established successfully")
     
     def create_tables(self):
         """Create all tables"""

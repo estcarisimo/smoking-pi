@@ -58,6 +58,10 @@ class ConfigManagerAPI:
         self.generator = ConfigGenerator()
         self.use_database = self._check_database_available()
         logger.info(f"API initialized with database support: {self.use_database}")
+        
+        # Initialize status cache
+        self._status_cache = {}
+        self._cache_ttl = 30  # 30 seconds cache TTL
     
     def _check_database_available(self) -> bool:
         """Check if database is available and has data"""
@@ -415,32 +419,88 @@ class ConfigManagerAPI:
             return datetime.now().isoformat()
     
     def _check_smokeping_status(self) -> Dict[str, Any]:
-        """Check SmokePing container status"""
+        """Check SmokePing container status using Docker Python API with caching"""
+        cache_key = 'smokeping_status'
+        current_time = time.time()
+        
+        # Check if we have a cached result that's still valid
+        if cache_key in self._status_cache:
+            cached_data, cached_time = self._status_cache[cache_key]
+            if current_time - cached_time < self._cache_ttl:
+                logger.debug(f"Using cached SmokePing status (age: {current_time - cached_time:.1f}s)")
+                return cached_data
+        
+        # No valid cache, perform actual check
+        logger.debug("Performing fresh SmokePing status check")
         try:
-            result = subprocess.run([
-                'docker', 'ps', '--filter', 'name=grafana-influx-smokeping-1', '--format', '{{.Names}}'
-            ], capture_output=True, text=True, timeout=10)
+            # Try to resolve container name dynamically first
+            try:
+                container_name = resolve_container_name('smokeping')
+                logger.debug(f"Resolved SmokePing container name: {container_name}")
+            except Exception as e:
+                # Fallback to known container name pattern
+                container_name = 'grafana-influx_smokeping_1'
+                logger.debug(f"Using fallback container name: {container_name}, resolve error: {e}")
             
-            logger.info(f"SmokePing status check - Return code: {result.returncode}, Stdout: {repr(result.stdout)}")
+            # Use Docker Python API for more reliable status checking
+            client = docker.from_env()
             
-            if result.returncode == 0 and 'grafana-influx-smokeping-1' in result.stdout:
-                logger.info("SmokePing detected as running")
-                return {
-                    'running': True,
-                    'status': 'running',
-                    'created': 'unknown'  # Could be enhanced to get creation time
+            try:
+                container = client.containers.get(container_name)
+                
+                # Get detailed container state
+                state = container.attrs.get('State', {})
+                health = state.get('Health', {})
+                
+                # Determine container status
+                is_running = container.status == 'running'
+                created_time = container.attrs.get('Created', 'unknown')
+                
+                if is_running:
+                    logger.info(f"SmokePing container '{container_name}' detected as running")
+                else:
+                    logger.warning(f"SmokePing container '{container_name}' is {container.status}")
+                
+                result = {
+                    'running': is_running,
+                    'status': container.status,
+                    'created': created_time,
+                    'health': health.get('Status', 'none') if health else 'none',
+                    'container_name': container_name,
+                    'state_details': {
+                        'pid': state.get('Pid', 0),
+                        'exit_code': state.get('ExitCode', 0),
+                        'started_at': state.get('StartedAt', ''),
+                        'finished_at': state.get('FinishedAt', '')
+                    }
                 }
-            else:
-                logger.warning("SmokePing not detected as running")
+                
+                # Cache the successful result
+                self._status_cache[cache_key] = (result, current_time)
+                return result
+                
+            except docker.errors.NotFound:
+                logger.warning(f"SmokePing container '{container_name}' not found")
                 return {
                     'running': False,
-                    'status': 'not_found'
+                    'status': 'not_found',
+                    'container_name': container_name,
+                    'error': f"Container '{container_name}' not found"
                 }
-        except Exception as e:
-            logger.error(f"Error checking SmokePing status: {e}")
+                
+        except docker.errors.DockerException as e:
+            logger.error(f"Docker API error checking SmokePing status: {e}")
             return {
                 'running': False,
-                'status': 'unknown'
+                'status': 'error',
+                'error': f"Docker API error: {str(e)}"
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error checking SmokePing status: {e}")
+            return {
+                'running': False,
+                'status': 'unknown',
+                'error': str(e)
             }
 
 

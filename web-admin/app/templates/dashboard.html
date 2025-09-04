@@ -236,10 +236,26 @@
         }
     }
 
+    // Smart polling state
+    let lastStatus = null;
+    let lastStatusChange = Date.now();
+    let currentInterval = null;
+    let statusStableCount = 0;
+    
     function refreshStatus() {
         fetch('/api/status')
             .then(response => response.json())
             .then(data => {
+                // Check if status changed
+                const currentStatus = data.smokeping_running;
+                if (lastStatus !== null && lastStatus !== currentStatus) {
+                    lastStatusChange = Date.now();
+                    statusStableCount = 0;
+                } else if (lastStatus === currentStatus) {
+                    statusStableCount++;
+                }
+                lastStatus = currentStatus;
+                
                 // Update status indicator
                 const indicator = document.querySelector('.status-indicator');
                 const statusText = indicator.nextElementSibling;
@@ -286,12 +302,42 @@
                         lastUpdatedElement.title = `UTC: ${data.last_updated}`;
                     }
                 }
+                
+                // Adjust polling frequency based on status stability
+                adjustPollingFrequency();
             })
             .catch(error => console.error('Error fetching status:', error));
     }
     
-    // Auto-refresh every 30 seconds
-    setInterval(refreshStatus, 30000);
+    function adjustPollingFrequency() {
+        const now = Date.now();
+        const timeSinceChange = now - lastStatusChange;
+        let newInterval;
+        
+        // Determine polling frequency
+        if (timeSinceChange < 60000) {
+            // Status changed recently (< 1 minute) - poll every 10 seconds
+            newInterval = 10000;
+        } else if (timeSinceChange > 300000) {
+            // Status stable for > 5 minutes - poll every 60 seconds
+            newInterval = 60000;
+        } else {
+            // Default polling - every 30 seconds
+            newInterval = 30000;
+        }
+        
+        // Update interval if it changed
+        if (currentInterval !== newInterval) {
+            if (window.statusPollingTimer) {
+                clearInterval(window.statusPollingTimer);
+            }
+            window.statusPollingTimer = setInterval(refreshStatus, newInterval);
+            currentInterval = newInterval;
+        }
+    }
+    
+    // Start with default 30-second polling
+    window.statusPollingTimer = setInterval(refreshStatus, 30000);
     
     // Load OCA status on page load
     loadOCAStatus();

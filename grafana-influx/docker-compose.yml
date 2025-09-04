@@ -56,6 +56,8 @@ services:
       GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       GF_SECURITY_SECRET_KEY: "${GF_SECURITY_SECRET_KEY:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
+      GF_INSTALL_PLUGINS: ""
       TZ: ${TZ:-UTC}
     depends_on:
       - influxdb
@@ -83,9 +85,12 @@ services:
       # PostgreSQL connection
       DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}@postgres:5432/smokeping_targets"
     depends_on:
-      - smokeping
-      - config-manager
-      - postgres
+      smokeping:
+        condition: service_started
+      config-manager:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     networks:
       - default
 
@@ -107,7 +112,8 @@ services:
       # PostgreSQL connection
       DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}@postgres:5432/smokeping_targets"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:15
@@ -123,6 +129,12 @@ services:
       POSTGRES_USER: smokeping
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       TZ: ${TZ:-UTC}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smokeping -d smokeping_targets"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   smokeping-data:

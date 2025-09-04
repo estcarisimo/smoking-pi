@@ -14,7 +14,7 @@ from typing import Dict, Optional
 
 import yaml
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
-from .bootstrap import validate_all_configs, run_bootstrap
+from scripts.bootstrap import validate_all_configs, run_bootstrap
 
 # Import database models if available
 try:

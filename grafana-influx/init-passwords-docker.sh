@@ -156,4 +156,66 @@ EOF
     chmod 600 "./.passwords-generated"
 fi
 
+# Check for existing volumes and warn if they exist
+echo "🔍 Checking for existing data volumes..."
+
+GRAFANA_VOLUME_EXISTS=false
+INFLUXDB_VOLUME_EXISTS=false
+POSTGRES_VOLUME_EXISTS=false
+
+if docker volume ls | grep -q "grafana-influx_grafana-data"; then
+    GRAFANA_VOLUME_EXISTS=true
+fi
+
+if docker volume ls | grep -q "grafana-influx_influxdb-data"; then
+    INFLUXDB_VOLUME_EXISTS=true
+fi
+
+if docker volume ls | grep -q "grafana-influx_postgres-data"; then
+    POSTGRES_VOLUME_EXISTS=true
+fi
+
+if [ "$GRAFANA_VOLUME_EXISTS" = "true" ] || [ "$INFLUXDB_VOLUME_EXISTS" = "true" ] || [ "$POSTGRES_VOLUME_EXISTS" = "true" ]; then
+    echo ""
+    echo "⚠️  EXISTING VOLUMES DETECTED!"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    if [ "$GRAFANA_VOLUME_EXISTS" = "true" ]; then
+        echo "   📊 Grafana volume found - admin password will be reset automatically"
+    fi
+    
+    if [ "$INFLUXDB_VOLUME_EXISTS" = "true" ]; then
+        echo "   🗄️  InfluxDB volume found - THIS WILL CAUSE AUTHORIZATION ERRORS!"
+        echo ""
+        echo "   🚨 CRITICAL: InfluxDB has existing data with different tokens."
+        echo "      Grafana dashboards will show 'unauthorized access' errors."
+        echo ""
+        echo "   🛠️  TO FIX: Reset InfluxDB volume with these commands:"
+        echo "      docker-compose down"
+        echo "      docker volume rm grafana-influx_influxdb-data"
+        echo "      docker-compose up -d"
+        echo ""
+        echo "   ⚡ This will reset InfluxDB to use the current generated tokens."
+        echo "      SmokePing will repopulate data automatically."
+    fi
+    
+    if [ "$POSTGRES_VOLUME_EXISTS" = "true" ]; then
+        echo "   🐘 PostgreSQL volume found - THIS WILL CAUSE DATABASE CONNECTION ERRORS!"
+        echo ""
+        echo "   🚨 CRITICAL: PostgreSQL has existing users with different passwords."
+        echo "      Config-manager will fail to connect and fall back to YAML mode."
+        echo "      Grafana template variables will show 'error executing SQL query'."
+        echo ""
+        echo "   🛠️  TO FIX: Reset PostgreSQL volume with these commands:"
+        echo "      docker-compose down"
+        echo "      docker volume rm grafana-influx_postgres-data"
+        echo "      docker-compose up -d"
+        echo ""
+        echo "   ⚡ This will reset PostgreSQL to use the current generated password."
+        echo "      Database will be populated automatically from YAML files."
+    fi
+    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+fi
+
 echo "✅ Initialization complete!"
