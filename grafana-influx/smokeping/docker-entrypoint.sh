@@ -52,7 +52,50 @@ else
 fi
 
 # -------------------------------------------------------------------
-# 4. Run SmokePing in the foreground (keeps container alive)
+# 4. Auto-detect IPv6 and configure probes (zero-touch deployment)
+# -------------------------------------------------------------------
+_log 'Configuring IPv6 support (zero-touch detection)…'
+
+# Check if IPv6 is available
+check_ipv6() {
+    # Check if IPv6 interfaces exist and test connectivity
+    if [ -f /proc/net/if_inet6 ] && grep -v "^00000000000000000000000000000001" /proc/net/if_inet6 | grep -q "00 00"; then
+        # Test global IPv6 connectivity
+        if timeout 3 ping6 -c 1 2001:4860:4860::8888 >/dev/null 2>&1 || \
+           timeout 3 ping6 -c 1 2606:4700:4700::1111 >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Configure FPing6 probe dynamically
+if check_ipv6; then
+    _log 'IPv6 detected and reachable - enabling FPing6 probe'
+    
+    # Add FPing6 probe to configuration if not present
+    if ! grep -q "FPing6" /etc/smokeping/config.d/Probes; then
+        cat >> /etc/smokeping/config.d/Probes <<EOF
+
++ FPing6
+binary = /usr/bin/fping6
+step = 300
+pings = 10
+EOF
+        _log 'FPing6 probe added to configuration'
+    fi
+else
+    _log 'IPv6 not available - IPv4 only mode'
+    
+    # Remove any FPing6 probe references from configuration
+    sed -i '/+ FPing6/,/^$/d' /etc/smokeping/config.d/Probes 2>/dev/null || true
+    # Also disable any IPv6 targets by commenting them out
+    sed -i '/probe = FPing6/,/^$/{s/^/# /}' /etc/smokeping/config.d/Targets 2>/dev/null || true
+    _log 'IPv6 probes and targets disabled'
+fi
+
+# -------------------------------------------------------------------
+# 5. Run SmokePing in the foreground (keeps container alive)
 # -------------------------------------------------------------------
 _log 'Starting SmokePing…'
 exec smokeping --nodaemon 

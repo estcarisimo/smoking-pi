@@ -1,0 +1,87 @@
+{
+  "netflix_oca_targets": [
+    {
+      "host": "45.57.121.67",
+      "metadata": {
+        "asn": "2906",
+        "city": "Ocean Reef Club Airport, 60",
+        "domain": "ipv4-c730-ord001-ix.1.oca.nflxvideo.net",
+        "iata_code": "OCA",
+        "latitude": 25.3229581,
+        "location_code": "ORD",
+        "longitude": -80.276666,
+        "type": "real_oca"
+      },
+      "name": "OCA_ORD_c730_1",
+      "probe": "FPing",
+      "title": "ipv4-c730-ord001-ix.1.oca.nflxvideo.net"
+    },
+    {
+      "host": "45.57.120.66",
+      "metadata": {
+        "asn": "2906",
+        "city": "Ocean Reef Club Airport, 60",
+        "domain": "ipv4-c211-ord001-dev-ix.1.oca.nflxvideo.net",
+        "iata_code": "OCA",
+        "latitude": 25.3229581,
+        "location_code": "ORD",
+        "longitude": -80.276666,
+        "type": "real_oca"
+      },
+      "name": "OCA_ORD_c211_2",
+      "probe": "FPing",
+      "title": "ipv4-c211-ord001-dev-ix.1.oca.nflxvideo.net"
+    },
+    {
+      "host": "23.246.37.138",
+      "metadata": {
+        "asn": "2906",
+        "city": "Ocean Reef Club Airport, 60",
+        "domain": "ipv4-c172-ord003-ix.1.oca.nflxvideo.net",
+        "iata_code": "OCA",
+        "latitude": 25.3229581,
+        "location_code": "ORD",
+        "longitude": -80.276666,
+        "type": "real_oca"
+      },
+      "name": "OCA_ORD_c172_3",
+      "probe": "FPing",
+      "title": "ipv4-c172-ord003-ix.1.oca.nflxvideo.net"
+    },
+    {
+      "host": "23.246.36.137",
+      "metadata": {
+        "asn": "2906",
+        "city": "Ocean Reef Club Airport, 60",
+        "domain": "ipv4-c167-ord003-ix.1.oca.nflxvideo.net",
+        "iata_code": "OCA",
+        "latitude": 25.3229581,
+        "location_code": "ORD",
+        "longitude": -80.276666,
+        "type": "real_oca"
+      },
+      "name": "OCA_ORD_c167_4",
+      "probe": "FPing",
+      "title": "ipv4-c167-ord003-ix.1.oca.nflxvideo.net"
+    },
+    {
+      "host": "45.57.63.146",
+      "metadata": {
+        "asn": "2906",
+        "city": "Ocean Reef Club Airport, 60",
+        "domain": "ipv4-c296-was001-ix.1.oca.nflxvideo.net",
+        "iata_code": "OCA",
+        "latitude": 25.3229581,
+        "location_code": "WAS",
+        "longitude": -80.276666,
+        "type": "real_oca"
+      },
+      "name": "OCA_WAS_c296_5",
+      "probe": "FPing",
+      "title": "ipv4-c296-was001-ix.1.oca.nflxvideo.net"
+    }
+  ],
+  "total_count": 5,
+  "timestamp": "2025-07-29T03:50:11.411784",
+  "note": "Real Netflix OCA servers found by Netflix-OCA-Locator tool"
+}

@@ -1,9 +1,10 @@
 *** Targets ***
+
 probe = FPing
 
 menu = Top
-title = Using a Raspberry Pi and SmokePing to Monitor Networks
-remark = Latency to a few select sites and services in the Internet.
+title = Network Latency Grapher
+remark = Smoking Pi - SmokePing on Containers
 
 + websites
 menu = Popular websites
@@ -12,67 +13,107 @@ title = Outbound from the Pi to the Internet (using Ping)
 ++ Google
 title = Google
 menu = Google
-host = www.google.com
+host = google.com
 
 ++ Facebook
 title = Facebook
 menu = Facebook
-host = www.facebook.com
+host = facebook.com
 
 ++ Amazon
 title = Amazon
 menu = Amazon
-host = www.amazon.com
+host = amazon.com
 
 ++ NYT
-title = New York Times
-menu = New York Times
-host = www.nytimes.com
+title = NYT
+menu = NYT
+host = nytimes.com
 
 ++ Apple
 title = Apple
 menu = Apple
-host = a.ns.apple.com
-
-++ UBA
-title = UBA Name Server
-menu = UBA Name Server
-host = ns1.uba.ar
+host = apple.com
 
 
 + Netflix
 menu = Netflix
-title = Netflix
+title = Netflix Open Connect Appliances
 
-++ OCA_Chicago_725_1
-title = ipv6-c725-ord001
-menu = OCA Chicago (725-1)
-host = 45.57.121.62
+++ Chicago_ORD_c122_1
+menu = Chicago_ORD_c122_1
+title = ipv4-c122-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c122_1)
+host = 23.246.36.193
 
-++ OCA_Washington_141_1
-title = ipv6-c141-was001
-menu = OCA Washington (141-1)
-host = 45.57.63.199
+++ Chicago_ORD_c106_2
+menu = Chicago_ORD_c106_2
+title = ipv4-c106-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c106_2)
+host = 23.246.37.180
 
-+ resolvers
-menu = Measuring DNS response times
-title = Public DNS resolvers
+++ Chicago_ORD_c211_3
+menu = Chicago_ORD_c211_3
+title = ipv4-c211-ord001-dev-ix.1.oca.nflxvideo.net (Chicago ORD/c211_3)
+host = 45.57.120.66
+
+++ Chicago_ORD_c733_4
+menu = Chicago_ORD_c733_4
+title = ipv4-c733-ord001-ix.1.oca.nflxvideo.net (Chicago ORD/c733_4)
+host = 45.57.121.70
+
+++ Washington_DC_WAS_c273_5
+menu = Washington_DC_WAS_c273_5
+title = ipv4-c273-was001-ix.1.oca.nflxvideo.net (Washington D.C. WAS/c273_5)
+host = 45.57.62.146
+
+
++ DNS_Resolvers
+menu = DNS Resolvers
+title = Public DNS Resolvers
+
+++ GoogleDNS
+menu = GoogleDNS
+title = Google DNS
 probe = DNS
-
-++ Google
-title = Google public DNS
-menu = Google public DNS
-lookup = www.google.com
 host = 8.8.8.8
+lookup = google.com
 
-++ Cloudflare
-title = Cloudflare public DNS
-menu = Cloudflare public DNS
-lookup = www.cloudflare.com
+++ CloudflareDNS
+menu = CloudflareDNS
+title = Cloudflare DNS
+probe = DNS
 host = 1.1.1.1
+lookup = cloudflare.com
 
-++ Quad9
-title = Quad9 public DNS
-menu = Quad9 public DNS
-lookup = www.quad9.net
+++ Quad9DNS
+menu = Quad9DNS
+title = Quad9 DNS
+probe = DNS
 host = 9.9.9.9
+lookup = quad9.net
+
+
++ Custom
+menu = Custom Targets
+title = User-Defined Targets
+
+++ Google6
+menu = Google6
+title = Google6
+probe = FPing6
+host = www.google.com
+
+++ UBA
+menu = UBA
+title = UBA
+host = ns1.uba.ar
+
+++ UdeSA
+menu = UdeSA
+title = UdeSA
+host = www.udesa.edu.ar
+
+++ flame
+menu = flame
+title = flame
+host = flame.uba.ar
+

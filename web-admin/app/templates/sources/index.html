@@ -1,0 +1,717 @@
+{% extends "base.html" %}
+
+{% block title %}Top Sites Picker - SmokePing Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .source-tab {
+        min-height: 500px;
+    }
+    .sites-list {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 1rem;
+    }
+    .site-checkbox {
+        margin-bottom: 0.5rem;
+    }
+    .selection-counter {
+        position: sticky;
+        top: 0;
+        background: white;
+        z-index: 10;
+        padding: 0.5rem;
+        border-bottom: 1px solid #dee2e6;
+        margin-bottom: 1rem;
+    }
+    .loading-spinner {
+        display: none;
+        text-align: center;
+        padding: 2rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Top Sites Picker</h1>
+    <div>
+        <button class="btn btn-outline-danger me-2" onclick="deselectAll()">
+            <i class="bi bi-x-circle"></i> Deselect All
+        </button>
+        <button class="btn btn-success" onclick="updateTargets()" id="updateBtn" disabled>
+            <i class="bi bi-check-circle"></i> Update Targets
+        </button>
+    </div>
+</div>
+
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i>
+    Select up to <strong>{{ max_targets }}</strong> websites to monitor. 
+    Use the tabs below to choose from different top-site sources.
+</div>
+
+<!-- Source Tabs -->
+<ul class="nav nav-tabs" id="sourceTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="tranco-tab" data-bs-toggle="tab" 
+                data-bs-target="#tranco" type="button" role="tab">
+            <i class="bi bi-graph-up"></i> Tranco
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="crux-tab" data-bs-toggle="tab" 
+                data-bs-target="#crux" type="button" role="tab">
+            <i class="bi bi-speedometer2"></i> Chrome UX
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="cloudflare-tab" data-bs-toggle="tab" 
+                data-bs-target="#cloudflare" type="button" role="tab">
+            <i class="bi bi-cloud"></i> Cloudflare Radar
+        </button>
+    </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content" id="sourceTabContent">
+    <!-- Tranco Tab -->
+    <div class="tab-pane fade show active source-tab" id="tranco" role="tabpanel">
+        <div class="row mt-3">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Tranco Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <h6 class="text-muted">Tranco Top 1M Sites</h6>
+                            <input type="hidden" id="tranco-limit" value="100">
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="fetchSites('tranco')">
+                            <i class="bi bi-download"></i> Fetch Tranco List
+                        </button>
+                        <div class="mt-2 d-flex gap-2">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="previousTranco()" id="tranco-prev" disabled>
+                                <i class="bi bi-arrow-left"></i> Previous Page
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="nextTranco()" id="tranco-next" disabled>
+                                Next Page <i class="bi bi-arrow-right"></i>
+                            </button>
+                        </div>
+                        <small class="text-muted mt-2 d-block">
+                            Research-oriented ranking resistant to manipulation
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="sites-list" id="tranco-sites">
+                    <div class="text-center text-muted">
+                        Click "Fetch Tranco List" to load sites
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CrUX Tab -->
+    <div class="tab-pane fade source-tab" id="crux" role="tabpanel">
+        <div class="row mt-3">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Chrome UX Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <h6 class="text-muted">Chrome UX (CrUX) Top 1M Sites</h6>
+                            <input type="hidden" id="crux-limit" value="100">
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="fetchSites('crux')">
+                            <i class="bi bi-download"></i> Fetch CrUX List
+                        </button>
+                        <div class="mt-2 d-flex gap-2">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="previousCrux()" id="crux-prev" disabled>
+                                <i class="bi bi-arrow-left"></i> Previous Page
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="nextCrux()" id="crux-next" disabled>
+                                Next Page <i class="bi bi-arrow-right"></i>
+                            </button>
+                        </div>
+                        <small class="text-muted mt-2 d-block">
+                            Based on real Chrome user experience data
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="sites-list" id="crux-sites">
+                    <div class="text-center text-muted">
+                        Click "Fetch CrUX List" to load sites
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cloudflare Radar Tab -->
+    <div class="tab-pane fade source-tab" id="cloudflare" role="tabpanel">
+        <div class="row mt-3">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Cloudflare Radar Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">API Token</label>
+                            <input type="password" class="form-control" id="cloudflare-token" 
+                                   placeholder="Enter your Cloudflare API token">
+                            <small class="form-text text-muted">
+                                Get your token from 
+                                <a href="https://developers.cloudflare.com/fundamentals/api/get-started/create-token/" target="_blank">Cloudflare Developers</a>
+                                or <a href="https://dash.cloudflare.com" target="_blank">Cloudflare Dashboard</a>
+                            </small>
+                        </div>
+                        <div class="mb-3">
+                            <h6 class="text-muted">Cloudflare Radar Top 100 Sites</h6>
+                            <input type="hidden" id="cloudflare-limit" value="100">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Location</label>
+                            <select class="form-select" id="cloudflare-country">
+                                <option value="global" selected>Global</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Complete ISO 3166-1 alpha-2 country list
+                            </small>
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="fetchSites('cloudflare')">
+                            <i class="bi bi-download"></i> Fetch Cloudflare List
+                        </button>
+                        <small class="text-muted mt-2 d-block">
+                            Real-time data from Cloudflare Radar
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="sites-list" id="cloudflare-sites">
+                    <div class="text-center text-muted">
+                        Enter your API token and click "Fetch Cloudflare List" to load sites
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" data-bs-keyboard="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2 mb-0">Loading sites...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let selectedSites = new Set();
+const maxTargets = {{ max_targets }};
+let trancoOffset = 0;
+let cruxOffset = 0;
+let cloudflareOffset = 0;
+
+// Create modal instance once when page loads
+let loadingModal = null;
+window.addEventListener('DOMContentLoaded', function() {
+    const modalElement = document.getElementById('loadingModal');
+    loadingModal = new bootstrap.Modal(modalElement, {
+        backdrop: true,  // Allow clicking outside to dismiss
+        keyboard: true,  // Allow ESC key to dismiss
+        focus: true
+    });
+    
+    // Add event listeners for debugging
+    modalElement.addEventListener('show.bs.modal', function() {
+        console.log('Modal is showing');
+    });
+    
+    modalElement.addEventListener('shown.bs.modal', function() {
+        console.log('Modal is fully shown');
+    });
+    
+    modalElement.addEventListener('hide.bs.modal', function() {
+        console.log('Modal is hiding');
+    });
+    
+    modalElement.addEventListener('hidden.bs.modal', function() {
+        console.log('Modal is fully hidden');
+    });
+    
+    // Initialize Cloudflare token management
+    initCloudflareToken();
+    
+    // Initialize country dropdown
+    initCloudflareCountries();
+});
+
+// Cloudflare token management
+function initCloudflareToken() {
+    const tokenInput = document.getElementById('cloudflare-token');
+    if (!tokenInput) return;
+    
+    // Load saved token
+    const savedToken = localStorage.getItem('cloudflare-api-token');
+    if (savedToken) {
+        tokenInput.value = savedToken;
+        tokenInput.style.backgroundColor = '#f8f9fa'; // Light grey
+    }
+    
+    // Save token on change
+    tokenInput.addEventListener('input', function() {
+        const token = tokenInput.value.trim();
+        if (token) {
+            localStorage.setItem('cloudflare-api-token', token);
+            tokenInput.style.backgroundColor = '#f8f9fa'; // Light grey
+        } else {
+            localStorage.removeItem('cloudflare-api-token');
+            tokenInput.style.backgroundColor = ''; // Default
+        }
+    });
+}
+
+// Initialize Cloudflare country dropdown
+function initCloudflareCountries() {
+    const countrySelect = document.getElementById('cloudflare-country');
+    if (!countrySelect) return;
+    
+    // ISO 3166-1 alpha-2 country codes - Part 1 (A-G)
+    const countriesA_G = [
+        {code: 'ad', name: 'Andorra'}, {code: 'ae', name: 'United Arab Emirates'}, {code: 'af', name: 'Afghanistan'},
+        {code: 'ag', name: 'Antigua and Barbuda'}, {code: 'ai', name: 'Anguilla'}, {code: 'al', name: 'Albania'},
+        {code: 'am', name: 'Armenia'}, {code: 'ao', name: 'Angola'}, {code: 'aq', name: 'Antarctica'},
+        {code: 'ar', name: 'Argentina'}, {code: 'as', name: 'American Samoa'}, {code: 'at', name: 'Austria'},
+        {code: 'au', name: 'Australia'}, {code: 'aw', name: 'Aruba'}, {code: 'ax', name: 'Åland Islands'},
+        {code: 'az', name: 'Azerbaijan'}, {code: 'ba', name: 'Bosnia and Herzegovina'}, {code: 'bb', name: 'Barbados'},
+        {code: 'bd', name: 'Bangladesh'}, {code: 'be', name: 'Belgium'}, {code: 'bf', name: 'Burkina Faso'},
+        {code: 'bg', name: 'Bulgaria'}, {code: 'bh', name: 'Bahrain'}, {code: 'bi', name: 'Burundi'},
+        {code: 'bj', name: 'Benin'}, {code: 'bl', name: 'Saint Barthélemy'}, {code: 'bm', name: 'Bermuda'},
+        {code: 'bn', name: 'Brunei'}, {code: 'bo', name: 'Bolivia'}, {code: 'bq', name: 'Caribbean Netherlands'},
+        {code: 'br', name: 'Brazil'}, {code: 'bs', name: 'Bahamas'}, {code: 'bt', name: 'Bhutan'},
+        {code: 'bv', name: 'Bouvet Island'}, {code: 'bw', name: 'Botswana'}, {code: 'by', name: 'Belarus'},
+        {code: 'bz', name: 'Belize'}, {code: 'ca', name: 'Canada'}, {code: 'cc', name: 'Cocos Islands'},
+        {code: 'cd', name: 'DR Congo'}, {code: 'cf', name: 'Central African Republic'}, {code: 'cg', name: 'Republic of the Congo'},
+        {code: 'ch', name: 'Switzerland'}, {code: 'ci', name: 'Côte d\'Ivoire'}, {code: 'ck', name: 'Cook Islands'},
+        {code: 'cl', name: 'Chile'}, {code: 'cm', name: 'Cameroon'}, {code: 'cn', name: 'China'},
+        {code: 'co', name: 'Colombia'}, {code: 'cr', name: 'Costa Rica'}, {code: 'cu', name: 'Cuba'},
+        {code: 'cv', name: 'Cape Verde'}, {code: 'cw', name: 'Curaçao'}, {code: 'cx', name: 'Christmas Island'},
+        {code: 'cy', name: 'Cyprus'}, {code: 'cz', name: 'Czech Republic'}, {code: 'de', name: 'Germany'},
+        {code: 'dj', name: 'Djibouti'}, {code: 'dk', name: 'Denmark'}, {code: 'dm', name: 'Dominica'},
+        {code: 'do', name: 'Dominican Republic'}, {code: 'dz', name: 'Algeria'}, {code: 'ec', name: 'Ecuador'},
+        {code: 'ee', name: 'Estonia'}, {code: 'eg', name: 'Egypt'}, {code: 'eh', name: 'Western Sahara'},
+        {code: 'er', name: 'Eritrea'}, {code: 'es', name: 'Spain'}, {code: 'et', name: 'Ethiopia'},
+        {code: 'fi', name: 'Finland'}, {code: 'fj', name: 'Fiji'}, {code: 'fk', name: 'Falkland Islands'},
+        {code: 'fm', name: 'Micronesia'}, {code: 'fo', name: 'Faroe Islands'}, {code: 'fr', name: 'France'},
+        {code: 'ga', name: 'Gabon'}, {code: 'gb', name: 'United Kingdom'}, {code: 'gd', name: 'Grenada'},
+        {code: 'ge', name: 'Georgia'}, {code: 'gf', name: 'French Guiana'}, {code: 'gg', name: 'Guernsey'},
+        {code: 'gh', name: 'Ghana'}, {code: 'gi', name: 'Gibraltar'}, {code: 'gl', name: 'Greenland'},
+        {code: 'gm', name: 'Gambia'}, {code: 'gn', name: 'Guinea'}, {code: 'gp', name: 'Guadeloupe'},
+        {code: 'gq', name: 'Equatorial Guinea'}, {code: 'gr', name: 'Greece'}, {code: 'gs', name: 'South Georgia'},
+        {code: 'gt', name: 'Guatemala'}, {code: 'gu', name: 'Guam'}, {code: 'gw', name: 'Guinea-Bissau'},
+        {code: 'gy', name: 'Guyana'}
+    ];
+    
+    // ISO 3166-1 alpha-2 country codes - Part 2 (H-Z)
+    const countriesH_Z = [
+        {code: 'hk', name: 'Hong Kong'}, {code: 'hm', name: 'Heard Island'}, {code: 'hn', name: 'Honduras'},
+        {code: 'hr', name: 'Croatia'}, {code: 'ht', name: 'Haiti'}, {code: 'hu', name: 'Hungary'},
+        {code: 'id', name: 'Indonesia'}, {code: 'ie', name: 'Ireland'}, {code: 'il', name: 'Israel'},
+        {code: 'im', name: 'Isle of Man'}, {code: 'in', name: 'India'}, {code: 'io', name: 'British Indian Ocean Territory'},
+        {code: 'iq', name: 'Iraq'}, {code: 'ir', name: 'Iran'}, {code: 'is', name: 'Iceland'},
+        {code: 'it', name: 'Italy'}, {code: 'je', name: 'Jersey'}, {code: 'jm', name: 'Jamaica'},
+        {code: 'jo', name: 'Jordan'}, {code: 'jp', name: 'Japan'}, {code: 'ke', name: 'Kenya'},
+        {code: 'kg', name: 'Kyrgyzstan'}, {code: 'kh', name: 'Cambodia'}, {code: 'ki', name: 'Kiribati'},
+        {code: 'km', name: 'Comoros'}, {code: 'kn', name: 'Saint Kitts and Nevis'}, {code: 'kp', name: 'North Korea'},
+        {code: 'kr', name: 'South Korea'}, {code: 'kw', name: 'Kuwait'}, {code: 'ky', name: 'Cayman Islands'},
+        {code: 'kz', name: 'Kazakhstan'}, {code: 'la', name: 'Laos'}, {code: 'lb', name: 'Lebanon'},
+        {code: 'lc', name: 'Saint Lucia'}, {code: 'li', name: 'Liechtenstein'}, {code: 'lk', name: 'Sri Lanka'},
+        {code: 'lr', name: 'Liberia'}, {code: 'ls', name: 'Lesotho'}, {code: 'lt', name: 'Lithuania'},
+        {code: 'lu', name: 'Luxembourg'}, {code: 'lv', name: 'Latvia'}, {code: 'ly', name: 'Libya'},
+        {code: 'ma', name: 'Morocco'}, {code: 'mc', name: 'Monaco'}, {code: 'md', name: 'Moldova'},
+        {code: 'me', name: 'Montenegro'}, {code: 'mf', name: 'Saint Martin'}, {code: 'mg', name: 'Madagascar'},
+        {code: 'mh', name: 'Marshall Islands'}, {code: 'mk', name: 'North Macedonia'}, {code: 'ml', name: 'Mali'},
+        {code: 'mm', name: 'Myanmar'}, {code: 'mn', name: 'Mongolia'}, {code: 'mo', name: 'Macao'},
+        {code: 'mp', name: 'Northern Mariana Islands'}, {code: 'mq', name: 'Martinique'}, {code: 'mr', name: 'Mauritania'},
+        {code: 'ms', name: 'Montserrat'}, {code: 'mt', name: 'Malta'}, {code: 'mu', name: 'Mauritius'},
+        {code: 'mv', name: 'Maldives'}, {code: 'mw', name: 'Malawi'}, {code: 'mx', name: 'Mexico'},
+        {code: 'my', name: 'Malaysia'}, {code: 'mz', name: 'Mozambique'}, {code: 'na', name: 'Namibia'},
+        {code: 'nc', name: 'New Caledonia'}, {code: 'ne', name: 'Niger'}, {code: 'nf', name: 'Norfolk Island'},
+        {code: 'ng', name: 'Nigeria'}, {code: 'ni', name: 'Nicaragua'}, {code: 'nl', name: 'Netherlands'},
+        {code: 'no', name: 'Norway'}, {code: 'np', name: 'Nepal'}, {code: 'nr', name: 'Nauru'},
+        {code: 'nu', name: 'Niue'}, {code: 'nz', name: 'New Zealand'}, {code: 'om', name: 'Oman'},
+        {code: 'pa', name: 'Panama'}, {code: 'pe', name: 'Peru'}, {code: 'pf', name: 'French Polynesia'},
+        {code: 'pg', name: 'Papua New Guinea'}, {code: 'ph', name: 'Philippines'}, {code: 'pk', name: 'Pakistan'},
+        {code: 'pl', name: 'Poland'}, {code: 'pm', name: 'Saint Pierre and Miquelon'}, {code: 'pn', name: 'Pitcairn'},
+        {code: 'pr', name: 'Puerto Rico'}, {code: 'ps', name: 'Palestine'}, {code: 'pt', name: 'Portugal'},
+        {code: 'pw', name: 'Palau'}, {code: 'py', name: 'Paraguay'}, {code: 'qa', name: 'Qatar'},
+        {code: 're', name: 'Réunion'}, {code: 'ro', name: 'Romania'}, {code: 'rs', name: 'Serbia'},
+        {code: 'ru', name: 'Russia'}, {code: 'rw', name: 'Rwanda'}, {code: 'sa', name: 'Saudi Arabia'},
+        {code: 'sb', name: 'Solomon Islands'}, {code: 'sc', name: 'Seychelles'}, {code: 'sd', name: 'Sudan'},
+        {code: 'se', name: 'Sweden'}, {code: 'sg', name: 'Singapore'}, {code: 'sh', name: 'Saint Helena'},
+        {code: 'si', name: 'Slovenia'}, {code: 'sj', name: 'Svalbard and Jan Mayen'}, {code: 'sk', name: 'Slovakia'},
+        {code: 'sl', name: 'Sierra Leone'}, {code: 'sm', name: 'San Marino'}, {code: 'sn', name: 'Senegal'},
+        {code: 'so', name: 'Somalia'}, {code: 'sr', name: 'Suriname'}, {code: 'ss', name: 'South Sudan'},
+        {code: 'st', name: 'São Tomé and Príncipe'}, {code: 'sv', name: 'El Salvador'}, {code: 'sx', name: 'Sint Maarten'},
+        {code: 'sy', name: 'Syria'}, {code: 'sz', name: 'Eswatini'}, {code: 'tc', name: 'Turks and Caicos Islands'},
+        {code: 'td', name: 'Chad'}, {code: 'tf', name: 'French Southern Territories'}, {code: 'tg', name: 'Togo'},
+        {code: 'th', name: 'Thailand'}, {code: 'tj', name: 'Tajikistan'}, {code: 'tk', name: 'Tokelau'},
+        {code: 'tl', name: 'Timor-Leste'}, {code: 'tm', name: 'Turkmenistan'}, {code: 'tn', name: 'Tunisia'},
+        {code: 'to', name: 'Tonga'}, {code: 'tr', name: 'Turkey'}, {code: 'tt', name: 'Trinidad and Tobago'},
+        {code: 'tv', name: 'Tuvalu'}, {code: 'tw', name: 'Taiwan'}, {code: 'tz', name: 'Tanzania'},
+        {code: 'ua', name: 'Ukraine'}, {code: 'ug', name: 'Uganda'}, {code: 'um', name: 'U.S. Minor Outlying Islands'},
+        {code: 'us', name: 'United States'}, {code: 'uy', name: 'Uruguay'}, {code: 'uz', name: 'Uzbekistan'},
+        {code: 'va', name: 'Vatican City'}, {code: 'vc', name: 'Saint Vincent and the Grenadines'}, {code: 've', name: 'Venezuela'},
+        {code: 'vg', name: 'British Virgin Islands'}, {code: 'vi', name: 'U.S. Virgin Islands'}, {code: 'vn', name: 'Vietnam'},
+        {code: 'vu', name: 'Vanuatu'}, {code: 'wf', name: 'Wallis and Futuna'}, {code: 'ws', name: 'Samoa'},
+        {code: 'ye', name: 'Yemen'}, {code: 'yt', name: 'Mayotte'}, {code: 'za', name: 'South Africa'},
+        {code: 'zm', name: 'Zambia'}, {code: 'zw', name: 'Zimbabwe'}
+    ];
+    
+    const majorCountries = [...countriesA_G, ...countriesH_Z];
+    
+    // Sort countries by name
+    majorCountries.sort((a, b) => a.name.localeCompare(b.name));
+    
+    // Add country options
+    majorCountries.forEach(country => {
+        const option = document.createElement('option');
+        option.value = country.code;
+        option.textContent = country.name;
+        countrySelect.appendChild(option);
+    });
+}
+
+function getCloudflareToken() {
+    const tokenInput = document.getElementById('cloudflare-token');
+    return tokenInput ? tokenInput.value.trim() : '';
+}
+
+function fetchSites(source, offset = 0) {
+    const country = document.getElementById(`${source}-country`)?.value || 'global';
+    const limit = document.getElementById(`${source}-limit`).value;
+    
+    // Update offset for pagination
+    if (source === 'tranco') {
+        trancoOffset = offset;
+    } else if (source === 'crux') {
+        cruxOffset = offset;
+    } else if (source === 'cloudflare') {
+        cloudflareOffset = offset;
+    }
+    
+    // Show loading modal
+    if (loadingModal) {
+        console.log('Showing loading modal for', source);
+        loadingModal.show();
+    }
+    
+    // Set timeout to hide modal after 30 seconds
+    const modalTimeout = setTimeout(() => {
+        console.log('Request timeout - hiding modal');
+        if (loadingModal) {
+            loadingModal.hide();
+        }
+        alert('Request timed out. Please try again.');
+    }, 30000);
+    
+    // Special handling for Cloudflare
+    if (source === 'cloudflare') {
+        const token = getCloudflareToken();
+        if (!token) {
+            alert('Please enter your Cloudflare API token first');
+            return;
+        }
+    }
+    
+    let url = `/sources/api/fetch/${source}?country=${country}&limit=${limit}`;
+    if ((source === 'tranco' || source === 'crux' || source === 'cloudflare') && offset > 0) {
+        url += `&offset=${offset}`;
+    }
+    
+    // Add token for Cloudflare
+    if (source === 'cloudflare') {
+        url += `&token=${encodeURIComponent(getCloudflareToken())}`;
+    }
+    
+    console.log('Fetching from URL:', url);
+    
+    fetch(url)
+        .then(response => {
+            clearTimeout(modalTimeout);
+            console.log('Response status:', response.status);
+            
+            // Check if response is ok before parsing JSON
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            return response.json();
+        })
+        .then(data => {
+            console.log('Data received:', data);
+            
+            if (data.error) {
+                alert('Error: ' + data.error);
+                return;
+            }
+            displaySites(source, data.sites);
+            updatePaginationButtons(source);
+        })
+        .catch(error => {
+            clearTimeout(modalTimeout);
+            console.error('Error in fetchSites:', error);
+            alert('Error fetching sites: ' + error.message || error);
+        })
+        .finally(() => {
+            // Always hide modal in finally block
+            clearTimeout(modalTimeout);
+            if (loadingModal) {
+                console.log('Hiding modal in finally block');
+                try {
+                    loadingModal.hide();
+                    
+                    // Force hide if Bootstrap modal doesn't respond
+                    setTimeout(() => {
+                        const modalElement = document.getElementById('loadingModal');
+                        if (modalElement && modalElement.classList.contains('show')) {
+                            console.log('Force hiding modal - Bootstrap hide() did not work');
+                            modalElement.classList.remove('show');
+                            modalElement.style.display = 'none';
+                            // Remove backdrop if it exists
+                            const backdrop = document.querySelector('.modal-backdrop');
+                            if (backdrop) {
+                                backdrop.remove();
+                            }
+                            // Remove modal-open class from body
+                            document.body.classList.remove('modal-open');
+                        }
+                    }, 500);
+                } catch (error) {
+                    console.error('Error hiding modal:', error);
+                }
+            }
+        });
+}
+
+function displaySites(source, sites) {
+    const container = document.getElementById(`${source}-sites`);
+    const limit = parseInt(document.getElementById(`${source}-limit`).value);
+    const currentOffset = source === 'tranco' ? trancoOffset : 
+                         source === 'crux' ? cruxOffset : cloudflareOffset;
+    const currentPage = Math.floor(currentOffset / limit) + 1;
+    
+    // Create pagination info and selection counter
+    const counter = document.createElement('div');
+    counter.className = 'selection-counter';
+    counter.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex gap-3">
+                <span class="badge bg-info">Page ${currentPage}</span>
+                <span>Selected: <span id="${source}-counter">0</span>/${maxTargets}</span>
+            </div>
+            <button class="btn btn-sm btn-outline-primary" onclick="selectVisible('${source}')">
+                Select Visible
+            </button>
+        </div>
+    `;
+    
+    // Create sites list with ranks
+    const sitesList = document.createElement('div');
+    sites.forEach((site, index) => {
+        const rank = currentOffset + index + 1; // Calculate actual rank
+        const isSelected = selectedSites.has(site);
+        const checkbox = document.createElement('div');
+        checkbox.className = 'site-checkbox';
+        checkbox.innerHTML = `
+            <div class="form-check d-flex align-items-center">
+                <input class="form-check-input me-2" type="checkbox" value="${site}" 
+                       id="${source}-${index}" ${isSelected ? 'checked' : ''}
+                       onchange="toggleSite('${site}', this.checked)">
+                <span class="badge bg-secondary me-2" style="min-width: 45px;">#${rank}</span>
+                <label class="form-check-label flex-grow-1" for="${source}-${index}">
+                    ${site}
+                </label>
+            </div>
+        `;
+        sitesList.appendChild(checkbox);
+    });
+    
+    container.innerHTML = '';
+    container.appendChild(counter);
+    container.appendChild(sitesList);
+    
+    updateCounters();
+}
+
+function toggleSite(site, checked) {
+    if (checked) {
+        if (selectedSites.size >= maxTargets) {
+            alert(`Maximum ${maxTargets} sites allowed`);
+            event.target.checked = false;
+            return;
+        }
+        selectedSites.add(site);
+    } else {
+        selectedSites.delete(site);
+    }
+    updateCounters();
+}
+
+function selectVisible(source) {
+    const checkboxes = document.querySelectorAll(`#${source}-sites input[type="checkbox"]`);
+    checkboxes.forEach(checkbox => {
+        if (!checkbox.checked && selectedSites.size < maxTargets) {
+            checkbox.checked = true;
+            toggleSite(checkbox.value, true);
+        }
+    });
+}
+
+function deselectAll() {
+    selectedSites.clear();
+    document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    updateCounters();
+}
+
+function updateCounters() {
+    // Update all source counters
+    ['tranco', 'crux', 'cloudflare'].forEach(source => {
+        const counter = document.getElementById(`${source}-counter`);
+        if (counter) {
+            const checked = document.querySelectorAll(`#${source}-sites input[type="checkbox"]:checked`).length;
+            counter.textContent = checked;
+        }
+    });
+    
+    // Update main update button
+    const updateBtn = document.getElementById('updateBtn');
+    updateBtn.disabled = selectedSites.size === 0;
+    updateBtn.innerHTML = `
+        <i class="bi bi-check-circle"></i> 
+        Update Targets (${selectedSites.size})
+    `;
+}
+
+function updateTargets() {
+    if (selectedSites.size === 0) {
+        alert('Please select at least one site');
+        return;
+    }
+    
+    if (!confirm(`Update SmokePing targets with ${selectedSites.size} selected sites?`)) {
+        return;
+    }
+    
+    const data = {
+        sites: Array.from(selectedSites)
+    };
+    
+    fetch('/sources/api/update', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            // Optionally redirect to dashboard
+            window.location.href = '/';
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Error updating targets: ' + error);
+    });
+}
+
+function nextTranco() {
+    const limit = parseInt(document.getElementById('tranco-limit').value);
+    fetchSites('tranco', trancoOffset + limit);
+}
+
+function previousTranco() {
+    const limit = parseInt(document.getElementById('tranco-limit').value);
+    const newOffset = Math.max(0, trancoOffset - limit);
+    fetchSites('tranco', newOffset);
+}
+
+function nextCrux() {
+    const limit = parseInt(document.getElementById('crux-limit').value);
+    fetchSites('crux', cruxOffset + limit);
+}
+
+function previousCrux() {
+    const limit = parseInt(document.getElementById('crux-limit').value);
+    const newOffset = Math.max(0, cruxOffset - limit);
+    fetchSites('crux', newOffset);
+}
+
+function nextCloudflare() {
+    const limit = parseInt(document.getElementById('cloudflare-limit').value);
+    fetchSites('cloudflare', cloudflareOffset + limit);
+}
+
+function previousCloudflare() {
+    const limit = parseInt(document.getElementById('cloudflare-limit').value);
+    const newOffset = Math.max(0, cloudflareOffset - limit);
+    fetchSites('cloudflare', newOffset);
+}
+
+
+function updatePaginationButtons(source) {
+    if (source === 'tranco') {
+        const prevBtn = document.getElementById('tranco-prev');
+        const nextBtn = document.getElementById('tranco-next');
+        
+        prevBtn.disabled = trancoOffset === 0;
+        nextBtn.disabled = false; // Always allow next for tranco
+    } else if (source === 'crux') {
+        const prevBtn = document.getElementById('crux-prev');
+        const nextBtn = document.getElementById('crux-next');
+        
+        prevBtn.disabled = cruxOffset === 0;
+        nextBtn.disabled = false; // Always allow next for crux
+    }
+    // Cloudflare doesn't support pagination - no buttons to update
+}
+
+// Initialize modal once when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'), {
+        keyboard: true,  // Allow ESC key to close
+        backdrop: 'static'
+    });
+    
+    // Load currently active websites
+    const activeWebsites = {{ active_websites | tojson }};
+    activeWebsites.forEach(site => selectedSites.add(site));
+    updateCounters();
+});
+</script>
+{% endblock %}

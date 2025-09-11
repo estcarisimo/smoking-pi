@@ -61,7 +61,7 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         rrdtool librrds-perl \
         smokeping fping spawn-fcgi \
-        fcgiwrap lighttpd && \
+        fcgiwrap lighttpd iputils-ping && \
     rm /usr/sbin/policy-rc.d /usr/bin/systemctl && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
