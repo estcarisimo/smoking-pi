@@ -3,16 +3,19 @@ version: '3.9'
 services:
   smokeping:
     build: ./smokeping
-    ports:
-      - "8080:80"
+    network_mode: host
     volumes:
       - smokeping-data:/var/lib/smokeping
+      - ./smokeping/config:/etc/smokeping/config.d
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     environment:
-      INFLUX_URL: ${INFLUX_URL}
+      INFLUX_URL: http://localhost:8086
       INFLUX_TOKEN: ${INFLUX_TOKEN}
       INFLUX_ORG: ${INFLUX_ORG}
       INFLUX_BUCKET: ${INFLUX_BUCKET}
       RRD_DIR: ${RRD_DIR}
+      TZ: ${TZ:-UTC}
     depends_on:
       - influxdb
 
@@ -22,13 +25,16 @@ services:
       - "8086:8086"
     volumes:
       - influxdb-data:/var/lib/influxdb2
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}
+      DOCKER_INFLUXDB_INIT_PASSWORD: "${DOCKER_INFLUXDB_INIT_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG}
       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUX_TOKEN:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
+      TZ: ${TZ:-UTC}
 
   grafana:
     build: ./grafana
@@ -38,16 +44,100 @@ services:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     environment:
       INFLUX_TOKEN: ${INFLUX_TOKEN}
       INFLUX_BUCKET: ${INFLUX_BUCKET}
       INFLUX_ORG: ${INFLUX_ORG}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
       GF_LOG_LEVEL: debug
-      GF_PROVISIONING_LOG_LEVEL: debug    # <─ add this line
+      GF_PROVISIONING_LOG_LEVEL: debug
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
+      GF_SECURITY_SECRET_KEY: "${GF_SECURITY_SECRET_KEY:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
+      GF_INSTALL_PLUGINS: ""
+      TZ: ${TZ:-UTC}
     depends_on:
       - influxdb
+
+  web-admin:
+    build: ../web-admin
+    ports:
+      - "0.0.0.0:8080:8080"  # Explicitly bind to all interfaces
+    volumes:
+      - ../config-manager/config:/app/config
+      - ../web-admin/app:/app/app  # Mount source code for development
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      CONFIG_DIR: /app/config
+      FLASK_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8080
+      SECRET_KEY: "${SECRET_KEY:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
+      WEB_ADMIN_USERNAME: ${WEB_ADMIN_USERNAME:-admin}
+      WEB_ADMIN_PASSWORD: "${WEB_ADMIN_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
+      TZ: ${TZ:-UTC}
+      SMOKEPING_RESTART_CMD: docker-compose restart smokeping
+      # PostgreSQL connection
+      DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}@postgres:5432/smokeping_targets"
+    depends_on:
+      smokeping:
+        condition: service_started
+      config-manager:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+
+  config-manager:
+    build: ../config-manager
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ../config-manager/config:/app/config
+      - ../config-manager/output:/app/output
+      - ./smokeping/config:/app/smokeping-config
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      CONFIG_DIR: /app/config
+      OUTPUT_DIR: /app/output
+      TZ: ${TZ:-UTC}
+      # PostgreSQL connection
+      DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}@postgres:5432/smokeping_targets"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:15
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      POSTGRES_DB: smokeping_targets
+      POSTGRES_USER: smokeping
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: Please run ./init-passwords-docker.sh first to generate passwords}"
+      TZ: ${TZ:-UTC}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smokeping -d smokeping_targets"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   smokeping-data:
   influxdb-data:
   grafana-data:
+  postgres-data:

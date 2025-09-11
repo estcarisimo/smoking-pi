@@ -1,0 +1,77 @@
+# SmokePing Target Sources Configuration Template
+# This file defines all available sources for monitoring targets
+#
+# Generated automatically by bootstrap - modify as needed
+
+# Built-in static targets
+static:
+  websites:
+    - name: google_com
+      host: google.com
+      title: Google
+      probe: FPing
+    - name: facebook_com
+      host: facebook.com
+      title: Facebook
+      probe: FPing
+    - name: amazon_com
+      host: amazon.com
+      title: Amazon
+      probe: FPing
+    - name: nytimes_com
+      host: nytimes.com
+      title: New York Times
+      probe: FPing
+    - name: apple_com
+      host: apple.com
+      title: Apple
+      probe: FPing
+    - name: uba_ar
+      host: uba.ar
+      title: Universidad de Buenos Aires
+      probe: FPing
+
+  # IPv6 websites (disabled by default)
+  ipv6_websites:
+    - name: google_ipv6
+      host: 2001:4860:4860::8844
+      title: Google IPv6
+      probe: FPing6
+      enabled: false
+
+  # DNS resolvers
+  dns_resolvers:
+    - name: GoogleDNS
+      host: 8.8.8.8
+      title: Google DNS
+      probe: DNS
+      lookup: google.com
+    - name: CloudflareDNS
+      host: 1.1.1.1
+      title: Cloudflare DNS
+      probe: DNS
+      lookup: cloudflare.com
+    - name: Quad9DNS
+      host: 9.9.9.9
+      title: Quad9 DNS
+      probe: DNS
+      lookup: quad9.net
+
+# Dynamic target sources
+dynamic:
+  netflix_oca:
+    enabled: true
+    max_targets: 10
+    refresh_interval: "daily"
+    description: "Netflix Open Connect Appliances discovered dynamically"
+
+# External target providers (future use)
+external:
+  # Example: Atlas probes, RIPE Atlas, etc.
+  enabled: false
+
+# Metadata
+metadata:
+  version: "1.0"
+  created_by: "bootstrap"
+  description: "Target source definitions for SmokePing monitoring"
