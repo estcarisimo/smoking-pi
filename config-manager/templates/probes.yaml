@@ -1,0 +1,40 @@
+# SmokePing Probes Configuration Template
+# This file defines the monitoring probes/methods used
+#
+# Generated automatically by bootstrap - modify as needed
+
+probes:
+  FPing:
+    binary: /usr/bin/fping
+    step: 300
+    pings: 10
+    
+  FPing6:
+    binary: /usr/bin/fping -6
+    step: 300
+    pings: 10
+    
+  DNS:
+    binary: /usr/bin/dig
+    pings: 5
+    step: 300
+    
+  EchoPingDNS:
+    binary: /usr/bin/echoping
+    dns: true
+    pings: 5
+    step: 300
+    
+  EchoPingHttp:
+    binary: /usr/bin/echoping
+    url: /
+    pings: 5
+    step: 300
+
+# Default probe for targets without explicit probe
+default_probe: FPing
+# Metadata
+metadata:
+  version: "1.0"
+  created_by: "bootstrap"
+  description: "Default probe configurations for SmokePing monitoring"

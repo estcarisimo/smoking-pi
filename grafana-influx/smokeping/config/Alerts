@@ -1,0 +1,15 @@
+*** Alerts ***
+to = smokeping@localhost
+from = smokeping@localhost
+
++someloss
+type = loss
+# in percent
+pattern = >0%,*12*,>0%,*12*,>0%
+comment = loss 3 times in a row
+
++rttdetect
+type = rtt
+# in milli seconds
+pattern = <10,<10,<10,<10,<10,<100,>100,>100,>100
+comment = routing or server problem
