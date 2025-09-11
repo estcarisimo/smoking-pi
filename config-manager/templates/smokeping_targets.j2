@@ -1,0 +1,108 @@
+*** Targets ***
+
+probe = {{ default_probe }}
+
+menu = Top
+title = Network Latency Grapher
+remark = Smoking Pi - SmokePing on Containers
+
+{% if targets.top_sites %}
++ websites
+menu = Popular websites
+title = Outbound from the Pi to the Internet (using Ping)
+
+{% for target in targets.top_sites %}
+{% if target.host == 'google.com' %}
+++ Google
+title = Google
+menu = Google
+host = google.com
+{% elif target.host == 'facebook.com' %}
+++ Facebook
+title = Facebook
+menu = Facebook
+host = facebook.com
+{% elif target.host == 'amazon.com' %}
+++ Amazon
+title = Amazon
+menu = Amazon
+host = amazon.com
+{% elif target.host == 'nytimes.com' %}
+++ NYT
+title = NYT
+menu = NYT
+host = nytimes.com
+{% elif target.host == 'apple.com' %}
+++ Apple
+title = Apple
+menu = Apple
+host = apple.com
+{% else %}
+++ {{ target.name }}
+menu = {{ target.get('menu', target.name) }}
+title = {{ target.title }}
+host = {{ target.host }}
+{% endif %}
+{% if target.get('probe') and target.probe != default_probe %}
+probe = {{ target.probe }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if targets.netflix_oca %}
++ Netflix
+menu = Netflix
+title = Netflix Open Connect Appliances
+
+{% for target in targets.netflix_oca %}
+++ {{ target.name }}
+menu = {{ target.name }}
+title = {{ target.title }}
+host = {{ target.host }}
+{% if target.get('probe') and target.probe != default_probe %}
+probe = {{ target.probe }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if targets.dns_resolvers %}
++ DNS_Resolvers
+menu = DNS Resolvers
+title = Public DNS Resolvers
+
+{% for target in targets.dns_resolvers %}
+++ {{ target.name }}
+menu = {{ target.get('menu', target.name) }}
+title = {{ target.title }}
+{% if target.get('probe') %}
+probe = {{ target.probe }}
+{% endif %}
+host = {{ target.host }}
+{% if target.get('lookup') %}
+lookup = {{ target.lookup }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if targets.custom %}
++ Custom
+menu = Custom Targets
+title = User-Defined Targets
+
+{% for target in targets.custom %}
+++ {{ target.name }}
+menu = {{ target.get('menu', target.name) }}
+title = {{ target.title }}
+{% if target.get('probe') and target.probe != default_probe %}
+probe = {{ target.probe }}
+{% endif %}
+host = {{ target.host }}
+{% if target.get('lookup') %}
+lookup = {{ target.lookup }}
+{% endif %}
+
+{% endfor %}
+{% endif %}

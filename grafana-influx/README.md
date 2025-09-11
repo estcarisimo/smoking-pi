@@ -1,73 +1,160 @@
-# SmokePing 🔗 InfluxDB 📈 Grafana
+# SmokePing Full Stack - Advanced Network Monitoring
 
-Full‑stack latency monitoring with modern time‑series storage and rich dashboards – **all containerized, each service in its own image**.
+<div align="center">
+  <img src="../img/logo.jpg" alt="Smoking Pi Logo" width="150"/>
+</div>
 
----
+Complete network monitoring solution with **SmokePing**, **InfluxDB**, **Grafana**, **PostgreSQL**, **Web Admin**, and **Config Manager** – all containerized with database-first architecture, zero-touch deployment, and enhanced DNS monitoring.
 
-## Table of Contents
+## 🎯 What's Included
 
-1. [Architecture](#architecture)
-2. [TL;DR — Quick start](#tldr)
-3. [Directory layout](#layout)
-4. [Building the images](#build)
-5. [Running with Docker Compose](#run)
-6. [Component reference](#components)
-   * [SmokePing image](#smokeping)
-   * [RRD → InfluxDB exporter](#exporter)
-   * [InfluxDB image](#influxdb)
-   * [Grafana image + provisioning](#grafana)
-7. [Dashboards](#dashboards)
-8. [Environment variables](#env)
-9. [Troubleshooting & tips](#troubleshooting)
+* **SmokePing** – Core latency monitoring with RRD data collection and DNS resolution timing
+* **InfluxDB 2.x** – Modern time-series database with dual measurements (`latency` + `dns_latency`)
+* **Grafana** – Professional dashboards with PostgreSQL-driven template variables and percentile analysis
+* **PostgreSQL** – Centralized target management database with normalized schema and active/inactive status
+* **Web Admin** – Database-first target management interface with bulk operations and migration tools
+* **Config Manager** – Database-aware configuration system with automatic YAML fallback
+* **RRD→InfluxDB Exporter** – Real-time data synchronization for all target categories
 
----
-
-## <a id="architecture"></a> 🗺️ Architecture
-
-```text
-┌────────────┐   RRD files      ┌──────────────┐  Flux queries   ┌──────────────┐
-│ SmokePing  │──────────────▶   │ InfluxDB 2.x │──────────────▶│   Grafana     │
-│ (FCGI + CGI)│                 │ (latency bucket)│                │ dashboards    │
-└───▲───┬────┘  exporter.py     └───────▲──────┘                └──────▲──────┘
-    │   │                            HTTP 8086                      HTTP 3000
-    │   └─ HTTP 80 / PNG graphs
-    └───── probes (fping / echoping)
-```
-
-### 🔄 **Data Flow**
-1. **Probing**: SmokePing runs FPing & DNS probes every 5 minutes
-2. **Storage**: Results stored in RRD files with directory-based classification
-3. **Export**: Python exporter monitors RRD changes and pushes to InfluxDB
-4. **Visualization**: Grafana queries InfluxDB using Flux for real-time dashboards
-
-### 🎯 **Key Features**
-- **Dual Storage**: Classic RRD files **+** modern time-series database
-- **Smart Classification**: Automatic separation of ping vs DNS latency data
-- **Rich Dashboards**: Percentile analysis, side-by-side comparison, DNS monitoring
-- **Filtered Views**: Dashboards show only relevant targets (no DNS in ping dashboards)
-
-📋 **For detailed architecture diagrams and component interaction, see [ARCHITECTURE.md](ARCHITECTURE.md)**
-
----
-
-## <a id="tldr"></a>🚀 TL;DR — Quick start
+## 🚀 Quick Start
 
 ```bash
-# Clone the repo & build everything once
-$ git clone https://github.com/estcarisimo/smoking-pi.git
-$ cd smoking-pi/grafana-influx
-
-# Generate secure passwords first
-$ ./init-passwords.sh
-
-# Build & launch the full stack
-$ docker compose build  # or: docker-compose build
-$ docker compose up -d
-
-# After ~30 sec…
-🖥️  SmokePing  → http://localhost:8080/smokeping
-📈  Grafana    → http://localhost:3000  (admin / admin)
+cd grafana-influx
+./init-passwords-docker.sh  # 1. Generate secure credentials (required first!)
+./docker-compose-up.sh       # 2. Deploy stack with automatic token sync
+./show-passwords.sh         # 3. View all generated credentials
 ```
+
+**Access Points:**
+- SmokePing: http://localhost:8081 - Classic SmokePing web interface
+- Web Admin: http://localhost:8080 - Target management and configuration
+- Grafana: http://localhost:3000 (secure auto-generated password) - Professional dashboards
+- InfluxDB: http://localhost:8086 - Time-series database API
+
+> 💡 **Important**: Use `./docker-compose-up.sh` instead of `docker-compose up -d` to ensure proper InfluxDB token synchronization
+> 
+> 💡 **View all credentials**: Run `./show-passwords.sh` to display all auto-generated passwords
+
+## ✨ Latest Improvements
+
+### 🆕 **PostgreSQL Database Integration**
+- **Database-First Architecture**: All targets stored in normalized PostgreSQL database with proper relationships
+- **Active/Inactive Status**: Toggle targets on/off without deletion, with web interface controls
+- **Seamless Migration**: Zero-downtime migration from existing YAML configurations to database
+- **RESTful API**: Full CRUD operations for programmatic target management with validation
+- **Hybrid Fallback**: Intelligent detection with automatic YAML compatibility mode
+- **Grafana Integration**: Dashboard template variables now populate directly from PostgreSQL
+
+### **Enhanced Dashboard Organization**
+- **3 Separate Folders**: Side-by-Side Pings, Individual Pings, DNS Resolution Times
+- **Template Variable Fixes**: Dashboard dropdowns now properly populate with target names
+- **DNS Monitoring**: Dedicated dashboards for DNS resolution time analysis with percentiles
+
+### **Robust Data Pipeline**
+- **Dual Measurements**: `latency` measurement for ping data, `dns_latency` for DNS resolution
+- **Complete Export Coverage**: Handles all target categories (TopSites, Custom, Netflix, DNS)
+- **Real-time Synchronization**: Python exporter processes all RRD files every 60 seconds
+
+### **DNS Resolution Monitoring**
+- **Multiple Resolvers**: Google DNS, Cloudflare, Quad9 with dedicated dashboard
+- **Resolution Time Analysis**: Median, percentiles (P10-P90), and individual ping measurements
+- **Separate Data Classification**: DNS targets automatically classified for specialized dashboards
+
+## 📋 Table of Contents
+
+1. [Quick Deployment](#1-quick-deployment)
+2. [Architecture](#2-architecture)
+3. [Professional Dashboards](#3-professional-dashboards)
+4. [Web Administration](#4-web-administration)
+5. [Configuration Management](#5-configuration-management)
+6. [Data Management](#6-data-management)
+7. [Environment Setup](#7-environment-setup)
+8. [Troubleshooting](#8-troubleshooting)
+9. [Comparison with Minimal](#9-comparison-with-minimal)
+
+---
+
+## 1. Quick Deployment
+
+### Prerequisites
+- Docker & Docker Compose installed
+- User added to docker group (or use sudo): `sudo usermod -aG docker $USER`
+- Ports 8080, 8081, 3000, 8086 available
+- Bash shell (for init-passwords-docker.sh script)
+
+### Zero-Touch Setup
+```bash
+# Clone repository
+git clone https://github.com/estcarisimo/smoking-pi.git
+cd smoking-pi/grafana-influx
+
+# STEP 1: Generate secure credentials (REQUIRED - run this first!)
+./init-passwords-docker.sh
+# This creates .env file with auto-generated passwords
+
+# STEP 2: Deploy full stack
+docker-compose up -d
+# Note: Will fail with clear error if passwords not generated
+
+# STEP 3: Check deployment status
+docker-compose ps
+
+# STEP 4: View credentials
+./show-passwords.sh
+```
+
+### Verify Services
+- **SmokePing**: http://localhost:8081/cgi-bin/smokeping.cgi
+- **Web Admin**: http://localhost:8080 (secure auto-generated password)
+- **Grafana**: http://localhost:3000 (secure auto-generated password)
+- **InfluxDB**: http://localhost:8086
+
+---
+
+## 2. Architecture
+
+```text
+        🔐 User runs: ./init-passwords-docker.sh
+        │ (Generates secure credentials in .env file)
+        │ • INFLUX_TOKEN
+        │ • POSTGRES_PASSWORD  
+        │ • SECRET_KEY
+        │ • DOCKER_INFLUXDB_INIT_PASSWORD
+        │ • GF_SECURITY_ADMIN_PASSWORD
+        │ • GF_SECURITY_SECRET_KEY
+        │ • WEB_ADMIN_PASSWORD
+        ▼
+┌─────────────┐  Config YAML   ┌──────────────┐
+│Config Manager│──────────────▶│  SmokePing   │─┐
+└─────────────┘                │   (8081)     │ │
+       ▲                       └──────────────┘ │
+       │ Database-first               │         │ RRD files
+       │                              │         │
+┌─────────────┐   ┌──────────────┐    │         ▼
+│ Web Admin   │──▶│ PostgreSQL   │    │ ┌──────────────┐  Flux queries  ┌─────────────┐
+│   (8080)    │   │   (5432)     │    │ │ InfluxDB 2.x │──────────────▶│  Grafana    │
+└─────────────┘   └──────────────┘    │ │   (8086)     │                │  (3000)     │
+                         ▲             │ └──────────────┘                └─────────────┘
+                         │             │       ▲                                ▲
+                         └─────────────┘       │ exporter.py               │ PostgreSQL
+                                               └───────────────────────────┘ Template Vars
+```
+
+### 🔄 Data Flow
+1. **Database Management**: PostgreSQL stores all monitoring targets with active/inactive status and metadata
+2. **Dynamic Configuration**: Config manager generates SmokePing config from database in real-time
+3. **Template Variables**: Grafana dashboards populate dropdowns directly from PostgreSQL
+4. **Network Probing**: SmokePing monitors only active targets every 5 minutes → RRD storage
+5. **Data Export**: Python exporter monitors RRD changes → pushes to InfluxDB with target categorization
+6. **Professional Visualization**: Grafana dashboards with database-driven analytics and filtering
+7. **Management**: Web Admin interface manages database targets → triggers automatic config regeneration
+
+### 🎯 Key Features
+- **Zero-Touch Deployment**: Automated setup with secure credential generation
+- **Microservice Architecture**: Each component runs as independent container
+- **Professional Dashboards**: Percentile analysis, comparison views, outage detection
+- **Smart Data Routing**: DNS and latency data automatically separated
+- **Target Discovery**: Integration with Netflix OCA, Tranco, Chrome UX top sites
 
 ---
 
@@ -94,7 +181,7 @@ grafana-influx/
 │         ├─ smokeping_latency_compare.json
 │         └─ smokeping_resolvers.json
 ├─ docker-compose.yml
-├─ init-passwords.sh     # Password generation script
+├─ init-passwords-docker.sh     # User-run password generation script (run first!)
 ├─ .env.template         # Environment template
 ├─ .gitignore           # Prevents committing secrets
 └─ README.md            # you‑are‑here
@@ -193,6 +280,16 @@ exec smokeping --nodaemon
 
 ---
 
+## 📚 Additional Documentation
+
+- **[Architecture Details](ARCHITECTURE.md)**: Complete system architecture and data flow diagrams
+- **[DNS Monitoring Guide](DNS_MONITORING.md)**: DNS resolution monitoring setup and troubleshooting  
+- **[Main Project README](../README.md)**: Overview of all deployment options
+- **[Web Admin Guide](../web-admin/README.md)**: Target management interface
+- **[Config Manager Guide](../config-manager/README.md)**: Configuration management system
+
+---
+
 ### <a id="exporter"></a> 2. RRD → InfluxDB exporter (`smokeping/exporter/rrd2influx.py`)
 
 A Python script that monitors RRD files and exports data to InfluxDB in real-time:
@@ -245,7 +342,7 @@ EXPOSE 8086
 **Configuration:**
 - **Auto-initialization**: Docker Compose sets up organization, bucket, and admin user
 - **Persistence**: Data stored in named Docker volume `influxdb-data`
-- **Security**: Admin password and API token generated by `init-passwords.sh`
+- **Security**: Admin password and API token generated by `init-passwords-docker.sh`
 
 **Environment Variables:**
 - `DOCKER_INFLUXDB_INIT_MODE=setup` - Auto-setup on first run
@@ -322,19 +419,28 @@ providers:
 | Variable        | Purpose                         | Default (docker‑compose.yml) |
 | --------------- | ------------------------------- | ---------------------------- |
 | `INFLUX_URL`    | Base URL of the InfluxDB server | `http://influxdb:8086`       |
-| `INFLUX_TOKEN`  | API token with write perms      | Generated by `init-passwords.sh` |
+| `INFLUX_TOKEN`  | API token with write perms      | Generated by `init-passwords-docker.sh` |
 | `INFLUX_ORG`    | InfluxDB organisation           | `smokingpi`                  |
 | `INFLUX_BUCKET` | Bucket name                     | `latency`                    |
+| `DATABASE_URL`  | PostgreSQL connection string    | `postgresql://smokeping:${POSTGRES_PASSWORD}@postgres:5432/smokeping_targets` |
+| `POSTGRES_PASSWORD` | PostgreSQL database password | Generated by `init-passwords-docker.sh` |
 | `RRD_DIR`       | Where SmokePing stores RRDs     | `/var/lib/smokeping`         |
-| `DOCKER_INFLUXDB_INIT_PASSWORD` | InfluxDB admin password | Generated by `init-passwords.sh` |
+| `TZ`            | Timezone for all services       | `UTC` (auto-detected)        |
+| `SECRET_KEY`    | Flask web admin secret key      | Generated by `init-passwords-docker.sh` |
+| `WEB_ADMIN_USERNAME` | Web admin interface username | `admin` |
+| `WEB_ADMIN_PASSWORD` | Web admin interface password | Generated by `init-passwords-docker.sh` |
+| `GF_SECURITY_ADMIN_USER` | Grafana admin username     | `admin` |
+| `GF_SECURITY_ADMIN_PASSWORD` | Grafana admin password | Generated by `init-passwords-docker.sh` |
+| `GF_SECURITY_SECRET_KEY` | Grafana cookie signing key | Generated by `init-passwords-docker.sh` |
+| `DOCKER_INFLUXDB_INIT_PASSWORD` | InfluxDB admin password | Generated by `init-passwords-docker.sh` |
 
 Set them in **`docker-compose.yml`** or in `.env`.
 
-> **⚠️ Security Note:** Always run `./init-passwords.sh` before deploying to generate secure random passwords. The `.env` file is gitignored to prevent accidental commits of secrets.
+> **⚠️ Security Note:** You MUST run `./init-passwords-docker.sh` before deploying. Docker Compose will fail to start without this step, ensuring secure random passwords are always generated. The `.env` file is gitignored to prevent accidental commits of secrets.
 
 ### Complete `.env` file (copy‑me)
 
-After running `./init-passwords.sh`, your `.env` file will contain:
+After running `./init-passwords-docker.sh`, your `.env` file will contain:
 
 ```bash
 # InfluxDB connection
@@ -343,8 +449,22 @@ INFLUX_TOKEN=<generated-secure-token>
 INFLUX_ORG=smokingpi
 INFLUX_BUCKET=latency
 
+# PostgreSQL database
+DATABASE_URL=postgresql://smokeping:${POSTGRES_PASSWORD}@postgres:5432/smokeping_targets
+POSTGRES_PASSWORD=<generated-secure-password>
+
 # SmokePing RRD directory
 RRD_DIR=/var/lib/smokeping
+
+# Web Admin Interface
+WEB_ADMIN_USERNAME=admin
+WEB_ADMIN_PASSWORD=<generated-secure-password>
+SECRET_KEY=<generated-secure-key>
+
+# Grafana admin credentials
+GF_SECURITY_ADMIN_USER=admin
+GF_SECURITY_ADMIN_PASSWORD=<generated-secure-password>
+GF_SECURITY_SECRET_KEY=<generated-secure-key>
 
 # Generated passwords
 DOCKER_INFLUXDB_INIT_PASSWORD=<generated-secure-password>
@@ -360,6 +480,67 @@ environment:
 ```
 
 Place the `.env` file in the same directory as `docker-compose.yml`; Docker Compose will load it automatically and substitute every `${VAR}` placeholder.
+
+---
+
+## <a id="timezone"></a>🌍 Timezone Configuration
+
+All services (SmokePing, InfluxDB, Grafana, Web Admin) are automatically configured to use the same timezone for consistent time handling.
+
+### Automatic Detection
+
+Run the timezone detection script to automatically configure your local timezone:
+
+```bash
+./detect-timezone.sh
+```
+
+This script will:
+- Detect your system's timezone using multiple methods
+- Update the `.env` file with the correct `TZ` setting
+- Validate the timezone before applying
+
+### Manual Configuration
+
+To manually set a specific timezone, edit the `.env` file:
+
+```bash
+# Common timezone examples:
+TZ=America/New_York           # Eastern Time (US)
+TZ=America/Los_Angeles        # Pacific Time (US)
+TZ=America/Chicago            # Central Time (US)
+TZ=Europe/London              # UK Time
+TZ=Europe/Berlin              # Central European Time
+TZ=Europe/Paris               # Central European Time
+TZ=Asia/Tokyo                 # Japan Time
+TZ=Asia/Shanghai              # China Time
+TZ=America/Argentina/Buenos_Aires  # Argentina Time
+TZ=America/Sao_Paulo          # Brazil Time
+TZ=UTC                        # Coordinated Universal Time
+```
+
+### How It Works
+
+- **Host Timezone Sync**: Containers mount `/etc/localtime` and `/etc/timezone` from the host
+- **Environment Variable**: `TZ` environment variable ensures consistent timezone across all services
+- **InfluxDB Timestamps**: RRD timestamps are preserved and InfluxDB handles timezone conversion
+- **Grafana Display**: Dashboards automatically display times in the configured timezone
+
+### Verification
+
+After setting the timezone, restart the stack and verify:
+
+```bash
+docker-compose down
+docker-compose up -d
+
+# Check container timezone
+docker-compose exec smokeping date
+docker-compose exec influxdb date
+docker-compose exec grafana date
+```
+
+All containers should show the same timezone and time.
 
 ---
 
@@ -399,6 +580,15 @@ The shipped JSONs are seeds – duplicate & extend them via Grafana's UI: add lo
 - **Storage**: Monitor disk usage - InfluxDB data grows over time
 - **Network**: High-frequency probing can impact network performance
 
+**Docker permission errors?**
+- *Permission denied*: Add user to docker group: `sudo usermod -aG docker $USER`
+- After adding to group: Log out and log back in for changes to take effect
+- Alternative: Run docker commands with `sudo`
+
+**Script errors?**
+- *Bad substitution*: Ensure you have bash installed (script requires bash, not sh)
+- *Container naming*: Web admin auto-detects container names for both Compose v1/v2
+
 ### Maintenance
 
 **Long‑term storage backup:**
@@ -419,11 +609,66 @@ docker compose down -v
 # Remove all images
 docker compose build --no-cache
 # Fresh start
-./init-passwords.sh && docker compose up -d
+./init-passwords-docker.sh && docker compose up -d
 ```
+
+---
+
+## 9. Comparison with Minimal
+
+| Feature | Minimal | grafana-influx |
+|---------|---------|----------------|
+| SmokePing | ✅ | ✅ |
+| Web Admin | Optional | ✅ |
+| Config Manager | Optional | ✅ |
+| InfluxDB | ❌ | ✅ |
+| Grafana | ❌ | ✅ |
+| Professional Dashboards | ❌ | ✅ |
+| Historical Analysis | ❌ | ✅ |
+| Resource Usage | Low | High |
+| Setup Complexity | Simple | Zero-Touch |
+| Use Case | Basic monitoring | Professional monitoring |
+
+### When to Use Full Stack
+- **Professional Monitoring**: Need advanced dashboards and analytics
+- **Historical Analysis**: Long-term trend analysis and reporting
+- **Team Collaboration**: Multiple users need access to monitoring data
+- **Integration Requirements**: Need to integrate with other monitoring tools
+- **Advanced Visualization**: Custom dashboards and complex queries
+
+### When to Use Minimal
+- **Resource Constraints**: Limited hardware (basic Raspberry Pi)
+- **Simple Requirements**: Basic latency monitoring only
+- **Traditional Setup**: Prefer classic SmokePing RRD interface
+
+---
+
+## Support & Maintenance
+
+### Regular Maintenance
+```bash
+# Check service health
+docker-compose ps
+docker-compose logs --tail=50
+
+# Update services
+docker-compose pull
+docker-compose up -d
+
+# Backup data
+./backup-data.sh  # Create this script based on troubleshooting section
+```
+
+### Performance Optimization
+- **InfluxDB**: Adjust retention policies for long-term storage
+- **Grafana**: Use dashboard caching for better performance  
+- **SmokePing**: Tune probe intervals based on requirements
+- **System**: Monitor disk usage and memory consumption
 
 ---
 
 ## License
 
 MIT for scripts; SmokePing itself is GPLv2.
+
+**Maintainer:** Esteban Carisimo

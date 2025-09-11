@@ -1,0 +1,19 @@
+version: '3.9'
+
+services:
+  config-manager:
+    build: .
+    container_name: smokeping-config-manager
+    volumes:
+      - ./config:/app/config
+      - ./output:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock  # For Docker operations
+    environment:
+      - CONFIG_DIR=/app/config
+      - OUTPUT_DIR=/app/output
+      - TZ=${TZ:-UTC}
+    restart: unless-stopped
+    command: ["sh", "-c", "while true; do echo 'Config manager ready'; sleep 3600; done"]
+
+volumes:
+  config-output:
