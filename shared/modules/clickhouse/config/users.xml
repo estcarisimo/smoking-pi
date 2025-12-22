@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <users>
+        <smokeping>
+            <password from_env="CLICKHOUSE_PASSWORD"/>
+            <profile>default</profile>
+            <quota>default</quota>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <grants>
+                <query>GRANT ALL ON smokeping.*</query>
+            </grants>
+        </smokeping>
+    </users>
+
+    <profiles>
+        <default>
+            <max_memory_usage>10000000000</max_memory_usage>
+            <use_uncompressed_cache>0</use_uncompressed_cache>
+            <load_balancing>random</load_balancing>
+            <max_execution_time>300</max_execution_time>
+            <readonly>0</readonly>
+            <allow_ddl>1</allow_ddl>
+        </default>
+        
+        <readonly>
+            <readonly>1</readonly>
+            <allow_ddl>0</allow_ddl>
+        </readonly>
+    </profiles>
+
+    <quotas>
+        <default>
+            <interval>
+                <duration>3600</duration>
+                <queries>0</queries>
+                <errors>0</errors>
+                <result_rows>0</result_rows>
+                <read_rows>0</read_rows>
+                <execution_time>0</execution_time>
+            </interval>
+        </default>
+    </quotas>
+</clickhouse>

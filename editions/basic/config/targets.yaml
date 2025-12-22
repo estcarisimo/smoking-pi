@@ -1,0 +1,50 @@
+# SmokePing Basic Edition - Target Configuration
+# This file defines the monitoring targets in YAML format
+# Edit this file to add/remove/modify monitoring targets
+
+targets:
+  websites:
+    title: "Popular websites"
+    hosts:
+      - name: Google
+        host: www.google.com
+        title: "Google"
+      
+      - name: Facebook
+        host: www.facebook.com
+        title: "Facebook"
+      
+      - name: Amazon
+        host: www.amazon.com
+        title: "Amazon"
+      
+      - name: NYT
+        host: www.nytimes.com
+        title: "New York Times"
+      
+      - name: Apple
+        host: a.ns.apple.com
+        title: "Apple"
+      
+      - name: UBA
+        host: ns1.uba.ar
+        title: "UBA Name Server"
+  
+  resolvers:
+    title: "Public DNS resolvers"
+    probe: DNS
+    hosts:
+      - name: Google
+        host: 8.8.8.8
+        title: "Google public DNS"
+        lookup: www.google.com
+      
+      - name: Cloudflare
+        host: 1.1.1.1
+        title: "Cloudflare public DNS"
+        lookup: www.cloudflare.com
+      
+      - name: Quad9
+        host: 9.9.9.9
+        title: "Quad9 public DNS"
+        lookup: www.quad9.net

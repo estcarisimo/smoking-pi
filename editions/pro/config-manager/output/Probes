@@ -1,0 +1,12 @@
+*** Probes ***
+
++ FPing
+binary = /usr/sbin/fping
+step = 300
+pings = 10
+
++ DNS
+binary = /usr/bin/dig
+step = 300
+pings = 5
+forks = 5

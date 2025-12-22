@@ -1,0 +1,123 @@
+# Docker Compose version removed as it's obsolete in newer versions
+
+# SmokePing Standard Edition
+# PostgreSQL + Web Admin + Config Manager + SmokePing
+# Database-driven configuration with web interface
+
+services:
+  postgres:
+    build: 
+      context: ../../shared/modules/postgres
+      dockerfile: Dockerfile
+    image: standard-postgres
+    container_name: smokeping-standard-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smokeping_targets}
+      POSTGRES_USER: ${POSTGRES_USER:-smokeping}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../shared/modules/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smokeping} -d ${POSTGRES_DB:-smokeping_targets}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - smokeping-net
+
+  config-manager:
+    build: 
+      context: ../../shared/modules/config-manager
+      dockerfile: Dockerfile
+    container_name: smokeping-standard-config-manager
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-smokeping}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-smokeping_targets}"
+      TZ: ${TZ:-UTC}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - config-manager-output:/app/output
+      - smokeping-config:/smokeping-config
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - smokeping-net
+
+  web-admin:
+    build:
+      context: ../../shared/modules/web-admin  
+      dockerfile: Dockerfile
+    container_name: smokeping-standard-web-admin
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-smokeping}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-smokeping_targets}"
+      CONFIG_MANAGER_URL: "http://config-manager:5000"
+      WEB_ADMIN_USERNAME: ${WEB_ADMIN_USERNAME:-admin}
+      WEB_ADMIN_PASSWORD: ${WEB_ADMIN_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${WEB_ADMIN_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      config-manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - smokeping-net
+
+  smokeping:
+    build:
+      context: ../../shared/modules/smokeping
+      dockerfile: Dockerfile
+    image: standard-smokeping
+    container_name: smokeping-standard
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-UTC}
+    volumes:
+      - smokeping-data:/data
+      - smokeping-config:/config
+      - ../../shared/modules/config-manager/output/Targets:/config/Targets:ro
+      - ../../shared/modules/config-manager/output/Probes:/config/Probes:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "${SMOKEPING_PORT:-8081}:80"
+    depends_on:
+      config-manager:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - smokeping-net
+
+networks:
+  smokeping-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    name: smokeping-standard-postgres-data
+  config-manager-output:
+    name: smokeping-standard-config-output
+  smokeping-config:
+    name: smokeping-standard-config
+  smokeping-data:
+    name: smokeping-standard-data

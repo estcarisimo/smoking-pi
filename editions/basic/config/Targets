@@ -1,0 +1,64 @@
+*** Targets ***
+
+probe = FPing
+
+menu = Top
+title = Using a Raspberry Pi and SmokePing to Monitor Networks
+remark = Latency to a few select sites and services in the Internet.
+
++ websites
+menu = Popular websites
+title = Popular websites
+
+++ Google
+menu = Google
+title = Google
+host = www.google.com
+
+++ Facebook
+menu = Facebook
+title = Facebook
+host = www.facebook.com
+
+++ Amazon
+menu = Amazon
+title = Amazon
+host = www.amazon.com
+
+++ NYT
+menu = New York Times
+title = New York Times
+host = www.nytimes.com
+
+++ Apple
+menu = Apple
+title = Apple
+host = a.ns.apple.com
+
+++ UBA
+menu = UBA Name Server
+title = UBA Name Server
+host = ns1.uba.ar
+
++ resolvers
+menu = Public DNS resolvers
+title = Public DNS resolvers
+probe = DNS
+
+++ Google
+menu = Google public DNS
+title = Google public DNS
+lookup = www.google.com
+host = 8.8.8.8
+
+++ Cloudflare
+menu = Cloudflare public DNS
+title = Cloudflare public DNS
+lookup = www.cloudflare.com
+host = 1.1.1.1
+
+++ Quad9
+menu = Quad9 public DNS
+title = Quad9 public DNS
+lookup = www.quad9.net
+host = 9.9.9.9
