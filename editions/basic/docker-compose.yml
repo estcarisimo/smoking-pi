@@ -1,0 +1,40 @@
+# Docker Compose version removed as it's obsolete in newer versions
+
+# SmokePing Basic Edition
+# Simple network monitoring with LinuxServer.io SmokePing container
+# Configuration via YAML files only
+
+services:
+  smokeping:
+    build:
+      context: ../../shared/modules/smokeping
+      dockerfile: Dockerfile
+    image: basic-smokeping
+    container_name: smokeping-basic
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - smokeping-config:/config
+      - smokeping-data:/data
+      - ./config:/config/targets:ro
+      - ./scripts:/scripts:ro
+      - ./docker-entrypoint.sh:/docker-entrypoint.sh:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "${SMOKEPING_PORT:-8080}:80"
+    restart: unless-stopped
+    entrypoint: /docker-entrypoint.sh
+    networks:
+      - smokeping-net
+
+networks:
+  smokeping-net:
+    driver: bridge
+
+volumes:
+  smokeping-config:
+    name: smokeping-basic-config
+  smokeping-data:
+    name: smokeping-basic-data

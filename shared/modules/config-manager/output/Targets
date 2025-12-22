@@ -1,0 +1,113 @@
+*** Targets ***
+
+probe = FPing
+
+menu = Top
+title = Network Latency Grapher
+remark = Smoking Pi - SmokePing on Containers
+
++ websites
+menu = Popular websites
+title = Outbound from the Pi to the Internet (using Ping)
+
+++ Google
+title = Google
+menu = Google
+host = google.com
+
+++ Facebook
+title = Facebook
+menu = Facebook
+host = facebook.com
+
+++ Amazon
+title = Amazon
+menu = Amazon
+host = amazon.com
+
+++ NYT
+title = NYT
+menu = NYT
+host = nytimes.com
+
+++ Apple
+title = Apple
+menu = Apple
+host = apple.com
+
+
++ Netflix
+menu = Netflix
+title = Netflix Open Connect Appliances
+
+++ Chicago_ORD_c122_1
+menu = Chicago_ORD_c122_1
+title = ipv4-c122-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c122_1)
+host = 23.246.36.193
+
+++ Chicago_ORD_c106_2
+menu = Chicago_ORD_c106_2
+title = ipv4-c106-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c106_2)
+host = 23.246.37.180
+
+++ Chicago_ORD_c211_3
+menu = Chicago_ORD_c211_3
+title = ipv4-c211-ord001-dev-ix.1.oca.nflxvideo.net (Chicago ORD/c211_3)
+host = 45.57.120.66
+
+++ Chicago_ORD_c733_4
+menu = Chicago_ORD_c733_4
+title = ipv4-c733-ord001-ix.1.oca.nflxvideo.net (Chicago ORD/c733_4)
+host = 45.57.121.70
+
+++ Washington_DC_WAS_c273_5
+menu = Washington_DC_WAS_c273_5
+title = ipv4-c273-was001-ix.1.oca.nflxvideo.net (Washington D.C. WAS/c273_5)
+host = 45.57.62.146
+
+
++ DNS_Resolvers
+menu = DNS Resolvers
+title = Public DNS Resolvers
+
+++ GoogleDNS
+menu = GoogleDNS
+title = Google DNS
+probe = DNS
+host = 8.8.8.8
+lookup = google.com
+
+++ CloudflareDNS
+menu = CloudflareDNS
+title = Cloudflare DNS
+probe = DNS
+host = 1.1.1.1
+lookup = cloudflare.com
+
+++ Quad9DNS
+menu = Quad9DNS
+title = Quad9 DNS
+probe = DNS
+host = 9.9.9.9
+lookup = quad9.net
+
+
++ Custom
+menu = Custom Targets
+title = User-Defined Targets
+
+++ UBA
+menu = UBA
+title = UBA
+host = ns1.uba.ar
+
+++ UdeSA
+menu = UdeSA
+title = UdeSA
+host = www.udesa.edu.ar
+
+++ Google6
+menu = Google6
+title = Google6
+host = www.google.com
+

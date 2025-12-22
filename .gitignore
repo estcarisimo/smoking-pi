@@ -278,3 +278,8 @@ backups/
 run-local.sh
 test-local.sh
 debug.sh
+
+# claude
+.claude
+Claude.md
+TODO*/*.md

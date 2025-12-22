@@ -1,0 +1,20 @@
+version: '3.9'
+
+# Cloudflare Tunnel for Remote Access
+# Provides secure remote access to SmokePing services
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: smokeping-tunnel
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:?Error: CLOUDFLARE_TUNNEL_TOKEN required}
+    command: tunnel run
+    restart: unless-stopped
+    networks:
+      - tunnel-net
+
+networks:
+  tunnel-net:
+    name: smokeping-tunnel
+    external: true
