@@ -1,0 +1,68 @@
+# version: '3.9' # Removed as it's obsolete in newer Docker Compose
+
+# ClickHouse Alternative for SmokePing Pro Edition
+# Use: docker-compose -f docker-compose.yml -f docker-compose.clickhouse.yml up -d
+
+services:
+  # Replace InfluxDB with ClickHouse
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1-alpine
+    container_name: smokeping-pro-clickhouse
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-smokeping}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-smokeping}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      # Add back the init scripts but with simplified config
+      - ../../shared/modules/clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
+      - "${CLICKHOUSE_TCP_PORT:-9000}:9000"
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - default
+    profiles:
+      - clickhouse
+
+  # SmokePing with ClickHouse exporter enabled  
+  smokeping:
+    environment:
+      TSDB_TYPE: clickhouse
+      CLICKHOUSE_URL: "http://localhost:8123"  # Use localhost since SmokePing is on host network
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-smokeping}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-smokeping}
+      RRD_DIR: ${RRD_DIR:-/data}
+    profiles:
+      - clickhouse
+
+  # Update Grafana to use ClickHouse datasource
+  grafana:
+    environment:
+      # Add ClickHouse plugin
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      # ClickHouse datasource configuration via environment
+      GF_DATASOURCES_DEFAULT_NAME: "ClickHouse"
+      GF_DATASOURCES_DEFAULT_TYPE: "grafana-clickhouse-datasource" 
+      GF_DATASOURCES_DEFAULT_URL: "http://clickhouse:8123"
+      GF_DATASOURCES_DEFAULT_USER: ${CLICKHOUSE_USER:-smokeping}
+      GF_DATASOURCES_DEFAULT_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      GF_DATASOURCES_DEFAULT_DATABASE: ${CLICKHOUSE_DB:-smokeping}
+      GF_DATASOURCES_DEFAULT_IS_DEFAULT: "true"
+    profiles:
+      - clickhouse
+
+volumes:
+  clickhouse-data:
+    name: smokeping-pro-clickhouse-data
+  clickhouse-logs:
+    name: smokeping-pro-clickhouse-logs

@@ -1,0 +1,245 @@
+{
+  "uid": "individual-pings-clickhouse-v1",
+  "id": null,
+  "title": "Individual Pings – Latency & Loss (Percentiles/Mean)",
+  "schemaVersion": 37,
+  "version": 4,
+  "tags": ["smokeping", "detailed"],
+  "time": { "from": "now-6h", "to": "now" },
+
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "status",
+        "label": "Status",
+        "datasource": { "uid": "postgresql-targets" },
+        "query": "SELECT DISTINCT CASE WHEN t.is_active THEN 'active' ELSE 'inactive' END as status FROM targets t ORDER BY status DESC",
+        "hide": 0,
+        "multi": false,
+        "includeAll": true,
+        "allValue": "all",
+        "current": {
+          "selected": true,
+          "text": "active",
+          "value": "active"
+        },
+        "options": [
+          { "selected": true, "text": "active", "value": "active" },
+          { "selected": false, "text": "inactive", "value": "inactive" },
+          { "selected": false, "text": "All", "value": "all" }
+        ],
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "target",
+        "label": "Target",
+        "datasource": { 
+          "type": "vertamedia-clickhouse-datasource",
+          "uid": "clickhouse-alt" 
+        },
+        "query": "SELECT DISTINCT target FROM smokeping.latency WHERE measurement_type <> 'dns_latency' ORDER BY target",
+        "hide": 0,
+        "multi": true,
+        "includeAll": true,
+        "allValue": "'UdeSA','Washington_DC_WAS_c273_5','Amazon','Apple','Chicago_ORD_c106_2','Chicago_ORD_c122_1','Chicago_ORD_c211_3','Chicago_ORD_c733_4','CloudflareDNS','Facebook','Google','GoogleDNS','NYT','Quad9DNS','UBA'",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "options": [],
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1
+      }
+    ]
+  },
+
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Latency – [[target]]",
+      "datasource": { "uid": "clickhouse-alt" },
+      "repeat": "target",
+      "repeatDirection": "h",
+      "maxPerRow": 2,
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "lineWidth": 1, "fillOpacity": 15 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "average" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 2 },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 3 },
+              { "id": "displayName",        "value": "Average" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "median" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1.5 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.lineStyle",   "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 2 },
+              { "id": "displayName",        "value": "Median" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p10" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 2 },
+              { "id": "displayName",        "value": "P10" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p20" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 2 },
+              { "id": "displayName",        "value": "P20" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p80" },
+            "properties": [
+              { "id": "custom.fillOpacity", "value": 40 },
+              { "id": "custom.fillBelowTo", "value": "p20" },
+              { "id": "custom.zindex",      "value": 1 },
+              { "id": "displayName",        "value": "P80" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p90" },
+            "properties": [
+              { "id": "custom.fillOpacity", "value": 25 },
+              { "id": "custom.fillBelowTo", "value": "p10" },
+              { "id": "custom.zindex",      "value": 0 },
+              { "id": "displayName",        "value": "P90" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "min" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.zindex",      "value": 1 },
+              { "id": "displayName",        "value": "Min" },
+              { "id": "color",              "value": { "mode": "fixed", "fixedColor": "light-blue" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "max" },
+            "properties": [
+              { "id": "custom.lineWidth",   "value": 1 },
+              { "id": "custom.drawStyle",   "value": "line" },
+              { "id": "custom.fillOpacity", "value": 25 },
+              { "id": "custom.fillBelowTo", "value": "min" },
+              { "id": "custom.zindex",      "value": 1 },
+              { "id": "displayName",        "value": "Max" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "unreachable" },
+            "properties": [
+              { "id": "custom.drawStyle",   "value": "bars" },
+              { "id": "custom.fillOpacity", "value": 40 },
+              { "id": "color.mode",         "value": "fixed" },
+              { "id": "color.fixedColor",   "value": "dark-red" },
+              { "id": "custom.zindex",      "value": 4 },
+              { "id": "displayName",        "value": "Downtime" }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as average FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' AND avg_latency > 0 GROUP BY timestamp ORDER BY timestamp"
+        },
+        {
+          "refId": "B",
+          "queryType": "sql",
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(median_latency) as median FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' AND median_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+        },
+        {
+          "refId": "C",
+          "queryType": "sql",
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p10_latency) as p10 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' AND p10_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+        },
+        {
+          "refId": "D",
+          "queryType": "sql",
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p20_latency) as p20 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' AND p20_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+        },
+        {
+          "refId": "E",
+          "queryType": "sql",
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p80_latency) as p80 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' AND p80_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+        },
+        {
+          "refId": "F",
+          "queryType": "sql",
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p90_latency) as p90 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' AND p90_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+        },
+        {
+          "refId": "G",
+          "queryType": "sql",
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, min(min_latency) as min FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' AND min_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+        },
+        {
+          "refId": "H",
+          "queryType": "sql",
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, max(max_latency) as max FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' AND max_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+        },
+        {
+          "refId": "I",
+          "queryType": "sql",
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, CASE WHEN max(packet_loss) >= 100.0 THEN 500.0 ELSE 0.0 END as unreachable FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' GROUP BY timestamp HAVING max(packet_loss) >= 100.0 ORDER BY timestamp"
+        }
+      ]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "Loss – [[target]] (%)",
+      "datasource": { "uid": "clickhouse-alt" },
+      "repeat": "target",
+      "repeatDirection": "h", 
+      "maxPerRow": 2,
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { 
+        "defaults": { 
+          "unit": "percent", 
+          "min": 0, 
+          "max": 100, 
+          "custom": { "lineWidth": 2 } 
+        } 
+      },
+      "targets": [ 
+        { 
+          "refId": "loss", 
+          "queryType": "sql", 
+          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(packet_loss) as loss FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' GROUP BY timestamp ORDER BY timestamp" 
+        } 
+      ]
+    }
+  ]
+}

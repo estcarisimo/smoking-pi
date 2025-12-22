@@ -1,0 +1,206 @@
+# Docker Compose version removed as it's obsolete in newer versions
+
+services:
+  smokeping:
+    build:
+      context: ../../shared/modules/smokeping
+      dockerfile: Dockerfile
+    image: pro-smokeping
+    network_mode: host
+    volumes:
+      - smokeping-data:/data
+      - smokeping-config:/config
+      - ./config-manager/output/Targets:/config/Targets:ro
+      - ./config-manager/output/Probes:/config/Probes:ro
+      - ../../shared/modules/smokeping-exporters:/exporters:ro
+      - ./custom-cont-init.d:/custom-cont-init.d:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - PUID=1000
+      - PGID=1000
+      # Time-series database configuration
+      - TSDB_TYPE=${TSDB_TYPE:-influxdb}  # influxdb or clickhouse
+      - INFLUX_URL=http://localhost:8086
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
+      - CLICKHOUSE_URL=http://localhost:8123
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-smokeping}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-smokeping}
+      - RRD_DIR=${RRD_DIR}
+      - TZ=${TZ:-UTC}
+    # Optional dependency on influxdb for InfluxDB mode
+    depends_on:
+      influxdb:
+        condition: service_started
+        required: false
+
+  influxdb:
+    build: ../../shared/modules/influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: "${DOCKER_INFLUXDB_INIT_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}"
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUX_TOKEN:?Error: Please run ./setup.sh first to generate passwords}"
+      TZ: ${TZ:-UTC}
+    profiles:
+      - influxdb
+
+  grafana:
+    build: ../../shared/modules/grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../../shared/modules/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../../shared/modules/grafana/provisioning/dashboards-clickhouse:/etc/grafana/provisioning/dashboards-clickhouse:ro
+      - ../../shared/modules/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      # Database configuration
+      TSDB_TYPE: ${TSDB_TYPE:-influxdb}  # influxdb or clickhouse
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_BUCKET: ${INFLUX_BUCKET}
+      INFLUX_ORG: ${INFLUX_ORG}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-smokeping}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-smokeping}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}"
+      # Grafana configuration
+      GF_LOG_LEVEL: debug
+      GF_PROVISIONING_LOG_LEVEL: debug
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}"
+      GF_SECURITY_SECRET_KEY: "${GF_SECURITY_SECRET_KEY:?Error: Please run ./setup.sh first to generate passwords}"
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
+      GF_INSTALL_PLUGINS: "${GF_INSTALL_PLUGINS:-}"
+      TZ: ${TZ:-UTC}
+    # Optional dependency on influxdb for InfluxDB mode
+    depends_on:
+      influxdb:
+        condition: service_started
+        required: false
+
+  web-admin:
+    build: ../../shared/modules/web-admin
+    ports:
+      - "0.0.0.0:8080:8080"  # Explicitly bind to all interfaces
+    volumes:
+      - ./config-manager/config:/app/config
+      - ../../shared/modules/web-admin/app:/app/app  # Mount source code for development
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      CONFIG_DIR: /app/config
+      FLASK_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8080
+      SECRET_KEY: "${SECRET_KEY:?Error: Please run ./setup.sh first to generate passwords}"
+      WEB_ADMIN_USERNAME: ${WEB_ADMIN_USERNAME:-admin}
+      WEB_ADMIN_PASSWORD: "${WEB_ADMIN_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}"
+      TZ: ${TZ:-UTC}
+      SMOKEPING_RESTART_CMD: docker-compose restart smokeping
+      # PostgreSQL connection
+      DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}@postgres:5432/smokeping_targets"
+    depends_on:
+      smokeping:
+        condition: service_started
+      config-manager:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+
+  config-manager:
+    build: ../../shared/modules/config-manager
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ./config-manager/config:/app/config
+      - ./config-manager/output:/app/output
+      - ./smokeping/config:/app/smokeping-config
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      CONFIG_DIR: /app/config
+      OUTPUT_DIR: /app/output
+      TZ: ${TZ:-UTC}
+      # PostgreSQL connection
+      DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}@postgres:5432/smokeping_targets"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    build: 
+      context: ../../shared/modules/postgres
+      dockerfile: Dockerfile
+    image: pro-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../shared/modules/postgres/init:/docker-entrypoint-initdb.d:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      POSTGRES_DB: smokeping_targets
+      POSTGRES_USER: smokeping
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}"
+      TZ: ${TZ:-UTC}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smokeping -d smokeping_targets"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1-alpine
+    container_name: smokeping-pro-clickhouse
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-smokeping}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-smokeping}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      - ../../shared/modules/clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
+      - "${CLICKHOUSE_TCP_PORT:-9000}:9000"
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    profiles:
+      - clickhouse
+
+volumes:
+  smokeping-data:
+  smokeping-config:
+  influxdb-data:
+  grafana-data:
+  postgres-data:
+  clickhouse-data:
+    name: smokeping-pro-clickhouse-data
+  clickhouse-logs:
+    name: smokeping-pro-clickhouse-logs
