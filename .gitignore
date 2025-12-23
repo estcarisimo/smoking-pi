@@ -7,9 +7,12 @@
 
 # Environment files (contains secrets)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.template
 *.env
+!*.env.template
+.env.backup*
+*.env.backup*
 
 # Docker secrets & passwords
 docker-secrets/
