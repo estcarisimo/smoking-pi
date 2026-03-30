@@ -311,10 +311,19 @@ class ConfigGenerator:
             if variant == 'grafana-influx':
                 # Deploy to Docker container
                 import subprocess
-                
-                # Get actual SmokePing container name
-                from api import resolve_container_name
-                smokeping_container = resolve_container_name('smokeping')
+                import docker as docker_client
+
+                # Resolve SmokePing container name without importing api
+                # (importing api triggers bootstrap which spawns config_generator again)
+                client = docker_client.from_env()
+                smokeping_container = None
+                for container in client.containers.list():
+                    if container.labels.get('com.docker.compose.service') == 'smokeping':
+                        smokeping_container = container.name
+                        break
+                if not smokeping_container:
+                    logger.error("SmokePing container not found")
+                    return False
                 
                 # Copy Targets file to SmokePing container
                 targets_result = subprocess.run([

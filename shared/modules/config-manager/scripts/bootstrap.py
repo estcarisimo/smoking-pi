@@ -103,32 +103,37 @@ class ConfigBootstrap:
         """Generate SmokePing configuration files using config generator"""
         try:
             logger.info("Generating SmokePing configuration files...")
-            
+
             # Run config generator with deployment to grafana-influx
-            result = subprocess.run([
-                sys.executable, 
+            proc = subprocess.Popen([
+                sys.executable,
                 str(BASE_DIR / "scripts" / "config_generator.py"),
                 "--deploy-to", "grafana-influx"
-            ], 
+            ],
             cwd=BASE_DIR,
-            capture_output=True, 
-            text=True, 
-            timeout=60
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
             )
-            
-            if result.returncode == 0:
+
+            try:
+                stdout, stderr = proc.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                logger.error("Config generator timed out after 60 seconds")
+                return False
+
+            if proc.returncode == 0:
                 logger.info("Successfully generated and deployed SmokePing configuration")
-                logger.debug(f"Config generator output: {result.stdout}")
+                logger.debug(f"Config generator output: {stdout}")
                 return True
             else:
-                logger.error(f"Config generator failed: {result.stderr}")
-                logger.error(f"Return code: {result.returncode}")
-                logger.error(f"Stdout: {result.stdout}")
+                logger.error(f"Config generator failed: {stderr}")
+                logger.error(f"Return code: {proc.returncode}")
+                logger.error(f"Stdout: {stdout}")
                 return False
-                
-        except subprocess.TimeoutExpired:
-            logger.error("Config generator timed out after 60 seconds")
-            return False
+
         except Exception as e:
             logger.error(f"Error running config generator: {e}")
             return False
