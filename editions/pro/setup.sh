@@ -94,7 +94,7 @@ if [ "$DATABASE" = "clickhouse" ]; then
     # For ClickHouse, we need to use the profile and override files
     COMPOSE_PROFILES=clickhouse docker compose $COMPOSE_FILE up -d
 else
-    docker compose $COMPOSE_FILE up -d
+    COMPOSE_PROFILES=influxdb docker compose up -d
 fi
 
 # Wait for services to be ready
