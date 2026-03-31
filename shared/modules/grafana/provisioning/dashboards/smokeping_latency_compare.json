@@ -13,7 +13,7 @@
 "type": "query",
 "name": "target",
 "datasource": { "uid": "influxdb" },
-"query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"latency\", predicate: (r) => r._measurement != \"dns_latency\" and r.target != \"Cloudflare\" and r.target != \"Quad9\", tag: \"target\")",
+"query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"smokeping\", predicate: (r) => r._measurement != \"dns_latency\" and r.target != \"Cloudflare\" and r.target != \"Quad9\", tag: \"target\")",
 "hide": 0,
 "multi": true,
 "includeAll": true,
@@ -102,32 +102,32 @@
     {
       "refId": "A",
       "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"median\")"
+      "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"median\")"
     },
     {
       "refId": "B",
       "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> mean() |> set(key:\"_field\", value:\"mean\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"mean\")"
+      "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> mean() |> set(key:\"_field\", value:\"mean\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"mean\")"
     },
     {
       "refId": "C",
       "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.10, method:\"exact_mean\") |> set(key:\"_field\", value:\"p10\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p10\")"
+      "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.10, method:\"exact_mean\") |> set(key:\"_field\", value:\"p10\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p10\")"
     },
     {
       "refId": "D",
       "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.20, method:\"exact_mean\") |> set(key:\"_field\", value:\"p20\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p20\")"
+      "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.20, method:\"exact_mean\") |> set(key:\"_field\", value:\"p20\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p20\")"
     },
     {
       "refId": "E",
       "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.80, method:\"exact_mean\") |> set(key:\"_field\", value:\"p80\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p80\")"
+      "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.80, method:\"exact_mean\") |> set(key:\"_field\", value:\"p80\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p80\")"
     },
     {
       "refId": "F",
       "queryType": "flux",
-      "query": "from(bucket:\"latency\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.90, method:\"exact_mean\") |> set(key:\"_field\", value:\"p90\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p90\")"
+      "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field =~ /ping[0-9]+/) |> aggregateWindow(every:1m, fn: mean, createEmpty:false) |> group(columns:[\"target\",\"_time\"]) |> quantile(q:0.90, method:\"exact_mean\") |> set(key:\"_field\", value:\"p90\") |> group(columns:[\"target\",\"_field\"]) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> yield(name:\"p90\")"
     }
   ]
 }

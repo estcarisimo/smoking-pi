@@ -309,12 +309,13 @@ class ConfigGenerator:
         
         try:
             if variant == 'grafana-influx':
-                # Deploy to Docker container
+                # Output files are already written to OUTPUT_DIR by write_output_files().
+                # SmokePing reads them via bind mount (docker-compose mounts
+                # ./config-manager/output/Targets:/config/Targets:ro), so no
+                # docker cp is needed — just signal SmokePing to reload.
                 import subprocess
                 import docker as docker_client
 
-                # Resolve SmokePing container name without importing api
-                # (importing api triggers bootstrap which spawns config_generator again)
                 client = docker_client.from_env()
                 smokeping_container = None
                 for container in client.containers.list():
@@ -324,42 +325,19 @@ class ConfigGenerator:
                 if not smokeping_container:
                     logger.error("SmokePing container not found")
                     return False
-                
-                # Copy Targets file to SmokePing container
-                targets_result = subprocess.run([
-                    'docker', 'cp', 
-                    str(OUTPUT_DIR / "Targets"),
-                    f'{smokeping_container}:/config/Targets'
-                ], capture_output=True, text=True, timeout=30)
-                
-                if targets_result.returncode != 0:
-                    logger.error(f"Failed to copy Targets file: {targets_result.stderr}")
-                    return False
-                
-                # Copy Probes file to SmokePing container
-                probes_result = subprocess.run([
-                    'docker', 'cp', 
-                    str(OUTPUT_DIR / "Probes"),
-                    f'{smokeping_container}:/config/Probes'
-                ], capture_output=True, text=True, timeout=30)
-                
-                if probes_result.returncode != 0:
-                    logger.error(f"Failed to copy Probes file: {probes_result.stderr}")
-                    return False
-                
-                logger.info(f"Successfully deployed configuration to {variant} container")
-                
-                # Restart SmokePing service to reload configuration
-                restart_result = subprocess.run([
+
+                logger.info(f"Config files written to {OUTPUT_DIR}, signalling SmokePing to reload")
+
+                reload_result = subprocess.run([
                     'docker', 'exec', smokeping_container,
-                    'service', 'smokeping', 'restart'
+                    'killall', '-HUP', 'smokeping'
                 ], capture_output=True, text=True, timeout=30)
-                
-                if restart_result.returncode == 0:
-                    logger.info("SmokePing service restarted successfully")
+
+                if reload_result.returncode == 0:
+                    logger.info("SmokePing reload signal sent successfully")
                 else:
-                    logger.warning(f"SmokePing service restart failed: {restart_result.stderr}")
-                
+                    logger.warning(f"SmokePing reload signal failed: {reload_result.stderr}")
+
                 return True
                 
             else:
