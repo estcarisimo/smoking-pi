@@ -5,12 +5,12 @@
 
 probes:
   FPing:
-    binary: /usr/bin/fping
+    binary: /usr/sbin/fping
     step: 300
     pings: 10
-    
+
   FPing6:
-    binary: /usr/bin/fping6
+    binary: /usr/sbin/fping
     step: 300
     pings: 10
     
