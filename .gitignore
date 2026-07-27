@@ -1,6 +1,9 @@
 # Smoking Pi - SmokePing on Containers
 # Global .gitignore for the entire smoking-pi project
 
+.claude
+CLAUDE.md
+
 # =============================================================================
 # Environment & Configuration
 # =============================================================================
@@ -19,6 +22,7 @@ docker-secrets/
 secrets/
 
 # Configuration backups
+*.backup.*
 *.conf.bak
 *.cfg.bak
 config.backup

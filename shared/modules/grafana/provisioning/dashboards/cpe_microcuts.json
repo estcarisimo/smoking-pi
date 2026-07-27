@@ -1,0 +1,282 @@
+{
+  "uid": "cpe-microcut-v1",
+  "id": null,
+  "title": "CPE Microcut Detection",
+  "schemaVersion": 37,
+  "version": 1,
+  "tags": ["smokeping", "cpe", "microcuts"],
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+
+  "templating": { "list": [] },
+
+  "panels": [
+    {
+      "type": "row",
+      "title": "CPE Latency (5 pps high-frequency probing)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "CPE IPv6 – Latency (ms)",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "pointSize": 3,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "max" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash" } }, { "id": "color", "value": { "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "min" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash" } }, { "id": "color", "value": { "fixedColor": "green" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv6\" and r._field == \"median\") |> yield(name:\"median\")"
+        },
+        {
+          "refId": "B",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv6\" and r._field == \"max\") |> yield(name:\"max\")"
+        },
+        {
+          "refId": "C",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv6\" and r._field == \"min\") |> yield(name:\"min\")"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPE IPv4 – Latency (ms)",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "pointSize": 3,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "max" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash" } }, { "id": "color", "value": { "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "min" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash" } }, { "id": "color", "value": { "fixedColor": "green" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv4\" and r._field == \"median\") |> yield(name:\"median\")"
+        },
+        {
+          "refId": "B",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv4\" and r._field == \"max\") |> yield(name:\"max\")"
+        },
+        {
+          "refId": "C",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv4\" and r._field == \"min\") |> yield(name:\"min\")"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Packet Loss",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "CPE Packet Loss (%) – IPv6",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": { "fixedColor": "red", "mode": "fixed" },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "pointSize": 5
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv6\" and r._field == \"loss\") |> yield(name:\"loss\")"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPE Packet Loss (%) – IPv4",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": { "fixedColor": "red", "mode": "fixed" },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "pointSize": 5
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv4\" and r._field == \"loss\") |> yield(name:\"loss\")"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Current Stats",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "IPv6 – Current Loss %",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 21 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv6\" and r._field == \"loss\") |> last()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "IPv6 – Median Latency",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 21 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 20 }, { "color": "red", "value": 50 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv6\" and r._field == \"median\") |> last()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "IPv6 – Jitter",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 21 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 15 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv6\" and r._field == \"jitter\") |> last()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "IPv4 – Current Loss %",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 21 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv4\" and r._field == \"loss\") |> last()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "IPv4 – Median Latency",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 21 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 20 }, { "color": "red", "value": 50 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv4\" and r._field == \"median\") |> last()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "IPv4 – Jitter",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 21 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 15 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv4\" and r._field == \"jitter\") |> last()"
+        }
+      ]
+    }
+  ]
+}

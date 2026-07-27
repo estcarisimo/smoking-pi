@@ -23,7 +23,7 @@ host = facebook.com
 ++ Amazon
 title = Amazon
 menu = Amazon
-host = www.amazon.com
+host = amazon.com
 
 ++ NYT
 title = NYT
@@ -101,8 +101,27 @@ menu = UBA
 title = UBA
 host = ns1.uba.ar
 
+++ Google6
+menu = Google6
+title = Google6
+probe = FPing6
+host = www.google.com
+
 ++ UdeSA
 menu = UdeSA
 title = UdeSA
 host = www.udesa.edu.ar
 
+++ cloudflare
+menu = cloudflare
+title = Cloudflare
+host = www.cloudflare.com
+
+++ SpotifyWebPlayer
+menu = SpotifyWebPlayer
+title = Spotify Web Player
+host = open.spotify.com
+
+
+# CPE targets (auto-discovered by cpe_discovery.py)
+@include /config/CPE_Targets
