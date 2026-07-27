@@ -10,11 +10,21 @@ active_targets:
     name: Google6
     probe: FPing6
     title: Google6
-  - name: UdeSA
+  - category: custom
     host: www.udesa.edu.ar
+    name: UdeSA
+    probe: FPing
     title: UdeSA
+  - name: cloudflare
+    host: www.cloudflare.com
+    title: Cloudflare
     probe: FPing
     category: custom
+  - category: custom
+    host: open.spotify.com
+    name: SpotifyWebPlayer
+    probe: FPing
+    title: Spotify Web Player
   dns_resolvers:
   - category: dns_resolvers
     host: 8.8.8.8
@@ -140,6 +150,6 @@ metadata:
   bandwidth_estimate_mbps: 0.0
   bootstrap_completed: true
   created_by: bootstrap
-  last_updated: '2025-10-09T17:37:57.788302'
-  total_targets: 16
+  last_updated: '2026-07-27T19:51:42.790806'
+  total_targets: 18
   version: '1.0'

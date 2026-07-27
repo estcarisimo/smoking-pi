@@ -7,6 +7,7 @@ services:
       dockerfile: Dockerfile
     image: pro-smokeping
     network_mode: host
+    restart: unless-stopped
     volumes:
       - smokeping-data:/data
       - smokeping-config:/config
@@ -31,6 +32,13 @@ services:
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-smokeping}
       - RRD_DIR=${RRD_DIR}
       - TZ=${TZ:-UTC}
+      # CPE microcut detection
+      - CPE_DISCOVERY_INTERVAL=${CPE_DISCOVERY_INTERVAL:-3600}
+      - CPE_PROBE_RATE=${CPE_PROBE_RATE:-5}
+      - CPE_PROBE_WINDOW=${CPE_PROBE_WINDOW:-10}
+      - CPE_IPV6_TARGET=${CPE_IPV6_TARGET:-dns.google}
+      - CPE_IPV4_TARGET=${CPE_IPV4_TARGET:-8.8.8.8}
+      - CPE_MAX_HOPS=${CPE_MAX_HOPS:-5}
     # Optional dependency on influxdb for InfluxDB mode
     depends_on:
       influxdb:
@@ -39,6 +47,7 @@ services:
 
   influxdb:
     build: ../../shared/modules/influxdb
+    restart: unless-stopped
     ports:
       - "8086:8086"
     volumes:
@@ -58,6 +67,7 @@ services:
 
   grafana:
     build: ../../shared/modules/grafana
+    restart: unless-stopped
     ports:
       - "3000:3000"
     volumes:
@@ -94,6 +104,7 @@ services:
 
   web-admin:
     build: ../../shared/modules/web-admin
+    restart: unless-stopped
     ports:
       - "0.0.0.0:8080:8080"  # Explicitly bind to all interfaces
     volumes:
@@ -126,6 +137,7 @@ services:
 
   config-manager:
     build: ../../shared/modules/config-manager
+    restart: unless-stopped
     ports:
       - "127.0.0.1:5000:5000"
     volumes:
@@ -150,6 +162,7 @@ services:
       context: ../../shared/modules/postgres
       dockerfile: Dockerfile
     image: pro-postgres
+    restart: unless-stopped
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
