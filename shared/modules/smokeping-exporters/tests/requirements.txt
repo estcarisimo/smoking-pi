@@ -1,0 +1,4 @@
+# Dependencies needed to run this module's unit tests in CI.
+# rrdtool/influxdb are mocked; only the client lib is imported.
+pytest
+influxdb-client
