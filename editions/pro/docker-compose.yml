@@ -123,6 +123,8 @@ services:
       WEB_ADMIN_PASSWORD: "${WEB_ADMIN_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}"
       TZ: ${TZ:-UTC}
       SMOKEPING_RESTART_CMD: docker-compose restart smokeping
+      # Optional shared API token for config-manager (empty = auth disabled)
+      CONFIG_API_TOKEN: ${CONFIG_API_TOKEN:-}
       # PostgreSQL connection
       DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}@postgres:5432/smokeping_targets"
     depends_on:
@@ -151,6 +153,10 @@ services:
       CONFIG_DIR: /app/config
       OUTPUT_DIR: /app/output
       TZ: ${TZ:-UTC}
+      # Compose project name for container-name resolution
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pro}
+      # Optional shared API token (empty = auth disabled)
+      CONFIG_API_TOKEN: ${CONFIG_API_TOKEN:-}
       # PostgreSQL connection
       DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}@postgres:5432/smokeping_targets"
     depends_on:

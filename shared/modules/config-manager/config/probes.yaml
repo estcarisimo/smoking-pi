@@ -8,7 +8,12 @@ probes:
     binary: /usr/sbin/fping
     step: 300
     pings: 10
-    
+
+  FPing6:
+    binary: /usr/sbin/fping
+    step: 300
+    pings: 10
+
   DNS:
     binary: /usr/bin/dig
     pings: 5

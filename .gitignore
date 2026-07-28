@@ -27,6 +27,9 @@ secrets/
 *.cfg.bak
 config.backup
 
+# Config-manager cross-process lock file
+.config-manager.lock
+
 # =============================================================================
 # Docker & Container Runtime
 # =============================================================================

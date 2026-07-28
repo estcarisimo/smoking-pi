@@ -9,8 +9,9 @@ INSERT INTO target_categories (name, display_name, description) VALUES
 ('top_sites', 'Top Sites', 'Popular website monitoring targets');
 
 -- Insert probe configurations
-INSERT INTO probes (name, binary_path, step_seconds, pings, forks, is_default) VALUES 
+INSERT INTO probes (name, binary_path, step_seconds, pings, forks, is_default) VALUES
 ('FPing', '/usr/sbin/fping', 300, 10, NULL, TRUE),
+('FPing6', '/usr/sbin/fping', 300, 10, NULL, FALSE),
 ('DNS', '/usr/bin/dig', 300, 5, 5, FALSE);
 
 -- Insert sources (current categories only)

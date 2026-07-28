@@ -5,22 +5,27 @@ Handles first-run setup and config file recovery per TODO-218.md
 """
 
 import logging
+import os
 import shutil
-import subprocess
 import sys
 import yaml
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
+
+# Allow running both as `scripts.bootstrap` and as a standalone script
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from file_ops import atomic_write_yaml
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
 # Configuration paths
 BASE_DIR = Path(__file__).parent.parent
-CONFIG_DIR = BASE_DIR / "config"
+CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", BASE_DIR / "config"))
 TEMPLATE_DIR = BASE_DIR / "templates"
-OUTPUT_DIR = BASE_DIR / "output"
+OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", BASE_DIR / "output"))
 
 # Required configuration files
 REQUIRED_CONFIGS = [
@@ -105,45 +110,6 @@ class ConfigBootstrap:
             logger.error(f"Failed to copy template {config_name}: {e}")
             return False
     
-    def generate_smokeping_config(self) -> bool:
-        """Generate SmokePing configuration files using config generator"""
-        try:
-            logger.info("Generating SmokePing configuration files...")
-
-            # Run config generator with deployment to grafana-influx
-            proc = subprocess.Popen([
-                sys.executable,
-                str(BASE_DIR / "scripts" / "config_generator.py"),
-                "--deploy-to", "grafana-influx"
-            ],
-            cwd=BASE_DIR,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            )
-
-            try:
-                stdout, stderr = proc.communicate(timeout=60)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-                logger.error("Config generator timed out after 60 seconds")
-                return False
-
-            if proc.returncode == 0:
-                logger.info("Successfully generated and deployed SmokePing configuration")
-                logger.debug(f"Config generator output: {stdout}")
-                return True
-            else:
-                logger.error(f"Config generator failed: {stderr}")
-                logger.error(f"Return code: {proc.returncode}")
-                logger.error(f"Stdout: {stdout}")
-                return False
-
-        except Exception as e:
-            logger.error(f"Error running config generator: {e}")
-            return False
-    
     def update_targets_metadata(self) -> None:
         """Update targets.yaml metadata after bootstrap"""
         try:
@@ -168,11 +134,10 @@ class ConfigBootstrap:
                     total_targets += len(targets)
             
             targets_config['metadata']['total_targets'] = total_targets
-            
-            # Write back
-            with open(targets_path, 'w') as f:
-                yaml.dump(targets_config, f, default_flow_style=False, sort_keys=False)
-                
+
+            # Write back atomically
+            atomic_write_yaml(targets_path, targets_config)
+
             logger.debug(f"Updated targets metadata: {total_targets} targets")
             
         except Exception as e:
@@ -237,13 +202,9 @@ class ConfigBootstrap:
         
         if success_count == total_count:
             logger.info(f"Bootstrap completed successfully ({success_count}/{total_count} configs OK)")
-            
-            # Generate SmokePing configuration
-            if self.generate_smokeping_config():
-                logger.info("SmokePing configuration generated and deployed successfully")
-            else:
-                logger.warning("SmokePing configuration generation failed, but bootstrap was successful")
-                
+            # NOTE: config generation is no longer triggered here. The
+            # startup flow (api.initialize) runs bootstrap -> migration ->
+            # generation in-process, exactly once, under a file lock.
             return True
         else:
             logger.error(f"Bootstrap completed with errors ({success_count}/{total_count} configs OK)")

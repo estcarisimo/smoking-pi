@@ -4,6 +4,7 @@ Handles communication with the config-manager REST API
 """
 
 import logging
+import os
 import requests
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class ConfigManagerClient:
     """Client for config-manager REST API"""
-    
+
     def __init__(self, base_url: str = "http://config-manager:5000"):
         self.base_url = base_url.rstrip('/')
         self.session = requests.Session()
@@ -22,6 +23,10 @@ class ConfigManagerClient:
             'Content-Type': 'application/json',
             'User-Agent': 'web-admin/1.0'
         })
+        # Send shared API token when configured (config-manager auth)
+        api_token = os.environ.get('CONFIG_API_TOKEN')
+        if api_token:
+            self.session.headers['Authorization'] = f'Bearer {api_token}'
         
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make HTTP request with error handling"""

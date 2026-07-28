@@ -6,29 +6,29 @@
 active_targets:
   # Popular websites for basic connectivity testing
   top_sites:
-    - name: google_com
+    - name: Google
       host: google.com
-      title: google.com
+      title: Google
       probe: FPing
       category: top_sites
-    - name: facebook_com
+    - name: Facebook
       host: facebook.com
-      title: facebook.com
+      title: Facebook
       probe: FPing
       category: top_sites
-    - name: amazon_com
+    - name: Amazon
       host: amazon.com
-      title: amazon.com
+      title: Amazon
       probe: FPing
       category: top_sites
-    - name: nytimes_com
+    - name: NYT
       host: nytimes.com
-      title: nytimes.com
+      title: NYT
       probe: FPing
       category: top_sites
-    - name: apple_com
+    - name: Apple
       host: apple.com
-      title: apple.com
+      title: Apple
       probe: FPing
       category: top_sites
 
