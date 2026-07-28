@@ -50,3 +50,22 @@ def test_config_lock_is_singleton_and_reentrant():
     assert not lock1.is_locked
     # Lock file lives in the config dir
     assert str(file_ops.CONFIG_DIR) in lock1.lock_file
+
+
+def test_atomic_write_preserves_mode(tmp_path):
+    from file_ops import atomic_write_text
+
+    target = tmp_path / "Targets"
+    target.write_text("old")
+    target.chmod(0o644)
+    atomic_write_text(target, "new")
+    assert target.read_text() == "new"
+    assert (target.stat().st_mode & 0o777) == 0o644
+
+
+def test_atomic_write_new_file_gets_readable_mode(tmp_path):
+    from file_ops import atomic_write_text
+
+    target = tmp_path / "fresh"
+    atomic_write_text(target, "content")
+    assert (target.stat().st_mode & 0o777) == 0o644

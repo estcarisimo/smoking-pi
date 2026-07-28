@@ -227,11 +227,11 @@ class ConfigGenerator:
                 # Category display names from the database
                 self.category_meta = {
                     cat.name: {'display_name': cat.display_name}
-                    for cat in session.query(TargetCategory).all()
+                    for cat in session.query(TargetCategory).order_by(TargetCategory.id).all()
                 }
 
-                # Load probes from database
-                probes = session.query(Probe).all()
+                # Load probes from database (id order keeps the Probes file stable)
+                probes = session.query(Probe).order_by(Probe.id).all()
                 probes_config = {}
                 default_probe = None
 
