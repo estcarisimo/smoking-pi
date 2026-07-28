@@ -7,7 +7,10 @@ datasources:
     type: grafana-clickhouse-datasource
     access: proxy
     url: http://clickhouse:8123
-    isDefault: true
+    # Must stay false while ClickHouse support is parked: in editions/pro this
+    # directory is bind-mounted read-only, so this file is provisioned even in
+    # influxdb mode and would otherwise fight influxdb.yaml over isDefault.
+    isDefault: false
     editable: false
     database: ${CLICKHOUSE_DB}
 

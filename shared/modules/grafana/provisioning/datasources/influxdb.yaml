@@ -1,5 +1,10 @@
+# InfluxDB (Flux) + PostgreSQL datasources.
+#
+# NOTE: in editions/pro this directory is bind-mounted read-only into the
+# container, so the entrypoint cannot remove the sibling clickhouse.yaml —
+# both files are provisioned. This file owns isDefault: true; clickhouse.yaml
+# must keep isDefault: false while ClickHouse support is parked.
 apiVersion: 1
-envInterpolation: true          # ← move it here (2 spaces in)
 
 datasources:
   - name: InfluxDB
@@ -35,6 +40,6 @@ datasources:
       connMaxLifetime: 14400
       postgresVersion: 1500
       timescaledb: false
-      
+
     secureJsonData:
       password: ${POSTGRES_PASSWORD}

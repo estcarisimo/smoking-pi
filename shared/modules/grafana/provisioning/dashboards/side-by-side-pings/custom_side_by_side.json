@@ -7,29 +7,21 @@
   "tags": ["smokeping", "custom"],
   "time": { "from": "now-6h", "to": "now" },
 
+  "links": [
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": ["smokeping"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+
   "templating": {
     "list": [
-      {
-        "type": "query",
-        "name": "status",
-        "label": "Status",
-        "datasource": { "uid": "postgresql-targets" },
-        "query": "SELECT DISTINCT CASE WHEN t.is_active THEN 'active' ELSE 'inactive' END as status FROM targets t JOIN target_categories c ON t.category_id = c.id WHERE c.name = 'custom' ORDER BY status DESC",
-        "hide": 0,
-        "multi": false,
-        "includeAll": true,
-        "allValue": "all",
-        "current": {
-          "selected": true,
-          "text": "active",
-          "value": "active"
-        },
-        "options": [
-          { "selected": true, "text": "active", "value": "active" },
-          { "selected": false, "text": "inactive", "value": "inactive" },
-          { "selected": false, "text": "All", "value": "all" }
-        ]
-      },
       {
         "type": "query",
         "name": "target",
@@ -53,6 +45,7 @@
     {
       "type": "timeseries",
       "title": "Custom Targets Target – [[target]]",
+      "description": "Latency percentiles (p10/p20/p80/p90), mean, median and min/max envelope per target; red bars mark downtime windows.",
       "datasource": { "uid": "influxdb" },
       "repeat": "target",
       "repeatDirection": "h",
@@ -61,6 +54,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
+          "min": 0,
           "custom": { "lineWidth": 1, "fillOpacity": 15 }
         },
         "overrides": [
@@ -201,7 +195,7 @@
         {
           "refId": "I",
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field == \"loss\") |> aggregateWindow(every:15m, fn: mean, createEmpty:true) |> map(fn:(r)=> ({ r with _value: if r._value >= 1.0 then 500.0 else 0.0 })) |> filter(fn:(r)=> r._value > 0) |> set(key:\"_field\", value:\"unreachable\") |> yield(name:\"unreachable\")"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement != \"dns_latency\" and r.target == \"[[target]]\" and r._field == \"loss\") |> aggregateWindow(every:15m, fn: mean, createEmpty:true) |> map(fn:(r)=> ({ r with _value: if r._value >= 0.05 then 500.0 else 0.0 })) |> filter(fn:(r)=> r._value > 0) |> set(key:\"_field\", value:\"unreachable\") |> yield(name:\"unreachable\")"
         }
       ]
     }

@@ -1,34 +1,24 @@
+# Single dashboard provider for all InfluxDB dashboards.
+#
+# One provider walks this directory recursively; foldersFromFilesStructure
+# maps each first-level subdirectory (overview/, cpe/, side-by-side-pings/,
+# individual-pings/, dns-resolution-times/) to a Grafana folder. Do NOT add
+# additional providers pointing at the subdirectories: the recursive walk of
+# the parent would claim the same JSON files twice and cause duplicate-UID
+# provisioning errors.
+#
+# allowUiUpdates is false on purpose: with updateIntervalSeconds set, edits
+# made in the UI would be silently reverted on the next reload anyway. Edit
+# the JSON files in the repo instead (the directory is bind-mounted, so saved
+# changes appear within 30 s).
 apiVersion: 1
 
 providers:
-  - name: SmokePing Main        # folder name shown in Grafana's UI
-    folder: SmokePing
+  - name: SmokePing
     type: file
-    editable: true
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
     options:
-      path: /etc/grafana/provisioning/dashboards   # <— root directory with main dashboards
-      updateIntervalSeconds: 30                    # hot-reload every 30 s
-
-  - name: Side-by-Side Pings    # folder name shown in Grafana's UI
-    folder: Side-by-Side Pings
-    type: file
-    editable: true
-    options:
-      path: /etc/grafana/provisioning/dashboards/side-by-side-pings   # <— where the JSON lives
-      updateIntervalSeconds: 30                                      # hot-reload every 30 s
-
-  - name: Individual Pings      # folder name shown in Grafana's UI
-    folder: Individual Pings
-    type: file
-    editable: true
-    options:
-      path: /etc/grafana/provisioning/dashboards/individual-pings    # <— where the JSON lives
-      updateIntervalSeconds: 30                                     # hot-reload every 30 s
-
-  - name: DNS Resolution Times  # folder name shown in Grafana's UI
-    folder: DNS Resolution Times
-    type: file
-    editable: true
-    options:
-      path: /etc/grafana/provisioning/dashboards/dns-resolution-times # <— where the JSON lives
-      updateIntervalSeconds: 30                                       # hot-reload every 30 s
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true
