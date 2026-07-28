@@ -123,29 +123,29 @@ active_targets:
   top_sites:
   - category: top_sites
     host: google.com
-    name: google_com
+    name: Google
     probe: FPing
-    title: google.com
+    title: Google
   - category: top_sites
     host: facebook.com
-    name: facebook_com
+    name: Facebook
     probe: FPing
-    title: facebook.com
+    title: Facebook
   - category: top_sites
     host: amazon.com
-    name: amazon_com
+    name: Amazon
     probe: FPing
-    title: amazon.com
+    title: Amazon
   - category: top_sites
     host: nytimes.com
-    name: nytimes_com
+    name: NYT
     probe: FPing
-    title: nytimes.com
+    title: NYT
   - category: top_sites
     host: apple.com
-    name: apple_com
+    name: Apple
     probe: FPing
-    title: apple.com
+    title: Apple
 metadata:
   bandwidth_estimate_mbps: 0.0
   bootstrap_completed: true

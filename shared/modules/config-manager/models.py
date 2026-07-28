@@ -149,21 +149,28 @@ class SystemMetadata(Base):
         return f"<SystemMetadata(key='{self.key}', value='{self.value}')>"
 
 # Database connection and session management
-def retry_db_connection(max_retries: int = 5, delay: float = 2.0):
-    """Decorator to retry database operations with exponential backoff"""
+def retry_db_connection(max_retries: int = 5, delay: float = 2.0,
+                        max_total_wait: float = 60.0):
+    """Decorator to retry database operations with exponential backoff.
+
+    Total time spent sleeping between attempts is capped at max_total_wait
+    seconds so a missing database can never block startup indefinitely.
+    """
     def decorator(func):
         def wrapper(*args, **kwargs):
+            total_wait = 0.0
             for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    if attempt == max_retries - 1:
-                        logger.error(f"Database operation failed after {max_retries} attempts: {e}")
+                    if attempt == max_retries - 1 or total_wait >= max_total_wait:
+                        logger.error(f"Database operation failed after {attempt + 1} attempts: {e}")
                         raise
-                    wait_time = delay * (2 ** attempt)
+                    wait_time = min(delay * (2 ** attempt), max_total_wait - total_wait)
                     logger.warning(f"Database connection attempt {attempt + 1} failed: {e}")
                     logger.info(f"Retrying in {wait_time:.1f} seconds...")
                     time.sleep(wait_time)
+                    total_wait += wait_time
             return None
         return wrapper
     return decorator
@@ -171,17 +178,24 @@ def retry_db_connection(max_retries: int = 5, delay: float = 2.0):
 
 class DatabaseManager:
     """Database connection and session management with retry logic"""
-    
+
     def __init__(self, database_url: Optional[str] = None):
         if database_url is None:
-            database_url = os.getenv('DATABASE_URL', 'postgresql://smokeping:password@localhost:5432/smokeping_targets')
-        
+            database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            raise RuntimeError(
+                "DATABASE_URL environment variable is not set. Set it to a "
+                "PostgreSQL connection URL (e.g. "
+                "postgresql://smokeping:<password>@postgres:5432/smokeping_targets) "
+                "to enable database mode."
+            )
+
         self.database_url = database_url
         self.engine = None
         self.SessionLocal = None
         self._initialize_with_retry()
-    
-    @retry_db_connection(max_retries=10, delay=1.0)
+
+    @retry_db_connection(max_retries=5, delay=2.0, max_total_wait=60.0)
     def _initialize_with_retry(self):
         """Initialize database connection with retry logic"""
         logger.info(f"Attempting to connect to database...")
@@ -219,6 +233,44 @@ def get_db_session() -> Session:
     """Get database session"""
     return get_db_manager().get_session()
 
+def database_mode_active() -> bool:
+    """True when the YAML->DB migration marker is present.
+
+    This is the single source of truth for "is PostgreSQL the active
+    configuration backend". Safe to call when the database is down or
+    DATABASE_URL is unset - it returns False instead of raising.
+    """
+    try:
+        session = get_db_session()
+        try:
+            marker = session.query(SystemMetadata).filter(
+                SystemMetadata.key == 'yaml_migration_completed'
+            ).first()
+            return marker is not None
+        finally:
+            session.close()
+    except Exception as e:
+        logger.warning(f"Database not available, using YAML mode: {e}")
+        return False
+
+# Columns clients are allowed to set on a Target via the API.
+# Everything else (id, created_at, updated_at, relationships) is managed
+# by the database - never mass-assign it from request payloads.
+TARGET_WRITABLE_FIELDS = frozenset({
+    'name', 'host', 'title', 'category_id', 'probe_id', 'lookup', 'is_active',
+    'asn', 'cache_id', 'city', 'domain', 'iata_code', 'latitude', 'longitude',
+    'location_code', 'raw_city', 'metadata_type',
+})
+
+
+def _filter_target_fields(target_data: dict) -> dict:
+    """Keep only allowlisted Target columns from a client payload."""
+    filtered = {k: v for k, v in target_data.items() if k in TARGET_WRITABLE_FIELDS}
+    ignored = set(target_data) - set(filtered)
+    if ignored:
+        logger.warning(f"Ignoring non-writable target fields: {sorted(ignored)}")
+    return filtered
+
 # Repository classes for data access
 class TargetRepository:
     """Repository for target operations"""
@@ -247,18 +299,18 @@ class TargetRepository:
         return self.session.query(Target).filter(Target.name == name).first()
     
     def create(self, target_data: dict) -> Target:
-        """Create new target"""
-        target = Target(**target_data)
+        """Create new target (only allowlisted fields are applied)"""
+        target = Target(**_filter_target_fields(target_data))
         self.session.add(target)
         self.session.commit()
         self.session.refresh(target)
         return target
-    
+
     def update(self, target_id: int, target_data: dict) -> Optional[Target]:
-        """Update existing target"""
+        """Update existing target (only allowlisted fields are applied)"""
         target = self.get_by_id(target_id)
         if target:
-            for key, value in target_data.items():
+            for key, value in _filter_target_fields(target_data).items():
                 setattr(target, key, value)
             self.session.commit()
             self.session.refresh(target)
