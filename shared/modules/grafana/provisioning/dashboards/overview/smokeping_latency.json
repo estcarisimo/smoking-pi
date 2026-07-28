@@ -7,13 +7,26 @@
   "tags": ["smokeping"],
   "time": { "from": "now-6h", "to": "now" },
 
+  "links": [
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": ["smokeping"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+
   "templating": {
     "list": [
       {
         "type": "query",
         "name": "target",
         "datasource": { "uid": "influxdb" },
-        "query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"smokeping\", predicate: (r) => r._measurement != \"dns_latency\" and r.target != \"Cloudflare\" and r.target != \"Quad9\", tag: \"target\")"
+        "query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"smokeping\", predicate: (r) => r._measurement != \"dns_latency\", tag: \"target\")"
       }
     ]
   },
@@ -22,6 +35,7 @@
     {
       "type": "timeseries",
       "title": "Latency – [[target]] (ms)",
+      "description": "Median, mean and p10/p20/p80/p90 percentile bands computed from the individual pings of each SmokePing cycle.",
       "datasource": { "uid": "influxdb" },
       "repeat": "target",
       "repeatDirection": "h",
@@ -30,6 +44,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
+          "min": 0,
           "custom": { "lineWidth": 1, "fillOpacity": 15 }
         },
         "overrides": [
@@ -124,6 +139,7 @@
     {
       "type": "timeseries",
       "title": "Loss – [[target]] (%)",
+      "description": "Fraction of pings lost per cycle (0–1); the exporter divides the RRD loss count by SMOKEPING_PINGS.",
       "datasource": { "uid": "influxdb" },
       "repeat": "target",
       "repeatDirection": "h",

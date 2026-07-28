@@ -6,6 +6,20 @@
   "version": 4,
   "tags": ["smokeping"],
   "time": { "from": "now-6h", "to": "now" },
+
+  "links": [
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": ["smokeping"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+
   "templating": {
     "list": [
       {
@@ -21,6 +35,7 @@
     {
       "type": "timeseries",
       "title": "DNS resolution time – [[target]] (ms)",
+      "description": "Median, mean and p10/p20/p80/p90 percentile bands of DNS resolution time per resolver.",
       "datasource": { "uid": "influxdb" },
       "repeat": "target",
       "repeatDirection": "h",
@@ -30,6 +45,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
+          "min": 0,
           "custom": { "lineWidth": 1, "fillOpacity": 15 }
         },
         "overrides": [
