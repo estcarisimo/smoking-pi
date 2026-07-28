@@ -1,0 +1,5 @@
+# Dependencies needed to run this module MCP server tests in CI.
+mcp>=1.2
+httpx
+influxdb-client
+pytest
