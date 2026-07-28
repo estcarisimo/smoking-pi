@@ -15,10 +15,22 @@ jobs:
       - name: Ruff check
         run: |
           uvx ruff check --select E9,F63,F7,F82 \
-            shared/modules/config-manager \
-            shared/modules/web-admin \
-            shared/modules/smokeping-exporters \
+            shared/modules \
             editions
+
+  shell-syntax:
+    name: Shell script syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n over all shell scripts
+        run: |
+          set -e
+          find . -name '*.sh' -not -path './.git/*' -print0 |
+            while IFS= read -r -d '' f; do
+              bash -n "$f" || { echo "SYNTAX ERROR: $f"; exit 1; }
+            done
+          echo "All shell scripts parse."
 
   compose-config:
     name: Compose config (${{ matrix.edition }})
@@ -36,17 +48,99 @@ jobs:
           cp .env.template .env
           sed -i 's/^\([A-Z_]*\)=$/\1=dummy/' .env
           docker compose config -q
+      - name: Validate ClickHouse overlay (pro only)
+        if: matrix.edition == 'pro'
+        working-directory: editions/pro
+        run: |
+          COMPOSE_PROFILES=clickhouse docker compose \
+            -f docker-compose.yml -f docker-compose.clickhouse.yml config -q
 
-  tests:
-    name: Pytest (config-manager)
+  grafana-provisioning:
+    name: Grafana dashboards & provisioning
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install test deps
-        run: pip install pytest pyyaml jinja2
-      - name: Run tests
-        working-directory: shared/modules/config-manager
-        run: pytest tests/ -ra -q
+      - name: Validate dashboard JSON and provisioning YAML
+        run: |
+          pip -q install pyyaml
+          python - <<'EOF'
+          import glob, json, sys
+          import yaml
+
+          errors = []
+          dashboards = glob.glob(
+              "shared/modules/grafana/provisioning/dashboards*/**/*.json",
+              recursive=True,
+          )
+          uids = {}
+          for path in dashboards:
+              try:
+                  data = json.load(open(path))
+              except Exception as e:
+                  errors.append(f"{path}: invalid JSON: {e}")
+                  continue
+              uid = data.get("uid")
+              if uid:
+                  if uid in uids and "clickhouse" not in path and "clickhouse" not in uids[uid]:
+                      errors.append(f"duplicate uid {uid}: {path} and {uids[uid]}")
+                  uids.setdefault(uid, path)
+          for path in glob.glob(
+              "shared/modules/grafana/provisioning/**/*.yaml", recursive=True
+          ):
+              try:
+                  yaml.safe_load(open(path))
+              except Exception as e:
+                  errors.append(f"{path}: invalid YAML: {e}")
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          print(f"OK: {len(dashboards)} dashboards, provisioning YAML valid")
+          EOF
+
+  module-tests:
+    name: Module unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Discover and run tests for every module that has them
+        run: |
+          set -e
+          found=0
+          for dir in shared/modules/*/; do
+            [ -d "$dir/tests" ] || continue
+            found=1
+            echo "═══ Testing $dir ═══"
+            python -m venv /tmp/module-venv
+            # shellcheck disable=SC1091
+            . /tmp/module-venv/bin/activate
+            pip -q install --upgrade pip
+            if [ -f "$dir/tests/requirements.txt" ]; then
+              pip -q install -r "$dir/tests/requirements.txt"
+            else
+              # Fall back to installing the module itself (full deps) + pytest
+              pip -q install -e "$dir" pytest
+            fi
+            (cd "$dir" && pytest tests/ -ra -q)
+            deactivate
+            rm -rf /tmp/module-venv
+          done
+          [ "$found" = "1" ] || { echo "No module tests found — failing loudly rather than passing silently"; exit 1; }
+
+  docker-build:
+    name: Docker build (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [config-manager, web-admin, grafana, smokeping]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        working-directory: shared/modules/${{ matrix.module }}
+        run: docker build -t ci-${{ matrix.module }} .
