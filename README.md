@@ -131,19 +131,18 @@ smoking-pi/
 
 ## 🔄 Database Choice (Pro Edition)
 
-The Pro Edition supports both InfluxDB and ClickHouse as time-series databases:
+The Pro Edition uses **InfluxDB** as its time-series database:
 
 ```bash
-# Use InfluxDB (default)
-echo "TSDB_TYPE=influxdb" >> .env
-
-# Or use ClickHouse for better performance
-echo "TSDB_TYPE=clickhouse" >> .env
-docker-compose -f docker-compose.yml -f docker-compose.clickhouse.yml up -d
+# InfluxDB (default, supported)
+./setup.sh
 ```
 
-**InfluxDB**: Industry standard, easier setup, Flux query language  
-**ClickHouse**: Higher performance, SQL queries, better compression
+> **⚠️ ClickHouse support is experimental and currently unmaintained.**
+> The ClickHouse compose overlay, exporter, and dashboard set are kept in the
+> repo but are known to have issues (Grafana datasource plugin mismatch,
+> dashboard queries that don't match the exporter schema). Use InfluxDB unless
+> you're prepared to fix these. Tracked as a backlog item.
 
 ## 🌐 Remote Access
 

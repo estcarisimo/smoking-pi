@@ -81,13 +81,19 @@ class ConfigBootstrap:
                 logger.error(f"Template not found: {template_path}")
                 return False
             
-            # Create backup if config exists
+            # Create backup if config exists (keep the 5 most recent)
             if config_path.exists():
                 backup_path = config_path.with_suffix(
                     f'.yaml.backup.{int(datetime.now().timestamp())}'
                 )
                 shutil.copy2(config_path, backup_path)
                 logger.info(f"Backed up existing {config_name} to {backup_path.name}")
+                backups = sorted(
+                    config_path.parent.glob(f'{config_path.stem}.yaml.backup.*'),
+                    key=lambda p: p.name,
+                )
+                for old_backup in backups[:-5]:
+                    old_backup.unlink(missing_ok=True)
             
             # Copy template
             shutil.copy2(template_path, config_path)

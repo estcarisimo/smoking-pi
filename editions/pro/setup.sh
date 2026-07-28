@@ -69,14 +69,14 @@ echo -e "${GREEN}═════════════════════
 echo -e "Database: ${BLUE}$DATABASE${NC}"
 echo ""
 
-# Update TSDB_TYPE in .env.template before generation
-if [ -f "$SCRIPT_DIR/.env.template" ]; then
-    sed -i "s/^TSDB_TYPE=.*/TSDB_TYPE=$DATABASE/" "$SCRIPT_DIR/.env.template"
-fi
-
 # Generate passwords/environment
 echo -e "${BLUE}📋 Setting up environment...${NC}"
 "$ROOT_DIR/shared/scripts/generate-passwords.sh" --edition pro --target-dir "$SCRIPT_DIR"
+
+# Set TSDB_TYPE in the generated .env (never mutate the tracked template)
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    sed -i "s/^TSDB_TYPE=.*/TSDB_TYPE=$DATABASE/" "$SCRIPT_DIR/.env"
+fi
 
 # Choose compose file based on database
 if [ "$DATABASE" = "clickhouse" ]; then

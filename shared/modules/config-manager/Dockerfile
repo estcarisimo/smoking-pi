@@ -66,7 +66,6 @@ WORKDIR /app
 COPY config/ ./config/
 COPY templates/ ./templates/
 COPY scripts/ ./scripts/
-COPY test_*.py ./
 COPY api.py ./
 COPY models.py ./
 COPY pydantic_models.py ./

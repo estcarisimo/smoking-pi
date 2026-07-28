@@ -202,11 +202,17 @@ class ConfigManagerAPI:
             else:
                 raise ValueError(f"Unknown configuration type: {config_type}")
             
-            # Backup existing config
+            # Backup existing config (keep the 5 most recent)
             backup_file = config_file.with_suffix(f'.yaml.backup.{int(time.time())}')
             if config_file.exists():
                 backup_file.write_text(config_file.read_text())
                 logger.info(f"Backed up {config_file} to {backup_file}")
+                backups = sorted(
+                    config_file.parent.glob(f'{config_file.stem}.yaml.backup.*'),
+                    key=lambda p: p.name,
+                )
+                for old_backup in backups[:-5]:
+                    old_backup.unlink(missing_ok=True)
             
             # Write new configuration
             with open(config_file, 'w') as f:
@@ -1017,7 +1023,6 @@ def api_documentation():
         <li><strong>GET /api/containers/{service}/status</strong> - Get container status and health</li>
     </ul>
     <p>The API automatically detects whether to use PostgreSQL database or YAML files based on migration status.</p>
-    <p>For detailed API documentation with schemas, run the api_docs.py server on port 5001</p>
     """
 
 
