@@ -150,6 +150,6 @@ metadata:
   bandwidth_estimate_mbps: 0.0
   bootstrap_completed: true
   created_by: bootstrap
-  last_updated: '2026-07-27T19:51:42.790806'
+  last_updated: '2026-07-29T00:41:24.147717'
   total_targets: 18
   version: '1.0'

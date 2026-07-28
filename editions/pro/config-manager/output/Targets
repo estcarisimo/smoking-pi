@@ -11,30 +11,29 @@ menu = Popular websites
 title = Outbound from the Pi to the Internet (using Ping)
 
 ++ Google
-title = Google
 menu = Google
+title = Google
 host = google.com
 
 ++ Facebook
-title = Facebook
 menu = Facebook
+title = Facebook
 host = facebook.com
 
 ++ Amazon
-title = Amazon
 menu = Amazon
+title = Amazon
 host = amazon.com
 
 ++ NYT
-title = NYT
 menu = NYT
+title = NYT
 host = nytimes.com
 
 ++ Apple
-title = Apple
 menu = Apple
+title = Apple
 host = apple.com
-
 
 + Netflix
 menu = Netflix
@@ -65,7 +64,6 @@ menu = Washington_DC_WAS_c273_5
 title = ipv4-c273-was001-ix.1.oca.nflxvideo.net (Washington D.C. WAS/c273_5)
 host = 45.57.62.146
 
-
 + DNS_Resolvers
 menu = DNS Resolvers
 title = Public DNS Resolvers
@@ -90,7 +88,6 @@ title = Quad9 DNS
 probe = DNS
 host = 9.9.9.9
 lookup = quad9.net
-
 
 + Custom
 menu = Custom Targets
@@ -121,7 +118,6 @@ host = www.cloudflare.com
 menu = SpotifyWebPlayer
 title = Spotify Web Player
 host = open.spotify.com
-
 
 # CPE targets (auto-discovered by cpe_discovery.py)
 @include /config/CPE_Targets
