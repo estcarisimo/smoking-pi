@@ -1,5 +1,11 @@
 # Dependencies needed to run this module's unit tests in CI.
-# Keep light: tests must not require postgres/docker.
+# Keep light: tests must not require a postgres server or docker daemon
+# (the docker package below is only the client SDK api.py imports).
 pytest
 pyyaml
 jinja2
+flask
+flask-cors
+sqlalchemy
+filelock
+docker
