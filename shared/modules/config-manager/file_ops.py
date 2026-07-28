@@ -38,9 +38,19 @@ def get_config_lock(timeout: float = 120.0) -> FileLock:
 
 
 def atomic_write_text(path, content: str) -> None:
-    """Write text to path atomically (temp file in same dir + os.replace)."""
+    """Write text to path atomically (temp file in same dir + os.replace).
+
+    Ownership and mode of an existing target file are preserved: os.replace
+    swaps the inode, and in-container we run as root, so without this the
+    replaced file would become root-owned and unreadable to the host user
+    (breaking git and any host-side tooling on bind-mounted output dirs).
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        orig_stat = path.stat()
+    except FileNotFoundError:
+        orig_stat = None
     fd, tmp_path = tempfile.mkstemp(
         dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
     )
@@ -49,6 +59,14 @@ def atomic_write_text(path, content: str) -> None:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())
+        if orig_stat is not None:
+            os.chmod(tmp_path, orig_stat.st_mode)
+            try:
+                os.chown(tmp_path, orig_stat.st_uid, orig_stat.st_gid)
+            except (PermissionError, OSError):
+                pass  # non-root (tests, host runs) — mode alone is fine
+        else:
+            os.chmod(tmp_path, 0o644)
         os.replace(tmp_path, path)
     except BaseException:
         try:

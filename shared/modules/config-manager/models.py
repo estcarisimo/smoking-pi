@@ -287,8 +287,10 @@ class TargetRepository:
         
         if category_name:
             query = query.filter(TargetCategory.name == category_name)
-        
-        return query.all()
+
+        # Stable ordering: insertion order (= original YAML order for migrated
+        # rows) so config generation is deterministic run-to-run.
+        return query.order_by(Target.id).all()
     
     def get_by_id(self, target_id: int) -> Optional[Target]:
         """Get target by ID"""
@@ -342,7 +344,7 @@ class CategoryRepository:
     
     def get_all(self) -> List[TargetCategory]:
         """Get all categories"""
-        return self.session.query(TargetCategory).all()
+        return self.session.query(TargetCategory).order_by(TargetCategory.id).all()
     
     def get_by_name(self, name: str) -> Optional[TargetCategory]:
         """Get category by name"""
@@ -356,7 +358,7 @@ class ProbeRepository:
     
     def get_all(self) -> List[Probe]:
         """Get all probes"""
-        return self.session.query(Probe).all()
+        return self.session.query(Probe).order_by(Probe.id).all()
     
     def get_by_name(self, name: str) -> Optional[Probe]:
         """Get probe by name"""
