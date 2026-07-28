@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: Ruff (critical rules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Ruff check
+        run: |
+          uvx ruff check --select E9,F63,F7,F82 \
+            shared/modules/config-manager \
+            shared/modules/web-admin \
+            shared/modules/smokeping-exporters \
+            editions
+
+  compose-config:
+    name: Compose config (${{ matrix.edition }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [basic, standard, pro]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose.yml
+        working-directory: editions/${{ matrix.edition }}
+        run: |
+          # Fill empty template values with dummies so ${VAR:?} checks pass
+          cp .env.template .env
+          sed -i 's/^\([A-Z_]*\)=$/\1=dummy/' .env
+          docker compose config -q
+
+  tests:
+    name: Pytest (config-manager)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test deps
+        run: pip install pytest pyyaml jinja2
+      - name: Run tests
+        working-directory: shared/modules/config-manager
+        run: pytest tests/ -ra -q

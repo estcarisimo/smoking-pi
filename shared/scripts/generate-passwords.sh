@@ -52,6 +52,9 @@ create_env_file() {
     if [ -f "$env_file" ]; then
         echo -e "${YELLOW}Warning: $env_file already exists. Creating backup...${NC}"
         cp "$env_file" "${env_file}.backup.$(date +%s)"
+        chmod 600 "${env_file}.backup."* 2>/dev/null
+        # Keep only the 3 most recent backups
+        ls -t "${env_file}.backup."* 2>/dev/null | tail -n +4 | xargs -r rm -f
     fi
     
     echo -e "${CYAN}🔐 Generating passwords for $edition edition...${NC}"
