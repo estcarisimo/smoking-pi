@@ -1,0 +1,5 @@
+# Dependencies needed to run this module's unit tests in CI.
+# Keep light: tests must not require postgres/docker.
+pytest
+pyyaml
+jinja2
