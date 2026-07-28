@@ -67,7 +67,9 @@ COPY config/ ./config/
 COPY templates/ ./templates/
 COPY scripts/ ./scripts/
 COPY api.py ./
+COPY wsgi.py ./
 COPY models.py ./
+COPY file_ops.py ./
 COPY pydantic_models.py ./
 
 # Make scripts executable
@@ -90,5 +92,7 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
-# Default command - REST API server
-CMD ["python3", "api.py"]
+# Default command - REST API server via gunicorn (production WSGI server).
+# wsgi.py runs the one-time startup initialization (bootstrap -> migration
+# -> config generation) under a file lock so workers don't race.
+CMD ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:5000", "--timeout", "120", "wsgi:app"]

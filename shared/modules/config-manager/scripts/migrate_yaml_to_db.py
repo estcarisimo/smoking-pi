@@ -6,26 +6,22 @@ Migrates existing YAML configuration files to PostgreSQL database
 
 import argparse
 import logging
+import os
 import sys
 import yaml
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from models import (
-    DatabaseManager, get_db_session,
+    DatabaseManager,
     Target, TargetCategory, Probe, Source, SystemMetadata,
     TargetRepository, CategoryRepository, ProbeRepository
 )
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 class YAMLToDBMigrator:
@@ -224,51 +220,71 @@ class YAMLToDBMigrator:
                 session.add(metadata)
                 metadata_added += 1
         
-        # Add migration completion marker
-        migration_marker = SystemMetadata(
-            key='yaml_migration_completed',
-            value=datetime.now().isoformat()
-        )
-        session.add(migration_marker)
-        metadata_added += 1
-        
+        # Add migration completion marker (idempotent)
+        existing_marker = session.query(SystemMetadata).filter(
+            SystemMetadata.key == 'yaml_migration_completed'
+        ).first()
+        if not existing_marker:
+            migration_marker = SystemMetadata(
+                key='yaml_migration_completed',
+                value=datetime.now().isoformat()
+            )
+            session.add(migration_marker)
+            metadata_added += 1
+
         session.commit()
         logger.info(f"Migrated {metadata_added} metadata entries")
-    
-    def run_migration(self, backup_yaml: bool = True) -> bool:
-        """Run the complete migration"""
+
+    def migration_completed(self, session) -> bool:
+        """Check whether the migration completion marker exists"""
+        return session.query(SystemMetadata).filter(
+            SystemMetadata.key == 'yaml_migration_completed'
+        ).first() is not None
+
+    def run_migration(self, backup_yaml: bool = False) -> bool:
+        """Run the migration. Idempotent: safe to call on every startup.
+
+        If the migration marker is already present, only missing probes are
+        upserted (so existing deployments pick up e.g. FPing6 without a full
+        re-migration). Otherwise a full YAML -> DB migration is performed.
+        """
         try:
-            logger.info("Starting YAML to PostgreSQL migration...")
-            
-            # Backup YAML files if requested
-            if backup_yaml:
-                self.backup_yaml_files()
-            
             # Load YAML configurations
             configs = self.load_yaml_configs()
-            
+
             # Create database tables
             self.db_manager.create_tables()
-            
+
             # Run migration in session
             session = self.db_manager.get_session()
             try:
+                if self.migration_completed(session):
+                    logger.info(
+                        "Migration marker present - upserting missing probes only"
+                    )
+                    self.migrate_probes(session, configs['probes'])
+                    return True
+
+                logger.info("Starting YAML to PostgreSQL migration...")
+                if backup_yaml:
+                    self.backup_yaml_files()
+
                 self.migrate_categories(session, configs['targets'])
                 self.migrate_probes(session, configs['probes'])
                 self.migrate_sources(session, configs['sources'])
                 self.migrate_targets(session, configs['targets'])
                 self.migrate_system_metadata(session, configs)
-                
+
                 logger.info("Migration completed successfully!")
                 return True
-                
+
             except Exception as e:
                 logger.error(f"Migration failed: {e}")
                 session.rollback()
                 raise
             finally:
                 session.close()
-        
+
         except Exception as e:
             logger.error(f"Migration error: {e}")
             return False
@@ -307,8 +323,25 @@ class YAMLToDBMigrator:
         finally:
             session.close()
 
+def run_migration(config_dir=None, database_url: Optional[str] = None,
+                  backup_yaml: bool = False) -> bool:
+    """Importable, idempotent migration entry point.
+
+    Called in-process by the startup flow (api.initialize) - never via
+    subprocess. Safe to run on every startup: when the migration marker is
+    already present it only upserts missing probes.
+    """
+    config_dir = Path(config_dir or os.environ.get('CONFIG_DIR', '/app/config'))
+    migrator = YAMLToDBMigrator(config_dir, database_url)
+    return migrator.run_migration(backup_yaml=backup_yaml)
+
+
 def main():
     """Main entry point"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     parser = argparse.ArgumentParser(description='Migrate YAML configuration to PostgreSQL')
     parser.add_argument('--config-dir', 
                        default='/app/config',

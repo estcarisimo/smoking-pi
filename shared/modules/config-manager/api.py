@@ -4,29 +4,34 @@ Config Manager REST API
 Provides REST interface for SmokePing configuration management
 """
 
+import hmac
 import logging
-import json
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 import yaml
 import subprocess
 import time
 import os
 import docker
 
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.exceptions import BadRequest
 
 # Import our existing config generator and bootstrap
 from scripts.config_generator import ConfigGenerator
-from scripts.bootstrap import run_bootstrap, validate_all_configs
+from scripts.bootstrap import run_bootstrap
+
+# Shared file lock / atomic write helpers
+from file_ops import get_config_lock, atomic_write_yaml
 
 # Import database models and repositories
 from models import (
     get_db_session, Target, TargetCategory, Probe, Source, SystemMetadata,
-    TargetRepository, CategoryRepository, ProbeRepository
+    TargetRepository, CategoryRepository, ProbeRepository,
+    database_mode_active,
 )
 
 # Setup logging
@@ -40,15 +45,32 @@ app = Flask(__name__)
 CORS(app)
 
 # Configuration paths
-CONFIG_DIR = Path("/app/config")
-OUTPUT_DIR = Path("/app/output")
+BASE_DIR = Path(__file__).resolve().parent
+CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", BASE_DIR / "config"))
+OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", BASE_DIR / "output"))
 
-# Run bootstrap to ensure config files exist
-logger.info("Running configuration bootstrap...")
-if not run_bootstrap():
-    logger.error("Bootstrap failed - some config files may be missing")
-else:
-    logger.info("Bootstrap completed successfully")
+
+def require_api_token(f):
+    """Optional shared-token auth.
+
+    If CONFIG_API_TOKEN is set in the environment, the request must carry
+    it via 'Authorization: Bearer <token>' or 'X-API-Token: <token>'.
+    If the env var is unset, requests pass through (backward compatible).
+    """
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        expected = os.environ.get('CONFIG_API_TOKEN')
+        if expected:
+            provided = None
+            auth_header = request.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                provided = auth_header[len('Bearer '):].strip()
+            if not provided:
+                provided = request.headers.get('X-API-Token')
+            if not provided or not hmac.compare_digest(provided, expected):
+                return jsonify({'error': 'Unauthorized'}), 401
+        return f(*args, **kwargs)
+    return wrapper
 
 
 class ConfigManagerAPI:
@@ -56,29 +78,34 @@ class ConfigManagerAPI:
     
     def __init__(self):
         self.generator = ConfigGenerator()
-        self.use_database = self._check_database_available()
-        logger.info(f"API initialized with database support: {self.use_database}")
-        
+
+        # Database mode is probed lazily and re-checked periodically, so a
+        # transient DB outage never disables database mode for the whole
+        # process lifetime.
+        self._db_mode_cache = None  # tuple(bool, checked_at)
+        self._db_mode_ttl = 30  # seconds
+
         # Initialize status cache
         self._status_cache = {}
         self._cache_ttl = 30  # 30 seconds cache TTL
-    
+
+    @property
+    def use_database(self) -> bool:
+        """Whether PostgreSQL is the active config backend (cached, re-probed)"""
+        now = time.time()
+        if (self._db_mode_cache is None
+                or now - self._db_mode_cache[1] > self._db_mode_ttl):
+            self._db_mode_cache = (self._check_database_available(), now)
+        return self._db_mode_cache[0]
+
+    def refresh_database_mode(self) -> None:
+        """Force a re-probe of database availability on next access"""
+        self._db_mode_cache = None
+
     def _check_database_available(self) -> bool:
-        """Check if database is available and has data"""
-        try:
-            session = get_db_session()
-            try:
-                # Check if migration marker exists
-                marker = session.query(SystemMetadata).filter(
-                    SystemMetadata.key == 'yaml_migration_completed'
-                ).first()
-                return marker is not None
-            finally:
-                session.close()
-        except Exception as e:
-            logger.warning(f"Database not available, falling back to YAML: {e}")
-            return False
-        
+        """Check if database is available and migration has completed"""
+        return database_mode_active()
+
     def get_config(self, config_type: str = 'all') -> Dict[str, Any]:
         """Get current configuration from database or YAML fallback"""
         if self.use_database:
@@ -148,9 +175,9 @@ class ConfigManagerAPI:
             return result
             
         except Exception as e:
-            logger.error(f"Database error, falling back to YAML: {e}")
-            # Fallback to YAML
-            self.use_database = False
+            # Fall back to YAML for this request only - database mode is
+            # re-probed periodically instead of being disabled permanently.
+            logger.error(f"Database error, falling back to YAML for this request: {e}")
             return self._get_config_from_yaml(config_type)
         finally:
             session.close()
@@ -202,22 +229,22 @@ class ConfigManagerAPI:
             else:
                 raise ValueError(f"Unknown configuration type: {config_type}")
             
-            # Backup existing config (keep the 5 most recent)
-            backup_file = config_file.with_suffix(f'.yaml.backup.{int(time.time())}')
-            if config_file.exists():
-                backup_file.write_text(config_file.read_text())
-                logger.info(f"Backed up {config_file} to {backup_file}")
-                backups = sorted(
-                    config_file.parent.glob(f'{config_file.stem}.yaml.backup.*'),
-                    key=lambda p: p.name,
-                )
-                for old_backup in backups[:-5]:
-                    old_backup.unlink(missing_ok=True)
-            
-            # Write new configuration
-            with open(config_file, 'w') as f:
-                yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
-            
+            with get_config_lock():
+                # Backup existing config (keep the 5 most recent)
+                backup_file = config_file.with_suffix(f'.yaml.backup.{int(time.time())}')
+                if config_file.exists():
+                    backup_file.write_text(config_file.read_text())
+                    logger.info(f"Backed up {config_file} to {backup_file}")
+                    backups = sorted(
+                        config_file.parent.glob(f'{config_file.stem}.yaml.backup.*'),
+                        key=lambda p: p.name,
+                    )
+                    for old_backup in backups[:-5]:
+                        old_backup.unlink(missing_ok=True)
+
+                # Write new configuration atomically
+                atomic_write_yaml(config_file, config_data)
+
             logger.info(f"Updated {config_type} configuration")
             
             # Generate and deploy new SmokePing configuration
@@ -237,9 +264,10 @@ class ConfigManagerAPI:
     def generate_smokeping_config(self) -> Dict[str, Any]:
         """Generate SmokePing configuration files"""
         try:
-            success = self.generator.run(deploy_to='grafana-influx')
-            
+            success = self.generator.run()
+
             if success:
+                self._signal_smokeping_reload()
                 return {
                     'success': True,
                     'message': 'SmokePing configuration generated and deployed',
@@ -247,31 +275,41 @@ class ConfigManagerAPI:
                 }
             else:
                 raise RuntimeError("Configuration generation failed")
-                
+
         except Exception as e:
             logger.error(f"Failed to generate SmokePing configuration: {e}")
             raise
-    
+
+    def _signal_smokeping_reload(self) -> None:
+        """Ask SmokePing to reload its config (best effort).
+
+        The generated files are bind-mounted into the SmokePing container,
+        so a SIGHUP is enough - no file copying is needed.
+        """
+        try:
+            container_name = resolve_container_name('smokeping')
+            client = docker.from_env()
+            container = client.containers.get(container_name)
+            container.exec_run(['killall', '-HUP', 'smokeping'])
+            logger.info(f"Sent reload signal to SmokePing container '{container_name}'")
+        except Exception as e:
+            logger.warning(f"Could not signal SmokePing reload: {e}")
+
     def restart_smokeping(self) -> Dict[str, Any]:
         """Restart SmokePing service"""
         try:
-            # Try to restart via docker-compose
-            result = subprocess.run([
-                'docker', 'restart', 'grafana-influx-smokeping-1'
-            ], capture_output=True, text=True, timeout=30)
-            
-            if result.returncode == 0:
-                logger.info("SmokePing service restarted successfully")
-                return {
-                    'success': True,
-                    'message': 'SmokePing service restarted',
-                    'restarted_at': datetime.now().isoformat()
-                }
-            else:
-                raise RuntimeError(f"Docker restart failed: {result.stderr}")
-                
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("SmokePing restart timed out")
+            container_name = resolve_container_name('smokeping')
+            client = docker.from_env()
+            container = client.containers.get(container_name)
+            container.restart(timeout=30)
+
+            logger.info(f"SmokePing container '{container_name}' restarted successfully")
+            return {
+                'success': True,
+                'message': 'SmokePing service restarted',
+                'restarted_at': datetime.now().isoformat()
+            }
+
         except Exception as e:
             logger.error(f"Failed to restart SmokePing: {e}")
             raise
@@ -398,9 +436,11 @@ class ConfigManagerAPI:
             raise ValueError("Sources configuration must be a dictionary")
     
     def _regenerate_smokeping_config(self) -> None:
-        """Regenerate and deploy SmokePing configuration"""
+        """Regenerate SmokePing configuration in-process"""
         try:
-            self.generator.run(deploy_to='grafana-influx')
+            if not self.generator.run():
+                raise RuntimeError("Configuration generation failed")
+            self._signal_smokeping_reload()
             logger.info("SmokePing configuration regenerated")
         except Exception as e:
             logger.error(f"Failed to regenerate SmokePing config: {e}")
@@ -445,7 +485,8 @@ class ConfigManagerAPI:
                 logger.debug(f"Resolved SmokePing container name: {container_name}")
             except Exception as e:
                 # Fallback to known container name pattern
-                container_name = 'grafana-influx_smokeping_1'
+                project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
+                container_name = f'{project_name}-smokeping-1'
                 logger.debug(f"Using fallback container name: {container_name}, resolve error: {e}")
             
             # Use Docker Python API for more reliable status checking
@@ -513,6 +554,60 @@ class ConfigManagerAPI:
 # Initialize API instance
 api = ConfigManagerAPI()
 
+# Startup initialization -----------------------------------------------------
+_initialized = False
+
+
+def initialize() -> None:
+    """Explicit one-time startup initialization.
+
+    Runs bootstrap (create missing YAML configs), the idempotent YAML->DB
+    migration (when DATABASE_URL is configured), and one config generation.
+    Serialized with a cross-process file lock so concurrent gunicorn
+    workers do not race; every step is idempotent, so a second worker
+    running through it is a no-op.
+
+    Called from the WSGI entrypoint (wsgi.py) and from __main__ - never at
+    module import time.
+    """
+    global _initialized
+    if _initialized:
+        return
+
+    with get_config_lock():
+        # 1. Ensure YAML config files exist (first run / recovery)
+        logger.info("Running configuration bootstrap...")
+        if not run_bootstrap():
+            logger.error("Bootstrap failed - some config files may be missing")
+        else:
+            logger.info("Bootstrap completed successfully")
+
+        # 2. Migrate YAML -> PostgreSQL (idempotent; upserts missing probes
+        #    on already-migrated deployments)
+        if os.environ.get('DATABASE_URL'):
+            try:
+                from scripts.migrate_yaml_to_db import run_migration
+                if run_migration(config_dir=CONFIG_DIR):
+                    logger.info("Database migration check completed")
+                else:
+                    logger.error("Database migration failed - continuing in YAML mode")
+            except Exception as e:
+                logger.error(f"Database migration error - continuing in YAML mode: {e}")
+        else:
+            logger.info("DATABASE_URL not set - running in YAML mode")
+
+        # 3. Generate SmokePing config once at startup
+        try:
+            if api.generator.run():
+                logger.info("Initial SmokePing configuration generated")
+            else:
+                logger.error("Initial SmokePing configuration generation failed")
+        except Exception as e:
+            logger.error(f"Initial config generation error: {e}")
+
+    api.refresh_database_mode()
+    _initialized = True
+
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -525,6 +620,7 @@ def health_check():
 
 
 @app.route('/status', methods=['GET'])
+@require_api_token
 def get_status():
     """Get service status"""
     try:
@@ -540,6 +636,7 @@ def get_status():
 
 @app.route('/config', methods=['GET'])
 @app.route('/config/<config_type>', methods=['GET'])
+@require_api_token
 def get_config(config_type='all'):
     """Get configuration"""
     try:
@@ -553,6 +650,7 @@ def get_config(config_type='all'):
 
 
 @app.route('/config/<config_type>', methods=['PUT'])
+@require_api_token
 def update_config(config_type):
     """Update configuration"""
     try:
@@ -576,6 +674,7 @@ def update_config(config_type):
 
 
 @app.route('/generate', methods=['POST'])
+@require_api_token
 def generate_config():
     """Generate SmokePing configuration"""
     try:
@@ -587,6 +686,7 @@ def generate_config():
 
 
 @app.route('/restart', methods=['POST'])
+@require_api_token
 def restart_smokeping():
     """Restart SmokePing service"""
     try:
@@ -598,6 +698,7 @@ def restart_smokeping():
 
 
 @app.route('/oca/refresh', methods=['POST'])
+@require_api_token
 def refresh_oca():
     """Refresh OCA (Open Connect Appliance) data"""
     try:
@@ -625,6 +726,7 @@ def refresh_oca():
 
 # Database-specific endpoints for target management
 @app.route('/targets', methods=['GET'])
+@require_api_token
 def get_targets():
     """Get all targets from database"""
     if not api.use_database:
@@ -659,6 +761,7 @@ def get_targets():
 
 
 @app.route('/targets', methods=['POST'])
+@require_api_token
 def create_target():
     """Create new target in database"""
     if not api.use_database:
@@ -703,6 +806,7 @@ def create_target():
 
 
 @app.route('/targets/<int:target_id>', methods=['PUT'])
+@require_api_token
 def update_target(target_id):
     """Update target in database"""
     if not api.use_database:
@@ -744,6 +848,7 @@ def update_target(target_id):
 
 
 @app.route('/targets/<int:target_id>', methods=['DELETE'])
+@require_api_token
 def delete_target(target_id):
     """Delete target from database"""
     if not api.use_database:
@@ -775,6 +880,7 @@ def delete_target(target_id):
 
 
 @app.route('/targets/<int:target_id>/toggle', methods=['POST'])
+@require_api_token
 def toggle_target(target_id):
     """Toggle target active status"""
     if not api.use_database:
@@ -807,6 +913,7 @@ def toggle_target(target_id):
 
 
 @app.route('/categories', methods=['GET'])
+@require_api_token
 def get_categories():
     """Get all target categories"""
     if not api.use_database:
@@ -836,6 +943,7 @@ def get_categories():
 
 
 @app.route('/probes', methods=['GET'])
+@require_api_token
 def get_probes():
     """Get all probes"""
     if not api.use_database:
@@ -879,7 +987,7 @@ def resolve_container_name(service_name: str) -> str:
                 return container.name
         
         # Get project name from environment or use default
-        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'grafana-influx')
+        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
         
         # Try common naming patterns
         patterns = [
@@ -908,6 +1016,7 @@ def resolve_container_name(service_name: str) -> str:
 
 
 @app.route('/api/containers/<service_name>', methods=['GET'])
+@require_api_token
 def get_container_name(service_name):
     """Get actual container name for a compose service"""
     try:
@@ -926,11 +1035,12 @@ def get_container_name(service_name):
 
 
 @app.route('/api/containers', methods=['GET'])
+@require_api_token
 def list_containers():
     """List all containers in the compose stack"""
     try:
         client = docker.from_env()
-        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'grafana-influx')
+        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
         
         containers = []
         for container in client.containers.list():
@@ -957,6 +1067,7 @@ def list_containers():
 
 
 @app.route('/api/containers/<service_name>/status', methods=['GET'])
+@require_api_token
 def get_container_status(service_name):
     """Get status of a specific container"""
     try:
@@ -990,6 +1101,7 @@ def method_not_allowed(error):
 
 
 @app.route('/docs')
+@require_api_token
 def api_documentation():
     """API documentation endpoint"""
     return """
@@ -1033,4 +1145,5 @@ def internal_error(error):
 
 if __name__ == '__main__':
     logger.info("Starting Config Manager REST API")
+    initialize()
     app.run(host='0.0.0.0', port=5000, debug=False)

@@ -6,15 +6,31 @@ Discovers Netflix Open Connect Appliance servers and updates targets configurati
 
 import json
 import logging
+import os
 import subprocess
 import sys
-import tempfile
 import ipaddress
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import yaml
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from file_ops import atomic_write_yaml, get_config_lock
+from scripts.config_generator import ConfigGenerator
+
+# Database repositories (optional - YAML fallback when unavailable)
+try:
+    from models import (
+        get_db_session, database_mode_active,
+        TargetRepository, CategoryRepository, ProbeRepository,
+    )
+    DATABASE_AVAILABLE = True
+except ImportError:
+    DATABASE_AVAILABLE = False
 
 # Setup logging
 logging.basicConfig(
@@ -24,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration paths
-CONFIG_DIR = Path(__file__).parent.parent / "config"
+CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", Path(__file__).parent.parent / "config"))
 SOURCES_FILE = CONFIG_DIR / "sources.yaml"
 TARGETS_FILE = CONFIG_DIR / "targets.yaml"
 
@@ -222,41 +238,93 @@ class OCAFetcher:
         return []
     
     def generate_smokeping_config(self) -> bool:
-        """Generate and deploy SmokePing configuration after target updates"""
+        """Regenerate SmokePing configuration in-process after target updates"""
         try:
             logger.info("Triggering SmokePing configuration regeneration...")
-            
-            # Run config generator with deployment to grafana-influx
-            result = subprocess.run([
-                sys.executable, 
-                str(Path(__file__).parent / "config_generator.py"),
-                "--deploy-to", "grafana-influx"
-            ], 
-            cwd=Path(__file__).parent.parent,
-            capture_output=True, 
-            text=True, 
-            timeout=60
-            )
-            
-            if result.returncode == 0:
-                logger.info("Successfully regenerated and deployed SmokePing configuration")
-                logger.debug(f"Config generator output: {result.stdout}")
+            if ConfigGenerator().run():
+                logger.info("Successfully regenerated SmokePing configuration")
                 return True
-            else:
-                logger.error(f"Config generator failed: {result.stderr}")
-                logger.error(f"Return code: {result.returncode}")
-                logger.error(f"Stdout: {result.stdout}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            logger.error("Config generator timed out after 60 seconds")
+            logger.error("Config generation failed")
             return False
         except Exception as e:
             logger.error(f"Error running config generator: {e}")
             return False
-    
+
     def update_targets(self, oca_targets: List[Dict]) -> bool:
-        """Update the targets.yaml file with new OCA servers"""
+        """Update Netflix OCA targets in the active backend (DB or YAML)"""
+        if DATABASE_AVAILABLE and database_mode_active():
+            success = self._update_targets_database(oca_targets)
+        else:
+            success = self._update_targets_yaml(oca_targets)
+
+        if not success:
+            return False
+
+        # Trigger SmokePing configuration regeneration
+        self.generate_smokeping_config()
+        return True
+
+    def _update_targets_database(self, oca_targets: List[Dict]) -> bool:
+        """Replace the netflix_oca targets in PostgreSQL (source of truth)"""
+        try:
+            session = get_db_session()
+            try:
+                category_repo = CategoryRepository(session)
+                probe_repo = ProbeRepository(session)
+                target_repo = TargetRepository(session)
+
+                category = category_repo.get_by_name('netflix_oca')
+                if not category:
+                    logger.error("Category 'netflix_oca' not found in database")
+                    return False
+
+                # Remove existing OCA targets (full replace semantics,
+                # matching the previous YAML behaviour)
+                existing = target_repo.get_all(category_name='netflix_oca')
+                for target in existing:
+                    session.delete(target)
+                session.commit()
+                logger.info(f"Removed {len(existing)} existing Netflix OCA targets from database")
+
+                added = 0
+                for target_data in oca_targets:
+                    probe_name = target_data.get('probe', 'FPing')
+                    probe = probe_repo.get_by_name(probe_name)
+                    if not probe:
+                        logger.error(f"Probe not found: {probe_name} - skipping {target_data.get('name')}")
+                        continue
+
+                    metadata = target_data.get('metadata', {}) or {}
+                    target_repo.create({
+                        'name': target_data.get('name'),
+                        'host': target_data.get('host'),
+                        'title': target_data.get('title', target_data.get('name')),
+                        'category_id': category.id,
+                        'probe_id': probe.id,
+                        'is_active': True,
+                        'asn': metadata.get('asn'),
+                        'cache_id': metadata.get('cache_id'),
+                        'city': metadata.get('city'),
+                        'domain': metadata.get('domain'),
+                        'iata_code': metadata.get('iata_code'),
+                        'latitude': metadata.get('latitude'),
+                        'longitude': metadata.get('longitude'),
+                        'location_code': metadata.get('location_code'),
+                        'raw_city': metadata.get('raw_city'),
+                        'metadata_type': metadata.get('type'),
+                    })
+                    added += 1
+
+                logger.info(f"Stored {added} Netflix OCA targets in database")
+                return True
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Failed to update OCA targets in database: {e}")
+            return False
+
+    def _update_targets_yaml(self, oca_targets: List[Dict]) -> bool:
+        """Update the targets.yaml file with new OCA servers (YAML mode)"""
         try:
             # Load current targets
             with open(TARGETS_FILE, 'r') as f:
@@ -304,17 +372,13 @@ class OCAFetcher:
             total_bandwidth_mbps = (total * bandwidth_per_target) / 1_000_000
             targets_config['metadata']['bandwidth_estimate_mbps'] = round(total_bandwidth_mbps, 2)
             
-            # Write updated configuration
-            with open(TARGETS_FILE, 'w') as f:
-                yaml.dump(targets_config, f, default_flow_style=False, sort_keys=False)
-            
+            # Write updated configuration atomically under the shared lock
+            with get_config_lock():
+                atomic_write_yaml(TARGETS_FILE, targets_config)
+
             logger.info(f"Updated targets.yaml with {len(oca_targets)} OCA servers")
-            
-            # Trigger SmokePing configuration regeneration
-            self.generate_smokeping_config()
-            
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to update targets file: {e}")
             return False
