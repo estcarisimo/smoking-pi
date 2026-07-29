@@ -7,10 +7,7 @@ FROM python:3.11-slim as builder
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
-    libpq-dev \
     ca-certificates \
-    gnupg \
-    lsb-release \
     git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -31,20 +28,13 @@ RUN uv pip install .[security]
 # Production stage
 FROM python:3.11-slim
 
-# Install runtime dependencies including Docker CLI
+# Install runtime dependencies (no Docker CLI: container management goes
+# through the config-manager API, never the Docker socket)
 RUN apt-get update && apt-get install -y \
     curl \
-    libpq5 \
     dnsutils \
     iputils-ping \
     ca-certificates \
-    gnupg \
-    lsb-release \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
-    && apt-get update \
-    && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user for security
@@ -77,9 +67,10 @@ ENV CONFIG_DIR=/app/config
 ENV PORT=8080
 ENV HOST=0.0.0.0
 
-# Health check
+# Health check: only an HTTP 200 from the unauthenticated /health endpoint
+# passes (a redirect to /login must NOT count as healthy)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health)" = "200" ] || exit 1
 
 # Expose port
 EXPOSE 8080

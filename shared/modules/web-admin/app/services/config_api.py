@@ -6,9 +6,8 @@ Handles communication with the config-manager REST API
 import logging
 import os
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +15,9 @@ logger = logging.getLogger(__name__)
 class ConfigManagerClient:
     """Client for config-manager REST API"""
 
-    def __init__(self, base_url: str = "http://config-manager:5000"):
+    def __init__(self, base_url: str = None):
+        if base_url is None:
+            base_url = os.environ.get('CONFIG_MANAGER_URL', 'http://config-manager:5000')
         self.base_url = base_url.rstrip('/')
         self.session = requests.Session()
         self.session.headers.update({
@@ -313,37 +314,34 @@ class ConfigAPIGateway:
             return False
     
     def get_targets_config(self) -> Dict[str, Any]:
-        """Get targets configuration"""
+        """Get targets configuration (config-manager is the only source of truth)"""
         try:
             config = self.client.get_config('targets')
             return config.get('targets', {})
         except Exception as e:
             logger.error(f"Failed to get targets config: {e}")
-            # Fallback to local file access if API fails
-            return self._fallback_get_targets()
-    
+            raise
+
     def update_targets_config(self, targets_data: Dict[str, Any]) -> bool:
-        """Update targets configuration"""
+        """Update targets configuration via config-manager"""
         try:
             result = self.client.update_config('targets', targets_data)
             return result.get('success', False)
         except Exception as e:
             logger.error(f"Failed to update targets config: {e}")
-            # Fallback to local file access if API fails
-            return self._fallback_update_targets(targets_data)
-    
+            raise
+
     def get_sources_config(self) -> Dict[str, Any]:
-        """Get sources configuration"""
+        """Get sources configuration (config-manager is the only source of truth)"""
         try:
             config = self.client.get_config('sources')
             return config.get('sources', {})
         except Exception as e:
             logger.error(f"Failed to get sources config: {e}")
-            # Fallback to local file access if API fails
-            return self._fallback_get_sources()
-    
+            raise
+
     def restart_smokeping_service(self) -> Dict[str, str]:
-        """Restart SmokePing service"""
+        """Restart SmokePing service via config-manager"""
         try:
             result = self.client.restart_smokeping()
             return {
@@ -352,8 +350,10 @@ class ConfigAPIGateway:
             }
         except Exception as e:
             logger.error(f"Failed to restart SmokePing via API: {e}")
-            # Fallback to direct docker command
-            return self._fallback_restart_smokeping()
+            return {
+                'success': 'False',
+                'message': f'SmokePing restart failed: {str(e)}'
+            }
     
     def generate_config(self) -> Dict[str, Any]:
         """Generate SmokePing configuration"""
@@ -466,13 +466,8 @@ class ConfigAPIGateway:
             raise
     
     def update_targets_from_sites(self, sites: list, category: str = 'top_sites') -> Dict[str, Any]:
-        """Update targets from selected sites (database-aware)"""
-        if not self.is_database_available():
-            # Use YAML fallback method
-            return self._update_targets_yaml_fallback(sites, category)
-        else:
-            # Use database method
-            return self._update_targets_database(sites, category)
+        """Update targets from selected sites (database-backed config-manager)"""
+        return self._update_targets_database(sites, category)
     
     def _normalize_domain_name(self, domain: str) -> str:
         """Normalize domain name for consistent target naming"""
@@ -639,201 +634,4 @@ class ConfigAPIGateway:
         except Exception as e:
             logger.error(f"Failed to update targets in database: {e}")
             return {'success': False, 'message': f'Database update failed: {str(e)}'}
-    
-    def _update_targets_yaml_fallback(self, sites: list, category: str) -> Dict[str, Any]:
-        """Fallback to YAML method for updating targets with smart merge"""
-        try:
-            # Load current targets via config API
-            targets_data = self.get_targets_config()
-            
-            # Ensure active_targets structure exists
-            if 'active_targets' not in targets_data:
-                targets_data['active_targets'] = {}
-            if category not in targets_data['active_targets']:
-                targets_data['active_targets'][category] = []
-            
-            existing_targets = targets_data['active_targets'][category]
-            
-            # Convert sites to normalized names for comparison
-            new_sites_normalized = {}
-            for site in sites:
-                normalized = self._normalize_domain_name(site)
-                new_sites_normalized[normalized] = site
-            
-            # Smart merge: preserve existing targets that don't conflict
-            preserved_targets = []
-            conflicting_targets = []
-            
-            for existing_target in existing_targets:
-                existing_host = existing_target.get('host', '')
-                existing_name = existing_target.get('name', '')
-                existing_normalized = self._normalize_domain_name(existing_host)
-                
-                # Check if this target conflicts with new selections
-                conflicts = False
-                for norm_name, site in new_sites_normalized.items():
-                    if (existing_normalized == norm_name or 
-                        existing_name == norm_name or
-                        existing_host == site or
-                        existing_host.replace('www.', '') == site.replace('www.', '')):
-                        conflicts = True
-                        conflicting_targets.append(existing_target)
-                        break
-                
-                if not conflicts:
-                    preserved_targets.append(existing_target)
-            
-            # Create new targets for selected sites
-            new_targets = []
-            created_count = 0
-            reactivated_count = 0
-            
-            for site in sites:
-                name = self._normalize_domain_name(site)
-                
-                # Check if this site already exists in preserved targets
-                already_exists = False
-                for preserved in preserved_targets:
-                    if (preserved.get('host') == site or 
-                        preserved.get('name') == name or
-                        self._normalize_domain_name(preserved.get('host', '')) == name):
-                        already_exists = True
-                        break
-                
-                # Check if this site exists in conflicting targets (to reactivate)
-                reactivated = False
-                for conflicting in conflicting_targets:
-                    if (conflicting.get('host') == site or 
-                        conflicting.get('name') == name or
-                        self._normalize_domain_name(conflicting.get('host', '')) == name):
-                        # Reactivate this target
-                        new_targets.append(conflicting)
-                        reactivated_count += 1
-                        reactivated = True
-                        break
-                
-                if not already_exists and not reactivated:
-                    # Create new target
-                    new_targets.append({
-                        'name': name,
-                        'host': site,
-                        'title': site,
-                        'probe': 'FPing',
-                        'category': category
-                    })
-                    created_count += 1
-            
-            # Combine preserved and new targets
-            final_targets = preserved_targets + new_targets
-            preserved_count = len(preserved_targets)
-            deactivated_count = len(conflicting_targets) - reactivated_count
-            
-            # Update category section with smart-merged targets
-            targets_data['active_targets'][category] = final_targets
-            
-            # Update metadata
-            if 'metadata' not in targets_data:
-                targets_data['metadata'] = {}
-            targets_data['metadata']['last_updated'] = datetime.now().isoformat()
-            total_targets = sum(
-                len(v) for v in targets_data['active_targets'].values() 
-                if isinstance(v, list)
-            )
-            targets_data['metadata']['total_targets'] = total_targets
-            
-            # Save configuration via config API
-            success = self.update_targets_config(targets_data)
-            
-            if success:
-                return {
-                    'success': True,
-                    'message': f'YAML smart merge complete: {preserved_count} preserved, {created_count} created, {reactivated_count} reactivated, {deactivated_count} deactivated',
-                    'total_targets': len(final_targets),
-                    'preserved': preserved_count,
-                    'created': created_count,
-                    'reactivated': reactivated_count,
-                    'deactivated': deactivated_count
-                }
-            else:
-                return {
-                    'success': False,
-                    'message': 'Failed to update YAML configuration'
-                }
-        
-        except Exception as e:
-            logger.error(f"YAML fallback failed: {e}")
-            return {'success': False, 'message': f'YAML update failed: {str(e)}'}
-    
-    def _fallback_get_targets(self) -> Dict[str, Any]:
-        """Fallback method to get targets from local config"""
-        try:
-            import yaml
-            from pathlib import Path
-            
-            config_file = Path('/app/config/targets.yaml')
-            if config_file.exists():
-                with open(config_file, 'r') as f:
-                    return yaml.safe_load(f)
-            else:
-                logger.warning("Targets config file not found")
-                return {}
-        except Exception as e:
-            logger.error(f"Fallback get targets failed: {e}")
-            return {}
-    
-    def _fallback_update_targets(self, targets_data: Dict[str, Any]) -> bool:
-        """Fallback method to update targets in local config"""
-        try:
-            import yaml
-            from pathlib import Path
-            
-            config_file = Path('/app/config/targets.yaml')
-            with open(config_file, 'w') as f:
-                yaml.dump(targets_data, f, default_flow_style=False, sort_keys=False)
-            return True
-        except Exception as e:
-            logger.error(f"Fallback update targets failed: {e}")
-            return False
-    
-    def _fallback_get_sources(self) -> Dict[str, Any]:
-        """Fallback method to get sources from local config"""
-        try:
-            import yaml
-            from pathlib import Path
-            
-            config_file = Path('/app/config/sources.yaml')
-            if config_file.exists():
-                with open(config_file, 'r') as f:
-                    return yaml.safe_load(f)
-            else:
-                logger.warning("Sources config file not found")
-                return {}
-        except Exception as e:
-            logger.error(f"Fallback get sources failed: {e}")
-            return {}
-    
-    def _fallback_restart_smokeping(self) -> Dict[str, str]:
-        """Fallback method to restart SmokePing directly"""
-        try:
-            import subprocess
-            
-            result = subprocess.run([
-                'docker', 'restart', 'grafana-influx-smokeping-1'
-            ], capture_output=True, text=True, timeout=30)
-            
-            if result.returncode == 0:
-                return {
-                    'success': 'True',
-                    'message': 'SmokePing restarted successfully (fallback)'
-                }
-            else:
-                return {
-                    'success': 'False',
-                    'message': f'SmokePing restart failed: {result.stderr}'
-                }
-        except Exception as e:
-            logger.error(f"Fallback restart failed: {e}")
-            return {
-                'success': 'False',
-                'message': f'SmokePing restart failed: {str(e)}'
-            }
+

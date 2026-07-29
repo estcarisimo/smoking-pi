@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Smoking Pi{% endblock %}</title>
     
     <!-- Bootstrap CSS -->
@@ -140,15 +141,22 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
+        // CSRF token helper for fetch() calls
+        function csrfToken() {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            return meta ? meta.content : '';
+        }
+
         function applyConfiguration() {
             if (!confirm('Apply configuration changes and restart SmokePing?')) {
                 return;
             }
-            
+
             fetch('/api/apply', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken(),
                 }
             })
             .then(response => response.json())

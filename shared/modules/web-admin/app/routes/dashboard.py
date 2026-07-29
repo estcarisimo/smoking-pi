@@ -3,9 +3,6 @@ Dashboard route - Main overview page
 """
 
 from flask import Blueprint, render_template, current_app
-from pathlib import Path
-import yaml
-import subprocess
 from app.services.config_api import ConfigAPIGateway
 
 dashboard_bp = Blueprint('dashboard', __name__)
@@ -14,39 +11,14 @@ dashboard_bp = Blueprint('dashboard', __name__)
 config_api = ConfigAPIGateway()
 
 def get_smokeping_status():
-    """Check if SmokePing Docker container is running via config-manager API"""
+    """Check if SmokePing is running via the config-manager API"""
     try:
-        # First try to get status via config-manager API
         status_data = config_api.get_service_status()
         if status_data and 'smokeping' in status_data:
             return status_data['smokeping'].get('running', False)
     except Exception as e:
         current_app.logger.warning(f"Failed to get SmokePing status via API: {e}")
-    
-    # Fallback to direct Docker command check using config-manager API
-    try:
-        import requests
-        response = requests.get('http://config-manager:5000/api/containers/smokeping/status', timeout=5)
-        if response.ok:
-            data = response.json()
-            return data.get('success', False) and data.get('status') == 'running'
-    except Exception as api_error:
-        current_app.logger.warning(f"API fallback failed: {api_error}")
-        
-        # Ultimate fallback to Docker command with pattern matching
-        try:
-            result = subprocess.run([
-                'docker', 'ps', '--filter', 'label=com.docker.compose.service=smokeping', '--format', '{{.Names}}'
-            ], capture_output=True, text=True, timeout=10)
-            
-            # Check if any smokeping container is running
-            return result.returncode == 0 and result.stdout.strip() != ""
-        except Exception as docker_error:
-            current_app.logger.error(f"Docker fallback failed: {docker_error}")
-            return False
-    except Exception as e:
-        current_app.logger.error(f"Failed to check SmokePing status: {e}")
-        return False
+    return False
 
 def calculate_bandwidth(targets_data):
     """Calculate estimated bandwidth usage"""

@@ -3,11 +3,8 @@ Targets management routes
 """
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
-from pathlib import Path
-import yaml
 import ipaddress
 import socket
-import subprocess
 from datetime import datetime
 from app.services.config_api import ConfigAPIGateway
 
@@ -420,79 +417,3 @@ def delete_target(name):
         flash(f"Error deleting target: {str(e)}", 'error')
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# New API endpoints for database management
-@targets_bp.route('/api/targets')
-def api_get_targets():
-    """Get all targets"""
-    try:
-        active_only = request.args.get('active_only', 'false').lower() == 'true'
-        category = request.args.get('category')
-        
-        if config_api.is_database_available():
-            # Use database
-            result = config_api.get_all_targets_from_db(
-                active_only=active_only, 
-                category=category
-            )
-            result['source'] = 'database'
-        else:
-            # Use YAML fallback
-            targets_config = config_api.get_targets_config()
-            
-            # Convert YAML structure to match database format
-            targets = []
-            for cat_name, cat_targets in targets_config.get('active_targets', {}).items():
-                if category and cat_name != category:
-                    continue
-                    
-                for target in cat_targets:
-                    if isinstance(target, dict):
-                        targets.append({
-                            'id': None,  # No ID in YAML mode
-                            'name': target.get('name'),
-                            'host': target.get('host'),
-                            'title': target.get('title'),
-                            'category': cat_name,
-                            'probe': target.get('probe', 'FPing'),
-                            'is_active': True,  # All YAML targets are active
-                            'metadata': target.get('metadata')
-                        })
-            
-            result = {
-                'targets': targets,
-                'total': len(targets),
-                'source': 'yaml'
-            }
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        current_app.logger.error(f"Failed to get targets: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@targets_bp.route('/api/targets/<int:target_id>/toggle', methods=['POST'])
-def api_toggle_target(target_id):
-    """Toggle target active status (database only)"""
-    if not config_api.is_database_available():
-        return jsonify({'error': 'Database not available'}), 400
-    
-    try:
-        result = config_api.toggle_target_in_db(target_id)
-        return jsonify(result)
-        
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 404
-    except Exception as e:
-        current_app.logger.error(f"Failed to toggle target {target_id}: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@targets_bp.route('/api/status')
-def api_get_status():
-    """Get target management status"""
-    try:
-        status = config_api.get_service_status()
-        return jsonify(status)
-        
-    except Exception as e:
-        current_app.logger.error(f"Failed to get status: {e}")
-        return jsonify({'error': str(e)}), 500

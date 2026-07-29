@@ -52,6 +52,7 @@
             </div>
             <div class="card-body">
                 <form method="POST" id="targetForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label for="target_type" class="form-label">
                             Target Type <span class="text-danger">*</span>
@@ -369,6 +370,7 @@ function validateHostname(hostname) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken(),
         },
         body: JSON.stringify({ hostname: hostname })
     })
