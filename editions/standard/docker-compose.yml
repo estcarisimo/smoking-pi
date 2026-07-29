@@ -60,12 +60,15 @@ services:
       dockerfile: Dockerfile
     container_name: smokeping-standard-web-admin
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-smokeping}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-smokeping_targets}"
       CONFIG_MANAGER_URL: "http://config-manager:5000"
       WEB_ADMIN_USERNAME: ${WEB_ADMIN_USERNAME:-admin}
       WEB_ADMIN_PASSWORD: ${WEB_ADMIN_PASSWORD}
+      # Preferred over WEB_ADMIN_PASSWORD: werkzeug pbkdf2 hash (see .env.template)
+      WEB_ADMIN_PASSWORD_HASH: ${WEB_ADMIN_PASSWORD_HASH:-}
       SECRET_KEY: ${SECRET_KEY}
       TZ: ${TZ:-UTC}
+      # Run background jobs (OCA refresh, cache cleanup) in one worker
+      ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-true}
     ports:
       - "${WEB_ADMIN_PORT:-8080}:8080"
     depends_on:
@@ -74,7 +77,7 @@ services:
       config-manager:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "[ \"$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health)\" = \"200\" ] || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

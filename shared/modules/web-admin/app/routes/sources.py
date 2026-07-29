@@ -3,9 +3,6 @@ Sources management routes - Top site picker
 """
 
 from flask import Blueprint, render_template, request, jsonify, current_app
-from pathlib import Path
-import yaml
-from datetime import datetime
 from app.services.tranco import TrancoService
 from app.services.crux import CruxService
 from app.services.cloudflare import CloudflareService
@@ -46,13 +43,19 @@ def index():
     
     return render_template('sources/index.html', **context)
 
-@sources_bp.route('/api/fetch/<source>')
+@sources_bp.route('/api/fetch/<source>', methods=['GET', 'POST'])
 def fetch_source(source):
-    """Fetch top sites from a specific source"""
+    """Fetch top sites from a specific source.
+
+    Cloudflare requests must be POSTs with the API token in the JSON body so
+    the token never appears in URLs or access logs.
+    """
     country = request.args.get('country', 'global')
     requested_limit = int(request.args.get('limit', 100))
     offset = int(request.args.get('offset', 0))
-    api_token = request.args.get('token')  # For Cloudflare
+    # API token (Cloudflare) is accepted from the POST body only
+    body = request.get_json(silent=True) or {} if request.method == 'POST' else {}
+    api_token = body.get('token')
     
     # Apply service-specific limits
     if source == 'tranco':

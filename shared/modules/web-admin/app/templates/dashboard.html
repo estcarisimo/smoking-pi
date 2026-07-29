@@ -17,8 +17,8 @@
                 </div>
                 {% if not smokeping_running %}
                 <div class="mt-2" id="why-stopped-container">
-                    <button class="btn btn-sm btn-outline-info" onclick="showSmokePingLogs()">
-                        <i class="bi bi-question-circle"></i> Why did it stop?
+                    <button class="btn btn-sm btn-outline-success" onclick="restartSmokePing()">
+                        <i class="bi bi-arrow-clockwise"></i> Restart SmokePing
                     </button>
                 </div>
                 {% endif %}
@@ -146,37 +146,6 @@
     </div>
 </div>
 
-<!-- SmokePing Logs Modal -->
-<div class="modal fade" id="logsModal" tabindex="-1" aria-labelledby="logsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="logsModalLabel">SmokePing Logs (Last 200 lines)</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div id="log-status" class="alert alert-info mb-3">
-                    <strong>Container Status:</strong> <span id="container-status">Loading...</span><br>
-                    <strong>Exit Code:</strong> <span id="exit-code">Loading...</span>
-                </div>
-                <div id="log-content" style="height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6;">
-                    <div class="text-center">
-                        <div class="spinner-border" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-success" onclick="restartSmokePing()">
-                    <i class="bi bi-arrow-clockwise"></i> Restart SmokePing
-                </button>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Delete Target Confirmation Modal -->
 <div class="modal fade" id="deleteTargetModal" tabindex="-1" aria-labelledby="deleteTargetModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -273,7 +242,7 @@
                     indicator.className = 'status-indicator status-stopped';
                     statusText.textContent = 'Stopped';
                     
-                    // Show "Why did it stop?" button
+                    // Show "Restart SmokePing" button
                     let whyStoppedContainer = document.getElementById('why-stopped-container');
                     if (!whyStoppedContainer) {
                         // Create the button container if it doesn't exist
@@ -281,8 +250,8 @@
                         whyStoppedContainer.className = 'mt-2';
                         whyStoppedContainer.id = 'why-stopped-container';
                         whyStoppedContainer.innerHTML = `
-                            <button class="btn btn-sm btn-outline-info" onclick="showSmokePingLogs()">
-                                <i class="bi bi-question-circle"></i> Why did it stop?
+                            <button class="btn btn-sm btn-outline-success" onclick="restartSmokePing()">
+                                <i class="bi bi-arrow-clockwise"></i> Restart SmokePing
                             </button>
                         `;
                         statusText.parentElement.parentElement.appendChild(whyStoppedContainer);
@@ -351,70 +320,22 @@
         sessionStorage.removeItem('oca_refresh_success');
     }
     
-    function showSmokePingLogs() {
-        const modal = new bootstrap.Modal(document.getElementById('logsModal'));
-        modal.show();
-        
-        // Fetch logs
-        fetch('/api/smokeping/logs')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Update status
-                    document.getElementById('container-status').textContent = data.status;
-                    document.getElementById('exit-code').textContent = data.exit_code;
-                    
-                    // Update status alert color
-                    const statusDiv = document.getElementById('log-status');
-                    if (data.status === 'running') {
-                        statusDiv.className = 'alert alert-success mb-3';
-                    } else if (data.exit_code !== 0) {
-                        statusDiv.className = 'alert alert-danger mb-3';
-                    } else {
-                        statusDiv.className = 'alert alert-warning mb-3';
-                    }
-                    
-                    // Display logs with highlighting
-                    const logContent = document.getElementById('log-content');
-                    logContent.innerHTML = '';
-                    
-                    data.logs.forEach(log => {
-                        const logLine = document.createElement('div');
-                        logLine.className = `log-${log.level}`;
-                        logLine.textContent = log.text;
-                        logContent.appendChild(logLine);
-                    });
-                    
-                    // Scroll to bottom to show most recent logs
-                    logContent.scrollTop = logContent.scrollHeight;
-                } else {
-                    document.getElementById('log-content').innerHTML = 
-                        '<div class="alert alert-danger">Failed to fetch logs: ' + data.error + '</div>';
-                }
-            })
-            .catch(error => {
-                document.getElementById('log-content').innerHTML = 
-                    '<div class="alert alert-danger">Error fetching logs: ' + error + '</div>';
-            });
-    }
-    
     function restartSmokePing() {
         if (!confirm('Are you sure you want to restart SmokePing?')) {
             return;
         }
-        
+
         fetch('/api/smokeping/restart', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken(),
             }
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
                 alert('SmokePing restarted successfully!');
-                // Close modal and refresh status
-                bootstrap.Modal.getInstance(document.getElementById('logsModal')).hide();
                 refreshStatus();
             } else {
                 alert('Failed to restart SmokePing: ' + data.error);
@@ -460,6 +381,7 @@
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken(),
             }
         })
         .then(response => {
@@ -638,13 +560,13 @@
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Deleting...';
         
-        // Make delete request
-        fetch('/api/targets/delete', {
-            method: 'DELETE',
+        // Make delete request (database-aware flow shared with the targets page)
+        fetch(`/targets/delete/${encodeURIComponent(currentDeleteTarget.name)}`, {
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(currentDeleteTarget)
+                'X-CSRFToken': csrfToken(),
+            }
         })
         .then(response => response.json())
         .then(data => {

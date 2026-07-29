@@ -112,7 +112,6 @@ services:
       - ../../shared/modules/web-admin/app:/app/app  # Mount source code for development
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
-      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       CONFIG_DIR: /app/config
       FLASK_ENV: production
@@ -121,12 +120,13 @@ services:
       SECRET_KEY: "${SECRET_KEY:?Error: Please run ./setup.sh first to generate passwords}"
       WEB_ADMIN_USERNAME: ${WEB_ADMIN_USERNAME:-admin}
       WEB_ADMIN_PASSWORD: "${WEB_ADMIN_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}"
+      # Preferred over WEB_ADMIN_PASSWORD: werkzeug pbkdf2 hash (see .env.template)
+      WEB_ADMIN_PASSWORD_HASH: ${WEB_ADMIN_PASSWORD_HASH:-}
       TZ: ${TZ:-UTC}
-      SMOKEPING_RESTART_CMD: docker-compose restart smokeping
+      # Run background jobs (OCA refresh, cache cleanup) in one worker
+      ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-true}
       # Optional shared API token for config-manager (empty = auth disabled)
       CONFIG_API_TOKEN: ${CONFIG_API_TOKEN:-}
-      # PostgreSQL connection
-      DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}@postgres:5432/smokeping_targets"
     depends_on:
       smokeping:
         condition: service_started

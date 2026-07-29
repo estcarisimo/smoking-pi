@@ -73,8 +73,19 @@
                         {% endfor %}
                     {% endif %}
                 {% endwith %}
-                
+
+                {% if not credentials_configured %}
+                    <div class="alert alert-warning" role="alert">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>Credentials not configured.</strong>
+                        Login is disabled until <code>WEB_ADMIN_PASSWORD_HASH</code>
+                        (or <code>WEB_ADMIN_PASSWORD</code>) is set in the environment.
+                    </div>
+                {% endif %}
+
                 <form method="POST" action="{{ url_for('auth.login') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ next or '' }}">
                     <div class="mb-3">
                         <label for="username" class="form-label">Username</label>
                         <div class="input-group">
@@ -92,11 +103,18 @@
                             <span class="input-group-text">
                                 <i class="bi bi-lock"></i>
                             </span>
-                            <input type="password" class="form-control" id="password" name="password" 
+                            <input type="password" class="form-control" id="password" name="password"
                                    placeholder="Enter password" required>
                         </div>
                     </div>
-                    
+
+                    <div class="form-check mb-4">
+                        <input class="form-check-input" type="checkbox" id="remember" name="remember">
+                        <label class="form-check-label" for="remember">
+                            Remember me
+                        </label>
+                    </div>
+
                     <div class="d-grid">
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-box-arrow-in-right"></i> Sign In

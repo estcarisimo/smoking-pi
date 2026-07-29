@@ -444,20 +444,29 @@ function fetchSites(source, offset = 0) {
             return;
         }
     }
-    
+
     let url = `/sources/api/fetch/${source}?country=${country}&limit=${limit}`;
     if ((source === 'tranco' || source === 'crux' || source === 'cloudflare') && offset > 0) {
         url += `&offset=${offset}`;
     }
-    
-    // Add token for Cloudflare
+
+    // Cloudflare requests are POSTs with the API token in the body so the
+    // token never appears in the URL or server access logs.
+    let fetchOptions = {};
     if (source === 'cloudflare') {
-        url += `&token=${encodeURIComponent(getCloudflareToken())}`;
+        fetchOptions = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken(),
+            },
+            body: JSON.stringify({ token: getCloudflareToken() })
+        };
     }
-    
+
     console.log('Fetching from URL:', url);
-    
-    fetch(url)
+
+    fetch(url, fetchOptions)
         .then(response => {
             clearTimeout(modalTimeout);
             console.log('Response status:', response.status);
@@ -632,6 +641,7 @@ function updateTargets() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken(),
         },
         body: JSON.stringify(data)
     })
@@ -671,18 +681,6 @@ function previousCrux() {
     const newOffset = Math.max(0, cruxOffset - limit);
     fetchSites('crux', newOffset);
 }
-
-function nextCloudflare() {
-    const limit = parseInt(document.getElementById('cloudflare-limit').value);
-    fetchSites('cloudflare', cloudflareOffset + limit);
-}
-
-function previousCloudflare() {
-    const limit = parseInt(document.getElementById('cloudflare-limit').value);
-    const newOffset = Math.max(0, cloudflareOffset - limit);
-    fetchSites('cloudflare', newOffset);
-}
-
 
 function updatePaginationButtons(source) {
     if (source === 'tranco') {
