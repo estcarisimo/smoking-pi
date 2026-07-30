@@ -4,18 +4,6 @@
 
 {% block extra_css %}
 <style>
-    .validation-feedback {
-        display: none;
-    }
-    .validation-feedback.show {
-        display: block;
-    }
-    .form-control.is-valid {
-        border-color: #28a745;
-    }
-    .form-control.is-invalid {
-        border-color: #dc3545;
-    }
     .probe-info {
         font-size: 0.875rem;
         color: #6c757d;
@@ -145,13 +133,13 @@
                         <label for="name" class="form-label">
                             Target Name <span class="text-danger">*</span>
                         </label>
-                        <input type="text" class="form-control" id="name" name="name" 
+                        <input type="text" class="form-control" id="name" name="name"
                                value="{{ name or '' }}" required
                                placeholder="e.g., my_server"
-                               pattern="^[a-zA-Z][a-zA-Z0-9_]{0,19}$">
+                               pattern="^[a-zA-Z][a-zA-Z0-9_]{0,29}$">
                         <div class="validation-feedback" id="name-feedback"></div>
                         <small class="form-text text-muted">
-                            Alphanumeric characters and underscores only. Must start with a letter. Max 20 characters.
+                            Letters, numbers and underscores only. Must start with a letter. Max 30 characters.
                         </small>
                     </div>
                     
@@ -229,6 +217,10 @@
 {% block extra_js %}
 <script>
 let validationTimer;
+
+// Must match NAME_PATTERN in app/routes/targets.py (tests enforce parity)
+const NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{0,29}$/;
+const NAME_MAX_LENGTH = 30;
 
 // Handle target type changes
 document.getElementById('target_type').addEventListener('change', function() {
@@ -340,11 +332,11 @@ function generateTargetName(hostname) {
         name = 'site_' + name;
     }
     
-    // Truncate to 20 characters
-    if (name.length > 20) {
-        name = name.substring(0, 20);
+    // Truncate to the maximum name length
+    if (name.length > NAME_MAX_LENGTH) {
+        name = name.substring(0, NAME_MAX_LENGTH);
     }
-    
+
     return name || 'target';
 }
 
@@ -548,19 +540,18 @@ function validateName(name) {
         return;
     }
     
-    const pattern = /^[a-zA-Z][a-zA-Z0-9_]{0,19}$/;
-    if (pattern.test(name)) {
+    if (NAME_PATTERN.test(name)) {
         field.classList.remove('is-invalid');
         field.classList.add('is-valid');
         feedback.classList.remove('show');
     } else {
         field.classList.remove('is-valid');
         field.classList.add('is-invalid');
-        
+
         if (!/^[a-zA-Z]/.test(name)) {
             feedback.textContent = 'Name must start with a letter';
-        } else if (name.length > 20) {
-            feedback.textContent = 'Name too long (max 20 characters)';
+        } else if (name.length > NAME_MAX_LENGTH) {
+            feedback.textContent = 'Name too long (max 30 characters)';
         } else {
             feedback.textContent = 'Name can only contain letters, numbers, and underscores';
         }
@@ -585,17 +576,80 @@ function updateSubmitButton() {
     }
     
     const submitBtn = document.getElementById('submitBtn');
-    
+
     // For DNS targets, hostname is optional but DNS query and name are required
     if (targetType === 'dns') {
-        const enable = (nameValid && dnsQueryValid && (hostnameValid || hostnameEmpty)) || (nameEmpty && dnsQueryEmpty && hostnameEmpty);
-        submitBtn.disabled = !enable;
+        submitBtn.disabled = !(nameValid && dnsQueryValid && (hostnameValid || hostnameEmpty));
     } else {
-        // For ICMP targets, original logic
-        const enable = (hostnameValid && nameValid) || (hostnameEmpty && nameEmpty);
-        submitBtn.disabled = !enable;
+        // For ICMP targets, both hostname and name must be valid
+        submitBtn.disabled = !(hostnameValid && nameValid);
     }
 }
+
+// Submit via fetch so validation errors render inline instead of a
+// flash + full-page reload.
+document.getElementById('targetForm').addEventListener('submit', async function (event) {
+    event.preventDefault();
+
+    const form = this;
+    const submitBtn = document.getElementById('submitBtn');
+    const originalHtml = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...';
+
+    // Clear previous inline errors
+    ['hostname', 'name', 'dns_query'].forEach(id => {
+        const field = document.getElementById(id);
+        field.classList.remove('is-invalid');
+    });
+
+    try {
+        const response = await fetch(form.action || window.location.href, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': csrfToken(),
+                'Accept': 'application/json',
+            },
+            body: new FormData(form),
+        });
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showToast('Success', data.message || 'Target added — config regenerated automatically', 'success');
+            setTimeout(() => { window.location.href = data.redirect || '/targets/'; }, 1200);
+            return;
+        }
+
+        const errors = data.errors || {};
+        const fieldIds = { name: 'name', hostname: 'hostname', dns_query: 'dns_query' };
+        let shownInline = false;
+        Object.entries(errors).forEach(([field, message]) => {
+            const id = fieldIds[field];
+            const input = id && document.getElementById(id);
+            const feedback = id && document.getElementById(
+                id === 'dns_query' ? 'dns-query-feedback' : `${id}-feedback`);
+            if (input && feedback) {
+                input.classList.remove('is-valid');
+                input.classList.add('is-invalid');
+                feedback.textContent = message;
+                feedback.classList.add('show');
+                shownInline = true;
+            } else {
+                showToast('Error', message, 'danger');
+            }
+        });
+        if (!shownInline && Object.keys(errors).length === 0) {
+            showToast('Error', data.error || 'Failed to add target', 'danger');
+        }
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalHtml;
+    } catch (error) {
+        showToast('Error', 'Failed to add target: ' + error.message, 'danger');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalHtml;
+    }
+});
 
 // Initial validation on page load if fields have values
 window.addEventListener('load', function() {

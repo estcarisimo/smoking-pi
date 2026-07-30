@@ -4,6 +4,7 @@ Targets management routes
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
 import ipaddress
+import re
 import socket
 from datetime import datetime
 from app.services.config_api import ConfigAPIGateway
@@ -13,18 +14,38 @@ targets_bp = Blueprint('targets', __name__)
 # Initialize config API gateway
 config_api = ConfigAPIGateway()
 
+# Target-name rule shared with the client-side validation in
+# templates/targets/add.html and list.html (tests enforce parity):
+# starts with a letter; letters, digits and underscores; max 30 chars.
+NAME_PATTERN = r'^[a-zA-Z][a-zA-Z0-9_]{0,29}$'
+NAME_RE = re.compile(NAME_PATTERN)
+
+
+def validate_target_name(name):
+    """Validate a SmokePing section name. Returns (valid, error)."""
+    if not name:
+        return False, "Name is required"
+    if not NAME_RE.match(name):
+        return False, (
+            "Name must start with a letter and contain only letters, "
+            "numbers and underscores (max 30 characters)"
+        )
+    return True, None
+
+
 def validate_hostname(hostname):
-    """Validate hostname or IP address"""
-    # Check if it's an IP address
+    """Validate hostname or IP address (IPv4 and IPv6 aware)."""
+    # Check if it's an IP address (v4 or v6)
     try:
         ipaddress.ip_address(hostname)
         return True, None
     except ValueError:
         pass
-    
-    # Check if it's a valid hostname
+
+    # Check if it's a resolvable hostname. getaddrinfo covers A and AAAA
+    # records, unlike gethostbyname which is IPv4-only.
     try:
-        socket.gethostbyname(hostname)
+        socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
         return True, None
     except socket.gaierror:
         return False, f"Cannot resolve hostname: {hostname}"
@@ -121,23 +142,28 @@ def detect_ip_version(hostname, force_probe=None):
 @targets_bp.route('/')
 def list_targets():
     """Target management interface - database-aware"""
+    probes = ['FPing', 'FPing6', 'DNS']
     try:
         # Check if database is available
         using_database = config_api.is_database_available()
         service_status = config_api.get_service_status()
-        
+
         if using_database:
-            # Use database mode - get all targets
+            # Use database mode - show ALL targets (every category, including
+            # inactive ones so they stay visible and can be reactivated).
             try:
                 db_result = config_api.get_all_targets_from_db()
-                all_targets = db_result.get('targets', [])
-                # Separate by category for display
-                custom_targets = [t for t in all_targets if t.get('category') == 'custom']
-                dns_targets = [t for t in all_targets if t.get('category') == 'dns_resolvers']
-                all_custom_targets = custom_targets + dns_targets
+                all_custom_targets = db_result.get('targets', [])
             except Exception as e:
                 current_app.logger.error(f"Database error: {e}")
                 all_custom_targets = []
+            try:
+                probes_result = config_api.get_probes_from_db()
+                db_probes = [p['name'] for p in probes_result.get('probes', [])]
+                if db_probes:
+                    probes = db_probes
+            except Exception as e:
+                current_app.logger.warning(f"Failed to get probes: {e}")
         else:
             # Use YAML fallback
             targets_data = config_api.get_targets_config()
@@ -158,11 +184,36 @@ def list_targets():
         all_custom_targets = []
         using_database = False
         service_status = {'status': 'error', 'error': str(e)}
-    
-    return render_template('targets/list.html', 
+
+    categories = sorted({
+        t.get('category') for t in all_custom_targets if t.get('category')
+    })
+
+    return render_template('targets/list.html',
                          targets=all_custom_targets,
+                         categories=categories,
+                         probes=probes,
                          using_database=using_database,
                          service_status=service_status)
+
+def _wants_json():
+    """AJAX requests get JSON responses with per-field errors."""
+    return (
+        request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        or request.accept_mimetypes.best == 'application/json'
+    )
+
+
+def _add_target_error_response(errors, name, hostname, title, target_type, dns_query):
+    """Render the add-target failure response (JSON for AJAX, HTML otherwise)."""
+    if _wants_json():
+        return jsonify({'success': False, 'errors': errors}), 400
+    for error in errors.values():
+        flash(error, 'error')
+    return render_template('targets/add.html',
+                         name=name, hostname=hostname, title=title,
+                         target_type=target_type, dns_query=dns_query)
+
 
 @targets_bp.route('/add', methods=['GET', 'POST'])
 def add_target():
@@ -174,47 +225,43 @@ def add_target():
         target_type = request.form.get('target_type', 'icmp').strip()
         dns_query = request.form.get('dns_query', '').strip()
         force_probe = request.form.get('force_probe', '').strip()
-        
+
         using_database = config_api.is_database_available()
-        
-        # Validate inputs
-        errors = []
-        if not name:
-            errors.append("Name is required")
-        elif not name.replace('_', '').isalnum():
-            errors.append("Name must be alphanumeric (underscores allowed)")
-        
+
+        # Validate inputs -- errors keyed by field for inline display
+        errors = {}
+        valid, error = validate_target_name(name)
+        if not valid:
+            errors['name'] = error
+
         # For DNS targets, hostname is optional (will use default DNS if blank)
         if target_type == 'dns':
             if hostname:  # Only validate if provided
                 valid, error = validate_hostname(hostname)
                 if not valid:
-                    errors.append(error)
+                    errors['hostname'] = error
         else:
             # For ICMP targets, hostname is required
             if not hostname:
-                errors.append("Hostname/IP is required")
+                errors['hostname'] = "Hostname/IP is required"
             else:
                 valid, error = validate_hostname(hostname)
                 if not valid:
-                    errors.append(error)
-        
+                    errors['hostname'] = error
+
         # DNS-specific validation
         if target_type == 'dns':
             if not dns_query:
-                errors.append("DNS query domain is required for DNS targets")
+                errors['dns_query'] = "DNS query domain is required for DNS targets"
             elif not dns_query.replace('-', '').replace('.', '').isalnum():
-                errors.append("DNS query domain contains invalid characters")
-        
+                errors['dns_query'] = "DNS query domain contains invalid characters"
+
         if not title:
             title = name
-        
+
         if errors:
-            for error in errors:
-                flash(error, 'error')
-            return render_template('targets/add.html', 
-                                 name=name, hostname=hostname, title=title, 
-                                 target_type=target_type, dns_query=dns_query)
+            return _add_target_error_response(
+                errors, name, hostname, title, target_type, dns_query)
         
         # Determine probe type and target category
         if target_type == 'dns':
@@ -239,22 +286,22 @@ def add_target():
                 # Get category and probe IDs
                 category_id = categories.get(target_category)
                 if not category_id:
-                    flash(f"Category '{target_category}' not found in database", 'error')
-                    return render_template('targets/add.html', name=name, hostname=hostname, title=title,
-                                         target_type=target_type, dns_query=dns_query)
-                
+                    return _add_target_error_response(
+                        {'_form': f"Category '{target_category}' not found in database"},
+                        name, hostname, title, target_type, dns_query)
+
                 probe_id = probes.get(probe)
                 if not probe_id:
-                    flash(f"Probe '{probe}' not found in database", 'error')
-                    return render_template('targets/add.html', name=name, hostname=hostname, title=title,
-                                         target_type=target_type, dns_query=dns_query)
-                
+                    return _add_target_error_response(
+                        {'_form': f"Probe '{probe}' not found in database"},
+                        name, hostname, title, target_type, dns_query)
+
                 # Check for duplicates
                 existing_targets = config_api.get_all_targets_from_db()
                 if any(t['name'] == name for t in existing_targets.get('targets', [])):
-                    flash(f"Target with name '{name}' already exists", 'error')
-                    return render_template('targets/add.html', name=name, hostname=hostname, title=title,
-                                         target_type=target_type, dns_query=dns_query)
+                    return _add_target_error_response(
+                        {'name': f"Target with name '{name}' already exists"},
+                        name, hostname, title, target_type, dns_query)
                 
                 # Create target data for database
                 target_data = {
@@ -269,16 +316,26 @@ def add_target():
                 if target_type == 'dns':
                     target_data['lookup'] = dns_query
                 
-                # Create target in database
-                result = config_api.create_target_in_db(target_data)
-                flash(f"Successfully added target '{name}'", 'success')
+                # Create target in database (config-manager regenerates the
+                # SmokePing config automatically in database mode)
+                config_api.create_target_in_db(target_data)
+                success_message = (
+                    f"Target '{name}' added — config regenerated automatically"
+                )
+                if _wants_json():
+                    return jsonify({
+                        'success': True,
+                        'message': success_message,
+                        'redirect': url_for('targets.list_targets'),
+                    })
+                flash(success_message, 'success')
                 return redirect(url_for('targets.list_targets'))
-                
+
             except Exception as e:
                 current_app.logger.error(f"Database error creating target: {e}")
-                flash(f"Failed to create target: {str(e)}", 'error')
-                return render_template('targets/add.html', name=name, hostname=hostname, title=title,
-                                     target_type=target_type, dns_query=dns_query)
+                return _add_target_error_response(
+                    {'_form': f"Failed to create target: {str(e)}"},
+                    name, hostname, title, target_type, dns_query)
         else:
             # YAML fallback mode
             try:
@@ -296,10 +353,9 @@ def add_target():
                     all_targets.extend(category_targets)
             
             if any(t['name'] == name for t in all_targets):
-                flash(f"Target with name '{name}' already exists", 'error')
-                return render_template('targets/add.html', 
-                                     name=name, hostname=hostname, title=title,
-                                     target_type=target_type, dns_query=dns_query)
+                return _add_target_error_response(
+                    {'name': f"Target with name '{name}' already exists"},
+                    name, hostname, title, target_type, dns_query)
         
             # Create new target for YAML
             new_target = {
@@ -329,18 +385,33 @@ def add_target():
             try:
                 success = config_api.update_targets_config(targets_data)
                 if not success:
-                    flash("Failed to save configuration", 'error')
-                    return render_template('targets/add.html', 
-                                         name=name, hostname=hostname, title=title,
-                                         target_type=target_type, dns_query=dns_query)
+                    return _add_target_error_response(
+                        {'_form': "Failed to save configuration"},
+                        name, hostname, title, target_type, dns_query)
             except Exception as e:
                 current_app.logger.error(f"Failed to update targets via API: {e}")
-                flash("Failed to save configuration", 'error')
-                return render_template('targets/add.html', 
-                                     name=name, hostname=hostname, title=title,
-                                     target_type=target_type, dns_query=dns_query)
-            
-            flash(f"Successfully added target '{name}'", 'success')
+                return _add_target_error_response(
+                    {'_form': "Failed to save configuration"},
+                    name, hostname, title, target_type, dns_query)
+
+            # Regenerate the SmokePing config so the new target is picked up
+            # without a separate Apply step
+            try:
+                config_api.generate_config()
+            except Exception as config_error:
+                current_app.logger.error(
+                    f"Failed to regenerate config after add: {config_error}")
+
+            success_message = (
+                f"Target '{name}' added — config regenerated automatically"
+            )
+            if _wants_json():
+                return jsonify({
+                    'success': True,
+                    'message': success_message,
+                    'redirect': url_for('targets.list_targets'),
+                })
+            flash(success_message, 'success')
             return redirect(url_for('targets.list_targets'))
     
     # Get available categories and probes for form
@@ -416,4 +487,122 @@ def delete_target(name):
         current_app.logger.error(f"Error deleting target: {str(e)}")
         flash(f"Error deleting target: {str(e)}", 'error')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@targets_bp.route('/<int:target_id>/toggle', methods=['POST'])
+def toggle_target(target_id):
+    """Toggle a target's active state (database mode only)."""
+    if not config_api.is_database_available():
+        return jsonify({
+            'success': False,
+            'error': 'Toggling targets requires database mode',
+        }), 400
+
+    try:
+        result = config_api.toggle_target_in_db(target_id)
+        target = result.get('target', {})
+        return jsonify({
+            'success': True,
+            'is_active': target.get('is_active'),
+            'message': result.get('message', 'Target toggled'),
+        })
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 404
+    except Exception as e:
+        current_app.logger.error(f"Error toggling target {target_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@targets_bp.route('/<int:target_id>', methods=['PUT'])
+def edit_target(target_id):
+    """Edit a target's title/host/probe (database mode only)."""
+    if not config_api.is_database_available():
+        return jsonify({
+            'success': False,
+            'error': 'Editing targets requires database mode',
+        }), 400
+
+    data = request.get_json(silent=True) or {}
+    update = {}
+
+    title = (data.get('title') or '').strip()
+    if title:
+        update['title'] = title
+
+    host = (data.get('host') or '').strip()
+    if host:
+        valid, error = validate_hostname(host)
+        if not valid:
+            return jsonify({
+                'success': False,
+                'errors': {'host': error},
+            }), 400
+        update['host'] = host
+
+    probe = (data.get('probe') or '').strip()
+    if probe:
+        try:
+            probes_result = config_api.get_probes_from_db()
+            probe_ids = {
+                p['name']: p['id'] for p in probes_result.get('probes', [])
+            }
+        except Exception as e:
+            current_app.logger.error(f"Failed to get probes: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 500
+        if probe not in probe_ids:
+            return jsonify({
+                'success': False,
+                'errors': {'probe': f"Unknown probe '{probe}'"},
+            }), 400
+        update['probe_id'] = probe_ids[probe]
+
+    if not update:
+        return jsonify({'success': False, 'error': 'Nothing to update'}), 400
+
+    try:
+        config_api.update_target_in_db(target_id, update)
+        return jsonify({'success': True, 'message': 'Target updated'})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 404
+    except Exception as e:
+        current_app.logger.error(f"Error updating target {target_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@targets_bp.route('/bulk-delete', methods=['POST'])
+def bulk_delete_targets():
+    """Delete multiple targets by id (database mode only)."""
+    if not config_api.is_database_available():
+        return jsonify({
+            'success': False,
+            'error': 'Bulk delete requires database mode',
+        }), 400
+
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids')
+    if not isinstance(ids, list) or not ids or not all(
+        isinstance(i, int) for i in ids
+    ):
+        return jsonify({
+            'success': False,
+            'error': 'A non-empty list of integer target ids is required',
+        }), 400
+
+    deleted, failed = [], []
+    for target_id in ids:
+        try:
+            config_api.delete_target_from_db(target_id)
+            deleted.append(target_id)
+        except Exception as e:
+            current_app.logger.error(f"Bulk delete failed for {target_id}: {e}")
+            failed.append(target_id)
+
+    status = 200 if not failed else 207
+    return jsonify({
+        'success': not failed,
+        'deleted': deleted,
+        'failed': failed,
+        'message': f"Deleted {len(deleted)} target(s)"
+                   + (f", {len(failed)} failed" if failed else ""),
+    }), status
 
