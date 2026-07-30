@@ -11,15 +11,19 @@ services:
     volumes:
       - smokeping-data:/data
       - smokeping-config:/config
-      - ./config-manager/output/Targets:/config/Targets:ro
-      - ./config-manager/output/Probes:/config/Probes:ro
+      # Directory mount (not single files): config-manager writes Targets/Probes
+      # atomically via temp file + os.replace, which swaps the inode. A
+      # single-file bind mount would keep pointing at the old inode until the
+      # container restarts. The 05-link-generated-config.sh cont-init script
+      # symlinks /config/{Targets,Probes} -> /config/generated/{Targets,Probes}.
+      - ./config-manager/output:/config/generated:ro
       - ../../shared/modules/smokeping-exporters:/exporters:ro
       - ./custom-cont-init.d:/custom-cont-init.d:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
       # Time-series database configuration
       - TSDB_TYPE=${TSDB_TYPE:-influxdb}  # influxdb or clickhouse
       - INFLUX_URL=http://localhost:8086
@@ -62,6 +66,12 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUX_TOKEN:?Error: Please run ./setup.sh first to generate passwords}"
       TZ: ${TZ:-UTC}
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     profiles:
       - influxdb
 
@@ -187,6 +197,28 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # MCP server (AI-operable SmokePing) — opt-in via the `mcp` profile:
+  #   COMPOSE_PROFILES=mcp docker compose up -d mcp-server
+  # See docs/mcp-server.md
+  mcp-server:
+    build: ../../shared/modules/mcp-server
+    container_name: smokeping-mcp-server
+    restart: unless-stopped
+    profiles: [mcp]
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      - MCP_TRANSPORT=http
+      - MCP_PORT=8090
+      - CONFIG_API_URL=${CONFIG_API_URL:-http://config-manager:5000}
+      - CONFIG_API_TOKEN=${CONFIG_API_TOKEN:-}
+      - INFLUX_URL=${INFLUX_URL:-http://influxdb:8086}
+      - INFLUX_TOKEN=${INFLUX_TOKEN:-}
+      - INFLUX_ORG=${INFLUX_ORG:-smokeping}
+      - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
+    depends_on:
+      - config-manager
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.1-alpine

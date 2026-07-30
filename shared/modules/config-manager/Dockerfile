@@ -1,12 +1,10 @@
 FROM python:3.11-slim as builder
 
-# Install system dependencies for building
+# Install system dependencies for building (git only needed here, in the
+# builder — the production stage copies the results instead of re-cloning)
 RUN apt-get update && apt-get install -y \
     build-essential \
-    curl \
     git \
-    docker.io \
-    whois \
     libpq-dev \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -17,49 +15,45 @@ RUN pip install uv
 # Set working directory
 WORKDIR /app
 
-# Clone Netflix OCA Locator repository to /app/oca-locator (for direct usage)
-RUN git clone https://github.com/estcarisimo/Netflix-OCA-Servers-Locator.git /app/oca-locator
-
-# Install Netflix OCA Locator dependencies
-WORKDIR /app/oca-locator
-RUN pip install --no-cache-dir -e .
-
-# Return to main app directory  
-WORKDIR /app
-
-# Copy dependency files
-COPY pyproject.toml ./
-
-# Install dependencies with uv
+# Create the virtual environment everything gets installed into
 RUN uv venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Clone Netflix OCA Locator repository to /app/oca-locator and install it
+# INTO THE VENV (the runtime invokes `python3 -m netflix_oca_locator`, and
+# `python3` resolves to the venv interpreter via PATH)
+RUN git clone https://github.com/estcarisimo/Netflix-OCA-Servers-Locator.git /app/oca-locator \
+    && uv pip install /app/oca-locator
+
+# Copy dependency files and install app dependencies into the same venv
+COPY pyproject.toml ./
 RUN uv pip install .
 
 # Production stage
 FROM python:3.11-slim
 
-# Install runtime dependencies
+# Runtime OS dependencies only:
+# - curl: image HEALTHCHECK
+# - whois: OCA lookups
+# - libpq5: psycopg2 runtime
+# No git (nothing is cloned at runtime — the oca-locator checkout is copied
+# from the builder). No docker package either: container control goes through
+# the Python docker SDK over /var/run/docker.sock; nothing in this module
+# shells out to a `docker` binary (and Debian bookworm has no cli-only
+# `docker-cli` package — `docker.io` would pull in the entire engine).
 RUN apt-get update && apt-get install -y \
     curl \
-    git \
-    docker.io \
     whois \
     libpq5 \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone Netflix OCA Locator repository to /app/oca-locator (for direct usage)
-RUN git clone https://github.com/estcarisimo/Netflix-OCA-Servers-Locator.git /app/oca-locator
-
-# Install Netflix OCA Locator dependencies
-WORKDIR /app/oca-locator
-RUN pip install --no-cache-dir -e .
-
-# Copy virtual environment from builder
+# Copy virtual environment and the oca-locator checkout from the builder
+# (oca_fetcher.py verifies /app/oca-locator/src/netflix_oca_locator exists)
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /app/oca-locator /app/oca-locator
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Return to main app directory
 WORKDIR /app
 
 # Copy application code

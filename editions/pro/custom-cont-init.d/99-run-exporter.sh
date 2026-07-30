@@ -19,9 +19,19 @@ RRD_DIR="${RRD_DIR:-/data}"
 # Ensure CPE_Targets file exists (SmokePing @include will fail without it)
 touch /config/CPE_Targets 2>/dev/null || true
 
-# Install common dependencies (traceroute needed by cpe_discovery.py;
-# busybox's applet output is not reliably parseable)
-apk update && apk add --no-cache python3 py3-pip rrdtool traceroute
+# Common dependencies are baked into the image at build time
+# (shared/modules/smokeping/Dockerfile). Only install here as a fallback for
+# images built before that change — avoids needing internet at every boot.
+# (traceroute must be the full package; busybox's applet output is not
+# reliably parseable, so check via apk, not `command -v`.)
+missing_pkgs=""
+for pkg in python3 py3-pip rrdtool traceroute; do
+    apk info -e "$pkg" >/dev/null 2>&1 || missing_pkgs="$missing_pkgs $pkg"
+done
+if [ -n "$missing_pkgs" ]; then
+    echo "Installing missing packages:$missing_pkgs"
+    apk update && apk add --no-cache $missing_pkgs
+fi
 
 # ── CPE Discovery (runs for all editions) ──
 if [ -f "/exporters/cpe_discovery.py" ]; then
@@ -38,8 +48,10 @@ case "${TSDB_TYPE}" in
     "influxdb")
         echo "Starting InfluxDB exporter..."
         if [ -f "/exporters/rrd2influx.py" ]; then
-            # Install Python dependencies
-            pip3 install --break-system-packages influxdb-client
+            # influxdb-client is baked into the image; install only if missing
+            # (fallback for images built before the Dockerfile change)
+            python3 -c "import influxdb_client" 2>/dev/null || \
+                pip3 install --break-system-packages influxdb-client
 
             # Run RRD exporter in background with restart on failure
             while true; do

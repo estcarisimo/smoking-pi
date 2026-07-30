@@ -65,9 +65,8 @@ Add `-e CONFIG_API_TOKEN=...` if the config-manager API is protected.)
 
 ## Option B — Docker Compose service (streamable-http)
 
-Ready-to-paste snippet for `editions/pro/docker-compose.yml` (`services:`
-section). It is opt-in via the `mcp` profile so the default stack is
-unchanged:
+The `mcp-server` service is wired into `editions/pro/docker-compose.yml`.
+It is opt-in via the `mcp` profile so the default stack is unchanged:
 
 ```yaml
   mcp-server:
@@ -83,9 +82,9 @@ unchanged:
       - CONFIG_API_URL=${CONFIG_API_URL:-http://config-manager:5000}
       - CONFIG_API_TOKEN=${CONFIG_API_TOKEN:-}
       - INFLUX_URL=${INFLUX_URL:-http://influxdb:8086}
-      - INFLUX_TOKEN=${INFLUXDB_ADMIN_TOKEN:-}
-      - INFLUX_ORG=${INFLUXDB_ORG:-smokeping}
-      - INFLUX_BUCKET=${INFLUXDB_BUCKET:-smokeping}
+      - INFLUX_TOKEN=${INFLUX_TOKEN:-}
+      - INFLUX_ORG=${INFLUX_ORG:-smokeping}
+      - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
     depends_on:
       - config-manager
 ```
@@ -104,8 +103,8 @@ only). Register it with any streamable-http-capable MCP client, e.g.:
 claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp
 ```
 
-> Note: the env var names on the right-hand side (`INFLUXDB_ADMIN_TOKEN`,
-> `INFLUXDB_ORG`, `INFLUXDB_BUCKET`) match the Pro edition's `.env` generated
+> Note: the env var names on the right-hand side (`INFLUX_TOKEN`,
+> `INFLUX_ORG`, `INFLUX_BUCKET`) match the Pro edition's `.env` generated
 > by `setup.sh`; adjust if your `.env` uses different names.
 
 ## Example conversation prompts
