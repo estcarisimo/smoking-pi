@@ -230,7 +230,7 @@ def get_category_targets(category):
         template = '''
         {% if targets %}
             <ul class="list-unstyled mb-0">
-                {% for target in targets[:10] %}
+                {% for target in targets %}
                 <li>
                     <i class="bi bi-dot"></i>
                     <strong>{{ target.name }}</strong> - {{ target.host }}
@@ -239,12 +239,6 @@ def get_category_targets(category):
                     {% endif %}
                 </li>
                 {% endfor %}
-                {% if targets|length > 10 %}
-                <li class="text-muted">
-                    <i class="bi bi-three-dots"></i>
-                    and {{ targets|length - 10 }} more...
-                </li>
-                {% endif %}
             </ul>
         {% else %}
             <p class="text-muted mb-0">No targets configured</p>

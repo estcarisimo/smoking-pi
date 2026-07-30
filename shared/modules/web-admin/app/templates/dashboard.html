@@ -52,6 +52,12 @@
             <div class="card-body">
                 <h5 class="card-title">Last Updated</h5>
                 <small id="last-updated-time" data-utc-time="{{ last_updated }}">{{ last_updated }}</small>
+                <div class="mt-1">
+                    <small class="text-muted">Config source:</small>
+                    <span class="badge {% if using_database %}bg-primary{% else %}bg-warning text-dark{% endif %}">
+                        {% if using_database %}Database{% else %}YAML{% endif %}
+                    </span>
+                </div>
             </div>
         </div>
     </div>
@@ -75,7 +81,7 @@
                 </p>
             </div>
             <div class="col-md-6 text-end">
-                <button class="btn btn-outline-primary" onclick="refreshOCAs()">
+                <button class="btn btn-outline-primary" onclick="refreshOCAs(this)">
                     <i class="bi bi-arrow-clockwise"></i> Refresh OCAs
                 </button>
             </div>
@@ -89,17 +95,21 @@
     {% for category, count in target_counts.items() %}
     <div class="col-md-6 mb-3" id="category-{{ category }}">
         <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    {{ category|format_category_name }}
-                    <span class="badge bg-primary float-end" id="category-count-{{ category }}">{{ count }}</span>
-                </h5>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">{{ category|format_category_name }}</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <a class="btn btn-sm btn-outline-secondary grafana-link" data-category="{{ category }}"
+                       target="_blank" rel="noopener" title="Open Grafana dashboard">
+                        <i class="bi bi-bar-chart-line"></i> Grafana
+                    </a>
+                    <span class="badge bg-primary" id="category-count-{{ category }}">{{ count }}</span>
+                </div>
             </div>
             <div class="card-body">
-                <div class="target-list" id="category-body-{{ category }}" style="max-height: 200px; overflow-y: auto;">
+                <div class="target-list" id="category-body-{{ category }}" style="max-height: 260px; overflow-y: auto;">
                     {% if active_targets[category] %}
                         <ul class="list-unstyled mb-0">
-                            {% for target in active_targets[category][:10] %}
+                            {% for target in active_targets[category] %}
                             <li class="d-flex justify-content-between align-items-center">
                                 <div>
                                     <i class="bi bi-dot"></i>
@@ -108,17 +118,22 @@
                                         <span class="badge bg-secondary">{{ target.probe }}</span>
                                     {% endif %}
                                 </div>
-                                <button class="btn btn-sm btn-outline-danger" onclick="deleteTarget('{{ category }}', '{{ target.name }}', '{{ target.host }}')" title="Delete target">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <a class="btn btn-outline-secondary smokeping-link"
+                                       data-path="{{ category }}.{{ target.name }}"
+                                       target="_blank" rel="noopener" title="View SmokePing graph">
+                                        <i class="bi bi-graph-up"></i>
+                                    </a>
+                                    <button class="btn btn-outline-danger delete-target-btn"
+                                            data-category="{{ category }}"
+                                            data-name="{{ target.name }}"
+                                            data-host="{{ target.host }}"
+                                            title="Delete target">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
                             </li>
                             {% endfor %}
-                            {% if active_targets[category]|length > 10 %}
-                            <li class="text-muted">
-                                <i class="bi bi-three-dots"></i>
-                                and {{ active_targets[category]|length - 10 }} more...
-                            </li>
-                            {% endif %}
                         </ul>
                     {% else %}
                         <p class="text-muted mb-0">No targets configured</p>
@@ -320,30 +335,22 @@
         sessionStorage.removeItem('oca_refresh_success');
     }
     
-    function restartSmokePing() {
-        if (!confirm('Are you sure you want to restart SmokePing?')) {
-            return;
-        }
-
-        fetch('/api/smokeping/restart', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken(),
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('SmokePing restarted successfully!');
-                refreshStatus();
-            } else {
-                alert('Failed to restart SmokePing: ' + data.error);
-            }
-        })
-        .catch(error => {
-            alert('Error restarting SmokePing: ' + error);
+    async function restartSmokePing() {
+        const confirmed = await confirmDialog({
+            title: 'Restart SmokePing',
+            message: 'Are you sure you want to restart SmokePing?',
+            confirmText: 'Restart',
+            confirmClass: 'btn-success',
         });
+        if (!confirmed) return;
+
+        try {
+            await fetchJSON('/api/smokeping/restart', { method: 'POST' });
+            showToast('Success', 'SmokePing restarted successfully', 'success');
+            refreshStatus();
+        } catch (error) {
+            showToast('Error', 'Failed to restart SmokePing: ' + error.message, 'danger');
+        }
     }
     
     function loadOCAStatus() {
@@ -366,13 +373,16 @@
             });
     }
     
-    function refreshOCAs() {
-        if (!confirm('Refresh Netflix OCA servers? This may take a moment.')) {
-            return;
-        }
-        
+    async function refreshOCAs(btn) {
+        const confirmed = await confirmDialog({
+            title: 'Refresh Netflix OCAs',
+            message: 'Refresh Netflix OCA servers? This may take a moment.',
+            confirmText: 'Refresh',
+            confirmClass: 'btn-primary',
+        });
+        if (!confirmed) return;
+
         // Show loading state
-        const btn = event.target.closest('button');
         const originalText = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Refreshing...';
@@ -464,43 +474,8 @@
         });
     }
     
-    function showToast(title, message, type = 'info') {
-        // Create toast container if it doesn't exist
-        let toastContainer = document.getElementById('toast-container');
-        if (!toastContainer) {
-            toastContainer = document.createElement('div');
-            toastContainer.id = 'toast-container';
-            toastContainer.className = 'position-fixed top-0 end-0 p-3';
-            toastContainer.style.zIndex = '1050';
-            document.body.appendChild(toastContainer);
-        }
-        
-        // Create toast
-        const toastId = 'toast-' + Date.now();
-        const toastHtml = `
-            <div id="${toastId}" class="toast align-items-center text-white bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true">
-                <div class="d-flex">
-                    <div class="toast-body">
-                        <strong>${title}:</strong> ${message}
-                    </div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-                </div>
-            </div>
-        `;
-        
-        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
-        
-        // Show toast
-        const toastElement = document.getElementById(toastId);
-        const toast = new bootstrap.Toast(toastElement, { delay: 5000 });
-        toast.show();
-        
-        // Remove from DOM after hidden
-        toastElement.addEventListener('hidden.bs.toast', () => {
-            toastElement.remove();
-        });
-    }
-    
+    // showToast() and confirmDialog() come from the shared /static/js/app.js
+
     // Convert timestamps to local timezone
     function convertTimestampsToLocal() {
         // Convert main last updated time
@@ -529,9 +504,39 @@
     // Also try after a short delay to ensure everything is rendered
     setTimeout(initializeTimezoneConversion, 100);
     
-    // Target deletion functionality
+    // Per-target SmokePing graph links and per-category Grafana links.
+    // Built client-side from the browser's hostname so they work no matter
+    // how the Pi is reached (IP, mDNS name, tunnel...).
+    const GRAFANA_DASHBOARD_UIDS = {
+        'top_sites': 'top_sites-side-by-side-v1',
+        'netflix_oca': 'netflix_oca-side-by-side-v1',
+        'custom': 'custom-side-by-side-v1',
+        'dns_resolvers': 'dns-resolvers-v1',
+    };
+    const GRAFANA_DEFAULT_UID = 'individual-pings-v1';
+
+    function initExternalLinks() {
+        const host = window.location.hostname;
+        document.querySelectorAll('.smokeping-link').forEach(link => {
+            link.href = `http://${host}:80/smokeping/?target=${encodeURIComponent(link.dataset.path)}`;
+        });
+        document.querySelectorAll('.grafana-link').forEach(link => {
+            const uid = GRAFANA_DASHBOARD_UIDS[link.dataset.category] || GRAFANA_DEFAULT_UID;
+            link.href = `http://${host}:3000/d/${uid}`;
+        });
+    }
+    initExternalLinks();
+
+    // Target deletion functionality (event delegation; no inline handlers
+    // so target names never get interpolated into JS strings)
     let currentDeleteTarget = null;
-    
+
+    document.addEventListener('click', function (event) {
+        const btn = event.target.closest('.delete-target-btn');
+        if (!btn) return;
+        deleteTarget(btn.dataset.category, btn.dataset.name, btn.dataset.host);
+    });
+
     function deleteTarget(category, targetName, targetHost) {
         // Store the target info for deletion
         currentDeleteTarget = {
@@ -539,17 +544,17 @@
             name: targetName,
             host: targetHost
         };
-        
+
         // Update modal content
         document.getElementById('delete-target-name').textContent = targetName;
         document.getElementById('delete-target-host').textContent = targetHost;
         document.getElementById('delete-target-category').textContent = category;
-        
+
         // Show the modal
         const modal = new bootstrap.Modal(document.getElementById('deleteTargetModal'));
         modal.show();
     }
-    
+
     // Handle the confirm delete button
     document.getElementById('confirm-delete-btn').addEventListener('click', function() {
         if (!currentDeleteTarget) return;

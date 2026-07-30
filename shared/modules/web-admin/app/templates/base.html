@@ -5,57 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Smoking Pi{% endblock %}</title>
-    
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Bootstrap CSS (vendored locally: must work during internet outages) -->
+    <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
     <!-- Bootstrap Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    
-    <style>
-        body {
-            background-color: #f8f9fa;
-        }
-        .navbar {
-            background-color: #2C3E50 !important; /* Dark blue-gray tone */
-        }
-        .navbar-brand {
-            font-weight: bold;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .navbar-brand img {
-            height: 30px;
-            width: auto;
-        }
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
-        }
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-        .status-running {
-            background-color: #28a745;
-        }
-        .status-stopped {
-            background-color: #dc3545;
-        }
-        .bandwidth-info {
-            font-size: 0.9rem;
-            color: #6c757d;
-        }
-        .target-count {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #007bff;
-        }
-    </style>
-    
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
+    <!-- Shared app styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -66,47 +23,52 @@
                 <img src="{{ url_for('static', filename='img/logo.jpg') }}" alt="Smoking Pi Logo">
                 Smoking Pi
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
+            <!-- Primary action + user controls stay OUTSIDE the collapse so
+                 they remain visible on phones -->
+            <div class="d-flex align-items-center ms-auto order-lg-last">
+                <button class="btn btn-success btn-sm me-2" id="apply-config-btn" type="button">
+                    <i class="bi bi-arrow-clockwise"></i>
+                    <span class="d-none d-sm-inline">Apply Changes</span>
+                    <span class="d-sm-none">Apply</span>
+                </button>
+                <div class="dropdown">
+                    <button class="btn btn-outline-light btn-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-person-circle"></i> <span class="d-none d-sm-inline">User</span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('auth.logout') }}">
+                                <i class="bi bi-box-arrow-right"></i> Logout
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+                <button class="navbar-toggler ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                        aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+            </div>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}" 
+                        <a class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}"
                            href="{{ url_for('dashboard.index') }}">
                             <i class="bi bi-house"></i> Dashboard
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint and 'sources' in request.endpoint %}active{% endif %}" 
+                        <a class="nav-link {% if request.endpoint and 'sources' in request.endpoint %}active{% endif %}"
                            href="{{ url_for('sources.index') }}">
                             <i class="bi bi-globe"></i> Top Sites
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint and 'targets' in request.endpoint %}active{% endif %}" 
+                        <a class="nav-link {% if request.endpoint and 'targets' in request.endpoint %}active{% endif %}"
                            href="{{ url_for('targets.list_targets') }}">
                             <i class="bi bi-bullseye"></i> Custom Targets
                         </a>
                     </li>
                 </ul>
-                <div class="d-flex align-items-center">
-                    <button class="btn btn-success me-3" onclick="applyConfiguration()">
-                        <i class="bi bi-arrow-clockwise"></i> Apply Changes
-                    </button>
-                    <div class="dropdown">
-                        <button class="btn btn-outline-light btn-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="bi bi-person-circle"></i> User
-                        </button>
-                        <ul class="dropdown-menu dropdown-menu-end">
-                            <li>
-                                <a class="dropdown-item" href="{{ url_for('auth.logout') }}">
-                                    <i class="bi bi-box-arrow-right"></i> Logout
-                                </a>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
             </div>
         </div>
     </nav>
@@ -137,43 +99,32 @@
         </div>
     </footer>
 
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
+    <!-- Bootstrap JS (vendored locally) -->
+    <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+    <!-- Shared helpers: csrfToken(), showToast(), confirmDialog(), fetchJSON() -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
     <script>
-        // CSRF token helper for fetch() calls
-        function csrfToken() {
-            const meta = document.querySelector('meta[name="csrf-token"]');
-            return meta ? meta.content : '';
-        }
-
-        function applyConfiguration() {
-            if (!confirm('Apply configuration changes and restart SmokePing?')) {
-                return;
-            }
-
-            fetch('/api/apply', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken(),
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('Configuration applied successfully!');
-                    location.reload();
-                } else {
-                    alert('Error: ' + data.error);
-                }
-            })
-            .catch(error => {
-                alert('Error applying configuration: ' + error);
+        async function applyConfiguration() {
+            const confirmed = await confirmDialog({
+                title: 'Apply Configuration',
+                message: 'Apply configuration changes and restart SmokePing?',
+                confirmText: 'Apply & Restart',
+                confirmClass: 'btn-success',
             });
+            if (!confirmed) return;
+
+            try {
+                const data = await fetchJSON('/api/apply', { method: 'POST' });
+                showToast('Success', data.message || 'Configuration applied successfully', 'success');
+                setTimeout(() => location.reload(), 1200);
+            } catch (error) {
+                showToast('Error', 'Error applying configuration: ' + error.message, 'danger');
+            }
         }
+        document.getElementById('apply-config-btn').addEventListener('click', applyConfiguration);
     </script>
-    
+
     {% block extra_js %}{% endblock %}
 </body>
 </html>
