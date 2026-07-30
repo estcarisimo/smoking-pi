@@ -54,6 +54,10 @@ jobs:
         run: |
           COMPOSE_PROFILES=clickhouse docker compose \
             -f docker-compose.yml -f docker-compose.clickhouse.yml config -q
+      - name: Validate MCP profile (pro only)
+        if: matrix.edition == 'pro'
+        working-directory: editions/pro
+        run: COMPOSE_PROFILES=mcp docker compose config -q
 
   grafana-provisioning:
     name: Grafana dashboards & provisioning

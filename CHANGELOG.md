@@ -11,6 +11,33 @@ version gets a matching GitHub release and git tag.
 
 - Sprint 8 (PR #13): MCP server module — manage targets and query latency
   data conversationally from Claude Code / Claude Desktop.
+- Sprint 7: editions repair & compose unification.
+  - Pro: generated `Targets`/`Probes` now reach SmokePing via a read-only
+    directory mount (`/config/generated`) plus a `05-link-generated-config.sh`
+    cont-init symlink script, replacing single-file bind mounts that went
+    stale after config-manager's atomic (inode-swapping) writes.
+  - Standard: fixed broken data path (config-manager's output volume never
+    reached SmokePing) using the same shared-volume + symlink pattern; added
+    a persistent `/app/config` bind mount, `COMPOSE_PROJECT_NAME` /
+    `CONFIG_API_TOKEN` / `CONFIG_DIR` / `OUTPUT_DIR` env wiring, and
+    `CONFIG_API_TOKEN` pass-through to web-admin.
+  - Exporter dependencies (python3, rrdtool, traceroute, influxdb-client,
+    PyYAML) baked into the smokeping image at build time; cont-init/
+    entrypoint installs now only run as a fallback (no more apk/pip on
+    every boot).
+  - config-manager image: real multi-stage build — production stage copies
+    the venv and oca-locator checkout from the builder instead of
+    re-installing git/docker.io and re-cloning (~300 MB smaller);
+    `netflix_oca_locator` is now installed into the venv the app actually
+    runs from. Docker packages dropped entirely (only the Python docker
+    SDK is used).
+  - Pinned floating images: `linuxserver/smokeping:version-2.9.0-r0`,
+    `cloudflare/cloudflared:2026.5.0`; removed obsolete compose `version:`
+    key; `PUID`/`PGID` are now `${PUID:-1000}`-style overridable in all
+    editions; InfluxDB gained a compose healthcheck.
+  - Pro: `mcp-server` service wired in behind the `mcp` profile
+    (127.0.0.1:8090); CI now validates `COMPOSE_PROFILES=mcp`.
+  - `setup.sh` scripts use `docker compose` (v2) instead of `docker-compose`.
 
 ## [2.2.0] — 2026-07-30
 
