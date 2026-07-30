@@ -1,0 +1,89 @@
+/*
+ * Smoking Pi web-admin shared styles.
+ * Extracted from the per-template inline <style> blocks.
+ */
+
+body {
+    background-color: #f8f9fa;
+}
+
+/* Navbar */
+.navbar {
+    background-color: #2C3E50 !important; /* Dark blue-gray tone */
+}
+.navbar-brand {
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.navbar-brand img {
+    height: 30px;
+    width: auto;
+}
+
+/* Status indicators (dashboard) */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+.status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.status-running {
+    background-color: #28a745;
+}
+.status-stopped {
+    background-color: #dc3545;
+}
+.bandwidth-info {
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+.target-count {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #007bff;
+}
+
+/* Inline form validation feedback (add-target and edit dialogs) */
+.validation-feedback {
+    display: none;
+    font-size: 0.875rem;
+    color: #dc3545;
+    margin-top: 0.25rem;
+}
+.validation-feedback.show {
+    display: block;
+}
+.form-control.is-valid {
+    border-color: #28a745;
+}
+.form-control.is-invalid {
+    border-color: #dc3545;
+}
+
+/* Sites picker (sources page) */
+.sites-list {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1rem;
+}
+.site-checkbox {
+    margin-bottom: 0.5rem;
+}
+.selection-counter {
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 10;
+    padding: 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+    margin-bottom: 1rem;
+}

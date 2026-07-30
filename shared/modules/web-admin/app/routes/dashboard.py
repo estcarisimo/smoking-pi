@@ -60,8 +60,17 @@ def index():
     
     # Check SmokePing status
     smokeping_running = get_smokeping_status()
-    
+
+    # Data-source mode (database vs YAML fallback)
+    try:
+        service_status = config_api.get_service_status()
+        using_database = bool(service_status.get('using_database', False))
+    except Exception as e:
+        current_app.logger.warning(f"Failed to get service status: {e}")
+        using_database = False
+
     context = {
+        'using_database': using_database,
         'smokeping_running': smokeping_running,
         'target_counts': target_counts,
         'total_targets': bandwidth_info['total_targets'],

@@ -9,6 +9,13 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- Sprint 5: web-admin UX overhaul — Bootstrap vendored locally (works
+  offline), shared toast/confirm/fetch helpers replace all alert()/confirm(),
+  targets page gains search/filters/edit/toggle/bulk-delete/CSV export,
+  add-target inline validation (30-char names, IPv6-aware), dashboard shows
+  full target lists with SmokePing/Grafana links and data-source mode,
+  Top Sites picker fixes (loading-modal deadlock, honest selection counter,
+  review-before-update, CrUX country lists), countries page removed.
 - Sprint 4 (PR #14): web-admin security — hashed passwords, CSRF, login
   rate limiting, open-redirect fix, single authenticated data path,
   Docker socket removed from web-admin.
