@@ -9,18 +9,37 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
-- Sprint 5: web-admin UX overhaul — Bootstrap vendored locally (works
-  offline), shared toast/confirm/fetch helpers replace all alert()/confirm(),
-  targets page gains search/filters/edit/toggle/bulk-delete/CSV export,
-  add-target inline validation (30-char names, IPv6-aware), dashboard shows
-  full target lists with SmokePing/Grafana links and data-source mode,
-  Top Sites picker fixes (loading-modal deadlock, honest selection counter,
-  review-before-update, CrUX country lists), countries page removed.
-- Sprint 4 (PR #14): web-admin security — hashed passwords, CSRF, login
-  rate limiting, open-redirect fix, single authenticated data path,
-  Docker socket removed from web-admin.
 - Sprint 8 (PR #13): MCP server module — manage targets and query latency
   data conversationally from Claude Code / Claude Desktop.
+
+## [2.2.0] — 2026-07-30
+
+Web-admin hardening and UX overhaul (Sprints 4–5).
+
+### Security (PR #14)
+- Password-hash auth (`WEB_ADMIN_PASSWORD_HASH`) with constant-time
+  plaintext fallback; no hardcoded default credentials; `SECRET_KEY`
+  required; CSRF protection on every state-changing request; per-IP
+  login lockout; open-redirect fix; Cloudflare token out of URL query.
+- Single authenticated data path: web-admin only talks to the
+  config-manager API (Bearer token); YAML fallback dual-writes and the
+  silently-broken dashboard delete removed; Docker socket removed from
+  web-admin entirely; scheduler runs exactly once.
+- API token auth active end-to-end on the Pro deployment.
+
+### UX (PR #16)
+- Bootstrap + icons vendored locally — the UI works during the exact
+  internet outages it exists to diagnose.
+- Toast/confirm/fetch helpers replace all alert()/confirm() dialogs.
+- Targets: search, category/status filters, inactive targets visible
+  with activate toggle, edit dialog, bulk delete, CSV export.
+- Add-target: identical client/server name validation, inline errors,
+  IPv6-aware hostname checks, auto-regeneration feedback.
+- Dashboard: full target lists with per-target SmokePing and Grafana
+  links; shows Database/YAML mode.
+- Top Sites: loading-modal deadlock fixed, honest selection counters,
+  review-before-update, real CrUX per-country lists; broken countries
+  page removed.
 
 ## [2.1.0] — 2026-07-29
 
