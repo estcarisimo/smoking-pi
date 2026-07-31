@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-07-31
+
+Editions repair, AI-operability, and three production fixes found while
+deploying (Sprints 7–8).
+
+### Fixed (post-deploy)
+- **OCA refresh data loss** (PR #19): the daily Netflix OCA refresh could
+  replace the `netflix_oca` targets with an empty set when the fetch
+  failed (this happened in production while the locator install was
+  broken). Empty fetches are now refused and the DB replace is a single
+  transaction. Golden tests moved to immutable fixtures so live runtime
+  state can never fail CI (PR #19).
+- **Slow container boot** (PR #18): the exporter cont-init script blocked
+  s6 service startup (~5 min to web UI after recreate); loops are now
+  detached and the sleeps removed — boot-to-web measured at 9 s.
+
 - Sprint 8 (PR #13): MCP server module — manage targets and query latency
   data conversationally from Claude Code / Claude Desktop.
 - Sprint 7: editions repair & compose unification.
