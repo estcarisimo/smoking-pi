@@ -24,7 +24,7 @@ echo -e "${BLUE}📋 Setting up environment...${NC}"
 # Start services
 echo -e "${BLUE}🐳 Starting SmokePing...${NC}"
 cd "$SCRIPT_DIR"
-docker-compose up -d
+docker compose up -d
 
 echo -e "${YELLOW}⏳ Waiting for services to be ready...${NC}"
 sleep 10

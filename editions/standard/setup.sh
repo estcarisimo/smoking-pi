@@ -25,14 +25,14 @@ echo -e "${BLUE}📋 Setting up environment...${NC}"
 # Start services
 echo -e "${BLUE}🐳 Starting services...${NC}"
 cd "$SCRIPT_DIR"
-docker-compose up -d
+docker compose up -d
 
 echo -e "${YELLOW}⏳ Waiting for services to be ready...${NC}"
 sleep 15
 
 # Check service health
 echo -e "${BLUE}🔍 Checking service status...${NC}"
-docker-compose ps
+docker compose ps
 
 echo -e "${GREEN}✅ SmokePing Standard Edition is ready!${NC}"
 echo ""
@@ -46,6 +46,6 @@ echo -e "     No authentication required"
 echo ""
 echo -e "${CYAN}💡 Tips:${NC}"
 echo -e "  - View all credentials: cat .env"
-echo -e "  - Check logs: docker-compose logs"
-echo -e "  - Stop services: docker-compose down"
+echo -e "  - Check logs: docker compose logs"
+echo -e "  - Stop services: docker compose down"
 echo -e "  - Manage targets via Web Admin interface"

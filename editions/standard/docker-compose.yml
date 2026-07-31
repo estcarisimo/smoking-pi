@@ -35,10 +35,19 @@ services:
       dockerfile: Dockerfile
     container_name: smokeping-standard-config-manager
     environment:
+      CONFIG_DIR: /app/config
+      OUTPUT_DIR: /app/output
       DATABASE_URL: "postgresql://${POSTGRES_USER:-smokeping}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-smokeping_targets}"
       TZ: ${TZ:-UTC}
+      # Compose project name for container-name resolution
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-standard}
+      # Optional shared API token (empty = auth disabled)
+      CONFIG_API_TOKEN: ${CONFIG_API_TOKEN:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Persist YAML configs on the host so bootstrap output survives
+      # container recreation (was previously lost in the container layer)
+      - ./config-manager/config:/app/config
       - config-manager-output:/app/output
       - smokeping-config:/smokeping-config
     depends_on:
@@ -69,6 +78,8 @@ services:
       TZ: ${TZ:-UTC}
       # Run background jobs (OCA refresh, cache cleanup) in one worker
       ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-true}
+      # Optional shared API token for config-manager (empty = auth disabled)
+      CONFIG_API_TOKEN: ${CONFIG_API_TOKEN:-}
     ports:
       - "${WEB_ADMIN_PORT:-8080}:8080"
     depends_on:
@@ -93,14 +104,20 @@ services:
     image: standard-smokeping
     container_name: smokeping-standard
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
       - TZ=${TZ:-UTC}
     volumes:
       - smokeping-data:/data
       - smokeping-config:/config
-      - ../../shared/modules/config-manager/output/Targets:/config/Targets:ro
-      - ../../shared/modules/config-manager/output/Probes:/config/Probes:ro
+      # Shared volume with config-manager (which writes /app/output): the
+      # generated Targets/Probes appear under /config/generated, and the
+      # 05-link-generated-config.sh cont-init script symlinks
+      # /config/{Targets,Probes} to them. (Previously smokeping bind-mounted
+      # the git-tracked shared/modules/config-manager/output files, so
+      # generated config never reached SmokePing.)
+      - config-manager-output:/config/generated:ro
+      - ./custom-cont-init.d:/custom-cont-init.d:ro
       - /etc/localtime:/etc/localtime:ro
     ports:
       - "${SMOKEPING_PORT:-8081}:80"
