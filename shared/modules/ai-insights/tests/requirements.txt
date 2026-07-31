@@ -1,0 +1,6 @@
+# Dependencies needed to run the ai-insights tests in CI.
+anthropic>=0.40
+influxdb-client
+httpx
+jinja2
+pytest

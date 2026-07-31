@@ -68,6 +68,12 @@
                             <i class="bi bi-bullseye"></i> Custom Targets
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint and request.endpoint.startswith('ai.') %}active{% endif %}"
+                           href="{{ url_for('ai.reports') }}">
+                            <i class="bi bi-stars"></i> AI
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>

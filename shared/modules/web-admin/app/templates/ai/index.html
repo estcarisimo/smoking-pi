@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}AI - Smoking Pi{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0"><i class="bi bi-stars"></i> AI Insights</h1>
+</div>
+
+{% if not ai_configured %}
+<div class="alert alert-info">
+    <h5 class="alert-heading"><i class="bi bi-info-circle"></i> AI features are not configured</h5>
+    <p class="mb-1">
+        Set <code>ANTHROPIC_API_KEY</code> in the edition's <code>.env</code> file and
+        enable the <code>ai</code> Docker Compose profile to activate scheduled health
+        reports and the assistant chat.
+    </p>
+    <p class="mb-0">See <code>docs/ai-insights.md</code> in the repository for setup steps and cost notes.</p>
+</div>
+{% endif %}
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link {% if active_tab == 'reports' %}active{% endif %}"
+           href="{{ url_for('ai.reports') }}">
+            <i class="bi bi-file-earmark-text"></i> Reports
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if active_tab == 'chat' %}active{% endif %}"
+           href="{{ url_for('ai.chat_page') }}">
+            <i class="bi bi-chat-dots"></i> Assistant
+        </a>
+    </li>
+</ul>
+
+{% if active_tab == 'reports' %}
+    {% if reports %}
+    <div class="row">
+        <div class="col-md-4 col-lg-3 mb-3">
+            <div class="list-group">
+                {% for report in reports %}
+                <a class="list-group-item list-group-item-action {% if report.name == selected_report %}active{% endif %}"
+                   href="{{ url_for('ai.reports', file=report.name) }}">
+                    <i class="bi bi-file-earmark-text"></i> {{ report.name }}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="col-md-8 col-lg-9">
+            <div class="card">
+                <div class="card-body">
+                    {% if report_html %}
+                        {{ report_html }}
+                    {% else %}
+                        <p class="text-muted mb-0">Select a report on the left.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-file-earmark-text display-4 text-muted"></i>
+            <h5 class="mt-3">No reports yet</h5>
+            <p class="text-muted mb-0">
+                Reports are written by the <code>ai-insights</code> service to the shared
+                <code>reports</code> volume once <code>ANTHROPIC_API_KEY</code> is set and
+                the service is started with the <code>ai</code> compose profile
+                (<code>COMPOSE_PROFILES=ai docker compose up -d</code>).
+                The first report appears after the first scheduled run.
+            </p>
+        </div>
+    </div>
+    {% endif %}
+{% else %}
+    <div class="card">
+        <div class="card-body d-flex flex-column" style="min-height: 60vh;">
+            <div id="chat-messages" class="flex-grow-1 overflow-auto mb-3" style="max-height: 55vh;">
+                <p class="text-muted" id="chat-placeholder">
+                    Ask about your network: "How is my connection to 8.8.8.8?",
+                    "Were there microcuts last night?", "Add 1.1.1.1 to monitoring".
+                    Target changes always ask for your confirmation first.
+                </p>
+            </div>
+            <form id="chat-form" class="d-flex gap-2" autocomplete="off">
+                <input type="text" class="form-control" id="chat-input"
+                       placeholder="Ask the assistant..."
+                       {% if not ai_configured %}disabled{% endif %}>
+                <button class="btn btn-primary" type="submit" id="chat-send"
+                        {% if not ai_configured %}disabled{% endif %}>
+                    <i class="bi bi-send"></i> Send
+                </button>
+            </form>
+            <small class="text-muted mt-2">
+                Conversation history lives in this browser tab only. Responses are not streamed.
+            </small>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if active_tab == 'chat' and ai_configured %}
+<script>
+(function () {
+    'use strict';
+
+    /* Client-held Anthropic message history: the server is stateless. */
+    let history = [];
+    let busy = false;
+
+    const messagesEl = document.getElementById('chat-messages');
+    const form = document.getElementById('chat-form');
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send');
+
+    function setBusy(state) {
+        busy = state;
+        input.disabled = state;
+        sendBtn.disabled = state;
+        if (!state) input.focus();
+    }
+
+    function bubble(role, text) {
+        const placeholder = document.getElementById('chat-placeholder');
+        if (placeholder) placeholder.remove();
+        const wrap = document.createElement('div');
+        wrap.className = 'd-flex mb-2 ' +
+            (role === 'user' ? 'justify-content-end' : 'justify-content-start');
+        const div = document.createElement('div');
+        div.className = 'rounded p-2 ' +
+            (role === 'user' ? 'bg-primary text-white' : 'bg-light border');
+        div.style.maxWidth = '85%';
+        div.style.whiteSpace = 'pre-wrap';
+        div.textContent = text;
+        wrap.appendChild(div);
+        messagesEl.appendChild(wrap);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        return wrap;
+    }
+
+    function describeAction(action) {
+        const args = Object.entries(action.input || {})
+            .map(([k, v]) => `${k}=${v}`).join(', ');
+        return `${action.name}(${args})`;
+    }
+
+    /* Confirm card for a pending mutating action. */
+    function renderPendingAction(action) {
+        const card = document.createElement('div');
+        card.className = 'card border-warning mb-2';
+        card.innerHTML = `
+            <div class="card-body py-2">
+                <div class="d-flex align-items-center flex-wrap gap-2">
+                    <i class="bi bi-exclamation-triangle text-warning"></i>
+                    <span class="me-auto"><strong>Confirm action:</strong> <code></code></span>
+                    <button type="button" class="btn btn-sm btn-success" data-approve="1">
+                        <i class="bi bi-check-lg"></i> Approve
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-approve="0">
+                        Decline
+                    </button>
+                </div>
+            </div>`;
+        card.querySelector('code').textContent = describeAction(action);
+        messagesEl.appendChild(card);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+
+        card.querySelectorAll('button').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const approved = btn.dataset.approve === '1';
+                card.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+                setBusy(true);
+                try {
+                    const data = await fetchJSON('{{ url_for("ai.chat_execute") }}', {
+                        method: 'POST',
+                        body: { messages: history, action: action, approved: approved },
+                    });
+                    card.remove();
+                    if (approved) {
+                        showToast('Action', data.executed ? 'Action executed' : 'Action failed', 'success');
+                    }
+                    handleResponse(data);
+                } catch (error) {
+                    showToast('Error', error.message, 'danger');
+                } finally {
+                    setBusy(false);
+                }
+            });
+        });
+    }
+
+    function handleResponse(data) {
+        history = data.messages || history;
+        if (data.reply) bubble('assistant', data.reply);
+        if (data.pending_action) renderPendingAction(data.pending_action);
+    }
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const text = input.value.trim();
+        if (!text || busy) return;
+        input.value = '';
+        bubble('user', text);
+        history.push({ role: 'user', content: text });
+        setBusy(true);
+        const thinking = bubble('assistant', '...');
+        try {
+            const data = await fetchJSON('{{ url_for("ai.chat") }}', {
+                method: 'POST',
+                body: { messages: history },
+            });
+            thinking.remove();
+            handleResponse(data);
+        } catch (error) {
+            thinking.remove();
+            bubble('assistant', 'Error: ' + error.message);
+        } finally {
+            setBusy(false);
+        }
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}
