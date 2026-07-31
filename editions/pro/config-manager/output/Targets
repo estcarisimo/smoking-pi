@@ -39,30 +39,30 @@ host = apple.com
 menu = Netflix
 title = Netflix Open Connect Appliances
 
-++ Chicago_ORD_c122_1
-menu = Chicago_ORD_c122_1
-title = ipv4-c122-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c122_1)
-host = 23.246.36.193
+++ Ocean_Reef_Club_Airport_DFW_c525_1
+menu = Ocean_Reef_Club_Airport_DFW_c525_1
+title = ipv4-c525-dfw001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport DFW/c525_1)
+host = 23.246.2.186
 
-++ Chicago_ORD_c106_2
-menu = Chicago_ORD_c106_2
-title = ipv4-c106-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c106_2)
-host = 23.246.37.180
+++ Ocean_Reef_Club_Airport_DFW_c588_2
+menu = Ocean_Reef_Club_Airport_DFW_c588_2
+title = ipv4-c588-dfw001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport DFW/c588_2)
+host = 23.246.3.225
 
-++ Chicago_ORD_c211_3
-menu = Chicago_ORD_c211_3
-title = ipv4-c211-ord001-dev-ix.1.oca.nflxvideo.net (Chicago ORD/c211_3)
-host = 45.57.120.66
+++ Ocean_Reef_Club_Airport_MCI_c092_3
+menu = Ocean_Reef_Club_Airport_MCI_c092_3
+title = ipv4-c092-mci001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport MCI/c092_3)
+host = 23.246.42.144
 
-++ Chicago_ORD_c733_4
-menu = Chicago_ORD_c733_4
-title = ipv4-c733-ord001-ix.1.oca.nflxvideo.net (Chicago ORD/c733_4)
-host = 45.57.121.70
+++ Ocean_Reef_Club_Airport_MCI_c073_4
+menu = Ocean_Reef_Club_Airport_MCI_c073_4
+title = ipv4-c073-mci001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport MCI/c073_4)
+host = 45.57.95.139
 
-++ Washington_DC_WAS_c273_5
-menu = Washington_DC_WAS_c273_5
-title = ipv4-c273-was001-ix.1.oca.nflxvideo.net (Washington D.C. WAS/c273_5)
-host = 45.57.62.146
+++ Ocean_Reef_Club_Airport_ATL_c329_5
+menu = Ocean_Reef_Club_Airport_ATL_c329_5
+title = ipv4-c329-atl001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport ATL/c329_5)
+host = 198.38.99.233
 
 + DNS_Resolvers
 menu = DNS Resolvers
