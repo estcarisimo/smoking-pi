@@ -3,9 +3,27 @@
 # SmokePing Exporter Runner
 # Runs the appropriate exporter based on TSDB_TYPE
 # Also runs CPE discovery (all editions) and microcut detector (InfluxDB only)
+#
+# IMPORTANT: this is an s6 cont-init script — it must exit quickly or the
+# container's services (SmokePing, Apache) will not start. No foreground
+# sleeps, and every background loop must be detached from our stdio (s6
+# waits for the pipe to close, not just for the script to exit). The
+# exporter/detector handle their own waiting for RRDs / discovery state.
 
-# Wait for SmokePing to start and create RRD files
-sleep 30
+# Detached runner: closes stdin and writes to the container log directly so
+# cont-init's pipe is released immediately.
+run_detached() {
+    ( exec 0<&- >/proc/1/fd/1 2>/proc/1/fd/2; "$@" ) &
+}
+
+supervise_loop() {
+    local name="$1"; shift
+    while true; do
+        "$@"
+        echo "$name exited, restarting in 60 seconds..."
+        sleep 60
+    done
+}
 
 # Check if we have exporters directory
 if [ ! -d "/exporters" ]; then
@@ -36,11 +54,7 @@ fi
 # ── CPE Discovery (runs for all editions) ──
 if [ -f "/exporters/cpe_discovery.py" ]; then
     echo "Starting CPE discovery..."
-    while true; do
-        python3 /exporters/cpe_discovery.py
-        echo "CPE discovery exited, restarting in 60 seconds..."
-        sleep 60
-    done &
+    run_detached supervise_loop "CPE discovery" python3 /exporters/cpe_discovery.py
 fi
 
 # ── TSDB-specific exporters ──
@@ -54,25 +68,16 @@ case "${TSDB_TYPE}" in
                 pip3 install --break-system-packages influxdb-client
 
             # Run RRD exporter in background with restart on failure
-            while true; do
-                python3 /exporters/rrd2influx.py
-                echo "InfluxDB exporter crashed, restarting in 60 seconds..."
-                sleep 60
-            done &
+            run_detached supervise_loop "InfluxDB exporter" python3 /exporters/rrd2influx.py
         else
             echo "InfluxDB exporter script not found"
         fi
 
-        # Start microcut detector (needs InfluxDB)
+        # Start microcut detector (needs InfluxDB). It waits for CPE
+        # discovery state internally — no sleep needed here.
         if [ -f "/exporters/microcut_detector.py" ]; then
             echo "Starting microcut detector..."
-            # Wait for CPE discovery to find targets first
-            sleep 40
-            while true; do
-                python3 /exporters/microcut_detector.py
-                echo "Microcut detector exited, restarting in 60 seconds..."
-                sleep 60
-            done &
+            run_detached supervise_loop "Microcut detector" python3 /exporters/microcut_detector.py
         fi
         ;;
 
@@ -86,11 +91,7 @@ case "${TSDB_TYPE}" in
             pip3 install --break-system-packages clickhouse-connect influxdb-client numpy pandas structlog pydantic pydantic-settings prometheus-client rich tqdm click
 
             # Run exporter in background with restart on failure
-            while true; do
-                python3 /exporters/rrd2clickhouse.py
-                echo "ClickHouse exporter crashed, restarting in 60 seconds..."
-                sleep 60
-            done &
+            run_detached supervise_loop "ClickHouse exporter" python3 /exporters/rrd2clickhouse.py
         else
             echo "ClickHouse exporter script not found"
         fi
