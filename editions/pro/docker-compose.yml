@@ -120,6 +120,7 @@ services:
     volumes:
       - ./config-manager/config:/app/config
       - ../../shared/modules/web-admin/app:/app/app  # Mount source code for development
+      - reports:/reports:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
@@ -137,6 +138,14 @@ services:
       ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-true}
       # Optional shared API token for config-manager (empty = auth disabled)
       CONFIG_API_TOKEN: ${CONFIG_API_TOKEN:-}
+      # AI assistant/reports (optional; pages degrade gracefully when unset)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-claude-haiku-4-5-20251001}
+      REPORTS_DIR: /reports
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_ORG: ${INFLUX_ORG:-smokeping}
+      INFLUX_BUCKET: ${INFLUX_BUCKET:-smokeping}
     depends_on:
       smokeping:
         condition: service_started
@@ -220,6 +229,30 @@ services:
     depends_on:
       - config-manager
 
+  # AI health reports (opt-in: COMPOSE_PROFILES=ai; needs ANTHROPIC_API_KEY)
+  ai-insights:
+    build: ../../shared/modules/ai-insights
+    restart: unless-stopped
+    profiles:
+      - ai
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-claude-haiku-4-5-20251001}
+      - REPORT_INTERVAL=${REPORT_INTERVAL:-86400}
+      - AI_REPORTS_PER_DAY=${AI_REPORTS_PER_DAY:-8}
+      - REPORTS_DIR=/reports
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG:-smokeping}
+      - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - reports:/reports
+    depends_on:
+      influxdb:
+        condition: service_started
+        required: false
+
   clickhouse:
     image: clickhouse/clickhouse-server:24.1-alpine
     container_name: smokeping-pro-clickhouse
@@ -251,6 +284,7 @@ volumes:
   influxdb-data:
   grafana-data:
   postgres-data:
+  reports:
   clickhouse-data:
     name: smokeping-pro-clickhouse-data
   clickhouse-logs:
