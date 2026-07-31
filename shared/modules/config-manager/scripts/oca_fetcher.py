@@ -252,6 +252,17 @@ class OCAFetcher:
 
     def update_targets(self, oca_targets: List[Dict]) -> bool:
         """Update Netflix OCA targets in the active backend (DB or YAML)"""
+        # Never replace existing OCA targets with an empty set: a failed or
+        # empty fetch must not delete monitoring targets. (This exact
+        # failure wiped the netflix_oca category in production when the
+        # locator was broken and the daily refresh ran anyway.)
+        if not oca_targets:
+            logger.error(
+                "OCA fetch produced no targets - refusing to replace the "
+                "existing netflix_oca targets. Existing targets kept."
+            )
+            return False
+
         if DATABASE_AVAILABLE and database_mode_active():
             success = self._update_targets_database(oca_targets)
         else:
@@ -279,12 +290,13 @@ class OCAFetcher:
                     return False
 
                 # Remove existing OCA targets (full replace semantics,
-                # matching the previous YAML behaviour)
+                # matching the previous YAML behaviour). No commit here:
+                # delete + inserts happen in ONE transaction so a failure
+                # mid-way cannot leave the category emptied.
                 existing = target_repo.get_all(category_name='netflix_oca')
                 for target in existing:
                     session.delete(target)
-                session.commit()
-                logger.info(f"Removed {len(existing)} existing Netflix OCA targets from database")
+                logger.info(f"Replacing {len(existing)} existing Netflix OCA targets")
 
                 added = 0
                 for target_data in oca_targets:
@@ -295,7 +307,9 @@ class OCAFetcher:
                         continue
 
                     metadata = target_data.get('metadata', {}) or {}
-                    target_repo.create({
+                    # session.add (not repo.create): repo.create commits per
+                    # row, which would break the single-transaction replace.
+                    target_repo.add_pending({
                         'name': target_data.get('name'),
                         'host': target_data.get('host'),
                         'title': target_data.get('title', target_data.get('name')),
@@ -315,6 +329,15 @@ class OCAFetcher:
                     })
                     added += 1
 
+                if added == 0:
+                    session.rollback()
+                    logger.error(
+                        "No OCA targets could be stored (probe lookups "
+                        "failed) - rolled back, existing targets kept"
+                    )
+                    return False
+
+                session.commit()
                 logger.info(f"Stored {added} Netflix OCA targets in database")
                 return True
             finally:

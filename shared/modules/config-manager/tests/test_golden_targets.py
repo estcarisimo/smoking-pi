@@ -1,9 +1,15 @@
 """Golden-file test for the data-driven Targets template.
 
-Renders the template with the current Pro edition targets.yaml and asserts
-the generated sections/hosts match the committed Targets file, so the
-template refactor cannot silently change SmokePing section names (which
-would orphan RRD history).
+Renders the template with the IMMUTABLE fixture targets.yaml and asserts
+the output matches the committed fixture golden, so a template refactor
+cannot silently change SmokePing section names (which would orphan RRD
+history).
+
+Deliberately does NOT read editions/pro/config-manager/* — those are
+live runtime state on a deployed system: in database mode the OCA
+refresh updates PostgreSQL (and the generated output) without touching
+the YAML export, so the live pair legitimately drifts and made this
+test flaky against reality. Fixtures pin one known-good pair forever.
 """
 
 from pathlib import Path
@@ -15,17 +21,12 @@ from jinja2 import Environment, FileSystemLoader
 from scripts.config_generator import build_category_context
 
 MODULE_DIR = Path(__file__).resolve().parent.parent
-REPO_ROOT = MODULE_DIR.parent.parent.parent
-EDITION_DIR = REPO_ROOT / "editions" / "pro" / "config-manager"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
-def _render_from_edition_config() -> str:
-    targets_config = yaml.safe_load(
-        (EDITION_DIR / "config" / "targets.yaml").read_text()
-    )
-    probes_config = yaml.safe_load(
-        (EDITION_DIR / "config" / "probes.yaml").read_text()
-    )
+def _render_from_fixture() -> str:
+    targets_config = yaml.safe_load((FIXTURES / "targets.yaml").read_text())
+    probes_config = yaml.safe_load((FIXTURES / "probes.yaml").read_text())
     env = Environment(
         loader=FileSystemLoader(MODULE_DIR / "templates"),
         trim_blocks=True,
@@ -48,25 +49,23 @@ def _extract(lines_text: str, prefixes) -> list:
 
 @pytest.fixture(scope="module")
 def golden():
-    path = EDITION_DIR / "output" / "Targets"
-    if not path.exists():
-        pytest.skip("committed edition output/Targets not present")
-    return path.read_text()
+    return (FIXTURES / "Targets.golden").read_text()
 
 
-def test_target_sections_match_golden(golden):
-    rendered = _render_from_edition_config()
+@pytest.fixture(scope="module")
+def rendered():
+    return _render_from_fixture()
+
+
+def test_target_sections_match_golden(rendered, golden):
     assert _extract(rendered, ("++ ",)) == _extract(golden, ("++ ",))
 
 
-def test_hosts_match_golden(golden):
-    rendered = _render_from_edition_config()
+def test_hosts_match_golden(rendered, golden):
     assert _extract(rendered, ("host = ",)) == _extract(golden, ("host = ",))
 
 
-def test_section_headers_match_golden(golden):
-    rendered = _render_from_edition_config()
-    # top-level sections ("+ websites", "+ Netflix", ...) must be identical
+def test_section_headers_match_golden(rendered, golden):
     plus_lines = [
         line
         for line in _extract(rendered, ("+ ",))
@@ -80,7 +79,6 @@ def test_section_headers_match_golden(golden):
     assert plus_lines == golden_plus
 
 
-def test_cpe_include_preserved(golden):
-    rendered = _render_from_edition_config()
+def test_cpe_include_preserved(rendered, golden):
     assert "@include /config/CPE_Targets" in rendered
     assert "@include /config/CPE_Targets" in golden
