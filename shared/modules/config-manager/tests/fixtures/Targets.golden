@@ -1,0 +1,123 @@
+*** Targets ***
+
+probe = FPing
+
+menu = Top
+title = Network Latency Grapher
+remark = Smoking Pi - SmokePing on Containers
+
++ websites
+menu = Popular websites
+title = Outbound from the Pi to the Internet (using Ping)
+
+++ Google
+menu = Google
+title = Google
+host = google.com
+
+++ Facebook
+menu = Facebook
+title = Facebook
+host = facebook.com
+
+++ Amazon
+menu = Amazon
+title = Amazon
+host = amazon.com
+
+++ NYT
+menu = NYT
+title = NYT
+host = nytimes.com
+
+++ Apple
+menu = Apple
+title = Apple
+host = apple.com
+
++ Netflix
+menu = Netflix
+title = Netflix Open Connect Appliances
+
+++ Chicago_ORD_c122_1
+menu = Chicago_ORD_c122_1
+title = ipv4-c122-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c122_1)
+host = 23.246.36.193
+
+++ Chicago_ORD_c106_2
+menu = Chicago_ORD_c106_2
+title = ipv4-c106-ord003-ix.1.oca.nflxvideo.net (Chicago ORD/c106_2)
+host = 23.246.37.180
+
+++ Chicago_ORD_c211_3
+menu = Chicago_ORD_c211_3
+title = ipv4-c211-ord001-dev-ix.1.oca.nflxvideo.net (Chicago ORD/c211_3)
+host = 45.57.120.66
+
+++ Chicago_ORD_c733_4
+menu = Chicago_ORD_c733_4
+title = ipv4-c733-ord001-ix.1.oca.nflxvideo.net (Chicago ORD/c733_4)
+host = 45.57.121.70
+
+++ Washington_DC_WAS_c273_5
+menu = Washington_DC_WAS_c273_5
+title = ipv4-c273-was001-ix.1.oca.nflxvideo.net (Washington D.C. WAS/c273_5)
+host = 45.57.62.146
+
++ DNS_Resolvers
+menu = DNS Resolvers
+title = Public DNS Resolvers
+
+++ GoogleDNS
+menu = GoogleDNS
+title = Google DNS
+probe = DNS
+host = 8.8.8.8
+lookup = google.com
+
+++ CloudflareDNS
+menu = CloudflareDNS
+title = Cloudflare DNS
+probe = DNS
+host = 1.1.1.1
+lookup = cloudflare.com
+
+++ Quad9DNS
+menu = Quad9DNS
+title = Quad9 DNS
+probe = DNS
+host = 9.9.9.9
+lookup = quad9.net
+
++ Custom
+menu = Custom Targets
+title = User-Defined Targets
+
+++ UBA
+menu = UBA
+title = UBA
+host = ns1.uba.ar
+
+++ Google6
+menu = Google6
+title = Google6
+probe = FPing6
+host = www.google.com
+
+++ UdeSA
+menu = UdeSA
+title = UdeSA
+host = www.udesa.edu.ar
+
+++ cloudflare
+menu = cloudflare
+title = Cloudflare
+host = www.cloudflare.com
+
+++ SpotifyWebPlayer
+menu = SpotifyWebPlayer
+title = Spotify Web Player
+host = open.spotify.com
+
+# CPE targets (auto-discovered by cpe_discovery.py)
+@include /config/CPE_Targets
