@@ -302,10 +302,19 @@ class TargetRepository:
     
     def create(self, target_data: dict) -> Target:
         """Create new target (only allowlisted fields are applied)"""
-        target = Target(**_filter_target_fields(target_data))
-        self.session.add(target)
+        target = self.add_pending(target_data)
         self.session.commit()
         self.session.refresh(target)
+        return target
+
+    def add_pending(self, target_data: dict) -> Target:
+        """Stage a new target on the session WITHOUT committing.
+
+        For multi-row replace operations that must be atomic (e.g. the
+        OCA refresh): callers commit once at the end.
+        """
+        target = Target(**_filter_target_fields(target_data))
+        self.session.add(target)
         return target
 
     def update(self, target_id: int, target_data: dict) -> Optional[Target]:
