@@ -137,12 +137,14 @@ def create_app(config_name='production'):
     from app.routes.targets import targets_bp
     from app.routes.sources import sources_bp
     from app.routes.api import api_bp
+    from app.routes.ai import ai_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(targets_bp, url_prefix='/targets')
     app.register_blueprint(sources_bp, url_prefix='/sources')
     app.register_blueprint(api_bp, url_prefix='/api')
+    app.register_blueprint(ai_bp, url_prefix='/ai')
 
     # Unauthenticated health endpoint (used by the container HEALTHCHECK)
     @app.route('/health')

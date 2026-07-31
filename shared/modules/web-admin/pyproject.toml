@@ -52,6 +52,11 @@ dependencies = [
     # Background tasks
     "apscheduler>=3.10.1",
 
+    # AI assistant / reports (optional at runtime: pages degrade gracefully
+    # when ANTHROPIC_API_KEY is unset)
+    "anthropic>=0.40",
+    "influxdb-client>=1.40",
+
     # Utilities
     "tqdm>=4.65.0",
     "beautifulsoup4>=4.12.0",

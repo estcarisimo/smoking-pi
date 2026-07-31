@@ -27,6 +27,19 @@ deploying (Sprints 7–8).
 
 - Sprint 8 (PR #13): MCP server module — manage targets and query latency
   data conversationally from Claude Code / Claude Desktop.
+- Sprint 9: AI insights & in-UI assistant.
+  - New `shared/modules/ai-insights/` service: pulls latency/loss/microcut
+    aggregates from InfluxDB and writes plain-language Markdown health
+    reports via Claude (Haiku by default; `AI_MODEL` overridable). Guardrails:
+    input-size cap, `AI_REPORTS_PER_DAY` cap, clean no-op when
+    `ANTHROPIC_API_KEY` is unset. Compose snippet documented in
+    `docs/ai-insights.md` (compose/editions files owned by an in-flight PR).
+  - web-admin: new AI section — `/ai/reports` renders the generated reports
+    (tiny built-in safe Markdown renderer, empty-state help when disabled)
+    and `/ai/chat` is an assistant that reuses the MCP tool surface
+    (stats read tools run inline; add/remove/toggle target require an
+    explicit confirmation card before executing). No `apply_config` tool —
+    regeneration is automatic.
 - Sprint 7: editions repair & compose unification.
   - Pro: generated `Targets`/`Probes` now reach SmokePing via a read-only
     directory mount (`/config/generated`) plus a `05-link-generated-config.sh`
