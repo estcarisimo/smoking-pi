@@ -24,6 +24,12 @@ import flux
 DEFAULT_DOWN_WINDOW = 900  # seconds; DOWN_WINDOW
 DEFAULT_HIGH_LOSS_PCT = 20.0  # percent; HIGH_LOSS_PCT
 DEFAULT_MICROCUT_BURST_N = 6  # lossy windows / 60 min; MICROCUT_BURST_N
+# A window counts as a microcut only above this loss percent. CPE gateways
+# commonly rate-limit ICMP, so a 5 pps probe sees a constant single-digit loss
+# floor (observed: p50 10%, p99 30%) with no outage at all — counting every
+# window with any loss would flag that floor forever. A real microcut drops
+# most of a 10 s window.
+DEFAULT_MICROCUT_LOSS_PCT = 50.0  # percent; MICROCUT_LOSS_PCT
 
 DOWN_MIN_POINTS = 3
 DOWN_LOSS_RATIO = 0.999  # >= this ratio counts as "no responses"
@@ -73,16 +79,17 @@ def _mean_loss_flux() -> str:
     )
 
 
-def _microcut_flux() -> str:
-    """Count of lossy cpe windows per target+protocol over the last 60m.
+def _microcut_flux(loss_pct: float) -> str:
+    """Count of microcut cpe windows per target+protocol over the last 60m.
 
-    cpe_latency loss is a percent (0-100); "lossy" is simply > 0, so no
-    ratio clamping is applied here.
+    cpe_latency loss is a percent (0-100), so no ratio clamping applies; a
+    window counts only above MICROCUT_LOSS_PCT (see the constant for why
+    "any loss at all" is the wrong bar).
     """
     return (
         flux.base_flux(["cpe_latency"], "-60m")
         + '|> filter(fn: (r) => r._field == "loss") '
-        + "|> filter(fn: (r) => r._value > 0.0) "
+        + f"|> filter(fn: (r) => r._value > {float(loss_pct)}) "
         + '|> group(columns: ["target", "protocol"]) '
         + "|> count()"
     )
@@ -170,9 +177,10 @@ def rule_high_loss(
 def rule_microcut_burst(
     count_rows: list[dict], burst_n: int | None = None
 ) -> list[dict]:
-    """warning: >= MICROCUT_BURST_N lossy cpe windows in the last 60m."""
+    """warning: >= MICROCUT_BURST_N microcut cpe windows in the last 60m."""
     if burst_n is None:
         burst_n = _env_int("MICROCUT_BURST_N", DEFAULT_MICROCUT_BURST_N)
+    loss_pct = _env_float("MICROCUT_LOSS_PCT", DEFAULT_MICROCUT_LOSS_PCT)
 
     incidents = []
     for row in sorted(
@@ -193,8 +201,8 @@ def rule_microcut_burst(
                     "key": f"microcut_burst:{target}/{protocol}",
                     "target": target,
                     "message": (
-                        f"{target} ({protocol}): {count} lossy windows "
-                        "in the last 60m (microcut burst)"
+                        f"{target} ({protocol}): {count} windows over "
+                        f"{loss_pct:g}% loss in the last 60m (microcut burst)"
                     ),
                     "value": count,
                 }
@@ -287,7 +295,9 @@ def evaluate() -> list[dict]:
 
     down_rows = _query(_down_points_flux(down_window))
     mean_rows = _query(_mean_loss_flux())
-    micro_rows = _query(_microcut_flux())
+    micro_rows = _query(
+        _microcut_flux(_env_float("MICROCUT_LOSS_PCT", DEFAULT_MICROCUT_LOSS_PCT))
+    )
     stale_rows = _query(_stale_flux())
 
     incidents = rule_target_down(down_rows)

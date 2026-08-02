@@ -279,6 +279,7 @@ services:
       - DOWN_WINDOW=${DOWN_WINDOW:-900}
       - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
       - MICROCUT_BURST_N=${MICROCUT_BURST_N:-6}
+      - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
       - REPORT_MAX_CHARS=${REPORT_MAX_CHARS:-3500}
       # host netns: InfluxDB is published on localhost:8086
       - INFLUX_URL=${INFLUX_URL:-http://localhost:8086}

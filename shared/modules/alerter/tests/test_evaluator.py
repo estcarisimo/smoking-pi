@@ -25,7 +25,14 @@ def test_mean_loss_flux_uses_clamp_but_cpe_flux_does_not():
     # latency/dns_latency loss is a 0-1 ratio (legacy counts clamped);
     # cpe_latency loss is a 0-100 percent and must NOT be ratio-clamped.
     assert flux.CLAMP_LOSS_RATIO in evaluator._mean_loss_flux()
-    assert flux.CLAMP_LOSS_RATIO not in evaluator._microcut_flux()
+    assert flux.CLAMP_LOSS_RATIO not in evaluator._microcut_flux(50.0)
+
+
+def test_microcut_flux_filters_above_the_loss_threshold():
+    # The ICMP rate-limit floor on a CPE means "any loss at all" matches
+    # every window; the query must filter on the configured percent.
+    assert "r._value > 50.0" in evaluator._microcut_flux(50.0)
+    assert "r._value > 80.0" in evaluator._microcut_flux(80.0)
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +110,13 @@ def test_microcut_burst_env_tunable(monkeypatch):
     monkeypatch.setenv("MICROCUT_BURST_N", "3")
     rows = [{"target": "cpe1", "protocol": "ipv6", "_value": 3}]
     assert len(evaluator.rule_microcut_burst(rows)) == 1
+
+
+def test_microcut_message_states_the_loss_threshold(monkeypatch):
+    monkeypatch.setenv("MICROCUT_LOSS_PCT", "70")
+    rows = [{"target": "cpe1", "protocol": "ipv4", "_value": 9}]
+    incidents = evaluator.rule_microcut_burst(rows)
+    assert "9 windows over 70% loss" in incidents[0]["message"]
 
 
 # ---------------------------------------------------------------------------
