@@ -18,6 +18,12 @@ version gets a matching GitHub release and git tag.
   denominator is now read per RRD from its `ping1..pingN` data sources;
   `SMOKEPING_PINGS` remains only as a fallback. Points written before this fix
   keep their old scale.
+- Fixed: alerter `microcut_burst` counted any `cpe_latency` window with loss
+  above zero. CPE gateways rate-limit ICMP, so the 5 pps probe sees a constant
+  loss floor (measured on the live link: p50 10%, p99 30%, never a fully lost
+  window in 24 h) — every window qualified, and the rule fired permanently
+  without ever recovering. A window now counts only above `MICROCUT_LOSS_PCT`
+  (default 50%), which is what an actual brief cut looks like.
 - Changed: alerter `DOWN_WINDOW` default 300 s → 900 s. SmokePing probes on a
   300 s step, so the old window could only ever contain one point and never
   met `target_down`'s 3-point minimum.
