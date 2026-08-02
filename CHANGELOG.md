@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- Fixed: the RRD → InfluxDB exporter divided the loss count by a fixed 20
+  pings, but SmokePing's probes send 10 (FPing/FPing6) and 5 (DNS), so every
+  loss ratio written since 2026-07 was understated — 2× for ping targets, 4×
+  for DNS. A fully unreachable target recorded 0.5 instead of 1.0, which made
+  the alerter's `target_down` and `ipv6_down` rules (threshold 0.999)
+  impossible to trigger and halved the loss shown on every Grafana panel. The
+  denominator is now read per RRD from its `ping1..pingN` data sources;
+  `SMOKEPING_PINGS` remains only as a fallback. Points written before this fix
+  keep their old scale.
+- Changed: alerter `DOWN_WINDOW` default 300 s → 900 s. SmokePing probes on a
+  300 s step, so the old window could only ever contain one point and never
+  met `target_down`'s 3-point minimum.
 - Sprint 10: Alerting engine + OpenClaw delivery.
   - New `shared/modules/alerter/` service: deterministic (no-LLM) rules
     evaluated against InfluxDB every `ALERT_INTERVAL` (60 s) —

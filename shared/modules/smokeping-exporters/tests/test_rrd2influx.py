@@ -78,6 +78,32 @@ class TestLossRatio:
         assert rrd2influx.loss_to_ratio(-1.0, 20) == 0.0
 
 
+# ───────────────────────── per-RRD ping count ─────────────────────────
+class TestPingsFromDsNames:
+    def test_counts_ping_sources(self):
+        ds = ["uptime", "loss", "median"] + [f"ping{i}" for i in range(1, 11)]
+        assert rrd2influx.pings_from_ds_names(ds, 20) == 10
+
+    def test_dns_probe_count(self):
+        ds = ["uptime", "loss", "median", "ping1", "ping2", "ping3", "ping4", "ping5"]
+        assert rrd2influx.pings_from_ds_names(ds, 20) == 5
+
+    def test_falls_back_without_ping_sources(self):
+        assert rrd2influx.pings_from_ds_names(["uptime", "loss", "median"], 20) == 20
+        assert rrd2influx.pings_from_ds_names([], 7) == 7
+
+    def test_ignores_lookalike_sources(self):
+        ds = ["ping", "pings", "ping1x", "1ping", "ping1", "ping2"]
+        assert rrd2influx.pings_from_ds_names(ds, 20) == 2
+
+    def test_a_fully_lost_cycle_reads_as_total_loss(self):
+        # The bug this guards: a 10-ping probe losing all 10 must be 1.0,
+        # not 10/20 = 0.5.
+        ds = ["loss", "median"] + [f"ping{i}" for i in range(1, 11)]
+        pings = rrd2influx.pings_from_ds_names(ds, 20)
+        assert rrd2influx.loss_to_ratio(10.0, pings) == 1.0
+
+
 # ───────────────────────── state file ─────────────────────────
 class TestStateFile:
     def test_round_trip(self, tmp_path):

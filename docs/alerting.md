@@ -21,7 +21,7 @@ The service runs with `network_mode: host`, so it reaches InfluxDB on
 
 | Rule | Severity | Condition | Tunables (default) |
 |------|----------|-----------|--------------------|
-| `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points | `DOWN_WINDOW` (300 s) |
+| `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points | `DOWN_WINDOW` (900 s) |
 | `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold (targets already down are excluded) | `HIGH_LOSS_PCT` (20 %) |
 | `microcut_burst` | warning | Per target+protocol in `cpe_latency`: number of 10 s windows with loss > 0 in the last 60 min reaches the burst count | `MICROCUT_BURST_N` (6) |
 | `exporter_stale` | critical | Zero `latency` points written in the last 10 min (global — the RRD exporter is probably stalled) | — |
@@ -129,7 +129,7 @@ reports directory is skipped quietly.
 | `ALERT_INTERVAL` | `60` | Seconds between evaluations |
 | `ALERT_COOLDOWN` | `3600` | Seconds before re-notifying an active incident |
 | `ALERT_STATE_FILE` | `/var/lib/alerter/state.json` | Incident/report state (atomic writes) |
-| `DOWN_WINDOW` | `300` | `target_down` window (seconds) |
+| `DOWN_WINDOW` | `900` | `target_down` window (seconds; SmokePing probes on a 300 s step, so this must span at least 3 steps) |
 | `HIGH_LOSS_PCT` | `20` | `high_loss` threshold (percent) |
 | `MICROCUT_BURST_N` | `6` | Lossy windows per 60 min to flag a burst |
 | `REPORTS_DIR` | `/reports` | Where ai-insights reports are read from |
