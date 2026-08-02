@@ -11,10 +11,17 @@ SmokePing RRD → InfluxDB exporter
   file (EXPORTER_STATE_FILE, default /tmp/rrd2influx_state.json).
 
 LOSS SEMANTICS (changed 2026-07): the RRD `loss` data source is the raw COUNT
-of lost pings per cycle (0..SMOKEPING_PINGS). This exporter now converts it to
-a RATIO 0..1 (count / SMOKEPING_PINGS, default 20) before writing, so the
-dashboards' `percentunit` axes are correct. The field name stays `loss`.
-Historical points written by older versions keep the old count scale.
+of lost pings per cycle. This exporter converts it to a RATIO 0..1 before
+writing, so the dashboards' `percentunit` axes are correct. The field name
+stays `loss`.
+
+The denominator is the probe's pings-per-cycle, read PER RRD from its
+`ping1..pingN` data sources — probes differ (FPing uses 10, DNS uses 5), and
+a fixed denominator understates loss on every probe that disagrees with it.
+SMOKEPING_PINGS (default 20) is only a fallback for RRDs with no ping DSs.
+Historical points written by older versions keep their original scale: before
+2026-07 a raw count, and between 2026-07 and 2026-08 a ratio against a fixed
+20 (so half the true value for FPing targets, a quarter for DNS).
 """
 
 import glob
@@ -23,6 +30,7 @@ import logging
 import math
 import os
 import pathlib
+import re
 import subprocess
 import time
 
@@ -37,6 +45,9 @@ WRITE_RETRIES = 3
 
 # Directories that hold DNS-probe RRDs (measurement dns_latency).
 DNS_DIRS = ("resolvers", "DNS_Resolvers")
+
+# SmokePing's per-ping data sources: ping1, ping2, ... one per ping sent.
+PING_DS_RE = re.compile(r"^ping\d+$")
 
 # Directory → category tag. Current names are what smokeping_targets.j2
 # generates (websites, Netflix, DNS_Resolvers, Custom); legacy names are kept
@@ -85,6 +96,16 @@ def loss_to_ratio(loss_count, pings: int):
     if loss_count is None or pings <= 0:
         return None
     return max(0.0, min(1.0, float(loss_count) / float(pings)))
+
+
+def pings_from_ds_names(ds_names, fallback: int) -> int:
+    """Pings per cycle for one RRD, counted from its ping1..pingN sources.
+
+    SmokePing creates one `pingN` data source per ping the probe sends, so
+    the RRD is authoritative about its own denominator. Falls back to
+    ``fallback`` when an RRD carries no ping sources."""
+    count = sum(1 for name in ds_names if PING_DS_RE.match(name))
+    return count or fallback
 
 
 # ───────────────────────── rrdtool fetch ─────────────────────────
@@ -239,9 +260,10 @@ def run_cycle(write_api, bucket: str, rrd_dir: str, state: dict, pings: int) -> 
         try:
             start = state.get(rrd, now - FIRST_RUN_LOOKBACK)
             start = max(start, now - MAX_BACKFILL)
-            _, rows = fetch_rows(rrd, start, now)
+            ds_names, rows = fetch_rows(rrd, start, now)
             rows = [(ts, data) for ts, data in rows if start < ts <= now]
-            points, last_ts = build_points(rrd, rows, rrd_dir, pings)
+            points, last_ts = build_points(
+                rrd, rows, rrd_dir, pings_from_ds_names(ds_names, pings))
             if not points:
                 continue
             if write_with_retry(write_api, bucket, points):
@@ -275,7 +297,8 @@ def main() -> int:
     write_api = client.write_api(write_options=SYNCHRONOUS)
     state = load_state(state_file)
 
-    logging.info("RRD exporter started → %s (bucket: %s, pings/cycle: %d, state: %s)",
+    logging.info("RRD exporter started → %s (bucket: %s, pings/cycle: per-RRD "
+                 "(fallback %d), state: %s)",
                  influx_url, influx_bucket, pings, state_file)
     try:
         while True:

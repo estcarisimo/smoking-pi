@@ -18,7 +18,10 @@ import os
 import flux
 
 # Thresholds (env-tunable).
-DEFAULT_DOWN_WINDOW = 300  # seconds; DOWN_WINDOW
+# SmokePing probes on a 300 s step, so a 300 s window holds a single point —
+# too few for DOWN_MIN_POINTS. 900 s is the shortest window that can confirm
+# a target is down rather than reacting to one missed cycle.
+DEFAULT_DOWN_WINDOW = 900  # seconds; DOWN_WINDOW
 DEFAULT_HIGH_LOSS_PCT = 20.0  # percent; HIGH_LOSS_PCT
 DEFAULT_MICROCUT_BURST_N = 6  # lossy windows / 60 min; MICROCUT_BURST_N
 

@@ -276,7 +276,7 @@ services:
       - ALERT_COOLDOWN=${ALERT_COOLDOWN:-3600}
       - REPORT_DELIVERY_INTERVAL=${REPORT_DELIVERY_INTERVAL:-86400}
       # Rule thresholds (optional overrides; module defaults apply)
-      - DOWN_WINDOW=${DOWN_WINDOW:-300}
+      - DOWN_WINDOW=${DOWN_WINDOW:-900}
       - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
       - MICROCUT_BURST_N=${MICROCUT_BURST_N:-6}
       - REPORT_MAX_CHARS=${REPORT_MAX_CHARS:-3500}
