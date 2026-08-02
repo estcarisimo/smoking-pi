@@ -253,6 +253,47 @@ services:
         condition: service_started
         required: false
 
+  # Alerting engine (opt-in: COMPOSE_PROFILES=alerts). Deterministic rules
+  # over InfluxDB with OpenClaw-hook / generic-webhook delivery.
+  # See docs/alerting.md. Uses network_mode: host (InfluxDB + the local
+  # OpenClaw gateway both live on localhost), so no ports/networks keys.
+  alerter:
+    build: ../../shared/modules/alerter
+    network_mode: host
+    restart: unless-stopped
+    profiles: [alerts]
+    environment:
+      # Delivery: off (log-only, default) | openclaw | webhook
+      - NOTIFY_MODE=${NOTIFY_MODE:-off}
+      - OPENCLAW_URL=${OPENCLAW_URL:-http://127.0.0.1:18789}
+      - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN:-}
+      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-}
+      - OPENCLAW_TO=${OPENCLAW_TO:-}
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
+      - ALERT_WEBHOOK_TOKEN=${ALERT_WEBHOOK_TOKEN:-}
+      # Cadence / dedup / report delivery (seconds)
+      - ALERT_INTERVAL=${ALERT_INTERVAL:-60}
+      - ALERT_COOLDOWN=${ALERT_COOLDOWN:-3600}
+      - REPORT_DELIVERY_INTERVAL=${REPORT_DELIVERY_INTERVAL:-86400}
+      # Rule thresholds (optional overrides; module defaults apply)
+      - DOWN_WINDOW=${DOWN_WINDOW:-300}
+      - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
+      - MICROCUT_BURST_N=${MICROCUT_BURST_N:-6}
+      - REPORT_MAX_CHARS=${REPORT_MAX_CHARS:-3500}
+      # host netns: InfluxDB is published on localhost:8086
+      - INFLUX_URL=${INFLUX_URL:-http://localhost:8086}
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG:-smokeping}
+      - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - reports:/reports:ro
+      - alerter-state:/var/lib/alerter
+    depends_on:
+      influxdb:
+        condition: service_started
+        required: false
+
   clickhouse:
     image: clickhouse/clickhouse-server:24.1-alpine
     container_name: smokeping-pro-clickhouse
@@ -285,6 +326,7 @@ volumes:
   grafana-data:
   postgres-data:
   reports:
+  alerter-state:
   clickhouse-data:
     name: smokeping-pro-clickhouse-data
   clickhouse-logs:

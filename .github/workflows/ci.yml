@@ -58,6 +58,10 @@ jobs:
         if: matrix.edition == 'pro'
         working-directory: editions/pro
         run: COMPOSE_PROFILES=mcp docker compose config -q
+      - name: Validate alerts profile (pro only)
+        if: matrix.edition == 'pro'
+        working-directory: editions/pro
+        run: COMPOSE_PROFILES=alerts docker compose config -q
 
   grafana-provisioning:
     name: Grafana dashboards & provisioning

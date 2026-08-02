@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- Sprint 10: Alerting engine + OpenClaw delivery.
+  - New `shared/modules/alerter/` service: deterministic (no-LLM) rules
+    evaluated against InfluxDB every `ALERT_INTERVAL` (60 s) —
+    `target_down`, `high_loss`, `microcut_burst`, `exporter_stale`, and an
+    aggregate `ipv6_down` — with incident dedup/cooldown/recovery state
+    persisted atomically to a named volume.
+  - Delivery via `NOTIFY_MODE`: `off` (log-only default), `openclaw`
+    (POST `/hooks/agent` on a local OpenClaw gateway), or `webhook`
+    (generic JSON POST with optional bearer token); 3 retries with
+    exponential backoff. Also forwards ai-insights `report-*.md` files
+    (at most one per `REPORT_DELIVERY_INTERVAL`, truncated
+    Telegram-friendly).
+  - Pro compose: `alerter` service behind the opt-in `alerts` profile
+    (`network_mode: host`, `alerter-state` volume, read-only `reports`
+    mount); `.env.template` gains an all-empty alerting block; CI
+    validates the `alerts` profile. Docs: `docs/alerting.md`.
+
 ## [2.4.0] — 2026-07-31
 
 AI insights & in-UI assistant (Sprint 9) — final sprint of the 2026-07
