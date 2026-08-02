@@ -1,0 +1,4 @@
+# Dependencies needed to run the alerter tests in CI.
+pytest
+httpx
+influxdb-client
