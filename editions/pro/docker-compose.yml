@@ -226,6 +226,10 @@ services:
     environment:
       - MCP_TRANSPORT=http
       - MCP_PORT=8090
+      # Bearer token for the HTTP transport (empty = unauthenticated, as
+      # before). The port is bound to 127.0.0.1, so this guards against other
+      # processes on the host. See docs/openclaw-integration.md
+      - MCP_API_TOKEN=${MCP_API_TOKEN:-}
       - CONFIG_API_URL=${CONFIG_API_URL:-http://config-manager:5000}
       - CONFIG_API_TOKEN=${CONFIG_API_TOKEN:-}
       - INFLUX_URL=${INFLUX_URL:-http://influxdb:8086}
@@ -272,6 +276,7 @@ services:
       # Delivery: off (log-only, default) | openclaw | webhook
       - NOTIFY_MODE=${NOTIFY_MODE:-off}
       - OPENCLAW_URL=${OPENCLAW_URL:-http://127.0.0.1:18789}
+      - OPENCLAW_HOOK_PATH=${OPENCLAW_HOOK_PATH:-/hooks/agent}
       - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN:-}
       - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-}
       - OPENCLAW_TO=${OPENCLAW_TO:-}
