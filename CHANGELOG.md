@@ -9,6 +9,37 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-08-03
+
+Alerting, IPv6 gating, MCP hardening, Grafana 12, and a working ClickHouse
+backend (Sprints 10–13).
+
+The alerting engine is the headline, but building it surfaced a set of
+measurement bugs that had been quietly corrupting the data it was meant to
+watch. Loss was understated 2–4× in InfluxDB and overstated 10× in ClickHouse,
+both because the exporters guessed at how many pings a probe sends instead of
+reading it from the RRD. Two of the five new alert rules could never have
+fired against that data, and a third fired permanently. Everything below was
+verified against the live stack or a throwaway copy of it, not just unit
+tests.
+
+Upgrade notes:
+
+- **Loss values change scale.** InfluxDB `latency`/`dns_latency` loss written
+  before this release is understated (half the true value for ping targets, a
+  quarter for DNS); points after it are correct. Grafana panels will show a
+  step at the cutover. Nothing rewrites history.
+- **IPv6 targets may disappear.** On a host with no global IPv6 they are
+  omitted from the generated config rather than charting 100% loss. Database
+  rows are untouched and return automatically. `IPV6_MODE=force` keeps the old
+  behaviour.
+- **Grafana jumps three majors** (10.4.2 → 12.4.3). The database migrates in
+  place; dashboards need no changes.
+- New opt-in profiles: `alerts` (alerting engine) and the existing `mcp`.
+  `MCP_API_TOKEN` is optional — unset preserves the current unauthenticated
+  transport.
+
+
 - Fixed: ClickHouse mode never had a schema. `shared/modules/clickhouse/init/`
   is mounted at `/docker-entrypoint-initdb.d`, but Docker seeds a fresh named
   volume from the image and the official ClickHouse image ships a populated
