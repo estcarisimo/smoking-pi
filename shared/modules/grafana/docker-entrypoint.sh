@@ -60,10 +60,30 @@ fi
 # password in .env changed after the grafana.db volume was created.
 # grafana-cli operates directly on the database, so it must run BEFORE the
 # server starts.
+# Grafana 11 deprecated the standalone `grafana-cli` binary and 13 removed it;
+# the CLI now lives behind `grafana cli`. Prefer the subcommand and fall back
+# to the old binary so this script also works on older base images. Losing
+# this step silently would pin the admin password to whatever the database
+# already held, so a failure here is an error, not a passing remark.
+reset_admin_password() {
+    if command -v grafana >/dev/null 2>&1; then
+        grafana cli --homepath /usr/share/grafana \
+            admin reset-admin-password "$1" >/dev/null 2>&1 && return 0
+    fi
+    if command -v grafana-cli >/dev/null 2>&1; then
+        grafana-cli --homepath /usr/share/grafana \
+            admin reset-admin-password "$1" >/dev/null 2>&1 && return 0
+    fi
+    return 1
+}
+
 if [ -n "${GF_SECURITY_ADMIN_PASSWORD:-}" ] && [ -f "${GF_PATHS_DATA:-/var/lib/grafana}/grafana.db" ]; then
     echo "grafana-entrypoint: syncing admin password on existing database"
-    grafana-cli --homepath /usr/share/grafana admin reset-admin-password "$GF_SECURITY_ADMIN_PASSWORD" >/dev/null 2>&1 \
-        || echo "grafana-entrypoint: warning — admin password reset failed (continuing)"
+    if ! reset_admin_password "$GF_SECURITY_ADMIN_PASSWORD"; then
+        echo "grafana-entrypoint: ERROR — admin password reset failed; the" \
+             "password in the database is unchanged and GF_SECURITY_ADMIN_PASSWORD" \
+             "will NOT take effect (continuing)" >&2
+    fi
 fi
 
 echo "grafana-entrypoint: handing off to /run.sh"
