@@ -176,6 +176,12 @@ services:
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pro}
       # Optional shared API token (empty = auth disabled)
       CONFIG_API_TOKEN: ${CONFIG_API_TOKEN:-}
+      # IPv6 gate: auto probes the host (via the SmokePing netns) and omits
+      # FPing6 targets when there is no global IPv6; force keeps them
+      # regardless, off never emits them. See docs/ipv6-gating.md
+      IPV6_MODE: ${IPV6_MODE:-auto}
+      IPV6_PROBE_HOSTS: ${IPV6_PROBE_HOSTS:-}
+      IPV6_RECHECK_INTERVAL: ${IPV6_RECHECK_INTERVAL:-900}
       # PostgreSQL connection
       DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}@postgres:5432/smokeping_targets"
     depends_on:

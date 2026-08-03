@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- Added: IPv6 gating. config-manager checks global IPv6 reachability and omits
+  `FPing6` targets from the generated `Targets` file when the host cannot reach
+  the IPv6 internet, instead of charting a flat 100% loss that reads as an
+  outage. The check requires a global-unicast address (ULA and link-local do
+  not count — a router's `fd00::/8` prefix or a Tailscale address makes
+  `scope global` non-empty on a host with no IPv6 at all), a usable default
+  route, and an actual reply from a probe host. It runs inside the SmokePing
+  container, whose `network_mode: host` namespace is what its probes see;
+  config-manager's own bridge network has no IPv6 and would report a false
+  negative. Rechecked every `IPV6_RECHECK_INTERVAL` (900 s) with config
+  regenerated only when the verdict flips, so targets return on their own when
+  IPv6 comes back. `IPV6_MODE=force|off` overrides; database rows are never
+  modified. New `GET /ipv6-status` and `POST /ipv6-status/refresh` endpoints.
+  Docs: `docs/ipv6-gating.md`.
+
 - Fixed: the RRD → InfluxDB exporter divided the loss count by a fixed 20
   pings, but SmokePing's probes send 10 (FPing/FPing6) and 5 (DNS), so every
   loss ratio written since 2026-07 was understated — 2× for ping targets, 4×

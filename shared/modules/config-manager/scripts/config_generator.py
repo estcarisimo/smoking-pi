@@ -24,6 +24,7 @@ from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from file_ops import atomic_write_text, get_config_lock
+from scripts import ipv6_check
 
 # Import database models if available
 try:
@@ -88,15 +89,32 @@ def _sanitize_section_name(name: str) -> str:
     return ''.join(c if (c.isalnum() or c == '_') else '_' for c in name)
 
 
+def filter_ipv6_targets(targets: List[Dict], allowed: bool) -> List[Dict]:
+    """Drop IPv6-probe targets when the host has no global IPv6.
+
+    Probing IPv6 without connectivity records a flat 100% loss that reads as
+    an outage but only means there is no IPv6 here. The targets stay in the
+    database and come back on their own once a recheck sees IPv6 working.
+    """
+    if allowed:
+        return targets
+    return [t for t in targets if not ipv6_check.is_ipv6_target(t)]
+
+
 def build_category_context(active_targets: Dict,
-                           category_meta: Optional[Dict] = None) -> List[Dict]:
+                           category_meta: Optional[Dict] = None,
+                           ipv6_allowed: Optional[bool] = None) -> List[Dict]:
     """Build the ordered, data-driven category list for the template.
 
     category_meta optionally maps category name -> {'display_name': ...}
     (e.g. from the target_categories table) and is used for categories
     without hardcoded presentation defaults.
+
+    ipv6_allowed=False omits targets whose probe needs global IPv6; None
+    means "not determined" and keeps every target.
     """
     category_meta = category_meta or {}
+    allow_ipv6 = ipv6_allowed is not False
     ordered = [c for c in CATEGORY_ORDER if c in active_targets]
     ordered += [c for c in active_targets if c not in CATEGORY_ORDER]
 
@@ -104,6 +122,11 @@ def build_category_context(active_targets: Dict,
     for name in ordered:
         targets = active_targets.get(name)
         if not isinstance(targets, list):
+            continue
+
+        targets = filter_ipv6_targets(targets, allow_ipv6)
+        if not targets:
+            # Every target here needed IPv6; drop the whole empty section.
             continue
 
         presentation = CATEGORY_PRESENTATION.get(name, {})
@@ -291,14 +314,23 @@ class ConfigGenerator:
         try:
             template = self.env.get_template("smokeping_targets.j2")
 
+            ipv6_status = ipv6_check.get_status()
+            ipv6_allowed = ipv6_status.get('available') is not False
+            if not ipv6_allowed:
+                logger.info("Omitting IPv6 targets: %s",
+                            ipv6_status.get('reason', 'no global IPv6'))
+
             # Prepare context for template
             context = {
                 'categories': build_category_context(
                     self.targets_config['active_targets'],
                     self.category_meta,
+                    ipv6_allowed=ipv6_allowed,
                 ),
                 'default_probe': self.probes_config.get('default_probe', 'FPing'),
-                'generated_at': datetime.now().isoformat()
+                'generated_at': datetime.now().isoformat(),
+                'ipv6_skipped_reason': None if ipv6_allowed
+                else ipv6_status.get('reason', 'no global IPv6 on this host'),
             }
 
             # Render template

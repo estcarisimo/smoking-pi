@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Any
 import yaml
 import subprocess
+import threading
 import time
 import os
 import docker
@@ -23,6 +24,7 @@ from werkzeug.exceptions import BadRequest
 # Import our existing config generator and bootstrap
 from scripts.config_generator import ConfigGenerator
 from scripts.bootstrap import run_bootstrap
+from scripts import ipv6_check
 
 # Shared file lock / atomic write helpers
 from file_ops import get_config_lock, atomic_write_yaml
@@ -279,6 +281,36 @@ class ConfigManagerAPI:
         except Exception as e:
             logger.error(f"Failed to generate SmokePing configuration: {e}")
             raise
+
+    def _smokeping_runner(self, argv):
+        """Run a command inside the SmokePing container's network namespace.
+
+        SmokePing uses network_mode: host, so this sees what its probes see.
+        config-manager's own namespace is a Docker bridge with no IPv6 at all,
+        which would make every check report "no IPv6" (see scripts/ipv6_check).
+        """
+        container_name = resolve_container_name('smokeping')
+        client = docker.from_env()
+        container = client.containers.get(container_name)
+        result = container.exec_run(argv, demux=False)
+        output = result.output
+        if isinstance(output, bytes):
+            output = output.decode('utf-8', 'replace')
+        return output or '', result.exit_code
+
+    def refresh_ipv6_status(self) -> Dict[str, Any]:
+        """Re-run the IPv6 check and publish the verdict. Returns the status.
+
+        A check that could not run at all leaves the previous verdict in
+        place: a transient docker-exec failure must not drop IPv6 targets.
+        """
+        status = ipv6_check.check(self._smokeping_runner)
+        if status.get('error'):
+            logger.warning("Keeping previous IPv6 status: %s", status['reason'])
+            return ipv6_check.get_status()
+        status['checked_at'] = datetime.now().isoformat()
+        ipv6_check.set_status(status)
+        return status
 
     def _signal_smokeping_reload(self) -> None:
         """Ask SmokePing to reload its config (best effort).
@@ -596,7 +628,19 @@ def initialize() -> None:
         else:
             logger.info("DATABASE_URL not set - running in YAML mode")
 
-        # 3. Generate SmokePing config once at startup
+        # 3. Determine IPv6 reachability before generating, so the first
+        #    Targets file already reflects it. If SmokePing is not up yet the
+        #    check reports an error and the status stays unknown (IPv6 targets
+        #    kept); the recheck thread settles it shortly after.
+        try:
+            status = api.refresh_ipv6_status()
+            logger.info("IPv6 measurements %s: %s",
+                        "enabled" if status.get('available') is not False
+                        else "disabled", status.get('reason'))
+        except Exception as e:
+            logger.warning(f"Initial IPv6 check failed: {e}")
+
+        # 4. Generate SmokePing config once at startup
         try:
             if api.generator.run():
                 logger.info("Initial SmokePing configuration generated")
@@ -606,7 +650,43 @@ def initialize() -> None:
             logger.error(f"Initial config generation error: {e}")
 
     api.refresh_database_mode()
+    _start_ipv6_recheck_thread()
     _initialized = True
+
+
+def _ipv6_recheck_loop() -> None:
+    """Re-check IPv6 periodically; regenerate only when the verdict flips.
+
+    This is what makes the gate self-healing: when IPv6 starts working the
+    targets come back without anyone touching the config, and when it stops
+    they drop out instead of charting a flat 100% loss.
+    """
+    interval = ipv6_check.recheck_interval()
+    while True:
+        time.sleep(interval)
+        try:
+            previous = ipv6_check.get_status().get('available')
+            current = api.refresh_ipv6_status().get('available')
+            if current == previous:
+                continue
+            logger.info("IPv6 reachability changed (%s -> %s); regenerating",
+                        previous, current)
+            with get_config_lock():
+                api._regenerate_smokeping_config()
+        except Exception as e:
+            logger.warning(f"IPv6 recheck failed: {e}")
+
+
+def _start_ipv6_recheck_thread() -> None:
+    if ipv6_check.mode() != 'auto':
+        logger.info("IPv6 recheck thread not started (IPV6_MODE=%s)",
+                    ipv6_check.mode())
+        return
+    thread = threading.Thread(target=_ipv6_recheck_loop, name='ipv6-recheck',
+                              daemon=True)
+    thread.start()
+    logger.info("IPv6 recheck thread started (every %ds)",
+                ipv6_check.recheck_interval())
 
 
 @app.route('/health', methods=['GET'])
@@ -617,6 +697,36 @@ def health_check():
         'service': 'config-manager',
         'timestamp': datetime.now().isoformat()
     })
+
+
+@app.route('/ipv6-status', methods=['GET'])
+@require_api_token
+def ipv6_status():
+    """Current IPv6 reachability verdict and whether targets are gated."""
+    status = ipv6_check.get_status()
+    return jsonify({
+        **status,
+        'measurements_allowed': ipv6_check.measurements_allowed(),
+        'recheck_interval': ipv6_check.recheck_interval(),
+    })
+
+
+@app.route('/ipv6-status/refresh', methods=['POST'])
+@require_api_token
+def ipv6_status_refresh():
+    """Force an immediate re-check, regenerating config if the verdict flips."""
+    try:
+        previous = ipv6_check.get_status().get('available')
+        status = api.refresh_ipv6_status()
+        regenerated = False
+        if status.get('available') != previous:
+            with get_config_lock():
+                api._regenerate_smokeping_config()
+            regenerated = True
+        return jsonify({**status, 'regenerated': regenerated})
+    except Exception as e:
+        logger.error(f"IPv6 refresh failed: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/status', methods=['GET'])

@@ -5,6 +5,11 @@ probe = {{ default_probe }}
 menu = Top
 title = Network Latency Grapher
 remark = Smoking Pi - SmokePing on Containers
+{% if ipv6_skipped_reason %}
+
+# IPv6 targets omitted: {{ ipv6_skipped_reason }}.
+# They return automatically once a recheck sees global IPv6 working.
+{% endif %}
 
 {% for category in categories %}
 {% if category.targets %}
