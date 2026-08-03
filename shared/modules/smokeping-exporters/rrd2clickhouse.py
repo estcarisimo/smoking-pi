@@ -11,6 +11,7 @@ Version: 2.0.0
 """
 
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -51,6 +52,69 @@ structlog.configure(
 )
 
 logger = structlog.get_logger(__name__)
+
+# ───────────────────────── RRD classification ─────────────────────────
+# These mirror rrd2influx.py so both backends tag identical data identically.
+# Keep them in sync: a divergence here silently makes the two time-series
+# stores disagree about what the same RRD means.
+
+# Directories holding DNS-probe RRDs (measurement_type dns_latency).
+DNS_DIRS = ("resolvers", "DNS_Resolvers")
+
+# Directory → category. Current names are what smokeping_targets.j2 generates
+# (websites, Netflix, DNS_Resolvers, Custom); legacy names are kept so old RRD
+# trees keep exporting with the same values.
+CATEGORY_MAP = {
+    "websites": "topsites",
+    "Netflix": "netflix",
+    "DNS_Resolvers": "dns",
+    "Custom": "custom",
+    # legacy directory names
+    "TopSites": "topsites",
+    "resolvers": "dns",
+}
+
+# SmokePing creates one pingN data source per ping the probe sends.
+PING_DS_RE = re.compile(r"^ping\d+$")
+
+# Only used when an RRD carries no ping data sources at all.
+DEFAULT_PINGS = 20
+
+
+def measurement_type_for(rrd_file: Path, rrd_dir: Path) -> str:
+    """RRDs under a DNS directory → dns_latency, everything else → latency."""
+    rel = Path(rrd_file).relative_to(rrd_dir)
+    return "dns_latency" if rel.parts[0] in DNS_DIRS else "latency"
+
+
+def category_for(rrd_file: Path, rrd_dir: Path) -> str:
+    """Map the first-level directory to a category (unknown if unmapped).
+
+    Uses the TOP-level directory, not the immediate parent, so nested RRD
+    trees land in the same category as their section.
+    """
+    rel = Path(rrd_file).relative_to(rrd_dir)
+    directory = rel.parts[0] if len(rel.parts) > 1 else "unknown"
+    return CATEGORY_MAP.get(directory, "unknown")
+
+
+def pings_from_ds_names(ds_names, fallback: int = DEFAULT_PINGS) -> int:
+    """Pings per cycle for one RRD, counted from its ping1..pingN sources."""
+    count = sum(1 for name in ds_names if PING_DS_RE.match(name))
+    return count or fallback
+
+
+def loss_to_percent(loss_count, pings: int):
+    """Convert the RRD loss COUNT (0..pings) to a PERCENT 0-100.
+
+    The RRD `loss` data source is a count of lost pings, never a ratio, so
+    multiplying it by 100 (as this exporter used to) reports a fully-lost
+    10-ping cycle as 1000% rather than 100%.
+    """
+    if loss_count is None or pings <= 0:
+        return None
+    return max(0.0, min(100.0, 100.0 * float(loss_count) / float(pings)))
+
 
 # Prometheus metrics
 export_counter = Counter('smokeping_exports_total', 'Total exports processed')
@@ -297,24 +361,67 @@ class ClickHouseExporter:
             from urllib.parse import urlparse
             parsed = urlparse(self.settings.clickhouse_url)
             
+            # Connect without selecting a database: the schema may not exist
+            # yet (see ensure_schema), and naming a missing database here
+            # fails the connection outright.
             client = clickhouse_connect.get_client(
                 host=parsed.hostname,
                 port=parsed.port or 8123,
-                database=self.settings.clickhouse_db,
                 username=self.settings.clickhouse_user,
                 password=self.settings.clickhouse_password,
                 connect_timeout=self.settings.clickhouse_timeout
             )
-            
+
             # Test connection
             result = client.query("SELECT 1").result_rows
             logger.info("ClickHouse connection established", result=result)
-            
+
+            self.ensure_schema(client)
             return client
             
         except Exception as e:
             logger.error("Failed to connect to ClickHouse", error=str(e))
             raise
+
+    def ensure_schema(self, client) -> None:
+        """Create the database and table if they are missing.
+
+        The Compose init hook cannot be relied on. Docker seeds a fresh named
+        volume from the image, and the official ClickHouse image ships a
+        populated /var/lib/clickhouse, so its entrypoint sees "directory
+        appears to contain a database" and skips /docker-entrypoint-initdb.d
+        entirely — the schema is never created and every insert fails. Since
+        the statements are IF NOT EXISTS, applying them here is idempotent and
+        works whether or not the hook ran.
+        """
+        database = self.settings.clickhouse_db
+        client.command(f"CREATE DATABASE IF NOT EXISTS {database}")
+        client.command(f"""
+            CREATE TABLE IF NOT EXISTS {database}.latency (
+                timestamp DateTime64(3) CODEC(DoubleDelta, LZ4),
+                target String CODEC(ZSTD(1)),
+                category String CODEC(ZSTD(1)),
+                host String CODEC(ZSTD(1)),
+                measurement_type String DEFAULT 'latency' CODEC(ZSTD(1)),
+                min_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                max_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                avg_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                median_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                p10_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                p20_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                p80_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                p90_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                p95_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                p99_latency Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                packet_loss Nullable(Float64) CODEC(DoubleDelta, LZ4),
+                packets_sent Nullable(UInt32) CODEC(DoubleDelta, LZ4),
+                packets_received Nullable(UInt32) CODEC(DoubleDelta, LZ4)
+            ) ENGINE = MergeTree()
+            PARTITION BY toYYYYMM(timestamp)
+            ORDER BY (target, timestamp)
+            TTL toDateTime(timestamp) + INTERVAL 1 YEAR
+        """)
+        logger.info("ClickHouse schema ensured", database=database)
 
     def _signal_handler(self, signum: int, frame) -> None:
         """Handle shutdown signals."""
@@ -381,7 +488,9 @@ class ClickHouseExporter:
                 logger.warning("Unexpected RRD file path structure", path=str(rrd_file))
                 return []
             
-            category = path_parts[-2]
+            category = category_for(rrd_file, Path(self.settings.rrd_dir))
+            measurement_type = measurement_type_for(
+                rrd_file, Path(self.settings.rrd_dir))
             target_name = rrd_file.stem
             
             # Get RRD info
@@ -448,17 +557,23 @@ class ClickHouseExporter:
                         timestamp=timestamp,
                         target=target_name,
                         category=category,
+                        measurement_type=measurement_type,
                         host=target_name,  # Assume target name is the host
                         rrd_file=str(rrd_file)
                     )
-                    
+
+                    # The RRD states its own ping count via its pingN sources,
+                    # and probes disagree (FPing sends 10, DNS 5).
+                    pings_per_cycle = pings_from_ds_names(data_sources)
+
                     # Map data based on available sources
                     for j, source in enumerate(data_sources):
                         if j < len(row) and row[j] is not None and not np.isnan(row[j]):
                             value = float(row[j])
-                            
+
                             if source == 'loss':
-                                data_point.packet_loss = value * 100  # Convert to percentage
+                                data_point.packet_loss = loss_to_percent(
+                                    value, pings_per_cycle)
                             elif source == 'median':
                                 data_point.median_latency = value * 1000  # Convert to milliseconds
                             elif source.startswith('ping'):
@@ -489,8 +604,11 @@ class ClickHouseExporter:
                             data_point.p95_latency = float(np.percentile(ping_array, 95))
                             data_point.p99_latency = float(np.percentile(ping_array, 99))
                         
-                        data_point.packets_sent = len(ping_array)
-                        data_point.packets_received = len(ping_array) - int(ping_array.size * (data_point.packet_loss or 0) / 100)
+                        # ping_values only collects sources that returned a
+                        # value, so its length IS the received count; the
+                        # probe's configured ping count is what was sent.
+                        data_point.packets_sent = pings_per_cycle
+                        data_point.packets_received = len(ping_array)
                     
                     data_points.append(data_point)
                     

@@ -6,6 +6,15 @@ USER root
 COPY docker-entrypoint.sh /custom-entrypoint.sh
 RUN chmod +x /custom-entrypoint.sh
 
+# Bake the ClickHouse datasource plugin at BUILD time. Installing it at boot
+# (the old GF_INSTALL_PLUGINS route) needs internet on every start and fails
+# closed on a Pi that comes up before its network does.
+RUN grafana cli --pluginsDir /var/lib/grafana/plugins \
+        plugins install grafana-clickhouse-datasource \
+    && mkdir -p /opt/grafana-plugins \
+    && cp -r /var/lib/grafana/plugins/. /opt/grafana-plugins/ \
+    && chown -R grafana:root /opt/grafana-plugins
+
 # Provisioning files baked into the image. NOTE: editions/pro/docker-compose.yml
 # bind-mounts provisioning/dashboards, provisioning/dashboards-clickhouse and
 # provisioning/datasources read-only over these paths, so at runtime the repo

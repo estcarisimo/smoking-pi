@@ -31,23 +31,75 @@ TSDB_TYPE="${TSDB_TYPE:-influxdb}"
 AVAILABLE_DIR="/etc/grafana/datasources-available"
 ACTIVE_DIR="/etc/grafana/provisioning/datasources"
 
+BAKED_PLUGINS_DIR="/opt/grafana-plugins"
+PLUGINS_DIR="${GF_PATHS_PLUGINS:-/var/lib/grafana/plugins}"
+CH_DASHBOARD_DIR="/etc/grafana/provisioning/dashboards-clickhouse"
+# Writable provisioning tree used in ClickHouse mode (see below).
+ACTIVE_PROV="${GF_PATHS_DATA:-/var/lib/grafana}/provisioning-active"
+skip_datasource_selection=0
+
 case "$TSDB_TYPE" in
     clickhouse)
-        # ClickHouse support is currently parked. Keep the plugin install so an
-        # explicit clickhouse deployment still gets a working datasource, but
-        # note that dashboard provisioning for ClickHouse is not wired up here:
-        # provisioning/dashboards-clickhouse is mounted OUTSIDE the scanned
-        # provisioning/dashboards directory and is therefore inactive.
         datasource_file="clickhouse.yaml"
-        export GF_INSTALL_PLUGINS="${GF_INSTALL_PLUGINS:+${GF_INSTALL_PLUGINS},}grafana-clickhouse-datasource"
-        echo "grafana-entrypoint: clickhouse mode (parked) — plugin will be installed by run.sh"
+
+        # The ClickHouse plugin is baked into the image at build time, but
+        # /var/lib/grafana is a volume that shadows it at runtime. Stage it in
+        # on first boot instead of downloading — a Pi that starts before its
+        # network is up would otherwise come up with no datasource plugin.
+        if [ -d "$BAKED_PLUGINS_DIR" ] && [ ! -d "$PLUGINS_DIR/grafana-clickhouse-datasource" ]; then
+            echo "grafana-entrypoint: staging baked ClickHouse plugin into $PLUGINS_DIR"
+            mkdir -p "$PLUGINS_DIR"
+            cp -r "$BAKED_PLUGINS_DIR"/. "$PLUGINS_DIR"/ \
+                || echo "grafana-entrypoint: warning — could not stage plugins" >&2
+        fi
+
+        # ClickHouse mode needs a provisioning tree the influxdb one cannot
+        # supply: the ClickHouse dashboards live outside the scanned providers
+        # directory, and the InfluxDB provider must NOT load (its dashboards
+        # query a datasource that is not configured here).
+        #
+        # The repo bind-mounts provisioning/ read-only, and Docker cannot even
+        # create a mountpoint for a file inside a read-only bind mount, so
+        # neither the entrypoint nor a compose overlay can add a provider in
+        # place. Build a writable tree instead and point Grafana at it.
+        echo "grafana-entrypoint: building ClickHouse provisioning tree in $ACTIVE_PROV"
+        rm -rf "$ACTIVE_PROV"
+        mkdir -p "$ACTIVE_PROV/datasources" "$ACTIVE_PROV/dashboards"
+
+        # Only the ClickHouse datasource, so it can carry isDefault without
+        # fighting influxdb.yaml.
+        cp "$AVAILABLE_DIR/clickhouse.yaml" "$ACTIVE_PROV/datasources/"
+
+        # Copy any non-dashboard providers (alerting, plugins, ...) verbatim.
+        for extra in /etc/grafana/provisioning/*/; do
+            name="$(basename "$extra")"
+            case "$name" in
+                datasources|dashboards|dashboards-clickhouse) continue ;;
+            esac
+            cp -r "$extra" "$ACTIVE_PROV/$name"
+        done
+
+        if [ -f "$CH_DASHBOARD_DIR/dashboard.yaml" ]; then
+            cp "$CH_DASHBOARD_DIR/dashboard.yaml" \
+               "$ACTIVE_PROV/dashboards/clickhouse-dashboards.yaml"
+            echo "grafana-entrypoint: ClickHouse dashboard provider activated"
+        else
+            echo "grafana-entrypoint: WARNING — no dashboard.yaml in $CH_DASHBOARD_DIR;" \
+                 "ClickHouse dashboards will not load" >&2
+        fi
+
+        export GF_PATHS_PROVISIONING="$ACTIVE_PROV"
+        # The datasource copy below is redundant in this mode.
+        skip_datasource_selection=1
         ;;
     *)
         datasource_file="influxdb.yaml"
         ;;
 esac
 
-if [ -w "$ACTIVE_DIR" ]; then
+if [ "$skip_datasource_selection" = "1" ]; then
+    echo "grafana-entrypoint: datasources provisioned from $ACTIVE_PROV"
+elif [ -w "$ACTIVE_DIR" ]; then
     echo "grafana-entrypoint: activating $datasource_file in $ACTIVE_DIR"
     rm -f "$ACTIVE_DIR"/*.yaml "$ACTIVE_DIR"/*.yml 2>/dev/null || true
     cp "$AVAILABLE_DIR/$datasource_file" "$ACTIVE_DIR/$datasource_file"

@@ -1,4 +1,15 @@
 # Dependencies needed to run this module's unit tests in CI.
-# rrdtool/influxdb are mocked; only the client lib is imported.
+# rrdtool/influxdb/clickhouse servers are mocked; only client libs are imported.
 pytest
 influxdb-client
+# rrd2clickhouse imports these at module load, so they must be present for its
+# classification/loss tests to run rather than skip.
+clickhouse-connect
+numpy
+pandas
+structlog
+pydantic-settings
+click
+prometheus_client
+rich
+tqdm

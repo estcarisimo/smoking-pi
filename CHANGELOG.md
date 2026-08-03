@@ -9,6 +9,49 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- Fixed: ClickHouse mode never had a schema. `shared/modules/clickhouse/init/`
+  is mounted at `/docker-entrypoint-initdb.d`, but Docker seeds a fresh named
+  volume from the image and the official ClickHouse image ships a populated
+  `/var/lib/clickhouse`, so its entrypoint reports "directory appears to
+  contain a database" and skips the init hook entirely — silently. The exporter
+  now applies `CREATE DATABASE / TABLE IF NOT EXISTS` on connect, which is
+  idempotent and independent of whether the hook fires.
+- Fixed: `rrd2clickhouse.py` computed `packet_loss = loss * 100`, but the RRD
+  `loss` source is a COUNT of lost pings — a fully lost 10-ping cycle was
+  recorded as 1000%. It now divides by the RRD's own `ping1..pingN` count, the
+  same denominator `rrd2influx.py` uses. `packets_sent`/`packets_received` were
+  derived from that broken percentage and are now taken directly.
+- Fixed: the ClickHouse exporter never set `measurement_type` (so DNS probes
+  were indistinguishable from ping targets) and took `category` from the
+  immediate parent directory rather than the top-level section, using raw
+  directory names where the InfluxDB exporter uses a mapped vocabulary. Both
+  now share `DNS_DIRS`/`CATEGORY_MAP`, and a test asserts the two exporters
+  agree.
+- Fixed: the ClickHouse Grafana datasource was configured with a top-level
+  `url`, which the official plugin ignores in favour of `host`/`port` in
+  `jsonData` — its health check failed with "invalid server host". The
+  unavailable `vertamedia-clickhouse-datasource` entry is gone.
+- Changed: the ClickHouse datasource plugin is baked into the Grafana image at
+  build time instead of downloaded on boot, and staged into the data volume on
+  first start, so a Pi that boots before its network is up still gets a working
+  datasource.
+- Fixed: the ClickHouse dashboards were never provisioned — their provider
+  config sits in a directory Grafana does not scan, and the read-only
+  `provisioning/` bind mount makes it impossible to add one in place (Docker
+  cannot create a mountpoint for a file inside a read-only mount). In
+  ClickHouse mode the entrypoint now builds a writable provisioning tree
+  containing only the ClickHouse datasource and dashboards.
+- Fixed: all eight ClickHouse dashboards targeted the unavailable vertamedia
+  plugin, filtered on raw directory names (`category = 'DNS_Resolvers'`) that
+  the exporter does not write, and asked for `measurement_type = 'latency'` on
+  DNS panels. They now use the official plugin's `rawSql` form and the
+  exporter's vocabulary. Fourteen panels also used `target = ${target:sqlstring}`,
+  which is a syntax error whenever the variable expands to more than one value
+  — reachable via the "All" option — and now use `IN (...)`.
+- Changed: ClickHouse is no longer marked experimental/unmaintained in the
+  README. All 58 dashboard queries were executed against a real ClickHouse
+  instance in a throwaway Compose project; docs in `docs/clickhouse.md`.
+
 - Changed: Grafana 10.4.2 -> 12.4.3. All nine dashboards use only `timeseries`,
   `stat`, and `row` panels, so nothing needed a schema rewrite. Verified by
   running 12.4.3 against a copy of the live database in a scratch Compose
