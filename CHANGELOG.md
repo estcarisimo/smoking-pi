@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- Changed: Grafana 10.4.2 -> 12.4.3. All nine dashboards use only `timeseries`,
+  `stat`, and `row` panels, so nothing needed a schema rewrite. Verified by
+  running 12.4.3 against a copy of the live database in a scratch Compose
+  project before touching the real one: migrations clean, 9/9 dashboards
+  provisioned, InfluxDB and PostgreSQL datasources healthy, and an identical
+  15-frame result from the same query on both versions. 13.0.2 was tested the
+  same way and also worked, but logs a plugin-install error on every boot that
+  12.4.3 does not, so the mature line won.
+- Fixed: the Grafana entrypoint reset the admin password with `grafana-cli`,
+  which Grafana 11 deprecated and 13 removed. On 13 the step failed and was
+  swallowed as a passing warning, which would have silently pinned the admin
+  password to whatever the database already held — changing
+  `GF_SECURITY_ADMIN_PASSWORD` in `.env` would have stopped working with no
+  clear signal. It now prefers `grafana cli`, falls back to the old binary for
+  older base images, and reports a real error when both fail.
+
 - Added: optional bearer auth on the MCP server's HTTP transport. Setting
   `MCP_API_TOKEN` requires `Authorization: Bearer <token>` on every request;
   unset leaves the transport open exactly as before, and stdio is never gated.
