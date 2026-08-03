@@ -1,19 +1,26 @@
 {
   "uid": "netflix-side-by-side-clickhouse-v1",
   "id": null,
-  "title": "Netflix OCA – Side-by-Side",
+  "title": "Netflix OCA \u2013 Side-by-Side",
   "schemaVersion": 37,
   "version": 1,
-  "tags": ["smokeping", "netflix_oca"],
-  "time": { "from": "now-6h", "to": "now" },
-
+  "tags": [
+    "smokeping",
+    "netflix_oca"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
         "type": "query",
         "name": "status",
         "label": "Status",
-        "datasource": { "uid": "postgresql-targets" },
+        "datasource": {
+          "uid": "postgresql-targets"
+        },
         "query": "SELECT DISTINCT CASE WHEN t.is_active THEN 'active' ELSE 'inactive' END as status FROM targets t JOIN target_categories c ON t.category_id = c.id WHERE c.name = 'netflix' ORDER BY status DESC",
         "hide": 0,
         "multi": false,
@@ -25,9 +32,21 @@
           "value": "active"
         },
         "options": [
-          { "selected": true, "text": "active", "value": "active" },
-          { "selected": false, "text": "inactive", "value": "inactive" },
-          { "selected": false, "text": "All", "value": "all" }
+          {
+            "selected": true,
+            "text": "active",
+            "value": "active"
+          },
+          {
+            "selected": false,
+            "text": "inactive",
+            "value": "inactive"
+          },
+          {
+            "selected": false,
+            "text": "All",
+            "value": "all"
+          }
         ],
         "refresh": 1,
         "regex": "",
@@ -38,9 +57,9 @@
         "type": "query",
         "name": "target",
         "label": "Target",
-        "datasource": { 
-          "type": "vertamedia-clickhouse-datasource",
-          "uid": "clickhouse-alt" 
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse"
         },
         "query": "SELECT DISTINCT target FROM smokeping.latency WHERE category = 'Netflix' AND measurement_type <> 'dns_latency' ORDER BY target",
         "hide": 0,
@@ -60,54 +79,124 @@
       }
     ]
   },
-
   "panels": [
     {
       "type": "timeseries",
-      "title": "Netflix OCA Target – [[target]]",
-      "datasource": { "uid": "clickhouse-alt" },
+      "title": "Netflix OCA Target \u2013 [[target]]",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
       "repeat": "target",
       "repeatDirection": "h",
       "maxPerRow": 4,
-      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
-          "custom": { "lineWidth": 1, "fillOpacity": 15 }
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 15
+          }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "average" },
+            "matcher": {
+              "id": "byName",
+              "options": "average"
+            },
             "properties": [
-              { "id": "custom.lineWidth",   "value": 2 },
-              { "id": "custom.fillOpacity", "value": 0 },
-              { "id": "custom.zindex",      "value": 3 }
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.zindex",
+                "value": 3
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "mean" },
+            "matcher": {
+              "id": "byName",
+              "options": "mean"
+            },
             "properties": [
-              { "id": "custom.lineWidth",   "value": 1.5 },
-              { "id": "custom.drawStyle",   "value": "line" },
-              { "id": "custom.lineStyle",   "value": { "dash": [10, 10], "fill": "dash" } },
-              { "id": "custom.fillOpacity", "value": 0 },
-              { "id": "custom.zindex",      "value": 2 }
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.zindex",
+                "value": 2
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "p80" },
+            "matcher": {
+              "id": "byName",
+              "options": "p80"
+            },
             "properties": [
-              { "id": "custom.fillOpacity", "value": 40 },
-              { "id": "custom.fillBelowTo", "value": "p20" },
-              { "id": "custom.zindex",      "value": 1 }
+              {
+                "id": "custom.fillOpacity",
+                "value": 40
+              },
+              {
+                "id": "custom.fillBelowTo",
+                "value": "p20"
+              },
+              {
+                "id": "custom.zindex",
+                "value": 1
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "p90" },
+            "matcher": {
+              "id": "byName",
+              "options": "p90"
+            },
             "properties": [
-              { "id": "custom.fillOpacity", "value": 25 },
-              { "id": "custom.fillBelowTo", "value": "p10" },
-              { "id": "custom.zindex",      "value": 0 }
+              {
+                "id": "custom.fillOpacity",
+                "value": 25
+              },
+              {
+                "id": "custom.fillBelowTo",
+                "value": "p10"
+              },
+              {
+                "id": "custom.zindex",
+                "value": 0
+              }
             ]
           }
         ]
@@ -116,32 +205,38 @@
         {
           "refId": "A",
           "queryType": "sql",
-          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as average FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'Netflix' AND measurement_type <> 'dns_latency' AND avg_latency > 0 GROUP BY timestamp ORDER BY timestamp"
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as average FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'netflix' AND measurement_type <> 'dns_latency' AND avg_latency > 0 GROUP BY timestamp ORDER BY timestamp",
+          "format": 1
         },
         {
           "refId": "B",
           "queryType": "sql",
-          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as mean FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'Netflix' AND measurement_type <> 'dns_latency' AND avg_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as mean FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'netflix' AND measurement_type <> 'dns_latency' AND avg_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "format": 1
         },
         {
           "refId": "C",
           "queryType": "sql",
-          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p10_latency) as p10 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'Netflix' AND measurement_type <> 'dns_latency' AND p10_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p10_latency) as p10 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'netflix' AND measurement_type <> 'dns_latency' AND p10_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "format": 1
         },
         {
           "refId": "D",
           "queryType": "sql",
-          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p20_latency) as p20 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'Netflix' AND measurement_type <> 'dns_latency' AND p20_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p20_latency) as p20 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'netflix' AND measurement_type <> 'dns_latency' AND p20_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "format": 1
         },
         {
           "refId": "E",
           "queryType": "sql",
-          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p80_latency) as p80 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'Netflix' AND measurement_type <> 'dns_latency' AND p80_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p80_latency) as p80 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'netflix' AND measurement_type <> 'dns_latency' AND p80_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "format": 1
         },
         {
           "refId": "F",
           "queryType": "sql",
-          "query": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p90_latency) as p90 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'Netflix' AND measurement_type <> 'dns_latency' AND p90_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp"
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p90_latency) as p90 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'netflix' AND measurement_type <> 'dns_latency' AND p90_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "format": 1
         }
       ]
     }

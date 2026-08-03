@@ -2,54 +2,31 @@ apiVersion: 1
 envInterpolation: true
 
 datasources:
+  # Official Grafana ClickHouse datasource. This plugin takes host/port in
+  # jsonData — it ignores the top-level `url` field that most datasources use,
+  # and reports "invalid server host" if you only set that.
   - name: ClickHouse
     uid: clickhouse
     type: grafana-clickhouse-datasource
     access: proxy
-    url: http://clickhouse:8123
-    # Must stay false while ClickHouse support is parked: in editions/pro this
-    # directory is bind-mounted read-only, so this file is provisioned even in
-    # influxdb mode and would otherwise fight influxdb.yaml over isDefault.
-    isDefault: false
+    # isDefault is resolved per mode: in clickhouse mode the entrypoint builds
+    # a provisioning tree containing only this file, so nothing competes.
+    isDefault: true
     editable: false
-    database: ${CLICKHOUSE_DB}
 
     jsonData:
-      # ClickHouse specific settings
-      defaultDatabase: ${CLICKHOUSE_DB}
+      host: ${CLICKHOUSE_HOST}
+      port: 8123
+      protocol: http
+      secure: false
       username: ${CLICKHOUSE_USER}
-      database: ${CLICKHOUSE_DB}
-      tlsAuth: false
-      tlsAuthWithCACert: false
+      defaultDatabase: ${CLICKHOUSE_DB}
       tlsSkipVerify: true
-      
-      # Query settings
-      timeout: 30
-      queryTimeout: 60
       dialTimeout: 10
-      maxIdleConns: 2
-      maxOpenConns: 5
-      connMaxLifetime: 3600
+      queryTimeout: 60
 
     secureJsonData:
       password: ${CLICKHOUSE_PASSWORD}
-
-  - name: ClickHouse-Alternative
-    uid: clickhouse-alt
-    type: vertamedia-clickhouse-datasource
-    access: proxy
-    url: http://clickhouse:8123
-    isDefault: false
-    editable: false
-    database: ${CLICKHOUSE_DB}
-    basicAuth: true
-    basicAuthUser: ${CLICKHOUSE_USER}
-
-    jsonData:
-      defaultDatabase: ${CLICKHOUSE_DB}
-      
-    secureJsonData:
-      basicAuthPassword: ${CLICKHOUSE_PASSWORD}
 
   - name: PostgreSQL
     uid: postgresql-targets

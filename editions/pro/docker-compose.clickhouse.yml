@@ -48,8 +48,9 @@ services:
   # Update Grafana to use ClickHouse datasource
   grafana:
     environment:
-      # Add ClickHouse plugin
-      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      # The plugin is baked into the image at build time (see the Dockerfile),
+      # so no boot-time download is needed. Left empty on purpose.
+      GF_INSTALL_PLUGINS: ""
       # ClickHouse datasource configuration via environment
       GF_DATASOURCES_DEFAULT_NAME: "ClickHouse"
       GF_DATASOURCES_DEFAULT_TYPE: "grafana-clickhouse-datasource" 

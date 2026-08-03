@@ -138,11 +138,11 @@ The Pro Edition uses **InfluxDB** as its time-series database:
 ./setup.sh
 ```
 
-> **⚠️ ClickHouse support is experimental and currently unmaintained.**
-> The ClickHouse compose overlay, exporter, and dashboard set are kept in the
-> repo but are known to have issues (Grafana datasource plugin mismatch,
-> dashboard queries that don't match the exporter schema). Use InfluxDB unless
-> you're prepared to fix these. Tracked as a backlog item.
+> **ClickHouse support works but sees less use than InfluxDB.** The datasource
+> plugin is baked into the Grafana image, the schema is created by the exporter
+> on connect, and all eight ClickHouse dashboards have been verified to run
+> against a real ClickHouse instance. InfluxDB remains the default and the
+> better-trodden path; see [docs/clickhouse.md](docs/clickhouse.md).
 
 ## 🌐 Remote Access
 
