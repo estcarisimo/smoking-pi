@@ -146,3 +146,60 @@ def test_retry_then_fail_returns_false(posts, monkeypatch):
     posts["responses"].extend([httpx.ConnectError("refused")] * 3)
     assert notifier.notify(_event()) is False
     assert len(posts["calls"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# endpoint construction + startup preflight
+# ---------------------------------------------------------------------------
+
+def test_hook_url_defaults(monkeypatch):
+    monkeypatch.delenv("OPENCLAW_URL", raising=False)
+    monkeypatch.delenv("OPENCLAW_HOOK_PATH", raising=False)
+    assert notifier.openclaw_hook_url() == "http://127.0.0.1:18789/hooks/agent"
+
+
+def test_hook_url_is_configurable(monkeypatch):
+    # Stock OpenClaw has no /hooks/agent route, so the path must not be
+    # hardcoded — an HTTP-RPC plugin or bridge may mount it anywhere.
+    monkeypatch.setenv("OPENCLAW_URL", "http://gw:9000/")
+    monkeypatch.setenv("OPENCLAW_HOOK_PATH", "rpc/notify")
+    assert notifier.openclaw_hook_url() == "http://gw:9000/rpc/notify"
+
+
+def test_preflight_off_mode_is_noop(monkeypatch):
+    monkeypatch.setenv("NOTIFY_MODE", "off")
+    assert notifier.preflight() is True
+
+
+def test_preflight_flags_missing_token(monkeypatch):
+    monkeypatch.setenv("NOTIFY_MODE", "openclaw")
+    monkeypatch.delenv("OPENCLAW_HOOK_TOKEN", raising=False)
+    assert notifier.preflight() is False
+
+
+def test_preflight_reports_404_as_failure(monkeypatch):
+    monkeypatch.setenv("NOTIFY_MODE", "openclaw")
+    monkeypatch.setenv("OPENCLAW_HOOK_TOKEN", "t")
+    monkeypatch.setattr(notifier.httpx, "post",
+                        lambda *a, **k: FakeResponse(404))
+    assert notifier.preflight() is False
+
+
+def test_preflight_treats_401_as_endpoint_present(monkeypatch):
+    # A secured endpoint rejecting an unauthenticated probe is healthy.
+    monkeypatch.setenv("NOTIFY_MODE", "openclaw")
+    monkeypatch.setenv("OPENCLAW_HOOK_TOKEN", "t")
+    monkeypatch.setattr(notifier.httpx, "post",
+                        lambda *a, **k: FakeResponse(401))
+    assert notifier.preflight() is True
+
+
+def test_preflight_unreachable_is_failure(monkeypatch):
+    monkeypatch.setenv("NOTIFY_MODE", "webhook")
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://nope.invalid/hook")
+
+    def boom(*a, **k):
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(notifier.httpx, "post", boom)
+    assert notifier.preflight() is False

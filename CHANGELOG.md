@@ -9,6 +9,26 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- Added: optional bearer auth on the MCP server's HTTP transport. Setting
+  `MCP_API_TOKEN` requires `Authorization: Bearer <token>` on every request;
+  unset leaves the transport open exactly as before, and stdio is never gated.
+  The tool surface includes mutations and the port is loopback-bound, so this
+  gives it a credential of its own, separate from `CONFIG_API_TOKEN` and from
+  OpenClaw's gateway token. `/health` stays open for liveness probes.
+- Fixed: the alerter's `openclaw` delivery mode targeted `/hooks/agent`, which
+  does not exist. A stock OpenClaw gateway (verified on 2026.7.1-2) is
+  WebSocket-only and returns 404 for every HTTP path — `openclaw hooks`
+  manages internal agent lifecycle hooks, not inbound HTTP. The path is now
+  configurable via `OPENCLAW_HOOK_PATH` so it can point at an HTTP-RPC plugin
+  or a bridge, and the alerter probes the endpoint at startup and logs an
+  explicit error on 404 instead of failing silently on the first incident.
+  `webhook` mode remains the portable option.
+- Added: `docs/openclaw-integration.md` (MCP registration via `openclaw mcp
+  set`, tool filtering, token separation, and what alert delivery actually
+  requires) and `examples/openclaw/smokeping-monitoring/SKILL.md`, a
+  placeholder-only skill giving an agent the loss conventions and the
+  looks-broken-but-is-not cases.
+
 - Added: IPv6 gating. config-manager checks global IPv6 reachability and omits
   `FPing6` targets from the generated `Targets` file when the host cannot reach
   the IPv6 internet, instead of charting a flat 100% loss that reads as an

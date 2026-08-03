@@ -74,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         os.environ.get("INFLUX_URL", "http://localhost:8086"),
         state.state_file(),
     )
+    notifier.preflight()
 
     if args.once:
         try:

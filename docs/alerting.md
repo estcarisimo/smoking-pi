@@ -81,7 +81,16 @@ OPENCLAW_CHANNEL=<telegram>
 OPENCLAW_TO=<your-chat-id>
 ```
 
-Gateway setup (tokens, channels, pairing) is covered in
+**A stock OpenClaw gateway does not serve this endpoint.** Verified on
+2026.7.1-2: the gateway is WebSocket-only and returns 404 for
+`/hooks/agent` and every other HTTP path, so this mode needs an HTTP-RPC
+plugin or a small bridge. `OPENCLAW_HOOK_PATH` (default `/hooks/agent`)
+sets the path to match whatever ingress you run. The alerter probes the
+endpoint at startup and logs an explicit error on 404, so a wrong
+assumption is visible immediately rather than as silent non-delivery.
+
+Use `webhook` mode below if you want something with no OpenClaw version
+dependency. Full recipe, including MCP registration:
 [docs/openclaw-integration.md](openclaw-integration.md).
 
 ### `webhook`
@@ -121,6 +130,7 @@ reports directory is skipped quietly.
 |----------|---------|---------|
 | `NOTIFY_MODE` | `off` | `off`, `openclaw`, or `webhook` |
 | `OPENCLAW_URL` | `http://127.0.0.1:18789` | OpenClaw gateway base URL |
+| `OPENCLAW_HOOK_PATH` | `/hooks/agent` | Path appended to `OPENCLAW_URL`; set to match your HTTP ingress |
 | `OPENCLAW_HOOK_TOKEN` | — | Bearer token for `/hooks/agent` |
 | `OPENCLAW_CHANNEL` | — | Delivery channel, e.g. `<telegram>` |
 | `OPENCLAW_TO` | — | Recipient, e.g. `<your-chat-id>` |
