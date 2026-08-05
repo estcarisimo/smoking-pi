@@ -80,19 +80,37 @@ openclaw mcp tools smokeping --exclude 'add_target,remove_target,restart_smokepi
 Use `openclaw mcp show smokeping` to check what ended up in the config, and
 `openclaw mcp status` for transport state without connecting.
 
-### Install the skill
+### Install the skill — do not skip this
 
-`examples/openclaw/smokeping-monitoring/SKILL.md` gives the agent context on
-what the tools mean — loss conventions, which targets are expected to look
-broken, how to phrase an answer. Copy it into your OpenClaw skills directory
-and edit the placeholders:
+**Registering the MCP server is not enough.** An agent that also has shell
+access will answer "how is my internet?" by running `ping` and `curl`, because
+that is the obvious move and nothing has told it otherwise. It will sound
+confident and it will be describing one instant, not your recorded history.
+The skill is what redirects it. Symptom of a missing skill: the agent gives
+you live speed-test numbers and never mentions your targets.
 
 ```bash
 mkdir -p ~/.openclaw/skills/smokeping-monitoring
 cp examples/openclaw/smokeping-monitoring/SKILL.md \
    ~/.openclaw/skills/smokeping-monitoring/
-openclaw skills list
+openclaw skills list          # confirm smokeping-monitoring is listed
 ```
+
+The skill's `description` is the part that matters most: OpenClaw uses it to
+decide whether to load the skill at all, so it is written to trigger on the
+words people actually use ("how is my connection", "cómo está mi conexión",
+the host name) and to say explicitly what it is *not* for. If the agent still
+reaches for the shell, widen that description rather than the body.
+
+Verify the whole path end to end:
+
+```bash
+openclaw agent --agent main --session-key smokeping-check \
+  -m "Using the smokeping tools, how has my connection been in the last 6 hours?"
+```
+
+A correct answer cites your target names and a time window. An answer full of
+speed-test megabits and a single ping run means the skill is not loading.
 
 ---
 
