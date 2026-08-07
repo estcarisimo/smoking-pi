@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-08-07
+
+A hotfix release. **v2.5.0 does not start Grafana in the default InfluxDB
+mode** — a fresh install comes up with no Grafana at all — so 2.5.0 should not
+be deployed. Alongside that, two nightly jobs turned out to have been failing
+silently (the IPv6 gate was being undone every night; the OCA refresh had not
+completed since 2026-08-03), the MCP integration was found not to be wired
+despite reading as healthy, and the Pi was found thermally throttled by its
+own steady-state logging and probe rates.
+
+The common thread is instrumentation that reports success without doing the
+work — none of these four had a failure signal a person would notice. Each fix
+adds one.
+
 ### Fixed
 
 - **v2.5.0 will not start Grafana in the default InfluxDB mode** (PR #29). The
