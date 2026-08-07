@@ -145,10 +145,11 @@ class TestCheckModes:
 
 
 class TestStatusCache:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def isolated_state(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("IPV6_STATE_FILE", str(tmp_path / "ipv6-status.json"))
         ipv6_check._status = None
-
-    def teardown_method(self):
+        yield
         ipv6_check._status = None
 
     def test_unknown_until_published(self):
@@ -163,6 +164,39 @@ class TestStatusCache:
     def test_published_available_allows(self):
         ipv6_check.set_status({"available": True, "reason": "ok"})
         assert ipv6_check.measurements_allowed() is True
+
+    def test_verdict_survives_into_a_fresh_process(self):
+        # The regression this guards: the nightly OCA refresh regenerates
+        # config in a SUBPROCESS. With a process-local cache that subprocess
+        # saw "unknown", fell through to allowed, and wrote IPv6 targets back
+        # into the config every night while the gate reported them disabled.
+        ipv6_check.set_status({"available": False, "reason": "no global IPv6"})
+
+        ipv6_check._status = None  # stand in for a freshly started process
+
+        assert ipv6_check.get_status()["available"] is False
+        assert ipv6_check.measurements_allowed() is False
+
+    def test_fresh_process_sees_an_available_verdict_too(self):
+        ipv6_check.set_status({"available": True, "reason": "ok"})
+        ipv6_check._status = None
+        assert ipv6_check.get_status()["available"] is True
+
+    def test_corrupt_state_file_falls_open(self, tmp_path, monkeypatch):
+        bad = tmp_path / "corrupt.json"
+        bad.write_text("{not json")
+        monkeypatch.setenv("IPV6_STATE_FILE", str(bad))
+        ipv6_check._status = None
+        # Unreadable state is "nobody has checked", not "no IPv6".
+        assert ipv6_check.get_status()["available"] is None
+        assert ipv6_check.measurements_allowed() is True
+
+    def test_unwritable_state_file_does_not_raise(self, monkeypatch):
+        monkeypatch.setenv("IPV6_STATE_FILE", "/proc/nope/ipv6-status.json")
+        ipv6_check._status = None
+        ipv6_check.set_status({"available": False, "reason": "no v6"})
+        # The in-memory verdict still applies to this process.
+        assert ipv6_check.measurements_allowed() is False
 
 
 class TestTargetFiltering:
