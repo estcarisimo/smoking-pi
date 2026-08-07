@@ -9,6 +9,86 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **v2.5.0 will not start Grafana in the default InfluxDB mode** (PR #29). The
+  ClickHouse work set `isDefault: true` on the ClickHouse datasource, on the
+  reasoning that ClickHouse mode provisions that file alone. InfluxDB mode,
+  however, bind-mounts the whole datasources directory read-only, so *both*
+  files are provisioned, two datasources claim default, and Grafana refuses to
+  start. The `isDefault: false` that was replaced existed for exactly this
+  reason. It stayed latent through the release because Grafana had not been
+  restarted since the merge. The committed file is `false` again and the
+  ClickHouse entrypoint flips it while building its own writable tree.
+  **A fresh v2.5.0 install in the default mode comes up with no Grafana; use
+  2.5.1.**
+- **The IPv6 gate was undone every night** (PR #29). `ipv6_check` held its
+  verdict in a module-level variable, but config is generated in more than one
+  process: the API regenerates in-process, while the nightly OCA refresh runs
+  `oca_fetcher.py` as a *subprocess* that imports `ConfigGenerator` and
+  regenerates there too. That subprocess started with an empty cache, hit the
+  deliberate unknown-means-allowed rule, and wrote IPv6 targets back in — with
+  the generator's log going to captured subprocess output, so nothing appeared
+  to have run. The verdict is now persisted to a JSON file with an atomic
+  replace and `get_status` falls back to it. Fail-open is kept but scoped
+  correctly: unknown now means *nobody has ever checked*, not *this process
+  has not checked*.
+- **The nightly OCA refresh had been failing** with `UniqueViolation` on
+  `targets_name_key` since at least 2026-08-03 (PR #29). The replace deletes
+  then re-adds in one transaction, but SQLAlchemy's unit of work emits saves
+  before deletes within a flush, so new rows collided with old rows not yet
+  deleted — guaranteed whenever the OCA list came back unchanged, which is the
+  normal case. An explicit flush after the deletes orders them correctly while
+  keeping the single transaction that stops a mid-way failure from emptying
+  the category.
+- **An agent with shell access answered network questions by running `ping`
+  instead of using the MCP server** (PR #29), even with the server registered
+  and healthy. Three causes: the OpenClaw skill was never installed (now a
+  documented required step, with the exact symptom of skipping it); FastMCP
+  was constructed with no `instructions`, so a client saw nine getters with no
+  hint that this host holds months of continuous measurement; and the tool
+  docstrings read like one-shot getters — `get_latency_stats` even offered
+  "how is my connection to 8.8.8.8?" as an example, precisely the question
+  being answered with `ping`. Docstrings now state the measurement cadence,
+  say to prefer recorded history over a live probe, and carry the two
+  looks-broken-but-isn't cases (ICMP-dark hosts, the CPE rate-limit floor).
+- **The MCP integration could not be verified, only guessed at** (PR #29). The
+  access log showed just `POST /mcp 200`, which cannot distinguish an agent
+  invoking a tool from an agent merely connecting — so a plausible-sounding
+  answer produced from the shell read as proof the tools were wired. Every
+  tool now logs name, compacted args, result shape and duration (args named
+  token/password/secret/key redacted, long values truncated), and the
+  verification step in `docs/openclaw-integration.md` requires a `tool=` line
+  in the server log. The real root cause is documented too: a gateway already
+  running when the server is registered never picks it up — the Codex runtime
+  fingerprints the server set per thread, so `openclaw mcp reload`, a gateway
+  restart and a fresh session are required, while a separate config-reading
+  poller keeps `mcp probe`/`mcp doctor` green.
+
+### Changed
+
+- **Steady-state load on the Pi cut substantially** (PR #29), after the host
+  was found to have hit its soft temperature limit and frequency-capped
+  (`throttled=0xe0000`). Measured 65.9 °C → 60.9 °C.
+  - Grafana ran at `debug`, writing ~1,100 log lines every three minutes to an
+    SD card. Now `info`, env-overridable. Measured 1151 → 178 lines/3 min.
+  - Container logs were unbounded (json-file default, no daemon config). All
+    Pro services now rotate at 10 MB × 3 via a compose anchor.
+  - Dashboard provisioning re-walked the directory and rebuilt the search
+    index every 30 s; now 300 s.
+  - The microcut detector never idled — it slept `PROBE_WINDOW - elapsed`,
+    which is ~0, so it probed back-to-back forever at 5 pps (~432k
+    packets/day) and pressured the gateway's ICMP rate limiter, making part of
+    the "constant loss floor" self-inflicted. `CPE_PROBE_IDLE` (default 20 s)
+    gives a 1-in-3 duty cycle; measured cadence 10 s → 30 s. Set it to `0` to
+    restore the old behaviour. `MICROCUT_BURST_N` rescaled 6 → 2 to match,
+    since it counts *observed* windows.
+  - `rrd2influx` re-fetched all 40 RRDs every 60 s although SmokePing writes
+    on a 300 s step, so most cycles spawned 40 `rrdtool` processes for
+    nothing. It now skips RRDs whose mtime has not advanced past their last
+    export, failing open on a `stat` error so a target can never silently stop
+    exporting.
+
 ## [2.5.0] — 2026-08-03
 
 Alerting, IPv6 gating, MCP hardening, Grafana 12, and a working ClickHouse
