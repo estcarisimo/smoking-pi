@@ -96,14 +96,18 @@ def test_high_loss_threshold_env_tunable(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_microcut_burst_default_threshold():
+    # Default is 2, rescaled when the probe went to a 1-in-3 duty cycle: the
+    # rule counts OBSERVED windows, so a third of the sample rate sees a third
+    # as many for the same real event rate.
+    assert evaluator.DEFAULT_MICROCUT_BURST_N == 2
     rows = [
-        {"target": "cpe1", "protocol": "ipv4", "_value": 6},
-        {"target": "cpe1", "protocol": "ipv6", "_value": 5},
+        {"target": "cpe1", "protocol": "ipv4", "_value": 2},
+        {"target": "cpe1", "protocol": "ipv6", "_value": 1},
     ]
     incidents = evaluator.rule_microcut_burst(rows)
     assert len(incidents) == 1
     assert incidents[0]["key"] == "microcut_burst:cpe1/ipv4"
-    assert incidents[0]["value"] == 6
+    assert incidents[0]["value"] == 2
 
 
 def test_microcut_burst_env_tunable(monkeypatch):

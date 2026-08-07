@@ -1,5 +1,6 @@
 """Unit tests for rrd2influx.py — pure unit, no rrdtool or InfluxDB needed."""
 
+import os
 import json
 import pathlib
 import subprocess
@@ -226,3 +227,32 @@ class TestDashboardsAreValidJson:
             link_tags = [t for link in dashboard.get("links", [])
                          for t in link.get("tags", [])]
             assert "smokeping" in link_tags, f"{path.name} missing dashboards link"
+
+
+# ───────────────────── skip unchanged RRDs ─────────────────────
+class TestRRDChangedSince:
+    def test_untouched_rrd_is_skipped(self, tmp_path):
+        # SmokePing's step is 300s but the exporter loops every 60s, so most
+        # cycles have nothing new; re-fetching all of them was ~40 wasted
+        # subprocess spawns per minute.
+        rrd = tmp_path / "Google.rrd"
+        rrd.write_text("x")
+        os.utime(rrd, (1000, 1000))
+        assert rrd2influx._rrd_changed_since(str(rrd), 2000) is False
+
+    def test_written_rrd_is_processed(self, tmp_path):
+        rrd = tmp_path / "Google.rrd"
+        rrd.write_text("x")
+        os.utime(rrd, (3000, 3000))
+        assert rrd2influx._rrd_changed_since(str(rrd), 2000) is True
+
+    def test_equal_mtime_is_not_a_change(self, tmp_path):
+        rrd = tmp_path / "Google.rrd"
+        rrd.write_text("x")
+        os.utime(rrd, (2000, 2000))
+        assert rrd2influx._rrd_changed_since(str(rrd), 2000) is False
+
+    def test_unstatable_rrd_assumes_changed(self, tmp_path):
+        # Failing open matters: a stat error must never silently stop a target
+        # from being exported.
+        assert rrd2influx._rrd_changed_since(str(tmp_path / "gone.rrd"), 2000) is True
