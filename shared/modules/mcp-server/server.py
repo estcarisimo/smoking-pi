@@ -9,7 +9,10 @@ Run via ``main.py`` (stdio or streamable-http transport).
 
 from __future__ import annotations
 
+import functools
+import logging
 import re
+import time
 from datetime import datetime
 from typing import Any
 
@@ -52,6 +55,71 @@ a monitoring artifact, not an outage), and the CPE gateway rate-limits ICMP,
 which shows as a constant single-digit loss floor on the local link."""
 
 mcp = FastMCP("smokeping", instructions=SERVER_INSTRUCTIONS)
+
+log = logging.getLogger("mcp.tools")
+
+# Values that should never reach the log even if a tool grows such an argument.
+_SECRET_ARG_HINTS = ("token", "password", "secret", "key", "authorization")
+_MAX_ARG_CHARS = 60
+
+
+def _summarize_args(kwargs: dict) -> str:
+    parts = []
+    for name, value in sorted(kwargs.items()):
+        if value is None:
+            continue
+        if any(hint in name.lower() for hint in _SECRET_ARG_HINTS):
+            parts.append(f"{name}=<redacted>")
+            continue
+        text = str(value)
+        if len(text) > _MAX_ARG_CHARS:
+            text = text[:_MAX_ARG_CHARS] + "…"
+        parts.append(f"{name}={text}")
+    return " ".join(parts) or "-"
+
+
+def _summarize_result(result: Any) -> str:
+    """One-word shape of what came back, enough to spot an empty answer."""
+    if isinstance(result, dict):
+        if "error" in result:
+            return f"error:{str(result['error'])[:60]}"
+        for key in ("stats", "events", "targets"):
+            if isinstance(result.get(key), list):
+                return f"{len(result[key])} {key}"
+        if "total" in result:
+            return f"total={result['total']}"
+        return "ok"
+    return "ok"
+
+
+def logged_tool(func):
+    """Log every invocation so tool use is provable from the server side.
+
+    Without this the access log shows only `POST /mcp 200`, which cannot
+    distinguish an agent calling a tool from an agent merely connecting — a
+    gap that let a broken integration look healthy for days while an agent
+    answered from its shell instead.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        started = time.monotonic()
+        try:
+            result = func(*args, **kwargs)
+        except Exception as exc:
+            elapsed_ms = (time.monotonic() - started) * 1000
+            log.warning("tool=%s args=%s -> raised:%s in %.0fms",
+                        func.__name__, _summarize_args(kwargs),
+                        type(exc).__name__, elapsed_ms)
+            raise
+        elapsed_ms = (time.monotonic() - started) * 1000
+        log.info("tool=%s args=%s -> %s in %.0fms",
+                 func.__name__, _summarize_args(kwargs),
+                 _summarize_result(result), elapsed_ms)
+        return result
+
+    return wrapper
+
 
 _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
@@ -116,6 +184,7 @@ def _iso(value: Any) -> str | None:
 
 
 @mcp.tool()
+@logged_tool
 def list_targets() -> dict:
     """List all SmokePing monitoring targets.
 
@@ -135,6 +204,7 @@ def list_targets() -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def add_target(
     name: str,
     host: str,
@@ -222,6 +292,7 @@ def add_target(
 
 
 @mcp.tool()
+@logged_tool
 def remove_target(name: str) -> dict:
     """Permanently delete a monitoring target by name.
 
@@ -248,6 +319,7 @@ def remove_target(name: str) -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def toggle_target(name: str) -> dict:
     """Enable or disable monitoring for a target by name (flips its state).
 
@@ -271,6 +343,7 @@ def toggle_target(name: str) -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def apply_config() -> dict:
     """Regenerate the SmokePing configuration and restart the service.
 
@@ -299,6 +372,7 @@ def apply_config() -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def system_status() -> dict:
     """Get the health and status of the SmokePing monitoring stack.
 
@@ -372,6 +446,7 @@ _CLAMP_LOSS_RATIO = (
 
 
 @mcp.tool()
+@logged_tool
 def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
     """Get latency and packet-loss statistics per monitoring target.
 
@@ -457,6 +532,7 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
     """Find time windows where packet loss exceeded a threshold.
 
@@ -522,6 +598,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def get_microcut_stats(hours: int = 24) -> dict:
     """Summarize CPE microcut activity (brief loss spikes on the local link).
 

@@ -102,15 +102,51 @@ words people actually use ("how is my connection", "cómo está mi conexión",
 the host name) and to say explicitly what it is *not* for. If the agent still
 reaches for the shell, widen that description rather than the body.
 
-Verify the whole path end to end:
+### Reload after registering — the gateway caches the tool set
+
+Registering an MCP server does **not** reach a gateway that is already running.
+The Codex runtime fingerprints the server set per thread, so a long-lived
+gateway and existing chat sessions keep the tool list they started with. This
+cost four days of a working server that no agent could see:
+
+```bash
+openclaw mcp reload                              # drop cached MCP runtimes
+systemctl --user restart openclaw-gateway        # or your service manager
+# then start a NEW chat session — existing threads keep the stale set
+```
+
+Symptom of skipping it: the agent says the tools "aren't exposed to it", or
+quietly answers with live pings while `openclaw mcp probe` reports the server
+healthy. Both can be true at once — a separate poller reads the config fresh,
+so `probe` and `doctor` pass while agent sessions get nothing.
+
+### Verify with evidence, not with the answer
+
+**Do not judge this by reading the agent's reply.** A well-primed agent
+produces a fluent, accurate-sounding answer — correct target names, sensible
+caveats — entirely from its shell, while the MCP server sits untouched. That
+false positive is exactly how the breakage above went unnoticed.
+
+Ask the question, then check the server:
 
 ```bash
 openclaw agent --agent main --session-key smokeping-check \
-  -m "Using the smokeping tools, how has my connection been in the last 6 hours?"
+  -m "how has my connection been in the last 6 hours?"
+
+cd editions/pro
+docker compose logs mcp-server --since 5m | grep 'tool='
 ```
 
-A correct answer cites your target names and a time window. An answer full of
-speed-test megabits and a single ping run means the skill is not loading.
+A working integration logs the calls it made:
+
+```
+tool=system_status args=- -> ok in 83ms
+tool=get_latency_stats args=hours=6 -> 19 stats in 40ms
+tool=get_microcut_stats args=hours=6 -> 1 stats in 42ms
+```
+
+**No `tool=` line means it is not wired**, no matter how good the answer reads.
+That is the only check that distinguishes the two cases.
 
 ---
 
