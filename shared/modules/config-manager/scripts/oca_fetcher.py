@@ -296,6 +296,15 @@ class OCAFetcher:
                 existing = target_repo.get_all(category_name='netflix_oca')
                 for target in existing:
                     session.delete(target)
+                # Force the DELETEs to reach the database before the INSERTs.
+                # SQLAlchemy's unit of work emits saves before deletes within a
+                # flush, so without this the new rows collide with the old ones
+                # on the targets_name_key unique index and the whole refresh
+                # fails with UniqueViolation — which is what happened nightly
+                # whenever the OCA list came back unchanged. Still no commit:
+                # delete + inserts remain ONE transaction, so a failure mid-way
+                # cannot leave the category emptied.
+                session.flush()
                 logger.info(f"Replacing {len(existing)} existing Netflix OCA targets")
 
                 added = 0

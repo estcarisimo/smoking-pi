@@ -23,7 +23,7 @@ The service runs with `network_mode: host`, so it reaches InfluxDB on
 |------|----------|-----------|--------------------|
 | `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points | `DOWN_WINDOW` (900 s) |
 | `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold (targets already down are excluded) | `HIGH_LOSS_PCT` (20 %) |
-| `microcut_burst` | warning | Per target+protocol in `cpe_latency`: number of 10 s windows whose loss exceeds `MICROCUT_LOSS_PCT` in the last 60 min reaches the burst count | `MICROCUT_BURST_N` (6), `MICROCUT_LOSS_PCT` (50 %) |
+| `microcut_burst` | warning | Per target+protocol in `cpe_latency`: number of 10 s windows whose loss exceeds `MICROCUT_LOSS_PCT` in the last 60 min reaches the burst count | `MICROCUT_BURST_N` (2), `MICROCUT_LOSS_PCT` (50 %) |
 | `exporter_stale` | critical | Zero `latency` points written in the last 10 min (global — the RRD exporter is probably stalled) | — |
 | `ipv6_down` | warning | Every IPv6 target (name ends in `6`, or an `fping6`-ish category) at 100% loss for 15 min while at least one IPv4 target is healthy; emits ONE aggregate incident | — |
 
@@ -141,7 +141,7 @@ reports directory is skipped quietly.
 | `ALERT_STATE_FILE` | `/var/lib/alerter/state.json` | Incident/report state (atomic writes) |
 | `DOWN_WINDOW` | `900` | `target_down` window (seconds; SmokePing probes on a 300 s step, so this must span at least 3 steps) |
 | `HIGH_LOSS_PCT` | `20` | `high_loss` threshold (percent) |
-| `MICROCUT_BURST_N` | `6` | Microcut windows per 60 min to flag a burst |
+| `MICROCUT_BURST_N` | `2` | Microcut windows per 60 min to flag a burst. Counts OBSERVED windows, so it tracks the probe duty cycle: the detector samples a 10 s window every `CPE_PROBE_WINDOW + CPE_PROBE_IDLE` seconds (~120 windows/hour by default). Rescale it if you change `CPE_PROBE_IDLE` |
 | `MICROCUT_LOSS_PCT` | `50` | Loss percent above which a 10 s CPE window counts as a microcut. CPE gateways rate-limit ICMP, giving a constant single-digit loss floor, so counting any loss at all would flag that floor permanently |
 | `REPORTS_DIR` | `/reports` | Where ai-insights reports are read from |
 | `REPORT_DELIVERY_INTERVAL` | `86400` | Min seconds between report deliveries |

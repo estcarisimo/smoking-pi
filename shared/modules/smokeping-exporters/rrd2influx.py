@@ -245,6 +245,19 @@ def build_points(rrd_file: str, rows, rrd_dir: str, pings: int):
     return points, last_ts
 
 
+def _rrd_changed_since(rrd_path: str, last_exported_ts: int) -> bool:
+    """Whether an RRD has been written since we last exported from it.
+
+    RRD updates rewrite the file, so mtime advancing is the cheap signal that
+    new data exists. Unreadable mtime means "assume changed" — a stat error
+    must never silently stop exporting a target.
+    """
+    try:
+        return os.path.getmtime(rrd_path) > last_exported_ts
+    except OSError:
+        return True
+
+
 def run_cycle(write_api, bucket: str, rrd_dir: str, state: dict, pings: int) -> None:
     now = int(time.time())
     rrd_files = glob.glob(os.path.join(rrd_dir, "**", "*.rrd"), recursive=True)
@@ -260,6 +273,17 @@ def run_cycle(write_api, bucket: str, rrd_dir: str, state: dict, pings: int) -> 
         try:
             start = state.get(rrd, now - FIRST_RUN_LOOKBACK)
             start = max(start, now - MAX_BACKFILL)
+
+            # SmokePing writes on a 300 s step but this loop runs every 60 s,
+            # so most cycles have nothing new: spawning `rrdtool fetch` for
+            # every RRD anyway cost ~40 processes a minute on a Pi that was
+            # thermally throttling. Skip the ones whose file has not been
+            # touched since we last exported them. Only skip RRDs we have
+            # already exported at least once, so first runs and backfills are
+            # unaffected.
+            if rrd in state and not _rrd_changed_since(rrd, state[rrd]):
+                continue
+
             ds_names, rows = fetch_rows(rrd, start, now)
             rows = [(ts, data) for ts, data in rows if start < ts <= now]
             points, last_ts = build_points(

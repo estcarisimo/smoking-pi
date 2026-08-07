@@ -23,7 +23,15 @@ import flux
 # a target is down rather than reacting to one missed cycle.
 DEFAULT_DOWN_WINDOW = 900  # seconds; DOWN_WINDOW
 DEFAULT_HIGH_LOSS_PCT = 20.0  # percent; HIGH_LOSS_PCT
-DEFAULT_MICROCUT_BURST_N = 6  # lossy windows / 60 min; MICROCUT_BURST_N
+# Microcut windows per 60 min needed to fire; MICROCUT_BURST_N.
+# This counts OBSERVED windows, so it must track the probe's duty cycle. The
+# detector samples a 10 s window every CPE_PROBE_WINDOW + CPE_PROBE_IDLE
+# seconds — 30 s by default, so ~120 windows/hour. It used to probe
+# back-to-back (~360 windows/hour) where 6 was the threshold; at a third of the
+# sample rate the same real event rate yields a third as many observations, so
+# 2 keeps the sensitivity equivalent. Raise it if bursts read as noisy, and
+# rescale it whenever you change CPE_PROBE_IDLE.
+DEFAULT_MICROCUT_BURST_N = 2
 # A window counts as a microcut only above this loss percent. CPE gateways
 # commonly rate-limit ICMP, so a 5 pps probe sees a constant single-digit loss
 # floor (observed: p50 10%, p99 30%) with no outage at all — counting every

@@ -32,6 +32,13 @@ INFLUX_ORG = os.getenv("INFLUX_ORG")
 INFLUX_BUCKET = os.getenv("INFLUX_BUCKET")
 PROBE_RATE = int(os.getenv("CPE_PROBE_RATE", "5"))          # packets/sec
 PROBE_WINDOW = int(os.getenv("CPE_PROBE_WINDOW", "10"))     # seconds
+# Idle between windows. Previously there was none: the loop slept
+# PROBE_WINDOW - elapsed, and elapsed is ~PROBE_WINDOW, so it probed
+# back-to-back forever — 5 packets/sec, ~432k/day, on a Pi that was thermally
+# throttling. It also pressured the gateway's ICMP rate limiter, so part of the
+# constant single-digit "loss floor" was self-inflicted. 20 s idle keeps
+# microcut detection (windows are still 10 s of 5 pps) at a third of the cost.
+PROBE_IDLE = int(os.getenv("CPE_PROBE_IDLE", "20"))         # seconds
 STATE_FILE = "/tmp/cpe_state.json"
 
 TOTAL_PINGS = PROBE_RATE * PROBE_WINDOW   # 50
@@ -205,9 +212,11 @@ def main():
             if data:
                 write_result(ipv6, "ipv6", data)
 
-        # Sleep remainder of window
+        # Idle until the next window. The cycle is PROBE_WINDOW of probing plus
+        # PROBE_IDLE of quiet, so set CPE_PROBE_IDLE=0 to restore the old
+        # continuous behaviour.
         elapsed = time.time() - cycle_start
-        remaining = max(0, PROBE_WINDOW - elapsed)
+        remaining = max(0, (PROBE_WINDOW + PROBE_IDLE) - elapsed)
         if remaining > 0:
             time.sleep(remaining)
 

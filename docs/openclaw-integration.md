@@ -80,19 +80,73 @@ openclaw mcp tools smokeping --exclude 'add_target,remove_target,restart_smokepi
 Use `openclaw mcp show smokeping` to check what ended up in the config, and
 `openclaw mcp status` for transport state without connecting.
 
-### Install the skill
+### Install the skill — do not skip this
 
-`examples/openclaw/smokeping-monitoring/SKILL.md` gives the agent context on
-what the tools mean — loss conventions, which targets are expected to look
-broken, how to phrase an answer. Copy it into your OpenClaw skills directory
-and edit the placeholders:
+**Registering the MCP server is not enough.** An agent that also has shell
+access will answer "how is my internet?" by running `ping` and `curl`, because
+that is the obvious move and nothing has told it otherwise. It will sound
+confident and it will be describing one instant, not your recorded history.
+The skill is what redirects it. Symptom of a missing skill: the agent gives
+you live speed-test numbers and never mentions your targets.
 
 ```bash
 mkdir -p ~/.openclaw/skills/smokeping-monitoring
 cp examples/openclaw/smokeping-monitoring/SKILL.md \
    ~/.openclaw/skills/smokeping-monitoring/
-openclaw skills list
+openclaw skills list          # confirm smokeping-monitoring is listed
 ```
+
+The skill's `description` is the part that matters most: OpenClaw uses it to
+decide whether to load the skill at all, so it is written to trigger on the
+words people actually use ("how is my connection", "cómo está mi conexión",
+the host name) and to say explicitly what it is *not* for. If the agent still
+reaches for the shell, widen that description rather than the body.
+
+### Reload after registering — the gateway caches the tool set
+
+Registering an MCP server does **not** reach a gateway that is already running.
+The Codex runtime fingerprints the server set per thread, so a long-lived
+gateway and existing chat sessions keep the tool list they started with. This
+cost four days of a working server that no agent could see:
+
+```bash
+openclaw mcp reload                              # drop cached MCP runtimes
+systemctl --user restart openclaw-gateway        # or your service manager
+# then start a NEW chat session — existing threads keep the stale set
+```
+
+Symptom of skipping it: the agent says the tools "aren't exposed to it", or
+quietly answers with live pings while `openclaw mcp probe` reports the server
+healthy. Both can be true at once — a separate poller reads the config fresh,
+so `probe` and `doctor` pass while agent sessions get nothing.
+
+### Verify with evidence, not with the answer
+
+**Do not judge this by reading the agent's reply.** A well-primed agent
+produces a fluent, accurate-sounding answer — correct target names, sensible
+caveats — entirely from its shell, while the MCP server sits untouched. That
+false positive is exactly how the breakage above went unnoticed.
+
+Ask the question, then check the server:
+
+```bash
+openclaw agent --agent main --session-key smokeping-check \
+  -m "how has my connection been in the last 6 hours?"
+
+cd editions/pro
+docker compose logs mcp-server --since 5m | grep 'tool='
+```
+
+A working integration logs the calls it made:
+
+```
+tool=system_status args=- -> ok in 83ms
+tool=get_latency_stats args=hours=6 -> 19 stats in 40ms
+tool=get_microcut_stats args=hours=6 -> 1 stats in 42ms
+```
+
+**No `tool=` line means it is not wired**, no matter how good the answer reads.
+That is the only check that distinguishes the two cases.
 
 ---
 

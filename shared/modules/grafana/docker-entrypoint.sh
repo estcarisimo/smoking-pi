@@ -66,9 +66,12 @@ case "$TSDB_TYPE" in
         rm -rf "$ACTIVE_PROV"
         mkdir -p "$ACTIVE_PROV/datasources" "$ACTIVE_PROV/dashboards"
 
-        # Only the ClickHouse datasource, so it can carry isDefault without
-        # fighting influxdb.yaml.
-        cp "$AVAILABLE_DIR/clickhouse.yaml" "$ACTIVE_PROV/datasources/"
+        # Only the ClickHouse datasource here, so it can safely be the default.
+        # The committed file keeps isDefault: false because influxdb mode
+        # provisions both files from a read-only mount, and Grafana refuses to
+        # start if two datasources claim default. Flip it in our own copy.
+        sed 's/^\( *\)isDefault: false/\1isDefault: true/' \
+            "$AVAILABLE_DIR/clickhouse.yaml" > "$ACTIVE_PROV/datasources/clickhouse.yaml"
 
         # Copy any non-dashboard providers (alerting, plugins, ...) verbatim.
         for extra in /etc/grafana/provisioning/*/; do

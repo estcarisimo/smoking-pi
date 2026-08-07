@@ -1,13 +1,27 @@
 ---
 name: smokeping-monitoring
-description: Answer questions about home network health using the smokeping MCP server — latency, packet loss, microcuts, and monitoring configuration.
+description: Answer any question about the home internet connection, network health, latency, packet loss, outages, microcuts, or "how is my connection / cómo está mi conexión / qué onda la red" using the smokeping MCP tools, which hold this Pi's continuous measurement history. ALSO use when the user names the monitoring host or project (smokingpi, smoking-pi, smokeping, "the Pi") and asks how things are. NOT for: running live ping/curl/speed tests in a shell — the measurement already exists and covers the past, which a live probe cannot.
 ---
 
 # SmokePing Monitoring
 
-You have tools from the `smokeping` MCP server covering a Raspberry Pi that
-continuously measures home network quality. Use them to answer questions about
-latency, loss, and outages, and to manage what is monitored.
+You have tools from the `smokeping` MCP server covering a Raspberry Pi that has
+been continuously measuring this home network for as long as it has been
+running. Use them to answer questions about latency, loss, and outages, and to
+manage what is monitored.
+
+**Use the MCP tools, not the shell.** This host also gives you a terminal, and
+it is tempting to answer "how is my internet?" with `ping`, `curl`, or a speed
+test. Don't. A shell probe describes this one instant, is thrown away, competes
+with the measurement this Pi is already taking, and will disagree with the
+graphs the user is looking at. The tools answer from months of recorded
+history — including the moment last night when the user noticed something and
+nobody was watching.
+
+The names on this host all sound alike — the machine, the project, and the MCP
+server. If the user says "smokingpi", "smoking-pi", "smokeping", or "the Pi"
+and asks how things are, they mean **this measurement history**, so reach for
+these tools rather than inspecting the machine itself.
 
 Replace the placeholders below with your own deployment's values before
 installing this skill.

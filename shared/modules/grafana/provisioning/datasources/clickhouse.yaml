@@ -9,9 +9,12 @@ datasources:
     uid: clickhouse
     type: grafana-clickhouse-datasource
     access: proxy
-    # isDefault is resolved per mode: in clickhouse mode the entrypoint builds
-    # a provisioning tree containing only this file, so nothing competes.
-    isDefault: true
+    # MUST stay false here. In influxdb mode editions/pro bind-mounts this
+    # directory read-only, so this file is provisioned alongside influxdb.yaml
+    # (which is default) and Grafana refuses to start outright if two
+    # datasources claim default. ClickHouse mode needs it true, so the
+    # entrypoint flips it while building its own writable provisioning tree.
+    isDefault: false
     editable: false
 
     jsonData:

@@ -10,7 +10,7 @@
 # allowUiUpdates is false on purpose: with updateIntervalSeconds set, edits
 # made in the UI would be silently reverted on the next reload anyway. Edit
 # the JSON files in the repo instead (the directory is bind-mounted, so saved
-# changes appear within 30 s).
+# changes appear within 5 min).
 apiVersion: 1
 
 providers:
@@ -18,7 +18,10 @@ providers:
     type: file
     disableDeletion: true
     allowUiUpdates: false
-    updateIntervalSeconds: 30
+    # 300, not 30: each tick re-walks the provisioning directory and rebuilds
+    # the search index. Dashboards are edited in the repo, not minute to
+    # minute, so five minutes is ample and costs a fraction of the CPU.
+    updateIntervalSeconds: 300
     options:
       path: /etc/grafana/provisioning/dashboards
       foldersFromFilesStructure: true

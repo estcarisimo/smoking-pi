@@ -28,10 +28,13 @@ Three signals, cheapest first:
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
+import json
 import logging
 import os
 import re
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -207,28 +210,71 @@ def is_ipv6_target(target: dict, ipv6_probes=IPV6_PROBES) -> bool:
     return (target.get("probe") or "") in ipv6_probes
 
 
-# ───────────────────────── shared status cache ─────────────────────────
-# The check needs Docker (to exec in the SmokePing namespace), which the
-# config generator deliberately does not use — it never spawns subprocesses.
-# The API layer runs the check and publishes the verdict here; the generator
-# reads it. Until something publishes a result the status is UNKNOWN, and
-# callers must keep IPv6 targets: dropping them because nobody has looked yet
-# would turn a missing check into silent data loss.
+# ───────────────────────── shared status ─────────────────────────
+# The check needs Docker (to exec in the SmokePing namespace), which the config
+# generator deliberately does not use — it never spawns subprocesses. The API
+# layer runs the check and publishes the verdict; the generator reads it.
+#
+# The verdict MUST be persisted, not merely held in memory. Config is generated
+# from more than one process: the API regenerates in-process, but the nightly
+# OCA refresh runs scripts/oca_fetcher.py as a SUBPROCESS which imports
+# ConfigGenerator and regenerates there too. A process-local cache is empty in
+# that subprocess, the unknown-means-allowed rule then applies, and IPv6 targets
+# are silently written back into the config every night — which is exactly what
+# happened. "Unknown" has to mean *nobody has ever checked*, not *this process
+# has not checked*.
+DEFAULT_STATE_FILE = "/app/output/.ipv6-status.json"  # IPV6_STATE_FILE
+
 _status: dict | None = None
 
 
+def state_file() -> str:
+    return os.environ.get("IPV6_STATE_FILE") or DEFAULT_STATE_FILE
+
+
+def _unknown() -> dict:
+    return {"available": None, "reason": "IPv6 reachability not checked yet",
+            "addresses": [], "mode": mode()}
+
+
 def set_status(status: dict) -> None:
-    """Publish a check result for the generator to read."""
+    """Publish a check result for any process to read."""
     global _status
     _status = dict(status)
+    path = state_file()
+    directory = os.path.dirname(path) or "."
+    try:
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix=".ipv6-status.", dir=directory)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(_status, fh, sort_keys=True)
+            os.replace(tmp_path, path)
+        except OSError:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise
+    except OSError as exc:
+        # In-memory value still stands for this process; log loudly because a
+        # subprocess regenerating config will not see the verdict.
+        logger.warning("Could not persist IPv6 status to %s: %s", path, exc)
 
 
 def get_status() -> dict:
-    """Last published result, or an explicit unknown."""
-    if _status is None:
-        return {"available": None, "reason": "IPv6 reachability not checked yet",
-                "addresses": [], "mode": mode()}
-    return dict(_status)
+    """Last published result — from memory, else the state file, else unknown."""
+    if _status is not None:
+        return dict(_status)
+    try:
+        with open(state_file(), encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict) and "available" in data:
+            return data
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as exc:
+        logger.warning("Ignoring unreadable IPv6 state file %s: %s",
+                       state_file(), exc)
+    return _unknown()
 
 
 def measurements_allowed() -> bool:

@@ -9,7 +9,10 @@ Run via ``main.py`` (stdio or streamable-http transport).
 
 from __future__ import annotations
 
+import functools
+import logging
 import re
+import time
 from datetime import datetime
 from typing import Any
 
@@ -22,7 +25,101 @@ except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
 import backends
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
 
-mcp = FastMCP("smokeping")
+# Framing for the connecting client. Without it an agent that also has shell
+# access will answer "how is my internet?" by running ping/curl itself, which
+# only describes this instant and throws the answer away. The whole point of
+# this host is that the measurement already happened, continuously, and is
+# still on disk.
+SERVER_INSTRUCTIONS = """\
+This server exposes a Raspberry Pi that has been continuously measuring a home
+network for as long as it has been running. It is a record of the past, not a
+probe you trigger.
+
+Every monitored target is pinged on a 300-second cycle and the CPE/gateway link
+is sampled every 10 seconds; results are kept for months. So questions about
+how the connection *is*, *was*, or *has been behaving* are answered from
+recorded history here — including questions about last night, yesterday, or a
+moment the user noticed something and you were not watching.
+
+Prefer these tools over running ping, curl, traceroute, or a speed test in a
+shell. A live probe describes one instant, cannot see the past, competes with
+the very measurement this host is taking, and will disagree with the graphs the
+user is looking at. Use `get_latency_stats` for how a target has been
+performing, `get_loss_events` for when packets were dropped, and
+`get_microcut_stats` for brief local-link dropouts. Start with `system_status`
+if something looks wrong with the monitoring itself.
+
+Two things routinely look like faults and are not: hosts that never answer ICMP
+at all chart a permanently flat 100% loss (a dead-flat line with no variance is
+a monitoring artifact, not an outage), and the CPE gateway rate-limits ICMP,
+which shows as a constant single-digit loss floor on the local link."""
+
+mcp = FastMCP("smokeping", instructions=SERVER_INSTRUCTIONS)
+
+log = logging.getLogger("mcp.tools")
+
+# Values that should never reach the log even if a tool grows such an argument.
+_SECRET_ARG_HINTS = ("token", "password", "secret", "key", "authorization")
+_MAX_ARG_CHARS = 60
+
+
+def _summarize_args(kwargs: dict) -> str:
+    parts = []
+    for name, value in sorted(kwargs.items()):
+        if value is None:
+            continue
+        if any(hint in name.lower() for hint in _SECRET_ARG_HINTS):
+            parts.append(f"{name}=<redacted>")
+            continue
+        text = str(value)
+        if len(text) > _MAX_ARG_CHARS:
+            text = text[:_MAX_ARG_CHARS] + "…"
+        parts.append(f"{name}={text}")
+    return " ".join(parts) or "-"
+
+
+def _summarize_result(result: Any) -> str:
+    """One-word shape of what came back, enough to spot an empty answer."""
+    if isinstance(result, dict):
+        if "error" in result:
+            return f"error:{str(result['error'])[:60]}"
+        for key in ("stats", "events", "targets"):
+            if isinstance(result.get(key), list):
+                return f"{len(result[key])} {key}"
+        if "total" in result:
+            return f"total={result['total']}"
+        return "ok"
+    return "ok"
+
+
+def logged_tool(func):
+    """Log every invocation so tool use is provable from the server side.
+
+    Without this the access log shows only `POST /mcp 200`, which cannot
+    distinguish an agent calling a tool from an agent merely connecting — a
+    gap that let a broken integration look healthy for days while an agent
+    answered from its shell instead.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        started = time.monotonic()
+        try:
+            result = func(*args, **kwargs)
+        except Exception as exc:
+            elapsed_ms = (time.monotonic() - started) * 1000
+            log.warning("tool=%s args=%s -> raised:%s in %.0fms",
+                        func.__name__, _summarize_args(kwargs),
+                        type(exc).__name__, elapsed_ms)
+            raise
+        elapsed_ms = (time.monotonic() - started) * 1000
+        log.info("tool=%s args=%s -> %s in %.0fms",
+                 func.__name__, _summarize_args(kwargs),
+                 _summarize_result(result), elapsed_ms)
+        return result
+
+    return wrapper
+
 
 _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
@@ -87,6 +184,7 @@ def _iso(value: Any) -> str | None:
 
 
 @mcp.tool()
+@logged_tool
 def list_targets() -> dict:
     """List all SmokePing monitoring targets.
 
@@ -106,6 +204,7 @@ def list_targets() -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def add_target(
     name: str,
     host: str,
@@ -193,6 +292,7 @@ def add_target(
 
 
 @mcp.tool()
+@logged_tool
 def remove_target(name: str) -> dict:
     """Permanently delete a monitoring target by name.
 
@@ -219,6 +319,7 @@ def remove_target(name: str) -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def toggle_target(name: str) -> dict:
     """Enable or disable monitoring for a target by name (flips its state).
 
@@ -242,6 +343,7 @@ def toggle_target(name: str) -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def apply_config() -> dict:
     """Regenerate the SmokePing configuration and restart the service.
 
@@ -270,13 +372,19 @@ def apply_config() -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def system_status() -> dict:
     """Get the health and status of the SmokePing monitoring stack.
 
     Combines the config-manager health check with the detailed service
     status: database availability and target counts, whether the generated
     SmokePing config files exist, and whether the SmokePing container is
-    running. Use this first when something seems broken.
+    running.
+
+    This reports the health of the MONITORING SYSTEM, not of the network it
+    measures. For "how is my internet?" use get_latency_stats. Use this one
+    when the monitoring itself looks wrong — no recent data, a target that
+    never appears, graphs that stopped updating.
     """
     api = backends.get_config_api()
     result: dict = {}
@@ -338,6 +446,7 @@ _CLAMP_LOSS_RATIO = (
 
 
 @mcp.tool()
+@logged_tool
 def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
     """Get latency and packet-loss statistics per monitoring target.
 
@@ -352,8 +461,12 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
             (see list_targets). Omit for all targets.
         hours: Size of the lookback window in hours (default 24).
 
-    Use this to answer questions like "how is my connection to 8.8.8.8?" or
-    "which targets have the worst latency today?".
+    The data is already recorded — this host pings every target on a
+    300-second cycle and has done so continuously. Use this instead of
+    running ping yourself: it covers the whole window rather than this
+    instant, it matches the graphs the user sees, and it does not add probe
+    traffic. This is the tool for "how is my internet / my connection?",
+    "how is the link to 8.8.8.8?", and "which targets are worst today?".
     """
     hours, err = _validate_hours(hours)
     if err:
@@ -419,6 +532,7 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
     """Find time windows where packet loss exceeded a threshold.
 
@@ -432,8 +546,14 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
         min_loss_pct: Minimum loss percentage (0-100) for a point to count
             as an event (default 5).
 
-    Use this to answer "did we drop packets last night?" or "when did the
-    link to my ISP degrade?". For CPE microcuts, use get_microcut_stats.
+    Because the measurement is continuous, this answers questions about
+    moments nobody was watching: "did we drop packets last night?", "when did
+    the link to my ISP degrade?", "was it bad while I was on that call?". A
+    live probe cannot answer any of those. For brief local-link dropouts, use
+    get_microcut_stats.
+
+    Note a permanently flat 100%-loss target is usually a host that does not
+    answer ICMP at all, not an outage — real loss varies.
     """
     hours, err = _validate_hours(hours)
     if err:
@@ -478,6 +598,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
 
 
 @mcp.tool()
+@logged_tool
 def get_microcut_stats(hours: int = 24) -> dict:
     """Summarize CPE microcut activity (brief loss spikes on the local link).
 
@@ -492,8 +613,14 @@ def get_microcut_stats(hours: int = 24) -> dict:
     Args:
         hours: Lookback window in hours (default 24).
 
-    Use this to answer "were there microcuts last night?" or "is the CPE
-    link flapping?".
+    Sampled every 10 seconds, which is fine-grained enough to catch dropouts
+    far too brief for a ping run to notice — that is the point of this tool.
+    Use it for "were there microcuts last night?", "is the CPE link
+    flapping?", and for explaining call/game stutters that leave no trace in
+    the 300-second target data.
+
+    Home gateways rate-limit ICMP, so a constant single-digit loss floor here
+    is normal and not a fault; look for windows far above that floor.
     """
     hours, err = _validate_hours(hours)
     if err:
