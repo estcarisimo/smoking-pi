@@ -258,6 +258,13 @@ services:
       - INFLUX_TOKEN=${INFLUX_TOKEN:-}
       - INFLUX_ORG=${INFLUX_ORG:-smokeping}
       - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
+      # Deep links back into Grafana / web-admin. Unset means tool responses
+      # carry numbers only — this host is reachable on a LAN IP, a Tailscale
+      # name and a tunnel hostname, so the right one cannot be guessed and a
+      # wrong guess is worse than no link. See docs/mcp-server.md
+      - PUBLIC_BASE_HOST=${PUBLIC_BASE_HOST:-}
+      - GRAFANA_PUBLIC_URL=${GRAFANA_PUBLIC_URL:-}
+      - WEB_ADMIN_PUBLIC_URL=${WEB_ADMIN_PUBLIC_URL:-}
     depends_on:
       - config-manager
 

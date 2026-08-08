@@ -259,6 +259,16 @@
     categoryFilter.addEventListener('change', applyFilters);
     statusFilter.addEventListener('change', applyFilters);
 
+    /* Deep links from the MCP tools / AI chat arrive as /targets/?q=<name>, so
+       the page opens on the target being discussed rather than on all 18.
+       Filtering is client-side, so this only has to seed the same input a
+       person would type into. */
+    const requestedQuery = new URLSearchParams(window.location.search).get('q');
+    if (requestedQuery) {
+        searchInput.value = requestedQuery;
+        applyFilters();
+    }
+
     /* ---------- CSV export (client-side, respects filters) ---------- */
 
     document.getElementById('export-csv-btn').addEventListener('click', () => {

@@ -23,6 +23,7 @@ except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
     from mcp.server.mcpserver import MCPServer as FastMCP
 
 import backends
+import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
 
 # Framing for the connecting client. Without it an agent that also has shell
@@ -52,7 +53,15 @@ if something looks wrong with the monitoring itself.
 Two things routinely look like faults and are not: hosts that never answer ICMP
 at all chart a permanently flat 100% loss (a dead-flat line with no variance is
 a monitoring artifact, not an outage), and the CPE gateway rate-limits ICMP,
-which shows as a constant single-digit loss floor on the local link."""
+which shows as a constant single-digit loss floor on the local link.
+
+Responses may carry a `links` object with URLs into the Grafana panel showing
+that target, the per-ping detail, a comparison against its peers, and the page
+for editing it. Pass the relevant one through to the user — the graph shows the
+shape of a problem far better than a median does, and the links are already
+scoped to the target and time window being discussed. Do not build these URLs
+yourself; if `links` is absent, deep links are not configured on this
+deployment and there is no URL to give."""
 
 mcp = FastMCP("smokeping", instructions=SERVER_INSTRUCTIONS)
 
@@ -178,6 +187,52 @@ def _iso(value: Any) -> str | None:
     return str(value) if value is not None else None
 
 
+def _target_catalog() -> dict[str, dict]:
+    """name -> DB row, for attaching links to measurement results.
+
+    Measurement tools query InfluxDB, which knows a target's name but not the
+    category the database filed it under, and the two vocabularies differ. This
+    bridges them, solely so a target can be linked to the side-by-side
+    dashboard for its peers.
+
+    Returns {} when the config API is unreachable, which costs only that one
+    link — the numbers are the answer and links are a garnish, so no failure
+    here may propagate.
+    """
+    if not links.links_configured():
+        return {}
+    try:
+        return {
+            t["name"]: t
+            for t in _fetch_targets(backends.get_config_api())
+            if t.get("name")
+        }
+    except Exception as exc:  # deliberately broad -- see below
+        # Anything at all: the measurement numbers are the answer and the links
+        # are decoration, so no failure here may propagate. Catching
+        # ConfigAPIError alone is not enough — the config API can fail in ways
+        # that surface as httpx or parsing errors.
+        log.warning("links: target catalog unavailable, omitting links: %s", exc)
+        return {}
+
+
+def _links_for(
+    catalog: dict[str, dict],
+    name: str | None,
+    measurement: str | None,
+    hours: int | None = None,
+    at: Any = None,
+) -> dict[str, str]:
+    row = catalog.get(name or "") or {}
+    return links.target_links(
+        name,
+        measurement=measurement,
+        db_category=row.get("category"),
+        hours=hours,
+        at=at,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Target management tools (config-manager REST API)
 # ---------------------------------------------------------------------------
@@ -195,11 +250,26 @@ def list_targets() -> dict:
 
     Use this to see what is being monitored, or to find a target's exact
     name before calling remove_target / toggle_target.
+
+    Each target carries a `links` object (graph, per-ping detail, comparison
+    against its peers, edit page) when deep links are configured.
     """
     try:
-        targets = [_slim_target(t) for t in _fetch_targets(backends.get_config_api())]
+        rows = _fetch_targets(backends.get_config_api())
     except ConfigAPIError as exc:
         return {"error": str(exc)}
+
+    targets = []
+    for row in rows:
+        slim = _slim_target(row)
+        target_links = links.target_links(
+            row.get("name"),
+            measurement=links.measurement_for_probe(row.get("probe")),
+            db_category=row.get("category"),
+        )
+        if target_links:
+            slim["links"] = target_links
+        targets.append(slim)
     return {"total": len(targets), "targets": targets}
 
 
@@ -416,6 +486,24 @@ def system_status() -> dict:
         f"smokeping container running: {smokeping.get('running')}",
     ]
     result["summary"] = "; ".join(parts)
+
+    # The one place that reports on deep-link configuration. Repeating the
+    # hint on every measurement response would be noise; saying it nowhere
+    # would make an unconfigured deployment indistinguishable from a bug.
+    if links.links_configured():
+        entry_points = {}
+        grafana = links.grafana_url("smokeping-lat-pct-v28", hours=24)
+        if grafana:
+            entry_points["grafana_overview"] = grafana
+        cpe = links.grafana_url("cpe-microcut-v1", hours=24)
+        if cpe:
+            entry_points["grafana_cpe_microcuts"] = cpe
+        admin = links.web_admin_target_url()
+        if admin:
+            entry_points["web_admin_targets"] = admin
+        result["links"] = entry_points
+    else:
+        result["deep_links"] = links.CONFIG_HINT
     return result
 
 
@@ -519,6 +607,13 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
     results = sorted(
         stats.values(), key=lambda e: (e.get("target") or "", e.get("measurement") or "")
     )
+    catalog = _target_catalog()
+    for entry in results:
+        entry_links = _links_for(
+            catalog, entry.get("target"), entry.get("measurement"), hours=hours
+        )
+        if entry_links:
+            entry["links"] = entry_links
     if target and not results:
         return {
             "window_hours": hours,
@@ -540,6 +635,11 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
     data point in the window whose packet loss was at or above
     min_loss_pct, as a list of {time, target, measurement, loss_pct},
     newest first (capped at 500 events).
+
+    Also returns `by_target`: one row per affected target with its event
+    count, worst loss, the span it covers, and links to the graph — usually
+    the more useful summary, since a hundred loss points on one target is one
+    story rather than a hundred.
 
     Args:
         hours: Lookback window in hours (default 24).
@@ -588,11 +688,46 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
         }
         for row in rows
     ]
+
+    # Roll up per target. A hundred loss points on one target is one story, not
+    # a hundred, and this is where a link belongs -- attaching a URL to every
+    # individual event would bury the numbers under boilerplate.
+    rollup: dict[tuple, dict] = {}
+    for event in events:
+        key = (event["target"], event["measurement"])
+        entry = rollup.setdefault(
+            key,
+            {
+                "target": event["target"],
+                "measurement": event["measurement"],
+                "event_count": 0,
+                "max_loss_pct": 0.0,
+                "first_time": event["time"],
+                "last_time": event["time"],
+            },
+        )
+        entry["event_count"] += 1
+        entry["max_loss_pct"] = max(entry["max_loss_pct"], event["loss_pct"])
+        # Rows arrive newest-first, so the last one seen is the oldest.
+        entry["first_time"] = event["time"]
+
+    catalog = _target_catalog()
+    by_target = sorted(
+        rollup.values(), key=lambda e: (-e["event_count"], e["target"] or "")
+    )
+    for entry in by_target:
+        entry_links = _links_for(
+            catalog, entry["target"], entry["measurement"], hours=hours
+        )
+        if entry_links:
+            entry["links"] = entry_links
+
     return {
         "window_hours": hours,
         "min_loss_pct": threshold,
         "event_count": len(events),
         "truncated": len(events) >= MAX_EVENT_ROWS,
+        "by_target": by_target,
         "events": events,
     }
 
@@ -666,16 +801,28 @@ def get_microcut_stats(hours: int = 24) -> dict:
 
     for entry in stats.values():
         entry.setdefault("lossy_windows", 0)
+        entry_links = links.target_links(
+            entry.get("target"), measurement="cpe_latency", hours=hours
+        )
+        if entry_links:
+            entry["links"] = entry_links
 
-    worst_windows = [
-        {
+    worst_windows = []
+    for row in worst_rows:
+        window = {
             "time": _iso(row.get("_time")),
             "target": row.get("target"),
             "protocol": row.get("protocol"),
             "loss_pct": round(float(row.get("_value", 0.0)), 2),
         }
-        for row in worst_rows
-    ]
+        # Only five of these, so each gets a link zoomed to its own moment --
+        # which is the whole value of a microcut report.
+        window_links = links.target_links(
+            window["target"], measurement="cpe_latency", at=row.get("_time")
+        )
+        if window_links.get("graph"):
+            window["graph"] = window_links["graph"]
+        worst_windows.append(window)
     return {
         "window_hours": hours,
         "stats": sorted(
