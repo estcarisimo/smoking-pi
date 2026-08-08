@@ -395,3 +395,163 @@ def test_import_does_not_require_env(monkeypatch):
     assert backends.influx_bucket() == "smokeping"
     # FastMCP instance exists and has our tools registered
     assert server.mcp.name == "smokeping"
+
+
+# ---------------------------------------------------------------------------
+# Deep links threaded through the tool responses
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def linked(monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "192.168.86.27")
+    monkeypatch.delenv("GRAFANA_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("WEB_ADMIN_PUBLIC_URL", raising=False)
+
+
+@pytest.fixture()
+def unlinked(monkeypatch):
+    for var in ("PUBLIC_BASE_HOST", "GRAFANA_PUBLIC_URL", "WEB_ADMIN_PUBLIC_URL"):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_list_targets_carries_links(api, linked):
+    result = server.list_targets()
+    first = result["targets"][0]
+    assert first["links"]["edit"].endswith("/targets/?q=google_dns")
+    assert "/d/smokeping-lat-pct-v28?var-target=google_dns" in first["links"]["graph"]
+
+
+def test_list_targets_omits_links_when_unconfigured(api, unlinked):
+    result = server.list_targets()
+    assert all("links" not in t for t in result["targets"])
+
+
+def test_latency_stats_links_use_the_requested_window(monkeypatch, api, linked):
+    def fake(flux):
+        return [{"target": "google_dns", "_measurement": "latency", "_value": 0.01}]
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_latency_stats(target="google_dns", hours=6)
+    graph = result["stats"][0]["links"]["graph"]
+    assert "from=now-6h" in graph
+    # google_dns is filed under the `dns` category in the fake DB, which has no
+    # side-by-side dashboard, so no peer comparison is offered.
+    assert "compare_with_peers" not in result["stats"][0]["links"]
+
+
+def test_measurement_tools_do_not_call_the_api_when_links_are_off(
+    monkeypatch, no_api, unlinked
+):
+    """The catalog lookup exists only to build links; without links, no call."""
+
+    def fake(flux):
+        return [{"target": "google_dns", "_measurement": "latency", "_value": 0.01}]
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_latency_stats(hours=6)
+    assert result["stats"]  # no_api raises if the config API is touched
+
+
+def test_latency_stats_survive_a_dead_config_api(monkeypatch, linked):
+    """Losing the catalog costs the peer link, not the numbers or other links."""
+
+    class DeadAPI:
+        def request(self, method, path, **kwargs):
+            raise backends.ConfigAPIError("config-manager unreachable")
+
+    monkeypatch.setattr(backends, "get_config_api", lambda: DeadAPI())
+
+    def fake(flux):
+        return [{"target": "google_dns", "_measurement": "latency", "_value": 0.01}]
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_latency_stats(hours=6)
+    assert result["stats"][0]["median_ms"] == 10.0
+    # Only the category-dependent link is lost; the rest need no catalog.
+    assert "graph" in result["stats"][0]["links"]
+    assert "compare_with_peers" not in result["stats"][0]["links"]
+
+
+def test_loss_events_roll_up_per_target(monkeypatch, api, linked):
+    times = [
+        datetime(2026, 7, 28, 5, 0, tzinfo=timezone.utc),
+        datetime(2026, 7, 28, 4, 0, tzinfo=timezone.utc),
+        datetime(2026, 7, 28, 3, 0, tzinfo=timezone.utc),
+    ]
+
+    def fake(flux):
+        return [
+            {
+                "_time": times[0],
+                "target": "google_dns",
+                "_measurement": "latency",
+                "_value": 0.25,
+            },
+            {
+                "_time": times[1],
+                "target": "google_dns",
+                "_measurement": "latency",
+                "_value": 0.60,
+            },
+            {
+                "_time": times[2],
+                "target": "cloudflare_dns",
+                "_measurement": "latency",
+                "_value": 0.10,
+            },
+        ]
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_loss_events(hours=24, min_loss_pct=5)
+
+    assert result["event_count"] == 3
+    # Busiest target first.
+    assert [r["target"] for r in result["by_target"]] == [
+        "google_dns",
+        "cloudflare_dns",
+    ]
+    busiest = result["by_target"][0]
+    assert busiest["event_count"] == 2
+    assert busiest["max_loss_pct"] == 60.0
+    # Rows arrive newest-first, so first_time must be the OLDEST of the two.
+    assert busiest["first_time"] == "2026-07-28T04:00:00+00:00"
+    assert busiest["last_time"] == "2026-07-28T05:00:00+00:00"
+    assert "/d/smokeping-lat-pct-v28" in busiest["links"]["graph"]
+
+
+def test_microcut_worst_windows_link_to_their_own_moment(monkeypatch, no_api, linked):
+    ts = datetime(2026, 7, 28, 2, 0, tzinfo=timezone.utc)
+
+    def fake(flux):
+        if "count()" in flux:
+            return [{"target": "CPE", "protocol": "ipv4", "_value": 3}]
+        if "max()" in flux:
+            return [{"target": "CPE", "protocol": "ipv4", "_value": 40.0}]
+        if "median()" in flux:
+            return [{"target": "CPE", "protocol": "ipv4", "_value": 1.5}]
+        return [{"_time": ts, "target": "CPE", "protocol": "ipv4", "_value": 40.0}]
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_microcut_stats(hours=24)
+
+    # The per-target summary spans the whole window...
+    assert "from=now-24h" in result["stats"][0]["links"]["graph"]
+    # ...while an individual worst window is zoomed to when it happened.
+    centre = int(ts.timestamp() * 1000)
+    graph = result["worst_windows"][0]["graph"]
+    assert f"from={centre - 15 * 60 * 1000}" in graph
+    assert "var-cpe=CPE" in graph
+
+
+def test_system_status_reports_unconfigured_links(api, unlinked):
+    result = server.system_status()
+    assert "links" not in result
+    assert "PUBLIC_BASE_HOST" in result["deep_links"]
+
+
+def test_system_status_offers_entry_points_when_configured(api, linked):
+    result = server.system_status()
+    assert "deep_links" not in result
+    assert result["links"]["web_admin_targets"].endswith("/targets/")
+    assert "/d/cpe-microcut-v1" in result["links"]["grafana_cpe_microcuts"]

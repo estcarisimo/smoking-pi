@@ -20,7 +20,7 @@ Source: `shared/modules/mcp-server/`.
 | `apply_config()` | Regenerate SmokePing config + restart the service |
 | `system_status()` | Health of config-manager, database, SmokePing container |
 | `get_latency_stats(target, hours)` | Median/p95 latency (ms) and mean loss % per target |
-| `get_loss_events(hours, min_loss_pct)` | Windows where packet loss exceeded a threshold |
+| `get_loss_events(hours, min_loss_pct)` | Windows where packet loss exceeded a threshold, plus a per-target rollup |
 | `get_microcut_stats(hours)` | CPE microcut summary per target+protocol, plus worst 5 windows |
 
 ## Environment variables
@@ -35,6 +35,70 @@ Source: `shared/modules/mcp-server/`.
 | `INFLUX_BUCKET` | `smokeping` | InfluxDB bucket |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` (streamable-http) |
 | `MCP_PORT` | `8090` | Listen port for the http transport (binds 0.0.0.0) |
+| `PUBLIC_BASE_HOST` | *(unset)* | Host the *reader* reaches this Pi on; enables deep links (below) |
+| `GRAFANA_PUBLIC_URL` | *(unset)* | Full Grafana base URL; wins over `PUBLIC_BASE_HOST` |
+| `WEB_ADMIN_PUBLIC_URL` | *(unset)* | Full web-admin base URL; wins over `PUBLIC_BASE_HOST` |
+
+## Deep links
+
+Tool responses can carry a `links` object pointing at the Grafana panel for the
+target being discussed, the per-ping detail, a side-by-side against its peers,
+and the web-admin page for editing it:
+
+```json
+{"target": "Amazon", "median_ms": 21.4, "avg_loss_pct": 0.0,
+ "links": {
+   "graph": "http://192.168.86.27:3000/d/smokeping-lat-pct-v28?var-target=Amazon&from=now-24h&to=now",
+   "per_ping_detail": "http://192.168.86.27:3000/d/individual-pings-v1?...",
+   "compare_with_peers": "http://192.168.86.27:3000/d/top_sites-side-by-side-v1?...",
+   "edit": "http://192.168.86.27:8080/targets/?q=Amazon"}}
+```
+
+`get_microcut_stats` goes further and zooms each of its worst-5 windows to a
+±15-minute range around when it happened, so the link opens on the event rather
+than on the day containing it.
+
+**This is off until you configure it, on purpose.** The Pi has no canonical
+hostname — a LAN IP, a Tailscale name, and possibly a Cloudflare tunnel all
+reach it, and which one works depends on where the person reading the answer is
+standing. A guessed `http://localhost:3000` would look right in the transcript
+and fail silently on someone's phone, so with nothing configured the tools
+return numbers and no links at all. `system_status()` reports that deep links
+are unconfigured; the measurement tools stay quiet about it rather than
+repeating the notice on every call.
+
+Set one variable for the common case:
+
+```bash
+# editions/pro/.env — standard ports (:3000, :8080) are appended
+PUBLIC_BASE_HOST=192.168.86.27
+PUBLIC_BASE_HOST=smokingpi.tailnet-name.ts.net
+```
+
+Or set both URLs where a proxy or tunnel hides the ports:
+
+```bash
+GRAFANA_PUBLIC_URL=https://grafana.example.com
+WEB_ADMIN_PUBLIC_URL=https://admin.example.com
+```
+
+Then `COMPOSE_PROFILES=mcp docker compose up -d mcp-server` to pick it up.
+
+Two things worth knowing:
+
+- The dashboard UIDs are pinned in `links.py` and asserted against the
+  provisioned dashboard JSON by a unit test, so renaming a dashboard's UID
+  fails CI rather than producing links that 404.
+- The database's category vocabulary (`top_sites`, `netflix_oca`,
+  `dns_resolvers`) differs from the category tag the exporter writes into
+  InfluxDB (`topsites`, `netflix`, `dns`). `links.py` maps from the *database*
+  vocabulary, because that is what `list_targets` returns.
+
+The web-admin AI chat does **not** yet include links in its tool results. It
+has its own copy of the tool surface, and the pages it renders already build
+correct Grafana links client-side from `window.location.hostname` — which needs
+no configuration at all, since the reader is by definition already on the host
+that works.
 
 ## Option A — stdio, for Claude Code on the Pi
 
