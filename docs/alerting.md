@@ -57,37 +57,65 @@ Log-only. Rules are still evaluated and incidents logged, so you can watch
 
 ### `openclaw`
 
-POSTs to `{OPENCLAW_URL}/hooks/agent` with
-`Authorization: Bearer {OPENCLAW_HOOK_TOKEN}` and body:
+Invokes OpenClaw's `message` tool over the Gateway's HTTP endpoint,
+`POST {OPENCLAW_URL}/tools/invoke`, with
+`Authorization: Bearer {OPENCLAW_GATEWAY_TOKEN}` and body:
 
 ```json
 {
-  "message": "🔴 critical [target_down]: <target> down ...",
-  "name": "SmokePing Alerts",
-  "wakeMode": "now",
-  "deliver": true,
-  "channel": "<your-channel>",
-  "to": "<your-chat-id>"
+  "name": "message",
+  "args": {
+    "action": "send",
+    "channel": "telegram",
+    "to": "telegram:123456789",
+    "message": "🔴 critical [target_down]: <target> down ..."
+  }
 }
 ```
 
-Example `.env` values (placeholders — substitute your own):
+`/tools/invoke` is always enabled on a stock gateway and is multiplexed onto
+the same port as the WebSocket protocol. It is gated by Gateway auth plus
+tool policy — so the `message` tool must also be permitted by
+`tools.allow` in `openclaw.json`.
+
+Example `.env` values:
 
 ```bash
 NOTIFY_MODE=openclaw
 OPENCLAW_URL=http://127.0.0.1:18789
-OPENCLAW_HOOK_TOKEN=<your-openclaw-hook-token>
-OPENCLAW_CHANNEL=<telegram>
-OPENCLAW_TO=<your-chat-id>
+OPENCLAW_GATEWAY_TOKEN=<gateway.auth.token from ~/.openclaw/openclaw.json>
+OPENCLAW_CHANNEL=telegram
+OPENCLAW_TO=telegram:<your-chat-id>
 ```
 
-**A stock OpenClaw gateway does not serve this endpoint.** Verified on
-2026.7.1-2: the gateway is WebSocket-only and returns 404 for
-`/hooks/agent` and every other HTTP path, so this mode needs an HTTP-RPC
-plugin or a small bridge. `OPENCLAW_HOOK_PATH` (default `/hooks/agent`)
-sets the path to match whatever ingress you run. The alerter probes the
-endpoint at startup and logs an explicit error on 404, so a wrong
-assumption is visible immediately rather than as silent non-delivery.
+Find your recipient with `openclaw gateway call sessions-list` and read
+`deliveryContext.to`.
+
+The alerter runs with `network_mode: host`, so the loopback default reaches
+the gateway with no extra plumbing.
+
+> **Earlier versions of this document said a stock gateway serves no HTTP at
+> all.** That was wrong. It came from probing `/hooks/agent` — a path that
+> exists on no OpenClaw build — getting a 404, and generalising from one
+> missing route to the whole surface. `/tools/invoke`, `/v1/*` and the other
+> documented HTTP APIs were there the entire time.
+
+Two failure modes are specific to this endpoint, and the alerter checks for
+both at startup:
+
+- It answers **HTTP 200 with `{"ok": false}`** when the tool itself fails.
+  Trusting the status code alone would count a refused send as a delivered
+  alert, so the body is inspected and a failure is retried.
+- It answers `Tool not available: message` when tool policy filters the tool
+  out, rather than when it is missing. The preflight distinguishes that from
+  a bad token (401) and an unreachable gateway.
+
+A healthy preflight logs:
+
+```
+INFO alerter.notifier: Delivery preflight: http://127.0.0.1:18789/tools/invoke
+reachable, 'message' tool permitted (HTTP 200)
+```
 
 Use `webhook` mode below if you want something with no OpenClaw version
 dependency. Full recipe, including MCP registration:
@@ -130,8 +158,9 @@ reports directory is skipped quietly.
 |----------|---------|---------|
 | `NOTIFY_MODE` | `off` | `off`, `openclaw`, or `webhook` |
 | `OPENCLAW_URL` | `http://127.0.0.1:18789` | OpenClaw gateway base URL |
-| `OPENCLAW_HOOK_PATH` | `/hooks/agent` | Path appended to `OPENCLAW_URL`; set to match your HTTP ingress |
-| `OPENCLAW_HOOK_TOKEN` | — | Bearer token for `/hooks/agent` |
+| `OPENCLAW_HOOK_PATH` | `/tools/invoke` | Path appended to `OPENCLAW_URL`; override only for a proxy or bridge |
+| `OPENCLAW_GATEWAY_TOKEN` | — | Gateway token (`gateway.auth.token` in `openclaw.json`) |
+| `OPENCLAW_HOOK_TOKEN` | — | Legacy alias for the above; `OPENCLAW_GATEWAY_TOKEN` wins |
 | `OPENCLAW_CHANNEL` | — | Delivery channel, e.g. `<telegram>` |
 | `OPENCLAW_TO` | — | Recipient, e.g. `<your-chat-id>` |
 | `ALERT_WEBHOOK_URL` | — | Generic webhook endpoint |

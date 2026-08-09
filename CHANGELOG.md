@@ -9,6 +9,40 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Alert delivery to OpenClaw now works.** `NOTIFY_MODE=openclaw` was
+  unusable: it POSTed to `{OPENCLAW_URL}/hooks/agent`, a path that exists on no
+  OpenClaw build. The resulting 404 was read as *"the gateway is WebSocket-only
+  and has no HTTP ingress at all"*, and the mode was documented as needing an
+  HTTP-RPC plugin or a bridge that was never written — so the alerting engine
+  ran for a week evaluating rules correctly and telling nobody.
+
+  The gateway does serve HTTP, multiplexed onto the same port: `POST
+  /tools/invoke` is always enabled. Alerts are now delivered by invoking
+  OpenClaw's `message` tool through it, authenticated with the Gateway token
+  (`OPENCLAW_GATEWAY_TOKEN`; `OPENCLAW_HOOK_TOKEN` still accepted). Verified
+  against OpenClaw 2026.7.1-2. The generalisation from one missing route to a
+  whole missing protocol is called out in both docs, since the shape of that
+  mistake is more useful than the fix.
+
+- **A refused send counted as a delivered alert.** `/tools/invoke` answers
+  **HTTP 200 with `{"ok": false}`** when the tool itself fails — a blocked
+  tool, a bad channel, an unknown recipient. The notifier checked only the
+  status code, so every one of those would have been recorded as success. It
+  now inspects the body and retries, for this endpoint only (a generic webhook
+  keeps status-code semantics).
+
+- **The preflight could not tell a blocked tool from a missing endpoint.** Both
+  answer 404. Reporting the wrong one is exactly the inference that caused the
+  bug above, so the body is now read to separate "your tool policy blocks
+  `message`" from "that route does not exist", alongside 401 for a rejected
+  Gateway token and a connection error for a gateway that is down.
+
+- `NOTIFY_MODE=openclaw` now refuses to run with `OPENCLAW_TO` unset instead of
+  posting a message with no recipient and reporting success.
+
+
 ## [2.6.0] — 2026-08-09
 
 Answers that come with the graph, and a tool that checks the monitoring is

@@ -307,9 +307,14 @@ services:
       # Delivery: off (log-only, default) | openclaw | webhook
       - NOTIFY_MODE=${NOTIFY_MODE:-off}
       - OPENCLAW_URL=${OPENCLAW_URL:-http://127.0.0.1:18789}
-      - OPENCLAW_HOOK_PATH=${OPENCLAW_HOOK_PATH:-/hooks/agent}
+      # /tools/invoke is OpenClaw's HTTP tool endpoint, always enabled and
+      # multiplexed onto the gateway port. Override only for a proxy/bridge.
+      - OPENCLAW_HOOK_PATH=${OPENCLAW_HOOK_PATH:-/tools/invoke}
+      # Gateway token = gateway.auth.token in ~/.openclaw/openclaw.json.
+      # OPENCLAW_HOOK_TOKEN is accepted as a legacy alias.
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
       - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN:-}
-      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-}
+      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-telegram}
       - OPENCLAW_TO=${OPENCLAW_TO:-}
       - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
       - ALERT_WEBHOOK_TOKEN=${ALERT_WEBHOOK_TOKEN:-}

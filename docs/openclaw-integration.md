@@ -6,8 +6,9 @@ Two independent integrations, useful separately:
    ask "any microcuts today?" from Telegram and get a real answer. This works
    against a stock OpenClaw gateway.
 2. **Be told about the network** — have the alerter push incidents into a chat.
-   This needs an HTTP ingress that a stock gateway does **not** provide; see
-   [Alert delivery](#alert-delivery) before configuring it.
+   This works against a stock gateway too, via its `POST /tools/invoke`
+   endpoint; it needs the Gateway token and the `message` tool permitted by
+   tool policy. See [Alert delivery](#alert-delivery).
 
 All commands below use placeholders. Nothing machine-specific is committed to
 this repository — generate your own tokens and substitute your own ids.
@@ -154,33 +155,66 @@ That is the only check that distinguishes the two cases.
 
 ### What a stock gateway actually provides
 
-The OpenClaw gateway is a **WebSocket** service. Verified on 2026.7.1-2: it
-listens on `127.0.0.1:18789`, serves `/` and `/docs`, and returns **404 for
-`/hooks/agent` and every other HTTP path**. `openclaw hooks` manages *internal
-agent lifecycle hooks* (`boot-md`, `command-logger`, …) — it has nothing to do
-with inbound HTTP.
+The gateway listens on `127.0.0.1:18789` and multiplexes **both** WebSocket and
+HTTP on that port. The HTTP surface includes `POST /tools/invoke`, which is
+always enabled, plus the OpenAI-compatible `/v1/*` routes. Verified on
+2026.7.1-2.
 
-So `NOTIFY_MODE=openclaw` will not work against a stock gateway. Point it at a
-real HTTP ingress:
+> **This document previously claimed the gateway was WebSocket-only and served
+> no HTTP at all.** That was wrong, and it cost the alerting engine a week of
+> being unable to deliver. The claim came from probing `/hooks/agent` — a path
+> that exists on no OpenClaw build — getting a 404, and generalising from one
+> missing route to the entire surface. The correct conclusion from a single 404
+> is that one path is absent, not that a protocol is.
+>
+> `openclaw hooks` really does manage *internal agent lifecycle hooks*
+> (`boot-md`, `command-logger`, …) and has nothing to do with inbound HTTP —
+> that part was right, and is what made the wrong inference look plausible.
 
-- an OpenClaw HTTP-RPC plugin (see `openclaw plugins list` for what your build
-  offers — `@openclaw/admin-http-rpc` exposes an admin HTTP RPC endpoint), or
-- a small bridge of your own that accepts a POST and shells out to
-  `openclaw message send --channel telegram --target <chat-id> --message ...`,
-  which is the supported send path in this version.
+`NOTIFY_MODE=openclaw` sends by invoking the `message` tool:
 
-`OPENCLAW_HOOK_PATH` sets the path (default `/hooks/agent`) so you can mount
-whichever route your ingress actually serves.
+```bash
+curl -s -X POST http://127.0.0.1:18789/tools/invoke \
+  -H "Authorization: Bearer $(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.openclaw/openclaw.json')))['gateway']['auth']['token'])")" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"message","args":{"action":"send","channel":"telegram",
+       "to":"telegram:<chat-id>","message":"hello from the alerter"}}'
+```
 
-The alerter probes the configured endpoint at startup and logs an explicit
-error when it 404s, so a wrong assumption shows up immediately in
-`docker compose logs alerter` rather than as silent non-delivery:
+A successful call returns `{"ok":true,"result":{...,"messageId":"1544"}}`.
+
+Two requirements beyond the token:
+
+1. **Tool policy must permit `message`.** The endpoint is gated by Gateway auth
+   *and* tool policy. A filtered tool answers HTTP 200 with
+   `{"ok":false,"error":{"message":"Tool not available: message"}}` — allow it
+   via `tools.allow` in `openclaw.json`.
+2. **`OPENCLAW_TO` must be the OpenClaw address form**, e.g.
+   `telegram:123456789`. Find it with `openclaw gateway call sessions-list` and
+   read `deliveryContext.to`.
+
+The alerter runs `network_mode: host`, so the loopback default needs no extra
+plumbing.
+
+### Verifying delivery, not guessing at it
+
+The alerter probes `/tools/invoke` at startup by invoking `message` with no
+arguments. A reachable, permitted tool rejects that with its own validation
+error — which is the proof we want: endpoint answered, token accepted, tool not
+filtered. Healthy output:
 
 ```
-ERROR alerter.notifier: Delivery preflight: http://127.0.0.1:18789/hooks/agent
-returned 404. The endpoint does not exist — a stock OpenClaw gateway is
-WebSocket-only and serves no HTTP hook route.
+INFO alerter.notifier: Delivery preflight: http://127.0.0.1:18789/tools/invoke
+reachable, 'message' tool permitted (HTTP 200)
 ```
+
+The preflight distinguishes three failures that would otherwise look identical:
+`401` (wrong Gateway token), `Tool not available` (policy blocks the tool), and
+a connection error (gateway down).
+
+Note the endpoint answers **HTTP 200 with `{"ok": false}`** when a tool fails.
+A notifier that trusts the status code alone counts every refused send as a
+delivered alert, so the alerter inspects the body and retries on `ok: false`.
 
 ### The portable alternative
 
