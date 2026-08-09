@@ -11,6 +11,29 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **An instrumentation doctor** (`shared/modules/doctor/`, `docs/doctor.md`),
+  which verifies the monitoring wiring rather than the network: the case where
+  a measurement or panel looks fine and silently charts nothing. Nine static
+  checks compare each stage of the pipeline against the next — dashboard
+  queries against the vocabulary the exporters actually write, datasource
+  references against what provisioning declares, dashboard files against the
+  paths Grafana scans.
+
+  It replaces the inline JSON/YAML validator in the `Grafana dashboards &
+  provisioning` CI job, so every PR is now gated on it. Notably it catches the
+  two-datasources-claim-default configuration that made v2.5.0 unable to start
+  Grafana, which nothing in CI would have caught before.
+
+  The vocabulary is read out of the exporter source with `ast` rather than
+  copied into a list, since a copied list drifts silently — which is the bug
+  class the tool exists for. Every check is proved by a test that reintroduces
+  the bug and asserts the doctor fails; a doctor that only ever passes is
+  indistinguishable from one that does nothing.
+
+  The live checks (target present in the DB but missing from the RRDs or the
+  TSDB, queries that error or return empty, loss outside its declared range)
+  are not built yet — `docs/doctor.md` lists them.
+
 - **Deep links in MCP tool responses.** Each target now carries a `links`
   object — the Grafana panel scoped to that target and time window, the
   per-ping detail, the side-by-side against its peers, and the web-admin page

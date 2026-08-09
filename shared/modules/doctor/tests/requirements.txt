@@ -1,0 +1,3 @@
+# Dependencies needed to run the doctor module tests in CI.
+pyyaml
+pytest
