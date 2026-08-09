@@ -31,6 +31,9 @@ import flux
 # DOWN_MIN_POINTS if you retune either.
 DEFAULT_DOWN_WINDOW = 1200  # seconds; DOWN_WINDOW
 DEFAULT_HIGH_LOSS_PCT = 20.0  # percent; HIGH_LOSS_PCT
+# Exporter-liveness window. Four 300 s steps, so a burst arriving late does not
+# read as a stall. See _stale_flux for why 10m was too tight.
+DEFAULT_STALE_WINDOW = 1200  # seconds; STALE_WINDOW
 # Microcut windows per 60 min needed to fire; MICROCUT_BURST_N.
 # This counts OBSERVED windows, so it must track the probe's duty cycle. The
 # detector samples a 10 s window every CPE_PROBE_WINDOW + CPE_PROBE_IDLE
@@ -112,9 +115,17 @@ def _microcut_flux(loss_pct: float) -> str:
 
 
 def _stale_flux() -> str:
-    """Total latency points written in the last 10m (exporter liveness)."""
+    """Total latency points written recently (exporter liveness).
+
+    Was 10m, which on a 300 s step is two points at best — and the RRD row
+    timestamps lag the write, so the effective margin was near zero and this
+    rule flapped in and out on its own. Observed live: three quiet minutes,
+    then the incident reappears. Same defect as the old DOWN_WINDOW, so the
+    same rule applies: give the window several steps of slack.
+    """
+    window = _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
     return (
-        flux.base_flux(["latency"], "-10m")
+        flux.base_flux(["latency"], f"-{window}s")
         + '|> filter(fn: (r) => r._field == "loss") '
         + "|> group() "
         + "|> count()"
