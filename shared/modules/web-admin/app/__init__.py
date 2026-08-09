@@ -194,7 +194,13 @@ def create_app(config_name='production'):
             return
 
         if not current_user.is_authenticated:
-            return redirect(url_for('auth.login', next=request.path))
+            # full_path, not path: deep links from the MCP tools carry the
+            # target in the query string (/targets/?q=Amazon), and dropping it
+            # lands the user on the unfiltered list after logging in.
+            # full_path always appends '?', so strip a bare trailing one.
+            return redirect(
+                url_for('auth.login', next=request.full_path.rstrip('?'))
+            )
 
     # Error handlers: JSON for API paths, HTML pages for browser routes
     def _wants_json():

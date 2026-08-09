@@ -94,6 +94,40 @@ def test_relative_next_url_allowed(client):
     assert response.headers['Location'].endswith('/targets/')
 
 
+def test_next_url_keeps_the_query_string(client):
+    """MCP deep links carry the target in the query string (/targets/?q=Foo)."""
+    response = client.post(
+        '/login',
+        data={
+            'username': 'admin',
+            'password': 'test-password',
+            'next': '/targets/?q=Amazon',
+        },
+    )
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/targets/?q=Amazon')
+
+
+def _next_param(location):
+    from urllib.parse import parse_qs, urlparse
+
+    return parse_qs(urlparse(location).query).get('next', [None])[0]
+
+
+def test_login_redirect_preserves_the_query_string(client):
+    """Hitting a deep link while logged out must not lose the filter."""
+    response = client.get('/targets/?q=Amazon')
+    assert response.status_code == 302
+    assert _next_param(response.headers['Location']) == '/targets/?q=Amazon'
+
+
+def test_login_redirect_has_no_dangling_question_mark(client):
+    """request.full_path always appends '?'; a bare one must be stripped."""
+    response = client.get('/targets/')
+    assert response.status_code == 302
+    assert _next_param(response.headers['Location']) == '/targets/'
+
+
 def test_password_hash_takes_precedence(client, monkeypatch):
     monkeypatch.setenv(
         'WEB_ADMIN_PASSWORD_HASH', generate_password_hash('hash-only-password')

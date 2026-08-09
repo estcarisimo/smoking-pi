@@ -9,6 +9,38 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Deep links in MCP tool responses.** Each target now carries a `links`
+  object — the Grafana panel scoped to that target and time window, the
+  per-ping detail, the side-by-side against its peers, and the web-admin page
+  for editing it — so an assistant can hand over the graph instead of only the
+  median. `get_microcut_stats` zooms each of its worst-5 windows to a
+  ±15-minute range around when it happened.
+
+  Off until configured, deliberately: this host answers on a LAN IP, a
+  Tailscale name and possibly a tunnel hostname, and a link to the wrong one
+  looks right in the transcript and fails silently on the reader's phone.
+  Set `PUBLIC_BASE_HOST` (standard ports appended) or `GRAFANA_PUBLIC_URL` /
+  `WEB_ADMIN_PUBLIC_URL` where a proxy hides the ports. Unset means no links
+  at all rather than a guess; `system_status()` is the one place that says so.
+
+### Changed
+
+- `get_loss_events` returns a `by_target` rollup (event count, worst loss, the
+  span covered, links) alongside the raw events. It was returning up to 500
+  individual points with no summary, and a hundred loss points on one target
+  is one story rather than a hundred.
+
+### Fixed
+
+- The web-admin login redirect dropped the query string — it redirected to
+  `next=request.path`, so opening `/targets/?q=Amazon` while logged out landed
+  on the unfiltered list of every target after logging in. Uses `full_path`
+  now. Absolute and protocol-relative `next` values are still rejected.
+- `/targets/` now honours a `?q=` parameter by pre-filtering the list, so the
+  links above open on the target being discussed.
+
 ## [2.5.1] — 2026-08-07
 
 A hotfix release. **v2.5.0 does not start Grafana in the default InfluxDB
