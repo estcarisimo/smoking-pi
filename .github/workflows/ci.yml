@@ -71,42 +71,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Validate dashboard JSON and provisioning YAML
+      # Replaces an inline JSON/YAML validator. The doctor still parses every
+      # dashboard and provisioning file, and additionally checks that they
+      # agree with each other: datasource uids resolve, plugins are installed,
+      # exactly one datasource is default (v2.5.0 shipped two and Grafana
+      # refused to start), every dashboard sits under a scanned path, and no
+      # panel filters on a measurement or tag the exporters never write.
+      - name: Instrumentation doctor (static checks)
         run: |
           pip -q install pyyaml
-          python - <<'EOF'
-          import glob, json, sys
-          import yaml
-
-          errors = []
-          dashboards = glob.glob(
-              "shared/modules/grafana/provisioning/dashboards*/**/*.json",
-              recursive=True,
-          )
-          uids = {}
-          for path in dashboards:
-              try:
-                  data = json.load(open(path))
-              except Exception as e:
-                  errors.append(f"{path}: invalid JSON: {e}")
-                  continue
-              uid = data.get("uid")
-              if uid:
-                  if uid in uids and "clickhouse" not in path and "clickhouse" not in uids[uid]:
-                      errors.append(f"duplicate uid {uid}: {path} and {uids[uid]}")
-                  uids.setdefault(uid, path)
-          for path in glob.glob(
-              "shared/modules/grafana/provisioning/**/*.yaml", recursive=True
-          ):
-              try:
-                  yaml.safe_load(open(path))
-              except Exception as e:
-                  errors.append(f"{path}: invalid YAML: {e}")
-          if errors:
-              print("\n".join(errors))
-              sys.exit(1)
-          print(f"OK: {len(dashboards)} dashboards, provisioning YAML valid")
-          EOF
+          python -m doctor --repo-root . --verbose
+        env:
+          PYTHONPATH: shared/modules/doctor
 
   module-tests:
     name: Module unit tests
