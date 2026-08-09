@@ -9,6 +9,27 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-08-09
+
+Answers that come with the graph, and a tool that checks the monitoring is
+actually monitoring.
+
+Two additions that point in the same direction. Deep links close the gap
+between "median 8 ms, 0% loss" and the panel that shows what the number is
+hiding. The instrumentation doctor closes a wider one: nothing in CI could
+tell whether a dashboard, a datasource, or an exporter still agreed with its
+neighbours, which is how v2.5.0 shipped a Grafana that would not start.
+
+Upgrade notes:
+
+- **Deep links are off until you configure them.** Set `PUBLIC_BASE_HOST` on
+  the mcp-server service to the address a reader can actually open. Unset is a
+  supported state, not a broken one — tool responses simply carry no links.
+- **The `Grafana dashboards & provisioning` CI job now runs the doctor.** It
+  checks strictly more than the validator it replaces, so a repo that passed
+  before may now fail — that is the point. Run it locally with
+  `PYTHONPATH=shared/modules/doctor python -m doctor`.
+
 ### Added
 
 - **An instrumentation doctor** (`shared/modules/doctor/`, `docs/doctor.md`),
