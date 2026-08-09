@@ -321,6 +321,13 @@ services:
       # Cadence / dedup / report delivery (seconds)
       - ALERT_INTERVAL=${ALERT_INTERVAL:-60}
       - ALERT_COOLDOWN=${ALERT_COOLDOWN:-3600}
+      # How long an incident must stay ABSENT before it counts as recovered.
+      # Without this, a rule that flaps alternates alert/recovery and the
+      # cooldown never applies, because recovery deletes the record.
+      - ALERT_RESOLVE_AFTER=${ALERT_RESOLVE_AFTER:-900}
+      # Hard ceiling per incident key per rolling hour. A blast-radius limit,
+      # not a tuning knob — unreachable in normal operation.
+      - ALERT_MAX_PER_HOUR=${ALERT_MAX_PER_HOUR:-6}
       - REPORT_DELIVERY_INTERVAL=${REPORT_DELIVERY_INTERVAL:-86400}
       # Rule thresholds (optional overrides; module defaults apply)
       - DOWN_WINDOW=${DOWN_WINDOW:-900}

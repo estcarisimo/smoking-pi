@@ -11,6 +11,30 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **A flapping incident sent unbounded notifications.** Found the hard way: a
+  `target_down` incident on a test target alternated alert/recovery on a
+  five-minute cycle and delivered ~48 messages every two hours to a real
+  phone, for four hours.
+
+  Three defects at three layers, all now fixed:
+
+  1. `DOWN_WINDOW` was 900 s with `DOWN_MIN_POINTS=3` on a 300 s probe step —
+     *exactly* three points, so ordinary window jitter yielded two, the rule
+     stopped matching, and the incident looked resolved. Now 1200 s (four
+     points where three are required).
+  2. Recovery deleted the incident record outright, so the next appearance
+     took the first-seen path and alerted immediately. `ALERT_COOLDOWN` only
+     ever suppressed *continuously* active incidents and did nothing in the
+     one case where it matters. An incident must now be absent for
+     `ALERT_RESOLVE_AFTER` (default 900 s) before it counts as recovered;
+     reappearing inside that window is silent.
+  3. New `ALERT_MAX_PER_HOUR` (default 6): a hard ceiling per incident key,
+     independent of the lifecycle logic, so a future lifecycle bug cannot
+     reach a phone at that volume. `0` disables it.
+
+  Verified by replaying the observed flap pattern against both versions: 48
+  notifications per two hours before, at most 3 after.
+
 - **Alert delivery to OpenClaw now works.** `NOTIFY_MODE=openclaw` was
   unusable: it POSTed to `{OPENCLAW_URL}/hooks/agent`, a path that exists on no
   OpenClaw build. The resulting 404 was read as *"the gateway is WebSocket-only

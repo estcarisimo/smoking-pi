@@ -167,6 +167,8 @@ reports directory is skipped quietly.
 | `ALERT_WEBHOOK_TOKEN` | — | Optional bearer token for the webhook |
 | `ALERT_INTERVAL` | `60` | Seconds between evaluations |
 | `ALERT_COOLDOWN` | `3600` | Seconds before re-notifying an active incident |
+| `ALERT_RESOLVE_AFTER` | `900` | Seconds an incident must be absent before a recovery notice fires (flap damping) |
+| `ALERT_MAX_PER_HOUR` | `6` | Hard ceiling on notifications per incident per rolling hour; `0` disables |
 | `ALERT_STATE_FILE` | `/var/lib/alerter/state.json` | Incident/report state (atomic writes) |
 | `DOWN_WINDOW` | `900` | `target_down` window (seconds; SmokePing probes on a 300 s step, so this must span at least 3 steps) |
 | `HIGH_LOSS_PCT` | `20` | `high_loss` threshold (percent) |
@@ -199,3 +201,39 @@ cd shared/modules/alerter
 pip install -r tests/requirements.txt
 pytest -q
 ```
+
+
+## Flap damping, and why the cooldown alone is not enough
+
+`ALERT_COOLDOWN` only suppresses repeats for an incident that stays
+*continuously* active. It does nothing for one that oscillates, because a
+recovery used to delete the incident record outright — so the next appearance
+looked brand new, took the first-seen path, and alerted immediately.
+
+That is not hypothetical. A `target_down` incident on an unroutable test target
+flapped on a five-minute cycle and sent **48 notifications every two hours**,
+indefinitely, to a real phone. The trigger was `DOWN_WINDOW=900` with
+`DOWN_MIN_POINTS=3` on a 300 s probe step: 900/300 is *exactly* three points, so
+any timing skew produced two, the rule stopped matching, and the incident
+"recovered" — then re-fired one cycle later.
+
+Three changes, at three different layers:
+
+1. **`DOWN_WINDOW` is now 1200 s** — four points where three are required, so
+   one point of slack absorbs the jitter. If you retune either value, keep
+   `DOWN_WINDOW / 300` strictly greater than `DOWN_MIN_POINTS`.
+2. **An incident must be absent for `ALERT_RESOLVE_AFTER` (default 900 s)
+   before it counts as recovered.** Reappearing inside that window is silent:
+   it never recovered, so there is nothing to announce, and the cooldown keeps
+   governing re-alerts. This protects every rule, not just the one that flapped.
+3. **`ALERT_MAX_PER_HOUR` (default 6) is a hard ceiling per incident key**,
+   independent of the lifecycle logic above. It is a blast-radius limit rather
+   than a tuning knob — unreachable in normal operation, and it caps the damage
+   if the lifecycle is ever wrong again.
+
+Layer 1 fixes the specific trigger; layer 2 fixes the class of bug; layer 3
+bounds the cost of the next one. Set `ALERT_MAX_PER_HOUR=0` to disable the
+ceiling if you genuinely want unbounded delivery.
+
+Note also that `high_loss` and `target_down` both match a fully-down target, so
+a real outage produces two notifications by design — one warning, one critical.

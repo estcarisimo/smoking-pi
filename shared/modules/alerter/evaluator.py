@@ -19,9 +19,17 @@ import flux
 
 # Thresholds (env-tunable).
 # SmokePing probes on a 300 s step, so a 300 s window holds a single point —
-# too few for DOWN_MIN_POINTS. 900 s is the shortest window that can confirm
-# a target is down rather than reacting to one missed cycle.
-DEFAULT_DOWN_WINDOW = 900  # seconds; DOWN_WINDOW
+# too few for DOWN_MIN_POINTS.
+#
+# This was 900 s, which is the SHORTEST window that can hold DOWN_MIN_POINTS,
+# and that is exactly the problem: 900/300 = 3 points only when the window
+# boundary and the export cadence line up perfectly. Any skew yields 2, the
+# rule stops matching, and the incident looks resolved. Observed live as a
+# clean five-minute cycle — four minutes present, one minute absent, forever.
+# 1200 s holds four points where three are required, so one point of slack
+# absorbs the jitter. Keep DOWN_WINDOW/300 strictly greater than
+# DOWN_MIN_POINTS if you retune either.
+DEFAULT_DOWN_WINDOW = 1200  # seconds; DOWN_WINDOW
 DEFAULT_HIGH_LOSS_PCT = 20.0  # percent; HIGH_LOSS_PCT
 # Microcut windows per 60 min needed to fire; MICROCUT_BURST_N.
 # This counts OBSERVED windows, so it must track the probe's duty cycle. The
