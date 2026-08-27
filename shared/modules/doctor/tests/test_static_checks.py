@@ -58,6 +58,66 @@ RUN grafana cli --pluginsDir /var/lib/grafana/plugins \\
         plugins install grafana-clickhouse-datasource
 """
 
+# A faithful miniature of the alerter's env handling: a DEFAULT_ constant read
+# through a helper, the `get(...) or DEFAULT` idiom, and one knob that is only
+# documented in the docs table.
+ALERTER_SOURCE = '''
+import os
+
+DEFAULT_DOWN_WINDOW = 1200
+DEFAULT_STALE_WINDOW = 1200
+DEFAULT_OPENCLAW_CHANNEL = "telegram"
+DEFAULT_STATE_FILE = "/var/lib/alerter/state.json"
+
+
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+
+
+def windows():
+    return (
+        _env_int("DOWN_WINDOW", DEFAULT_DOWN_WINDOW),
+        _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW),
+    )
+
+
+def channel():
+    return os.environ.get("OPENCLAW_CHANNEL") or DEFAULT_OPENCLAW_CHANNEL
+
+
+def state_file():
+    return os.environ.get("ALERT_STATE_FILE", DEFAULT_STATE_FILE)
+'''
+
+ALERTER_COMPOSE = {
+    "services": {
+        "alerter": {
+            "environment": [
+                "DOWN_WINDOW=${DOWN_WINDOW:-1200}",
+                "STALE_WINDOW=${STALE_WINDOW:-1200}",
+                "OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-telegram}",
+                "INFLUX_TOKEN=${INFLUX_TOKEN}",
+            ]
+        }
+    }
+}
+
+ALERTER_ENV_TEMPLATE = "DOWN_WINDOW=\nSTALE_WINDOW=\n"
+
+ALERTING_DOC = """
+## Environment reference
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DOWN_WINDOW` | `1200` | target_down window |
+| `STALE_WINDOW` | `1200` | exporter_stale window |
+| `OPENCLAW_CHANNEL` | `telegram` | delivery channel |
+| `ALERT_STATE_FILE` | `/var/lib/alerter/state.json` | incident state |
+"""
+
 
 def _dashboard(uid, title, query, datasource_uid="influxdb"):
     return {
@@ -93,6 +153,16 @@ def repo(tmp_path):
     (exporters / "rrd2influx.py").write_text(EXPORTER_SOURCE)
     (exporters / "microcut_detector.py").write_text(CPE_EXPORTER_SOURCE)
     (tmp_path / "shared/modules/grafana/Dockerfile").write_text(GRAFANA_DOCKERFILE)
+
+    alerter = tmp_path / "shared/modules/alerter"
+    alerter.mkdir(parents=True)
+    (alerter / "evaluator.py").write_text(ALERTER_SOURCE)
+    pro = tmp_path / "editions/pro"
+    pro.mkdir(parents=True)
+    (pro / "docker-compose.yml").write_text(yaml.safe_dump(ALERTER_COMPOSE))
+    (pro / ".env.template").write_text(ALERTER_ENV_TEMPLATE)
+    (tmp_path / "docs").mkdir(parents=True)
+    (tmp_path / "docs/alerting.md").write_text(ALERTING_DOC)
 
     (provisioning / "dashboards/overview/latency.json").write_text(
         json.dumps(_dashboard("lat-v1", "Latency", GOOD_QUERY))
@@ -411,6 +481,110 @@ def test_missing_repo_root_is_skipped_not_crashed(tmp_path, capsys):
 
     assert main(["--repo-root", str(tmp_path)]) == 0
     assert "wrong --repo-root" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Alerter env: module defaults vs deployed defaults
+# ---------------------------------------------------------------------------
+
+
+def _set_compose_env(repo, entries):
+    path = repo.pro / "docker-compose.yml"
+    data = yaml.safe_load(path.read_text())
+    data["services"]["alerter"]["environment"] = entries
+    path.write_text(yaml.safe_dump(data))
+
+
+def test_alerter_env_defaults_match_on_a_healthy_repo(repo):
+    assert run(repo)["alerter-env-defaults-match"].status is Status.OK
+
+
+def test_compose_default_overriding_a_module_default_fails(repo):
+    """THE bug: a flap fix raised DEFAULT_DOWN_WINDOW to 1200, but compose
+    still pinned 900, so the deployed container never saw the fix."""
+    _set_compose_env(
+        repo,
+        [
+            "DOWN_WINDOW=${DOWN_WINDOW:-900}",
+            "STALE_WINDOW=${STALE_WINDOW:-1200}",
+            "OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-telegram}",
+        ],
+    )
+    check = run(repo)["alerter-env-defaults-match"]
+    assert check.status is Status.FAIL
+    rendered = " ".join(f.render() for f in check.findings)
+    assert "DOWN_WINDOW" in rendered
+    assert "900" in rendered and "1200" in rendered
+
+
+def test_a_mismatched_string_default_also_fails(repo):
+    _set_compose_env(repo, ["OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-slack}"])
+    check = run(repo)["alerter-env-defaults-match"]
+    assert check.status is Status.FAIL
+    assert "OPENCLAW_CHANNEL" in " ".join(f.render() for f in check.findings)
+
+
+def test_numeric_defaults_compare_by_value_not_text(repo):
+    """20.0 in Python and "20" in compose are the same setting."""
+    (repo.alerter / "evaluator.py").write_text(
+        ALERTER_SOURCE + "\nDEFAULT_HIGH_LOSS_PCT = 20.0\n"
+        "def loss():\n    return _env_int('HIGH_LOSS_PCT', DEFAULT_HIGH_LOSS_PCT)\n"
+    )
+    _set_compose_env(repo, ["HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}"])
+    assert run(repo)["alerter-env-defaults-match"].status is Status.OK
+
+
+def test_env_without_a_compose_default_is_not_compared(repo):
+    """`${VAR}` supplies no default, so there is nothing to disagree with."""
+    _set_compose_env(repo, ["DOWN_WINDOW=${DOWN_WINDOW}"])
+    assert run(repo)["alerter-env-defaults-match"].status is Status.OK
+
+
+def test_missing_alerter_source_skips_rather_than_passing(repo):
+    """An empty module must not read as 16 matching defaults."""
+    (repo.alerter / "evaluator.py").unlink()
+    assert run(repo)["alerter-env-defaults-match"].status is Status.SKIP
+
+
+# ---------------------------------------------------------------------------
+# Alerter env: discoverability
+# ---------------------------------------------------------------------------
+
+
+def test_alerter_env_declared_on_a_healthy_repo(repo):
+    """ALERT_STATE_FILE is absent from compose and .env.template but present
+    in the docs table, which is enough to find it."""
+    assert run(repo)["alerter-env-declared"].status is Status.OK
+
+
+def test_an_undocumented_env_var_warns(repo):
+    (repo.alerter / "evaluator.py").write_text(
+        ALERTER_SOURCE
+        + "\ndef secret():\n    return os.environ.get('ALERT_SECRET_KNOB', 'x')\n"
+    )
+    check = run(repo)["alerter-env-declared"]
+    assert check.status is Status.WARN
+    assert "ALERT_SECRET_KNOB" in " ".join(f.render() for f in check.findings)
+
+
+def test_documenting_it_anywhere_clears_the_warning(repo):
+    (repo.alerter / "evaluator.py").write_text(
+        ALERTER_SOURCE
+        + "\ndef secret():\n    return os.environ.get('ALERT_SECRET_KNOB', 'x')\n"
+    )
+    (repo.pro / ".env.template").write_text(
+        ALERTER_ENV_TEMPLATE + "ALERT_SECRET_KNOB=\n"
+    )
+    assert run(repo)["alerter-env-declared"].status is Status.OK
+
+
+def test_a_warning_does_not_fail_the_run(repo):
+    """Discoverability is a documentation gap, not a broken deployment."""
+    (repo.alerter / "evaluator.py").write_text(
+        ALERTER_SOURCE
+        + "\ndef secret():\n    return os.environ.get('ALERT_SECRET_KNOB', 'x')\n"
+    )
+    assert Report(static_checks.run_all(repo)).exit_code == 0
 
 
 # ---------------------------------------------------------------------------

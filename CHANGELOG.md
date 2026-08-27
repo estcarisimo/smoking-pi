@@ -11,6 +11,38 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The flap fix below did not reach the deployed container.** Raising
+  `DEFAULT_DOWN_WINDOW` from 900 to 1200 fixed nothing in practice, because
+  `docker-compose.yml` pinned `DOWN_WINDOW=${DOWN_WINDOW:-900}` and a Compose
+  default silently wins over a module default. Both files read as correct on
+  their own; only the pair was wrong. `STALE_WINDOW`, added in the same batch,
+  was declared in no compose file, no `.env.template` and no doc at all.
+
+  Fixed, and — more usefully — made impossible to repeat. The instrumentation
+  doctor gained **`alerter-env-defaults-match`**, which extracts every env var
+  the alerter reads out of its own source with `ast` (including the
+  `os.environ.get(...) or DEFAULT_X` idiom) and asserts that each Compose
+  `${VAR:-x}` default equals the `DEFAULT_*` constant behind it. Reverting the
+  compose line to 900 now fails CI with the specific pair that disagrees.
+  A companion **`alerter-env-declared`** warns when a knob exists only in
+  Python — discoverable in neither compose, `.env.template`, nor the
+  `docs/alerting.md` table.
+
+  `docs/alerting.md` also contradicted itself on this value (900 in the rules
+  table, 1200 in the flap-damping section), and `exporter_stale`'s alert text
+  still claimed a hardcoded "10m" after the window became configurable and
+  moved to 1200 s. The message now reports the window it actually queried.
+
+- **`COMPOSE_PROFILES` is now persisted, not passed once.** Starting an
+  optional service with `COMPOSE_PROFILES=mcp docker compose up -d mcp-server`
+  leaves it running but unmanaged: the next `docker compose down` removes it
+  and the following `up -d` does not bring it back, with nothing to say so.
+  That is how this deployment ended up running an MCP server that Compose no
+  longer knew about — and when it goes, OpenClaw silently falls back to
+  answering from the shell instead of the monitoring data. `setup.sh` now
+  writes `COMPOSE_PROFILES` into the generated `.env` alongside `TSDB_TYPE`,
+  and `.env.template` documents the full profile list.
+
 - **A flapping incident sent unbounded notifications.** Found the hard way: a
   `target_down` incident on a test target alternated alert/recovery on a
   five-minute cycle and delivered ~48 messages every two hours to a real
