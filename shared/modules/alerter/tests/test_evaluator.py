@@ -138,6 +138,17 @@ def test_exporter_stale_quiet_when_points_exist():
     assert evaluator.rule_exporter_stale([{"_value": 42}]) == []
 
 
+def test_exporter_stale_message_reports_the_window_it_queried():
+    """The message must not carry a hardcoded duration.
+
+    It used to say "10m" literally. STALE_WINDOW then made the real window
+    configurable (and defaulted it to 1200 s), leaving every alert claiming a
+    window the rule had not looked at.
+    """
+    assert "20m" in evaluator.rule_exporter_stale([], window_s=1200)[0]["message"]
+    assert "5m" in evaluator.rule_exporter_stale([], window_s=300)[0]["message"]
+
+
 # ---------------------------------------------------------------------------
 # ipv6_down
 # ---------------------------------------------------------------------------

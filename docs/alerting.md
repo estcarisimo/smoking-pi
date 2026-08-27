@@ -21,10 +21,10 @@ The service runs with `network_mode: host`, so it reaches InfluxDB on
 
 | Rule | Severity | Condition | Tunables (default) |
 |------|----------|-----------|--------------------|
-| `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points | `DOWN_WINDOW` (900 s) |
+| `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points | `DOWN_WINDOW` (1200 s) |
 | `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold (targets already down are excluded) | `HIGH_LOSS_PCT` (20 %) |
 | `microcut_burst` | warning | Per target+protocol in `cpe_latency`: number of 10 s windows whose loss exceeds `MICROCUT_LOSS_PCT` in the last 60 min reaches the burst count | `MICROCUT_BURST_N` (2), `MICROCUT_LOSS_PCT` (50 %) |
-| `exporter_stale` | critical | Zero `latency` points written in the last 10 min (global — the RRD exporter is probably stalled) | — |
+| `exporter_stale` | critical | Zero `latency` points written in the last window (global — the RRD exporter is probably stalled) | `STALE_WINDOW` (1200 s) |
 | `ipv6_down` | warning | Every IPv6 target (name ends in `6`, or an `fping6`-ish category) at 100% loss for 15 min while at least one IPv4 target is healthy; emits ONE aggregate incident | — |
 
 Loss semantics match the exporters: `latency`/`dns_latency` loss is a 0-1
@@ -170,7 +170,8 @@ reports directory is skipped quietly.
 | `ALERT_RESOLVE_AFTER` | `900` | Seconds an incident must be absent before a recovery notice fires (flap damping) |
 | `ALERT_MAX_PER_HOUR` | `6` | Hard ceiling on notifications per incident per rolling hour; `0` disables |
 | `ALERT_STATE_FILE` | `/var/lib/alerter/state.json` | Incident/report state (atomic writes) |
-| `DOWN_WINDOW` | `900` | `target_down` window (seconds; SmokePing probes on a 300 s step, so this must span at least 3 steps) |
+| `DOWN_WINDOW` | `1200` | `target_down` window (seconds). SmokePing probes on a 300 s step and `DOWN_MIN_POINTS` is 3, so this must span **strictly more** than 3 steps — at exactly 3 the rule stops matching whenever jitter costs it one point, and the incident flaps. See [Flap damping](#flap-damping-and-why-the-cooldown-alone-is-not-enough) |
+| `STALE_WINDOW` | `1200` | `exporter_stale` window (seconds); same step arithmetic as `DOWN_WINDOW` |
 | `HIGH_LOSS_PCT` | `20` | `high_loss` threshold (percent) |
 | `MICROCUT_BURST_N` | `2` | Microcut windows per 60 min to flag a burst. Counts OBSERVED windows, so it tracks the probe duty cycle: the detector samples a 10 s window every `CPE_PROBE_WINDOW + CPE_PROBE_IDLE` seconds (~120 windows/hour by default). Rescale it if you change `CPE_PROBE_IDLE` |
 | `MICROCUT_LOSS_PCT` | `50` | Loss percent above which a 10 s CPE window counts as a microcut. CPE gateways rate-limit ICMP, giving a constant single-digit loss floor, so counting any loss at all would flag that floor permanently |
@@ -222,6 +223,13 @@ Three changes, at three different layers:
 1. **`DOWN_WINDOW` is now 1200 s** — four points where three are required, so
    one point of slack absorbs the jitter. If you retune either value, keep
    `DOWN_WINDOW / 300` strictly greater than `DOWN_MIN_POINTS`.
+
+   Raising the constant in `evaluator.py` was not enough on its own:
+   `docker-compose.yml` pinned `DOWN_WINDOW=${DOWN_WINDOW:-900}`, so the
+   deployed container kept getting 900 and the fix did nothing where it
+   mattered. **A compose default silently overrides a module default**, and
+   nothing compared the two. `doctor`'s `check_alerter_env_declared` now
+   does, and fails CI when they disagree — the fix for the fix.
 2. **An incident must be absent for `ALERT_RESOLVE_AFTER` (default 900 s)
    before it counts as recovered.** Reappearing inside that window is silent:
    it never recovered, so there is nothing to announce, and the cooldown keeps

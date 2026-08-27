@@ -329,8 +329,13 @@ services:
       # not a tuning knob — unreachable in normal operation.
       - ALERT_MAX_PER_HOUR=${ALERT_MAX_PER_HOUR:-6}
       - REPORT_DELIVERY_INTERVAL=${REPORT_DELIVERY_INTERVAL:-86400}
-      # Rule thresholds (optional overrides; module defaults apply)
-      - DOWN_WINDOW=${DOWN_WINDOW:-900}
+      # Rule thresholds (optional overrides; module defaults apply).
+      # These defaults MUST track the DEFAULT_* constants in evaluator.py --
+      # a value here silently overrides the module default, which is how the
+      # 900 s DOWN_WINDOW survived the flap fix that raised it to 1200.
+      # doctor's check_alerter_env_declared now enforces the pairing.
+      - DOWN_WINDOW=${DOWN_WINDOW:-1200}
+      - STALE_WINDOW=${STALE_WINDOW:-1200}
       - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
       # Counts OBSERVED windows, so rescale it with CPE_PROBE_IDLE.
       - MICROCUT_BURST_N=${MICROCUT_BURST_N:-2}

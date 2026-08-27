@@ -237,8 +237,15 @@ def rule_microcut_burst(
     return incidents
 
 
-def rule_exporter_stale(stale_rows: list[dict]) -> list[dict]:
-    """critical: zero ``latency`` points written in the last 10m (global)."""
+def rule_exporter_stale(
+    stale_rows: list[dict], window_s: int | None = None
+) -> list[dict]:
+    """critical: zero ``latency`` points written in ``window_s`` (global).
+
+    ``window_s`` is reported in the message rather than hardcoded, so the
+    text cannot drift from the window actually queried the way the old
+    literal "10m" did after STALE_WINDOW was introduced.
+    """
     total = 0
     for row in stale_rows:
         value = row.get("_value")
@@ -246,6 +253,8 @@ def rule_exporter_stale(stale_rows: list[dict]) -> list[dict]:
             total += int(value)
     if total > 0:
         return []
+    if window_s is None:
+        window_s = _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
     return [
         {
             "rule": "exporter_stale",
@@ -253,7 +262,7 @@ def rule_exporter_stale(stale_rows: list[dict]) -> list[dict]:
             "key": "exporter_stale",
             "target": None,
             "message": (
-                "no latency points written in the last 10m — "
+                f"no latency points written in the last {window_s // 60}m — "
                 "RRD exporter appears stalled"
             ),
             "value": 0,
@@ -331,6 +340,8 @@ def evaluate() -> list[dict]:
     down_targets = {i["target"] for i in incidents}
     incidents += rule_high_loss(mean_rows, exclude=down_targets)
     incidents += rule_microcut_burst(micro_rows)
-    incidents += rule_exporter_stale(stale_rows)
+    incidents += rule_exporter_stale(
+        stale_rows, _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
+    )
     incidents += rule_ipv6_down(mean_rows)
     return incidents

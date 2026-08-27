@@ -73,9 +73,14 @@ echo ""
 echo -e "${BLUE}📋 Setting up environment...${NC}"
 "$ROOT_DIR/shared/scripts/generate-passwords.sh" --edition pro --target-dir "$SCRIPT_DIR"
 
-# Set TSDB_TYPE in the generated .env (never mutate the tracked template)
+# Set TSDB_TYPE in the generated .env (never mutate the tracked template).
+# COMPOSE_PROFILES is persisted alongside it rather than only passed on the
+# command line below: a profile that exists solely in this script's argv is
+# forgotten by the next bare `docker compose up -d`, which then quietly runs
+# without that service.
 if [ -f "$SCRIPT_DIR/.env" ]; then
     sed -i "s/^TSDB_TYPE=.*/TSDB_TYPE=$DATABASE/" "$SCRIPT_DIR/.env"
+    sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$DATABASE/" "$SCRIPT_DIR/.env"
 fi
 
 # Choose compose file based on database
