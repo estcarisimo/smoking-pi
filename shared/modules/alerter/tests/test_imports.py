@@ -15,6 +15,14 @@ def test_import_all_modules_without_env():
 
 
 def test_lazy_influx_client_not_constructed_at_import():
-    import flux
+    """The client must not exist until something actually queries.
 
-    assert flux._influx_client is None
+    Asserted against common.tsdb, not the `flux` shim. The shim re-exports
+    public names only: binding `_influx_client` through it would snapshot
+    None at import and never change, so the assertion would hold forever
+    whether or not a client had been constructed -- a green test that tests
+    nothing.
+    """
+    from common import tsdb
+
+    assert tsdb._influx_client is None

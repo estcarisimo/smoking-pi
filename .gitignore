@@ -40,6 +40,11 @@ docker-compose.local.yml
 
 # Docker build cache
 .dockerignore
+# ...except this one, which is not a local artefact: the alerter, ai-insights
+# and mcp-server images build with `shared/` as their context, so without it
+# every __pycache__ and test tree in the repo is sent to the daemon on each
+# build. It has to be tracked to take effect anywhere but this machine.
+!shared/.dockerignore
 
 # Container volumes (if mounted locally)
 influxdb-data/

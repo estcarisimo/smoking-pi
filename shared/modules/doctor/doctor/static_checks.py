@@ -33,6 +33,8 @@ class Repo:
         self.datasources_dir = self.provisioning / "datasources"
         self.exporters = root / "shared/modules/smokeping-exporters"
         self.alerter = root / "shared/modules/alerter"
+        # Shared code copied into the alerter image; it reads env too.
+        self.common = root / "shared/modules/common"
         self.pro = root / "editions/pro"
         self.compose = self.pro / "docker-compose.yml"
         self.env_template = self.pro / ".env.template"
@@ -394,7 +396,7 @@ def check_alerter_env_defaults_match(repo: Repo) -> CheckResult:
         return skipped(
             "alerter-env-defaults-match", f"no compose file at {repo.compose}"
         )
-    env = sources.module_env(repo.alerter)
+    env = sources.module_env(repo.alerter, repo.common)
     if not env.usages:
         return skipped(
             "alerter-env-defaults-match", f"no alerter source under {repo.alerter}"
@@ -433,7 +435,7 @@ def check_alerter_env_declared(repo: Repo) -> CheckResult:
     not in .env.template, not in the docs table. Warn rather than fail — an
     undiscoverable setting is a documentation gap, not a broken deployment.
     """
-    env = sources.module_env(repo.alerter)
+    env = sources.module_env(repo.alerter, repo.common)
     if not env.usages:
         return skipped(
             "alerter-env-declared", f"no alerter source under {repo.alerter}"

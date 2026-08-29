@@ -406,12 +406,20 @@ def test_import_does_not_require_env(monkeypatch):
 def linked(monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_HOST", "192.168.86.27")
     monkeypatch.delenv("GRAFANA_PUBLIC_URL", raising=False)
+    # TSDB_TYPE gates link emission, so an exported value on the developer's
+    # machine would otherwise decide whether these tests pass.
+    monkeypatch.delenv("TSDB_TYPE", raising=False)
     monkeypatch.delenv("WEB_ADMIN_PUBLIC_URL", raising=False)
 
 
 @pytest.fixture()
 def unlinked(monkeypatch):
-    for var in ("PUBLIC_BASE_HOST", "GRAFANA_PUBLIC_URL", "WEB_ADMIN_PUBLIC_URL"):
+    for var in (
+        "PUBLIC_BASE_HOST",
+        "GRAFANA_PUBLIC_URL",
+        "WEB_ADMIN_PUBLIC_URL",
+        "TSDB_TYPE",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -548,6 +556,21 @@ def test_system_status_reports_unconfigured_links(api, unlinked):
     result = server.system_status()
     assert "links" not in result
     assert "PUBLIC_BASE_HOST" in result["deep_links"]
+
+
+def test_system_status_distinguishes_wrong_backend_from_unconfigured(
+    api, linked, monkeypatch
+):
+    """Two different reasons for no links, and two different fixes.
+
+    `linked` sets PUBLIC_BASE_HOST, so reporting the "set PUBLIC_BASE_HOST"
+    hint here would send the reader to check a setting that is already right.
+    """
+    monkeypatch.setenv("TSDB_TYPE", "clickhouse")
+    result = server.system_status()
+    assert "links" not in result
+    assert "clickhouse" in result["deep_links"].lower()
+    assert "PUBLIC_BASE_HOST" not in result["deep_links"]
 
 
 def test_system_status_offers_entry_points_when_configured(api, linked):

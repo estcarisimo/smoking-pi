@@ -45,7 +45,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
-include = ["*.py"]
+# common/*.py is the shared package copied in from ../common by the
+# Dockerfile. The container runs from /app so imports resolve either
+# way, but leaving it out makes the built wheel quietly incomplete.
+include = ["*.py", "common/*.py"]
 exclude = ["tests/*"]
 
 [tool.ruff]
@@ -65,4 +68,6 @@ select = [
 minversion = "7.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
-pythonpath = ["."]
+# ".." puts shared/modules on the path so `common` imports as a package,
+# matching the image layout where it is copied to /app/common.
+pythonpath = [".", ".."]

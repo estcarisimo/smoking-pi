@@ -2,8 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY pyproject.toml ./
-COPY *.py ./
+# Build context is `shared/` (see editions/pro/docker-compose.yml), so the
+# shared `common` package is reachable alongside this module's own source.
+COPY modules/mcp-server/pyproject.toml ./
+COPY modules/mcp-server/*.py ./
+COPY modules/common/*.py ./common/
 
 RUN pip install --no-cache-dir .
 

@@ -1,14 +1,22 @@
-"""Collector shaping tests -- InfluxDB is mocked at query_influx()."""
+"""Collector shaping tests -- InfluxDB is mocked at query_influx().
+
+The queries live in ``common.aggregates`` now (the alerter's digest needs
+the same numbers); ``collector`` is a thin re-export. Patch the module that
+OWNS the function, not the shim: ``collect()`` resolves ``query_influx``
+in its own globals, so patching the re-exported name leaves the real one in
+place and the test silently talks to a live InfluxDB instead of the stub.
+"""
 
 from datetime import datetime, timezone
 
 import pytest
 
 import collector
+from common import aggregates
 
 
 def _dispatch(monkeypatch, handler):
-    monkeypatch.setattr(collector, "query_influx", handler)
+    monkeypatch.setattr(aggregates, "query_influx", handler)
 
 
 def _target_rows(flux):
@@ -131,4 +139,4 @@ def test_import_needs_no_env(monkeypatch):
     """Constructing queries must not require Influx env vars or a client."""
     monkeypatch.delenv("INFLUX_URL", raising=False)
     monkeypatch.delenv("INFLUX_TOKEN", raising=False)
-    assert "from(bucket:" in collector._base_flux(["latency"], 6)
+    assert "from(bucket:" in aggregates._base_flux(["latency"], 6)

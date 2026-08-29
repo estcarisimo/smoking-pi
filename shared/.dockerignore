@@ -1,0 +1,8 @@
+# Build contexts are now `shared/`, so everything here lands in every image
+# unless excluded. These are local development artefacts.
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/tests

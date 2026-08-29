@@ -502,6 +502,10 @@ def system_status() -> dict:
         if admin:
             entry_points["web_admin_targets"] = admin
         result["links"] = entry_points
+    elif not links.dashboards_match_backend():
+        # A different reason from "unconfigured", and conflating them would
+        # send someone to set PUBLIC_BASE_HOST when it is already set.
+        result["deep_links"] = links.BACKEND_HINT
     else:
         result["deep_links"] = links.CONFIG_HINT
     return result
