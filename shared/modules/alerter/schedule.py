@@ -110,7 +110,7 @@ def due_slot(
     now: float,
     at_hhmm: str | None,
     tzname: str | None,
-    max_lateness_s: int = DEFAULT_MAX_LATENESS_S,
+    max_lateness_s: int | None = DEFAULT_MAX_LATENESS_S,
 ) -> tuple[float | None, Reason]:
     """Decide whether a scheduled job is due, and for which slot.
 
