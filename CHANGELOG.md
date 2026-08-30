@@ -36,7 +36,7 @@ version gets a matching GitHub release and git tag.
 - **The monitoring skill now specifies the shape of a report, not just its
   content.** `examples/openclaw/smokeping-monitoring/SKILL.md` gained a report
   template — traffic lights per section (🟢 nothing to do, 🟡 real but minor,
-  🔴 acted on), `###` headings, one fact per bullet with its number and window,
+  🔴 acted on), bold headings, one fact per bullet with its number and window,
   a verdict as the headline rather than a summary, and a graphs section
   offering both links.
 

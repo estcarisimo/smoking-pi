@@ -121,7 +121,7 @@ the host name) and to say explicitly what it is *not* for. If the agent still
 reaches for the shell, widen that description rather than the body.
 
 **The skill is written in English and does not make the answers English.** It
-carries a report template — traffic lights, `###` sections, one fact per
+carries a report template — traffic lights, bold sections, one fact per
 bullet, both links — and directs the agent to answer in whatever language the
 question arrived in, translating the headings and keeping what is not prose:
 target names (database keys — a translated `CloudflareDNS` cannot be looked up
