@@ -82,7 +82,11 @@ def notify(event: dict, image: bytes | None = None) -> bool:
 
     if mode == "openclaw":
         if image is None:
-            return _notify_openclaw(text)
+            # `event` matters here, not just on the retry below: this is the
+            # path a digest takes whenever there is no chart (ALERT_CHARTS
+            # off, or every target clean so render_digest_chart returns None),
+            # and without it the message loses its own `silent` flag and buzzes.
+            return _notify_openclaw(text, event=event)
         if _notify_openclaw(text, image=image, event=event):
             return True
         # A chart failure must never cost the alert. Exactly ONE text-only
