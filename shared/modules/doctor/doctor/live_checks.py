@@ -38,13 +38,24 @@ import subprocess
 
 from .report import CheckResult, Finding, Status, result, skipped
 
-# module directory in the repo -> container name it is deployed into.
-# Only modules whose image copies source in; a bind-mounted service cannot
-# drift this way.
+# module directory in the repo -> its docker-compose SERVICE name. Only
+# modules whose image copies source in; a bind-mounted service cannot drift
+# this way.
+#
+# Service, not container name, deliberately. Only `mcp-server` sets an
+# explicit `container_name`; the alerter's is `<project>-alerter-1`, where
+# the project defaults to the directory but is overridable by
+# COMPOSE_PROJECT_NAME or `-p`. Hardcoding `pro-alerter-1` meant that any
+# non-default project name made this check quietly report "nothing is
+# running" while the alerter was up -- a drift check that silently stops
+# checking, which is worse than not having it.
 DEPLOYED_MODULES = {
-    "alerter": "pro-alerter-1",
-    "mcp-server": "smokeping-mcp-server",
+    "alerter": "alerter",
+    "mcp-server": "mcp-server",
 }
+
+# Compose stamps this on every container it creates.
+COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 
 # Shared package copied into those images alongside the module's own source.
 COMMON_DIR = "common"
@@ -74,11 +85,25 @@ class Docker:
         except (OSError, subprocess.SubprocessError):
             return 1, ""
 
-    def is_running(self, container: str) -> bool:
+    def container_for_service(self, service: str) -> str | None:
+        """The running container for a compose service, whatever it is named.
+
+        Filtering on the compose label rather than guessing
+        ``<project>-<service>-1`` keeps this working under any project name.
+        """
         code, out = self.run(
-            ["inspect", "-f", "{{.State.Running}}", container]
+            [
+                "ps",
+                "--filter",
+                f"label={COMPOSE_SERVICE_LABEL}={service}",
+                "--format",
+                "{{.Names}}",
+            ]
         )
-        return code == 0 and out.strip() == "true"
+        if code != 0:
+            return None
+        names = [n for n in out.split() if n]
+        return names[0] if names else None
 
 
 def _sha256(data: bytes) -> str:
@@ -140,11 +165,12 @@ def check_deployed_code_current(
     compared = 0
     checked_containers = 0
 
-    for module, container in sorted(DEPLOYED_MODULES.items()):
+    for module, service in sorted(DEPLOYED_MODULES.items()):
         module_dir = repo.root / "shared/modules" / module
         if not module_dir.is_dir():
             continue
-        if not docker.is_running(container):
+        container = docker.container_for_service(service)
+        if not container:
             # Not running is not drift. A profile that is switched off is a
             # deployment choice, not a fault.
             continue

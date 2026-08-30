@@ -36,9 +36,14 @@ class FakeDocker:
                 return value
         return 1, ""
 
-    def is_running(self, container):
-        code, out = self.run(["inspect", "-f", "{{.State.Running}}", container])
-        return code == 0 and out.strip() == "true"
+    def container_for_service(self, service):
+        code, out = self.run([
+            "ps", "--filter",
+            f"label=com.docker.compose.service={service}",
+            "--format", "{{.Names}}",
+        ])
+        names = [n for n in out.split() if n] if code == 0 else []
+        return names[0] if names else None
 
 
 class Repo:
@@ -68,13 +73,16 @@ def _hashes_for(repo, names_and_text):
     return "\n".join(f"{_sha(t)}  {n}" for n, t in names_and_text)
 
 
-RUNNING = (0, "true\n")
+# Deliberately NOT `pro-alerter-1`: the container name depends on the compose
+# project, so the checks resolve it by service label instead.
+ALERTER_PS = "ps --filter label=com.docker.compose.service=alerter"
+MCP_PS = "ps --filter label=com.docker.compose.service=mcp-server"
 
 
-def _healthy_alerter(repo):
+def _healthy_alerter(repo, container="pro-alerter-1"):
     return {
-        "inspect -f {{.State.Running}} pro-alerter-1": RUNNING,
-        "inspect -f {{.State.Running}} smokeping-mcp-server": (0, "false\n"),
+        ALERTER_PS: (0, f"{container}\n"),
+        MCP_PS: (0, "\n"),
         "exec pro-alerter-1 sh -c cd /app ": (
             0,
             _hashes_for(repo, [("main.py", "print('main')\n"),
@@ -147,10 +155,7 @@ def test_unreadable_container_reports_uncertainty_not_drift(repo):
 
 def test_a_stopped_container_is_not_drift(repo):
     """A profile that is off is a deployment choice, not a fault."""
-    docker = FakeDocker({
-        "inspect -f {{.State.Running}} pro-alerter-1": (0, "false\n"),
-        "inspect -f {{.State.Running}} smokeping-mcp-server": (0, "false\n"),
-    })
+    docker = FakeDocker({ALERTER_PS: (0, "\n"), MCP_PS: (0, "\n")})
     assert live_checks.check_deployed_code_current(repo, docker).status is Status.SKIP
 
 
@@ -247,3 +252,19 @@ def test_run_all_returns_both_checks(repo, host_resolv):
         "container-dns-fresh",
     ]
     assert all(r.status is Status.SKIP for r in results)
+
+
+def test_a_custom_compose_project_name_is_still_found(repo):
+    """The container name depends on the compose project, so it is not a key.
+
+    Hardcoding `pro-alerter-1` meant `COMPOSE_PROJECT_NAME=home` made this
+    check report "nothing is running" while the alerter was up — a drift
+    check that silently stops checking, which is worse than not having one.
+    """
+    responses = {
+        k.replace("pro-alerter-1", "home-alerter-1"): v
+        for k, v in _healthy_alerter(repo, container="home-alerter-1").items()
+    }
+    res = live_checks.check_deployed_code_current(repo, FakeDocker(responses))
+    assert res.status is Status.OK, [f.render() for f in res.findings]
+    assert "3 deployed files" in res.summary
