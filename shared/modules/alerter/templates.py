@@ -142,12 +142,14 @@ def _duration(seconds: float | None) -> str | None:
 
 
 def _link_line(links: dict | None) -> str:
-    """The links row: the LAN set, plus one from-anywhere graph.
+    """The links row: the primary set, plus ONE from-anywhere link.
 
-    Only the graph gets a tunnel twin here. A caption has 1024 characters and
-    a Grafana deep link runs to ~120 of them, so mirroring all four would cost
-    a quarter of the budget to say the same thing twice. Whoever is on cellular
-    wants the picture; from there the rest of the dashboard is one tap away.
+    Exactly one tunnel twin is emitted, whichever applies to the event: the
+    target graph on an alert, the overview on a digest. A caption has 1024
+    characters and a Grafana deep link runs to ~120 of them, so mirroring the
+    whole row would cost a quarter of the budget to say the same thing twice.
+    Whoever is on cellular wants the picture; from there the rest of the
+    dashboard is one tap away.
     """
     if not links:
         return ""
