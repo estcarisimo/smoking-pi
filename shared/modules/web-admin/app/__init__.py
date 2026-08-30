@@ -86,8 +86,17 @@ def create_app(config_name='production'):
     # CSRF protection for all state-changing requests
     csrf.init_app(app)
 
-    # Initialize cache
-    cache.init_app(app, config={'CACHE_TYPE': 'simple', 'CACHE_DEFAULT_TIMEOUT': 86400})
+    # Initialize cache.
+    #
+    # 'SimpleCache', not 'simple'. Flask-Caching resolves CACHE_TYPE as an
+    # import path, and the lowercase aliases were deprecated in 2.0 and
+    # dropped in a later 2.x release -- 'simple' now resolves to
+    # flask_caching.backends.simple, which no longer exists. pyproject has
+    # always declared flask-caching>=2.0.2, so this was only ever working on
+    # a deprecation shim; every CI run began failing the day it was removed.
+    cache.init_app(
+        app, config={'CACHE_TYPE': 'SimpleCache', 'CACHE_DEFAULT_TIMEOUT': 86400}
+    )
 
     # Initialize Flask-Login
     login_manager.init_app(app)
