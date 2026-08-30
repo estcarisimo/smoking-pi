@@ -299,6 +299,21 @@ def test_preflight_reports_a_genuinely_missing_route(monkeypatch, openclaw, capl
     assert "route itself is absent" in caplog.text
 
 
+def test_preflight_reports_a_failing_gateway(monkeypatch, openclaw, caplog):
+    """A 5xx says the gateway is broken, not that the tool is permitted.
+
+    The success branch reads "any status we did not recognise means the tool
+    answered with its own argument validation" — which is true for a 4xx from
+    the tool, and false for a gateway that never reached it. Treating 502 as
+    a pass reports delivery as healthy at exactly the moment it is not.
+    """
+    monkeypatch.setattr(notifier.httpx, "post",
+                        lambda *a, **k: FakeResponse(502))
+    with caplog.at_level("ERROR"):
+        assert notifier.preflight() is False
+    assert "tool permitted" not in caplog.text
+
+
 def test_preflight_accepts_the_tools_own_validation_error(monkeypatch, openclaw):
     """`action required` proves the endpoint, token and tool policy all work."""
     body = {"ok": False,
