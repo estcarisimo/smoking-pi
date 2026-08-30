@@ -33,8 +33,12 @@ get_tunnel_url() {
 # pasted into .env or a chat is a visible risk rather than a silent one.
 count_tunnel_urls() {
     local container_name=$1
+    # `|| true` is load-bearing: grep exits 1 on no matches, and under
+    # `set -euo pipefail` that kills the whole script -- for the perfectly
+    # normal state of a tunnel that has not printed its URL yet. The caller
+    # assigns this to a variable, which propagates the status.
     docker logs "$container_name" 2>&1 \
-        | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' \
+        | { grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' || true; } \
         | sort -u | wc -l | tr -d ' '
 }
 

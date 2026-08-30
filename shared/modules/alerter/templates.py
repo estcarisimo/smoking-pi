@@ -167,7 +167,22 @@ def _link_line(links: dict | None) -> str:
         ("web_admin_targets", "targets"),
         ("grafana_overview_tunnel", "🌐 anywhere"),
     )
-    parts = [_a(links[key], label) for key, label in labels if links.get(key)]
+    parts: list[str] = []
+    seen_labels: set[str] = set()
+    for key, label in labels:
+        url = links.get(key)
+        if not url:
+            continue
+        # Enforce "one from-anywhere link", rather than merely documenting it.
+        # An alert carries graph_tunnel and a digest carries
+        # grafana_overview_tunnel, so today only one is ever present -- but a
+        # payload holding both would render "🌐 anywhere" twice, pointing at
+        # two different pages under one label, and burn caption budget doing
+        # it.
+        if label in seen_labels:
+            continue
+        seen_labels.add(label)
+        parts.append(_a(url, label))
     return " · ".join(parts)
 
 
