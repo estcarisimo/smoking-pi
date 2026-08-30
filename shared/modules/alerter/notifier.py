@@ -154,11 +154,21 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+# Targets and rule names are operator-editable and have no length limit of
+# their own, so the slug needs one here: a 300-character target would build a
+# filename some downstream store rejects outright. 48 is far longer than any
+# real hostname and still leaves the prefix and timestamp legible.
+_SLUG_MAX = 48
+
+
 def _chart_filename(event: dict) -> str:
     slug = "".join(
         ch if ch.isalnum() or ch in "-_" else "-"
         for ch in str(event.get("target") or event.get("rule") or "alert")
     )
+    # Strip separators only at the ends; a target of "..." would otherwise
+    # slug to "---" and then to "", leaving "smokeping--1234.png".
+    slug = slug[:_SLUG_MAX].strip("-_") or "alert"
     return f"smokeping-{slug}-{int(time.time())}.png"
 
 

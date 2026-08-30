@@ -64,9 +64,14 @@ def _first_pixel(png: bytes) -> tuple[int, int, int]:
     assert bit_depth == 8, "expected 8-bit channels"
     channels = {0: 1, 2: 3, 4: 2, 6: 4}[color_type]
     raw = zlib.decompress(idat)
-    # Row 0: a filter byte then the pixels. matplotlib emits filter 0 or 1 for
-    # a flat first row; both leave pixel 0 unchanged.
-    assert raw[0] in (0, 1), f"unexpected row filter {raw[0]}"
+    # Row 0: a filter byte then the pixels. Accept all five PNG filter types
+    # rather than the 0/1 matplotlib happens to emit today -- for the FIRST
+    # pixel of the FIRST row every predictor is 0 (Sub reads left, Up reads
+    # above, Average reads both, Paeth reads all three; none exist yet), so
+    # pixel 0 is unchanged under any of them. Pinning to 0/1 would fail on a
+    # matplotlib or zlib version that filters differently, testing the
+    # encoder's choices instead of the colour we came here to check.
+    assert raw[0] in (0, 1, 2, 3, 4), f"invalid PNG row filter {raw[0]}"
     return tuple(raw[1:1 + 3]) if channels >= 3 else (raw[1],) * 3
 
 
