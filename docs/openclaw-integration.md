@@ -186,9 +186,15 @@ A successful call returns `{"ok":true,"result":{...,"messageId":"1544"}}`.
 Two requirements beyond the token:
 
 1. **Tool policy must permit `message`.** The endpoint is gated by Gateway auth
-   *and* tool policy. A filtered tool answers HTTP 200 with
+   *and* tool policy. A filtered tool answers **HTTP 404** with
    `{"ok":false,"error":{"message":"Tool not available: message"}}` — allow it
    via `tools.allow` in `openclaw.json`.
+
+   That 404 is the same status a missing route returns, which is why the
+   preflight reads the body rather than the status: `Tool not available` means
+   the gateway is reachable and the path is right, and only the policy is in
+   the way. Diagnosing it as a bad `OPENCLAW_HOOK_PATH` sends you to the wrong
+   file.
 2. **`OPENCLAW_TO` must be the OpenClaw address form**, e.g.
    `telegram:123456789`. Find it with `openclaw gateway call sessions-list` and
    read `deliveryContext.to`.

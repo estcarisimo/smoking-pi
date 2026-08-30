@@ -164,8 +164,8 @@ missing reports directory is skipped quietly.
 | `OPENCLAW_HOOK_PATH` | `/tools/invoke` | Path appended to `OPENCLAW_URL`; override only for a proxy or bridge |
 | `OPENCLAW_GATEWAY_TOKEN` | — | Gateway token (`gateway.auth.token` in `openclaw.json`) |
 | `OPENCLAW_HOOK_TOKEN` | — | Legacy alias for the above; `OPENCLAW_GATEWAY_TOKEN` wins |
-| `OPENCLAW_CHANNEL` | — | Delivery channel, e.g. `<telegram>` |
-| `OPENCLAW_TO` | — | Recipient, e.g. `<your-chat-id>` |
+| `OPENCLAW_CHANNEL` | `telegram` | Delivery channel |
+| `OPENCLAW_TO` | — | Recipient in OpenClaw's address form, e.g. `telegram:123456789` — a bare chat id will not deliver. Find it with `openclaw gateway call sessions-list` |
 | `ALERT_WEBHOOK_URL` | — | Generic webhook endpoint |
 | `ALERT_WEBHOOK_TOKEN` | — | Optional bearer token for the webhook |
 | `ALERT_INTERVAL` | `60` | Seconds between evaluations |
@@ -299,7 +299,7 @@ Three changes, at three different layers:
    `docker-compose.yml` pinned `DOWN_WINDOW=${DOWN_WINDOW:-900}`, so the
    deployed container kept getting 900 and the fix did nothing where it
    mattered. **A compose default silently overrides a module default**, and
-   nothing compared the two. `doctor`'s `check_alerter_env_declared` now
+   nothing compared the two. `doctor`'s `check_alerter_env_defaults_match` now
    does, and fails CI when they disagree — the fix for the fix.
 2. **An incident must be absent for `ALERT_RESOLVE_AFTER` (default 900 s)
    before it counts as recovered.** Reappearing inside that window is silent:
