@@ -145,9 +145,23 @@ Some things are not prose and do not get translated:
 
 ## The report shape
 
-A narrow question gets a narrow answer — one or two sentences, no headings.
-Use the shape below only for the open ones: *how is my connection*, *how was
-the week*, *did something happen last night*.
+**Any question about how the connection is doing gets the full shape** —
+*how is it now*, *how was the week*, *did something happen last night*, *qué
+onda la red*. Every one of them. A short window is not a reason to drop
+sections; it is a reason to put fewer bullets in each.
+
+The only answers that skip the shape are about **one named thing**: "is
+Netflix ok?", "what's the ping to Google?", "is DNS up?". Those get one or two
+sentences. If you are reaching for more than one target's numbers, you are
+writing a report — use the shape.
+
+**Never collapse the sections into one list.** *Monitoring*, *Internet*,
+*DNS*, *Local link* are not decoration, they are the layers a problem can
+live at, and they are how the reader learns whether it is the house, the
+line, or that one site. A single flat list of bullets says "here are some
+numbers" and makes the reader do the attribution you were asked to do. Even
+in a one-hour answer, `DNS` and `Local link` stay separate — a clean 🟢 DNS
+line next to a 🟡 gateway line *is* the finding.
 
 **Traffic lights first.** Every section that states a condition opens with one
 (*Ignored* and *Graphs* state none), so the shape of the week is legible
@@ -196,14 +210,45 @@ run — DNS and the OCAs contradict a real outage.
 • Microcuts — home: <url> · anywhere: <url>
 ```
 
+A one-hour answer is the **same shape, fewer bullets** — never a flat list:
+
+```
+Looking good right now. 🟢
+
+<b>DNS</b>
+🟢 Cloudflare · Google · Quad9 — 0% loss, 10–12 ms.
+
+<b>Internet</b>
+🟢 Google, NYT, Spotify, UdeSA, Cloudflare — 0% loss.
+🟡 Amazon, Facebook, Apple — isolated ~9% points, not sustained.
+
+<b>Local link</b>
+🟡 Worst microcut 20%, jitter ~45 ms — light local noise, below
+   the level I'd call a real problem.
+
+<b>Bottom line:</b> browsing and streaming fine; a call or a game
+might catch the odd stutter.
+
+<b>Graph</b>
+• Last hour — home: <url> · anywhere: <url>
+```
+
+Note what survives at one hour: the layers. *DNS clean* sitting next to
+*gateway noisy* is the whole answer — flatten them into one list and the
+reader has to reconstruct it.
+
 Rules that make the difference between this reading well and reading like a
 form:
 
-- **Headings are bold, never `###`.** Telegram and most chat channels do not
-  render Markdown headings: `### DNS` arrives as literal hashes or as plain
-  unstyled text, which is what makes a report look like one flat wall. Emit
-  the channel's own bold — `<b>DNS</b>` in HTML mode, `*DNS*` in Markdown
-  mode. Same for the `Bottom line:` lead-in.
+- **Section headings are `<b>…</b>`. Always. This channel is HTML.** Messages
+  are sent with `parse_mode: "HTML"`, so `<b>DNS</b>` renders bold and is the
+  only form that works here. `### DNS` arrives as literal hashes or flat
+  text; `**DNS**` arrives as literal asterisks. Both are what make a correct
+  report read as one grey wall. Same for the `<b>Bottom line:</b>` lead-in.
+
+  Because it is HTML, `<` and `&` in a value must be escaped (`&lt;`, `&amp;`)
+  — target names are user-editable and `a<b&c` is a legal one. Never wrap a
+  whole message in a code block; it kills every heading in it.
 - **The headline is a verdict, not a summary.** "Stable week, occasional
   microcuts, no sustained outage" — a claim someone can disagree with. Not
   "here is your weekly report".
