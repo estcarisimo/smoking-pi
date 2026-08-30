@@ -301,9 +301,36 @@ returns the same pair for the front doors: `grafana_overview`,
 
 - Label them for where the reader is, not for the technology: *home* /
   *anywhere*, not *LAN* / *Cloudflare tunnel*.
-- **Never construct a URL.** If a `_tunnel` key is absent, no tunnel is
-  configured — offer the one link there is and say nothing about the other.
-  A hand-built tunnel hostname is a link that 404s on someone's phone.
+- **Never invent a host or a dashboard.** The base URL cannot be guessed —
+  this Pi answers on a LAN IP, a tailnet name and a tunnel, and only one of
+  them works for a given reader. Dashboard UIDs and variable names are a
+  pinned contract. So never write a URL from scratch, and if a `_tunnel` key
+  is absent, no tunnel is configured: offer the one link there is and say
+  nothing about the other. A hand-built hostname is a link that 404s on
+  someone's phone.
+
+- **But you may re-time a link you already have.** `from` and `to` are the
+  one part that is yours to set, and Grafana takes an absolute range as
+  **epoch milliseconds**. So take a link a tool gave you — correct host,
+  correct dashboard, correct `var-target` — and swap its `from`/`to` for the
+  window your sentence is about:
+
+  ```
+  ...&from=1788032400000&to=1788048900000     # Sat 29 Aug, 2:40–7:15 pm CT
+  ```
+
+  This is better than re-querying and hoping: `worst_windows` returns the top
+  five and zooms each to ±15 minutes, so a run of loss you are describing may
+  not be among them, and ±15 minutes is the wrong frame for something that
+  lasted four hours. Re-timing lets you frame the actual event.
+
+  **Milliseconds, not seconds.** A ten-digit epoch is read as milliseconds
+  too, which lands the reader in January 1970 — a link that is confidently,
+  silently wrong. Multiply by 1000, and sanity-check that the number has 13
+  digits before you send it.
+
+  Pad a little on each side. A range that starts exactly at the spike opens
+  with the incident against the left edge and no "before" to compare to.
 - **The link's time range must match the sentence's time range.** This is the
   rule; everything below follows from it. If a bullet talks about Saturday,
   its link opens on Saturday. A bullet about last Saturday carrying a
@@ -321,13 +348,17 @@ returns the same pair for the front doors: `grafana_overview`,
   the case most easily missed, because the numbers are coming from your own
   memory of a previous answer rather than from a tool response you are
   looking at — so there is no link sitting in front of you to copy. Go get
-  one.
+  one, by either route:
 
-  You do not build these by hand. `get_microcut_stats` returns a
-  `worst_windows` array whose entries each carry a `graph` already zoomed to
-  ±15 minutes; `get_loss_events` links its episodes the same way. Call the
-  one that covers the event — a Saturday two days back needs roughly
-  `hours=72`, not `hours=1` — and take the entry's `graph`.
+  - **Re-time a link you already hold** (above). Any `graph` URL from this
+    session works as the donor — you are changing only `from`/`to`. This is
+    usually the right move for a recalled incident, because you already know
+    when it happened.
+  - **Or re-query for one**: `get_microcut_stats` returns a `worst_windows`
+    array whose entries each carry a `graph` zoomed to ±15 minutes, and
+    `get_loss_events` links its episodes the same way. Call the one that
+    covers the event — a Saturday two days back needs roughly `hours=72`,
+    not `hours=1`.
 
 - **When one link must cover several incidents**, scope it to the span you
   are discussing (the week) rather than to the present. An overview URL is a

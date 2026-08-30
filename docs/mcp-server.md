@@ -61,6 +61,25 @@ and the web-admin page for editing it:
 ±15-minute range around when it happened, so the link opens on the event rather
 than on the day containing it.
 
+### The `from`/`to` contract
+
+Two forms, both emitted by `links.py` and both accepted by Grafana:
+
+| Form | Emitted when | Example |
+|---|---|---|
+| Relative | a `hours=` lookback | `from=now-24h&to=now` |
+| Absolute | an event time (`at=`) | `from=1788032400000&to=1788048900000` |
+
+Absolute is **epoch milliseconds** — 13 digits. This is the one part of a
+generated URL that is safe for a consumer to rewrite: the host cannot be
+guessed and the dashboard UIDs are a pinned contract, but re-timing an
+existing link to frame a different window invents nothing. The agent skill
+uses this to link an incident it is recalling rather than one a tool just
+returned.
+
+A ten-digit seconds epoch is read as milliseconds and lands in January 1970 —
+valid-looking, silently wrong, and not something Grafana will complain about.
+
 **This is off until you configure it, on purpose.** The Pi has no canonical
 hostname — a LAN IP, a Tailscale name, and possibly a Cloudflare tunnel all
 reach it, and which one works depends on where the person reading the answer is
