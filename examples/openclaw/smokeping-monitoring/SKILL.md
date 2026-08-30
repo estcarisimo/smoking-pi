@@ -23,8 +23,32 @@ server. If the user says "smokingpi", "smoking-pi", "smokeping", or "the Pi"
 and asks how things are, they mean **this measurement history**, so reach for
 these tools rather than inspecting the machine itself.
 
-Replace the placeholders below with your own deployment's values before
-installing this skill.
+## Tune these four things before installing
+
+This ships with one real deployment's values so it works as written rather than
+as a fill-in-the-blanks form. Four of them are **yours to change**, and the
+wrong value makes the agent confidently wrong rather than broken — which is
+harder to notice:
+
+1. **The host's names**, in the `description:` above and in the paragraph
+   below. OpenClaw uses the description to decide whether to load this skill at
+   all, so it must contain the words *you* use for the machine. Add your own
+   ("the router box", "casa"), and add the language you ask in — the trigger
+   phrases are matched, not translated.
+2. **The CPE loss floor** under *Reading the numbers correctly* (10%, p99 ≈
+   30%, "real cut" at 50%+). Every home gateway rate-limits ICMP differently.
+   Read yours off a quiet week of `get_microcut_stats` and use that; a floor
+   set too low turns normal into a nightly false alarm, and one set too high
+   hides a failing line.
+3. **The timezone** in the report rules ("pm CT"). Use the one the person
+   reading the answers lives in, not the Pi's.
+4. **The target names** used as examples (`CloudflareDNS`, `CPE_Gateway`,
+   `Chicago_ORD_c122_1`) — these come from the sample `targets.yaml`. Swap in
+   three of your own from `list_targets`, keeping one long ugly one: it is
+   there to show that the name is a key to be quoted exactly, not prose.
+
+Everything else — the false-alarm list, the report shape, the link rules — is
+deployment-independent and should be left alone.
 
 ## Tools
 
@@ -37,6 +61,10 @@ installing this skill.
 - `get_microcut_stats(hours)` — sub-second CPE dropouts, sampled far more
   finely than the 5-minute target probes.
 - `list_targets` — what is currently monitored.
+
+Responses carry a `links` object when deep links are configured: `graph`,
+`per_ping_detail`, `compare_with_peers`, `edit`. Keys ending in `_tunnel` are
+the same page reached from outside the home network — see *Links*, below.
 
 **Writing** (confirm with the user in chat before calling)
 
@@ -57,7 +85,8 @@ them. Microcut data is the exception: it samples every 10 seconds.
 **The CPE has a permanent ICMP loss floor.** Home gateways rate-limit ICMP
 replies, so the CPE shows steady single-digit loss with nothing wrong. On this
 deployment the floor sits near 10% (p99 ≈ 30%). Only treat a CPE window as a
-real cut when loss is far above that — roughly 50%+.
+real cut when loss is far above that — roughly 50%+. *(Tunable #2 — these
+three numbers are this gateway's, not a universal constant.)*
 
 ## Things that look broken but are not
 
@@ -74,6 +103,11 @@ Check these before reporting an outage; they are the usual false alarms:
 - **A perfectly constant value.** Any metric that is identical across every
   sample for hours is almost always a measurement bug rather than a network
   condition. Say so rather than inventing a network explanation.
+- **Targets that exist to fail.** A deployment that has tested its alerting
+  usually still carries the target it tested with — a deliberate blackhole
+  address, flat at 100% forever. It is the alerting self-test, not the
+  connection. Name it in the *ignored* line so the reader knows it was seen
+  and dismissed, and never let it into the verdict.
 
 ## Answering well
 
@@ -91,3 +125,150 @@ better answer than a confident wrong one.
 
 These messages are usually read on a phone. Keep them short, skip the preamble,
 and do not paste raw JSON.
+
+## Write in the reader's language
+
+**Answer in the language the person wrote in.** Everything in this file — the
+template below, the section names, the example phrasings — is English because
+the tools, the metric names and the code are. It is a *structure*, not a
+script: translate the headings and the prose into whatever language the
+question came in, and match how that person writes (a reader who says "la red"
+does not want "el enlace de área local").
+
+Some things are not prose and do not get translated:
+
+- **Target names** are database keys. `CloudflareDNS`, `Chicago_ORD_c122_1`,
+  `CPE_Gateway` — quote them exactly, in any language. A translated target
+  name cannot be looked up, muted, or found on a dashboard.
+- **Numbers, units and windows** — `8.7 ms`, `0%`, `62%`, `last 168h`.
+- **Traffic lights and links**, which carry meaning without carrying words.
+
+## The report shape
+
+A narrow question gets a narrow answer — one or two sentences, no headings.
+Use the shape below only for the open ones: *how is my connection*, *how was
+the week*, *did something happen last night*.
+
+**Traffic lights first.** Every section that states a condition opens with one
+(*Ignored* and *Graphs* state none), so the shape of the week is legible
+before a word of it is read:
+
+- 🟢 nothing to do — normal for this deployment
+- 🟡 real but minor — brief, isolated, or within a known floor. Worth
+  knowing, not worth acting on
+- 🔴 acted on or needs attention — a sustained outage, a broken monitor, a
+  target that has been failing since yesterday
+
+Grade against *this* deployment's normal, not an ideal one: the CPE's ICMP
+floor is 🟢, and a single 5-minute miss is 🟡 at worst.
+
+Then the sections, in this order. **Drop any section that has nothing in it** —
+a heading over "nothing to report" costs a phone screen to say nothing:
+
+```
+<one-sentence verdict> 🟡
+
+<b>Monitoring</b>
+🟢 Collector healthy, 18 targets, data fresh 12:45 pm CT.
+
+<b>Internet</b>
+🟢 Medians 7–9 ms on the big sites.
+🟡 Sat 29 Aug, 2:40–7:15 pm CT: 100% loss on web targets. [graph]
+🟡 DNS stayed at 0%, so this reads as ICMP, not an outage.
+
+<b>DNS</b>
+🟢 Cloudflare 11.8 ms · Google 12.0 ms · Quad9 8.2 ms.
+🟢 0% loss on all three, all week.
+
+<b>Local link</b>
+🔴 Worst window 66% loss — Fri 28 Aug, 2:30 am CT. [graph]
+🟡 Peaks of 60–64% Sun 23 Aug midday CT. [graph]
+🟡 Median jitter 47.7 ms — felt on calls, not on browsing.
+
+<b>Ignored</b>
+Weekly averages read ~90% on some targets, inflated by Saturday's ICMP
+run — DNS and the OCAs contradict a real outage.
+
+<b>Bottom line:</b> <what this means for the person, and what to do>
+
+<b>Graphs</b>
+• Overview — home: <url> · anywhere: <url>
+• Microcuts — home: <url> · anywhere: <url>
+```
+
+Rules that make the difference between this reading well and reading like a
+form:
+
+- **Headings are bold, never `###`.** Telegram and most chat channels do not
+  render Markdown headings: `### DNS` arrives as literal hashes or as plain
+  unstyled text, which is what makes a report look like one flat wall. Emit
+  the channel's own bold — `<b>DNS</b>` in HTML mode, `*DNS*` in Markdown
+  mode. Same for the `Bottom line:` lead-in.
+- **The headline is a verdict, not a summary.** "Stable week, occasional
+  microcuts, no sustained outage" — a claim someone can disagree with. Not
+  "here is your weekly report".
+- **Every section is bullets. No section is a paragraph.** Even a 🟢 one:
+  *DNS* gets a bullet of medians and a bullet of loss, not one sentence
+  holding both. A section with a single long line is the failure mode to
+  avoid.
+- **One fact per bullet, one line per bullet.** If a bullet contains a
+  semicolon, an "; también", or a second measurement, it is two bullets. Aim
+  for under ~15 words — a bullet that wraps three times on a phone has stopped
+  being a bullet.
+
+  Wrong — four facts, one line:
+  > 🟡 The gateway had real microcuts: worst window 66% loss on Friday 28 Aug
+  > 2:30 am CT; also peaks of 60–64% on Sunday 23 Aug midday CT. Median jitter
+  > ~47.7 ms. That feels like stutter on calls and games, not broken browsing.
+
+  Right — one fact each, and the interpretation earns its own line:
+  > 🔴 Worst window 66% loss — Fri 28 Aug, 2:30 am CT. [graph]
+  > 🟡 Peaks of 60–64% — Sun 23 Aug, midday CT. [graph]
+  > 🟡 Median jitter 47.7 ms — felt on calls, not on browsing.
+- **Attribute, do not just report.** "The gateway spiked to 62%" is a
+  measurement; "that's the local link, not the ISP — you'd have felt it as a
+  stutter" is the answer. Say which layer a problem sits at whenever the data
+  supports it, and say when it doesn't.
+- **Dates and times in the reader's timezone** (tunable #3 — CT here), with
+  the zone named, and with the weekday when the window is longer than a day
+  ("Sunday 9 Aug, 3:20–4:55 pm CT"). An ISO timestamp is not an answer to
+  "when did it happen".
+- **Bold or `###` for headings, never both on the same line**, and never a
+  heading deeper than `###`.
+
+## Links
+
+**Always offer both a home link and an off-network one, when both exist.** The
+person reading this is as likely to be on cellular as on the couch, and a LAN
+URL is a dead link from a train — but the tunnel adds a hop and can be down on
+its own, so a LAN URL is the better one at home. Offering both costs a line;
+guessing wrong costs the whole point of sending a link.
+
+The tool responses already carry both. Every `links` object has a primary set
+(`graph`, `per_ping_detail`, `compare_with_peers`, `edit`) and, when a tunnel
+is configured, a `_tunnel` twin of each (`graph_tunnel`, …). `system_status`
+returns the same pair for the front doors: `grafana_overview`,
+`grafana_cpe_microcuts`, `web_admin_targets`.
+
+- Label them for where the reader is, not for the technology: *home* /
+  *anywhere*, not *LAN* / *Cloudflare tunnel*.
+- **Never construct a URL.** If a `_tunnel` key is absent, no tunnel is
+  configured — offer the one link there is and say nothing about the other.
+  A hand-built tunnel hostname is a link that 404s on someone's phone.
+- **Name a moment, attach that moment's link.** Any bullet that quotes a
+  specific time ("worst window 66% loss, Fri 28 Aug 2:30 am CT") must carry
+  the link that *opens on it*. A week-long overview URL is not that link —
+  the reader lands on 168 hours and has to hunt for the spike you already
+  found.
+
+  You do not build these. `get_microcut_stats` returns a `worst_windows`
+  array where each entry carries its own `graph`, already zoomed to ±15
+  minutes around that window; `get_loss_events` links its episodes the same
+  way. Take the URL from the entry you are quoting and put it on that
+  bullet. If you are describing an event and have no per-event link for it,
+  call the tool that produces one rather than pointing at the overview.
+
+- The end-of-report *Graphs* section is for the two or three whole-window
+  views (overview, microcuts). Per-incident links belong inline, on their
+  bullet — not collected at the bottom where they lose the time they refer
+  to.

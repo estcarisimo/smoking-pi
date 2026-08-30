@@ -47,7 +47,7 @@ and `notified_count`.
 
 ## Notifier modes (`NOTIFY_MODE`)
 
-Messages carry a severity headline (🔴 critical, 🟠 warning, ✅ recovery), the
+Messages carry a severity headline (🔴 critical, 🟡 warning, ✅ recovery), the
 verdict line, the numbers, a breadth recap, deep links, and a mute hint —
 composed to fit the channel's budget. See [The verdict](#the-verdict-is-it-me-or-the-internet)
 and [Message rendering](#message-rendering) below.
@@ -134,7 +134,7 @@ POSTs JSON to `ALERT_WEBHOOK_URL`, optionally with
   "rule": "high_loss",
   "severity": "warning",
   "target": "<target>",
-  "message": "🟠 <b>warning</b> — <target>\n🎯 Just that site — 1 of 16 ...",
+  "message": "🟡 <b>warning</b> — <target>\n🎯 Just that site — 1 of 16 ...",
   "state": {"first_seen": 0, "last_seen": 0, "last_notified": 0, "notified_count": 1},
   "ts": "2026-01-01T00:00:00+00:00"
 }
@@ -252,6 +252,19 @@ cut in half makes Telegram reject the whole message with a 400, which
 
 Every interpolated value is escaped. Target names are user-editable, and
 `a<b&c` is a legal one.
+
+### The links row
+
+`graph · per-ping · peers · edit`, followed by `🌐 anywhere` when a tunnel is
+configured (`TUNNEL_BASE_HOST` — see
+[Two tiers](mcp-server.md#two-tiers-at-home-and-from-anywhere)). An alert is
+read on a phone that may or may not be on the home network, and a LAN URL is a
+dead link from a train.
+
+Only the *graph* gets a from-anywhere twin, not all four. A Grafana deep link
+runs to about 120 characters; mirroring the whole row would spend a quarter of
+a caption budget saying the same thing twice. Whoever is on cellular wants the
+picture, and the rest of the dashboard is one tap from it.
 
 Set `ALERT_MARKUP=plain` for a channel that does not parse HTML.
 

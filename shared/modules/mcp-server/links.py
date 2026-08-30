@@ -20,13 +20,17 @@ from common.links import (
     DETAIL_BY_MEASUREMENT,
     MEASUREMENT_BY_PROBE,
     dashboards_match_backend,
+    entry_point_links,
     grafana_base,
+    grafana_tunnel_base,
     grafana_url,
+    has_tunnel_links,
     links_configured,
     measurement_for_probe,
     target_links,
     web_admin_base,
     web_admin_target_url,
+    web_admin_tunnel_base,
 )
 
 __all__ = [
@@ -39,11 +43,15 @@ __all__ = [
     "DETAIL_BY_MEASUREMENT",
     "MEASUREMENT_BY_PROBE",
     "dashboards_match_backend",
+    "entry_point_links",
     "grafana_base",
+    "grafana_tunnel_base",
     "grafana_url",
+    "has_tunnel_links",
     "links_configured",
     "measurement_for_probe",
     "target_links",
     "web_admin_base",
     "web_admin_target_url",
+    "web_admin_tunnel_base",
 ]

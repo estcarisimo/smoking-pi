@@ -292,6 +292,31 @@ cd ../pro && ./setup.sh --database clickhouse
 - **[Utility Scripts](shared/scripts/)** - Container management, credentials, and tunnel scripts
 - **[Quick Tunnels](shared/docs/quick-tunnels.md)** - Instant remote access (no account needed)
 - **[Cloudflare Tunnels](shared/docs/cloudflare-tunnel-setup.md)** - Permanent remote access setup
+- **[MCP Server](docs/mcp-server.md)** - Ask an AI agent about your network; deep links back into Grafana
+- **[OpenClaw Integration](docs/openclaw-integration.md)** - Answer "how's my internet?" from Telegram
+- **[Alerting](docs/alerting.md)** - Push notifications that lead with a verdict and carry the graph
+
+### Ask your network how it's doing
+
+Pro ships an MCP server and a ready-made agent skill, so "how was the week?"
+is answered from months of recorded history instead of a live `ping`:
+
+```bash
+# Install the agent skill, then tune the four values it calls out
+./shared/scripts/install-openclaw-skill.sh --reload
+
+# Re-run after any change; --check exits non-zero if the copy is stale
+./shared/scripts/install-openclaw-skill.sh --check
+```
+
+[`examples/openclaw/smokeping-monitoring/SKILL.md`](examples/openclaw/smokeping-monitoring/SKILL.md)
+carries the report shape (traffic lights, sections, both a home and a
+from-anywhere link) and the list of things that look broken but are not — the
+ICMP loss floor, hosts that never answer ping, the alert-test target. It is
+written in English and answers in whatever language you ask in. Four values are
+yours to change; the file names them up front. See
+[OpenClaw Integration](docs/openclaw-integration.md) for the install and the
+gateway reload it needs.
 
 ## 🛠️ Development
 

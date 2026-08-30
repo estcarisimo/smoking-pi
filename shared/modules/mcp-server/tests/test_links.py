@@ -13,7 +13,14 @@ import pytest
 
 import links
 
-LINK_VARS = ("PUBLIC_BASE_HOST", "GRAFANA_PUBLIC_URL", "WEB_ADMIN_PUBLIC_URL")
+LINK_VARS = (
+    "PUBLIC_BASE_HOST",
+    "GRAFANA_PUBLIC_URL",
+    "WEB_ADMIN_PUBLIC_URL",
+    "TUNNEL_BASE_HOST",
+    "GRAFANA_TUNNEL_URL",
+    "WEB_ADMIN_TUNNEL_URL",
+)
 
 # TSDB_TYPE is scrubbed too: it now gates link emission, so leaving the host's
 # value in place would make these tests pass or fail depending on the machine
@@ -41,9 +48,12 @@ def test_no_config_means_no_links():
     assert links.links_configured() is False
     assert links.grafana_base() is None
     assert links.web_admin_base() is None
+    assert links.grafana_tunnel_base() is None
+    assert links.has_tunnel_links() is False
     assert links.grafana_url("smokeping-lat-pct-v28", "target", "UBA") is None
     assert links.web_admin_target_url("UBA") is None
     assert links.target_links("UBA", "latency", "custom") == {}
+    assert links.entry_point_links() == {}
 
 
 def test_empty_string_counts_as_unset(monkeypatch):
@@ -88,6 +98,91 @@ def test_one_service_configured_is_enough_for_that_service(monkeypatch):
     result = links.target_links("UBA", "latency", "custom")
     assert "graph" in result
     assert "edit" not in result
+
+
+# ---------------------------------------------------------------------------
+# The tunnel tier: the same panel, reachable from outside the house
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def both_tiers(monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "192.168.86.27")
+    monkeypatch.setenv("TUNNEL_BASE_HOST", "https://smokingpi.example.com")
+
+
+def test_tunnel_alone_becomes_the_primary_link(monkeypatch):
+    """A tunnel-only deployment gets links, not silence.
+
+    Falling back matters: without it, a Pi reachable *only* through a tunnel
+    would report itself unconfigured and answer with numbers and no links.
+    """
+    monkeypatch.setenv("TUNNEL_BASE_HOST", "https://smokingpi.example.com")
+    assert links.links_configured() is True
+    assert links.grafana_base() == "https://smokingpi.example.com"
+    # No twin: the tunnel IS the primary, and the same URL under two labels
+    # reads as two places to look.
+    assert links.has_tunnel_links() is False
+    result = links.target_links("UBA", "latency", "custom")
+    assert result["graph"].startswith("https://smokingpi.example.com/d/")
+    assert not [key for key in result if key.endswith("_tunnel")]
+
+
+def test_both_tiers_emit_twinned_links(both_tiers):
+    result = links.target_links("Amazon", "latency", "top_sites", hours=24)
+    assert set(result) == {
+        "graph",
+        "per_ping_detail",
+        "compare_with_peers",
+        "edit",
+        "graph_tunnel",
+        "per_ping_detail_tunnel",
+        "compare_with_peers_tunnel",
+        "edit_tunnel",
+    }
+    # Same panel, same window -- only the host differs.
+    assert result["graph"].startswith("http://192.168.86.27:3000/d/")
+    assert result["graph_tunnel"].startswith("https://smokingpi.example.com/d/")
+    assert _query(result["graph"]) == _query(result["graph_tunnel"])
+
+
+def test_explicit_tunnel_urls_win_over_the_tunnel_host(monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "192.168.86.27")
+    monkeypatch.setenv("TUNNEL_BASE_HOST", "https://smokingpi.example.com")
+    monkeypatch.setenv("GRAFANA_TUNNEL_URL", "https://grafana.example.com")
+    assert links.grafana_tunnel_base() == "https://grafana.example.com"
+    assert links.web_admin_tunnel_base() == "https://smokingpi.example.com"
+
+
+def test_a_tunnel_equal_to_the_primary_is_not_twinned(monkeypatch):
+    """Configuring the same address twice must not double every link."""
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "https://smokingpi.example.com")
+    monkeypatch.setenv("TUNNEL_BASE_HOST", "https://smokingpi.example.com/")
+    assert links.has_tunnel_links() is False
+    result = links.target_links("UBA", "latency", "custom")
+    assert not [key for key in result if key.endswith("_tunnel")]
+
+
+def test_entry_points_carry_both_tiers(both_tiers):
+    result = links.entry_point_links(hours=24)
+    assert set(result) == {
+        "grafana_overview",
+        "grafana_cpe_microcuts",
+        "web_admin_targets",
+        "grafana_overview_tunnel",
+        "grafana_cpe_microcuts_tunnel",
+        "web_admin_targets_tunnel",
+    }
+    assert result["web_admin_targets"] == "http://192.168.86.27:8080/targets/"
+    assert result["web_admin_targets_tunnel"] == "https://smokingpi.example.com/targets/"
+
+
+def test_tunnel_links_stay_off_under_clickhouse(both_tiers, monkeypatch):
+    """The backend gate covers both tiers -- a twinned 404 is still a 404."""
+    monkeypatch.setenv("TSDB_TYPE", "clickhouse")
+    assert links.links_configured() is False
+    assert links.target_links("UBA", "latency", "custom") == {}
+    assert links.entry_point_links() == {}
 
 
 # ---------------------------------------------------------------------------

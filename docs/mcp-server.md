@@ -38,6 +38,9 @@ Source: `shared/modules/mcp-server/`.
 | `PUBLIC_BASE_HOST` | *(unset)* | Host the *reader* reaches this Pi on; enables deep links (below) |
 | `GRAFANA_PUBLIC_URL` | *(unset)* | Full Grafana base URL; wins over `PUBLIC_BASE_HOST` |
 | `WEB_ADMIN_PUBLIC_URL` | *(unset)* | Full web-admin base URL; wins over `PUBLIC_BASE_HOST` |
+| `TUNNEL_BASE_HOST` | *(unset)* | Host reachable from *outside* the home network; adds a `_tunnel` twin to every link |
+| `GRAFANA_TUNNEL_URL` | *(unset)* | Full from-anywhere Grafana base URL; wins over `TUNNEL_BASE_HOST` |
+| `WEB_ADMIN_TUNNEL_URL` | *(unset)* | Full from-anywhere web-admin base URL; wins over `TUNNEL_BASE_HOST` |
 
 ## Deep links
 
@@ -90,6 +93,48 @@ WEB_ADMIN_PUBLIC_URL=https://admin.example.com
 ```
 
 Then `COMPOSE_PROFILES=mcp docker compose up -d mcp-server` to pick it up.
+
+### Two tiers: at home, and from anywhere
+
+The variables above answer "where is the reader standing" once. In practice the
+same person asks from the couch and from a train, and there is no single right
+answer: a LAN address is the better link at home — one hop, and up even when
+Cloudflare isn't — and a dead link on cellular.
+
+So the tunnel address is configured separately, and every link is emitted
+twice:
+
+```bash
+PUBLIC_BASE_HOST=192.168.86.27               # at home
+TUNNEL_BASE_HOST=https://smokingpi.example.com   # from anywhere
+```
+
+```json
+{"links": {
+   "graph": "http://192.168.86.27:3000/d/smokeping-lat-pct-v28?var-target=Amazon&...",
+   "graph_tunnel": "https://smokingpi.example.com/d/smokeping-lat-pct-v28?var-target=Amazon&...",
+   "edit": "http://192.168.86.27:8080/targets/?q=Amazon",
+   "edit_tunnel": "https://smokingpi.example.com/targets/?q=Amazon"}}
+```
+
+Same panel, same window, different host. `system_status()` twins its three
+entry points the same way (`grafana_overview_tunnel`, …).
+
+Three behaviours worth knowing, each of which exists to keep a link from
+lying:
+
+- **Tunnel only is fine.** With `TUNNEL_BASE_HOST` set and `PUBLIC_BASE_HOST`
+  empty, the tunnel *becomes* the primary link — a Pi reachable only through a
+  tunnel gets links rather than silence — and no `_tunnel` twins are emitted.
+- **Identical bases are not twinned.** Configuring the same address in both
+  tiers produces one link, not two. Two labels on one URL invites a reader to
+  try "the other one" when there isn't one.
+- **Quick tunnels expire.** `./shared/scripts/create-tunnel.sh` prints a fresh
+  `*.trycloudflare.com` hostname on every restart; pasting one into `.env`
+  works until the next restart, after which the twins 404. Use a named tunnel
+  if these links are going into alerts.
+
+`./shared/scripts/show-tunnel-urls.sh` prints the current hostnames.
 
 Two things worth knowing:
 

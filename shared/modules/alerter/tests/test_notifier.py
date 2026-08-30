@@ -62,7 +62,7 @@ def test_format_alert_has_severity_emoji():
 
 
 def test_format_warning_and_recovery():
-    assert notifier.format_message(_event(severity="warning")).startswith("🟠")
+    assert notifier.format_message(_event(severity="warning")).startswith("🟡")
     assert notifier.format_message(_event(type="recovery")).startswith("✅")
 
 
