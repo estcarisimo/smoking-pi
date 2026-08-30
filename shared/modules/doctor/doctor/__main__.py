@@ -13,7 +13,7 @@ import argparse
 import pathlib
 import sys
 
-from . import static_checks
+from . import live_checks, static_checks
 from .report import Report
 
 
@@ -53,6 +53,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="list findings for passing checks too",
     )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "also run checks that need the running stack (deployed code "
+            "matches the repo; container resolvers match the host). Requires "
+            "docker; skips cleanly without it, so this is safe in CI."
+        ),
+    )
     return parser
 
 
@@ -61,11 +70,16 @@ def main(argv: list[str] | None = None) -> int:
     root = args.repo_root or _default_repo_root()
     repo = static_checks.Repo(root.resolve())
 
-    report = Report(static_checks.run_all(repo))
+    checks = static_checks.run_all(repo)
+    if args.live:
+        checks += live_checks.run_all(repo)
+
+    report = Report(checks)
     if args.json:
         print(report.render_json())
     else:
-        print(f"instrumentation doctor — static checks against {repo.root}\n")
+        scope = "static + live checks" if args.live else "static checks"
+        print(f"instrumentation doctor — {scope} against {repo.root}\n")
         print(report.render_text(verbose=args.verbose))
     return report.exit_code
 

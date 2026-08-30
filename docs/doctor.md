@@ -80,10 +80,58 @@ Panel queries **and** template-variable queries are both checked, including
 panels nested inside collapsed rows. The `DNS_Resolvers` mistake lived in a
 variable query, not a panel.
 
+## Live checks (`--live`)
+
+```bash
+python -m doctor --live
+```
+
+Two checks need the running stack. Both exist because the failure happened
+here, and both share a shape worth naming: **the broken thing keeps looking
+healthy**, so nothing goes red and nobody looks.
+
+### `deployed-code-current`
+
+Compares the sha256 of every deployed `.py` — the module's own source and the
+shared `common` package — against the repository, for each running container
+built from an image that copies source in.
+
+This is commit `dde5e36` ("the flap fix never reached the deployed
+container"), and it recurred: an image failed to build, the failure was
+masked by a shell pipeline's exit code, `docker compose up -d` recreated the
+container from the three-week-old image, and every surface reported success
+while the fix sat only on disk. A stale container starts, logs cleanly and
+serves requests; there is no symptom to notice.
+
+A container that is *not running* is not drift — a profile switched off is a
+deployment choice. A container it cannot read is reported as "cannot verify",
+never as drift: claiming a difference it did not measure would be the same
+class of bug.
+
+### `container-dns-fresh`
+
+Compares each running container's `/etc/resolv.conf` nameservers against the
+host's. Docker writes that file **once, at container creation**, so a
+container created while a VPN was up keeps that VPN's resolver forever — and
+it dies silently when the VPN goes away.
+
+That cost nine of eighteen targets for ten days: every hostname target read
+100% loss, every raw-IP target was fine, and "100% loss" is indistinguishable
+from "the target is down". It reports a warning rather than a failure, since
+a resolver pinned deliberately via compose `dns:` is legitimate.
+
+Loopback resolvers are ignored. `127.0.0.11` is Docker's own embedded DNS,
+present on every container attached to a user-defined network, and it
+forwards to whatever the daemon currently resolves with — so it is fresh by
+construction. The first real run of this check flagged all six healthy
+containers before that exclusion existed, which is how a check gets ignored.
+
+Both skip cleanly when Docker is absent, so `--live` is safe to run anywhere;
+without the flag the behaviour is exactly as before, and CI is unaffected.
+
 ## What is not covered yet
 
-The live checks — the ones needing a running stack — are not built. They are
-the other half of the plan:
+The remaining live checks are not built. They are the other half of the plan:
 
 - **Target added but not measured**: active DB rows vs `++` entries in the
   generated `Targets` vs RRD files on disk vs distinct `target` tags in the

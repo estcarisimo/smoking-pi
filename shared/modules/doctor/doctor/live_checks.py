@@ -1,0 +1,304 @@
+"""Live checks — the ones that need a running stack.
+
+The static checks compare one file against another and run in CI. These two
+compare what is *deployed* against what the repository says, and can only run
+on the machine actually running the stack.
+
+Both exist because the corresponding failure happened here, and both share a
+shape that makes them worth automating: **the broken thing keeps looking
+healthy.** A container running three-week-old code starts, logs cleanly and
+answers requests. A container holding a dead resolver pings raw IPs happily
+and only fails on hostnames. Nothing goes red, so nobody looks.
+
+- ``deployed-code-current`` — the running container's Python matches the
+  repository. This is commit ``dde5e36`` ("the flap fix never reached the
+  deployed container"), and it recurred: an image failed to rebuild, the
+  failure was masked by a shell pipeline's exit code, ``docker compose up -d``
+  recreated the container from the stale image, and everything reported
+  success while the fix sat only on disk.
+
+- ``container-dns-fresh`` — a container's resolver still matches the host's.
+  Docker writes ``/etc/resolv.conf`` **once, at container creation**. A
+  container created while a VPN was up freezes that VPN's resolver, which dies
+  silently when the VPN goes away. This cost nine of eighteen targets for ten
+  days: every hostname target read 100% loss, every raw-IP target was fine,
+  and "100% loss" is indistinguishable from "the target is down".
+
+Docker is invoked through an injected runner so these are testable without a
+daemon, and every check SKIPS rather than fails when Docker is unavailable —
+running the doctor on a laptop must not report a broken deployment.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import pathlib
+import shutil
+import subprocess
+
+from .report import CheckResult, Finding, Status, result, skipped
+
+# module directory in the repo -> container name it is deployed into.
+# Only modules whose image copies source in; a bind-mounted service cannot
+# drift this way.
+DEPLOYED_MODULES = {
+    "alerter": "pro-alerter-1",
+    "mcp-server": "smokeping-mcp-server",
+}
+
+# Shared package copied into those images alongside the module's own source.
+COMMON_DIR = "common"
+
+
+class Docker:
+    """Thin wrapper so the checks can be tested without a daemon."""
+
+    def __init__(self, binary: str = "docker", timeout: int = 30):
+        self.binary = binary
+        self.timeout = timeout
+
+    def available(self) -> bool:
+        return shutil.which(self.binary) is not None
+
+    def run(self, args: list[str]) -> tuple[int, str]:
+        """Return (returncode, stdout). Never raises."""
+        try:
+            proc = subprocess.run(
+                [self.binary, *args],
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                check=False,
+            )
+            return proc.returncode, proc.stdout
+        except (OSError, subprocess.SubprocessError):
+            return 1, ""
+
+    def is_running(self, container: str) -> bool:
+        code, out = self.run(
+            ["inspect", "-f", "{{.State.Running}}", container]
+        )
+        return code == 0 and out.strip() == "true"
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _repo_py_files(directory: pathlib.Path) -> dict[str, pathlib.Path]:
+    """Top-level .py files, by name. Tests and caches are not deployed."""
+    if not directory.is_dir():
+        return {}
+    return {
+        p.name: p
+        for p in sorted(directory.glob("*.py"))
+        if not p.name.startswith("test_")
+    }
+
+
+def _container_hashes(docker: Docker, container: str, path: str) -> dict[str, str]:
+    """sha256 of every .py directly under `path` inside the container.
+
+    Uses sha256sum from the image (present in the python:slim base). A missing
+    tool yields {}, which the caller reports as "could not verify" rather than
+    as drift -- claiming drift we did not measure would be its own version of
+    the bug these checks exist to catch.
+    """
+    code, out = docker.run(
+        [
+            "exec",
+            container,
+            "sh",
+            "-c",
+            f"cd {path} 2>/dev/null && sha256sum *.py 2>/dev/null",
+        ]
+    )
+    if code != 0 or not out.strip():
+        return {}
+    hashes: dict[str, str] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            digest, name = parts[0], parts[1].lstrip("*")
+            hashes[name] = digest
+    return hashes
+
+
+def check_deployed_code_current(
+    repo, docker: Docker | None = None
+) -> CheckResult:
+    """Every deployed module's Python matches the repository.
+
+    A stale image is invisible: the container starts, logs cleanly, serves
+    requests, and runs code nobody has looked at in weeks.
+    """
+    docker = docker or Docker()
+    if not docker.available():
+        return skipped("deployed-code-current", "docker not on PATH")
+
+    findings: list[Finding] = []
+    compared = 0
+    checked_containers = 0
+
+    for module, container in sorted(DEPLOYED_MODULES.items()):
+        module_dir = repo.root / "shared/modules" / module
+        if not module_dir.is_dir():
+            continue
+        if not docker.is_running(container):
+            # Not running is not drift. A profile that is switched off is a
+            # deployment choice, not a fault.
+            continue
+        checked_containers += 1
+
+        for label, source_dir, container_path in (
+            (module, module_dir, "/app"),
+            (f"{module}:{COMMON_DIR}", repo.root / "shared/modules" / COMMON_DIR,
+             "/app/common"),
+        ):
+            repo_files = _repo_py_files(source_dir)
+            if not repo_files:
+                continue
+            deployed = _container_hashes(docker, container, container_path)
+            if not deployed:
+                findings.append(
+                    Finding(
+                        f"could not read {container_path} in {container} — "
+                        f"cannot verify {label} is current",
+                        where=container,
+                    )
+                )
+                continue
+
+            for name, path in repo_files.items():
+                compared += 1
+                want = _sha256(path.read_bytes())
+                got = deployed.get(name)
+                if got is None:
+                    findings.append(
+                        Finding(
+                            f"{name} exists in the repo but not in "
+                            f"{container_path} — the image predates it; "
+                            f"rebuild: docker compose build {module}",
+                            where=f"{container}:{container_path}/{name}",
+                        )
+                    )
+                elif got != want:
+                    findings.append(
+                        Finding(
+                            f"{name} differs from the repository — the "
+                            f"container is running older code; rebuild: "
+                            f"docker compose build {module}",
+                            where=f"{container}:{container_path}/{name}",
+                        )
+                    )
+
+    if checked_containers == 0:
+        return skipped(
+            "deployed-code-current",
+            "no deployed module containers are running",
+        )
+    return result(
+        "deployed-code-current",
+        findings,
+        f"{compared} deployed files match the repository",
+    )
+
+
+def _nameservers(text: str) -> list[str]:
+    return [
+        line.split()[1]
+        for line in text.splitlines()
+        if line.strip().startswith("nameserver") and len(line.split()) > 1
+    ]
+
+
+def _is_loopback(address: str) -> bool:
+    """Docker's embedded resolver, and any other loopback nameserver.
+
+    Every container on a user-defined bridge network gets ``127.0.0.11``,
+    Docker's own DNS, which forwards to whatever the daemon currently
+    resolves with -- so it is always fresh by construction and never the
+    stale-snapshot failure this check hunts. Flagging it would fire on every
+    healthy compose deployment, which is how a check gets ignored.
+    """
+    return address.startswith("127.") or address in ("::1", "0:0:0:0:0:0:0:1")
+
+
+def check_container_dns_fresh(
+    repo, docker: Docker | None = None, host_resolv: pathlib.Path | None = None
+) -> CheckResult:
+    """No running container is holding a resolver the host has abandoned.
+
+    Docker writes a container's /etc/resolv.conf once, at creation. A
+    container created while a VPN was up keeps that VPN's resolver forever,
+    and it dies silently when the VPN goes away -- hostname targets read 100%
+    loss while raw-IP targets stay perfectly healthy, which reads as an
+    outage rather than a DNS fault.
+
+    Only flags a resolver the host does NOT have. A container legitimately
+    pinned to a different resolver (compose `dns:`) is a deliberate choice
+    and is reported as a warning, not a failure, because it may be correct.
+    """
+    docker = docker or Docker()
+    if not docker.available():
+        return skipped("container-dns-fresh", "docker not on PATH")
+
+    host_path = host_resolv or pathlib.Path("/etc/resolv.conf")
+    try:
+        host_ns = set(_nameservers(host_path.read_text()))
+    except OSError:
+        return skipped("container-dns-fresh", f"cannot read {host_path}")
+    if not host_ns:
+        return skipped("container-dns-fresh", f"no nameserver in {host_path}")
+
+    code, out = docker.run(["ps", "--format", "{{.Names}}"])
+    if code != 0:
+        return skipped("container-dns-fresh", "docker ps failed")
+    containers = [c for c in out.split() if c]
+    if not containers:
+        return skipped("container-dns-fresh", "no running containers")
+
+    findings: list[Finding] = []
+    checked = 0
+    for container in sorted(containers):
+        rc, text = docker.run(["exec", container, "cat", "/etc/resolv.conf"])
+        if rc != 0 or not text.strip():
+            # Distroless or shell-less images cannot be inspected this way.
+            # Silence beats a finding we cannot substantiate.
+            continue
+        checked += 1
+        stale = [
+            ns
+            for ns in _nameservers(text)
+            if ns not in host_ns and not _is_loopback(ns)
+        ]
+        if stale:
+            findings.append(
+                Finding(
+                    f"resolver {', '.join(stale)} is not one the host uses "
+                    f"({', '.join(sorted(host_ns))}). If that resolver is "
+                    f"gone, hostname targets fail while IP targets look "
+                    f"fine. Recreate: docker compose up -d --force-recreate "
+                    f"--no-deps {container}",
+                    where=container,
+                )
+            )
+
+    if checked == 0:
+        return skipped(
+            "container-dns-fresh", "no container exposed /etc/resolv.conf"
+        )
+    return result(
+        "container-dns-fresh",
+        findings,
+        f"{checked} containers use the host's resolvers",
+        status=Status.WARN,
+    )
+
+
+def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
+    docker = docker or Docker()
+    return [
+        check_deployed_code_current(repo, docker),
+        check_container_dns_fresh(repo, docker),
+    ]

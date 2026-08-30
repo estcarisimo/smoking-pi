@@ -11,6 +11,31 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The doctor can now check the running stack (`--live`).** Two checks, both
+  for failures that already happened here, and both sharing one shape: the
+  broken thing keeps looking healthy, so nothing goes red and nobody looks.
+
+  `deployed-code-current` compares the sha256 of every deployed `.py` — the
+  module's own source and the shared `common` package — against the
+  repository. This is `dde5e36` ("the flap fix never reached the deployed
+  container"), and it recurred while building this batch: an image failed to
+  build, the failure was masked by a shell pipeline's exit code, `docker
+  compose up -d` recreated the container from a three-week-old image, and
+  every surface reported success. A container it cannot read is reported as
+  "cannot verify", never as drift — claiming a difference it did not measure
+  would be the same class of bug.
+
+  `container-dns-fresh` compares each container's resolvers against the
+  host's. Docker writes `/etc/resolv.conf` once, at container creation, so a
+  container created while a VPN was up keeps that resolver after the VPN is
+  gone — which cost nine of eighteen targets for ten days, with hostname
+  targets at 100% loss and raw-IP targets perfectly healthy. Loopback
+  resolvers are excluded: `127.0.0.11` is Docker's own embedded DNS and is
+  fresh by construction. Without that exclusion the first real run flagged
+  all six healthy containers, which is how a check gets ignored.
+
+  Both skip cleanly without Docker, so CI and the static path are unchanged.
+
 - **A daily digest, so silence stops being ambiguous.** Alerts only fire when
   something breaks, which means a quiet channel means either "nothing
   happened" or "the monitoring stopped" — and those are the two states you
