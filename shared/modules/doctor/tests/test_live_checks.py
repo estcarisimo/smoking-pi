@@ -90,6 +90,9 @@ MCP_PS = "ps --filter label=com.docker.compose.service=mcp-server"
 
 def _healthy_alerter(repo, container="pro-alerter-1"):
     return {
+        # The daemon probe, so a reachable docker is distinguishable from
+        # "nothing is running".
+        "ps --format": (0, f"{container}\n"),
         ALERTER_PS: (0, f"{container}\n"),
         MCP_PS: (0, "\n"),
         "exec pro-alerter-1 sh -c cd /app ": (
@@ -164,7 +167,11 @@ def test_unreadable_container_reports_uncertainty_not_drift(repo):
 
 def test_a_stopped_container_is_not_drift(repo):
     """A profile that is off is a deployment choice, not a fault."""
-    docker = FakeDocker({ALERTER_PS: (0, "\n"), MCP_PS: (0, "\n")})
+    docker = FakeDocker({
+        "ps --format": (0, "other-container\n"),
+        ALERTER_PS: (0, "\n"),
+        MCP_PS: (0, "\n"),
+    })
     assert live_checks.check_deployed_code_current(repo, docker).status is Status.SKIP
 
 
@@ -285,3 +292,33 @@ def test_a_custom_compose_project_name_is_still_found(repo):
     res = live_checks.check_deployed_code_current(repo, FakeDocker(responses))
     assert res.status is Status.OK, [f.render() for f in res.findings]
     assert "3 deployed files" in res.summary
+
+
+def test_a_broken_docker_daemon_does_not_read_as_nothing_running(repo):
+    """`docker` on PATH says nothing about the daemon being reachable.
+
+    container_for_service() returns None for both "no match" and "command
+    failed", so a dead daemon or a user outside the docker group reported a
+    clean SKIP meaning "nothing deployed" — hiding an inability to verify,
+    which is the failure this check exists to catch wearing a disguise.
+    """
+    docker = FakeDocker({"ps": (1, "")})
+    res = live_checks.check_deployed_code_current(repo, docker)
+    assert res.status is Status.SKIP
+    assert "docker ps failed" in res.summary
+    assert "cannot verify" in res.summary
+
+
+def test_a_systemd_resolved_host_does_not_flag_every_container(host_resolv, repo, tmp_path):
+    """The most common Linux DNS setup must not light up the whole stack.
+
+    On systemd-resolved, /etc/resolv.conf is just `nameserver 127.0.0.53`.
+    Docker never hands that to a container — it substitutes the real
+    upstreams — so comparing against the stub marked every container stale.
+    """
+    stub = tmp_path / "stub-resolv.conf"
+    stub.write_text("nameserver 127.0.0.53\noptions edns0\n")
+    docker = _dns_docker({"pro-grafana-1": "nameserver 192.168.86.1\n"})
+    res = live_checks.check_container_dns_fresh(repo, docker, stub)
+    assert res.status is Status.SKIP, [f.render() for f in res.findings]
+    assert "non-loopback" in res.summary

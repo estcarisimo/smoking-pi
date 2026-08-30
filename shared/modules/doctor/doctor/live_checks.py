@@ -182,6 +182,18 @@ def check_deployed_code_current(
     if not docker.available():
         return skipped("deployed-code-current", "docker not on PATH")
 
+    # Probe the daemon once, so "docker ps failed" cannot masquerade as
+    # "nothing is running". `docker` being on PATH says nothing about the
+    # daemon being reachable or the user being in the docker group, and
+    # reporting a clean SKIP in that case hides an inability to verify --
+    # which is the failure this check exists to catch, wearing a disguise.
+    probe_code, _ = docker.run(["ps", "--format", "{{.Names}}"])
+    if probe_code != 0:
+        return skipped(
+            "deployed-code-current",
+            "docker ps failed (daemon down, or no permission) — cannot verify",
+        )
+
     findings: list[Finding] = []
     compared = 0
     checked_containers = 0
@@ -306,11 +318,25 @@ def check_container_dns_fresh(
 
     host_path = host_resolv or pathlib.Path("/etc/resolv.conf")
     try:
-        host_ns = set(_nameservers(host_path.read_text()))
+        # Loopback stubs are dropped from the HOST side too, not just the
+        # container side. On a systemd-resolved host /etc/resolv.conf is just
+        # `nameserver 127.0.0.53`, and Docker never hands that to a container
+        # -- it substitutes the real upstreams. Comparing against the stub
+        # would therefore mark every container stale on the most common Linux
+        # configuration there is, which is a check nobody would keep enabled.
+        host_ns = {
+            ns for ns in _nameservers(host_path.read_text())
+            if not _is_loopback(ns)
+        }
     except OSError:
         return skipped("container-dns-fresh", f"cannot read {host_path}")
     if not host_ns:
-        return skipped("container-dns-fresh", f"no nameserver in {host_path}")
+        # Only a stub, or nothing: there is no upstream to compare against,
+        # so any answer here would be invented.
+        return skipped(
+            "container-dns-fresh",
+            f"no non-loopback nameserver in {host_path} to compare against",
+        )
 
     code, out = docker.run(["ps", "--format", "{{.Names}}"])
     if code != 0:
