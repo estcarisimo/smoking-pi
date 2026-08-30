@@ -287,7 +287,8 @@ reassuring message — precisely the failure the digest exists to catch.
 
 The same shape as everything else: traffic lights, bold sections, worst
 targets first, capped at five. Counts come from `state["history"]`, appended
-on every delivered notification and pruned to `DIGEST_HISTORY_MAX` and 48
+on each alert or recovery the alerter decides to send — regardless of
+whether delivery then succeeded — and pruned to `DIGEST_HISTORY_MAX` and 48
 hours — necessary because `reconcile()` pops a record on recovery, so by
 08:30 an incident that fired and cleared at 03:00 has left no other trace.
 

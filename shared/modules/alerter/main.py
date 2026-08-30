@@ -150,9 +150,10 @@ def run_iteration() -> None:
             "links": _links_for(event),
         }
         notifier.notify(payload, image=_chart_for(event, peers))
-        # Recorded whether or not delivery succeeded: the digest reports what
-        # the alerter DECIDED, and "we tried to tell you and could not" is
-        # more useful in a daily summary than a silent gap.
+        # Recorded regardless of delivery success -- notify()'s return value
+        # is deliberately not captured, so history says what the alerter
+        # DECIDED to send, not what arrived. A daily summary is better served
+        # by "an alert fired here" than by a gap wherever delivery failed.
         digest.record_history(current, payload)
     for event in actions["recoveries"]:
         # No chart on a recovery: the news IS the recovery, and a second image

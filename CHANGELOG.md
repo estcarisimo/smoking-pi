@@ -42,8 +42,9 @@ version gets a matching GitHub release and git tag.
   broken monitor into a reassuring message — the exact failure the digest
   exists to catch, and the first thing its tests assert.
 
-  Counts come from a new `state["history"]`, appended on each delivered
-  notification and pruned to 200 entries and 48 hours. Necessary because
+  Counts come from a new `state["history"]`, appended on each alert or
+  recovery the alerter decides to send — whether or not delivery then
+  succeeded — and pruned to 200 entries and 48 hours. Necessary because
   `reconcile()` pops a record on recovery, so by 08:30 an incident that fired
   and cleared at 03:00 has left no other trace.
 
