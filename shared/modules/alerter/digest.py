@@ -68,7 +68,11 @@ def enabled() -> bool:
 
 
 def record_history(state: dict, event: dict, now: float | None = None) -> None:
-    """Append one delivered notification to the rolling history.
+    """Append one notification the alerter decided to send.
+
+    Recorded whether or not delivery succeeded, deliberately: "we tried to
+    tell you and could not" belongs in a daily summary more than a silent
+    gap does.
 
     ``state["incidents"]`` only holds *live* records -- reconcile pops a key
     on recovery -- so by 08:30 an incident that fired and cleared at 03:00 has
@@ -282,6 +286,15 @@ def check(state: dict, now: float | None = None) -> bool:
         record["attempts"] = 0
         return False
 
+    # The retry budget belongs to ONE slot. Without this, a day that failed
+    # twice and then went quiet (a restart, a powered-off Pi) hands its count
+    # to the next day, which then gets a single attempt instead of three --
+    # the budget silently shrinking the longer delivery has been unreliable,
+    # which is backwards.
+    if record.get("attempts_slot") != slot:
+        record["attempts"] = 0
+        record["attempts_slot"] = slot
+
     attempts = int(record.get("attempts", 0) or 0)
     if attempts >= MAX_ATTEMPTS:
         log.warning(
@@ -324,6 +337,7 @@ def check(state: dict, now: float | None = None) -> bool:
     # Delivery failed. Leave last_fired_slot alone so the next tick retries
     # this same slot, and count the attempt so it cannot retry forever.
     record["attempts"] = attempts + 1
+    record["attempts_slot"] = slot
     record["last_error"] = "delivery failed"
     log.warning("Digest delivery failed (attempt %d/%d)",
                 attempts + 1, MAX_ATTEMPTS)

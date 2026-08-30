@@ -292,3 +292,29 @@ def test_target_names_are_escaped_in_the_message(collected, sent):
     text = calls[0]["event"]["message"]
     assert "a&lt;b&amp;c" in text
     assert "a<b&c" not in text
+
+
+def test_a_new_slot_gets_a_full_retry_budget(collected, sent):
+    """Yesterday's failures must not shrink today's budget.
+
+    Two failed attempts, then the Pi is off overnight. The next day's slot
+    inherited `attempts=2` and got a single try instead of three — the budget
+    silently shrinking the longer delivery had been unreliable.
+    """
+    calls, box = sent
+    state = {}
+    box["ok"] = False
+    digest.check(state, now=_at())
+    digest.check(state, now=_at() + 60)
+    assert state["digest"]["attempts"] == 2
+    assert len(calls) == 2
+
+    # Next day, same wall-clock slot. Delivery still failing.
+    calls.clear()
+    tomorrow = _at(day=31)
+    for i in range(6):
+        digest.check(state, now=tomorrow + i * 60)
+    assert len(calls) == digest.MAX_ATTEMPTS, (
+        f"the new slot got {len(calls)} attempts, not {digest.MAX_ATTEMPTS} — "
+        "the counter carried over from the previous slot"
+    )

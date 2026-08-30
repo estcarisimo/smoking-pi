@@ -114,9 +114,14 @@ def due_slot(
 ) -> tuple[float | None, Reason]:
     """Decide whether a scheduled job is due, and for which slot.
 
-    Returns ``(slot_epoch, reason)``. The caller records ``slot_epoch``
-    whenever it is not None -- including for ``skipped_stale``, which is how
-    a missed day is retired instead of firing late.
+    Returns ``(slot_epoch, reason)``. Recording ``slot_epoch`` is what retires
+    a slot, so **when** the caller records it is a real choice:
+
+    - ``skipped_stale`` -- record it immediately. That is how a missed day is
+      retired instead of firing late.
+    - ``due`` -- record it only once the work has actually succeeded. A caller
+      that records the slot before delivering has retired it, and no retry is
+      possible for that day.
 
     ``reason`` is one of:
 
