@@ -235,6 +235,65 @@ Every verdict logs its own inputs at INFO (`verdict inputs: 12/16 impaired
 can be diagnosed from `docker compose logs alerter` without reproducing the
 moment it was made.
 
+## The daily digest
+
+Alerts only fire when something breaks, so on a good day the channel is
+silent — and silence has two meanings: nothing happened, or the monitoring
+stopped. The digest resolves that on a schedule.
+
+Off by default. It needs `NOTIFY_MODE` set to deliver anywhere.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DIGEST_ENABLED` | `false` | Opt in |
+| `DIGEST_AT` | `08:30` | Wall-clock `HH:MM`; anything else disables with a warning |
+| `DIGEST_TZ` | *(unset)* | Zone for `DIGEST_AT`; falls back to `TZ`, then UTC |
+| `DIGEST_WINDOW_HOURS` | `24` | How far back it summarises |
+| `DIGEST_MAX_LATENESS` | `14400` | Seconds a missed slot may still be delivered |
+| `DIGEST_SILENT` | `true` | Deliver without a notification sound |
+| `DIGEST_HISTORY_MAX` | `200` | Cap on the retained notification history |
+
+### Fires once, however the clock behaves
+
+The loop wakes every `ALERT_INTERVAL` seconds and has no idea what time it
+is between ticks, which is where double-sends live. Each tick resolves the
+most recent scheduled instant at or before now — the **slot** — and state
+records which slot last fired. Firing is idempotent on that: ten ticks in the
+same minute resolve the same slot and do nothing.
+
+**The slot is persisted, not the send time.** That is the whole mechanism.
+Anything recorded *before* the slot instant — which is what a send-time-like
+value becomes after an NTP correction backwards, or on a container whose RTC
+starts behind — re-fires the same day. A test pins this by reintroduction.
+
+Past `DIGEST_MAX_LATENESS` the slot is recorded as fired **without sending**.
+A Pi that was off for two days must not deliver 08:30's digest at 19:00, and
+must not deliver two. Both DST transitions are covered by tests: a
+nonexistent wall time resolves to one stable instant, and an ambiguous one
+picks the same instant every tick.
+
+Rate limiting is structural rather than a parallel budget — one slot per day,
+idempotent on the persisted slot, at most 3 delivery attempts before the slot
+is retired. There is nothing to tune.
+
+### It never claims health it did not verify
+
+If the aggregate query raises, or returns zero targets, **nothing is sent**
+and the slot is retired with `last_error`. Reporting "all clear" when the
+truth is "InfluxDB did not answer" would convert a broken monitor into a
+reassuring message — precisely the failure the digest exists to catch.
+
+### What it says
+
+The same shape as everything else: traffic lights, bold sections, worst
+targets first, capped at five. Counts come from `state["history"]`, appended
+on every delivered notification and pruned to `DIGEST_HISTORY_MAX` and 48
+hours — necessary because `reconcile()` pops a record on recovery, so by
+08:30 an incident that fired and cleared at 03:00 has left no other trace.
+
+With the `ai` profile enabled, `reports_watcher` also delivers LLM-written
+reports. Both paths then run; they are independent.
+
 ## Message rendering
 
 Messages are Telegram HTML. Two budgets apply: 4096 characters for a plain

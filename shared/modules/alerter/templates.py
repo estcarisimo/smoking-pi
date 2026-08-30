@@ -152,11 +152,18 @@ def _link_line(links: dict | None) -> str:
     if not links:
         return ""
     labels = (
+        # Per-target links, from links.target_links().
         ("graph", "graph"),
         ("per_ping_detail", "per-ping"),
         ("compare_with_peers", "peers"),
         ("edit", "edit"),
         ("graph_tunnel", "🌐 anywhere"),
+        # Entry points, from links.entry_point_links() -- what a digest
+        # carries, since it is about everything rather than one target.
+        ("grafana_overview", "overview"),
+        ("grafana_cpe_microcuts", "microcuts"),
+        ("web_admin_targets", "targets"),
+        ("grafana_overview_tunnel", "🌐 anywhere"),
     )
     parts = [_a(links[key], label) for key, label in labels if links.get(key)]
     return " · ".join(parts)
@@ -230,4 +237,15 @@ def format_message(event: dict, limit: int = TG_TEXT_LIMIT) -> str:
     """Render one event to the text that will be delivered."""
     if event.get("type") == "report":
         return assemble([Section(0, str(event.get("message", "")))], limit)
+    if event.get("type") == "digest":
+        # The body is pre-rendered by digest.render(), which already builds
+        # its own sections; splitting the links onto their own Section lets
+        # them drop first when a caption budget bites, exactly as on alerts.
+        return assemble(
+            [
+                Section(0, str(event.get("message", ""))),
+                Section(1, _link_line(event.get("links"))),
+            ],
+            limit,
+        )
     return assemble(alert_sections(event), limit)

@@ -349,6 +349,16 @@ services:
       # Gateway token = gateway.auth.token in ~/.openclaw/openclaw.json.
       # OPENCLAW_HOOK_TOKEN is accepted as a legacy alias.
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
+      # Daily digest (opt-in). A wall-clock summary so that silence on a
+      # good day is distinguishable from a monitor that stopped. See
+      # docs/alerting.md
+      - DIGEST_ENABLED=${DIGEST_ENABLED:-false}
+      - DIGEST_AT=${DIGEST_AT:-08:30}
+      - DIGEST_TZ=${DIGEST_TZ:-}
+      - DIGEST_WINDOW_HOURS=${DIGEST_WINDOW_HOURS:-24}
+      - DIGEST_MAX_LATENESS=${DIGEST_MAX_LATENESS:-14400}
+      - DIGEST_SILENT=${DIGEST_SILENT:-true}
+      - DIGEST_HISTORY_MAX=${DIGEST_HISTORY_MAX:-200}
       - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN:-}
       - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-telegram}
       - OPENCLAW_TO=${OPENCLAW_TO:-}

@@ -410,3 +410,37 @@ def test_off_mode_notes_the_chart_without_sending(posts, caplog):
         assert notifier.notify(_event(), image=PNG) is True
     assert "+chart" in caplog.text
     assert posts["calls"] == []
+
+
+# ---------------------------------------------------------------------------
+# Per-message silence (the digest should not buzz a phone at 08:30)
+# ---------------------------------------------------------------------------
+
+
+def test_text_only_message_can_be_silent():
+    """Previously only the image path could be silent, so a text-only digest
+    always rang."""
+    payload = notifier.openclaw_invoke_payload("hi", silent=True)
+    assert payload["args"]["silent"] is True
+    assert "message" in payload["args"]
+
+
+def test_text_only_message_is_loud_by_default():
+    payload = notifier.openclaw_invoke_payload("hi")
+    assert "silent" not in payload["args"]
+
+
+def test_per_message_silent_overrides_the_env_default(monkeypatch):
+    """An alert must still ring on a deployment that silenced charts."""
+    monkeypatch.setenv("ALERT_SILENT", "true")
+    assert notifier.openclaw_invoke_payload("x", silent=False)["args"].get(
+        "silent"
+    ) is None
+    monkeypatch.setenv("ALERT_SILENT", "false")
+    assert notifier.openclaw_invoke_payload("x", silent=True)["args"]["silent"] is True
+
+
+def test_env_still_applies_when_the_message_says_nothing(monkeypatch):
+    monkeypatch.setenv("ALERT_SILENT", "true")
+    png = b"\x89PNG\r\n\x1a\n"
+    assert notifier.openclaw_invoke_payload("x", png)["args"]["silent"] is True

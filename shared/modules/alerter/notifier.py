@@ -89,7 +89,11 @@ def notify(event: dict, image: bytes | None = None) -> bool:
         # retry, as its own call: folding it into _post_with_retries would
         # multiply the 3-attempt budget into 6.
         log.warning("Image delivery failed; retrying text-only (chart_dropped=1)")
-        return _notify_openclaw(format_message(event, templates.TG_TEXT_LIMIT))
+        # `event` still goes through: without it the retry loses the
+        # message's own `silent` flag and a quiet digest rings on the retry.
+        return _notify_openclaw(
+            format_message(event, templates.TG_TEXT_LIMIT), event=event
+        )
     if mode == "webhook":
         # A generic webhook receives JSON; an image has nowhere to go in it.
         return _notify_webhook(event, text)
@@ -117,7 +121,10 @@ def openclaw_token() -> str:
 
 
 def openclaw_invoke_payload(
-    text: str, image: bytes | None = None, filename: str | None = None
+    text: str,
+    image: bytes | None = None,
+    filename: str | None = None,
+    silent: bool | None = None,
 ) -> dict:
     """Build the /tools/invoke body for one message.
 
@@ -126,14 +133,25 @@ def openclaw_invoke_payload(
     shared between the container and the gateway host. ``forceDocument``
     defaults on because Telegram re-encodes photos as JPEG, and thin chart
     lines with small tick text are the worst case for JPEG.
+
+    ``silent`` is per-message and wins over ``ALERT_SILENT``, because
+    "notify quietly" is a property of *this* message rather than of the
+    deployment: a daily digest should not buzz a phone, while the alert that
+    wakes you at 3am should.
     """
     args = {
         "action": "send",
         "channel": os.environ.get("OPENCLAW_CHANNEL") or DEFAULT_OPENCLAW_CHANNEL,
         "to": os.environ.get("OPENCLAW_TO", ""),
     }
+    quiet = _env_bool("ALERT_SILENT", False) if silent is None else bool(silent)
+
     if image is None:
         args["message"] = text
+        # Previously only the image path could be silent, which meant a
+        # text-only digest always rang.
+        if quiet:
+            args["silent"] = True
         return {"name": OPENCLAW_TOOL, "args": args}
 
     args["buffer"] = base64.b64encode(image).decode("ascii")
@@ -142,7 +160,7 @@ def openclaw_invoke_payload(
     args["caption"] = text
     if _env_bool("ALERT_IMAGE_AS_DOCUMENT", True):
         args["forceDocument"] = True
-    if _env_bool("ALERT_SILENT", False):
+    if quiet:
         args["silent"] = True
     return {"name": OPENCLAW_TOOL, "args": args}
 
@@ -178,7 +196,10 @@ def _notify_openclaw(
         return False
     headers = {"Authorization": f"Bearer {token}"}
     payload = openclaw_invoke_payload(
-        text, image, _chart_filename(event or {}) if image else None
+        text,
+        image,
+        _chart_filename(event or {}) if image else None,
+        silent=(event or {}).get("silent"),
     )
     return _post_with_retries(url, payload, headers, body_must_be_ok=True)
 
