@@ -111,10 +111,13 @@ def _fetch(target: str, measurement: str, field: str, hours: int):
             continue
         times.append(when if isinstance(when, datetime) else None)
         values.append(float(value))
-    # InfluxDB returns UTC-aware datetimes and matplotlib formats each one in
-    # its OWN tzinfo -- so plotting them raw draws a UTC axis under a footer
-    # that names the local zone. An hour's silent offset is exactly what makes
-    # someone mis-correlate an incident with what they were doing at the time.
+    # InfluxDB returns UTC-aware datetimes. Convert to the local zone here so
+    # the plotted instants match the footer that names that zone; matplotlib
+    # ignores each datetime's own tzinfo when formatting the axis, so the
+    # locator and formatter are given the zone explicitly too (see the tz
+    # comment further down -- both halves are needed). An hour's silent offset
+    # is exactly what makes someone mis-correlate an incident with what they
+    # were doing at the time.
     pairs = [(t.astimezone(), v) for t, v in zip(times, values) if t is not None]
     return [p[0] for p in pairs], [p[1] for p in pairs]
 

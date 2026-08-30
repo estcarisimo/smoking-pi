@@ -176,11 +176,21 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+# Targets and rule names are operator-editable and have no length limit of
+# their own, so the slug needs one here: a 300-character target would build a
+# filename some downstream store rejects outright. 48 is far longer than any
+# real hostname and still leaves the prefix and timestamp legible.
+_SLUG_MAX = 48
+
+
 def _chart_filename(event: dict) -> str:
     slug = "".join(
         ch if ch.isalnum() or ch in "-_" else "-"
         for ch in str(event.get("target") or event.get("rule") or "alert")
     )
+    # Strip separators only at the ends; a target of "..." would otherwise
+    # slug to "---" and then to "", leaving "smokeping--1234.png".
+    slug = slug[:_SLUG_MAX].strip("-_") or "alert"
     return f"smokeping-{slug}-{int(time.time())}.png"
 
 
@@ -280,6 +290,14 @@ def _preflight_openclaw() -> bool:
         log.error("Delivery preflight: %s returned 404 with no tool-policy "
                   "explanation — the route itself is absent. Check "
                   "OPENCLAW_HOOK_PATH. See docs/openclaw-integration.md", url)
+        return False
+
+    if response.status_code >= 500:
+        log.error(
+            "Delivery preflight: %s answered HTTP %s — the gateway itself is "
+            "failing, so this says nothing about whether the %r tool is "
+            "permitted. Alerts are unlikely to be delivered until the gateway "
+            "is healthy.", url, response.status_code, OPENCLAW_TOOL)
         return False
 
     # Any other error here is the tool's own argument validation, which means

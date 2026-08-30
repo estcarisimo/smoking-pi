@@ -299,6 +299,21 @@ def test_preflight_reports_a_genuinely_missing_route(monkeypatch, openclaw, capl
     assert "route itself is absent" in caplog.text
 
 
+def test_preflight_reports_a_failing_gateway(monkeypatch, openclaw, caplog):
+    """A 5xx says the gateway is broken, not that the tool is permitted.
+
+    The success branch reads "any status we did not recognise means the tool
+    answered with its own argument validation" — which is true for a 4xx from
+    the tool, and false for a gateway that never reached it. Treating 502 as
+    a pass reports delivery as healthy at exactly the moment it is not.
+    """
+    monkeypatch.setattr(notifier.httpx, "post",
+                        lambda *a, **k: FakeResponse(502))
+    with caplog.at_level("ERROR"):
+        assert notifier.preflight() is False
+    assert "tool permitted" not in caplog.text
+
+
 def test_preflight_accepts_the_tools_own_validation_error(monkeypatch, openclaw):
     """`action required` proves the endpoint, token and tool policy all work."""
     body = {"ok": False,
@@ -355,6 +370,26 @@ def test_image_rides_as_base64_with_the_text_as_caption(posts, openclaw):
     # Text belongs in the caption, never alongside it in `message`.
     assert "google" in args["caption"]
     assert "message" not in args
+
+
+def test_the_chart_filename_is_bounded_and_never_empty(posts, openclaw):
+    """Targets are operator-editable, so the slug needs its own limit.
+
+    Two ways this bites: a very long target builds a filename a downstream
+    store rejects, and a target made entirely of separators slugs down to
+    nothing, leaving "smokeping--1739.png".
+    """
+    long_target = "a" * 400
+    assert notifier.notify(_event(target=long_target), image=PNG) is True
+    name = posts["calls"][0]["json"]["args"]["filename"]
+    assert len(name) < 100, f"unbounded filename: {len(name)} chars"
+    assert name.startswith("smokeping-aaa")
+
+    posts["calls"].clear()
+    assert notifier.notify(_event(target="..."), image=PNG) is True
+    name = posts["calls"][0]["json"]["args"]["filename"]
+    assert "--" not in name, f"slug collapsed to empty: {name}"
+    assert name.startswith("smokeping-alert-")
 
 
 def test_the_caption_respects_the_1024_budget(posts, openclaw):
