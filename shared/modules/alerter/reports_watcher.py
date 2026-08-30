@@ -16,6 +16,7 @@ import os
 import time
 
 import notifier
+import templates
 
 log = logging.getLogger("alerter.reports")
 
@@ -76,8 +77,15 @@ def check(state: dict, now: float | None = None) -> bool:
         log.warning("Could not read report %s: %s", path, exc)
         return False
 
-    if len(content) > max_chars:
-        content = content[:max_chars]
+    # Was `content[:max_chars]`, a hard slice. Now that messages are parsed
+    # as HTML that can cut a tag in half, and Telegram rejects the whole
+    # message with a 400 -- which /tools/invoke reports as HTTP 200 with
+    # {"ok": false}, so the notifier burns three retries and logs a permanent
+    # delivery failure for what is really a formatting bug. assemble() trims
+    # on a line boundary instead.
+    body = templates.assemble(
+        [templates.Section(0, HEADER + content)], max_chars
+    )
 
     delivered = notifier.notify(
         {
@@ -85,7 +93,7 @@ def check(state: dict, now: float | None = None) -> bool:
             "rule": "daily_report",
             "severity": "info",
             "target": None,
-            "message": HEADER + content,
+            "message": body,
         }
     )
     if delivered:

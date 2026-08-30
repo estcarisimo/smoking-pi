@@ -9,7 +9,37 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Alerts now answer the question they raise.** Every notification carried a
+  measurement (`amazon: mean loss 22.4% over 15m`) and left the reader to work
+  out whether it was their line, their ISP, or that one site. Each alert now
+  leads with a verdict: `🌐 Not you — 12 of 16 destinations affected but your
+  local link is clean, so this is upstream.`
+
+  It is deterministic and costs **no additional queries** — the breadth,
+  microcut and liveness rows were already fetched by the rules and thrown
+  away, which matters on a Pi that has hit its thermal limit.
+  `evaluate_with_context()` returns them; `evaluate()` is unchanged.
+
+  Two properties are load-bearing:
+
+  - `exporter_stale` outranks every other scope unconditionally. Announcing a
+    network fault from an *absence* of measurements is the worst thing this
+    could do, and when the exporter stalls every target reads as 100% lost
+    precisely because nothing is arriving.
+  - Hosts that never answer ICMP are excluded from breadth entirely. A target
+    pointed at a host that does not respond charts a permanent flat 100%;
+    counting those turns one slow site into an ISP outage. Anything at 100%
+    whose incident predates `VERDICT_STALE_DOWN_HOURS` is dropped from both
+    numerator and denominator. This is not hypothetical — see the DNS note
+    below, where nine such targets would have made every verdict wrong.
+
+  Every verdict logs its own inputs, so one you disagree with is diagnosable
+  from `docker compose logs alerter` without reproducing the moment.
+
 ### Changed
+
 
 - **Code that two images need now lives in `shared/modules/common/`**, copied
   into each image at build time (`context: ../../shared`). Containers cannot
@@ -30,6 +60,32 @@ version gets a matching GitHub release and git tag.
   client had been built.
 
 ### Fixed
+
+- **Messages are composed to a budget instead of truncated.** Telegram allows
+  4096 characters for a message but only **1024 for a caption**, so an alert
+  carrying a chart has a quarter of the room. Sections now carry a priority
+  and the least valuable are dropped until the message fits — mute hint, then
+  the breadth recap (the verdict line already states that number), then the
+  links, which survive longest because a static image caption cannot be
+  explored and a link is the way out of it. The headline, verdict and numbers
+  are never dropped.
+
+  Only if those alone overflow is text trimmed, and then on a line boundary.
+  `reports_watcher` previously did a hard `content[:max_chars]` slice, which
+  the moment messages became HTML could cut a tag in half — Telegram rejects
+  that with a 400, which `/tools/invoke` reports as HTTP 200 with
+  `{"ok": false}`, so the notifier would burn three retries and log a
+  permanent delivery failure for what is really a formatting bug. That cap
+  also now bounds the **whole** message including its header; it previously
+  delivered 3530 characters at a documented limit of 3500.
+
+  Every interpolated value is escaped: target names are user-editable and
+  `a<b&c` is a legal one today.
+
+- **Several alerter tests depended on the developer's own shell.** The env
+  scrub list in `conftest.py` was missing `STALE_WINDOW`, `ALERT_RESOLVE_AFTER`,
+  `ALERT_MAX_PER_HOUR` and `MICROCUT_LOSS_PCT`, so an exported value silently
+  changed what they asserted.
 
 - **Deep links no longer point at dashboards that do not exist.** Every
   dashboard UID in `links.py` comes from the InfluxDB provisioning tree, but

@@ -34,6 +34,25 @@ SCRUB_ENV_VARS = [
     "REPORTS_DIR",
     "REPORT_DELIVERY_INTERVAL",
     "REPORT_MAX_CHARS",
+    # These were missing, which made the tests that read them depend on the
+    # developer's own shell. Anything the alerter reads belongs here.
+    "OPENCLAW_GATEWAY_TOKEN",
+    "OPENCLAW_HOOK_PATH",
+    "ALERT_RESOLVE_AFTER",
+    "ALERT_MAX_PER_HOUR",
+    "STALE_WINDOW",
+    "MICROCUT_LOSS_PCT",
+    "ALERT_MARKUP",
+    "VERDICT_BROAD_PCT",
+    "VERDICT_MIN_TARGETS",
+    "VERDICT_IMPAIRED_LOSS_PCT",
+    "VERDICT_STALE_DOWN_HOURS",
+    # Link building reads these; an exported value would change the rendered
+    # message and, with TSDB_TYPE, whether links appear at all.
+    "PUBLIC_BASE_HOST",
+    "GRAFANA_PUBLIC_URL",
+    "WEB_ADMIN_PUBLIC_URL",
+    "TSDB_TYPE",
 ]
 
 

@@ -21,14 +21,41 @@ import flux
 import notifier
 import reports_watcher
 import state
+import verdict
+from common import links
 
 DEFAULT_INTERVAL = 60  # seconds; ALERT_INTERVAL
+
+# Which measurement a rule's target is charted in, so the link
+# points at the right dashboard. Unknown rules fall back to the
+# default inside links.target_links.
+_MEASUREMENT_BY_RULE = {
+    "microcut_burst": "cpe_latency",
+}
 
 log = logging.getLogger("alerter")
 
 
+def _links_for(incident: dict) -> dict:
+    """Deep links for the incident's target, or {} when unconfigured.
+
+    Never raises: a link failure must not cost the alert that carries it.
+    """
+    target = incident.get("target")
+    if not target:
+        return {}
+    try:
+        return links.target_links(
+            name=target,
+            measurement=_MEASUREMENT_BY_RULE.get(incident.get("rule", "")),
+        )
+    except Exception:  # noqa: BLE001 - links are decoration, never a gate
+        log.warning("Could not build links for %s", target, exc_info=True)
+        return {}
+
+
 def run_iteration() -> None:
-    incidents = evaluator.evaluate()
+    incidents, context = evaluator.evaluate_with_context()
     if incidents:
         log.info("%d active incident(s):", len(incidents))
         for incident in incidents:
@@ -42,11 +69,24 @@ def run_iteration() -> None:
         log.info("No active incidents")
 
     current = state.load_state()
+    # Classified BEFORE reconcile so the verdict describes the same moment the
+    # incidents were measured in, and from records that still hold first_seen
+    # for anything reconcile is about to clear.
+    call = verdict.classify(
+        incidents,
+        context["mean_rows"],
+        context["micro_rows"],
+        records=current.get("incidents", {}),
+    )
     actions = state.reconcile(current, incidents)
     for event in actions["alerts"]:
-        notifier.notify({**event, "type": "alert"})
+        notifier.notify(
+            {**event, "type": "alert", "verdict": call, "links": _links_for(event)}
+        )
     for event in actions["recoveries"]:
-        notifier.notify({**event, "type": "recovery"})
+        notifier.notify(
+            {**event, "type": "recovery", "links": _links_for(event)}
+        )
 
     reports_watcher.check(current)
     state.save_state(current)

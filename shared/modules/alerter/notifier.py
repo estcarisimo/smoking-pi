@@ -39,6 +39,8 @@ from datetime import datetime
 
 import httpx
 
+import templates
+
 log = logging.getLogger("alerter.notifier")
 
 DEFAULT_OPENCLAW_URL = "http://127.0.0.1:18789"
@@ -52,22 +54,17 @@ TIMEOUT_S = 10.0
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 1.0
 
-_SEVERITY_EMOJI = {"critical": "🔴", "warning": "🟠"}
+# Kept as an alias; the table itself now lives in templates.
+_SEVERITY_EMOJI = templates.SEVERITY_EMOJI
 
 
 def notify_mode() -> str:
     return (os.environ.get("NOTIFY_MODE") or "off").strip().lower()
 
 
-def format_message(event: dict) -> str:
-    """Terse one-liner with an emoji severity prefix."""
-    etype = event.get("type", "alert")
-    if etype == "report":
-        return str(event.get("message", ""))
-    if etype == "recovery":
-        return f"✅ recovered [{event.get('rule')}]: {event.get('message')}"
-    emoji = _SEVERITY_EMOJI.get(event.get("severity", ""), "🟠")
-    return f"{emoji} {event.get('severity')} [{event.get('rule')}]: {event.get('message')}"
+def format_message(event: dict, limit: int = templates.TG_TEXT_LIMIT) -> str:
+    """Render an event for delivery. See templates.py for the budget rules."""
+    return templates.format_message(event, limit)
 
 
 def notify(event: dict) -> bool:

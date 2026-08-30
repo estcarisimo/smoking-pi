@@ -83,10 +83,33 @@ def test_old_reports_not_redelivered_after_interval(reports_dir, delivered):
 
 
 def test_truncation(reports_dir, delivered, monkeypatch):
-    monkeypatch.setenv("REPORT_MAX_CHARS", "10")
-    _write_report(reports_dir, "report-big.md", "x" * 100, mtime=100)
+    """The cap bounds the WHOLE message, header included.
+
+    It used to bound the content and then prepend the header, so a report at
+    the documented 3500-char limit was really delivered at 3530. The cap
+    exists to fit a channel's message budget, and the header is part of the
+    message. It also trims on a line boundary now rather than mid-character,
+    because HTML cut in half makes Telegram reject the send outright.
+    """
+    monkeypatch.setenv("REPORT_MAX_CHARS", "200")
+    _write_report(reports_dir, "report-big.md", "x" * 5000, mtime=100)
     assert reports_watcher.check({}, now=1000.0) is True
-    assert delivered[0]["message"] == reports_watcher.HEADER + "x" * 10
+    message = delivered[0]["message"]
+    assert len(message) <= 200
+    assert message.startswith(reports_watcher.HEADER.split("\n")[0])
+
+
+def test_truncation_never_exceeds_the_budget_at_any_size(
+    reports_dir, delivered, monkeypatch
+):
+    for cap in (10, 50, 200, 3500):
+        delivered.clear()
+        monkeypatch.setenv("REPORT_MAX_CHARS", str(cap))
+        _write_report(
+            reports_dir, f"report-{cap}.md", "y" * 9000, mtime=100.0 + cap
+        )
+        assert reports_watcher.check({}, now=1000.0 + cap * 100000) is True
+        assert len(delivered[0]["message"]) <= cap, cap
 
 
 def test_failed_delivery_not_marked_delivered(reports_dir, monkeypatch):

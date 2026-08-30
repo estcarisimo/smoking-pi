@@ -47,8 +47,10 @@ and `notified_count`.
 
 ## Notifier modes (`NOTIFY_MODE`)
 
-Messages are terse one-liners with an emoji severity prefix:
-🔴 critical, 🟠 warning, ✅ recovery.
+Messages carry a severity headline (🔴 critical, 🟠 warning, ✅ recovery), the
+verdict line, the numbers, a breadth recap, deep links, and a mute hint —
+composed to fit the channel's budget. See [The verdict](#the-verdict-is-it-me-or-the-internet)
+and [Message rendering](#message-rendering) below.
 
 ### `off` (default)
 
@@ -68,7 +70,7 @@ Invokes OpenClaw's `message` tool over the Gateway's HTTP endpoint,
     "action": "send",
     "channel": "telegram",
     "to": "telegram:123456789",
-    "message": "🔴 critical [target_down]: <target> down ..."
+    "message": "🔴 <b>critical</b> — <target>\n🌐 Not you — 12 of 16 ..."
   }
 }
 ```
@@ -132,7 +134,7 @@ POSTs JSON to `ALERT_WEBHOOK_URL`, optionally with
   "rule": "high_loss",
   "severity": "warning",
   "target": "<target>",
-  "message": "🟠 warning [high_loss]: <target>: mean loss 34.0% over 15m",
+  "message": "🟠 <b>warning</b> — <target>\n🎯 Just that site — 1 of 16 ...",
   "state": {"first_seen": 0, "last_seen": 0, "last_notified": 0, "notified_count": 1},
   "ts": "2026-01-01T00:00:00+00:00"
 }
@@ -148,9 +150,10 @@ backoff. Failures are logged, never crash the loop.
 If the `ai-insights` service (profile `ai`) is writing Markdown reports to
 the shared `reports` volume, the alerter delivers the newest `report-*.md`
 through the same notifier — at most one per `REPORT_DELIVERY_INTERVAL`
-(default 86400 s), truncated to `REPORT_MAX_CHARS` (default 3500,
-Telegram-friendly), prefixed with `Daily network health report:`. A missing
-reports directory is skipped quietly.
+(default 86400 s), prefixed with `Daily network health report:` and trimmed to
+`REPORT_MAX_CHARS` (default 3500, Telegram-friendly). The limit bounds the
+**whole** message including that header, and trims on a line boundary. A
+missing reports directory is skipped quietly.
 
 ## Environment reference
 
@@ -177,12 +180,80 @@ reports directory is skipped quietly.
 | `MICROCUT_LOSS_PCT` | `50` | Loss percent above which a 10 s CPE window counts as a microcut. CPE gateways rate-limit ICMP, giving a constant single-digit loss floor, so counting any loss at all would flag that floor permanently |
 | `REPORTS_DIR` | `/reports` | Where ai-insights reports are read from |
 | `REPORT_DELIVERY_INTERVAL` | `86400` | Min seconds between report deliveries |
-| `REPORT_MAX_CHARS` | `3500` | Report truncation limit |
+| `REPORT_MAX_CHARS` | `3500` | Truncation limit for a delivered report, **including** the header — it bounds the whole message, since that is what the channel budget applies to |
+| `ALERT_MARKUP` | `html` | `html` (Telegram's parse mode) or `plain` |
+| `VERDICT_BROAD_PCT` | `60` | Share of measurable targets impaired before a problem counts as broad |
+| `VERDICT_MIN_TARGETS` | `3` | Below this many measurable targets, breadth means nothing |
+| `VERDICT_IMPAIRED_LOSS_PCT` | `10` | Mean loss percent at which a target counts as impaired |
+| `VERDICT_STALE_DOWN_HOURS` | `6` | A target at 100% for longer than this is treated as a host that never answered ICMP, and excluded from breadth |
 | `INFLUX_URL` | `http://localhost:8086` | InfluxDB (host network namespace) |
 | `INFLUX_TOKEN` / `INFLUX_ORG` / `INFLUX_BUCKET` | — / `smokeping` / `smokeping` | InfluxDB auth/scope |
 
 All keys ship EMPTY in `editions/pro/.env.template`; nothing
 machine-specific is baked into the images or compose files.
+
+## The verdict: is it me or the internet?
+
+Every alert carries one line that answers the question the alert actually
+raises. `amazon: mean loss 22.4% over 15m` tells you something happened;
+`🌐 Not you — 12 of 16 destinations affected but your local link is clean`
+tells you what to do about it.
+
+It is deterministic, and it costs **no extra queries**. Everything it needs is
+already fetched by the rules and was previously thrown away: the mean-loss row
+for every target (breadth), the CPE microcut counts (the local link), and
+exporter liveness. That matters on a Pi that has already hit its thermal limit.
+
+Scopes, in precedence order — the first match wins:
+
+| Scope | Meaning |
+|---|---|
+| `monitoring` | `exporter_stale` fired. **Outranks everything unconditionally**: announcing a network fault from an *absence* of data is the worst thing this can do |
+| `local_link` | Broad impairment *and* the first hop is dropping |
+| `isp_upstream` | Broad impairment with a clean first hop |
+| `ipv6` | Every impaired target is IPv6 while IPv4 is healthy |
+| `dns` | Every impaired target is a resolver |
+| `remote_target` | One or two impaired, peers in the same category fine |
+| `unclear` | States the numbers and claims nothing |
+
+Two deliberate properties:
+
+- **The CPE floor cannot trigger `local_link`.** The gateway rate-limits ICMP,
+  so `cpe_latency` sits at a permanent single-digit loss floor (observed p50
+  10%, p99 30%) with nothing wrong. The verdict reads `micro_rows`, which only
+  ever contains windows above `MICROCUT_LOSS_PCT` (50%) — the floor is
+  invisible to it by construction. Never feed raw CPE loss in here.
+- **Hosts that never answer ICMP are excluded from breadth.** Bare
+  `amazon.com` does not respond and charts a permanent flat 100%. Counting
+  such targets turns one slow site into an ISP outage — with six of them and
+  one genuinely slow site, 7 of 10 looks broad. Anything at 100% whose
+  `target_down` incident is older than `VERDICT_STALE_DOWN_HOURS` is dropped
+  from both the numerator and the denominator.
+
+Every verdict logs its own inputs at INFO (`verdict inputs: 12/16 impaired
+(75.0%), cpe_cutting=…, excluded_chronic=…`), so a verdict you disagree with
+can be diagnosed from `docker compose logs alerter` without reproducing the
+moment it was made.
+
+## Message rendering
+
+Messages are Telegram HTML. Two budgets apply: 4096 characters for a plain
+message, **1024 for a caption** on a message carrying an image — so a chart
+costs three quarters of the room.
+
+Rather than truncate, sections are dropped by priority until the message fits,
+so what survives is always the headline, the verdict and the numbers. Drop
+order is the mute hint, then the breadth recap (the verdict line already gives
+that number), then the links — links last, because a static image caption
+cannot be explored and the link is the way out of it. Only if the headline
+alone still overflows is text trimmed, and then on a line boundary: an HTML tag
+cut in half makes Telegram reject the whole message with a 400, which
+`/tools/invoke` reports as HTTP 200 with `{"ok": false}`.
+
+Every interpolated value is escaped. Target names are user-editable, and
+`a<b&c` is a legal one.
+
+Set `ALERT_MARKUP=plain` for a channel that does not parse HTML.
 
 ## Testing
 
