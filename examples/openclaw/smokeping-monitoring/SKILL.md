@@ -188,7 +188,7 @@ a heading over "nothing to report" costs a phone screen to say nothing:
 <b>Internet</b>
 🟢 Medians 7–9 ms on the big sites.
 🟡 Sat 29 Aug, 2:40–7:15 pm CT: 100% loss on web targets. [graph]
-🟡 DNS stayed at 0%, so this reads as ICMP, not an outage.
+🟢 DNS stayed at 0% through it — reads as ICMP, not an outage.
 
 <b>DNS</b>
 🟢 Cloudflare 11.8 ms · Google 12.0 ms · Quad9 8.2 ms.
@@ -197,7 +197,7 @@ a heading over "nothing to report" costs a phone screen to say nothing:
 <b>Local link</b>
 🔴 Worst window 66% loss — Fri 28 Aug, 2:30 am CT. [graph]
 🟡 Peaks of 60–64% Sun 23 Aug midday CT. [graph]
-🟡 Median jitter 47.7 ms — felt on calls, not on browsing.
+🟡 Median jitter 47.7 ms across the week — felt on calls. [graph, 7d]
 
 <b>Week so far</b>
 🟡 Sat 29 Aug ICMP run — still the week's worst. [graph, Sat]
@@ -224,11 +224,11 @@ Looking good right now. 🟢
 
 <b>Internet</b>
 🟢 Google, NYT, Spotify, UdeSA, Cloudflare — 0% loss.
-🟡 Amazon, Facebook, Apple — isolated ~9% points, not sustained.
+🟡 Amazon and Apple, single 9.4% points at 11:52 am CT. [graph]
 
 <b>Local link</b>
-🟡 Worst microcut 20%, jitter ~45 ms — light local noise, below
-   the level I'd call a real problem.
+🟡 Worst microcut 20% at 12:04 pm CT. [graph]
+🟡 Jitter ~45 ms over the hour — felt on calls. [graph, 1h]
 
 <b>Bottom line:</b> browsing and streaming fine; a call or a game
 might catch the odd stutter.
@@ -236,6 +236,10 @@ might catch the odd stutter.
 <b>Graph</b>
 • Last hour — home: <url> · anywhere: <url>
 ```
+
+Every 🟡 above carries a time and a link. That is not decoration for the
+long-window case — it is the rule, and it applies at one hour exactly as it
+does at a week.
 
 Note what survives at one hour: the layers. *DNS clean* sitting next to
 *gateway noisy* is the whole answer — flatten them into one list and the
@@ -260,6 +264,10 @@ form:
   *DNS* gets a bullet of medians and a bullet of loss, not one sentence
   holding both. A section with a single long line is the failure mode to
   avoid.
+- **A 🟡 or 🔴 bullet without a link is unfinished.** Before sending, read
+  back every non-green line: each one states when, and carries the graph for
+  that moment. This is the rule most often lost, because it is easy to write
+  a correct warning sentence and feel done.
 - **One fact per bullet, one line per bullet.** If a bullet contains a
   semicolon, an "; también", or a second measurement, it is two bullets. Aim
   for under ~15 words — a bullet that wraps three times on a phone has stopped
@@ -331,11 +339,32 @@ returns the same pair for the front doors: `grafana_overview`,
 
   Pad a little on each side. A range that starts exactly at the spike opens
   with the incident against the left edge and no "before" to compare to.
-- **The link's time range must match the sentence's time range.** This is the
-  rule; everything below follows from it. If a bullet talks about Saturday,
-  its link opens on Saturday. A bullet about last Saturday carrying a
-  `from=now-1h` URL is not a weak link, it is a **wrong** one: the reader
-  taps it, sees a calm hour, and concludes you made the incident up.
+- **Every 🟡 and 🔴 bullet carries a time and a link. No exceptions.** The
+  traffic light is the trigger — not whether you happened to mention a time.
+  You gave that line a warning colour, which means you are telling the person
+  something is wrong; the very next thing they want is to look at it. A 🟢
+  bullet needs no link, because there is nothing to go and see.
+
+  This catches the case that keeps slipping: *"worst microcut 20% recently"*.
+  It names no time, so a rule about naming times lets it through — and it is
+  precisely the bullet the reader wants to open. You are not missing the
+  timestamp, either: the entry you read that 20% from carries its own `time`
+  field. Say when, and link it.
+
+  **Events and conditions both count, they just take different windows.** An
+  event happened at a moment, so it links to that moment. A condition held
+  over a span — "median jitter 47.7 ms across the week" — so it links to that
+  span. Neither is exempt; "there is no single moment to point at" is a
+  reason to link the window, not a reason to drop the link.
+
+  If a line has a warning colour but nothing worth looking at, it is not a
+  finding — it is reassurance, and it should be 🟢.
+
+- **The link's time range must match the sentence's time range.** If a bullet
+  talks about Saturday, its link opens on Saturday. A bullet about last
+  Saturday carrying a `from=now-1h` URL is not a weak link, it is a **wrong**
+  one: the reader taps it, sees a calm hour, and concludes you made the
+  incident up.
 
 - **Naming *when* means naming a window, however loosely.** "Fri 28 Aug 2:30
   am", "el sábado 29 ago", "last night", "the Saturday thing", "that run of
