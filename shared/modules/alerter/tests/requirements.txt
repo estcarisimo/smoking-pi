@@ -2,3 +2,8 @@
 pytest
 httpx
 influxdb-client
+# charts.py renders with matplotlib. Present here because CI prefers this file
+# over the module's own dependencies when it exists -- without it the chart
+# tests fail on import rather than being skipped, which is the right failure
+# but a confusing one.
+matplotlib

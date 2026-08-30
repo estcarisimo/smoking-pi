@@ -32,6 +32,7 @@ backoff). Never raises: returns True on success, False otherwise.
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import time
@@ -67,18 +68,34 @@ def format_message(event: dict, limit: int = templates.TG_TEXT_LIMIT) -> str:
     return templates.format_message(event, limit)
 
 
-def notify(event: dict) -> bool:
-    """Deliver one event via the configured backend. Never raises."""
+def notify(event: dict, image: bytes | None = None) -> bool:
+    """Deliver one event via the configured backend. Never raises.
+
+    ``image`` is an optional PNG delivered as the message's attachment, with
+    the text as its caption. Telegram allows a quarter as many characters in
+    a caption as in a message, so the text is rendered to whichever budget
+    applies -- see templates.assemble.
+    """
     mode = notify_mode()
-    text = format_message(event)
+    limit = templates.TG_CAPTION_LIMIT if image else templates.TG_TEXT_LIMIT
+    text = format_message(event, limit)
 
     if mode == "openclaw":
-        return _notify_openclaw(text)
+        if image is None:
+            return _notify_openclaw(text)
+        if _notify_openclaw(text, image=image, event=event):
+            return True
+        # A chart failure must never cost the alert. Exactly ONE text-only
+        # retry, as its own call: folding it into _post_with_retries would
+        # multiply the 3-attempt budget into 6.
+        log.warning("Image delivery failed; retrying text-only (chart_dropped=1)")
+        return _notify_openclaw(format_message(event, templates.TG_TEXT_LIMIT))
     if mode == "webhook":
+        # A generic webhook receives JSON; an image has nowhere to go in it.
         return _notify_webhook(event, text)
     if mode != "off":
         log.warning("Unknown NOTIFY_MODE %r; logging only", mode)
-    log.info("NOTIFY (%s) %s", mode, text)
+    log.info("NOTIFY (%s)%s %s", mode, " [+chart]" if image else "", text)
     return True
 
 
@@ -99,20 +116,55 @@ def openclaw_token() -> str:
     )
 
 
-def openclaw_invoke_payload(text: str) -> dict:
-    return {
-        "name": OPENCLAW_TOOL,
-        "args": {
-            "action": "send",
-            "channel": os.environ.get("OPENCLAW_CHANNEL")
-            or DEFAULT_OPENCLAW_CHANNEL,
-            "to": os.environ.get("OPENCLAW_TO", ""),
-            "message": text,
-        },
+def openclaw_invoke_payload(
+    text: str, image: bytes | None = None, filename: str | None = None
+) -> dict:
+    """Build the /tools/invoke body for one message.
+
+    With an image the bytes ride as base64 in ``buffer`` and the text becomes
+    ``caption``; there is no filesystem in this path, so nothing has to be
+    shared between the container and the gateway host. ``forceDocument``
+    defaults on because Telegram re-encodes photos as JPEG, and thin chart
+    lines with small tick text are the worst case for JPEG.
+    """
+    args = {
+        "action": "send",
+        "channel": os.environ.get("OPENCLAW_CHANNEL") or DEFAULT_OPENCLAW_CHANNEL,
+        "to": os.environ.get("OPENCLAW_TO", ""),
     }
+    if image is None:
+        args["message"] = text
+        return {"name": OPENCLAW_TOOL, "args": args}
+
+    args["buffer"] = base64.b64encode(image).decode("ascii")
+    args["filename"] = filename or "smokeping.png"
+    args["mimeType"] = "image/png"
+    args["caption"] = text
+    if _env_bool("ALERT_IMAGE_AS_DOCUMENT", True):
+        args["forceDocument"] = True
+    if _env_bool("ALERT_SILENT", False):
+        args["silent"] = True
+    return {"name": OPENCLAW_TOOL, "args": args}
 
 
-def _notify_openclaw(text: str) -> bool:
+def _env_bool(name: str, default: bool) -> bool:
+    raw = (os.environ.get(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
+def _chart_filename(event: dict) -> str:
+    slug = "".join(
+        ch if ch.isalnum() or ch in "-_" else "-"
+        for ch in str(event.get("target") or event.get("rule") or "alert")
+    )
+    return f"smokeping-{slug}-{int(time.time())}.png"
+
+
+def _notify_openclaw(
+    text: str, image: bytes | None = None, event: dict | None = None
+) -> bool:
     url = openclaw_hook_url()
     token = openclaw_token()
     if not token:
@@ -125,9 +177,10 @@ def _notify_openclaw(text: str) -> bool:
         log.warning("NOTIFY_MODE=openclaw but OPENCLAW_TO is unset; skipping")
         return False
     headers = {"Authorization": f"Bearer {token}"}
-    return _post_with_retries(
-        url, openclaw_invoke_payload(text), headers, body_must_be_ok=True
+    payload = openclaw_invoke_payload(
+        text, image, _chart_filename(event or {}) if image else None
     )
+    return _post_with_retries(url, payload, headers, body_must_be_ok=True)
 
 
 def _notify_webhook(event: dict, text: str) -> bool:

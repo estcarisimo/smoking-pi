@@ -16,6 +16,7 @@ import os
 import sys
 import time
 
+import charts
 import evaluator
 import flux
 import notifier
@@ -54,6 +55,68 @@ def _links_for(incident: dict) -> dict:
         return {}
 
 
+def _peers_by_target(mean_rows: list[dict]) -> dict[str, list[str]]:
+    """Same-category siblings for each target, for chart context lines."""
+    by_category: dict[str, list[str]] = {}
+    category_of: dict[str, str] = {}
+    for row in mean_rows:
+        target, category = row.get("target"), row.get("category")
+        if not target or not category:
+            continue
+        category_of.setdefault(target, category)
+        siblings = by_category.setdefault(category, [])
+        if target not in siblings:
+            siblings.append(target)
+    return {
+        target: [s for s in by_category.get(category, []) if s != target]
+        for target, category in category_of.items()
+    }
+
+
+def _chart_for(incident: dict, peers: dict[str, list[str]]) -> bytes | None:
+    """Render the incident's chart, or None. Never raises, never blocks."""
+    if not _env_bool("ALERT_CHARTS", True):
+        return None
+    target = incident.get("target")
+    if not target:
+        return None  # global incidents (exporter_stale) have nothing to plot
+    return charts.render_incident_chart(
+        target,
+        measurement=_MEASUREMENT_BY_RULE.get(incident.get("rule", ""), "latency"),
+        hours=_env_int("CHART_HOURS", 6),
+        first_seen=incident.get("state", {}).get("first_seen"),
+        severity=str(incident.get("severity") or "warning"),
+        peers=peers.get(target, []),
+    )
+
+
+def _duration_of(event: dict) -> float | None:
+    """How long the incident lasted, for the recovery message.
+
+    templates renders "was down 23 min" from this; without it that clause
+    silently never appears.
+    """
+    snapshot = event.get("state") or {}
+    first_seen, cleared_at = snapshot.get("first_seen"), snapshot.get("cleared_at")
+    if not first_seen or not cleared_at:
+        return None
+    return float(cleared_at) - float(first_seen)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = (os.environ.get(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+
+
 def run_iteration() -> None:
     incidents, context = evaluator.evaluate_with_context()
     if incidents:
@@ -79,13 +142,23 @@ def run_iteration() -> None:
         records=current.get("incidents", {}),
     )
     actions = state.reconcile(current, incidents)
+    peers = _peers_by_target(context["mean_rows"])
     for event in actions["alerts"]:
-        notifier.notify(
-            {**event, "type": "alert", "verdict": call, "links": _links_for(event)}
-        )
+        payload = {
+            **event, "type": "alert", "verdict": call,
+            "links": _links_for(event),
+        }
+        notifier.notify(payload, image=_chart_for(event, peers))
     for event in actions["recoveries"]:
+        # No chart on a recovery: the news IS the recovery, and a second image
+        # per incident doubles the render cost for no added answer.
         notifier.notify(
-            {**event, "type": "recovery", "links": _links_for(event)}
+            {
+                **event,
+                "type": "recovery",
+                "links": _links_for(event),
+                "duration_s": _duration_of(event),
+            }
         )
 
     reports_watcher.check(current)

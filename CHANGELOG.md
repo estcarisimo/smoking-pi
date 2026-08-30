@@ -11,6 +11,36 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Alerts arrive with the graph.** Each one carries a rendered PNG: median
+  latency over packet loss for the target, its same-category peers as grey
+  context, and a marked line at the moment the incident started — so the
+  question a Grafana trip is usually made to answer (*since when, and is it
+  just this one?*) is answered in the notification.
+
+  Rendered with matplotlib in-process, **not** `grafana-image-renderer`: that
+  is a headless Chromium at ~400 MB resident and seconds of CPU per render, on
+  a Pi that has already hit its soft thermal limit. Bytes are posted as base64
+  in the invoke body, so there is no shared filesystem between the container
+  and the gateway, no path translation and no retention sweep.
+
+  Design decisions that are load-bearing rather than cosmetic:
+
+  - **Two stacked panels, never twin y-axes.** Latency and loss have different
+    scales; a dual axis invents a correlation that is not in the data.
+  - **The loss axis is pinned 0–100.** Autoscaled, 4% loss looks catastrophic,
+    and loss is the axis a reader interprets absolutely.
+  - **Emphasis, not eight hues.** The story is one target, so it wears a status
+    colour and the peers recede.
+  - **Digest bars are one hue.** Colouring each bar darker-where-bigger
+    double-encodes bar length on nominal categories; over-threshold rows are
+    marked with a glyph and a status-coloured value instead, so colour never
+    carries meaning alone — and it keeps discriminating when everything is over
+    the line.
+
+  A chart never costs an alert: rendering is wrapped, matplotlib is imported
+  lazily, and a failed image send retries **exactly once** as text rather than
+  doubling the retry budget.
+
 - **Alerts now answer the question they raise.** Every notification carried a
   measurement (`amazon: mean loss 22.4% over 15m`) and left the reader to work
   out whether it was their line, their ISP, or that one site. Each alert now
@@ -83,6 +113,13 @@ version gets a matching GitHub release and git tag.
   doctor check for "a target that has never produced a non-100% point" would
   have caught this in an hour instead of ten days. `docs/doctor.md` lists the
   live checks as still unbuilt.
+
+- **Chart timestamps matched the data, not the label.** matplotlib formats
+  dates with `rcParams["timezone"]` (UTC) regardless of each datetime's own
+  tzinfo, so the x-axis rendered UTC beneath a footer naming the local zone —
+  an hour's silent offset, which is exactly what makes someone mis-correlate an
+  incident with whatever they were doing at the time. Caught by rendering the
+  chart and looking at it.
 
 - **Messages are composed to a budget instead of truncated.** Telegram allows
   4096 characters for a message but only **1024 for a caption**, so an alert
