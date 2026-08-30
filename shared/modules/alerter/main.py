@@ -75,7 +75,14 @@ def _peers_by_target(mean_rows: list[dict]) -> dict[str, list[str]]:
 
 
 def _chart_for(incident: dict, peers: dict[str, list[str]]) -> bytes | None:
-    """Render the incident's chart, or None. Never raises, never blocks."""
+    """Render the incident's chart, or None. Never raises.
+
+    This DOES block: it queries Influx and renders through matplotlib inline,
+    so a slow query holds up the evaluation loop. That is tolerable because
+    it runs only for incidents actually being notified, and both the query and
+    the render are bounded -- but it is not a background job, and treating it
+    as one is how a chart timeout would turn into a stalled alerter.
+    """
     if not _env_bool("ALERT_CHARTS", True):
         return None
     target = incident.get("target")

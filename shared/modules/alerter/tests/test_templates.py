@@ -226,3 +226,21 @@ def test_assemble_keeps_everything_when_it_fits():
 def test_assemble_drops_empty_sections():
     sections = [Section(0, "head"), Section(2, "")]
     assert templates.assemble(sections, 100) == "head"
+
+
+def test_only_one_anywhere_link_even_if_both_keys_are_present():
+    """The docstring promised "exactly one"; nothing enforced it.
+
+    An alert carries graph_tunnel and a digest carries
+    grafana_overview_tunnel, so today only one is ever present — but a payload
+    with both would render "🌐 anywhere" twice under one label, pointing at
+    two different pages, and spend caption budget doing it.
+    """
+    links = {
+        "graph": "http://h/g",
+        "graph_tunnel": "https://t/g",
+        "grafana_overview": "http://h/o",
+        "grafana_overview_tunnel": "https://t/o",
+    }
+    text = templates.format_message(_alert(links=links, verdict={}))
+    assert text.count("🌐 anywhere") == 1

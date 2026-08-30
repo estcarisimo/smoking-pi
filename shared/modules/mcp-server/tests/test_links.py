@@ -346,7 +346,14 @@ def test_influxdb_and_unset_both_emit_links(monkeypatch, configured):
 
 
 def test_backend_gate_is_independent_of_base_url(monkeypatch):
-    """An unconfigured base URL is still the reason when both are wrong."""
+    """The backend mismatch is detectable on its own, with no base URL set.
+
+    Note this fixture-less test does NOT configure a base URL, so
+    links_configured() would be False regardless of backend — it says nothing
+    about which gate closed. The assertion that carries weight is the second:
+    dashboards_match_backend() reports the mismatch without needing a base URL
+    to be configured first, so the two gates can't mask each other.
+    """
     monkeypatch.setenv("TSDB_TYPE", "clickhouse")
     assert links.links_configured() is False
     assert links.dashboards_match_backend() is False
