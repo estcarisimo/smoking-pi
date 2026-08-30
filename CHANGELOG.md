@@ -61,6 +61,29 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The smokeping container's resolver is pinned instead of inherited.** Docker
+  writes `/etc/resolv.conf` once, at container creation, and never again — so a
+  container inherits whatever the host's resolver happened to be at that
+  instant and holds it forever.
+
+  This deployment captured a Tailscale MagicDNS address. Tailscale later logged
+  out, and from then on **nine of eighteen targets reported 100% loss for ten
+  days** — every hostname target, while every raw-IP target stayed green.
+  Nothing surfaced it, because "100% loss" and "that host is down" are
+  indistinguishable; the alerter dutifully tracked the incidents to
+  `notified_count=253` with delivery switched off.
+
+  `dns:` is honoured even under `network_mode: host`. Public resolvers by
+  default (`SMOKEPING_DNS`, `SMOKEPING_DNS_FALLBACK` to override) so this does
+  not depend on any particular LAN addressing. Only the smokeping service is
+  pinned: the bridge-network services must keep Docker's embedded resolver for
+  service-name lookups.
+
+  The real lesson is the missing signal, not the missing config — a *live*
+  doctor check for "a target that has never produced a non-100% point" would
+  have caught this in an hour instead of ten days. `docs/doctor.md` lists the
+  live checks as still unbuilt.
+
 - **Messages are composed to a budget instead of truncated.** Telegram allows
   4096 characters for a message but only **1024 for a caption**, so an alert
   carrying a chart has a quarter of the room. Sections now carry a priority
