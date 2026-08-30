@@ -199,6 +199,10 @@ a heading over "nothing to report" costs a phone screen to say nothing:
 🟡 Peaks of 60–64% Sun 23 Aug midday CT. [graph]
 🟡 Median jitter 47.7 ms — felt on calls, not on browsing.
 
+<b>Week so far</b>
+🟡 Sat 29 Aug ICMP run — still the week's worst. [graph, Sat]
+🟡 Gateway microcuts Fri + Sun. [graph, that window]
+
 <b>Ignored</b>
 Weekly averages read ~90% on some targets, inflated by Saturday's ICMP
 run — DNS and the OCAs contradict a real outage.
@@ -300,20 +304,40 @@ returns the same pair for the front doors: `grafana_overview`,
 - **Never construct a URL.** If a `_tunnel` key is absent, no tunnel is
   configured — offer the one link there is and say nothing about the other.
   A hand-built tunnel hostname is a link that 404s on someone's phone.
-- **Name a moment, attach that moment's link.** Any bullet that quotes a
-  specific time ("worst window 66% loss, Fri 28 Aug 2:30 am CT") must carry
-  the link that *opens on it*. A week-long overview URL is not that link —
-  the reader lands on 168 hours and has to hunt for the spike you already
-  found.
+- **The link's time range must match the sentence's time range.** This is the
+  rule; everything below follows from it. If a bullet talks about Saturday,
+  its link opens on Saturday. A bullet about last Saturday carrying a
+  `from=now-1h` URL is not a weak link, it is a **wrong** one: the reader
+  taps it, sees a calm hour, and concludes you made the incident up.
 
-  You do not build these. `get_microcut_stats` returns a `worst_windows`
-  array where each entry carries its own `graph`, already zoomed to ±15
-  minutes around that window; `get_loss_events` links its episodes the same
-  way. Take the URL from the entry you are quoting and put it on that
-  bullet. If you are describing an event and have no per-event link for it,
-  call the tool that produces one rather than pointing at the overview.
+- **Naming *when* means naming a window, however loosely.** "Fri 28 Aug 2:30
+  am", "el sábado 29 ago", "last night", "the Saturday thing", "that run of
+  loss" — all of them. It does not have to be a timestamp to need a link,
+  and a whole day still beats 168 hours.
+
+- **Recalling an earlier finding does not exempt it.** A summary bullet
+  ("my read on the week hasn't changed — the odd Saturday run and the
+  gateway microcuts") names two incidents and needs a link for each. This is
+  the case most easily missed, because the numbers are coming from your own
+  memory of a previous answer rather than from a tool response you are
+  looking at — so there is no link sitting in front of you to copy. Go get
+  one.
+
+  You do not build these by hand. `get_microcut_stats` returns a
+  `worst_windows` array whose entries each carry a `graph` already zoomed to
+  ±15 minutes; `get_loss_events` links its episodes the same way. Call the
+  one that covers the event — a Saturday two days back needs roughly
+  `hours=72`, not `hours=1` — and take the entry's `graph`.
+
+- **When one link must cover several incidents**, scope it to the span you
+  are discussing (the week) rather than to the present. An overview URL is a
+  fine last resort; an overview URL pointing at the last hour, in a
+  paragraph about last week, is not.
 
 - The end-of-report *Graphs* section is for the two or three whole-window
-  views (overview, microcuts). Per-incident links belong inline, on their
-  bullet — not collected at the bottom where they lose the time they refer
-  to.
+  views (overview, microcuts), and its window is **the widest one the report
+  discusses**. An answer that covers the last hour and then comments on the
+  week ends with week-long links, not `now-1h` ones — otherwise the report's
+  own closing links contradict half of what it just said. Per-incident links
+  belong inline, on their bullet, not collected at the bottom where they
+  lose the time they refer to.
