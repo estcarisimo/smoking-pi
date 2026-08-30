@@ -85,6 +85,27 @@ class Docker:
         except (OSError, subprocess.SubprocessError):
             return 1, ""
 
+    def service_for_container(self, container: str) -> str | None:
+        """The compose service a container belongs to, or None if not compose.
+
+        Needed to phrase a remediation an operator can paste: `docker compose
+        up` takes SERVICE names, so suggesting the container name fails with
+        "no such service" on every container whose name differs from its
+        service -- which is most of them.
+        """
+        code, out = self.run(
+            [
+                "inspect",
+                "-f",
+                f'{{{{index .Config.Labels "{COMPOSE_SERVICE_LABEL}"}}}}',
+                container,
+            ]
+        )
+        if code != 0:
+            return None
+        name = out.strip()
+        return name if name and name != "<no value>" else None
+
     def container_for_service(self, service: str) -> str | None:
         """The running container for a compose service, whatever it is named.
 
@@ -238,6 +259,20 @@ def _nameservers(text: str) -> list[str]:
     ]
 
 
+def _recreate_hint(docker: Docker, container: str) -> str:
+    """A recreate command that will actually run for this container.
+
+    `docker compose up` takes SERVICE names, so the container name is the
+    wrong argument for every container whose name differs from its service --
+    which, since only one service here sets `container_name`, is most of them.
+    Non-compose containers get the plain docker form instead.
+    """
+    service = docker.service_for_container(container)
+    if service:
+        return f"docker compose up -d --force-recreate --no-deps {service}"
+    return f"docker rm -f {container} && recreate it however you start it"
+
+
 def _is_loopback(address: str) -> bool:
     """Docker's embedded resolver, and any other loopback nameserver.
 
@@ -304,8 +339,7 @@ def check_container_dns_fresh(
                     f"resolver {', '.join(stale)} is not one the host uses "
                     f"({', '.join(sorted(host_ns))}). If that resolver is "
                     f"gone, hostname targets fail while IP targets look "
-                    f"fine. Recreate: docker compose up -d --force-recreate "
-                    f"--no-deps {container}",
+                    f"fine. Recreate: {_recreate_hint(docker, container)}",
                     where=container,
                 )
             )
@@ -317,7 +351,10 @@ def check_container_dns_fresh(
     return result(
         "container-dns-fresh",
         findings,
-        f"{checked} containers use the host's resolvers",
+        # Not "use the host's resolvers": loopback entries are accepted
+        # without appearing in the host's file, so that phrasing would claim
+        # a guarantee the check does not make.
+        f"no stale resolvers in {checked} inspected containers",
         status=Status.WARN,
     )
 

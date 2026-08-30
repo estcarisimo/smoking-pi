@@ -36,6 +36,15 @@ class FakeDocker:
                 return value
         return 1, ""
 
+    def service_for_container(self, container):
+        code, out = self.run([
+            "inspect", "-f",
+            '{{index .Config.Labels "com.docker.compose.service"}}',
+            container,
+        ])
+        name = out.strip() if code == 0 else ""
+        return name if name and name != "<no value>" else None
+
     def container_for_service(self, service):
         code, out = self.run([
             "ps", "--filter",
@@ -186,10 +195,14 @@ def host_resolv(tmp_path):
     return p
 
 
-def _dns_docker(container_resolv: dict[str, str]):
+def _dns_docker(container_resolv: dict[str, str], services: dict | None = None):
     responses = {"ps --format {{.Names}}": (0, "\n".join(container_resolv) + "\n")}
+    services = services or {}
     for name, text in container_resolv.items():
         responses[f"exec {name} cat /etc/resolv.conf"] = (0, text)
+        # Compose stamps the service label; strip the project prefix by default.
+        label = services.get(name, name.replace("pro-", "").rsplit("-", 1)[0])
+        responses[f"inspect -f {{{{index .Config.Labels \"com.docker.compose.service\"}}}} {name}"] = (0, label + "\n")
     return FakeDocker(responses)
 
 
@@ -227,6 +240,10 @@ def test_frozen_tailscale_resolver_is_caught(repo, host_resolv):
     assert "100.100.100.100" in finding
     assert "pro-smokeping-1" in res.findings[0].where
     assert "force-recreate" in finding
+    # SERVICE name, not the container name: `docker compose up` would
+    # fail with "no such service" if given pro-smokeping-1.
+    assert "--no-deps smokeping" in finding
+    assert "--no-deps pro-smokeping-1" not in finding
 
 
 def test_a_shell_less_image_is_skipped_not_flagged(repo, host_resolv):
