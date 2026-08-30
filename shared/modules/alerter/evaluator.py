@@ -69,6 +69,18 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _format_window(seconds: int) -> str:
+    """Render a window the way it was configured, not rounded down to it.
+
+    The message exists to tell an operator which window was queried, so a
+    90s window must not read as "1m" — that sends them looking for a
+    discrepancy that isn't there.
+    """
+    if seconds and seconds % 60 == 0:
+        return f"{seconds // 60}m"
+    return f"{seconds}s"
+
+
 def _query(flux_src: str) -> list[dict]:
     """Indirection over flux.query_influx (patched in tests)."""
     return flux.query_influx(flux_src)
@@ -262,7 +274,8 @@ def rule_exporter_stale(
             "key": "exporter_stale",
             "target": None,
             "message": (
-                f"no latency points written in the last {window_s // 60}m — "
+                f"no latency points written in the last "
+                f"{_format_window(window_s)} — "
                 "RRD exporter appears stalled"
             ),
             "value": 0,

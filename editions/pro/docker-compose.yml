@@ -369,7 +369,7 @@ services:
       # These defaults MUST track the DEFAULT_* constants in evaluator.py --
       # a value here silently overrides the module default, which is how the
       # 900 s DOWN_WINDOW survived the flap fix that raised it to 1200.
-      # doctor's check_alerter_env_declared now enforces the pairing.
+      # doctor's check_alerter_env_defaults_match now enforces the pairing.
       - DOWN_WINDOW=${DOWN_WINDOW:-1200}
       - STALE_WINDOW=${STALE_WINDOW:-1200}
       - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
