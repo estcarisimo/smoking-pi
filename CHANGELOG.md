@@ -49,6 +49,14 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **`show-tunnel-urls.sh` reported the first hostname a tunnel ever had.** A
+  quick tunnel gets a brand new `*.trycloudflare.com` name every time
+  cloudflared reconnects, and every one stays in the container log; the script
+  took `head -1`, so it printed the oldest — dead, and entirely plausible
+  looking. Found with 12 distinct URLs in one log while it reported #1. It now
+  takes the last, and warns when a tunnel has rotated, since anything saved
+  earlier into `.env`, a bookmark or a chat is already a dead link.
+
 - **A text-only message could not be delivered silently.** `silent` was set
   only on the image path and only from `ALERT_SILENT`, so a text-only digest
   would ring a phone at 08:30 regardless. It is now a per-message property
