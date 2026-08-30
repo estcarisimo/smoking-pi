@@ -104,8 +104,17 @@ if [ "$RELOAD" = "1" ]; then
     fi
     if systemctl --user list-unit-files 2>/dev/null | grep -q openclaw-gateway; then
         echo -e "  ${CYAN}systemctl --user restart openclaw-gateway${NC}"
-        systemctl --user restart openclaw-gateway
-        echo -e "${GREEN}✓ Gateway restarted${NC}"
+        # `|| true` because of `set -e`: a failed restart would otherwise exit
+        # here, skipping the "start a NEW chat session" instruction below --
+        # the one step that cannot be skipped, and the reason a correct
+        # install still looks like it did nothing.
+        if systemctl --user restart openclaw-gateway; then
+            echo -e "${GREEN}✓ Gateway restarted${NC}"
+        else
+            echo -e "${RED}✗ Gateway restart failed${NC} — the skill is"
+            echo -e "  installed, but the gateway is still serving the old"
+            echo -e "  one. Restart it however you run it, then continue."
+        fi
     else
         echo -e "  ${YELLOW}No openclaw-gateway user unit found — restart it however you run it.${NC}"
     fi
