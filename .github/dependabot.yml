@@ -1,0 +1,59 @@
+# Dependabot version updates.
+#
+# This repo has three ecosystems and seventeen places they live: seven Python
+# modules, nine Dockerfiles, and the Actions workflow. One entry per directory
+# would open seventeen PRs a week at a solo maintainer, which is how Dependabot
+# gets muted and then ignored. So: `directories` globs instead of one block
+# each, groups so a week's updates arrive as one PR per ecosystem, and a low
+# open-PR ceiling.
+#
+# Security updates are separate and NOT governed by this file — they are
+# enabled in Settings → Code security and always open individually, which is
+# what you want for a CVE.
+version: 2
+
+updates:
+  # The workflow's own actions. Cheap, and a stale checkout@v4 is the kind of
+  # thing nobody notices until a deprecation breaks CI.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(ci)"
+
+  # Python modules: alerter, ai-insights, config-manager, doctor, mcp-server,
+  # smokeping-exporters, web-admin.
+  - package-ecosystem: pip
+    directories:
+      - "/shared/modules/*"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Patch and minor together: individually they are noise, and the batch
+      # is still small enough to read.
+      python-minor-patch:
+        update-types: ["minor", "patch"]
+      # Majors stay separate — they are the ones that need a human.
+      python-major:
+        update-types: ["major"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Base images. python:3.11-slim, postgres, grafana, influxdb, and the
+  # LinuxServer smokeping image.
+  - package-ecosystem: docker
+    directories:
+      - "/shared/modules/*"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      docker-base-images:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(docker)"
