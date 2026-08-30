@@ -290,8 +290,8 @@ form:
   the zone named, and with the weekday when the window is longer than a day
   ("Sunday 9 Aug, 3:20–4:55 pm CT"). An ISO timestamp is not an answer to
   "when did it happen".
-- **Bold or `###` for headings, never both on the same line**, and never a
-  heading deeper than `###`.
+- **One heading level only.** Sections are bold and flat; there is no
+  sub-section. A report deep enough to need nesting is too long for a phone.
 
 ## Links
 
