@@ -204,6 +204,14 @@ def _preflight_openclaw() -> bool:
                   "OPENCLAW_HOOK_PATH. See docs/openclaw-integration.md", url)
         return False
 
+    if response.status_code >= 500:
+        log.error(
+            "Delivery preflight: %s answered HTTP %s — the gateway itself is "
+            "failing, so this says nothing about whether the %r tool is "
+            "permitted. Alerts are unlikely to be delivered until the gateway "
+            "is healthy.", url, response.status_code, OPENCLAW_TOOL)
+        return False
+
     # Any other error here is the tool's own argument validation, which means
     # it is reachable and permitted — the good case.
     log.info("Delivery preflight: %s reachable, %r tool permitted (HTTP %s)",
