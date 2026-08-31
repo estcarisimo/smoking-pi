@@ -32,6 +32,11 @@ class Repo:
         self.provisioning = self.grafana / "provisioning"
         self.datasources_dir = self.provisioning / "datasources"
         self.exporters = root / "shared/modules/smokeping-exporters"
+        self.alerter = root / "shared/modules/alerter"
+        self.pro = root / "editions/pro"
+        self.compose = self.pro / "docker-compose.yml"
+        self.env_template = self.pro / ".env.template"
+        self.alerting_doc = root / "docs/alerting.md"
 
     def exists(self) -> bool:
         return self.provisioning.is_dir()
@@ -64,6 +69,8 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_dashboards_are_scanned(repo, influx, clickhouse),
         check_panel_measurements_are_written(repo, influx),
         check_panel_tags_are_written(repo, influx),
+        check_alerter_env_defaults_match(repo),
+        check_alerter_env_declared(repo),
     ]
 
 
@@ -354,3 +361,100 @@ def check_panel_tags_are_written(repo: Repo, influx) -> CheckResult:
 
 
 __all__ = ["Repo", "run_all", "Status"]
+
+
+# ---------------------------------------------------------------------------
+# Module defaults vs deployed defaults
+# ---------------------------------------------------------------------------
+
+
+def _same_value(module_value: object, compose_value: str) -> bool:
+    """Compare a Python constant with a Compose default string.
+
+    Numerically where both sides parse as numbers, so ``20.0`` and ``"20"``
+    agree, and textually otherwise.
+    """
+    try:
+        return float(module_value) == float(compose_value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return str(module_value) == compose_value
+
+
+def check_alerter_env_defaults_match(repo: Repo) -> CheckResult:
+    """A Compose ``${VAR:-x}`` default must equal the module's DEFAULT_ constant.
+
+    This exists because of a specific, expensive bug. A flapping incident was
+    fixed by raising ``DEFAULT_DOWN_WINDOW`` from 900 to 1200 — but
+    docker-compose.yml pinned ``DOWN_WINDOW=${DOWN_WINDOW:-900}``, so every
+    deployed container kept the old value and the fix did nothing. Both files
+    read as correct on their own; only the pair is wrong, and nothing compared
+    them.
+    """
+    if not repo.compose.is_file():
+        return skipped(
+            "alerter-env-defaults-match", f"no compose file at {repo.compose}"
+        )
+    env = sources.module_env(repo.alerter)
+    if not env.usages:
+        return skipped(
+            "alerter-env-defaults-match", f"no alerter source under {repo.alerter}"
+        )
+
+    declared = sources.compose_service_env(repo.compose, "alerter")
+    findings: list[Finding] = []
+    compared = 0
+    for name, compose_default in sorted(declared.items()):
+        if compose_default is None or name not in env.names():
+            continue
+        const, module_default = env.default_for(name)
+        if const is None or module_default is None:
+            continue
+        compared += 1
+        if not _same_value(module_default, compose_default):
+            findings.append(
+                Finding(
+                    f"{name}: compose defaults to {compose_default!r} but "
+                    f"{const} is {module_default!r} — the compose value wins, "
+                    f"so the module default is dead code",
+                    where="editions/pro/docker-compose.yml",
+                )
+            )
+    return result(
+        "alerter-env-defaults-match",
+        findings,
+        f"{compared} compose defaults match their module constants",
+    )
+
+
+def check_alerter_env_declared(repo: Repo) -> CheckResult:
+    """Every env var the alerter reads should be discoverable by an operator.
+
+    A knob that exists only in Python is one nobody can find: not in compose,
+    not in .env.template, not in the docs table. Warn rather than fail — an
+    undiscoverable setting is a documentation gap, not a broken deployment.
+    """
+    env = sources.module_env(repo.alerter)
+    if not env.usages:
+        return skipped(
+            "alerter-env-declared", f"no alerter source under {repo.alerter}"
+        )
+
+    known = (
+        set(sources.compose_service_env(repo.compose, "alerter"))
+        | sources.env_template_keys(repo.env_template)
+        | sources.doc_env_keys(repo.alerting_doc)
+    )
+    findings = [
+        Finding(
+            f"{name} is read by the alerter but appears in neither "
+            f"docker-compose.yml, .env.template, nor docs/alerting.md",
+            where=next(u.where for u in env.usages if u.name == name),
+        )
+        for name in sorted(env.names() - known)
+    ]
+    return result(
+        "alerter-env-declared",
+        findings,
+        f"{len(env.names())} alerter env vars are documented",
+        status=Status.WARN,
+    )

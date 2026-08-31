@@ -9,6 +9,96 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The flap fix below did not reach the deployed container.** Raising
+  `DEFAULT_DOWN_WINDOW` from 900 to 1200 fixed nothing in practice, because
+  `docker-compose.yml` pinned `DOWN_WINDOW=${DOWN_WINDOW:-900}` and a Compose
+  default silently wins over a module default. Both files read as correct on
+  their own; only the pair was wrong. `STALE_WINDOW`, added in the same batch,
+  was declared in no compose file, no `.env.template` and no doc at all.
+
+  Fixed, and — more usefully — made impossible to repeat. The instrumentation
+  doctor gained **`alerter-env-defaults-match`**, which extracts every env var
+  the alerter reads out of its own source with `ast` (including the
+  `os.environ.get(...) or DEFAULT_X` idiom) and asserts that each Compose
+  `${VAR:-x}` default equals the `DEFAULT_*` constant behind it. Reverting the
+  compose line to 900 now fails CI with the specific pair that disagrees.
+  A companion **`alerter-env-declared`** warns when a knob exists only in
+  Python — discoverable in neither compose, `.env.template`, nor the
+  `docs/alerting.md` table.
+
+  `docs/alerting.md` also contradicted itself on this value (900 in the rules
+  table, 1200 in the flap-damping section), and `exporter_stale`'s alert text
+  still claimed a hardcoded "10m" after the window became configurable and
+  moved to 1200 s. The message now reports the window it actually queried.
+
+- **`COMPOSE_PROFILES` is now persisted, not passed once.** Starting an
+  optional service with `COMPOSE_PROFILES=mcp docker compose up -d mcp-server`
+  leaves it running but unmanaged: the next `docker compose down` removes it
+  and the following `up -d` does not bring it back, with nothing to say so.
+  That is how this deployment ended up running an MCP server that Compose no
+  longer knew about — and when it goes, OpenClaw silently falls back to
+  answering from the shell instead of the monitoring data. `setup.sh` now
+  writes `COMPOSE_PROFILES` into the generated `.env` alongside `TSDB_TYPE`,
+  and `.env.template` documents the full profile list.
+
+- **A flapping incident sent unbounded notifications.** Found the hard way: a
+  `target_down` incident on a test target alternated alert/recovery on a
+  five-minute cycle and delivered ~48 messages every two hours to a real
+  phone, for four hours.
+
+  Three defects at three layers, all now fixed:
+
+  1. `DOWN_WINDOW` was 900 s with `DOWN_MIN_POINTS=3` on a 300 s probe step —
+     *exactly* three points, so ordinary window jitter yielded two, the rule
+     stopped matching, and the incident looked resolved. Now 1200 s (four
+     points where three are required).
+  2. Recovery deleted the incident record outright, so the next appearance
+     took the first-seen path and alerted immediately. `ALERT_COOLDOWN` only
+     ever suppressed *continuously* active incidents and did nothing in the
+     one case where it matters. An incident must now be absent for
+     `ALERT_RESOLVE_AFTER` (default 900 s) before it counts as recovered;
+     reappearing inside that window is silent.
+  3. New `ALERT_MAX_PER_HOUR` (default 6): a hard ceiling per incident key,
+     independent of the lifecycle logic, so a future lifecycle bug cannot
+     reach a phone at that volume. `0` disables it.
+
+  Verified by replaying the observed flap pattern against both versions: 48
+  notifications per two hours before, at most 3 after.
+
+- **Alert delivery to OpenClaw now works.** `NOTIFY_MODE=openclaw` was
+  unusable: it POSTed to `{OPENCLAW_URL}/hooks/agent`, a path that exists on no
+  OpenClaw build. The resulting 404 was read as *"the gateway is WebSocket-only
+  and has no HTTP ingress at all"*, and the mode was documented as needing an
+  HTTP-RPC plugin or a bridge that was never written — so the alerting engine
+  ran for a week evaluating rules correctly and telling nobody.
+
+  The gateway does serve HTTP, multiplexed onto the same port: `POST
+  /tools/invoke` is always enabled. Alerts are now delivered by invoking
+  OpenClaw's `message` tool through it, authenticated with the Gateway token
+  (`OPENCLAW_GATEWAY_TOKEN`; `OPENCLAW_HOOK_TOKEN` still accepted). Verified
+  against OpenClaw 2026.7.1-2. The generalisation from one missing route to a
+  whole missing protocol is called out in both docs, since the shape of that
+  mistake is more useful than the fix.
+
+- **A refused send counted as a delivered alert.** `/tools/invoke` answers
+  **HTTP 200 with `{"ok": false}`** when the tool itself fails — a blocked
+  tool, a bad channel, an unknown recipient. The notifier checked only the
+  status code, so every one of those would have been recorded as success. It
+  now inspects the body and retries, for this endpoint only (a generic webhook
+  keeps status-code semantics).
+
+- **The preflight could not tell a blocked tool from a missing endpoint.** Both
+  answer 404. Reporting the wrong one is exactly the inference that caused the
+  bug above, so the body is now read to separate "your tool policy blocks
+  `message`" from "that route does not exist", alongside 401 for a rejected
+  Gateway token and a connection error for a gateway that is down.
+
+- `NOTIFY_MODE=openclaw` now refuses to run with `OPENCLAW_TO` unset instead of
+  posting a message with no recipient and reporting success.
+
+
 ## [2.6.0] — 2026-08-09
 
 Answers that come with the graph, and a tool that checks the monitoring is

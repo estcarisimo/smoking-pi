@@ -307,18 +307,35 @@ services:
       # Delivery: off (log-only, default) | openclaw | webhook
       - NOTIFY_MODE=${NOTIFY_MODE:-off}
       - OPENCLAW_URL=${OPENCLAW_URL:-http://127.0.0.1:18789}
-      - OPENCLAW_HOOK_PATH=${OPENCLAW_HOOK_PATH:-/hooks/agent}
+      # /tools/invoke is OpenClaw's HTTP tool endpoint, always enabled and
+      # multiplexed onto the gateway port. Override only for a proxy/bridge.
+      - OPENCLAW_HOOK_PATH=${OPENCLAW_HOOK_PATH:-/tools/invoke}
+      # Gateway token = gateway.auth.token in ~/.openclaw/openclaw.json.
+      # OPENCLAW_HOOK_TOKEN is accepted as a legacy alias.
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
       - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN:-}
-      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-}
+      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-telegram}
       - OPENCLAW_TO=${OPENCLAW_TO:-}
       - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
       - ALERT_WEBHOOK_TOKEN=${ALERT_WEBHOOK_TOKEN:-}
       # Cadence / dedup / report delivery (seconds)
       - ALERT_INTERVAL=${ALERT_INTERVAL:-60}
       - ALERT_COOLDOWN=${ALERT_COOLDOWN:-3600}
+      # How long an incident must stay ABSENT before it counts as recovered.
+      # Without this, a rule that flaps alternates alert/recovery and the
+      # cooldown never applies, because recovery deletes the record.
+      - ALERT_RESOLVE_AFTER=${ALERT_RESOLVE_AFTER:-900}
+      # Hard ceiling per incident key per rolling hour. A blast-radius limit,
+      # not a tuning knob — unreachable in normal operation.
+      - ALERT_MAX_PER_HOUR=${ALERT_MAX_PER_HOUR:-6}
       - REPORT_DELIVERY_INTERVAL=${REPORT_DELIVERY_INTERVAL:-86400}
-      # Rule thresholds (optional overrides; module defaults apply)
-      - DOWN_WINDOW=${DOWN_WINDOW:-900}
+      # Rule thresholds (optional overrides; module defaults apply).
+      # These defaults MUST track the DEFAULT_* constants in evaluator.py --
+      # a value here silently overrides the module default, which is how the
+      # 900 s DOWN_WINDOW survived the flap fix that raised it to 1200.
+      # doctor's check_alerter_env_defaults_match now enforces the pairing.
+      - DOWN_WINDOW=${DOWN_WINDOW:-1200}
+      - STALE_WINDOW=${STALE_WINDOW:-1200}
       - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
       # Counts OBSERVED windows, so rescale it with CPE_PROBE_IDLE.
       - MICROCUT_BURST_N=${MICROCUT_BURST_N:-2}

@@ -5,11 +5,25 @@ Lifecycle per incident key:
 - first seen           -> record it, fire an "alert" notification
 - still active, within ALERT_COOLDOWN of the last notification -> silent
 - still active, cooldown elapsed -> fire again (re-notify)
-- no longer reported   -> fire a "recovery" notification (if it ever fired)
-                          and drop the record
+- stops being reported -> enter a "missing" grace period, notify nothing
+- missing for ALERT_RESOLVE_AFTER seconds -> fire a "recovery" and drop it
+- reappears while missing -> it never recovered; clear the grace timer and
+                             stay silent (the cooldown still governs re-alerts)
+
+The grace period exists because an incident that oscillates used to produce
+an unbounded stream of notifications. Recovery deleted the record outright,
+so the next appearance looked brand new, took the first-seen path, and
+alerted immediately — meaning ALERT_COOLDOWN only ever suppressed
+*continuously* active incidents and did nothing in the one case where it
+matters most. A `target_down` incident flapping on a five-minute cycle sent
+roughly fifty messages an hour, indefinitely.
+
+ALERT_MAX_PER_HOUR is a second, independent backstop: a hard ceiling on
+notifications per key per rolling hour, so a future lifecycle bug cannot
+reach a person's phone at that volume again.
 
 Per-incident bookkeeping: first_seen, last_seen, last_notified,
-notified_count (all epoch seconds).
+notified_count, missing_since, recent_notifications (all epoch seconds).
 
 The state file also carries the reports_watcher bookkeeping (``reports``
 key) so the whole service has a single persisted file. Writes are atomic
@@ -31,6 +45,16 @@ log = logging.getLogger("alerter.state")
 DEFAULT_STATE_FILE = "/var/lib/alerter/state.json"
 FALLBACK_STATE_FILE = "/tmp/alerter-state.json"  # noqa: S108 (documented fallback)
 DEFAULT_COOLDOWN = 3600  # seconds; ALERT_COOLDOWN
+# How long an incident must stay absent before it counts as recovered.
+# Must exceed the widest rule window's point spacing, or a rule sitting near
+# its minimum-points threshold will drop out and "recover" on ordinary window
+# jitter. 900 s covers three 300 s SmokePing steps.
+DEFAULT_RESOLVE_AFTER = 900  # seconds; ALERT_RESOLVE_AFTER
+# Hard ceiling on notifications per incident key per rolling hour. This is a
+# blast-radius limit, not a tuning knob: it is meant to be unreachable in
+# normal operation and to cap the damage when something else is wrong.
+DEFAULT_MAX_PER_HOUR = 6  # ALERT_MAX_PER_HOUR
+_HOUR_S = 3600.0
 
 _EMPTY_STATE: dict = {"incidents": {}, "reports": {}}
 
@@ -90,11 +114,47 @@ def save_state(state: dict) -> None:
         raise
 
 
-def _cooldown() -> int:
+def _env_int(name: str, default: int) -> int:
     try:
-        return int(os.environ.get("ALERT_COOLDOWN", "") or DEFAULT_COOLDOWN)
+        return int(os.environ.get(name, "") or default)
     except ValueError:
-        return DEFAULT_COOLDOWN
+        return default
+
+
+def _cooldown() -> int:
+    return _env_int("ALERT_COOLDOWN", DEFAULT_COOLDOWN)
+
+
+def _resolve_after() -> int:
+    return _env_int("ALERT_RESOLVE_AFTER", DEFAULT_RESOLVE_AFTER)
+
+
+def _max_per_hour() -> int:
+    return _env_int("ALERT_MAX_PER_HOUR", DEFAULT_MAX_PER_HOUR)
+
+
+def _rate_limited(record: dict, now: float, limit: int) -> bool:
+    """Trim the rolling-hour window and report whether the key is over budget.
+
+    Deliberately independent of the cooldown and the grace period: those are
+    lifecycle logic and can be defeated by a lifecycle bug. This is a plain
+    count of what was actually sent.
+    """
+    if limit <= 0:
+        return False
+    recent = [
+        float(ts)
+        for ts in record.get("recent_notifications", [])
+        if now - float(ts) < _HOUR_S
+    ]
+    record["recent_notifications"] = recent
+    return len(recent) >= limit
+
+
+def _record_notification(record: dict, now: float) -> None:
+    record.setdefault("recent_notifications", []).append(now)
+    record["last_notified"] = now
+    record["notified_count"] = int(record.get("notified_count", 0)) + 1
 
 
 def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> dict:
@@ -108,6 +168,8 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
     if now is None:
         now = time.time()
     cooldown = _cooldown()
+    resolve_after = _resolve_after()
+    limit = _max_per_hour()
     records: dict = state.setdefault("incidents", {})
 
     alerts: list[dict] = []
@@ -127,24 +189,50 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
                 "value": incident.get("value"),
                 "first_seen": now,
                 "last_seen": now,
-                "last_notified": now,
-                "notified_count": 1,
+                "notified_count": 0,
+                "recent_notifications": [],
             }
             records[key] = record
+            if _rate_limited(record, now, limit):  # pragma: no cover - new key
+                continue
+            _record_notification(record, now)
             alerts.append({**incident, "state": _snapshot(record)})
             continue
+
+        # Back inside the grace period: this incident never recovered, so it
+        # must not re-announce itself. Silently clear the timer.
+        if record.pop("missing_since", None) is not None:
+            log.info("Incident %s reappeared within the resolve grace period; "
+                     "treating it as continuously active", key)
 
         record["last_seen"] = now
         record["message"] = incident["message"]
         record["value"] = incident.get("value")
         record["severity"] = incident["severity"]
-        if now - float(record.get("last_notified", 0)) >= cooldown:
-            record["last_notified"] = now
-            record["notified_count"] = int(record.get("notified_count", 0)) + 1
-            alerts.append({**incident, "state": _snapshot(record)})
+        if now - float(record.get("last_notified", 0)) < cooldown:
+            continue
+        if _rate_limited(record, now, limit):
+            log.warning(
+                "Incident %s hit the notification ceiling (%d/hour); "
+                "suppressing until the rolling hour clears", key, limit)
+            continue
+        _record_notification(record, now)
+        alerts.append({**incident, "state": _snapshot(record)})
 
     for key in sorted(set(records) - active_keys):
-        record = records.pop(key)
+        record = records[key]
+        missing_since = record.get("missing_since")
+        if missing_since is None:
+            # Start the grace period rather than declaring recovery. A rule
+            # sitting near its minimum-points threshold drops out on ordinary
+            # window jitter, and calling that a recovery is what turned one
+            # flapping target into a notification firehose.
+            record["missing_since"] = now
+            continue
+        if now - float(missing_since) < resolve_after:
+            continue
+
+        records.pop(key)
         if int(record.get("notified_count", 0)) > 0:
             recoveries.append(
                 {

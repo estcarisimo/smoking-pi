@@ -19,10 +19,21 @@ import flux
 
 # Thresholds (env-tunable).
 # SmokePing probes on a 300 s step, so a 300 s window holds a single point —
-# too few for DOWN_MIN_POINTS. 900 s is the shortest window that can confirm
-# a target is down rather than reacting to one missed cycle.
-DEFAULT_DOWN_WINDOW = 900  # seconds; DOWN_WINDOW
+# too few for DOWN_MIN_POINTS.
+#
+# This was 900 s, which is the SHORTEST window that can hold DOWN_MIN_POINTS,
+# and that is exactly the problem: 900/300 = 3 points only when the window
+# boundary and the export cadence line up perfectly. Any skew yields 2, the
+# rule stops matching, and the incident looks resolved. Observed live as a
+# clean five-minute cycle — four minutes present, one minute absent, forever.
+# 1200 s holds four points where three are required, so one point of slack
+# absorbs the jitter. Keep DOWN_WINDOW/300 strictly greater than
+# DOWN_MIN_POINTS if you retune either.
+DEFAULT_DOWN_WINDOW = 1200  # seconds; DOWN_WINDOW
 DEFAULT_HIGH_LOSS_PCT = 20.0  # percent; HIGH_LOSS_PCT
+# Exporter-liveness window. Four 300 s steps, so a burst arriving late does not
+# read as a stall. See _stale_flux for why 10m was too tight.
+DEFAULT_STALE_WINDOW = 1200  # seconds; STALE_WINDOW
 # Microcut windows per 60 min needed to fire; MICROCUT_BURST_N.
 # This counts OBSERVED windows, so it must track the probe's duty cycle. The
 # detector samples a 10 s window every CPE_PROBE_WINDOW + CPE_PROBE_IDLE
@@ -56,6 +67,18 @@ def _env_float(name: str, default: float) -> float:
         return float(os.environ.get(name, "") or default)
     except ValueError:
         return default
+
+
+def _format_window(seconds: int) -> str:
+    """Render a window the way it was configured, not rounded down to it.
+
+    The message exists to tell an operator which window was queried, so a
+    90s window must not read as "1m" — that sends them looking for a
+    discrepancy that isn't there.
+    """
+    if seconds and seconds % 60 == 0:
+        return f"{seconds // 60}m"
+    return f"{seconds}s"
 
 
 def _query(flux_src: str) -> list[dict]:
@@ -104,9 +127,17 @@ def _microcut_flux(loss_pct: float) -> str:
 
 
 def _stale_flux() -> str:
-    """Total latency points written in the last 10m (exporter liveness)."""
+    """Total latency points written recently (exporter liveness).
+
+    Was 10m, which on a 300 s step is two points at best — and the RRD row
+    timestamps lag the write, so the effective margin was near zero and this
+    rule flapped in and out on its own. Observed live: three quiet minutes,
+    then the incident reappears. Same defect as the old DOWN_WINDOW, so the
+    same rule applies: give the window several steps of slack.
+    """
+    window = _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
     return (
-        flux.base_flux(["latency"], "-10m")
+        flux.base_flux(["latency"], f"-{window}s")
         + '|> filter(fn: (r) => r._field == "loss") '
         + "|> group() "
         + "|> count()"
@@ -218,8 +249,15 @@ def rule_microcut_burst(
     return incidents
 
 
-def rule_exporter_stale(stale_rows: list[dict]) -> list[dict]:
-    """critical: zero ``latency`` points written in the last 10m (global)."""
+def rule_exporter_stale(
+    stale_rows: list[dict], window_s: int | None = None
+) -> list[dict]:
+    """critical: zero ``latency`` points written in ``window_s`` (global).
+
+    ``window_s`` is reported in the message rather than hardcoded, so the
+    text cannot drift from the window actually queried the way the old
+    literal "10m" did after STALE_WINDOW was introduced.
+    """
     total = 0
     for row in stale_rows:
         value = row.get("_value")
@@ -227,6 +265,8 @@ def rule_exporter_stale(stale_rows: list[dict]) -> list[dict]:
             total += int(value)
     if total > 0:
         return []
+    if window_s is None:
+        window_s = _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
     return [
         {
             "rule": "exporter_stale",
@@ -234,7 +274,8 @@ def rule_exporter_stale(stale_rows: list[dict]) -> list[dict]:
             "key": "exporter_stale",
             "target": None,
             "message": (
-                "no latency points written in the last 10m — "
+                f"no latency points written in the last "
+                f"{_format_window(window_s)} — "
                 "RRD exporter appears stalled"
             ),
             "value": 0,
@@ -312,6 +353,8 @@ def evaluate() -> list[dict]:
     down_targets = {i["target"] for i in incidents}
     incidents += rule_high_loss(mean_rows, exclude=down_targets)
     incidents += rule_microcut_burst(micro_rows)
-    incidents += rule_exporter_stale(stale_rows)
+    incidents += rule_exporter_stale(
+        stale_rows, _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
+    )
     incidents += rule_ipv6_down(mean_rows)
     return incidents
