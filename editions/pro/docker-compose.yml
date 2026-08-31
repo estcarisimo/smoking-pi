@@ -356,6 +356,22 @@ services:
       - MICROCUT_BURST_N=${MICROCUT_BURST_N:-2}
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
       - REPORT_MAX_CHARS=${REPORT_MAX_CHARS:-3500}
+      # Message rendering: html (Telegram's default parse mode) | plain
+      - ALERT_MARKUP=${ALERT_MARKUP:-html}
+      # "Is it me or the internet?" thresholds. Derived from rows the rules
+      # already fetch, so tuning these costs no extra queries.
+      - VERDICT_BROAD_PCT=${VERDICT_BROAD_PCT:-60}
+      - VERDICT_MIN_TARGETS=${VERDICT_MIN_TARGETS:-3}
+      - VERDICT_IMPAIRED_LOSS_PCT=${VERDICT_IMPAIRED_LOSS_PCT:-10}
+      # A target stuck at 100% longer than this never answered ICMP in the
+      # first place; counting it would turn one slow site into an outage.
+      - VERDICT_STALE_DOWN_HOURS=${VERDICT_STALE_DOWN_HOURS:-6}
+      # Deep links embedded in alerts. Unset = alerts carry no links, which
+      # is deliberate: see docs/mcp-server.md.
+      - TSDB_TYPE=${TSDB_TYPE:-influxdb}
+      - PUBLIC_BASE_HOST=${PUBLIC_BASE_HOST:-}
+      - GRAFANA_PUBLIC_URL=${GRAFANA_PUBLIC_URL:-}
+      - WEB_ADMIN_PUBLIC_URL=${WEB_ADMIN_PUBLIC_URL:-}
       # host netns: InfluxDB is published on localhost:8086
       - INFLUX_URL=${INFLUX_URL:-http://localhost:8086}
       - INFLUX_TOKEN=${INFLUX_TOKEN}

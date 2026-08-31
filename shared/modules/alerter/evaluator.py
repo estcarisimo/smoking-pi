@@ -338,8 +338,15 @@ def rule_ipv6_down(mean_rows: list[dict]) -> list[dict]:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def evaluate() -> list[dict]:
-    """Run all rules against InfluxDB and return the active incidents."""
+def evaluate_with_context() -> tuple[list[dict], dict]:
+    """Run all rules and ALSO return the rows they were derived from.
+
+    The verdict ("is it me or the internet?") needs breadth across every
+    target, the CPE microcut counts, and exporter liveness -- which is
+    exactly what these four queries already fetch and then throw away.
+    Returning them means the verdict costs no additional Flux queries,
+    which matters on a Pi that has already hit its thermal limit.
+    """
     down_window = _env_int("DOWN_WINDOW", DEFAULT_DOWN_WINDOW)
 
     down_rows = _query(_down_points_flux(down_window))
@@ -357,4 +364,15 @@ def evaluate() -> list[dict]:
         stale_rows, _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
     )
     incidents += rule_ipv6_down(mean_rows)
-    return incidents
+    context = {
+        "down_rows": down_rows,
+        "mean_rows": mean_rows,
+        "micro_rows": micro_rows,
+        "stale_rows": stale_rows,
+    }
+    return incidents, context
+
+
+def evaluate() -> list[dict]:
+    """Run all rules against InfluxDB and return the active incidents."""
+    return evaluate_with_context()[0]
