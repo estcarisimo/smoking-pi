@@ -346,3 +346,102 @@ def test_preflight_unreachable_is_failure(monkeypatch):
 
     monkeypatch.setattr(notifier.httpx, "post", boom)
     assert notifier.preflight() is False
+
+
+# --- image delivery ---------------------------------------------------------
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def test_image_rides_as_base64_with_the_text_as_caption(posts, openclaw):
+    """No filesystem in this path: the bytes go in the request body.
+
+    Verified against OpenClaw 2026.7.1-2 -- a `buffer` send really does
+    deliver media on Telegram, which a reading of the bundle had suggested it
+    would not.
+    """
+    import base64
+
+    assert notifier.notify(_event(), image=PNG) is True
+    args = posts["calls"][0]["json"]["args"]
+    assert base64.b64decode(args["buffer"]) == PNG
+    assert args["mimeType"] == "image/png"
+    assert args["filename"].startswith("smokeping-google-")
+    # Text belongs in the caption, never alongside it in `message`.
+    assert "google" in args["caption"]
+    assert "message" not in args
+
+
+def test_the_chart_filename_is_bounded_and_never_empty(posts, openclaw):
+    """Targets are operator-editable, so the slug needs its own limit.
+
+    Two ways this bites: a very long target builds a filename a downstream
+    store rejects, and a target made entirely of separators slugs down to
+    nothing, leaving "smokeping--1739.png".
+    """
+    long_target = "a" * 400
+    assert notifier.notify(_event(target=long_target), image=PNG) is True
+    name = posts["calls"][0]["json"]["args"]["filename"]
+    assert len(name) < 100, f"unbounded filename: {len(name)} chars"
+    assert name.startswith("smokeping-aaa")
+
+    posts["calls"].clear()
+    assert notifier.notify(_event(target="..."), image=PNG) is True
+    name = posts["calls"][0]["json"]["args"]["filename"]
+    assert "--" not in name, f"slug collapsed to empty: {name}"
+    assert name.startswith("smokeping-alert-")
+
+
+def test_the_caption_respects_the_1024_budget(posts, openclaw):
+    long_event = _event(message="x" * 6000)
+    assert notifier.notify(long_event, image=PNG) is True
+    args = posts["calls"][0]["json"]["args"]
+    assert len(args["caption"]) <= 1024
+
+
+def test_text_only_uses_the_4096_budget(posts, openclaw):
+    assert notifier.notify(_event(message="x" * 6000)) is True
+    args = posts["calls"][0]["json"]["args"]
+    assert "buffer" not in args
+    assert len(args["message"]) <= 4096
+
+
+def test_force_document_is_on_by_default(posts, openclaw):
+    """Telegram re-encodes photos as JPEG, which wrecks thin chart lines."""
+    notifier.notify(_event(), image=PNG)
+    assert posts["calls"][0]["json"]["args"]["forceDocument"] is True
+
+
+def test_force_document_can_be_disabled(posts, openclaw, monkeypatch):
+    monkeypatch.setenv("ALERT_IMAGE_AS_DOCUMENT", "false")
+    notifier.notify(_event(), image=PNG)
+    assert "forceDocument" not in posts["calls"][0]["json"]["args"]
+
+
+def test_a_failed_image_send_retries_exactly_once_as_text(posts, openclaw):
+    """A chart failure must never cost the alert -- but must not double the
+    retry budget either. 3 attempts with the image, then ONE text-only call."""
+    for _ in range(3):
+        posts["responses"].append(FakeResponse(413))
+    posts["responses"].append(FakeResponse(200))
+
+    assert notifier.notify(_event(), image=PNG) is True
+    assert len(posts["calls"]) == 4
+    assert "buffer" in posts["calls"][0]["json"]["args"]
+    assert "buffer" not in posts["calls"][3]["json"]["args"]
+    assert "message" in posts["calls"][3]["json"]["args"]
+
+
+def test_the_text_retry_is_bounded_when_everything_fails(posts, openclaw):
+    for _ in range(10):
+        posts["responses"].append(FakeResponse(500))
+    assert notifier.notify(_event(), image=PNG) is False
+    # 3 with the image + 3 text-only, never an unbounded cascade.
+    assert len(posts["calls"]) == 6
+
+
+def test_off_mode_notes_the_chart_without_sending(posts, caplog):
+    with caplog.at_level("INFO", logger="alerter.notifier"):
+        assert notifier.notify(_event(), image=PNG) is True
+    assert "+chart" in caplog.text
+    assert posts["calls"] == []

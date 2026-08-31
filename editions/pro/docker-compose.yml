@@ -374,6 +374,15 @@ services:
       - REPORT_MAX_CHARS=${REPORT_MAX_CHARS:-3500}
       # Message rendering: html (Telegram's default parse mode) | plain
       - ALERT_MARKUP=${ALERT_MARKUP:-html}
+      # Charts attached to alerts. Rendered in-process and posted as base64,
+      # so nothing is written to disk and no renderer service is needed.
+      - ALERT_CHARTS=${ALERT_CHARTS:-true}
+      - CHART_HOURS=${CHART_HOURS:-6}
+      - CHART_THEME=${CHART_THEME:-dark}
+      - CHART_MAX_BYTES=${CHART_MAX_BYTES:-700000}
+      # Telegram re-encodes photos as JPEG, which wrecks thin chart lines.
+      - ALERT_IMAGE_AS_DOCUMENT=${ALERT_IMAGE_AS_DOCUMENT:-true}
+      - ALERT_SILENT=${ALERT_SILENT:-false}
       # "Is it me or the internet?" thresholds. Derived from rows the rules
       # already fetch, so tuning these costs no extra queries.
       - VERDICT_BROAD_PCT=${VERDICT_BROAD_PCT:-60}

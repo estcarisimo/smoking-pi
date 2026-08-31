@@ -24,6 +24,12 @@ dependencies = [
 
     # HTTP client for OpenClaw hook / generic webhook delivery
     "httpx>=0.27",
+
+    # Chart rendering. Deliberately NOT grafana-image-renderer: that is a
+    # headless Chromium, ~400 MB resident and seconds of CPU per render, on a
+    # Pi that has already hit its soft thermal limit. matplotlib draws the
+    # same data one-shot in about a second.
+    "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]
