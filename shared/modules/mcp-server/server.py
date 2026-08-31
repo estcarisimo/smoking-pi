@@ -10,7 +10,9 @@ Run via ``main.py`` (stdio or streamable-http transport).
 from __future__ import annotations
 
 import functools
+import json
 import logging
+import os
 import re
 import time
 from datetime import datetime
@@ -25,6 +27,7 @@ except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
 import backends
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
+from common import mutes
 
 # Framing for the connecting client. Without it an agent that also has shell
 # access will answer "how is my internet?" by running ping/curl itself, which
@@ -832,4 +835,244 @@ def get_microcut_stats(hours: int = 24) -> dict:
             key=lambda e: (e.get("target") or "", e.get("protocol") or ""),
         ),
         "worst_windows": worst_windows,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Alert mute control
+#
+# Buttons in a Telegram message cannot call back without an OpenClaw channel
+# plugin, so control is natural language onto these tools -- which is the
+# better interface anyway, because "mute amazon for two hours because I'm
+# rebooting the router" carries an argument, a duration and a reason that no
+# button could.
+#
+# This server is the ONLY writer of the mutes file; the alerter mounts it
+# read-only and only reads. See common/mutes.py for why that removes the race
+# rather than managing it.
+# ---------------------------------------------------------------------------
+
+
+def _read_alerter_state() -> dict:
+    """Read the alerter's state file. Read-only: this container never writes it.
+
+    Returns an empty shape rather than raising when the alerter has not run
+    yet, so "what's muted?" still answers on a fresh install.
+    """
+    path = os.environ.get("ALERT_STATE_FILE") or "/var/lib/alerter/state.json"
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {"incidents": {}}
+    if not isinstance(data, dict):
+        return {"incidents": {}}
+    data.setdefault("incidents", {})
+    return data
+
+
+@mcp.tool()
+@logged_tool
+def mute_alerts(target: str | None = None, rule: str | None = None,
+                hours: float = 2, reason: str = "") -> dict:
+    """Stop alert notifications for a target and/or rule for a while.
+
+    Use when the user already knows about something and does not want to be
+    told again — "I'm rebooting the router, mute for an hour", "amazon is
+    always lossy, quiet it until tonight".
+
+    At least one of target or rule is required. Pass target="*" to mute
+    everything, which must be typed deliberately. Duration is capped at 24
+    hours; a longer request is clamped and the response says so. Muting
+    suppresses only the *sending* — incidents are still tracked, still counted,
+    and still appear in the daily digest and in list_alert_state.
+    """
+    if not target and not rule:
+        return {
+            "error": "Specify at least one of target or rule. To mute every "
+                     "alert, pass target='*' explicitly.",
+        }
+
+    try:
+        requested = float(hours)
+    except (TypeError, ValueError):
+        return {"error": f"Invalid hours value {hours!r}: must be a number."}
+    if requested <= 0:
+        return {"error": f"hours must be positive (got {requested})."}
+    granted = min(requested, mutes.MAX_HOURS)
+
+    # Resolve a named target so a typo is rejected loudly rather than creating
+    # a mute that silently matches nothing and leaves the user believing they
+    # are covered.
+    if target and target != mutes.WILDCARD:
+        api = backends.get_config_api()
+        try:
+            _resolved, err = _resolve_target(api, target)
+        except ConfigAPIError as exc:
+            return {"error": str(exc)}
+        if err:
+            return err
+
+    now = time.time()
+    entry = {
+        "target": target,
+        "rule": rule,
+        "reason": reason,
+        "until": now + granted * 3600,
+        "created_at": now,
+    }
+    entries = [
+        e for e in mutes.load()
+        if not (e.get("target") == target and e.get("rule") == rule
+                and e.get("key") is None)
+    ]
+    entries.append(entry)
+    try:
+        mutes.save(entries, now=now)
+    except OSError as exc:
+        return {"error": f"Could not write the mutes file: {exc}"}
+
+    result = {
+        "success": True,
+        "muted": mutes.describe(entry, now),
+        "message": f"Muted for {granted:g}h.",
+    }
+    if granted < requested:
+        result["clamped"] = (
+            f"Requested {requested:g}h; capped at {mutes.MAX_HOURS}h. An "
+            f"open-ended mute is how a real outage gets missed overnight — "
+            f"re-mute if you still need it."
+        )
+    return result
+
+
+@mcp.tool()
+@logged_tool
+def unmute_alerts(target: str | None = None, rule: str | None = None,
+                  all: bool = False) -> dict:
+    """Lift a mute early, restoring alert notifications.
+
+    Pass the same target/rule that was muted, or all=True to clear every mute.
+    A still-active incident re-alerts on its normal cooldown; nothing is
+    replayed, so unmuting never produces a burst of catch-up messages.
+    """
+    entries = mutes.load()
+    now = time.time()
+    before = len(mutes.active(entries, now))
+
+    if all:
+        remaining: list[dict] = []
+    elif not target and not rule:
+        return {
+            "error": "Specify target and/or rule, or pass all=True to clear "
+                     "every mute.",
+        }
+    else:
+        remaining = [
+            e for e in entries
+            if not (
+                (target is None or e.get("target") == target)
+                and (rule is None or e.get("rule") == rule)
+            )
+        ]
+
+    try:
+        mutes.save(remaining, now=now)
+    except OSError as exc:
+        return {"error": f"Could not write the mutes file: {exc}"}
+
+    after = len(mutes.active(remaining, now))
+    return {
+        "success": True,
+        "removed": before - after,
+        "still_muted": [mutes.describe(e, now) for e in mutes.active(remaining, now)],
+    }
+
+
+@mcp.tool()
+@logged_tool
+def ack_incident(key: str, hours: float = 24) -> dict:
+    """Acknowledge one specific incident: stop re-notifying until it recovers.
+
+    Narrower than mute_alerts — this silences exactly one active incident and
+    nothing else, so a new problem on the same target still alerts. Get the key
+    from list_alert_state. The recovery notice is NOT suppressed: you will
+    still be told when it clears.
+    """
+    state = _read_alerter_state()
+    records = state.get("incidents", {})
+    if key not in records:
+        return {
+            "error": f"No active incident with key '{key}'.",
+            "active_keys": sorted(records),
+        }
+
+    now = time.time()
+    granted = min(max(float(hours), 0.1), mutes.MAX_HOURS)
+    entry = {
+        "key": key,
+        "clear_on_recovery": True,
+        "reason": "acknowledged",
+        "until": now + granted * 3600,
+        "created_at": now,
+    }
+    entries = [e for e in mutes.load() if e.get("key") != key]
+    entries.append(entry)
+    try:
+        mutes.save(entries, now=now)
+    except OSError as exc:
+        return {"error": f"Could not write the mutes file: {exc}"}
+
+    return {
+        "success": True,
+        "acknowledged": mutes.describe(entry, now),
+        "message": f"{key} acknowledged; no further alerts for {granted:g}h "
+                   f"or until it recovers.",
+    }
+
+
+@mcp.tool()
+@logged_tool
+def list_alert_state() -> dict:
+    """Show active incidents and active mutes — what is wrong and what is quiet.
+
+    Answers "is anything muted?" and "why haven't I heard about X?". Reads both
+    files read-only. `muted_suppressed_count` on an incident is how many alerts
+    a mute has actually swallowed, which is the number that matters when
+    deciding whether a mute is still a good idea.
+    """
+    now = time.time()
+    state = _read_alerter_state()
+    entries = mutes.load()
+    live = mutes.active(entries, now)
+
+    incidents = []
+    for key, record in sorted(state.get("incidents", {}).items()):
+        incident_view = {
+            "key": key,
+            "rule": record.get("rule"),
+            "severity": record.get("severity"),
+            "target": record.get("target"),
+            "message": record.get("message"),
+            "first_seen": record.get("first_seen"),
+            "notified_count": record.get("notified_count", 0),
+            "muted_suppressed_count": record.get("muted_suppressed_count", 0),
+        }
+        # Recompute rather than trusting the alerter's cached muted_until: the
+        # mute may have been lifted since it last ran.
+        covering = mutes.find(live, {"key": key,
+                                     "target": record.get("target"),
+                                     "rule": record.get("rule")}, now)
+        incident_view["muted"] = covering is not None
+        incidents.append(incident_view)
+
+    return {
+        "incidents": incidents,
+        "active_mutes": [mutes.describe(e, now) for e in live],
+        "mutes_file_readable": True,
+        "note": (
+            "No active incidents does not mean no data — it means every rule "
+            "is currently satisfied."
+            if not incidents else None
+        ),
     }

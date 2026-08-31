@@ -56,6 +56,9 @@ SCRUB_ENV_VARS = [
     "GRAFANA_TUNNEL_URL",
     "WEB_ADMIN_TUNNEL_URL",
     "TSDB_TYPE",
+    # Mutes are read on the delivery path; an exported value would point the
+    # suite at a real mutes file and could silence the alerts it asserts on.
+    "ALERT_MUTES_FILE",
 ]
 
 
@@ -70,3 +73,22 @@ def state_file(monkeypatch, tmp_path):
     path = tmp_path / "state.json"
     monkeypatch.setenv("ALERT_STATE_FILE", str(path))
     return path
+
+
+@pytest.fixture
+def mutes_file(monkeypatch, tmp_path):
+    """Point the mute lookup at a temp file and hand back a writer.
+
+    The alerter only ever reads this file, so the fixture plays the part the
+    mcp-server plays in production.
+    """
+    import json
+
+    path = tmp_path / "mutes.json"
+    monkeypatch.setenv("ALERT_MUTES_FILE", str(path))
+
+    def write(entries):
+        path.write_text(json.dumps({"mutes": entries}), encoding="utf-8")
+
+    write.path = path
+    return write

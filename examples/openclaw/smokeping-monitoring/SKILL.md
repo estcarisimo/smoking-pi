@@ -72,6 +72,32 @@ the same page reached from outside the home network — see *Links*, below.
 - `apply_config` — regenerate SmokePing config and reload. Needed for changes
   to take effect.
 
+**Muting** — when the user already knows and does not want to be told again
+
+- `mute_alerts(target, rule, hours, reason)` — stop notifications for a target
+  and/or rule. At least one of target/rule is required; `target="*"` mutes
+  everything and must be typed deliberately. Capped at 24 hours — if they ask
+  for longer, say what you actually set.
+- `ack_incident(key)` — silence one specific active incident until it clears.
+  Narrower than a mute: a *different* problem on the same target still alerts.
+  Get keys from `list_alert_state`.
+- `unmute_alerts(target, rule)` or `unmute_alerts(all=True)` — lift early.
+- `list_alert_state` — active incidents and active mutes. Call this before
+  muting something a second time, and whenever the user asks why they have not
+  heard about something.
+
+Muting is the one action here that can *cause* a missed outage, so:
+
+- **Read back what you set** — scope and expiry, in the user's words. "Muted
+  amazon for 2 hours, until 16:40" beats "done".
+- **Prefer `ack_incident` over `mute_alerts`** when they are reacting to a
+  specific alert they just received. It is narrower and clears itself.
+- **Never mute to make a complaint go away.** "Stop telling me about amazon" is
+  a mute request; "amazon keeps dropping" is a diagnosis request. Ask which
+  they meant when it is ambiguous.
+- Recoveries still arrive for anything you were already told about, and the
+  daily digest lists everything currently muted.
+
 ## Reading the numbers correctly
 
 **Loss units differ by measurement.** `latency` and `dns_latency` report loss

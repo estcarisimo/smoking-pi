@@ -30,7 +30,7 @@ import charts
 import notifier
 import schedule
 import templates
-from common import aggregates, links
+from common import aggregates, links, mutes
 
 log = logging.getLogger("alerter.digest")
 
@@ -153,6 +153,13 @@ def build(
     alerts = [e for e in fired if e.get("type") == "alert"]
     recoveries = [e for e in fired if e.get("type") == "recovery"]
     active = state.get("incidents", {})
+    # Every digest reports what is muted. Muting is the one feature here that
+    # can cause a missed outage, so the daily message a user already reads is
+    # the right place to surface a mute they set two days ago and forgot.
+    active_mutes = mutes.active(mutes.load(), now)
+    suppressed = sum(
+        int(r.get("muted_suppressed_count", 0) or 0) for r in active.values()
+    )
 
     worst = max(targets, key=lambda t: float(t.get("avg_loss_pct", 0.0) or 0.0))
     lossy = [
@@ -172,8 +179,11 @@ def build(
         "active_incidents": len(active),
         "lossy": lossy,
         "worst": worst,
+        "active_mutes": [mutes.describe(e, now) for e in active_mutes],
+        "muted_suppressed": suppressed,
         "message": render(
-            hours, targets, lossy, worst, len(alerts), len(recoveries), len(active)
+            hours, targets, lossy, worst, len(alerts), len(recoveries),
+            len(active), active_mutes, suppressed,
         ),
         "links": links.entry_point_links(hours=hours),
     }
@@ -187,6 +197,8 @@ def render(
     alerts: int,
     recoveries: int,
     active: int,
+    active_mutes: list[dict] | None = None,
+    suppressed: int = 0,
 ) -> str:
     """The digest text, in the same shape as everything else this bot sends.
 
@@ -242,6 +254,30 @@ def render(
             lines.append(f"{watch} …and {len(lossy) - 5} more with loss.")
     else:
         lines.append(f"{ok} All {len(targets)} targets clean.")
+
+    # Only when something is muted: a "Muted: nothing" line every morning
+    # would train the reader to skip the section that matters on the one day
+    # it is not empty.
+    if active_mutes:
+        lines.append("")
+        lines.append(b("Muted"))
+        for entry in active_mutes[:5]:
+            described = mutes.describe(entry)
+            scope = described.get("key") or described.get("target") or "*"
+            if described.get("rule") and not described.get("key"):
+                scope = f"{scope}/{described['rule']}"
+            hours_left = described["remaining_minutes"] / 60
+            detail = f"{hours_left:.1f}h left"
+            if described["reason"]:
+                detail += f" — {esc(described['reason'])}"
+            lines.append(f"{watch} {esc(str(scope))} ({detail}).")
+        if len(active_mutes) > 5:
+            lines.append(f"{watch} …and {len(active_mutes) - 5} more muted.")
+        if suppressed:
+            lines.append(
+                f"{watch} {_plural(suppressed, 'alert', 'alerts')} suppressed "
+                f"by these mutes."
+            )
 
     return "\n".join(lines)
 

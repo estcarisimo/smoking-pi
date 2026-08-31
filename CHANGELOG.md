@@ -11,6 +11,39 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Alert mutes, controlled by conversation rather than buttons.** Four MCP
+  tools — `mute_alerts`, `unmute_alerts`, `ack_incident`, `list_alert_state` —
+  so "mute amazon for two hours, I'm reflashing the router" works. Telegram
+  buttons cannot call back without an OpenClaw channel plugin; natural language
+  is the better interface anyway, because it carries a scope, a duration and a
+  reason that no button could.
+
+  Two containers now share state, and the race is removed by construction
+  rather than managed: each file has exactly one writer (the alerter owns
+  `state.json`, the mcp-server owns `mutes.json`) and the other side mounts it
+  `:ro`, so single-writer is OS-enforced instead of conventional. Neither
+  process ever read-modify-writes the other's file, so there is no lock to
+  acquire and none to leak. Cross-container reads are safe because both writers
+  already used temp-file-plus-`os.replace`; that was introduced as crash
+  safety and is now also the concurrency contract.
+
+  Muting is the one feature here that can *cause* a missed outage, so the
+  mitigations are structural rather than left to discipline: a 24-hour cap on
+  any mute, every digest listing what is muted and how many alerts each one
+  swallowed, recoveries never suppressed for an incident that was already
+  announced, no recovery at all for one muted from first sight (nobody heard it
+  start), and `unmute_alerts(all=True)`. A missing or corrupt mutes file means
+  **everything alerts** — delivery must never depend on that file being
+  readable, so its failure mode is noise rather than silence.
+
+  The check sits after the cooldown and after the rate limiter, and never calls
+  `_record_notification()`. After the limiter so an alert the ceiling already
+  blocked is not also counted as one the mute suppressed; before recording so
+  the hourly budget counts only what was really sent; and inside the incident
+  loop so `last_seen` and the severity refresh still run — skipping them would
+  leave the incident looking brand new when the mute lifts, sending it down the
+  first-seen path and reintroducing the flapping the grace period fixed.
+
 - **The doctor can now check the running stack (`--live`).** Two checks, both
   for failures that already happened here, and both sharing one shape: the
   broken thing keeps looking healthy, so nothing goes red and nobody looks.
