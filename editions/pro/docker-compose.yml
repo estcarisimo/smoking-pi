@@ -18,6 +18,22 @@ services:
     network_mode: host
     restart: unless-stopped
     logging: *default-logging
+    # Pinned, because Docker writes a container's /etc/resolv.conf ONCE at
+    # creation and never again. Inheriting the host's resolver freezes
+    # whatever it happened to be at that instant: this deployment captured a
+    # Tailscale MagicDNS address (100.100.100.100), Tailscale later logged
+    # out, and every hostname target read 100% loss for ten days while every
+    # raw-IP target stayed green. Nothing surfaced it, because "100% loss"
+    # and "that host is down" look identical.
+    #
+    # `dns:` is honoured even under network_mode: host. Public resolvers by
+    # default so this does not depend on any particular LAN addressing;
+    # override for a deployment with internal-only target names. The DNS
+    # *probes* are unaffected either way -- they run `dig` against an
+    # explicit server (`host = 8.8.8.8`) and never consult resolv.conf.
+    dns:
+      - ${SMOKEPING_DNS:-1.1.1.1}
+      - ${SMOKEPING_DNS_FALLBACK:-8.8.8.8}
     volumes:
       - smokeping-data:/data
       - smokeping-config:/config
