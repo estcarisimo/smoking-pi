@@ -15,11 +15,16 @@ import links
 
 LINK_VARS = ("PUBLIC_BASE_HOST", "GRAFANA_PUBLIC_URL", "WEB_ADMIN_PUBLIC_URL")
 
+# TSDB_TYPE is scrubbed too: it now gates link emission, so leaving the host's
+# value in place would make these tests pass or fail depending on the machine
+# they run on.
+SCRUBBED = (*LINK_VARS, "TSDB_TYPE")
+
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     """Start every test from an unconfigured deployment."""
-    for var in LINK_VARS:
+    for var in SCRUBBED:
         monkeypatch.delenv(var, raising=False)
 
 
@@ -217,3 +222,44 @@ def test_every_dashboard_uid_referenced_here_is_provisioned():
         f"links.py points at dashboards that are not provisioned: "
         f"{sorted(referenced - provisioned)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Backend gating
+# ---------------------------------------------------------------------------
+
+
+def test_clickhouse_backend_emits_no_links(monkeypatch, configured):
+    """Every pinned uid belongs to the InfluxDB provisioning tree.
+
+    The ClickHouse tree is a parallel set with different uids and no CPE
+    dashboard at all, so under TSDB_TYPE=clickhouse each of these links would
+    resolve to a Grafana 404 -- while looking perfectly valid in the answer.
+    Same doctrine as an unset base URL: no link beats a broken one.
+    """
+    monkeypatch.setenv("TSDB_TYPE", "clickhouse")
+    assert links.links_configured() is False
+    assert links.target_links(name="Cloudflare", measurement="latency") == {}
+
+
+def test_influxdb_and_unset_both_emit_links(monkeypatch, configured):
+    for value in ("influxdb", "InfluxDB", ""):
+        monkeypatch.setenv("TSDB_TYPE", value)
+        assert links.links_configured() is True
+    monkeypatch.delenv("TSDB_TYPE", raising=False)
+    assert links.links_configured() is True
+
+
+def test_backend_gate_is_independent_of_base_url(monkeypatch):
+    """The backend mismatch is detectable on its own, with no base URL set.
+
+    Note this fixture-less test does NOT configure a base URL, so
+    links_configured() would be False regardless of backend — it says nothing
+    about which gate closed. The assertion that carries weight is the second:
+    dashboards_match_backend() reports the mismatch without needing a base URL
+    to be configured first, so the two gates can't mask each other.
+    """
+    monkeypatch.setenv("TSDB_TYPE", "clickhouse")
+    assert links.links_configured() is False
+    assert links.dashboards_match_backend() is False
+

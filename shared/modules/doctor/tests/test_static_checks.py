@@ -540,6 +540,24 @@ def test_env_without_a_compose_default_is_not_compared(repo):
     assert run(repo)["alerter-env-defaults-match"].status is Status.OK
 
 
+def test_a_literal_default_does_not_shadow_the_real_constant(repo):
+    """An inlined literal must not knock a variable out of the comparison.
+
+    The alerter logs its InfluxDB URL at startup with its own fallback. That
+    literal usage is scanned alongside the constant-backed one, and when the
+    literal won, INFLUX_URL quietly stopped being compared against Compose --
+    the check silently doing less work while still reporting ok.
+    """
+    (repo.alerter / "logging_extra.py").write_text(
+        "import os\n\n"
+        "def banner():\n"
+        "    return os.environ.get('DOWN_WINDOW', '900')\n"
+    )
+    check = run(repo)["alerter-env-defaults-match"]
+    assert check.status is Status.OK, [f.render() for f in check.findings]
+    assert "3 compose defaults" in check.summary
+
+
 def test_missing_alerter_source_skips_rather_than_passing(repo):
     """An empty module must not read as 16 matching defaults."""
     (repo.alerter / "evaluator.py").unlink()

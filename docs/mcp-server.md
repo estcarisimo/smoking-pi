@@ -67,6 +67,13 @@ return numbers and no links at all. `system_status()` reports that deep links
 are unconfigured; the measurement tools stay quiet about it rather than
 repeating the notice on every call.
 
+**Deep links are also disabled under `TSDB_TYPE=clickhouse`.** Every dashboard
+UID above comes from the InfluxDB provisioning tree; the ClickHouse tree is a
+parallel set with different UIDs and no CPE dashboard at all, so each of these
+links would resolve to a Grafana 404 while looking perfectly valid in the
+answer. Same doctrine as the unset base URL: no link beats a broken one.
+`system_status()` says which of the two reasons applies.
+
 Set one variable for the common case:
 
 ```bash

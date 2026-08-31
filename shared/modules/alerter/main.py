@@ -17,6 +17,7 @@ import sys
 import time
 
 import evaluator
+import flux
 import notifier
 import reports_watcher
 import state
@@ -71,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         "influx=%s state_file=%s",
         notifier.notify_mode(),
         interval,
-        os.environ.get("INFLUX_URL", "http://localhost:8086"),
+        os.environ.get("INFLUX_URL", flux.DEFAULT_INFLUX_URL),
         state.state_file(),
     )
     notifier.preflight()

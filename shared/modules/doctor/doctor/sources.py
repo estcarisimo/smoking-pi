@@ -130,17 +130,20 @@ class ModuleEnv:
     def default_for(self, name: str) -> tuple[str | None, object | None]:
         """The constant name and value backing ``name``, if any.
 
-        A variable read in more than one place resolves to the first usage
-        that actually carries a fallback.
+        A constant-backed usage always wins over a literal one, whatever the
+        scan order. Otherwise an incidental literal -- a URL inlined into a
+        startup log line, say -- shadows the real DEFAULT_ constant, and the
+        variable silently stops being compared against its Compose default.
         """
+        literal: str | None = None
         for usage in self.usages:
             if usage.name != name:
                 continue
             if usage.default_const and usage.default_const in self.constants:
                 return usage.default_const, self.constants[usage.default_const]
-            if usage.default_literal is not None:
-                return None, usage.default_literal
-        return None, None
+            if literal is None and usage.default_literal is not None:
+                literal = usage.default_literal
+        return None, literal
 
 
 def _walk_json(root: pathlib.Path) -> list[pathlib.Path]:
@@ -540,17 +543,26 @@ def _module_constants(tree: ast.Module) -> dict[str, object]:
     return constants
 
 
-def module_env(module_dir: pathlib.Path) -> ModuleEnv:
-    """Every env var the module's own source reads, with its fallbacks.
+def module_env(*module_dirs: pathlib.Path) -> ModuleEnv:
+    """Every env var the given source trees read, with its fallbacks.
+
+    Takes several directories because an image is not one directory: the
+    alerter image also contains shared/modules/common, whose code reads
+    INFLUX_URL and friends at runtime. Scanning only the module directory
+    would quietly stop checking those the moment they were extracted.
 
     Read out of the source rather than listed here, for the same reason the
     exporter vocabulary is: a hand-maintained list drifts silently, and
     silent drift is the bug class this tool exists to catch.
     """
     env = ModuleEnv()
-    if not module_dir.is_dir():
-        return env
-    for path in sorted(module_dir.glob("*.py")):
+    paths = [
+        path
+        for module_dir in module_dirs
+        if module_dir.is_dir()
+        for path in sorted(module_dir.glob("*.py"))
+    ]
+    for path in paths:
         try:
             tree = ast.parse(path.read_text())
         except (OSError, SyntaxError):

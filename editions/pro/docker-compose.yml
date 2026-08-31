@@ -238,7 +238,12 @@ services:
   #   COMPOSE_PROFILES=mcp docker compose up -d mcp-server
   # See docs/mcp-server.md
   mcp-server:
-    build: ../../shared/modules/mcp-server
+    build:
+      # Context is `shared/`, not the module dir, so the image can also
+      # copy in shared/modules/common (Flux helpers, aggregates, deep-link
+      # UID maps). Containers cannot import across each other.
+      context: ../../shared
+      dockerfile: modules/mcp-server/Dockerfile
     container_name: smokeping-mcp-server
     restart: unless-stopped
     logging: *default-logging
@@ -270,7 +275,12 @@ services:
 
   # AI health reports (opt-in: COMPOSE_PROFILES=ai; needs ANTHROPIC_API_KEY)
   ai-insights:
-    build: ../../shared/modules/ai-insights
+    build:
+      # Context is `shared/`, not the module dir, so the image can also
+      # copy in shared/modules/common (Flux helpers, aggregates, deep-link
+      # UID maps). Containers cannot import across each other.
+      context: ../../shared
+      dockerfile: modules/ai-insights/Dockerfile
     restart: unless-stopped
     logging: *default-logging
     profiles:
@@ -298,7 +308,12 @@ services:
   # See docs/alerting.md. Uses network_mode: host (InfluxDB + the local
   # OpenClaw gateway both live on localhost), so no ports/networks keys.
   alerter:
-    build: ../../shared/modules/alerter
+    build:
+      # Context is `shared/`, not the module dir, so the image can also
+      # copy in shared/modules/common (Flux helpers, aggregates, deep-link
+      # UID maps). Containers cannot import across each other.
+      context: ../../shared
+      dockerfile: modules/alerter/Dockerfile
     network_mode: host
     restart: unless-stopped
     logging: *default-logging

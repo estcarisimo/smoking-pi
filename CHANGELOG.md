@@ -9,7 +9,37 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **Code that two images need now lives in `shared/modules/common/`**, copied
+  into each image at build time (`context: ../../shared`). Containers cannot
+  import across each other, so the Flux helpers were already triplicated
+  between the alerter, ai-insights and the mcp-server, and the deep-link UID
+  maps existed twice. Extracted rather than copied a fourth time: `tsdb.py`
+  (queries, the loss-unit clamp), `aggregates.py` (the per-target and CPE
+  rollups) and `links.py` (Grafana/web-admin URLs).
+
+  The old module paths remain as re-export shims, so no call site changed.
+  Two tests did, and the reason is worth writing down: a shim forwards public
+  names, but **`monkeypatch.setattr(shim, "query_influx", ...)` does not
+  intercept the real function**, because the moved code resolves that name in
+  its own globals. The ai-insights collector tests were silently querying the
+  live InfluxDB instead of their stub. They now patch the module that owns the
+  code. The alerter's lazy-client test moved for the same reason — asserting
+  `_influx_client is None` through a shim would hold forever whether or not a
+  client had been built.
+
 ### Fixed
+
+- **Deep links no longer point at dashboards that do not exist.** Every
+  dashboard UID in `links.py` comes from the InfluxDB provisioning tree, but
+  the ClickHouse tree is a parallel set with different UIDs and no CPE
+  dashboard at all. Under `TSDB_TYPE=clickhouse` every link the MCP tools
+  emitted resolved to a Grafana 404 — while looking entirely valid in the
+  answer. Links are now gated on the active backend, the same doctrine the
+  module already applied to an unset base URL: no link beats a broken one.
+  `system_status()` distinguishes the two reasons, since telling someone to
+  set `PUBLIC_BASE_HOST` when it is already set is its own dead end.
 
 - **The flap fix below did not reach the deployed container.** Raising
   `DEFAULT_DOWN_WINDOW` from 900 to 1200 fixed nothing in practice, because
