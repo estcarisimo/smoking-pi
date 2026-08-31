@@ -28,7 +28,17 @@ from dataclasses import dataclass
 TG_TEXT_LIMIT = 4096
 TG_CAPTION_LIMIT = 1024
 
-SEVERITY_EMOJI = {"critical": "🔴", "warning": "🟠", "info": "🔵"}
+# One traffic light, used everywhere a state is stated -- alerts here, and the
+# summaries the agent writes from the MCP tools (see the OpenClaw skill). A
+# reader scanning a phone should not have to learn a second colour vocabulary
+# halfway down a report, so 🟢/🟡/🔴 means the same thing in both.
+STATUS_EMOJI = {"ok": "🟢", "watch": "🟡", "bad": "🔴"}
+
+SEVERITY_EMOJI = {
+    "critical": STATUS_EMOJI["bad"],
+    "warning": STATUS_EMOJI["watch"],
+    "info": "🔵",
+}
 
 SCOPE_EMOJI = {
     "monitoring": "🛠",
@@ -132,6 +142,13 @@ def _duration(seconds: float | None) -> str | None:
 
 
 def _link_line(links: dict | None) -> str:
+    """The links row: the LAN set, plus one from-anywhere graph.
+
+    Only the graph gets a tunnel twin here. A caption has 1024 characters and
+    a Grafana deep link runs to ~120 of them, so mirroring all four would cost
+    a quarter of the budget to say the same thing twice. Whoever is on cellular
+    wants the picture; from there the rest of the dashboard is one tap away.
+    """
     if not links:
         return ""
     labels = (
@@ -139,6 +156,7 @@ def _link_line(links: dict | None) -> str:
         ("per_ping_detail", "per-ping"),
         ("compare_with_peers", "peers"),
         ("edit", "edit"),
+        ("graph_tunnel", "🌐 anywhere"),
     )
     parts = [_a(links[key], label) for key, label in labels if links.get(key)]
     return " · ".join(parts)
@@ -169,7 +187,7 @@ def alert_sections(event: dict) -> list[Section]:
         sections.append(Section(1, _link_line(links)))
         return sections
 
-    emoji = SEVERITY_EMOJI.get(severity, "🟠")
+    emoji = SEVERITY_EMOJI.get(severity, STATUS_EMOJI["watch"])
     head = f"{emoji} {_b(esc(severity))}"
     if target:
         head += f" — {esc(target)}"

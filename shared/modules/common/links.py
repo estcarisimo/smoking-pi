@@ -12,6 +12,14 @@ answer is standing. So the base URL is configuration, and when it is absent
 this module emits **no links at all** rather than a plausible-looking
 ``http://localhost:3000`` that fails silently on someone's phone.
 
+**Two tiers, because "where the reader is standing" changes mid-conversation.**
+The same person asks from the couch and from a train. A LAN address is the
+better link at home (no tunnel hop, works when Cloudflare doesn't) and a dead
+one on cellular; a tunnel URL works anywhere and is the only one worth pasting
+to somebody else. Picking one means being wrong half the time, so every link
+can be emitted twice: the configured base, and a ``_tunnel`` twin. Callers that
+only understand the original keys keep working unchanged.
+
 Configuration (see ``docs/mcp-server.md``):
 
 - ``PUBLIC_BASE_HOST`` -- host or ``scheme://host`` reachable by whoever reads
@@ -20,6 +28,10 @@ Configuration (see ``docs/mcp-server.md``):
 - ``GRAFANA_PUBLIC_URL`` / ``WEB_ADMIN_PUBLIC_URL`` -- full base URLs, for
   reverse proxies and tunnels where the ports are not visible. These win over
   ``PUBLIC_BASE_HOST``.
+- ``TUNNEL_BASE_HOST``, ``GRAFANA_TUNNEL_URL`` / ``WEB_ADMIN_TUNNEL_URL`` --
+  the same three, for the address that works from *outside* the home network
+  (``./shared/scripts/create-tunnel.sh`` prints these). Set only these and they
+  become the primary links; set both and every link gets a ``_tunnel`` twin.
 """
 
 from __future__ import annotations
@@ -83,19 +95,51 @@ def _normalize_base(value: str | None, default_port: int | None) -> str | None:
     return base
 
 
+def _tier(url_var: str, host_var: str, default_port: int) -> str | None:
+    """One configured tier: the explicit service URL, else host + port."""
+    return _normalize_base(os.environ.get(url_var), None) or _normalize_base(
+        os.environ.get(host_var), default_port
+    )
+
+
+def grafana_tunnel_base() -> str | None:
+    """The from-anywhere Grafana base, or None when no tunnel is configured."""
+    return _tier("GRAFANA_TUNNEL_URL", "TUNNEL_BASE_HOST", DEFAULT_GRAFANA_PORT)
+
+
+def web_admin_tunnel_base() -> str | None:
+    return _tier("WEB_ADMIN_TUNNEL_URL", "TUNNEL_BASE_HOST", DEFAULT_WEB_ADMIN_PORT)
+
+
 def grafana_base() -> str | None:
-    return _normalize_base(
-        os.environ.get("GRAFANA_PUBLIC_URL"), None
-    ) or _normalize_base(
-        os.environ.get("PUBLIC_BASE_HOST"), DEFAULT_GRAFANA_PORT
+    """The primary Grafana base: the LAN/tailnet address, else the tunnel.
+
+    Falling back to the tunnel matters for the deployment that has *only* a
+    tunnel: without it ``links_configured()`` would be false and a perfectly
+    reachable Grafana would produce no links at all.
+    """
+    return (
+        _tier("GRAFANA_PUBLIC_URL", "PUBLIC_BASE_HOST", DEFAULT_GRAFANA_PORT)
+        or grafana_tunnel_base()
     )
 
 
 def web_admin_base() -> str | None:
-    return _normalize_base(
-        os.environ.get("WEB_ADMIN_PUBLIC_URL"), None
-    ) or _normalize_base(
-        os.environ.get("PUBLIC_BASE_HOST"), DEFAULT_WEB_ADMIN_PORT
+    return (
+        _tier("WEB_ADMIN_PUBLIC_URL", "PUBLIC_BASE_HOST", DEFAULT_WEB_ADMIN_PORT)
+        or web_admin_tunnel_base()
+    )
+
+
+def has_tunnel_links() -> bool:
+    """True when a tunnel is configured *and* differs from the primary base.
+
+    Equal bases mean the tunnel IS the primary link, and emitting the same
+    URL twice under two labels reads as two different places to look.
+    """
+    return (grafana_tunnel_base() or web_admin_tunnel_base()) is not None and (
+        grafana_tunnel_base() != grafana_base()
+        or web_admin_tunnel_base() != web_admin_base()
     )
 
 
@@ -123,7 +167,8 @@ CONFIG_HINT = (
     "and WEB_ADMIN_PUBLIC_URL) on the mcp-server service to the address this "
     "host is actually reached on -- it cannot be guessed, since the LAN IP, "
     "the Tailscale name and a tunnel hostname all reach it and only one of "
-    "them works for a given reader."
+    "them works for a given reader. Setting TUNNEL_BASE_HOST as well adds a "
+    "second, from-anywhere link beside each of the first."
 )
 
 BACKEND_HINT = (
@@ -171,8 +216,9 @@ def grafana_url(
     target: str | None = None,
     hours: int | None = None,
     at: Any = None,
+    base: str | None = None,
 ) -> str | None:
-    base = grafana_base()
+    base = base or grafana_base()
     if not base:
         return None
     params: dict[str, str] = {}
@@ -183,9 +229,11 @@ def grafana_url(
     return f"{base}/d/{quote(uid)}" + (f"?{query}" if query else "")
 
 
-def web_admin_target_url(name: str | None = None) -> str | None:
+def web_admin_target_url(
+    name: str | None = None, base: str | None = None
+) -> str | None:
     """The target management page, pre-filtered to one target when named."""
-    base = web_admin_base()
+    base = base or web_admin_base()
     if not base:
         return None
     if not name:
@@ -197,6 +245,60 @@ def measurement_for_probe(probe: str | None) -> str:
     return MEASUREMENT_BY_PROBE.get(probe or "", "latency")
 
 
+def _target_links_for(
+    name: str,
+    measurement: str,
+    db_category: str | None,
+    hours: int | None,
+    at: Any,
+    grafana: str | None,
+    web_admin: str | None,
+) -> dict[str, str]:
+    """One tier's worth of target links, against explicitly given bases."""
+    out: dict[str, str] = {}
+
+    dashboard = DASHBOARD_BY_MEASUREMENT.get(measurement)
+    if dashboard and grafana:
+        uid, var = dashboard
+        url = grafana_url(uid, var, name, hours=hours, at=at, base=grafana)
+        if url:
+            out["graph"] = url
+
+    detail = DETAIL_BY_MEASUREMENT.get(measurement)
+    if detail and grafana:
+        uid, var = detail
+        url = grafana_url(uid, var, name, hours=hours, at=at, base=grafana)
+        if url:
+            out["per_ping_detail"] = url
+
+    compare_uid = COMPARE_BY_DB_CATEGORY.get(db_category or "")
+    if compare_uid and grafana:
+        url = grafana_url(compare_uid, "target", name, hours=hours, at=at, base=grafana)
+        if url:
+            out["compare_with_peers"] = url
+
+    if web_admin:
+        edit = web_admin_target_url(name, base=web_admin)
+        if edit:
+            out["edit"] = edit
+    return out
+
+
+def _with_tunnel_twins(
+    primary: dict[str, str], tunnel: dict[str, str]
+) -> dict[str, str]:
+    """Merge a tunnel tier into a primary one as ``<key>_tunnel`` entries.
+
+    A twin identical to its primary is dropped rather than emitted: two labels
+    on one URL invite a reader to try "the other one" when there isn't one.
+    """
+    out = dict(primary)
+    for key, url in tunnel.items():
+        if url and url != primary.get(key):
+            out[f"{key}_tunnel"] = url
+    return out
+
+
 def target_links(
     name: str | None,
     measurement: str | None = None,
@@ -206,36 +308,62 @@ def target_links(
 ) -> dict[str, str]:
     """Links for one target: its graph, the per-ping detail, its peers, its config.
 
+    Each key gains a ``<key>_tunnel`` twin when a tunnel base is configured
+    alongside a different primary one -- the same panel, reachable from
+    outside the home network.
+
     Returns an empty dict when no base URL is configured, so callers can
     ``if links:`` without special-casing the unconfigured deployment.
     """
     if not name or not links_configured():
         return {}
 
-    out: dict[str, str] = {}
     measurement = measurement or "latency"
+    primary = _target_links_for(
+        name, measurement, db_category, hours, at, grafana_base(), web_admin_base()
+    )
+    if not has_tunnel_links():
+        return primary
+    tunnel = _target_links_for(
+        name,
+        measurement,
+        db_category,
+        hours,
+        at,
+        grafana_tunnel_base(),
+        web_admin_tunnel_base(),
+    )
+    return _with_tunnel_twins(primary, tunnel)
 
-    dashboard = DASHBOARD_BY_MEASUREMENT.get(measurement)
-    if dashboard:
-        uid, var = dashboard
-        url = grafana_url(uid, var, name, hours=hours, at=at)
-        if url:
-            out["graph"] = url
 
-    detail = DETAIL_BY_MEASUREMENT.get(measurement)
-    if detail:
-        uid, var = detail
-        url = grafana_url(uid, var, name, hours=hours, at=at)
-        if url:
-            out["per_ping_detail"] = url
+def entry_point_links(hours: int = 24) -> dict[str, str]:
+    """The front doors: latency overview, CPE microcuts, the targets page.
 
-    compare_uid = COMPARE_BY_DB_CATEGORY.get(db_category or "")
-    if compare_uid:
-        url = grafana_url(compare_uid, "target", name, hours=hours, at=at)
-        if url:
-            out["compare_with_peers"] = url
+    Lives here rather than in the MCP server so both tiers are assembled in
+    one place -- a second hand-rolled copy is how the tunnel twin would end up
+    on target links but not on the ones an agent reaches for first.
+    """
+    if not links_configured():
+        return {}
 
-    edit = web_admin_target_url(name)
-    if edit:
-        out["edit"] = edit
-    return out
+    def tier(grafana: str | None, web_admin: str | None) -> dict[str, str]:
+        out: dict[str, str] = {}
+        if grafana:
+            overview = grafana_url("smokeping-lat-pct-v28", hours=hours, base=grafana)
+            if overview:
+                out["grafana_overview"] = overview
+            cpe = grafana_url("cpe-microcut-v1", hours=hours, base=grafana)
+            if cpe:
+                out["grafana_cpe_microcuts"] = cpe
+        if web_admin:
+            admin = web_admin_target_url(base=web_admin)
+            if admin:
+                out["web_admin_targets"] = admin
+        return out
+
+    primary = tier(grafana_base(), web_admin_base())
+    if not has_tunnel_links():
+        return primary
+    return _with_tunnel_twins(
+        primary, tier(grafana_tunnel_base(), web_admin_tunnel_base())
+    )

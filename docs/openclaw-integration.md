@@ -91,6 +91,23 @@ The skill is what redirects it. Symptom of a missing skill: the agent gives
 you live speed-test numbers and never mentions your targets.
 
 ```bash
+./shared/scripts/install-openclaw-skill.sh            # copy + next steps
+./shared/scripts/install-openclaw-skill.sh --reload   # and reload the gateway
+```
+
+Re-run it after **any** change to the skill. A stale copy is the failure mode
+worth guarding against, because it is invisible — the agent keeps answering,
+just in the old shape, and the install looks like it silently did nothing:
+
+```bash
+./shared/scripts/install-openclaw-skill.sh --check    # exits non-zero if stale
+```
+
+It backs up an existing skill to `SKILL.md.bak` before overwriting, since the
+four deployment-specific values are easy to have tuned in place. The manual
+equivalent, if you prefer it:
+
+```bash
 mkdir -p ~/.openclaw/skills/smokeping-monitoring
 cp examples/openclaw/smokeping-monitoring/SKILL.md \
    ~/.openclaw/skills/smokeping-monitoring/
@@ -102,6 +119,18 @@ decide whether to load the skill at all, so it is written to trigger on the
 words people actually use ("how is my connection", "cómo está mi conexión",
 the host name) and to say explicitly what it is *not* for. If the agent still
 reaches for the shell, widen that description rather than the body.
+
+**The skill is written in English and does not make the answers English.** It
+carries a report template — traffic lights, bold sections, one fact per
+bullet, both links — and directs the agent to answer in whatever language the
+question arrived in, translating the headings and keeping what is not prose:
+target names (database keys — a translated `CloudflareDNS` cannot be looked up
+or muted), numbers with their units, the lights, and the URLs. Translating the
+skill file itself would pin every reply to that one language; leave it alone
+and ask in yours.
+
+Re-copy the file after any change to it, and start a **new** chat session:
+skills, like the tool set, are cached per session.
 
 ### Reload after registering — the gateway caches the tool set
 

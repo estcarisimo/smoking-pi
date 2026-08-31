@@ -61,7 +61,14 @@ for editing it. Pass the relevant one through to the user — the graph shows th
 shape of a problem far better than a median does, and the links are already
 scoped to the target and time window being discussed. Do not build these URLs
 yourself; if `links` is absent, deep links are not configured on this
-deployment and there is no URL to give."""
+deployment and there is no URL to give.
+
+Keys ending in `_tunnel` are the same page reached from outside the home
+network. When both are present, offer both — label them for where the reader
+is standing ("at home" / "from anywhere"), because the plain link is faster
+and works when the tunnel is down, and the tunnel one is the only one that
+opens on cellular. When a `_tunnel` key is absent there is no such address:
+say nothing about it rather than constructing one."""
 
 mcp = FastMCP("smokeping", instructions=SERVER_INSTRUCTIONS)
 
@@ -252,7 +259,8 @@ def list_targets() -> dict:
     name before calling remove_target / toggle_target.
 
     Each target carries a `links` object (graph, per-ping detail, comparison
-    against its peers, edit page) when deep links are configured.
+    against its peers, edit page) when deep links are configured, each with a
+    `_tunnel` twin reachable from outside the home network when one exists.
     """
     try:
         rows = _fetch_targets(backends.get_config_api())
@@ -491,17 +499,7 @@ def system_status() -> dict:
     # hint on every measurement response would be noise; saying it nowhere
     # would make an unconfigured deployment indistinguishable from a bug.
     if links.links_configured():
-        entry_points = {}
-        grafana = links.grafana_url("smokeping-lat-pct-v28", hours=24)
-        if grafana:
-            entry_points["grafana_overview"] = grafana
-        cpe = links.grafana_url("cpe-microcut-v1", hours=24)
-        if cpe:
-            entry_points["grafana_cpe_microcuts"] = cpe
-        admin = links.web_admin_target_url()
-        if admin:
-            entry_points["web_admin_targets"] = admin
-        result["links"] = entry_points
+        result["links"] = links.entry_point_links(hours=24)
     elif not links.dashboards_match_backend():
         # A different reason from "unconfigured", and conflating them would
         # send someone to set PUBLIC_BASE_HOST when it is already set.

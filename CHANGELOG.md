@@ -11,6 +11,66 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Every link is offered twice: at home, and from anywhere.** Deep links were
+  built from a single base URL, which forced a choice nobody can make
+  correctly — the same person reads an answer from the couch and from a train.
+  A LAN address is the better link at home (one hop, and up even when
+  Cloudflare isn't) and a dead link on cellular.
+
+  `TUNNEL_BASE_HOST` (plus `GRAFANA_TUNNEL_URL` / `WEB_ADMIN_TUNNEL_URL`)
+  configures the from-anywhere address separately, and every entry in a `links`
+  object gains a `_tunnel` twin: same panel, same window, different host.
+  `system_status` twins its three entry points the same way.
+
+  Three behaviours keep a twin from lying about where it goes: a tunnel with no
+  LAN address configured *becomes* the primary link rather than leaving a
+  tunnel-only Pi with no links at all; two tiers resolving to the same base are
+  not twinned, because two labels on one URL invite a reader to try "the other
+  one"; and the ClickHouse gate covers both tiers, since a twinned 404 is still
+  a 404.
+
+  In alerts only the *graph* gets a twin. A Grafana deep link is ~120
+  characters and a caption budget is 1024, so mirroring all four would spend a
+  quarter of it saying the same thing twice.
+
+- **The monitoring skill now specifies the shape of a report, not just its
+  content.** `examples/openclaw/smokeping-monitoring/SKILL.md` gained a report
+  template — traffic lights per section (🟢 nothing to do, 🟡 real but minor,
+  🔴 acted on), bold headings, one fact per bullet with its number and window,
+  a verdict as the headline rather than a summary, and a graphs section
+  offering both links.
+
+  Three rules exist because the first real reports broke them. **Headings are
+  the channel's bold, never `###`** — Telegram does not render Markdown
+  headings, so `### DNS` arrives as literal hashes or flat text, which is what
+  made an otherwise correct report read as one wall. **Every section is
+  bullets, one fact and one line each** — a semicolon or a second measurement
+  means it is two bullets, with a worked wrong/right pair in the file.
+  **A bullet that names a moment carries that moment's link**, taken from the
+  `worst_windows` entries `get_microcut_stats` already zooms to ±15 minutes;
+  the week-long overview URL drops the reader into 168 hours to hunt for a
+  spike the agent had already found.
+
+  **The template is a structure, not a script.** It is written in English
+  because the tools and metric names are; the skill directs the agent to answer
+  in whatever language the question arrived in, and marks what never gets
+  translated — target names (they are database keys: a translated
+  `CloudflareDNS` cannot be looked up, muted, or found on a dashboard), numbers
+  with their units, the traffic lights, and the links.
+
+  It also names the four values an operator must tune before installing — the
+  host's names, the CPE loss floor, the timezone, the example target names —
+  rather than saying "replace the placeholders" and marking none of them. A
+  wrong loss floor makes the agent confidently wrong rather than obviously
+  broken, which is the harder failure to notice.
+
+- **`shared/scripts/install-openclaw-skill.sh`** installs the skill, backs up
+  an existing one, and optionally reloads the gateway. `--check` exits
+  non-zero when the installed copy is stale — the failure this guards against
+  is invisible, since an agent running a stale skill keeps answering, just in
+  the old shape, and the install looks like it silently did nothing. The
+  README and `docs/openclaw-integration.md` now point at it.
+
 - **Alerts arrive with the graph.** Each one carries a rendered PNG: median
   latency over packet loss for the target, its same-category peers as grey
   context, and a marked line at the moment the incident started — so the

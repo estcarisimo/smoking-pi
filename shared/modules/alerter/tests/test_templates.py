@@ -56,6 +56,32 @@ def test_a_full_alert_fits_both_budgets():
     assert len(caption) <= templates.TG_CAPTION_LIMIT
 
 
+def test_a_twinned_alert_still_fits_the_caption_budget():
+    """Both link tiers configured must not push an alert past 1024 chars."""
+    links = dict(_alert()["links"])
+    links.update(
+        {
+            f"{key}_tunnel": url.replace("http://h:3000", "https://x.example.com")
+            .replace("http://h:8080", "https://x.example.com")
+            for key, url in links.items()
+        }
+    )
+    caption = templates.format_message(_alert(links=links), templates.TG_CAPTION_LIMIT)
+    assert len(caption) <= templates.TG_CAPTION_LIMIT
+
+
+def test_only_the_graph_gets_an_anywhere_twin():
+    """Mirroring all four links would spend a quarter of a caption saying the
+    same thing twice; the graph is the one worth reaching from cellular."""
+    links = dict(_alert()["links"])
+    links["graph_tunnel"] = "https://x.example.com/d/x?var-target=Cloudflare"
+    links["edit_tunnel"] = "https://x.example.com/targets/?q=Cloudflare"
+    text = templates.format_message(_alert(links=links))
+    assert "🌐 anywhere" in text
+    assert links["graph_tunnel"] in text
+    assert links["edit_tunnel"] not in text
+
+
 def test_the_headline_and_verdict_always_survive():
     """Priority 0 is never dropped, however tight the budget."""
     text = templates.format_message(_alert(), 120)

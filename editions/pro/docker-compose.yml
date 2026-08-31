@@ -286,6 +286,11 @@ services:
       - PUBLIC_BASE_HOST=${PUBLIC_BASE_HOST:-}
       - GRAFANA_PUBLIC_URL=${GRAFANA_PUBLIC_URL:-}
       - WEB_ADMIN_PUBLIC_URL=${WEB_ADMIN_PUBLIC_URL:-}
+      # The from-anywhere twin of the three above. Set both tiers and each
+      # link is emitted twice, so an answer read on cellular still opens.
+      - TUNNEL_BASE_HOST=${TUNNEL_BASE_HOST:-}
+      - GRAFANA_TUNNEL_URL=${GRAFANA_TUNNEL_URL:-}
+      - WEB_ADMIN_TUNNEL_URL=${WEB_ADMIN_TUNNEL_URL:-}
     depends_on:
       - config-manager
 
@@ -397,6 +402,11 @@ services:
       - PUBLIC_BASE_HOST=${PUBLIC_BASE_HOST:-}
       - GRAFANA_PUBLIC_URL=${GRAFANA_PUBLIC_URL:-}
       - WEB_ADMIN_PUBLIC_URL=${WEB_ADMIN_PUBLIC_URL:-}
+      # The from-anywhere twin of the three above. Set both tiers and each
+      # link is emitted twice, so an answer read on cellular still opens.
+      - TUNNEL_BASE_HOST=${TUNNEL_BASE_HOST:-}
+      - GRAFANA_TUNNEL_URL=${GRAFANA_TUNNEL_URL:-}
+      - WEB_ADMIN_TUNNEL_URL=${WEB_ADMIN_TUNNEL_URL:-}
       # host netns: InfluxDB is published on localhost:8086
       - INFLUX_URL=${INFLUX_URL:-http://localhost:8086}
       - INFLUX_TOKEN=${INFLUX_TOKEN}

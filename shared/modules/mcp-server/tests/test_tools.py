@@ -402,25 +402,35 @@ def test_import_does_not_require_env(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
-def linked(monkeypatch):
-    monkeypatch.setenv("PUBLIC_BASE_HOST", "192.168.86.27")
-    monkeypatch.delenv("GRAFANA_PUBLIC_URL", raising=False)
-    # TSDB_TYPE gates link emission, so an exported value on the developer's
-    # machine would otherwise decide whether these tests pass.
-    monkeypatch.delenv("TSDB_TYPE", raising=False)
-    monkeypatch.delenv("WEB_ADMIN_PUBLIC_URL", raising=False)
+# Every variable link building reads. TSDB_TYPE gates link emission and the
+# TUNNEL_* trio adds a second link beside each of the first, so an exported
+# value on the developer's machine would otherwise decide whether these tests
+# pass.
+LINK_ENV = (
+    "PUBLIC_BASE_HOST",
+    "GRAFANA_PUBLIC_URL",
+    "WEB_ADMIN_PUBLIC_URL",
+    "TUNNEL_BASE_HOST",
+    "GRAFANA_TUNNEL_URL",
+    "WEB_ADMIN_TUNNEL_URL",
+    "TSDB_TYPE",
+)
 
 
 @pytest.fixture()
 def unlinked(monkeypatch):
-    for var in (
-        "PUBLIC_BASE_HOST",
-        "GRAFANA_PUBLIC_URL",
-        "WEB_ADMIN_PUBLIC_URL",
-        "TSDB_TYPE",
-    ):
+    for var in LINK_ENV:
         monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture()
+def linked(unlinked, monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "192.168.86.27")
+
+
+@pytest.fixture()
+def linked_with_tunnel(linked, monkeypatch):
+    monkeypatch.setenv("TUNNEL_BASE_HOST", "https://smokingpi.example.com")
 
 
 def test_list_targets_carries_links(api, linked):
@@ -578,3 +588,25 @@ def test_system_status_offers_entry_points_when_configured(api, linked):
     assert "deep_links" not in result
     assert result["links"]["web_admin_targets"].endswith("/targets/")
     assert "/d/cpe-microcut-v1" in result["links"]["grafana_cpe_microcuts"]
+    # No tunnel configured: no twins to try.
+    assert not [key for key in result["links"] if key.endswith("_tunnel")]
+
+
+def test_entry_points_and_target_links_both_twin(api, linked_with_tunnel):
+    """The front doors get the from-anywhere twin too.
+
+    These are the links an agent reaches for first when asked an open
+    question, so twinning target links but not these would leave the most
+    common answer LAN-only.
+    """
+    status = server.system_status()
+    assert status["links"]["grafana_overview_tunnel"].startswith(
+        "https://smokingpi.example.com/d/"
+    )
+    assert status["links"]["web_admin_targets_tunnel"].startswith(
+        "https://smokingpi.example.com/"
+    )
+
+    first = server.list_targets()["targets"][0]
+    assert first["links"]["graph"].startswith("http://192.168.86.27:3000/")
+    assert first["links"]["graph_tunnel"].startswith("https://smokingpi.example.com/")
