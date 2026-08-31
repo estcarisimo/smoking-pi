@@ -1,4 +1,4 @@
-FROM postgres:15-alpine
+FROM postgres:18-alpine
 
 # SmokePing PostgreSQL Image
 # Based on PostgreSQL 15 Alpine with SmokePing-specific configuration
