@@ -11,6 +11,60 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **A daily digest, so silence stops being ambiguous.** Alerts only fire when
+  something breaks, which means a quiet channel means either "nothing
+  happened" or "the monitoring stopped" — and those are the two states you
+  most need to tell apart. `DIGEST_ENABLED` opts into a wall-clock summary of
+  the last 24 hours, in the same shape as everything else this bot sends:
+  traffic lights, bold sections, worst targets first.
+
+  **Firing exactly once is the hard part**, because the loop wakes every 60
+  seconds and has no idea what time it is between ticks. Each tick resolves
+  the most recent scheduled instant at or before now — the *slot* — and state
+  records which slot last fired, making delivery idempotent: ten ticks in a
+  minute resolve one slot and send one message.
+
+  The slot is persisted, **not the send time**. That distinction is the whole
+  mechanism: anything recorded before the slot instant re-fires the same day,
+  which is what a send-time-like value becomes after an NTP step backwards or
+  on a container whose RTC starts behind. A reintroduction test pins it.
+  Both DST transitions are covered — a nonexistent wall time resolves to one
+  stable instant, an ambiguous one picks the same instant every tick, and a
+  full day of five-minute ticks across a transition delivers once.
+
+  Past `DIGEST_MAX_LATENESS` (4h) a slot is recorded as fired **without**
+  sending. A Pi that was off for two days must not deliver 08:30's digest at
+  19:00, and must not deliver two.
+
+  **It never claims health it did not verify.** If the aggregate query raises
+  or returns zero targets, nothing is sent and the slot is retired with an
+  error. "All clear" when the truth is "InfluxDB did not answer" would turn a
+  broken monitor into a reassuring message — the exact failure the digest
+  exists to catch, and the first thing its tests assert.
+
+  Counts come from a new `state["history"]`, appended on each alert or
+  recovery the alerter decides to send — whether or not delivery then
+  succeeded — and pruned to 200 entries and 48 hours. Necessary because
+  `reconcile()` pops a record on recovery, so by 08:30 an incident that fired
+  and cleared at 03:00 has left no other trace.
+
+### Fixed
+
+- **`show-tunnel-urls.sh` reported the first hostname a tunnel ever had.** A
+  quick tunnel gets a brand new `*.trycloudflare.com` name every time
+  cloudflared reconnects, and every one stays in the container log; the script
+  took `head -1`, so it printed the oldest — dead, and entirely plausible
+  looking. Found with 12 distinct URLs in one log while it reported #1. It now
+  takes the last, and warns when a tunnel has rotated, since anything saved
+  earlier into `.env`, a bookmark or a chat is already a dead link.
+
+- **A text-only message could not be delivered silently.** `silent` was set
+  only on the image path and only from `ALERT_SILENT`, so a text-only digest
+  would ring a phone at 08:30 regardless. It is now a per-message property
+  that wins over the env default — quiet is a fact about *this* message, not
+  about the deployment — and it survives the text-only retry after an image
+  send fails, which previously dropped it.
+
 - **Every link is offered twice: at home, and from anywhere.** Deep links were
   built from a single base URL, which forced a choice nobody can make
   correctly — the same person reads an answer from the couch and from a train.

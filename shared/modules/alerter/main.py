@@ -17,6 +17,7 @@ import sys
 import time
 
 import charts
+import digest
 import evaluator
 import flux
 import notifier
@@ -156,19 +157,31 @@ def run_iteration() -> None:
             "links": _links_for(event),
         }
         notifier.notify(payload, image=_chart_for(event, peers))
+        # Recorded regardless of delivery success -- notify()'s return value
+        # is deliberately not captured, so history says what the alerter
+        # DECIDED to send, not what arrived. A daily summary is better served
+        # by "an alert fired here" than by a gap wherever delivery failed.
+        digest.record_history(current, payload)
     for event in actions["recoveries"]:
         # No chart on a recovery: the news IS the recovery, and a second image
         # per incident doubles the render cost for no added answer.
-        notifier.notify(
-            {
-                **event,
-                "type": "recovery",
-                "links": _links_for(event),
-                "duration_s": _duration_of(event),
-            }
-        )
+        payload = {
+            **event,
+            "type": "recovery",
+            "links": _links_for(event),
+            "duration_s": _duration_of(event),
+        }
+        notifier.notify(payload)
+        digest.record_history(current, payload)
 
     reports_watcher.check(current)
+    # Before save_state, so the fired slot lands in the same atomic write as
+    # the incident records it was built from. A crash between the two would
+    # otherwise re-send the digest on restart.
+    try:
+        digest.check(current)
+    except Exception:  # noqa: BLE001 - a digest must never cost an alert
+        log.exception("Digest check failed")
     state.save_state(current)
 
 

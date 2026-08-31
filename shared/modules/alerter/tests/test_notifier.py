@@ -445,3 +445,78 @@ def test_off_mode_notes_the_chart_without_sending(posts, caplog):
         assert notifier.notify(_event(), image=PNG) is True
     assert "+chart" in caplog.text
     assert posts["calls"] == []
+
+
+# ---------------------------------------------------------------------------
+# Per-message silence (the digest should not buzz a phone at 08:30)
+# ---------------------------------------------------------------------------
+
+
+def test_text_only_message_can_be_silent():
+    """Previously only the image path could be silent, so a text-only digest
+    always rang."""
+    payload = notifier.openclaw_invoke_payload("hi", silent=True)
+    assert payload["args"]["silent"] is True
+    assert "message" in payload["args"]
+
+
+def test_text_only_message_is_loud_by_default():
+    payload = notifier.openclaw_invoke_payload("hi")
+    assert "silent" not in payload["args"]
+
+
+def test_per_message_silent_overrides_the_env_default(monkeypatch):
+    """An alert must still ring on a deployment that silenced charts."""
+    monkeypatch.setenv("ALERT_SILENT", "true")
+    assert notifier.openclaw_invoke_payload("x", silent=False)["args"].get(
+        "silent"
+    ) is None
+    monkeypatch.setenv("ALERT_SILENT", "false")
+    assert notifier.openclaw_invoke_payload("x", silent=True)["args"]["silent"] is True
+
+
+def test_env_still_applies_when_the_message_says_nothing(monkeypatch):
+    monkeypatch.setenv("ALERT_SILENT", "true")
+    png = b"\x89PNG\r\n\x1a\n"
+    assert notifier.openclaw_invoke_payload("x", png)["args"]["silent"] is True
+
+
+def test_a_chartless_digest_is_still_silent(monkeypatch):
+    """The path a quiet digest actually takes when there is no chart.
+
+    ALERT_CHARTS=false, or every target clean so render_digest_chart returns
+    None, sends text-only. The retry-after-image-failure path preserved
+    `silent`; this primary one dropped it, so the digest buzzed a phone at
+    08:30 in exactly the common case.
+    """
+    sent = {}
+
+    def fake_post(url, payload, headers, body_must_be_ok=False):
+        sent.update(payload)
+        return True
+
+    monkeypatch.setenv("NOTIFY_MODE", "openclaw")
+    monkeypatch.setenv("OPENCLAW_GATEWAY_TOKEN", "t")
+    monkeypatch.setenv("OPENCLAW_TO", "telegram:1")
+    monkeypatch.setattr(notifier, "_post_with_retries", fake_post)
+
+    notifier.notify({"type": "digest", "message": "all clear", "silent": True})
+    assert sent["args"].get("silent") is True, (
+        "text-only send dropped the per-message silent flag"
+    )
+    assert "message" in sent["args"] and "buffer" not in sent["args"]
+
+
+def test_a_loud_alert_stays_loud_on_the_text_path(monkeypatch):
+    """The same path must not silence an alert that never asked to be quiet."""
+    sent = {}
+    monkeypatch.setenv("NOTIFY_MODE", "openclaw")
+    monkeypatch.setenv("OPENCLAW_GATEWAY_TOKEN", "t")
+    monkeypatch.setenv("OPENCLAW_TO", "telegram:1")
+    monkeypatch.setattr(
+        notifier, "_post_with_retries",
+        lambda url, payload, headers, body_must_be_ok=False: sent.update(payload) or True,
+    )
+    notifier.notify({"type": "alert", "severity": "critical", "target": "x",
+                     "message": "down", "verdict": {}, "links": {}})
+    assert "silent" not in sent["args"]
