@@ -44,8 +44,15 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
-  # Base images. python:3.11-slim, postgres, grafana, influxdb, and the
+  # Base images. python:3.14-slim, postgres, grafana, influxdb, and the
   # LinuxServer smokeping image.
+  #
+  # Majors are split out for the same reason as the Python ecosystem above,
+  # and the lesson arrived expensively. The first grouped run put a routine
+  # python 3.11->3.14 bump in the SAME PR as postgres:15->18, and CI passed
+  # it: the Docker build matrix does not build the postgres image, and no CI
+  # job has an existing data volume. A stateful major cannot be validated by
+  # a green build, so it must never travel with bumps that can.
   - package-ecosystem: docker
     directories:
       - "/shared/modules/*"
@@ -53,7 +60,23 @@ updates:
       interval: weekly
     open-pull-requests-limit: 3
     groups:
-      docker-base-images:
-        patterns: ["*"]
+      docker-minor-patch:
+        update-types: ["minor", "patch"]
+      docker-major:
+        update-types: ["major"]
+    ignore:
+      # postgres and influxdb hold the two stateful volumes here. A major
+      # bump is a data migration, not a version string: PG18 both refuses to
+      # start on a PG15 directory AND relocated its default PGDATA to
+      # /var/lib/postgresql/18/docker, so with our mount it reports
+      # "uninitialized" and would initialise an EMPTY cluster while the real
+      # data sits orphaned in the volume. Postgres is this project's config
+      # source of truth, so that failure presents as every target vanishing
+      # from a container reporting healthy. Do these deliberately, with a
+      # dump first -- see docs/upgrades.md
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "influxdb"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(docker)"

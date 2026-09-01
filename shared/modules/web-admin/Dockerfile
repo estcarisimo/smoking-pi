@@ -1,7 +1,7 @@
 # SmokePing Web Admin with uv
 # Modern Python web interface with Pydantic validation
 
-FROM python:3.11-slim as builder
+FROM python:3.14-slim as builder
 
 # Install system dependencies for building
 RUN apt-get update && apt-get install -y \
@@ -26,7 +26,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN uv pip install .[security]
 
 # Production stage
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Install runtime dependencies (no Docker CLI: container management goes
 # through the config-manager API, never the Docker socket)
