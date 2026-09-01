@@ -22,6 +22,11 @@ ALERT_MAX_PER_HOUR is a second, independent backstop: a hard ceiling on
 notifications per key per rolling hour, so a future lifecycle bug cannot
 reach a person's phone at that volume again.
 
+Mutes (``common.mutes``, written by the mcp-server) suppress the *send* only.
+They are consulted after the cooldown and after the rate limit, and never call
+``_record_notification()`` — see :func:`_apply_mute` for why each of those
+positions is load-bearing.
+
 Per-incident bookkeeping: first_seen, last_seen, last_notified,
 notified_count, missing_since, recent_notifications (all epoch seconds).
 
@@ -39,6 +44,8 @@ import logging
 import os
 import tempfile
 import time
+
+from common import mutes
 
 log = logging.getLogger("alerter.state")
 
@@ -157,6 +164,46 @@ def _record_notification(record: dict, now: float) -> None:
     record["notified_count"] = int(record.get("notified_count", 0)) + 1
 
 
+def _apply_mute(record: dict, incident: dict, entries: list[dict],
+                key: str, now: float) -> bool:
+    """Record that a mute suppressed this send. True means "do not notify".
+
+    Both call sites invoke this at exactly one point, and each half of that
+    position is load-bearing:
+
+    - **After ``_rate_limited()``**, so an alert the ceiling already blocked
+      is not also counted as one the mute suppressed. This is an accounting
+      guarantee rather than a delivery one -- either order stops the send, and
+      the rolling-hour trim is idempotent for a given ``now``, so a later
+      unmuted cycle re-trims correctly either way. What breaks under the other
+      order is ``muted_suppressed_count``, the one number a user reads to
+      judge how much a mute is hiding.
+    - **Before ``_record_notification()``**, because the budget counts what
+      was actually *sent*. A muted incident consumes nothing.
+    - **Inside the incident loop**, so ``last_seen``, the ``missing_since``
+      clearing and the severity/message refresh have already run by the time
+      we get here. Skipping the rest of the loop body instead would leave the
+      incident looking brand new when the mute lifts: it would take the
+      first-seen path and alert immediately, which is precisely the flapping
+      behaviour PR #34 fixed.
+
+    There is deliberately **no catch-up on unmute**. A still-active incident
+    re-alerts once on the normal cooldown path. One that resolved while muted
+    has ``notified_count == 0``, and the recovery branch already gates on
+    ``notified_count > 0``, so no recovery fires for an alert nobody saw.
+    """
+    mute = mutes.find(entries, incident, now)
+    if mute is None:
+        return False
+    record["muted_suppressed_count"] = int(
+        record.get("muted_suppressed_count", 0)) + 1
+    record["muted_until"] = mute.get("until")
+    log.info("Incident %s is muted until %s (%d suppressed so far); "
+             "not notifying", key, mute.get("until"),
+             record["muted_suppressed_count"])
+    return True
+
+
 def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> dict:
     """Fold current incidents into ``state`` and return notification actions.
 
@@ -171,6 +218,10 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
     resolve_after = _resolve_after()
     limit = _max_per_hour()
     records: dict = state.setdefault("incidents", {})
+    # Read once per cycle, never written here: the mcp-server owns this file
+    # and the alerter's bind mount is read-only. load() returns [] rather than
+    # raising, so an unreadable mutes file means everything alerts.
+    mute_entries = mutes.load()
 
     alerts: list[dict] = []
     recoveries: list[dict] = []
@@ -195,6 +246,8 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
             records[key] = record
             if _rate_limited(record, now, limit):  # pragma: no cover - new key
                 continue
+            if _apply_mute(record, incident, mute_entries, key, now):
+                continue
             _record_notification(record, now)
             alerts.append({**incident, "state": _snapshot(record)})
             continue
@@ -215,6 +268,8 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
             log.warning(
                 "Incident %s hit the notification ceiling (%d/hour); "
                 "suppressing until the rolling hour clears", key, limit)
+            continue
+        if _apply_mute(record, incident, mute_entries, key, now):
             continue
         _record_notification(record, now)
         alerts.append({**incident, "state": _snapshot(record)})

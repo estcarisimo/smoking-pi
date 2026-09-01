@@ -291,6 +291,14 @@ services:
       - TUNNEL_BASE_HOST=${TUNNEL_BASE_HOST:-}
       - GRAFANA_TUNNEL_URL=${GRAFANA_TUNNEL_URL:-}
       - WEB_ADMIN_TUNNEL_URL=${WEB_ADMIN_TUNNEL_URL:-}
+      # Mute control. This container is the ONLY writer of the mutes file and
+      # reads the alerter's state file read-only -- the mirror image of the
+      # alerter's mounts. Single-writer per file is what removes the race.
+      - ALERT_MUTES_FILE=${ALERT_MUTES_FILE:-/var/lib/alerter-mutes/mutes.json}
+      - ALERT_STATE_FILE=${ALERT_STATE_FILE:-/var/lib/alerter/state.json}
+    volumes:
+      - alerter-mutes:/var/lib/alerter-mutes
+      - alerter-state:/var/lib/alerter:ro
     depends_on:
       - config-manager
 
@@ -423,9 +431,16 @@ services:
       - INFLUX_ORG=${INFLUX_ORG:-smokeping}
       - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
       - TZ=${TZ:-UTC}
+      # Mutes are WRITTEN by mcp-server and only READ here. The :ro mount
+      # below makes that an OS-enforced invariant rather than a convention:
+      # neither container ever read-modify-writes a file the other writes, so
+      # there is no race to lock against. An unreadable mutes file means
+      # everything alerts -- see shared/modules/common/mutes.py
+      - ALERT_MUTES_FILE=${ALERT_MUTES_FILE:-/var/lib/alerter-mutes/mutes.json}
     volumes:
       - reports:/reports:ro
       - alerter-state:/var/lib/alerter
+      - alerter-mutes:/var/lib/alerter-mutes:ro
     depends_on:
       influxdb:
         condition: service_started
@@ -465,6 +480,7 @@ volumes:
   postgres-data:
   reports:
   alerter-state:
+  alerter-mutes:
   clickhouse-data:
     name: smokeping-pro-clickhouse-data
   clickhouse-logs:

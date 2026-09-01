@@ -318,3 +318,44 @@ def test_a_new_slot_gets_a_full_retry_budget(collected, sent):
         f"the new slot got {len(calls)} attempts, not {digest.MAX_ATTEMPTS} — "
         "the counter carried over from the previous slot"
     )
+
+
+# ---------------------------------------------------------------------------
+# Active mutes
+#
+# A mute is the one thing here that can cause a missed outage, so the daily
+# message a user already reads has to say what is currently silenced.
+# ---------------------------------------------------------------------------
+
+
+def test_the_digest_names_what_is_muted(collected, mutes_file):
+    mutes_file([{"target": "A", "until": 9_999_999_999.0,
+                 "reason": "router reboot"}])
+    payload = digest.build({}, now=_at())
+    assert len(payload["active_mutes"]) == 1
+    assert "Muted" in payload["message"]
+    assert "A" in payload["message"]
+    assert "router reboot" in payload["message"]
+
+
+def test_a_clean_digest_has_no_muted_section(collected, mutes_file):
+    """An empty section every morning trains the reader to skip it."""
+    mutes_file([])
+    payload = digest.build({}, now=_at())
+    assert payload["active_mutes"] == []
+    assert "Muted" not in payload["message"]
+
+
+def test_an_expired_mute_is_not_reported_as_active(collected, mutes_file):
+    mutes_file([{"target": "A", "until": 1.0}])
+    payload = digest.build({}, now=_at())
+    assert payload["active_mutes"] == []
+
+
+def test_the_digest_reports_how_much_a_mute_swallowed(collected, mutes_file):
+    """The number that tells a user the mute has gone on too long."""
+    mutes_file([{"target": "A", "until": 9_999_999_999.0}])
+    state = {"incidents": {"target_down:A": {"muted_suppressed_count": 7}}}
+    payload = digest.build(state, now=_at())
+    assert payload["muted_suppressed"] == 7
+    assert "7 alerts suppressed" in payload["message"]

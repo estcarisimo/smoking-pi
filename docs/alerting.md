@@ -186,6 +186,7 @@ missing reports directory is skipped quietly.
 | `VERDICT_MIN_TARGETS` | `3` | Below this many measurable targets, breadth means nothing |
 | `VERDICT_IMPAIRED_LOSS_PCT` | `10` | Mean loss percent at which a target counts as impaired |
 | `VERDICT_STALE_DOWN_HOURS` | `6` | A target at 100% for longer than this is treated as a host that never answered ICMP, and excluded from breadth |
+| `ALERT_MUTES_FILE` | `/var/lib/alerter-mutes/mutes.json` | Suppression windows. **Written by mcp-server, read-only here** — see [Muting](#muting-alerts-without-losing-them) |
 | `INFLUX_URL` | `http://localhost:8086` | InfluxDB (host network namespace) |
 | `INFLUX_TOKEN` / `INFLUX_ORG` / `INFLUX_BUCKET` | — / `smokeping` / `smokeping` | InfluxDB auth/scope |
 
@@ -347,6 +348,82 @@ pip install -r tests/requirements.txt
 pytest -q
 ```
 
+
+## Muting alerts without losing them
+
+Mutes suppress the *sending* of a notification. Incidents are still evaluated,
+still recorded, still counted, and still shown in the digest — the only thing
+that changes is whether a phone buzzes.
+
+Control is natural language onto MCP tools rather than buttons on a message:
+`mute_alerts`, `unmute_alerts`, `ack_incident`, `list_alert_state`. Telegram
+buttons cannot call back without an OpenClaw channel plugin, and the tools are
+the better interface anyway — "mute amazon for two hours, I'm reflashing the
+router" carries a scope, a duration and a reason that no button could.
+
+### Single-writer, so there is no lock
+
+Two containers share this state. Neither locks, and neither needs to:
+
+| file | writer | readers |
+|---|---|---|
+| `/var/lib/alerter/state.json` | alerter | alerter (rw), mcp-server (**ro**) |
+| `/var/lib/alerter-mutes/mutes.json` | mcp-server | mcp-server (rw), alerter (**ro**) |
+
+Neither container ever read-modify-writes a file the other writes, so the race
+is eliminated by construction — there is no lock to acquire and none to leak.
+The `:ro` bind mounts in `docker-compose.yml` make that an OS-enforced
+invariant rather than a convention a later change can quietly break.
+
+Cross-container *reads* are safe because both writers use a temp file in the
+same directory plus `os.replace`. That was introduced as crash-safety; it is
+now also the concurrency contract, because `os.replace` is atomic within a
+filesystem — a reader sees the whole old file or the whole new one, never a
+torn one. **Do not "optimise" either writer into an in-place write.**
+
+Expiry is evaluated at read time and pruned lazily on the next write, so
+readers never need to write a file their mount forbids them from writing.
+
+### Muting is the one feature that can cause a missed outage
+
+So every mitigation lives here rather than being left to operator discipline:
+
+- **24-hour cap** (`mutes.MAX_HOURS`). A longer request is clamped, not
+  rejected, and the response says what it actually granted.
+- **Every digest lists active mutes** and how many alerts each has swallowed
+  (`muted_suppressed_count`) — the number that reveals a mute set two days ago
+  and forgotten.
+- **Recoveries are never muted for an incident that was already announced.**
+  If you were told something broke, you get told when it is fixed.
+- **An incident muted from first sight produces no recovery either**, because
+  `notified_count` stays 0 and the recovery branch gates on it. Announcing the
+  end of something nobody heard about is just noise.
+- **`unmute_alerts(all=True)`** clears everything in one call.
+- **A missing or corrupt mutes file means everything alerts.** Delivery must
+  never depend on this file being readable; the failure mode has to be noise,
+  not silence.
+
+There is deliberately **no catch-up on unmute**: a still-active incident
+re-alerts once on the normal cooldown path, and suppressed alerts are dropped
+rather than queued. A burst of stale notifications on unmute would be its own
+kind of failure.
+
+### Where the check sits, and why
+
+In `state.reconcile()`, the mute is consulted **after** the cooldown check and
+**after** `_rate_limited()`, and never calls `_record_notification()`. Each
+position matters:
+
+- After the rate limiter, so an alert the ceiling already blocked is not also
+  counted as one the mute suppressed. (This is an accounting guarantee, not a
+  delivery one — either order stops the send.)
+- Before `_record_notification()`, because the budget counts what was actually
+  sent. A muted incident consumes none of it.
+- Inside the incident loop, so `last_seen`, the `missing_since` clearing and
+  the severity refresh still run. Skipping them would leave the incident
+  looking brand new when the mute lifts, sending it down the first-seen path
+  and alerting immediately — reintroducing exactly the flapping described
+  below.
 
 ## Flap damping, and why the cooldown alone is not enough
 
