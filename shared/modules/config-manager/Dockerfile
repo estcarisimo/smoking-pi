@@ -1,4 +1,4 @@
-FROM python:3.11-slim as builder
+FROM python:3.14-slim as builder
 
 # Install system dependencies for building (git only needed here, in the
 # builder — the production stage copies the results instead of re-cloning)
@@ -30,7 +30,7 @@ COPY pyproject.toml ./
 RUN uv pip install .
 
 # Production stage
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Runtime OS dependencies only:
 # - curl: image HEALTHCHECK

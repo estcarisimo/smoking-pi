@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.14"
       # Replaces an inline JSON/YAML validator. The doctor still parses every
       # dashboard and provisioning file, and additionally checks that they
       # agree with each other: datasource uids resolve, plugins are installed,
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.14"
       - name: Discover and run tests for every module that has them
         run: |
           set -e

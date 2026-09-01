@@ -9,6 +9,34 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **Python base images 3.11 → 3.14**, and CI now tests on the version it
+  ships. CI ran `setup-python@3.11` while every container ran a different
+  interpreter, so a 3.14-only break could not have been caught — the same
+  class of drift as a compose default silently overriding a module constant.
+  Verified before bumping: all seven modules' suites pass on 3.14, and both
+  the heaviest image (alerter — matplotlib, numpy, pillow) and the one with
+  Rust-compiled deps (web-admin — pydantic) build on **arm64** with real
+  wheels rather than falling back to source builds on a Pi.
+
+- **Dependabot no longer groups stateful major bumps with routine ones.**
+  `postgres` and `influxdb` majors are ignored outright; other docker majors
+  are split from minor/patch, matching what the Python ecosystem already did.
+
+  This is a fix for a near miss. One grouped PR carried the harmless Python
+  bump *and* `postgres:15→18`, and CI passed it — the Docker build matrix
+  never builds the postgres image, and no CI job has an existing volume, so
+  there was nothing for a green check to mean. Two failure modes were
+  confirmed against the live volume: PG18 refuses to start on a PG15 directory
+  (loud, safe), and — worse — PG18 relocated its default `PGDATA` to
+  `/var/lib/postgresql/18/docker`, so with our mount it reports
+  "uninitialized" and would initialise an **empty** cluster while the real
+  data sat orphaned. Postgres is this project's config source of truth, so
+  that mode presents as every target vanishing from a container reporting
+  healthy. New `docs/upgrades.md` carries the dump-first procedure for both
+  stateful images.
+
 ### Added
 
 - **Alert mutes, controlled by conversation rather than buttons.** Four MCP
