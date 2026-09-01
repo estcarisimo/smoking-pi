@@ -9,6 +9,24 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.7.0] — 2026-09-01
+
+Alerts that reach you, say what they mean, and can be told to be quiet.
+
+The alerting engine had been evaluating rules correctly for a week and telling
+nobody: `NOTIFY_MODE=openclaw` POSTed to a path no OpenClaw build serves, and
+the 404 got generalised into "the gateway has no HTTP ingress at all". It has
+one. Everything else here follows from delivery actually working — a verdict
+line so an alert leads with what it means, the chart in the message, a daily
+digest so silence stops being ambiguous, and mute control by conversation.
+
+The other half is about not trusting green lights. The doctor learned to check
+the *running* stack, not just the repo, after a masked build failure let a
+three-week-old image look healthy. That check then caught a stale container and
+a Dependabot PR that would have initialised an empty PostgreSQL over the config
+source of truth — with CI passing, because CI never builds that image.
+
+
 ### Fixed
 
 - **Grafana snapshots switched off.** A snapshot is a permanent,
