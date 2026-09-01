@@ -605,6 +605,42 @@ def compose_service_env(
     return declared
 
 
+def compose_declared_dns(compose_path: pathlib.Path) -> dict[str, set[str]]:
+    """Service name -> the resolvers its Compose ``dns:`` block pins.
+
+    A pinned resolver is a deliberate choice, not drift, so the DNS freshness
+    check needs to tell the two apart. ``${VAR:-1.1.1.1}`` is reduced to its
+    default, because that is what the service gets on a deployment that has
+    not overridden it -- which is the case the check is comparing against.
+    """
+    declared: dict[str, set[str]] = {}
+    try:
+        data = yaml.safe_load(compose_path.read_text())
+    except (OSError, yaml.YAMLError):
+        return declared
+    if not isinstance(data, dict):
+        return declared
+    for name, block in (data.get("services") or {}).items():
+        if not isinstance(block, dict):
+            continue
+        entries = block.get("dns")
+        if entries is None:
+            continue
+        if isinstance(entries, str):
+            entries = [entries]
+        resolved: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, str):
+                continue
+            match = _COMPOSE_DEFAULT_RE.match(entry.strip())
+            value = match.group(2) if match else entry.strip()
+            if value:
+                resolved.add(value)
+        if resolved:
+            declared[name] = resolved
+    return declared
+
+
 def env_template_keys(path: pathlib.Path) -> set[str]:
     """Keys present in a .env.template, ignoring comments."""
     keys: set[str] = set()

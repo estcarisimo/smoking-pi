@@ -9,6 +9,25 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`container-dns-fresh` no longer warns about a resolver that was pinned on
+  purpose.** Two changes from the same batch disagreed: one pins the smokeping
+  container's resolvers in Compose (`dns:`) so it cannot inherit a resolver
+  that later evaporates, and the other warns whenever a container's resolver
+  is not the host's. The warning only appeared once smokeping was next
+  recreated and the pin actually took effect — so it would have shown up on a
+  later unrelated deploy, looking like a new fault.
+
+  Left alone it would have warned on every run forever, and a check that
+  always warns is one you stop reading. That is expensive here specifically:
+  this check exists because a frozen resolver silently killed half the
+  monitoring for ten days. It now reads the Compose `dns:` blocks and treats a
+  pinned resolver as expected, resolving container to service by Compose label
+  rather than by name (`container_name:` overrides make name-parsing wrong).
+  A resolver that is neither pinned nor the host's is still reported, and a
+  pin on one service does not excuse another — both pinned by tests.
+
 ### Changed
 
 - **Python base images 3.11 → 3.14**, and CI now tests on the version it
