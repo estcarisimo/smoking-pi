@@ -10,8 +10,8 @@ jobs:
     name: Ruff (critical rules)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - name: Ruff check
         run: |
           uvx ruff check --select E9,F63,F7,F82 \
@@ -22,7 +22,7 @@ jobs:
     name: Shell script syntax
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: bash -n over all shell scripts
         run: |
           set -e
@@ -40,7 +40,7 @@ jobs:
       matrix:
         edition: [basic, standard, pro]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate docker-compose.yml
         working-directory: editions/${{ matrix.edition }}
         run: |
@@ -67,8 +67,8 @@ jobs:
     name: Grafana dashboards & provisioning
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       # Replaces an inline JSON/YAML validator. The doctor still parses every
@@ -88,8 +88,8 @@ jobs:
     name: Module unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Discover and run tests for every module that has them
@@ -124,7 +124,7 @@ jobs:
       matrix:
         module: [config-manager, web-admin, grafana, smokeping]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build image
         working-directory: shared/modules/${{ matrix.module }}
         run: docker build -t ci-${{ matrix.module }} .
