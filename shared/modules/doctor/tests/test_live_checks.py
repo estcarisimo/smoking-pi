@@ -58,6 +58,10 @@ class FakeDocker:
 class Repo:
     def __init__(self, root):
         self.root = pathlib.Path(root)
+        # container-dns-fresh reads the compose `dns:` blocks to tell a
+        # deliberate pin from an abandoned resolver. Absent by default, which
+        # is the "nothing pinned" case most of these tests want.
+        self.compose = self.root / "editions/pro/docker-compose.yml"
 
 
 @pytest.fixture
@@ -322,3 +326,66 @@ def test_a_systemd_resolved_host_does_not_flag_every_container(host_resolv, repo
     res = live_checks.check_container_dns_fresh(repo, docker, stub)
     assert res.status is Status.SKIP, [f.render() for f in res.findings]
     assert "non-loopback" in res.summary
+
+
+def _compose_with_dns(repo, service: str, entries: list[str]) -> None:
+    repo.compose.parent.mkdir(parents=True, exist_ok=True)
+    body = "services:\n  %s:\n    dns:\n%s" % (
+        service, "".join(f"      - {e}\n" for e in entries)
+    )
+    repo.compose.write_text(body)
+
+
+def test_a_deliberately_pinned_resolver_is_not_stale(repo, host_resolv):
+    """smokeping pins public resolvers on purpose; that is not drift.
+
+    Without this, the pin introduced to STOP the container inheriting a
+    resolver that later evaporates would itself warn on every run — and a
+    check that always warns is one nobody reads, which costs exactly the
+    silent outage this exists to catch.
+    """
+    _compose_with_dns(repo, "smokeping", ["1.1.1.1", "8.8.8.8"])
+    docker = _dns_docker(
+        {"pro-smokeping-1": "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"}
+    )
+    res = live_checks.check_container_dns_fresh(repo, docker, host_resolv)
+    assert res.status is Status.OK
+    assert res.findings == []
+
+
+def test_a_pin_expressed_as_a_compose_default_is_honoured(repo, host_resolv):
+    """The real file writes ${SMOKEPING_DNS:-1.1.1.1}, not a bare literal."""
+    _compose_with_dns(
+        repo, "smokeping",
+        ["${SMOKEPING_DNS:-1.1.1.1}", "${SMOKEPING_DNS_FALLBACK:-8.8.8.8}"],
+    )
+    docker = _dns_docker(
+        {"pro-smokeping-1": "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"}
+    )
+    assert live_checks.check_container_dns_fresh(
+        repo, docker, host_resolv).status is Status.OK
+
+
+def test_a_pin_does_not_excuse_an_unpinned_resolver(repo, host_resolv):
+    """The pin must not become a blanket amnesty.
+
+    This is the failure mode of the fix: silence the warning so thoroughly
+    that the frozen-VPN resolver stops being reported too. Same container,
+    same pin — but the resolver it actually holds is neither pinned nor the
+    host's, which is the ten-day outage.
+    """
+    _compose_with_dns(repo, "smokeping", ["1.1.1.1"])
+    docker = _dns_docker(
+        {"pro-smokeping-1": "nameserver 100.100.100.100\n"}
+    )
+    res = live_checks.check_container_dns_fresh(repo, docker, host_resolv)
+    assert res.status is Status.WARN
+    assert "100.100.100.100" in res.findings[0].message
+
+
+def test_a_pin_on_one_service_does_not_cover_another(repo, host_resolv):
+    """Pins are per-service; smokeping's must not excuse grafana's."""
+    _compose_with_dns(repo, "smokeping", ["1.1.1.1"])
+    docker = _dns_docker({"pro-grafana-1": "nameserver 1.1.1.1\n"})
+    res = live_checks.check_container_dns_fresh(repo, docker, host_resolv)
+    assert res.status is Status.WARN

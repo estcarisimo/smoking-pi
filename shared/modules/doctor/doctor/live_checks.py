@@ -36,6 +36,7 @@ import pathlib
 import shutil
 import subprocess
 
+from . import sources
 from .report import CheckResult, Finding, Status, result, skipped
 
 # module directory in the repo -> its docker-compose SERVICE name. Only
@@ -308,9 +309,18 @@ def check_container_dns_fresh(
     loss while raw-IP targets stay perfectly healthy, which reads as an
     outage rather than a DNS fault.
 
-    Only flags a resolver the host does NOT have. A container legitimately
-    pinned to a different resolver (compose `dns:`) is a deliberate choice
-    and is reported as a warning, not a failure, because it may be correct.
+    Only flags a resolver the host does NOT have, MINUS the ones Compose
+    pins deliberately via `dns:`. That subtraction matters more than it
+    looks: the smokeping service pins public resolvers on purpose, precisely
+    so it cannot inherit a resolver that later evaporates. Without it this
+    check warns about that pin on every single run, and a warning that is
+    always present is one you stop reading — which would cost exactly the
+    10-day silent outage it exists to catch.
+
+    A resolver that is pinned but absent from the host is therefore fine. One
+    that is neither pinned nor the host's is the real signal: nobody
+    configured it and the host has moved on. Still a warning rather than a
+    failure, because an unusual resolver may yet be correct.
     """
     docker = docker or Docker()
     if not docker.available():
@@ -345,6 +355,8 @@ def check_container_dns_fresh(
     if not containers:
         return skipped("container-dns-fresh", "no running containers")
 
+    pinned_by_service = sources.compose_declared_dns(repo.compose)
+
     findings: list[Finding] = []
     checked = 0
     for container in sorted(containers):
@@ -354,10 +366,15 @@ def check_container_dns_fresh(
             # Silence beats a finding we cannot substantiate.
             continue
         checked += 1
+        # Ask Compose which service this is rather than parsing the container
+        # name: `container_name:` overrides break any naming convention, and
+        # this project uses one (smokeping-mcp-server for service mcp-server).
+        service = docker.service_for_container(container)
+        pinned = pinned_by_service.get(service, set()) if service else set()
         stale = [
             ns
             for ns in _nameservers(text)
-            if ns not in host_ns and not _is_loopback(ns)
+            if ns not in host_ns and ns not in pinned and not _is_loopback(ns)
         ]
         if stale:
             findings.append(
