@@ -327,6 +327,21 @@ runs to about 120 characters; mirroring the whole row would spend a quarter of
 a caption budget saying the same thing twice. Whoever is on cellular wants the
 picture, and the rest of the dashboard is one tap from it.
 
+**Every link points at Grafana, and the reader logs in.** There is deliberately
+no public link. Grafana snapshots would have offered one — a URL anybody can
+open with no account — and they are switched off (`GF_SNAPSHOTS_ENABLED=false`,
+plus `GF_SNAPSHOTS_EXTERNAL_ENABLED=false`, which otherwise defaults ON and
+publishes to the third-party `snapshots.raintank.io`). Verified: creating one
+now returns `403 Dashboard Snapshots are disabled` even as admin.
+
+That is a deliberate trade. A snapshot is a *permanent, unauthenticated* URL
+with the measurements embedded in it, and everything else on this host sits
+behind a login, so leaving it enabled would be the single hole in that — one
+reachable by a click in a share dialog, by someone with no reason to expect the
+result to be world-readable. The alert already carries the chart as an image
+and the dashboard as an authenticated link, which is the whole promise: the
+answer and the picture arrive *in* the message.
+
 Set `ALERT_MARKUP=plain` for a channel that does not parse HTML.
 
 ## Testing
