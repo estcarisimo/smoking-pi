@@ -138,6 +138,23 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}"
       GF_SECURITY_SECRET_KEY: "${GF_SECURITY_SECRET_KEY:?Error: Please run ./setup.sh first to generate passwords}"
       GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
+      # Snapshots off. A Grafana snapshot is a PERMANENT, UNAUTHENTICATED URL
+      # carrying the data embedded in it: `GET /api/snapshots/<key>` answers
+      # 200 with no credentials, verified on 13.0.2. Everything else here sits
+      # behind login (anonymous auth is off, the API 401s), so leaving this on
+      # would be the one hole in that -- and it opens with a single click from
+      # any share dialog, by someone who has no reason to expect the result to
+      # be public.
+      #
+      # external_enabled is worse and defaults ON: it publishes to
+      # snapshots.raintank.io, a third-party site, putting a home network's
+      # measurements somewhere neither the operator nor this repo controls.
+      #
+      # Links in alerts point at Grafana itself and the reader logs in, which
+      # is the intended design -- see docs/alerting.md. Deep links do not need
+      # snapshots and never did.
+      GF_SNAPSHOTS_ENABLED: "${GF_SNAPSHOTS_ENABLED:-false}"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "${GF_SNAPSHOTS_EXTERNAL_ENABLED:-false}"
       GF_INSTALL_PLUGINS: "${GF_INSTALL_PLUGINS:-}"
       TZ: ${TZ:-UTC}
     # Optional dependency on influxdb for InfluxDB mode

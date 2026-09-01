@@ -11,6 +11,21 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Grafana snapshots switched off.** A snapshot is a permanent,
+  *unauthenticated* URL with the measurements embedded in it — `GET
+  /api/snapshots/<key>` answers 200 with no credentials, confirmed on 13.0.2.
+  Everything else on this host is behind a login (anonymous auth off, the API
+  401s), so this was the one way to publish home network data by accident, and
+  it sits one click away in Grafana's share dialog. `external_enabled` is worse
+  and defaulted **on**: it publishes to the third-party `snapshots.raintank.io`.
+  Both are now off, and creating a snapshot returns `403 Dashboard Snapshots
+  are disabled` even as admin.
+
+  This also closes out the planned "public snapshot links" feature. A spike
+  showed it was technically workable on 13.0.2, but the design it implies —
+  handing out world-readable URLs — is the wrong trade for this deployment.
+  Alert links point at Grafana and the reader signs in.
+
 - **`container-dns-fresh` no longer warns about a resolver that was pinned on
   purpose.** Two changes from the same batch disagreed: one pins the smokeping
   container's resolvers in Compose (`dns:`) so it cannot inherit a resolver
