@@ -22,6 +22,7 @@ Source: `shared/modules/mcp-server/`.
 | `get_latency_stats(target, hours)` | Median/p95 latency (ms) and mean loss % per target |
 | `get_loss_events(hours, min_loss_pct)` | Windows where packet loss exceeded a threshold, plus a per-target rollup |
 | `get_microcut_stats(hours)` | CPE microcut summary per target+protocol, plus worst 5 windows |
+| `get_chart(target, hours, with_peers, deliver)` | **On request only:** a PNG of one target's latency (median + spread of individual pings) over its loss — see [On-request charts](#on-request-charts) |
 
 ## Environment variables
 
@@ -34,13 +35,62 @@ Source: `shared/modules/mcp-server/`.
 | `INFLUX_ORG` | `smokeping` | InfluxDB organization |
 | `INFLUX_BUCKET` | `smokeping` | InfluxDB bucket |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` (streamable-http) |
-| `MCP_PORT` | `8090` | Listen port for the http transport (binds 0.0.0.0) |
+| `MCP_HOST` | `0.0.0.0` | Bind address for the http transport. Compose sets `127.0.0.1` (the service runs on the host network) |
+| `MCP_PORT` | `8090` | Listen port for the http transport |
+| `OPENCLAW_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_CHANNEL`, `OPENCLAW_TO` | *(unset)* | Where `get_chart(deliver=true)` posts the PNG — the alerter's delivery settings, reused verbatim (see `docs/alerting.md`) |
+| `CHART_THEME`, `CHART_MAX_BYTES` | `dark`, `700000` | Chart rendering, shared with the alerter |
 | `PUBLIC_BASE_HOST` | *(unset)* | Host the *reader* reaches this Pi on; enables deep links (below) |
 | `GRAFANA_PUBLIC_URL` | *(unset)* | Full Grafana base URL; wins over `PUBLIC_BASE_HOST` |
 | `WEB_ADMIN_PUBLIC_URL` | *(unset)* | Full web-admin base URL; wins over `PUBLIC_BASE_HOST` |
 | `TUNNEL_BASE_HOST` | *(unset)* | Host reachable from *outside* the home network; adds a `_tunnel` twin to every link |
 | `GRAFANA_TUNNEL_URL` | *(unset)* | Full from-anywhere Grafana base URL; wins over `TUNNEL_BASE_HOST` |
 | `WEB_ADMIN_TUNNEL_URL` | *(unset)* | Full from-anywhere web-admin base URL; wins over `TUNNEL_BASE_HOST` |
+
+## On-request charts
+
+`get_chart` is the one tool that returns a picture, and it does so **only when
+called** — no other tool attaches images to its answer, so an ordinary "how is
+my internet?" stays text. It exists for the moment the number is not enough:
+the user wants to see the shape of the last day, or wants something to hand
+to a person with no login here — a housemate, a friend, the ISP.
+
+What it draws, for one target and one window (1–720 h, default 24):
+
+- **Median latency** as the line, with the **spread of the individual pings**
+  shaded around it — an outer min–max band and an inner-quartile band, the
+  same "smoke" SmokePing's own graphs show. A jittery-but-alive link and a
+  clean one can share a median; the band is what tells them apart.
+- **Packet loss** underneath, on an axis pinned to 0–100 so 4 % never looks
+  like a catastrophe.
+- Major **and minor** gridlines, local-time axis, the last value labelled, and
+  a footer naming the source and when it was drawn — because the image is
+  meant to leave the chat it was made in, and once it does nothing else says
+  where it came from.
+- `with_peers=true` adds the target's same-category peers as faint lines, so
+  "is it this host or everything?" is visible in one picture.
+
+The PNG comes back as an MCP image block, which Claude Desktop, Claude Code and
+OpenClaw all render, plus a JSON block with what was drawn and the Grafana
+links for the same view. The rendering is matplotlib in-process (about a
+second on the Pi), never Grafana's image renderer, which is a headless
+Chromium this hardware cannot afford.
+
+**`deliver=true` posts the file into the OpenClaw chat** through the same
+Gateway endpoint the alerter uses, with the same `OPENCLAW_*` settings. This is
+the piece that makes sharing work from Telegram: OpenClaw's agent can *see* an
+MCP image but cannot forward it on its own, so the server hands the file to
+the chat directly and the user forwards it from there. The result reports
+`delivered: true` or a `delivery_error` that says why not (no token, no
+recipient, tool blocked by policy, gateway unreachable) — the image is
+returned either way.
+
+The picture is a static file the user chose to send. It is not a public URL:
+Grafana snapshots stay switched off (see `CHANGELOG.md`, 2.7.0), and nothing
+here publishes anything.
+
+Names: use the exact target name from `list_targets`, or the CPE gateway's IP
+as `get_microcut_stats` reports it — the gateway is discovered rather than
+configured, so it is not in the target list.
 
 ## Deep links
 
@@ -205,24 +255,33 @@ It is opt-in via the `mcp` profile so the default stack is unchanged:
 
 ```yaml
   mcp-server:
-    build: ../../shared/modules/mcp-server
+    build:
+      context: ../../shared
+      dockerfile: modules/mcp-server/Dockerfile
     container_name: smokeping-mcp-server
     restart: unless-stopped
     profiles: [mcp]
-    ports:
-      - "127.0.0.1:8090:8090"
+    network_mode: host
     environment:
       - MCP_TRANSPORT=http
+      - MCP_HOST=127.0.0.1
       - MCP_PORT=8090
-      - CONFIG_API_URL=${CONFIG_API_URL:-http://config-manager:5000}
+      - CONFIG_API_URL=${MCP_CONFIG_API_URL:-http://127.0.0.1:5000}
       - CONFIG_API_TOKEN=${CONFIG_API_TOKEN:-}
-      - INFLUX_URL=${INFLUX_URL:-http://influxdb:8086}
+      - INFLUX_URL=${MCP_INFLUX_URL:-http://127.0.0.1:8086}
       - INFLUX_TOKEN=${INFLUX_TOKEN:-}
       - INFLUX_ORG=${INFLUX_ORG:-smokeping}
       - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
+      # ... deep links, mute files, OPENCLAW_* for get_chart delivery
     depends_on:
       - config-manager
 ```
+
+The service runs on the **host network**, like the alerter and for the same
+reason: the OpenClaw gateway listens on the host's loopback only (which is the
+right setting — keep it), and no bridge network can reach that. `MCP_HOST`
+pins the listener to `127.0.0.1`, so exposure is exactly what the earlier
+`127.0.0.1:8090:8090` port mapping gave: nothing on the LAN can see the server.
 
 Start it with:
 
@@ -253,6 +312,10 @@ Once connected, ask things like:
 - "Did we drop packets to Google DNS this week? Show me when."
 - "Pause monitoring for the netflix targets, then apply the config."
 - "Is the monitoring stack healthy? SmokePing seems down."
+- "Show me a chart of Cloudflare DNS for the last 24 hours" (a PNG comes back)
+- "Send me a picture of the gateway for the last week so I can forward it to
+  the ISP" (`get_chart(..., hours=168, deliver=true)` — it lands in the chat
+  as a file)
 
 ## Development
 

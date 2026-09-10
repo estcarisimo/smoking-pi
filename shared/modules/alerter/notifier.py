@@ -32,7 +32,6 @@ backoff). Never raises: returns True on success, False otherwise.
 
 from __future__ import annotations
 
-import base64
 import logging
 import os
 import time
@@ -41,6 +40,7 @@ from datetime import datetime
 import httpx
 
 import templates
+from common import openclaw
 
 log = logging.getLogger("alerter.notifier")
 
@@ -132,41 +132,12 @@ def openclaw_invoke_payload(
 ) -> dict:
     """Build the /tools/invoke body for one message.
 
-    With an image the bytes ride as base64 in ``buffer`` and the text becomes
-    ``caption``; there is no filesystem in this path, so nothing has to be
-    shared between the container and the gateway host. ``forceDocument``
-    defaults on because Telegram re-encodes photos as JPEG, and thin chart
-    lines with small tick text are the worst case for JPEG.
-
-    ``silent`` is per-message and wins over ``ALERT_SILENT``, because
-    "notify quietly" is a property of *this* message rather than of the
-    deployment: a daily digest should not buzz a phone, while the alert that
-    wakes you at 3am should.
+    The shape lives in :mod:`common.openclaw` now, shared with the MCP
+    server's on-request chart delivery; this name is kept for the call
+    sites and tests here. OPENCLAW_TOOL/DEFAULT_OPENCLAW_CHANNEL above are
+    the same values it uses.
     """
-    args = {
-        "action": "send",
-        "channel": os.environ.get("OPENCLAW_CHANNEL") or DEFAULT_OPENCLAW_CHANNEL,
-        "to": os.environ.get("OPENCLAW_TO", ""),
-    }
-    quiet = _env_bool("ALERT_SILENT", False) if silent is None else bool(silent)
-
-    if image is None:
-        args["message"] = text
-        # Previously only the image path could be silent, which meant a
-        # text-only digest always rang.
-        if quiet:
-            args["silent"] = True
-        return {"name": OPENCLAW_TOOL, "args": args}
-
-    args["buffer"] = base64.b64encode(image).decode("ascii")
-    args["filename"] = filename or "smokeping.png"
-    args["mimeType"] = "image/png"
-    args["caption"] = text
-    if _env_bool("ALERT_IMAGE_AS_DOCUMENT", True):
-        args["forceDocument"] = True
-    if quiet:
-        args["silent"] = True
-    return {"name": OPENCLAW_TOOL, "args": args}
+    return openclaw.invoke_payload(text, image, filename, silent)
 
 
 def _env_bool(name: str, default: bool) -> bool:

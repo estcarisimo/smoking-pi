@@ -20,14 +20,15 @@ from typing import Any
 
 try:
     # mcp 1.x
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp import FastMCP, Image
 except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
+    from mcp.server.mcpserver import Image
     from mcp.server.mcpserver import MCPServer as FastMCP
 
 import backends
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
-from common import mutes
+from common import charts, mutes, openclaw
 
 # Framing for the connecting client. Without it an agent that also has shell
 # access will answer "how is my internet?" by running ping/curl itself, which
@@ -65,6 +66,12 @@ shape of a problem far better than a median does, and the links are already
 scoped to the target and time window being discussed. Do not build these URLs
 yourself; if `links` is absent, deep links are not configured on this
 deployment and there is no URL to give.
+
+When the user wants a *picture* -- to look at the shape themselves, or to
+send to a friend or an ISP who has no login here -- call `get_chart`. It draws
+the target's latency (median with the spread of individual pings) over its
+loss as a PNG, on request only; no other tool attaches images. With
+`deliver=true` the file is also posted into the chat so it can be forwarded.
 
 Keys ending in `_tunnel` are the same page reached from outside the home
 network. When both are present, offer both — label them for where the reader
@@ -108,6 +115,9 @@ def _summarize_result(result: Any) -> str:
         if "total" in result:
             return f"total={result['total']}"
         return "ok"
+    if isinstance(result, list):
+        images = sum(1 for item in result if isinstance(item, Image))
+        return f"{len(result)} blocks ({images} image)" if images else "ok"
     return "ok"
 
 
@@ -851,6 +861,153 @@ def get_microcut_stats(hours: int = 24) -> dict:
 # read-only and only reads. See common/mutes.py for why that removes the race
 # rather than managing it.
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# On-request chart
+# ---------------------------------------------------------------------------
+
+# A year of 300 s samples aggregates to ~120 points either way, but the
+# spread query pivots every ping field per window and a very long window
+# stops being a picture of anything -- the dashboard is the place for that.
+MAX_CHART_HOURS = 24 * 30
+_IP_RE = re.compile(r"[0-9a-fA-F.:]{2,45}")
+
+
+def _cpe_target_exists(name: str, hours: int) -> bool:
+    """The CPE gateway is discovered, not configured: it lives only in the
+    `cpe_latency` measurement under its IP, so the DB catalog never knows
+    it. One cheap probe decides whether a name the DB rejects is that."""
+    flux = (
+        _base_flux(["cpe_latency"], hours)
+        + f"|> filter(fn: (r) => r.target == {flux_str(name)}) "
+        + '|> filter(fn: (r) => r._field == "median") '
+        + "|> limit(n: 1)"
+    )
+    return bool(query_influx(flux))
+
+
+def _chart_peers(catalog: list[dict], target: dict) -> list[str]:
+    """Active siblings sharing the category *and* the measurement. A DNS
+    probe's latency is a different quantity from an ICMP one; drawing them
+    on one axis would compare the incomparable."""
+    return sorted(
+        t["name"] for t in catalog
+        if t.get("name") and t["name"] != target["name"]
+        and t.get("is_active")
+        and t.get("category") == target.get("category")
+        and links.measurement_for_probe(t.get("probe"))
+        == links.measurement_for_probe(target.get("probe"))
+    )
+
+
+@mcp.tool()
+@logged_tool
+def get_chart(
+    target: str,
+    hours: int = 24,
+    with_peers: bool = False,
+    deliver: bool = False,
+):
+    """Draw one target's latency and packet loss over a window, as a PNG.
+
+    Use this when the user wants to SEE the connection rather than read a
+    number -- and especially when they want something to send to someone
+    who has no login here (a friend, a housemate, the ISP). The picture is
+    self-contained: median latency with the spread of the individual pings
+    shaded around it, loss underneath on a fixed 0-100 axis, major and minor
+    gridlines, local-time axis, and a footer naming the source and when it
+    was drawn.
+
+    This is on request only. No other tool attaches images, so do not call
+    it as part of answering an ordinary "how is my internet?" -- call it
+    when a picture was asked for or is clearly what would help.
+
+    Args:
+        target: Exact target name (see list_targets), or the CPE gateway's
+            IP as shown by get_microcut_stats.
+        hours: Window to draw, 1-720 (default 24). Alerts use 6; a day
+            shows the daily rhythm; a week shows whether a problem is new.
+        with_peers: Also draw the target's same-category peers as faint
+            lines, so "is it this host or everything?" is visible.
+        deliver: Also post the PNG into the OpenClaw chat as a file, so the
+            user can forward it from there. Requires the gateway to be
+            configured on this server (OPENCLAW_GATEWAY_TOKEN and
+            OPENCLAW_TO); the result says if it was not delivered and why.
+
+    Returns the image plus a JSON block with what was drawn, the Grafana
+    links for the same view, and the delivery outcome. Returns an error
+    object instead when the target is unknown or has no data in the window.
+    """
+    # The CPE gateway is addressed by IP, which the section-name rule rejects;
+    # flux_str() still refuses anything that could break out of a literal.
+    looks_like_ip = isinstance(target, str) and bool(_IP_RE.fullmatch(target))
+    err = None if looks_like_ip else _validate_name(target)
+    if err:
+        return {"error": err}
+    hours, err = _validate_hours(hours)
+    if err:
+        return {"error": err}
+    if hours > MAX_CHART_HOURS:
+        return {"error": f"hours must be at most {MAX_CHART_HOURS} for a chart "
+                         f"(got {hours}); use the Grafana links for longer views."}
+
+    peers: list[str] = []
+    try:
+        api = backends.get_config_api()
+        catalog = _fetch_targets(api)
+        row = next((t for t in catalog if t.get("name") == target), None)
+    except ConfigAPIError as exc:
+        return {"error": str(exc)}
+
+    if row is not None:
+        measurement = links.measurement_for_probe(row.get("probe"))
+        if with_peers:
+            peers = _chart_peers(catalog, row)
+    elif _cpe_target_exists(target, hours):
+        measurement = "cpe_latency"
+    else:
+        return {
+            "error": f"No monitoring target named '{target}' was found.",
+            "available_targets": sorted(
+                t.get("name") for t in catalog if t.get("name")
+            ),
+        }
+
+    png = charts.render_target_chart(
+        target, measurement=measurement, hours=hours, peers=peers,
+    )
+    if png is None:
+        return {
+            "error": (f"No chart for '{target}': no data points in the last "
+                      f"{hours}h, or the render failed (see the server log)."),
+            "target": target,
+            "measurement": measurement,
+        }
+
+    summary: dict[str, Any] = {
+        "target": target,
+        "measurement": measurement,
+        "hours": hours,
+        "peers_drawn": peers[:charts.MAX_PEERS],
+        "png_bytes": len(png),
+        "note": ("The image is a static PNG: it can be forwarded to anyone "
+                 "and needs no login to view."),
+    }
+    the_links = _links_for(_target_catalog(), target, measurement, hours=hours)
+    if the_links:
+        summary["links"] = the_links
+
+    if deliver:
+        caption = f"{target} — last {hours}h · median latency and loss"
+        problem = openclaw.send(
+            caption, png, charts.chart_filename(target, hours), silent=True,
+        )
+        summary["delivered"] = problem is None
+        if problem:
+            summary["delivery_error"] = problem
+
+    return [summary, Image(data=png, format="png")]
 
 
 def _read_alerter_state() -> dict:

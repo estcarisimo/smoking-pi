@@ -28,6 +28,12 @@ dependencies = [
     # InfluxDB 2.x client for latency / loss / microcut queries
     "influxdb-client>=1.40",
 
+    # get_chart renders the on-request PNG (common/charts.py). Same choice as
+    # the alerter: matplotlib, not grafana-image-renderer -- the latter is a
+    # headless Chromium the Pi cannot afford. Imported lazily inside the
+    # render, so an image built without it still serves every other tool.
+    "matplotlib>=3.8",
+
     # ASGI server: used directly when MCP_API_TOKEN wraps the app in auth
     # middleware (the SDK's own run() has no middleware hook).
     "uvicorn>=0.27",

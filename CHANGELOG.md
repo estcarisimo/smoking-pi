@@ -9,6 +9,63 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`get_chart` — a picture, on request.** New MCP tool that draws one
+  target's latency and packet loss over a window as a PNG: the median line
+  with the spread of the individual pings shaded around it (outer min–max,
+  inner quartiles — SmokePing's "smoke"), loss underneath on a fixed 0–100
+  axis, major and minor gridlines, local-time axis, and a footer naming the
+  source and when it was drawn. `with_peers=true` adds the same-category
+  peers as faint lines.
+
+  The point is the person who has no login here. Every other answer this
+  stack gives ends in a Grafana link that asks the reader to sign in; a PNG
+  is something the user can forward to a friend or the ISP. It is the
+  opposite trade from the snapshot links switched off in 2.7.0: a static
+  file the user chose to send, not a permanent world-readable URL.
+
+  It is on request only. No other tool attaches images, and the server
+  instructions and the OpenClaw skill both say so — an ordinary "how is my
+  internet?" stays text. `deliver=true` also posts the file into the OpenClaw
+  chat through the same Gateway endpoint the alerter uses (the agent can
+  *see* an MCP image but cannot forward it), and the result reports
+  `delivered` or a `delivery_error` that names the missing setting; the
+  image comes back either way.
+
+### Changed
+
+- **The chart renderer moved to `shared/modules/common/charts.py`** so the
+  alerter and the MCP server draw the same picture. The alerter's
+  `charts.py` is an alias, as `flux.py` already was. The OpenClaw
+  `/tools/invoke` payload builder moved with it (`common/openclaw.py`); the
+  alerter's `openclaw_invoke_payload` delegates to it.
+
+- **Alert charts gained the dispersion band and minor gridlines** as a
+  consequence of sharing the renderer. A jittery-but-alive link and a clean
+  one can share a median; the band is what tells them apart.
+
+- **The `mcp-server` service runs on the host network**, as the alerter
+  does and for the same reason: the OpenClaw gateway listens on the host's
+  loopback only — which is the right setting — and no bridge network can
+  reach it. Exposure is unchanged: `MCP_HOST=127.0.0.1` pins the listener
+  exactly where the old `127.0.0.1:8090:8090` port mapping put it.
+  `CONFIG_API_URL`/`INFLUX_URL` for this service now default to the
+  loopback addresses both backends already publish on (override with
+  `MCP_CONFIG_API_URL` / `MCP_INFLUX_URL`).
+
+### Fixed
+
+- **Microcut alert charts drew the gateway's latency ×1000.** `cpe_latency`
+  stores milliseconds while `latency`/`dns_latency` store seconds, and the
+  renderer scaled every measurement as seconds — so a 7 ms gateway plotted as
+  7000 ms. Visibly wrong, but only on a chart nobody had compared to the
+  dashboard. Now scaled per measurement, with a test that reintroduces the
+  bug.
+
+- `docs/alerting.md` now lists `ALERT_CHARTS` and the `CHART_*` knobs in the
+  environment reference; they were documented only in `.env.template`.
+
 ## [2.7.0] — 2026-09-01
 
 Alerts that reach you, say what they mean, and can be told to be quiet.

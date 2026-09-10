@@ -281,18 +281,26 @@ services:
     restart: unless-stopped
     logging: *default-logging
     profiles: [mcp]
-    ports:
-      - "127.0.0.1:8090:8090"
+    # Host networking, like the alerter, and for the same reason: the OpenClaw
+    # gateway listens on the host's loopback only (gateway.bind=loopback --
+    # correct, keep it), which no bridge network can reach. get_chart's
+    # deliver=true needs it. Loopback exposure is unchanged: MCP_HOST binds
+    # the listener to 127.0.0.1 exactly as the old "127.0.0.1:8090:8090"
+    # port mapping did, so nothing on the LAN can see the server.
+    network_mode: host
     environment:
       - MCP_TRANSPORT=http
+      - MCP_HOST=127.0.0.1
       - MCP_PORT=8090
       # Bearer token for the HTTP transport (empty = unauthenticated, as
       # before). The port is bound to 127.0.0.1, so this guards against other
       # processes on the host. See docs/openclaw-integration.md
       - MCP_API_TOKEN=${MCP_API_TOKEN:-}
-      - CONFIG_API_URL=${CONFIG_API_URL:-http://config-manager:5000}
+      # Loopback addresses: under host networking the Compose service names
+      # do not resolve, and both services publish on 127.0.0.1 anyway.
+      - CONFIG_API_URL=${MCP_CONFIG_API_URL:-http://127.0.0.1:5000}
       - CONFIG_API_TOKEN=${CONFIG_API_TOKEN:-}
-      - INFLUX_URL=${INFLUX_URL:-http://influxdb:8086}
+      - INFLUX_URL=${MCP_INFLUX_URL:-http://127.0.0.1:8086}
       - INFLUX_TOKEN=${INFLUX_TOKEN:-}
       - INFLUX_ORG=${INFLUX_ORG:-smokeping}
       - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
@@ -313,6 +321,22 @@ services:
       # alerter's mounts. Single-writer per file is what removes the race.
       - ALERT_MUTES_FILE=${ALERT_MUTES_FILE:-/var/lib/alerter-mutes/mutes.json}
       - ALERT_STATE_FILE=${ALERT_STATE_FILE:-/var/lib/alerter/state.json}
+      # get_chart(deliver=true) posts the PNG into the chat through the same
+      # Gateway endpoint the alerter uses, with the same token/recipient.
+      - OPENCLAW_URL=${OPENCLAW_URL:-http://127.0.0.1:18789}
+      - OPENCLAW_HOOK_PATH=${OPENCLAW_HOOK_PATH:-/tools/invoke}
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
+      - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN:-}
+      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-telegram}
+      - OPENCLAW_TO=${OPENCLAW_TO:-}
+      - ALERT_IMAGE_AS_DOCUMENT=${ALERT_IMAGE_AS_DOCUMENT:-true}
+      # Chart rendering knobs, shared with the alerter (see .env.template).
+      # TZ matters: the chart's time axis and footer are drawn in local time,
+      # and a chart in UTC under an alert in local time is an hour of
+      # confusion that says nothing about itself.
+      - CHART_THEME=${CHART_THEME:-dark}
+      - CHART_MAX_BYTES=${CHART_MAX_BYTES:-700000}
+      - TZ=${TZ:-UTC}
     volumes:
       - alerter-mutes:/var/lib/alerter-mutes
       - alerter-state:/var/lib/alerter:ro
