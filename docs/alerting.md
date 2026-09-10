@@ -182,6 +182,12 @@ missing reports directory is skipped quietly.
 | `REPORT_DELIVERY_INTERVAL` | `86400` | Min seconds between report deliveries |
 | `REPORT_MAX_CHARS` | `3500` | Truncation limit for a delivered report, **including** the header — it bounds the whole message, since that is what the channel budget applies to |
 | `ALERT_MARKUP` | `html` | `html` (Telegram's parse mode) or `plain` |
+| `ALERT_CHARTS` | `true` | Attach a PNG chart to incident alerts and the digest. Charts are optional: `false` sends text only. The chart is never allowed to cost the alert — a render failure falls back to text |
+| `CHART_HOURS` | `6` | Window an incident chart covers |
+| `CHART_THEME` | `dark` | `dark` or `light`. A static image cannot follow the reader's theme, so one is chosen |
+| `CHART_MAX_BYTES` | `700000` | Cap before a chart is dropped rather than shrunk further (must stay inside the gateway's 2 MB invoke body once base64-encoded) |
+| `ALERT_IMAGE_AS_DOCUMENT` | `true` | Send images as documents. Telegram re-encodes photos as JPEG, which wrecks thin chart lines |
+| `ALERT_SILENT` | `false` | Deliver without a notification buzz |
 | `VERDICT_BROAD_PCT` | `60` | Share of measurable targets impaired before a problem counts as broad |
 | `VERDICT_MIN_TARGETS` | `3` | Below this many measurable targets, breadth means nothing |
 | `VERDICT_IMPAIRED_LOSS_PCT` | `10` | Mean loss percent at which a target counts as impaired |

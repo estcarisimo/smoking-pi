@@ -66,6 +66,23 @@ Responses carry a `links` object when deep links are configured: `graph`,
 `per_ping_detail`, `compare_with_peers`, `edit`. Keys ending in `_tunnel` are
 the same page reached from outside the home network — see *Links*, below.
 
+**Pictures** — only when asked for one, or when a picture is clearly what
+would help (sharing with someone who has no login here)
+
+- `get_chart(target, hours, with_peers, deliver)` — a PNG of one target:
+  median latency with the spread of the individual pings shaded around it,
+  loss underneath, gridlines, local time. Default window 24 h; use 6 for "just
+  now", 168 for "is this new?". `with_peers=true` draws the same-category
+  peers faintly for "is it this host or everything?".
+- **Use `deliver=true` when the user wants to keep or forward the image.**
+  You can see the returned image, but you cannot send it on; `deliver=true`
+  posts the file into this chat so the user can forward it to a friend or the
+  ISP. If the result says `delivered: false`, tell the user the
+  `delivery_error` verbatim — it names the missing setting.
+- Do not attach a chart to ordinary answers. Text first; the picture is by
+  request. The CPE gateway is addressed by its IP (as `get_microcut_stats`
+  reports it), not a target name.
+
 **Writing** (confirm with the user in chat before calling)
 
 - `add_target`, `remove_target`, `toggle_target` — change what is monitored.

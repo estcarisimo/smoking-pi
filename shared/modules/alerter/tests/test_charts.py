@@ -12,7 +12,7 @@ import zlib
 
 import pytest
 
-import charts
+from common import charts
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
@@ -33,6 +33,16 @@ def clean_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def no_spread(monkeypatch):
+    """Default the dispersion band to "no data" so a render never reaches
+    InfluxDB for it. The band's own query is swallowed on error, so without
+    this a test that mocks only ``_fetch`` would still construct a client --
+    and the lazy-client import test would fail depending on test order."""
+    monkeypatch.setattr(charts, "_fetch_spread",
+                        lambda *a, **k: ([], [], [], [], []))
+
+
 @pytest.fixture()
 def fake_influx(monkeypatch):
     """Serve fixed series so no test touches a real InfluxDB."""
@@ -43,7 +53,14 @@ def fake_influx(monkeypatch):
             return times, [0.5 for _ in times]  # 50% as a 0-1 ratio
         return _series(value=8.0 if target == "subject" else 6.0)
 
+    def _fetch_spread(target, measurement, hours):
+        times, med = _series(value=8.0)
+        ms = [v * 1000.0 for v in med]
+        return (times, [m - 3 for m in ms], [m - 1 for m in ms],
+                [m + 1 for m in ms], [m + 4 for m in ms])
+
     monkeypatch.setattr(charts, "_fetch", _fetch)
+    monkeypatch.setattr(charts, "_fetch_spread", _fetch_spread)
 
 
 def _first_pixel(png: bytes) -> tuple[int, int, int]:
@@ -145,6 +162,125 @@ def test_peers_do_not_break_the_render(fake_influx):
 
 
 # ---------------------------------------------------------------------------
+# Dispersion band
+# ---------------------------------------------------------------------------
+
+
+def _pivoted_rows(pings_per_row):
+    from datetime import datetime, timedelta, timezone
+
+    start = datetime(2026, 8, 30, 9, 0, tzinfo=timezone.utc)
+    rows = []
+    for i, pings in enumerate(pings_per_row):
+        row = {"_time": start + timedelta(minutes=3 * i)}
+        row.update({f"ping{k + 1}": v for k, v in enumerate(pings)})
+        rows.append(row)
+    return rows
+
+
+def test_spread_is_min_quartiles_max_of_each_window(monkeypatch):
+    """The band is computed from the pings as stored, sorted here -- it must
+    not trust the RRD ordering, and lost pings (None) drop out."""
+    from common import tsdb
+
+    rows = _pivoted_rows([
+        [0.010, 0.004, 0.006, 0.008, 0.005, 0.007, 0.009, 0.011, None, 0.012],
+    ])
+    monkeypatch.undo()  # drop the autouse "no spread" patch for this test
+    monkeypatch.setattr(tsdb, "query_influx", lambda flux: rows)
+    times, lo, q1, q3, hi = charts._fetch_spread("subject", "latency", 6)
+    assert len(times) == 1
+    assert lo == [4.0] and hi == [12.0]          # in ms
+    assert q1 == [6.0] and q3 == [10.0]          # 9 valid pings: idx 2 and 6
+    assert lo[0] <= q1[0] <= q3[0] <= hi[0]
+
+
+def test_a_window_with_one_ping_has_no_band(monkeypatch):
+    from common import tsdb
+
+    monkeypatch.undo()
+    monkeypatch.setattr(tsdb, "query_influx",
+                        lambda flux: _pivoted_rows([[0.005, None, None]]))
+    assert charts._fetch_spread("subject", "latency", 6) == ([], [], [], [], [])
+
+
+def test_a_failed_spread_query_does_not_cost_the_chart(monkeypatch):
+    """REINTRODUCTION TEST: the band is decoration; the median line is the
+    chart. Let the spread query raise and the chart must still render."""
+    from common import tsdb
+
+    def _fetch(target, measurement, field, hours):
+        return _series(value=8.0)
+
+    def _boom(flux):
+        raise RuntimeError("influx is down")
+
+    monkeypatch.undo()
+    monkeypatch.setattr(charts, "_fetch", _fetch)
+    monkeypatch.setattr(tsdb, "query_influx", _boom)
+    png = charts.render_incident_chart("subject")
+    assert png and png.startswith(PNG_MAGIC)
+
+
+def test_spread_flux_selects_only_ping_fields():
+    flux = charts._spread_flux("subject", "latency", 24)
+    assert "/^ping[0-9]+$/" in flux
+    assert "pivot(" in flux
+    assert '"subject"' in flux
+
+
+# ---------------------------------------------------------------------------
+# Shareable (on-request) chart
+# ---------------------------------------------------------------------------
+
+
+def test_target_chart_renders_a_png(fake_influx):
+    png = charts.render_target_chart("subject", hours=24)
+    assert png and png.startswith(PNG_MAGIC)
+
+
+def test_target_chart_carries_no_incident_marks(monkeypatch):
+    """No incident means no "alert" line and no status colour: a status hue
+    on a chart with no status tells the reader something is wrong."""
+    seen = {}
+
+    def _spy(target, measurement, hours, peers, *, accent, first_seen,
+             footer=None):
+        seen.update(accent=accent, first_seen=first_seen, footer=footer,
+                    peers=peers)
+        return b"png"
+
+    monkeypatch.setattr(charts, "_render_series_chart", _spy)
+    assert charts.render_target_chart("subject", peers=["p"]) == b"png"
+    assert seen["first_seen"] is None
+    assert seen["accent"] == charts._theme()["SERIES"]
+    # "info" shares the series blue on purpose; critical/warning must not leak.
+    assert seen["accent"] not in (charts.STATUS["critical"],
+                                  charts.STATUS["warning"])
+    assert seen["footer"] == "smokeping"
+    assert seen["peers"] == ["p"]
+
+
+def test_target_chart_never_raises(monkeypatch):
+    def _boom(*args, **kwargs):
+        raise RuntimeError("influx is down")
+
+    monkeypatch.setattr(charts, "_fetch", _boom)
+    assert charts.render_target_chart("subject") is None
+
+
+def test_target_chart_with_no_data_is_none(monkeypatch):
+    monkeypatch.setattr(charts, "_fetch", lambda *a, **k: ([], []))
+    assert charts.render_target_chart("subject") is None
+
+
+def test_long_windows_render(fake_influx):
+    """> 24h switches the tick format to include the day; must still render."""
+    png = charts.render_target_chart("subject", hours=72)
+    assert png and png.startswith(PNG_MAGIC)
+
+
+# ---------------------------------------------------------------------------
 # Loss scaling
 # ---------------------------------------------------------------------------
 
@@ -192,3 +328,22 @@ def test_an_empty_digest_has_no_chart():
 def test_digest_never_raises_on_bad_input():
     assert charts.render_digest_chart({"targets": [{"target": "x",
                                                     "avg_loss_pct": "nonsense"}]}) is None
+
+
+def test_cpe_latency_is_already_in_ms():
+    """REINTRODUCTION TEST: cpe_latency stores ms, the others seconds. Scaling
+    the gateway's 7 ms by 1000 drew the microcut chart three orders of
+    magnitude wrong."""
+    assert charts._to_ms([0.007], "latency") == [7.0]
+    assert charts._to_ms([0.007], "dns_latency") == [7.0]
+    assert charts._to_ms([7.0], "cpe_latency") == [7.0]
+
+
+def test_spread_uses_the_measurement_scale(monkeypatch):
+    from common import tsdb
+
+    monkeypatch.undo()
+    monkeypatch.setattr(tsdb, "query_influx",
+                        lambda flux: _pivoted_rows([[4.0, 6.0, 8.0, 12.0]]))
+    _t, lo, _q1, _q3, hi = charts._fetch_spread("gw", "cpe_latency", 6)
+    assert lo == [4.0] and hi == [12.0]
