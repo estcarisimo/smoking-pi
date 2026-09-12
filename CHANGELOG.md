@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The community files a repository is supposed to have.** `CONTRIBUTING.md`
+  (setup, per-module tests, the things that look wrong but are load-bearing,
+  PR and commit conventions, what a useful bug report contains),
+  `AGENTS.md` (the same for AI coding agents: commands, constraints such as
+  the error-response contract and path confinement, and the rule that every
+  PR gets a read Copilot review), a Contributor Covenant `CODE_OF_CONDUCT.md`
+  pointing at the maintainer's GitHub handle and the private advisory link,
+  `CODEOWNERS`, a pull request template with the checklist CI cannot run for
+  you, and bug/feature issue templates that ask for the edition, the
+  `error_id` and the doctor's output. The README's documentation table now
+  lists them.
+
 ## [2.8.0] — 2026-09-12
 
 A picture you can hand to anyone, and nothing on the wire that should not be.

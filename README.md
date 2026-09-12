@@ -271,7 +271,9 @@ And the answer to *"send me a picture of the gateway for the last week"* is a PN
 
 ## 🤝 Contributing
 
-Contributions are welcome. The workflow this repository follows for every change:
+Contributions are welcome. Please see the [Contributing Guidelines](CONTRIBUTING.md)
+for setup instructions, the development workflow, and what to include in a bug report.
+The workflow this repository follows for every change:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feat/amazing-feature`)
@@ -283,7 +285,10 @@ Contributions are welcome. The workflow this repository follows for every change
 
 | Document | Contents |
 | --- | --- |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, workflow, PR expectations, the load-bearing oddities |
 | [CHANGELOG.md](CHANGELOG.md) | Release history, with the reasoning behind each change |
+| [AGENTS.md](AGENTS.md) | Guidance for AI coding agents working in this repo |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting, scope, and what this stack assumes about your network |
 | [docs/alerting.md](docs/alerting.md) | Rules, the verdict, charts, digest, muting, delivery, flap damping |
 | [docs/mcp-server.md](docs/mcp-server.md) | MCP tools, deep links, on-request charts |
