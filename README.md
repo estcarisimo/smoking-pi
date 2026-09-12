@@ -1,392 +1,331 @@
-# SmokePing Network Monitoring - Multi-Edition
+# 🥧 Smoking Pi
 
-<div align="center">
-  <img src="img/logo.jpg" alt="Smoking Pi Logo" width="150"/>
-  
-  **Professional Network Monitoring with Three Deployment Options**
-</div>
+Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [SmokePing](https://oss.oetiker.ch/smokeping/) in Docker Compose and grows with you: from a single container reading a YAML file, to a full stack with a web admin, Grafana dashboards, a time-series database, alerting that leads with a verdict, and an MCP server so an AI assistant can answer *"how's my internet?"* from months of recorded history instead of a live `ping`. Built for a Raspberry Pi (ARM64) and runs anywhere Docker does.
 
-## 🎯 Choose Your Edition
+[![CI](https://github.com/estcarisimo/smoking-pi/actions/workflows/ci.yml/badge.svg)](https://github.com/estcarisimo/smoking-pi/actions/workflows/ci.yml)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
+[![Docker Compose](https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+[![Raspberry Pi](https://img.shields.io/badge/raspberry%20pi-arm64-C51A4A.svg?logo=raspberrypi&logoColor=white)](https://www.raspberrypi.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-SmokePing now comes in three editions to match your needs and infrastructure:
+## ✨ Features
 
-| Edition | Use Case | Features | Resources |
-|---------|----------|----------|-----------|
-| **[Basic](editions/basic/)** | Simple monitoring | LinuxServer SmokePing + YAML config | Minimal |
-| **[Standard](editions/standard/)** | Team management | Web admin + PostgreSQL + API | Low-Medium |  
-| **[Pro](editions/pro/)** | Advanced monitoring | Full stack + Grafana + Time-series DB | Medium-High |
-
-### 🆕 What's New
-
-- **Unified Setup**: All editions now use `./setup.sh` for consistent experience
-- **Auto-Configuration**: Passwords, timezone, and environment automatically configured
-- **Database Choice**: Pro edition supports both InfluxDB and ClickHouse
-- **YAML Config**: Basic edition uses simple YAML files for target management
+- 📡 **Continuous measurement**: ICMP latency and loss to every target on a 300 s cycle, plus DNS resolution timing and IPv6 — recorded for months, not sampled once
+- 🎚️ **Three editions, one setup script**: Basic (YAML), Standard (web admin + PostgreSQL + REST API), Pro (everything + Grafana + InfluxDB/ClickHouse)
+- 📊 **Grafana dashboards**: per-target detail with every individual ping, side-by-side comparisons, percentiles, and CPE microcut detection sampled every 10 s
+- 🚨 **Alerts that say what they mean**: every alert leads with a verdict — *is it me or the internet?* — carries the chart, and can be muted by asking in chat
+- 🤖 **MCP server + agent skill**: ask an AI assistant about last night's outage; answers come with deep links into the exact Grafana view
+- 🖼️ **Charts you can forward**: `get_chart` renders a PNG of any target — median with the spread of individual pings — for someone with no login here
+- 🩺 **Instrumentation doctor**: static and live checks that the dashboards, exporters, containers and DNS actually agree with each other
+- 🌐 **Remote access built in**: temporary Cloudflare tunnels with no account, or permanent ones with yours
+- 🔐 **Secure defaults**: generated passwords, bearer-token APIs, loopback-only bindings, snapshots off, error responses that never echo internals
+- 🍿 **Netflix CDN monitoring**: discovers the Open Connect Appliances serving your network and tracks them
 
 ## 🚀 Quick Start
 
-### 1. Choose Your Edition
+### Installation
 
-All editions use a unified `setup.sh` script that handles everything automatically:
-
-```bash
-# Basic - Simple monitoring with YAML configuration
-cd editions/basic
-./setup.sh
-
-# Standard - Web management with PostgreSQL  
-cd editions/standard
-./setup.sh
-
-# Pro - Full monitoring stack (with InfluxDB)
-cd editions/pro
-./setup.sh
-
-# Pro - With ClickHouse database
-cd editions/pro
-./setup.sh --database clickhouse
-```
-
-The setup script will:
-- 🔐 Generate secure passwords automatically
-- ⏰ Detect and configure your timezone
-- 🐳 Start all required Docker containers
-- ✅ Verify services are running properly
-- 📋 Display access URLs and credentials
-
-### 2. Quick Maintenance
+You need Docker with the Compose plugin (`docker compose version`). Clone, pick an edition, run its setup:
 
 ```bash
-# Stop all containers
-docker stop $(docker ps -a | grep smokeping | awk '{print $1}')
+# Clone
+git clone https://github.com/estcarisimo/smoking-pi.git
+cd smoking-pi
 
-# Clean up resources
-docker-compose -f editions/<edition>/docker-compose.yml down -v
-
-# See full guide: shared/docs/maintenance.md
+# Pro edition (full stack, InfluxDB)
+cd editions/pro
+./setup.sh
 ```
 
-## 📊 Edition Comparison
+`setup.sh` generates a `.env` with strong random passwords, detects your timezone, starts the containers, waits for them to be healthy, and prints the URLs and credentials.
 
-### 🟢 Basic Edition
-- **Perfect for**: Home users, simple setups
-- **Container**: LinuxServer.io SmokePing (well-maintained)
-- **Configuration**: Easy-to-edit YAML files with automatic validation
-- **Interface**: Classic SmokePing web interface
-- **Database**: RRD files
-- **Setup time**: 2 minutes
+```bash
+# Or start smaller
+cd editions/basic    && ./setup.sh                        # SmokePing + YAML config
+cd editions/standard && ./setup.sh                        # + web admin, PostgreSQL, REST API
+cd editions/pro      && ./setup.sh --database clickhouse  # Pro with ClickHouse instead of InfluxDB
+```
 
-**YAML Configuration Benefits:**
-- Human-readable format (no complex SmokePing syntax)
-- Automatic validation on startup
-- Version control friendly
-- Edit `config/targets.yaml` to add/remove monitoring targets
+> **Note:** nothing is published to a package registry — install from a clone, as shown above. `.env` files hold real secrets and are gitignored; never commit them.
 
-### 🟡 Standard Edition  
-- **Perfect for**: Small teams, managed environments
-- **Features**: Web admin, PostgreSQL database, REST API
-- **Configuration**: Database-driven with web interface
-- **Management**: Target management, bulk operations
-- **Authentication**: Secure login system
-- **Setup time**: 5 minutes
+### System Requirements
 
-### 🔴 Pro Edition
-- **Perfect for**: Advanced monitoring
-- **Features**: Everything + Grafana dashboards, InfluxDB
-- **Monitoring**: Advanced metrics, IPv6, DNS timing
-- **Dashboards**: Professional visualizations, percentile analysis
-- **Time-series**: InfluxDB or ClickHouse support
-- **Integrations**: Netflix CDN monitoring, OCA endpoints
-- **Setup time**: 10 minutes
+- Docker Engine with the Compose v2 plugin
+- A Raspberry Pi 4/5 (ARM64) or any x86-64 Linux host. Pro with Grafana + InfluxDB is comfortable on a Pi 5 with 4 GB
+- Outbound ICMP (the whole point) and, for the optional integrations, outbound HTTPS
+
+### Choose Your Edition
+
+| Edition | Perfect for | What you get | Setup time |
+|---|---|---|---|
+| 🟢 **[Basic](editions/basic/)** | Home users, one box | LinuxServer.io SmokePing, targets in a YAML file, classic web UI, RRD storage | 2 min |
+| 🟡 **[Standard](editions/standard/)** | Small teams | + web admin with login, PostgreSQL as the source of truth, REST API, bulk target management | 5 min |
+| 🔴 **[Pro](editions/pro/)** | Everything | + Grafana dashboards, InfluxDB or ClickHouse, IPv6 + DNS probes, alerting, MCP server, AI reports, doctor | 10 min |
+
+Upgrade path is `Basic → Standard → Pro`; `shared/scripts/migrate-to-edition.sh` backs up and migrates your data between editions.
+
+## 📖 Usage
+
+### Basic Usage
+
+```bash
+# Where is everything, and what are the passwords?
+./show-passwords.sh                      # from any edition directory
+
+# Container lifecycle
+../../shared/scripts/manage-containers.sh --action status --verbose
+../../shared/scripts/manage-containers.sh --action logs --service grafana
+../../shared/scripts/manage-containers.sh --action restart --edition pro
+
+# Plain Compose works too, from the edition directory
+docker compose ps
+docker compose logs -f smokeping
+```
+
+### Managing Targets
+
+- **Basic**: edit `config/targets.yaml` and restart — it is validated on startup
+- **Standard / Pro**: the web admin at `http://<host>:8080` (targets, sources, countries, bulk operations), or the config-manager REST API on `127.0.0.1:5000` with a bearer token. PostgreSQL is the source of truth; the YAML files are import/export only
+
+```bash
+# REST API, from the host (token is CONFIG_API_TOKEN in .env)
+curl -H "Authorization: Bearer $CONFIG_API_TOKEN" http://127.0.0.1:5000/targets
+curl -X POST -H "Authorization: Bearer $CONFIG_API_TOKEN" http://127.0.0.1:5000/generate
+```
+
+### Ask Your Network How It's Doing
+
+Pro ships an MCP server and a ready-made agent skill, so *"how was the week?"* is answered from recorded history rather than a live probe:
+
+```bash
+# Start the MCP server (opt-in profile) and register it with a client
+COMPOSE_PROFILES=influxdb,mcp docker compose up -d mcp-server
+claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp
+
+# Install the OpenClaw skill so a Telegram chat can ask; re-run after any change
+./shared/scripts/install-openclaw-skill.sh --reload
+./shared/scripts/install-openclaw-skill.sh --check     # non-zero if the copy is stale
+```
+
+Tools: `get_latency_stats`, `get_loss_events`, `get_microcut_stats`, `system_status`, `get_chart` (a PNG, on request only), `mute_alerts` / `ack_incident`, and target management. Every answer carries deep links into the Grafana view for that target and window. See [docs/mcp-server.md](docs/mcp-server.md) and [docs/openclaw-integration.md](docs/openclaw-integration.md).
+
+### Alerts
+
+```bash
+# Opt in, log-only until you point it somewhere
+COMPOSE_PROFILES=influxdb,alerts docker compose up -d alerter
+# Deliver to a chat via OpenClaw, or to any webhook -- see docs/alerting.md
+```
+
+Rules: target down, high loss, CPE microcut bursts, exporter stale. Each alert leads with a verdict (*🌐 not you — 12 of 16 destinations affected but your local link is clean*), attaches the chart, and links home and from-anywhere. A daily digest makes a quiet day distinguishable from a dead monitor. Muting is done by asking the assistant, capped at 24 h, and read back to you. See [docs/alerting.md](docs/alerting.md).
+
+### Remote Access
+
+```bash
+# Temporary URLs, no account needed (*.trycloudflare.com)
+./shared/scripts/create-tunnel.sh create
+./shared/scripts/show-tunnel-urls.sh
+./shared/scripts/create-tunnel.sh stop
+
+# Permanent tunnel with your own Cloudflare account and domain
+cd shared/cloudflare-tunnel && cp .env.template .env   # add CLOUDFLARE_TUNNEL_TOKEN
+docker compose up -d
+```
+
+Anything you put a tunnel in front of should have authentication in front of the tunnel — see [SECURITY.md](SECURITY.md). Guides: [quick tunnels](shared/docs/quick-tunnels.md), [permanent tunnels](shared/docs/cloudflare-tunnel-setup.md).
+
+### 🐳 Docker Usage
+
+Everything is Compose. Optional services are behind profiles so the default stack stays small:
+
+| Profile | Adds | Needs |
+|---|---|---|
+| `influxdb` *(default via setup.sh)* | InfluxDB 2.x + the RRD→Influx exporter | — |
+| `clickhouse` | ClickHouse + its exporter and dashboards (`-f docker-compose.clickhouse.yml`) | see [docs/clickhouse.md](docs/clickhouse.md) |
+| `alerts` | The alerting engine and daily digest | `NOTIFY_MODE` + delivery settings |
+| `mcp` | MCP server on `127.0.0.1:8090` | `MCP_API_TOKEN` |
+| `ai` | AI health reports | `ANTHROPIC_API_KEY` |
+
+```bash
+# Pro with alerts and the MCP server
+COMPOSE_PROFILES=influxdb,alerts,mcp docker compose up -d
+
+# Pro on ClickHouse
+COMPOSE_PROFILES=clickhouse docker compose -f docker-compose.yml -f docker-compose.clickhouse.yml up -d
+
+# Rebuild one service after pulling changes
+docker compose build web-admin && docker compose up -d web-admin
+```
+
+## 🔧 Configuration
+
+### Environment Variables
+
+`setup.sh` writes `editions/<edition>/.env` from `.env.template`; every key in the template ships empty and is documented inline. The ones you are most likely to touch:
+
+| Variable | Purpose |
+|---|---|
+| `TZ` | Timezone for the stack and for chart axes |
+| `CONFIG_API_TOKEN`, `MCP_API_TOKEN` | Bearer tokens for the config-manager API and the MCP server |
+| `WEB_ADMIN_USERNAME`, `WEB_ADMIN_PASSWORD_HASH` | Web admin login |
+| `PUBLIC_BASE_HOST`, `TUNNEL_BASE_HOST` | Where readers reach Grafana/web-admin; enables deep links (at home / from anywhere) |
+| `NOTIFY_MODE`, `OPENCLAW_*`, `ALERT_WEBHOOK_URL` | Alert delivery |
+| `ALERT_CHARTS`, `CHART_THEME`, `CHART_HOURS` | Charts attached to alerts |
+| `IPV6_MODE` | `auto` (gate on real global IPv6), `force`, or `off` |
+| `ANTHROPIC_API_KEY` | AI reports and the web-admin assistant |
+
+### Configuration Files
+
+- `editions/<edition>/config-manager/config/{targets,probes,sources}.yaml` — targets, probe definitions, and the top-sites sources (Tranco, CrUX, Cloudflare Radar) used to pick targets by country
+- Generated SmokePing `Targets` / `Probes` land in `config-manager/output/` and are mounted into the SmokePing container; do not edit them by hand
+- Grafana dashboards are provisioned from `shared/modules/grafana/provisioning/` — separate sets for InfluxDB and ClickHouse
 
 ## 🏗️ Architecture
 
-```
+Each edition is a Compose file that assembles services from `shared/modules/`; containers never import across each other, and the few pieces two containers share live in `shared/modules/common/`.
+
+```text
 smoking-pi/
 ├── editions/
-│   ├── basic/           # SmokePing + YAML configuration
-│   ├── standard/        # + PostgreSQL + Web Admin + API
-│   └── pro/             # + Grafana + InfluxDB/ClickHouse + Advanced monitoring
+│   ├── basic/                 # SmokePing + YAML
+│   ├── standard/              # + config-manager, web-admin, PostgreSQL
+│   └── pro/                   # + Grafana, InfluxDB/ClickHouse, alerter, MCP, AI, doctor
 ├── shared/
-│   ├── modules/         # Reusable Docker containers
-│   │   ├── smokeping/   # Custom SmokePing images
-│   │   ├── config-manager/  # Configuration API service
-│   │   ├── web-admin/   # Web management interface
-│   │   ├── grafana/     # Custom Grafana with dashboards
-│   │   ├── postgres/    # PostgreSQL with initialization
-│   │   ├── influxdb/    # InfluxDB time-series database
-│   │   └── smokeping-exporters/  # RRD to time-series exporters
-│   ├── scripts/         # Utility scripts (setup, management, tunnels)
-│   └── cloudflare-tunnel/   # Secure remote access configuration
-└── README.md           # Project documentation
+│   ├── modules/
+│   │   ├── smokeping/         # LinuxServer.io SmokePing image, exporter hooks
+│   │   ├── config-manager/    # Flask API: YAML ↔ PostgreSQL ↔ generated SmokePing config
+│   │   ├── web-admin/         # Flask UI: targets, sources, countries, AI assistant
+│   │   ├── grafana/           # Custom image with provisioned dashboards
+│   │   ├── smokeping-exporters/  # RRD → InfluxDB / ClickHouse, CPE microcut detector
+│   │   ├── alerter/           # Rules, verdict, charts, digest, delivery
+│   │   ├── mcp-server/        # MCP tools over the config API and InfluxDB
+│   │   ├── ai-insights/       # Periodic AI health reports
+│   │   ├── doctor/            # Static + live instrumentation checks
+│   │   └── common/            # Flux helpers, chart renderer, deep links, mutes, OpenClaw client
+│   ├── scripts/               # setup helpers, container management, tunnels, skill install
+│   ├── docs/                  # tunnels, maintenance
+│   └── cloudflare-tunnel/     # permanent tunnel Compose
+├── docs/                      # alerting, MCP, OpenClaw, doctor, ClickHouse, IPv6, upgrades
+└── examples/openclaw/         # the agent skill
 ```
 
-## 🔒 Security Features
+**Data flow:** YAML → config-manager bootstraps PostgreSQL → generates SmokePing `Targets`/`Probes` → SmokePing writes RRDs → exporters push to InfluxDB/ClickHouse → Grafana, the alerter and the MCP server read the time series.
 
-- **Auto-generated passwords** for all services
-- **Secure cookie signing** for web interfaces
-- **PostgreSQL authentication** with strong passwords
-- **Cloudflare Tunnel integration** for secure remote access
-- **Docker network isolation** between editions
+## 🧪 Development
 
-## 🔄 Database Choice (Pro Edition)
-
-The Pro Edition uses **InfluxDB** as its time-series database:
+### Setup Development Environment
 
 ```bash
-# InfluxDB (default, supported)
-./setup.sh
+git clone https://github.com/estcarisimo/smoking-pi.git
+cd smoking-pi
+
+# Each module is its own package; use uv or a venv per module
+cd shared/modules/config-manager
+uv sync            # or: python -m venv .venv && pip install -e ".[dev]"
 ```
 
-> **ClickHouse support works but sees less use than InfluxDB.** The datasource
-> plugin is baked into the Grafana image, the schema is created by the exporter
-> on connect, and all eight ClickHouse dashboards have been verified to run
-> against a real ClickHouse instance. InfluxDB remains the default and the
-> better-trodden path; see [docs/clickhouse.md](docs/clickhouse.md).
+### Running Tests
 
-## 🌐 Remote Access
-
-### Quick Access (No Account Required!)
-
-Get instant remote access with temporary URLs:
+Every module with a `tests/` directory is discovered by CI. Tests mock the network, the database and Docker; none needs a running stack.
 
 ```bash
-# Create temporary tunnel URLs
-./shared/scripts/create-tunnel.sh
-
-# Your services will be available at:
-# SmokePing: https://[random].trycloudflare.com
-# Web Admin: https://[random].trycloudflare.com  
-# Grafana:   https://[random].trycloudflare.com (Pro only)
+cd shared/modules/alerter     && pytest tests/ -q
+cd shared/modules/mcp-server  && pytest tests/ -q
+cd shared/modules/web-admin   && pytest tests/ -q
+cd shared/modules/config-manager && pytest tests/ -q
 ```
-
-**Quick Tunnels Guide**: [Quick Tunnels Documentation](shared/docs/quick-tunnels.md)
-
-### Permanent Access (Requires Cloudflare Account)
-
-For production use with custom domains:
-
-```bash
-# Set up permanent tunnel
-cd shared/cloudflare-tunnel
-cp .env.template .env
-# Add your CLOUDFLARE_TUNNEL_TOKEN
-docker-compose up -d
-```
-
-**Detailed Setup**: [Cloudflare Tunnel Documentation](shared/docs/cloudflare-tunnel-setup.md)
-
-## 🔧 Utility Scripts Reference
-
-All editions include powerful utility scripts for easy management:
-
-### Container Management
-
-**`manage-containers.sh`** - Complete container lifecycle management
-```bash
-# Usage examples
-./shared/scripts/manage-containers.sh --action start [--edition basic] [--service smokeping]
-./shared/scripts/manage-containers.sh --action stop --edition pro
-./shared/scripts/manage-containers.sh --action restart --volumes
-./shared/scripts/manage-containers.sh --action status --verbose
-./shared/scripts/manage-containers.sh --action logs --service grafana
-./shared/scripts/manage-containers.sh --action remove --volumes --dry-run
-```
-
-**Features:**
-- **Actions**: start, stop, restart, remove, status, logs
-- **Edition Detection**: Automatically detects current edition or specify with `--edition`
-- **Service-Specific**: Target individual services with `--service`
-- **Volume Management**: Include/exclude volumes with `--volumes`
-- **Safety Features**: Dry-run mode and verbose output
-- **Pro Integration**: Special handling for InfluxDB token synchronization
-
-### Credentials and Access
-
-**`show-passwords.sh`** - Display all service credentials and access information
-```bash
-# From any edition directory
-./show-passwords.sh
-
-# From anywhere in project
-./shared/scripts/show-passwords.sh
-```
-
-**Shows:**
-- **Web Admin**: URL, username, password (Standard/Pro)
-- **Grafana**: URL, admin credentials (Pro only)
-- **InfluxDB**: URL, admin password, API token (Pro only)
-- **PostgreSQL**: Database credentials (Standard/Pro)
-- **SmokePing**: Web interface URL (all editions)
-- **Health Checks**: Service status and troubleshooting tips
-
-### Remote Access (Tunnels)
-
-**`create-tunnel.sh`** - Temporary Cloudflare tunnel management
-```bash
-# Create and start tunnel for current edition
-./shared/scripts/create-tunnel.sh create
-
-# Start existing tunnel
-./shared/scripts/create-tunnel.sh start
-
-# Stop tunnel
-./shared/scripts/create-tunnel.sh stop
-
-# Show tunnel status
-./shared/scripts/create-tunnel.sh status
-
-# Show available commands
-./shared/scripts/create-tunnel.sh help
-```
-
-**`show-tunnel-urls.sh`** - Display active tunnel information
-```bash
-# Show all active tunnels with status
-./shared/scripts/show-tunnel-urls.sh
-```
-
-**Features:**
-- **No Account Required**: Uses temporary *.trycloudflare.com URLs
-- **Auto-Detection**: Automatically detects running edition and services
-- **Service-Specific**: Creates tunnels for all available services
-- **Status Monitoring**: Color-coded tunnel status and management commands
-
-### Usage Examples
-
-```bash
-# Complete workflow example
-cd editions/standard
-./setup.sh                                          # Start edition
-./show-passwords.sh                                 # Get credentials
-../shared/scripts/create-tunnel.sh create           # Create remote access
-../shared/scripts/show-tunnel-urls.sh               # View tunnel URLs
-../shared/scripts/manage-containers.sh --action status --verbose  # Check status
-../shared/scripts/manage-containers.sh --action stop              # Stop when done
-```
-
-## 🔄 Edition Management
-
-### Upgrade Path
-```
-Basic → Standard → Pro
-```
-
-### Edition Switching
-
-Simply start the desired edition after stopping the current one:
-
-```bash
-# Stop current edition
-docker-compose down
-
-# Switch to different edition
-cd ../pro && ./setup.sh --database clickhouse
-```
-
-## 📚 Documentation
-
-- **[Basic Edition](editions/basic/README.md)** - Simple setup guide with YAML configuration
-- **[Standard Edition](editions/standard/README.md)** - Web management with PostgreSQL database
-- **[Pro Edition](editions/pro/README.md)** - Full monitoring stack with Grafana dashboards
-- **[Utility Scripts](shared/scripts/)** - Container management, credentials, and tunnel scripts
-- **[Quick Tunnels](shared/docs/quick-tunnels.md)** - Instant remote access (no account needed)
-- **[Cloudflare Tunnels](shared/docs/cloudflare-tunnel-setup.md)** - Permanent remote access setup
-- **[MCP Server](docs/mcp-server.md)** - Ask an AI agent about your network; deep links back into Grafana
-- **[OpenClaw Integration](docs/openclaw-integration.md)** - Answer "how's my internet?" from Telegram
-- **[Alerting](docs/alerting.md)** - Push notifications that lead with a verdict and carry the graph
-
-### Ask your network how it's doing
-
-Pro ships an MCP server and a ready-made agent skill, so "how was the week?"
-is answered from months of recorded history instead of a live `ping`:
-
-```bash
-# Install the agent skill, then tune the four values it calls out
-./shared/scripts/install-openclaw-skill.sh --reload
-
-# Re-run after any change; --check exits non-zero if the copy is stale
-./shared/scripts/install-openclaw-skill.sh --check
-```
-
-[`examples/openclaw/smokeping-monitoring/SKILL.md`](examples/openclaw/smokeping-monitoring/SKILL.md)
-carries the report shape (traffic lights, sections, both a home and a
-from-anywhere link) and the list of things that look broken but are not — the
-ICMP loss floor, hosts that never answer ping, the alert-test target. It is
-written in English and answers in whatever language you ask in. Four values are
-yours to change; the file names them up front. See
-[OpenClaw Integration](docs/openclaw-integration.md) for the install and the
-gateway reload it needs.
-
-## 🛠️ Development
 
 ### Code Quality
-- **Python**: Modern stack with `uv`, Pydantic models, type hints
-- **Documentation**: NumPy-style docstrings throughout
-- **Linting**: Automated code quality with ruff
-- **Testing**: Comprehensive test coverage
 
-### Contributing
+```bash
+# Lint (CI enforces the critical rules; modules configure ruff fully)
+ruff check shared/modules editions
+
+# The doctor: dashboards, exporters and compose defaults agree with each other
+PYTHONPATH=shared/modules/doctor python -m doctor --repo-root . --verbose
+# ...and against the running stack, from an edition directory
+PYTHONPATH=../../shared/modules/doctor python -m doctor --repo-root ../.. --live
+```
+
+CI runs ruff, shell syntax, Compose config for every edition, Docker builds, the doctor, module tests on Python 3.14, and CodeQL. Every change goes branch → PR → green CI → merge → deploy → smoke test; the [CHANGELOG](CHANGELOG.md) records the why, not just the what.
+
+## 📊 Example Output
+
+A SmokePing graph of ten days on a home line, as served by the Basic edition — the "smoke" is the spread of the individual pings around the median:
+
+<div align="center">
+  <img src="img/minimal.jpeg" alt="SmokePing graph: ten days of latency and loss" width="720"/>
+</div>
+
+An alert as it arrives in chat (Pro, `alerts` profile):
+
+```text
+🟡 warning — UBA
+🌐 Not you — 12 of 16 destinations affected but your local link is clean
+UBA: mean loss 22.5% over 15m
+graph · per-ping · peers · edit · 🌐 anywhere
+[chart attached]
+```
+
+And the answer to *"send me a picture of the gateway for the last week"* is a PNG: median latency with the spread of individual pings shaded, loss underneath on a fixed 0–100 axis, local time, and a footer naming the source — delivered into the chat so it can be forwarded to a friend or the ISP.
+
+## 🤝 Contributing
+
+Contributions are welcome. The workflow this repository follows for every change:
+
 1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Make changes and add tests
-4. Follow code quality standards
-5. Submit pull request
+2. Create a feature branch (`git checkout -b feat/amazing-feature`)
+3. Add or update tests next to the module you changed
+4. Commit with a message that says why (`git commit -m 'feat: add amazing feature'`)
+5. Push to the branch and open a Pull Request — CI must be green
 
-## 🔧 Troubleshooting
+### Project documentation
 
-### Common Issues
-
-| Problem | Solution |
-|---------|----------|
-| Port conflicts | Change ports in `.env` file |
-| Permission errors | Check Docker group membership |
-| Database connection | Verify passwords in `.env` |
-| Services not starting | Check Docker logs: `docker-compose logs` |
-| Stuck containers/networks | See [Maintenance Guide](shared/docs/maintenance.md) |
+| Document | Contents |
+| --- | --- |
+| [CHANGELOG.md](CHANGELOG.md) | Release history, with the reasoning behind each change |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting, scope, and what this stack assumes about your network |
+| [docs/alerting.md](docs/alerting.md) | Rules, the verdict, charts, digest, muting, delivery, flap damping |
+| [docs/mcp-server.md](docs/mcp-server.md) | MCP tools, deep links, on-request charts |
+| [docs/openclaw-integration.md](docs/openclaw-integration.md) | Registering the MCP server and installing the skill for a chat assistant |
+| [docs/doctor.md](docs/doctor.md) | The instrumentation doctor: static and live checks |
+| [docs/clickhouse.md](docs/clickhouse.md) | Running Pro on ClickHouse, and its traps |
+| [docs/ipv6-gating.md](docs/ipv6-gating.md) | Why IPv6 targets disappear when there is no global IPv6 |
+| [docs/ai-insights.md](docs/ai-insights.md) | AI health reports |
+| [docs/upgrades.md](docs/upgrades.md) | Upgrading between versions |
+| [shared/docs/maintenance.md](shared/docs/maintenance.md) | Stuck containers, volumes, cleanup |
+| [editions/basic](editions/basic/README.md) · [standard](editions/standard/README.md) · [pro](editions/pro/README.md) | Per-edition guides |
 
 ### Getting Help
 
-- 📖 **Documentation**: Check edition-specific READMEs
+- 📖 **Documentation**: the per-edition READMEs and `docs/`
 - 🐛 **Issues**: GitHub Issues for bug reports
 - 💬 **Discussions**: GitHub Discussions for questions
-- 📧 **Security**: security@smoking-pi.dev for security issues
+- 🔒 **Security**: privately, as described in [SECURITY.md](SECURITY.md) — never in a public issue
 
-## 📈 Monitoring Capabilities
+## 📄 License
 
-### All Editions
-- ✅ Network latency monitoring
-- ✅ Packet loss detection  
-- ✅ Historical data storage
-- ✅ Web interface graphs
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-### Standard & Pro Only
-- ✅ Database-driven configuration
-- ✅ Web admin interface
-- ✅ REST API for automation
-- ✅ Bulk target management
+## 🔗 Related Resources
 
-### Pro Only
-- ✅ Advanced Grafana dashboards
-- ✅ Time-series database (InfluxDB/ClickHouse)
-- ✅ IPv6 monitoring support
-- ✅ DNS resolution timing
-- ✅ Netflix CDN monitoring
-- ✅ Percentile analysis
-- ✅ Multi-probe support
+- [SmokePing](https://oss.oetiker.ch/smokeping/) — the measurement engine, by Tobi Oetiker
+- [LinuxServer.io SmokePing image](https://docs.linuxserver.io/images/docker-smokeping/) — the container the Basic edition and the Pro probes run on
+- [Netflix Open Connect](https://openconnect.netflix.com/) — the CDN whose appliances the `netflix_oca` category tracks
+- [Netflix OCA Locator](https://github.com/estcarisimo/Netflix-OCA-Servers-Locator) — the sibling project that discovers those appliances
+- [Model Context Protocol](https://modelcontextprotocol.io/) — what the assistant integration speaks
+- [Grafana](https://grafana.com/) · [InfluxDB](https://www.influxdata.com/) · [ClickHouse](https://clickhouse.com/)
 
-## 🏆 Why SmokePing Multi-Edition?
+## 🙏 Acknowledgements
 
-- **🎯 Right-sized**: Choose features that match your needs
-- **📈 Scalable**: Upgrade as your requirements grow
-- **🔒 Secure**: Auto-generated passwords and secure defaults
-- **🛠️ Maintained**: Built on well-maintained base images
-- **🌐 Accessible**: Remote access built-in
-- **📊 Professional**: Enterprise-grade monitoring capabilities
+- **Tobi Oetiker** for SmokePing and RRDtool, which still draw the best latency graph there is
+- **LinuxServer.io** for a SmokePing image that is maintained
+- **Tranco, the Chrome UX Report and Cloudflare Radar** for the top-sites lists that seed per-country targets
+- **The Grafana, InfluxDB and ClickHouse communities** for the storage and the pictures
 
 ---
 
 <div align="center">
-  <b>Start with Basic, grow to Pro</b><br>
-  Professional network monitoring for everyone
+  <b>Start with Basic, grow to Pro.</b><br>
+  Continuous, honest network monitoring for everyone.
 </div>
