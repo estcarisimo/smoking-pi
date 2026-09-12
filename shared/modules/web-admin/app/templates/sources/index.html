@@ -362,25 +362,13 @@ function initCountrySelect(selectId) {
 /* ---------- Cloudflare token management ---------- */
 
 function initCloudflareToken() {
-    const tokenInput = document.getElementById('cloudflare-token');
-    if (!tokenInput) return;
-
-    const savedToken = localStorage.getItem('cloudflare-api-token');
-    if (savedToken) {
-        tokenInput.value = savedToken;
-        tokenInput.style.backgroundColor = '#f8f9fa';
-    }
-
-    tokenInput.addEventListener('input', function() {
-        const token = tokenInput.value.trim();
-        if (token) {
-            localStorage.setItem('cloudflare-api-token', token);
-            tokenInput.style.backgroundColor = '#f8f9fa';
-        } else {
-            localStorage.removeItem('cloudflare-api-token');
-            tokenInput.style.backgroundColor = '';
-        }
-    });
+    // The token is NOT persisted. An earlier version saved it to
+    // localStorage on every keystroke, which is clear-text storage of a
+    // credential that any script on this origin (or anyone at the keyboard
+    // with devtools) can read back. It lives in the password field for the
+    // life of the page and travels only in the POST body. Clear anything a
+    // previous version left behind.
+    try { localStorage.removeItem('cloudflare-api-token'); } catch (e) { /* storage unavailable */ }
 }
 
 function getCloudflareToken() {

@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 import json
 import requests
 
+from .safe_path import confine
+
 logger = logging.getLogger(__name__)
 
 class CloudflareService:
@@ -17,7 +19,7 @@ class CloudflareService:
     
     def __init__(self):
         self.cache_dir = Path('/tmp/cloudflare_cache')
-        self.cache_dir.mkdir(exist_ok=True)
+        self.cache_dir.mkdir(mode=0o700, exist_ok=True)
         self.api_base_url = 'https://api.cloudflare.com/client/v4'
     
     def get_top_sites(self, limit: int = 100, country: str = 'global', offset: int = 0, api_token: Optional[str] = None) -> List[str]:
@@ -48,7 +50,8 @@ class CloudflareService:
         
         try:
             # Check cache first
-            cache_file = self.cache_dir / f'cloudflare_{country}.json'
+            # Validated above as two letters or 'global'; confine() bounds the path.
+            cache_file = confine(self.cache_dir, f'cloudflare_{country}.json')
             if self._is_cache_valid(cache_file):
                 logger.info(f"Using cached Cloudflare data")
                 return self._read_cached_sites(cache_file, limit, offset)

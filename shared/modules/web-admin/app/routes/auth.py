@@ -6,7 +6,7 @@ import hmac
 import os
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_user, logout_user, login_required, current_user
@@ -79,15 +79,22 @@ def _verify_credentials(username, password):
 
 
 def _safe_next_url(next_url):
-    """Only allow relative redirect targets (single leading slash, no netloc)."""
-    if not next_url:
+    """Only allow relative redirect targets (single leading slash, no netloc).
+
+    The value is REBUILT from its parsed path and query rather than echoed:
+    what goes to ``redirect()`` is a string this function assembled, not the
+    request's. Backslashes are rejected outright because browsers treat
+    ``/\\evil.com`` as ``//evil.com``, which the netloc check would miss.
+    """
+    if not next_url or '\\' in next_url:
         return None
     parsed = urlparse(next_url)
     if parsed.scheme or parsed.netloc:
         return None
-    if not next_url.startswith('/') or next_url.startswith('//'):
+    path = parsed.path
+    if not path.startswith('/') or path.startswith('//'):
         return None
-    return next_url
+    return urlunparse(('', '', path, '', parsed.query, ''))
 
 
 class User:

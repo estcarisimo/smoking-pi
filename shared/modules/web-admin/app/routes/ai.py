@@ -29,6 +29,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 from markupsafe import Markup, escape
 
 from app.services import ai_tools
+from app.services.safe_path import UnsafePath, confine
 
 ai_bp = Blueprint('ai', __name__)
 
@@ -157,10 +158,10 @@ def reports():
         if not _REPORT_NAME_RE.match(selected):
             selected = None
         else:
-            path = _reports_dir() / selected
             try:
+                path = confine(_reports_dir(), selected)
                 report_html = markdown_to_html(path.read_text(encoding='utf-8'))
-            except OSError:
+            except (UnsafePath, OSError):
                 report_html = None
                 selected = None
     return render_template(

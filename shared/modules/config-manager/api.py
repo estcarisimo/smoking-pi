@@ -49,6 +49,13 @@ CORS(app)
 # Configuration paths
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", BASE_DIR / "config"))
+# The only YAML files a request may name. update_config() resolves the
+# requested type through this table rather than formatting a filename.
+CONFIG_FILES = {
+    'targets': CONFIG_DIR / 'targets.yaml',
+    'probes': CONFIG_DIR / 'probes.yaml',
+    'sources': CONFIG_DIR / 'sources.yaml',
+}
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", BASE_DIR / "output"))
 
 
@@ -219,17 +226,20 @@ class ConfigManagerAPI:
     def update_config(self, config_type: str, config_data: Dict[str, Any]) -> Dict[str, Any]:
         """Update configuration"""
         try:
-            config_file = CONFIG_DIR / f"{config_type}.yaml"
-            
+            # The file is looked up, never built from the request string: the
+            # type is a key into a literal table, so an unknown type fails
+            # here and no caller-supplied text ever reaches a path.
+            config_file = CONFIG_FILES.get(config_type)
+            if config_file is None:
+                raise ValueError(f"Unknown configuration type: {config_type}")
+
             # Validate the configuration data
             if config_type == 'targets':
                 self._validate_targets_config(config_data)
             elif config_type == 'probes':
                 self._validate_probes_config(config_data)
-            elif config_type == 'sources':
-                self._validate_sources_config(config_data)
             else:
-                raise ValueError(f"Unknown configuration type: {config_type}")
+                self._validate_sources_config(config_data)
             
             with get_config_lock():
                 # Backup existing config (keep the 5 most recent)
