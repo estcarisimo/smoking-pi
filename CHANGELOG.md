@@ -9,6 +9,44 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Security
+
+- **`setup.sh` now generates `CONFIG_API_TOKEN` (Standard, Pro) and
+  `MCP_API_TOKEN` (Pro).** Both shipped empty, which both services treat as
+  *unauthenticated*, while the README described the APIs as bearer-protected
+  — a Copilot review comment on the README, and a fair one. The MCP server
+  exposes every mutation the config API has. `show-passwords.sh` prints both
+  tokens with the header each expects, and says so in red when one is
+  unset. Existing `.env` files are not touched; set the two keys by hand to
+  get the same protection (`openssl rand -hex 32`).
+
+- **`safe_path.confine()` also resolves symlinks**, and rejects `.`, `..`
+  and the empty name explicitly (on a root base, `..` normalises to the
+  base itself, which the prefix check cannot see). Both from the Copilot
+  review of #52; the lexical check remains what CodeQL scores.
+
+### Fixed
+
+- **`manage-containers.sh` works with Compose v2.** It required the legacy
+  `docker-compose` binary while the README's requirements only promised the
+  `docker compose` plugin. It now uses whichever is present, preferring v2.
+
+- **Tests that were not testing what they said** (Copilot review of #52,
+  #53): the config-manager unknown-type test used a path Werkzeug
+  normalises away before routing, so its assertions never ran; the status
+  test patched a method that does not exist; the CrUX confinement test
+  failed the regex before reaching the code under test; the backslash
+  redirect guard had no test at all. Each now exercises the real branch.
+
+- **README claims that were not true**, from the same review: setup does
+  not wait for health in every edition; profiles given on the command line
+  are not persisted (edit `COMPOSE_PROFILES` in `.env`); `.env` is not
+  exported into your shell; deep links appear only once `PUBLIC_BASE_HOST`
+  is set; the config file paths and the data-flow description are Pro's,
+  now labelled as such; CodeQL runs through GitHub's default setup, not the
+  workflow; and every multi-line `cd` example is anchored at the checkout
+  root.
+
 ### Added
 
 - **The community files a repository is supposed to have.** `CONTRIBUTING.md`

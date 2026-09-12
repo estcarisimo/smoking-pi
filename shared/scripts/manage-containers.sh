@@ -187,10 +187,19 @@ execute_command() {
     fi
 }
 
-# Check if docker-compose is available
+# Compose v2 (`docker compose`) is what the README requires; the legacy
+# `docker-compose` binary is accepted when that is all there is. COMPOSE is
+# used unquoted below on purpose, so the two-word form splits.
+COMPOSE=""
+
+# Check that some Compose is available
 check_docker_compose() {
-    if ! command -v docker-compose &> /dev/null; then
-        log_error "docker-compose is not installed or not in PATH"
+    if docker compose version &> /dev/null; then
+        COMPOSE="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        COMPOSE="docker-compose"
+    else
+        log_error "Docker Compose is not available (neither 'docker compose' nor 'docker-compose')"
         exit 1
     fi
     
@@ -212,7 +221,7 @@ wait_for_influxdb() {
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
-        if docker-compose ps influxdb 2>/dev/null | grep -q "Up.*healthy\|Up.*starting"; then
+        if $COMPOSE ps influxdb 2>/dev/null | grep -q "Up.*healthy\|Up.*starting"; then
             log_success "InfluxDB is ready"
             return 0
         fi
@@ -251,7 +260,7 @@ action_start() {
         fi
     fi
     
-    local cmd="docker-compose up -d"
+    local cmd="$COMPOSE up -d"
     if [ -n "$SERVICE" ]; then
         cmd="$cmd $SERVICE"
     fi
@@ -276,7 +285,7 @@ action_start() {
 action_stop() {
     log_info "Stopping $EDITION edition containers..."
     
-    local cmd="docker-compose stop"
+    local cmd="$COMPOSE stop"
     if [ -n "$SERVICE" ]; then
         cmd="$cmd $SERVICE"
     fi
@@ -288,7 +297,7 @@ action_stop() {
 action_restart() {
     log_info "Restarting $EDITION edition containers..."
     
-    local cmd="docker-compose restart"
+    local cmd="$COMPOSE restart"
     if [ -n "$SERVICE" ]; then
         cmd="$cmd $SERVICE"
     fi
@@ -325,14 +334,14 @@ action_remove() {
     fi
     
     # Stop containers first
-    local stop_cmd="docker-compose stop"
+    local stop_cmd="$COMPOSE stop"
     if [ -n "$SERVICE" ]; then
         stop_cmd="$stop_cmd $SERVICE"
     fi
     execute_command "$stop_cmd" "Stopping containers before removal"
     
     # Remove containers
-    local rm_cmd="docker-compose rm -f"
+    local rm_cmd="$COMPOSE rm -f"
     if [ -n "$SERVICE" ]; then
         rm_cmd="$rm_cmd $SERVICE"
     fi
@@ -340,7 +349,7 @@ action_remove() {
     
     # Remove volumes if requested
     if [ "$INCLUDE_VOLUMES" = true ]; then
-        local volume_cmd="docker-compose down -v"
+        local volume_cmd="$COMPOSE down -v"
         execute_command "$volume_cmd" "Removing volumes"
     fi
 }
@@ -350,7 +359,7 @@ action_status() {
     log_info "Container status for $EDITION edition:"
     echo
     
-    local cmd="docker-compose ps"
+    local cmd="$COMPOSE ps"
     if [ -n "$SERVICE" ]; then
         cmd="$cmd $SERVICE"
     fi
@@ -360,7 +369,7 @@ action_status() {
 
 # Show container logs
 action_logs() {
-    local cmd="docker-compose logs"
+    local cmd="$COMPOSE logs"
     
     # Add follow flag for better log viewing
     if [ -z "$SERVICE" ]; then

@@ -81,6 +81,18 @@ def test_open_redirect_protocol_relative_rejected(client):
     assert 'evil.example.com' not in response.headers['Location']
 
 
+def test_backslash_next_url_falls_back_to_dashboard(client):
+    """REINTRODUCTION TEST: browsers read /\\evil.example.com as
+    //evil.example.com, which the netloc check alone does not see."""
+    response = client.post('/login', data={
+        'username': 'admin',
+        'password': 'test-password',
+        'next': '/\\evil.example.com/phish',
+    })
+    assert response.status_code == 302
+    assert 'evil.example.com' not in response.headers['Location']
+
+
 def test_relative_next_url_allowed(client):
     response = client.post(
         '/login',

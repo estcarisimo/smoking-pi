@@ -63,13 +63,14 @@ def test_validation_reasons_come_back_verbatim(client, monkeypatch):
 
 
 def test_unknown_config_type_is_named_without_echoing_it(client):
-    response = client.put("/config/../etc/passwd", json={"a": 1})
-    assert response.status_code in (400, 404)
-    if response.status_code == 400:
-        body = response.get_json()
-        assert body["error"] == "Unknown configuration type"
-        assert "passwd" not in response.get_data(as_text=True)
-        assert body["known"] == ["probes", "sources", "targets"]
+    # A single segment: Werkzeug would normalise "../" away before routing,
+    # and a 404 would skip the branch under test.
+    response = client.put("/config/not-a-real-type", json={"a": 1})
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"] == "Unknown configuration type"
+    assert "not-a-real-type" not in response.get_data(as_text=True)
+    assert body["known"] == ["probes", "sources", "targets"]
 
 
 def test_bad_json_body_is_a_static_message(client):
@@ -81,9 +82,23 @@ def test_bad_json_body_is_a_static_message(client):
 
 def test_status_dicts_carry_no_exception_text(monkeypatch):
     """/status serialises get_status() as-is, so its inner error fields
-    must be static too."""
-    monkeypatch.setattr(api_module.api, "_check_database_availability", _boom,
-                        raising=False)
+    must be static too. Patches the checkers get_status() actually calls."""
+    monkeypatch.setattr(api_module.api, "_check_database_status", _boom)
     status = api_module.api.get_status()
-    text = str(status)
-    assert "hunter2" not in text
+    assert status["status"] == "error"
+    assert "hunter2" not in str(status)
+
+    monkeypatch.setattr(api_module.api, "_check_database_status",
+                        lambda: {"available": True})
+    monkeypatch.setattr(api_module.api, "_check_smokeping_status", _boom)
+    status = api_module.api.get_status()
+    assert "hunter2" not in str(status)
+
+
+def test_database_status_never_carries_the_dsn(monkeypatch):
+    """The database check's exception is where a DSN with its password shows
+    up. Patch the session factory it uses."""
+    monkeypatch.setattr(api_module, "get_db_session", _boom, raising=True)
+    result = api_module.api._check_database_status()
+    assert result["available"] is False
+    assert "hunter2" not in str(result)
