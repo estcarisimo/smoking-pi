@@ -78,6 +78,13 @@ thing that turns a small bug elsewhere into a disclosure.
 
 ### Changed
 
+- **README rewritten** in the shape of the sibling Netflix OCA Locator's:
+  features first, one quick start, usage by task, a documentation table
+  that only lists files that exist. The broken logo reference
+  (`img/logo.jpg` never existed) is gone until there is a logo; the
+  security contact points at `SECURITY.md`'s private reporting instead of
+  a placeholder address.
+
 - **The chart renderer moved to `shared/modules/common/charts.py`** so the
   alerter and the MCP server draw the same picture. The alerter's
   `charts.py` is an alias, as `flux.py` already was. The OpenClaw
@@ -105,6 +112,13 @@ thing that turns a small bug elsewhere into a disclosure.
   7000 ms. Visibly wrong, but only on a chart nobody had compared to the
   dashboard. Now scaled per measurement, with a test that reintroduces the
   bug.
+
+- **web-admin no longer logs `Control server error: Permission denied:
+  '/home/smokeping'` at startup.** Its user was created with `useradd -r`,
+  which makes no home directory, and gunicorn 26 opens a control socket
+  under `$HOME`. The user now gets a home. Harmless before, but a
+  permanent error line on a clean boot is one you learn to skip, and then
+  you skip the one that matters.
 
 - `docs/alerting.md` now lists `ALERT_CHARTS` and the `CHART_*` knobs in the
   environment reference; they were documented only in `.env.template`.

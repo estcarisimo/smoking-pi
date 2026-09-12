@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user for security
-RUN groupadd -r smokeping && useradd -r -g smokeping smokeping
+RUN groupadd -r smokeping && useradd -r -m -g smokeping smokeping
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
