@@ -314,4 +314,9 @@ def test_chat_api_failure_returns_502(client, monkeypatch, ai_enabled):
         {'role': 'user', 'content': 'hi'}
     ]})
     assert resp.status_code == 502
-    assert 'api down' in resp.get_json()['error']
+    body = resp.get_json()
+    # The upstream exception text stays in the log; the page gets a static
+    # message and an id to find it by.
+    assert 'api down' not in resp.get_data(as_text=True)
+    assert body['error'] == 'Assistant request failed'
+    assert len(body['error_id']) == 8

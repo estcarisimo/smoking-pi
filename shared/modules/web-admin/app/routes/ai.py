@@ -25,7 +25,8 @@ import os
 import re
 from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify, render_template, request
+from app.errors import error_response
+from flask import Blueprint, jsonify, render_template, request
 from markupsafe import Markup, escape
 
 from app.services import ai_tools
@@ -302,8 +303,9 @@ def _run_chat_loop(messages: list) -> dict:
 
 
 def _chat_error(exc: Exception):
-    current_app.logger.error(f'AI chat failed: {exc}')
-    return jsonify({'error': f'Assistant request failed: {exc}'}), 502
+    # The exception text can carry the upstream API's message, which has
+    # been known to echo request fragments; the log gets it, not the page.
+    return error_response(502, 'Assistant request failed', exc)
 
 
 @ai_bp.route('/chat', methods=['POST'])

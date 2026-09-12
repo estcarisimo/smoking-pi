@@ -1,6 +1,5 @@
 """confine(): the one place request-named files are allowed to touch disk."""
 
-from pathlib import Path
 
 import pytest
 

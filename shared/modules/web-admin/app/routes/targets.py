@@ -2,6 +2,7 @@
 Targets management routes
 """
 
+from app.errors import error_response
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
 import ipaddress
 import re
@@ -49,8 +50,10 @@ def validate_hostname(hostname):
         return True, None
     except socket.gaierror:
         return False, f"Cannot resolve hostname: {hostname}"
-    except Exception as e:
-        return False, str(e)
+    except Exception:
+        current_app.logger.warning("Hostname check failed for %r", hostname,
+                                   exc_info=True)
+        return False, "Hostname could not be checked"
 
 def check_ipv6_global_reachability():
     """Check if local host has IPv6 global connectivity"""
@@ -179,11 +182,12 @@ def list_targets():
             # Combine both types
             all_custom_targets = custom_targets + custom_dns_targets
         
-    except Exception as e:
-        current_app.logger.error(f"Failed to get targets: {e}")
+    except Exception:
+        current_app.logger.error("Failed to get targets", exc_info=True)
         all_custom_targets = []
         using_database = False
-        service_status = {'status': 'error', 'error': str(e)}
+        service_status = {'status': 'error',
+                          'error': 'config-manager unreachable; see web-admin log'}
 
     categories = sorted({
         t.get('category') for t in all_custom_targets if t.get('category')
@@ -331,10 +335,11 @@ def add_target():
                 flash(success_message, 'success')
                 return redirect(url_for('targets.list_targets'))
 
-            except Exception as e:
-                current_app.logger.error(f"Database error creating target: {e}")
+            except Exception:
+                current_app.logger.error("Database error creating target",
+                                         exc_info=True)
                 return _add_target_error_response(
-                    {'_form': f"Failed to create target: {str(e)}"},
+                    {'_form': "Failed to create target; see web-admin log"},
                     name, hostname, title, target_type, dns_query)
         else:
             # YAML fallback mode
@@ -484,9 +489,8 @@ def delete_target(name):
             return jsonify({'success': True, 'message': f"Target '{name}' deleted successfully"})
     
     except Exception as e:
-        current_app.logger.error(f"Error deleting target: {str(e)}")
-        flash(f"Error deleting target: {str(e)}", 'error')
-        return jsonify({'success': False, 'error': str(e)}), 500
+        flash("Error deleting target; see web-admin log", 'error')
+        return error_response(500, 'Error deleting target', e, success=False)
 
 
 @targets_bp.route('/<int:target_id>/toggle', methods=['POST'])
@@ -506,11 +510,11 @@ def toggle_target(target_id):
             'is_active': target.get('is_active'),
             'message': result.get('message', 'Target toggled'),
         })
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 404
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Target not found'}), 404
     except Exception as e:
-        current_app.logger.error(f"Error toggling target {target_id}: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return error_response(500, f'Error toggling target {target_id}', e,
+                              success=False)
 
 
 @targets_bp.route('/<int:target_id>', methods=['PUT'])
@@ -547,8 +551,7 @@ def edit_target(target_id):
                 p['name']: p['id'] for p in probes_result.get('probes', [])
             }
         except Exception as e:
-            current_app.logger.error(f"Failed to get probes: {e}")
-            return jsonify({'success': False, 'error': str(e)}), 500
+            return error_response(500, 'Failed to get probes', e, success=False)
         if probe not in probe_ids:
             return jsonify({
                 'success': False,
@@ -562,11 +565,11 @@ def edit_target(target_id):
     try:
         config_api.update_target_in_db(target_id, update)
         return jsonify({'success': True, 'message': 'Target updated'})
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 404
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Target not found'}), 404
     except Exception as e:
-        current_app.logger.error(f"Error updating target {target_id}: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return error_response(500, f'Error updating target {target_id}', e,
+                              success=False)
 
 
 @targets_bp.route('/bulk-delete', methods=['POST'])

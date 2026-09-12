@@ -2,6 +2,7 @@
 Sources management routes - Top site picker
 """
 
+from app.errors import error_response
 from flask import Blueprint, render_template, request, jsonify, current_app
 from app.services.tranco import TrancoService
 from app.services.crux import CruxService
@@ -95,7 +96,7 @@ def fetch_source(source):
         })
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, 'Could not fetch sites', e)
 
 @sources_bp.route('/api/update', methods=['POST'])
 def update_targets():
@@ -119,4 +120,4 @@ def update_targets():
             return jsonify(result), 500
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, 'Could not update targets', e)

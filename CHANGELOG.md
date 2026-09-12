@@ -33,6 +33,49 @@ version gets a matching GitHub release and git tag.
   `delivered` or a `delivery_error` that names the missing setting; the
   image comes back either way.
 
+### Security
+
+Sixty-nine open CodeQL alerts, five causes, three PRs (#51, #52, and the
+error-response change below). None was a known exploit; all were the kind of
+thing that turns a small bug elsewhere into a disclosure.
+
+- **Error responses no longer echo exception text** (51 ×
+  `py/stack-trace-exposure`, config-manager and web-admin). Every route
+  answered `{'error': str(e)}`, so whatever an exception carried — a
+  database DSN with its password, the config-manager URL and token, a
+  filesystem path, a library's internal message — went to the browser and to
+  anything else on the port. Routes now return a message chosen in code plus
+  an eight-character `error_id`; the detail goes to the log with a traceback
+  under that id (`docker compose logs web-admin | grep <id>`). Validation
+  reasons are unchanged: the config-manager validators return lists of
+  plain strings instead of raising, and `PUT /config/<type>` returns them as
+  `problems`. "Not found" is the static `Target not found`. Tests in both
+  apps raise an exception containing a fake secret inside every affected
+  route and assert it never reaches the body — reintroduce `str(e)` and
+  the route's case fails.
+
+- **Request-named files are confined to their directory** (10 ×
+  `py/path-injection`). The CrUX and Cloudflare cache files are named after
+  a `country` query parameter, the AI reports page takes a `file` name, and
+  config-manager formatted `CONFIG_DIR/<type>.yaml` before checking the
+  type. Each had a regex allow-list, which bounds the string but not the
+  path. web-admin gains `services/safe_path.confine()` (normalise, then
+  require the base-directory prefix); config-manager resolves the type
+  through a literal table so request text is never formatted into a path.
+
+- **The Cloudflare API token is no longer written to `localStorage`** (1 ×
+  `js/clear-text-storage-of-sensitive-data`). It was saved on every
+  keystroke, readable by any script on the origin. It now lives in the
+  password field for the life of the page and travels only in the POST
+  body; values left by earlier versions are removed on load.
+
+- **The post-login redirect is rebuilt, not echoed** (1 ×
+  `py/url-redirection`), and rejects backslashes, which browsers read as a
+  second slash.
+
+- **CI's `GITHUB_TOKEN` is `contents: read`** (6 ×
+  `actions/missing-workflow-permissions`). No job writes to the repository.
+
 ### Changed
 
 - **The chart renderer moved to `shared/modules/common/charts.py`** so the
