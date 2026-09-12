@@ -162,6 +162,31 @@ echo -e "    ${YELLOW}docker-compose up -d grafana${NC}"
 
 fi
 
+# API tokens (Standard and Pro). These are what a script or an MCP client
+# needs; the web-admin sends the config-manager one on its own.
+if [ "$EDITION" = "standard" ] || [ "$EDITION" = "pro" ]; then
+    echo
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}🔑 API Tokens${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    if [ -n "$CONFIG_API_TOKEN" ]; then
+        echo -e "  ${PURPLE}config-manager:${NC} ${YELLOW}${CONFIG_API_TOKEN}${NC}"
+        echo -e "     Authorization: Bearer <token>  on http://127.0.0.1:5000 (except /health)"
+    else
+        echo -e "  ${PURPLE}config-manager:${NC} ${RED}unset -- the API is unauthenticated${NC}"
+        echo -e "     Set CONFIG_API_TOKEN in .env (openssl rand -hex 32) and restart"
+    fi
+    if [ "$EDITION" = "pro" ]; then
+        if [ -n "$MCP_API_TOKEN" ]; then
+            echo -e "  ${PURPLE}MCP server:${NC}     ${YELLOW}${MCP_API_TOKEN}${NC}"
+            echo -e "     Bearer token for http://127.0.0.1:8090/mcp (profile: mcp)"
+        else
+            echo -e "  ${PURPLE}MCP server:${NC}     ${RED}unset -- the MCP endpoint is unauthenticated${NC}"
+            echo -e "     Set MCP_API_TOKEN in .env (openssl rand -hex 32) and restart"
+        fi
+    fi
+fi
+
 # Show time-series database credentials for Pro edition
 if [ "$EDITION" = "pro" ]; then
     echo

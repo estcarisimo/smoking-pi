@@ -79,10 +79,16 @@ create_env_file() {
             local web_admin_pass=$(generate_password 32)
             local secret_key=$(generate_hex_key 32)
             
+            # The config-manager API token was left empty (= unauthenticated)
+            # while the README called the APIs bearer-protected. web-admin
+            # reads the same variable, so generating it costs nothing.
+            local config_api_token=$(generate_hex_key 32)
+
             sed -i "s/TZ=UTC/TZ=$escaped_tz/" "$env_file"
             sed -i "s/POSTGRES_PASSWORD=/POSTGRES_PASSWORD=$postgres_pass/" "$env_file"
             sed -i "s/WEB_ADMIN_PASSWORD=/WEB_ADMIN_PASSWORD=$web_admin_pass/" "$env_file"
             sed -i "s/SECRET_KEY=/SECRET_KEY=$secret_key/" "$env_file"
+            sed -i "s/^CONFIG_API_TOKEN=.*/CONFIG_API_TOKEN=$config_api_token/" "$env_file"
             ;;
         "pro")
             # Full password generation for pro edition
@@ -91,6 +97,11 @@ create_env_file() {
             local grafana_secret=$(generate_password 48)
             local web_admin_pass=$(generate_password 32)
             local secret_key=$(generate_hex_key 32)
+            # API bearer tokens. Empty means unauthenticated for both, and
+            # the MCP server exposes every mutation the config API has, so
+            # neither should ship empty. hex keeps them sed- and URL-safe.
+            local config_api_token=$(generate_hex_key 32)
+            local mcp_api_token=$(generate_hex_key 32)
             
             # Get database type from env file or use default
             local tsdb_type=$(grep "^TSDB_TYPE=" "$env_file" | cut -d= -f2 || echo "influxdb")
@@ -102,6 +113,8 @@ create_env_file() {
             sed -i "s/GF_SECURITY_SECRET_KEY=.*/GF_SECURITY_SECRET_KEY=$grafana_secret/" "$env_file"
             sed -i "s/WEB_ADMIN_PASSWORD=.*/WEB_ADMIN_PASSWORD=$web_admin_pass/" "$env_file"
             sed -i "s/SECRET_KEY=.*/SECRET_KEY=$secret_key/" "$env_file"
+            sed -i "s/^CONFIG_API_TOKEN=.*/CONFIG_API_TOKEN=$config_api_token/" "$env_file"
+            sed -i "s/^MCP_API_TOKEN=.*/MCP_API_TOKEN=$mcp_api_token/" "$env_file"
             
             # Database-specific replacements
             if [ "$tsdb_type" = "influxdb" ]; then

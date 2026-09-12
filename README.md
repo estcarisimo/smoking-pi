@@ -18,7 +18,7 @@ Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [
 - 🖼️ **Charts you can forward**: `get_chart` renders a PNG of any target — median with the spread of individual pings — for someone with no login here
 - 🩺 **Instrumentation doctor**: static and live checks that the dashboards, exporters, containers and DNS actually agree with each other
 - 🌐 **Remote access built in**: temporary Cloudflare tunnels with no account, or permanent ones with yours
-- 🔐 **Secure defaults**: generated passwords, bearer-token APIs, loopback-only bindings, snapshots off, error responses that never echo internals
+- 🔐 **Secure defaults**: `setup.sh` generates every password and API token, the config API and MCP server bind to loopback, Grafana snapshots are off, and error responses never echo internals
 - 🍿 **Netflix CDN monitoring**: discovers the Open Connect Appliances serving your network and tracks them
 
 ## 🚀 Quick Start
@@ -37,13 +37,13 @@ cd editions/pro
 ./setup.sh
 ```
 
-`setup.sh` generates a `.env` with strong random passwords, detects your timezone, starts the containers, waits for them to be healthy, and prints the URLs and credentials.
+`setup.sh` generates a `.env` with strong random passwords and API tokens, detects your timezone, starts the containers, and prints the URLs and credentials (Pro also waits for the databases to come up; the other editions print `docker compose ps` for you to check).
 
 ```bash
-# Or start smaller
-cd editions/basic    && ./setup.sh                        # SmokePing + YAML config
-cd editions/standard && ./setup.sh                        # + web admin, PostgreSQL, REST API
-cd editions/pro      && ./setup.sh --database clickhouse  # Pro with ClickHouse instead of InfluxDB
+# Or start smaller (each line from the checkout root)
+(cd editions/basic    && ./setup.sh)                        # SmokePing + YAML config
+(cd editions/standard && ./setup.sh)                        # + web admin, PostgreSQL, REST API
+(cd editions/pro      && ./setup.sh --database clickhouse)  # Pro with ClickHouse instead of InfluxDB
 ```
 
 > **Note:** nothing is published to a package registry — install from a clone, as shown above. `.env` files hold real secrets and are gitignored; never commit them.
@@ -88,9 +88,10 @@ docker compose logs -f smokeping
 - **Standard / Pro**: the web admin at `http://<host>:8080` (targets, sources, countries, bulk operations), or the config-manager REST API on `127.0.0.1:5000` with a bearer token. PostgreSQL is the source of truth; the YAML files are import/export only
 
 ```bash
-# REST API, from the host (token is CONFIG_API_TOKEN in .env)
-curl -H "Authorization: Bearer $CONFIG_API_TOKEN" http://127.0.0.1:5000/targets
-curl -X POST -H "Authorization: Bearer $CONFIG_API_TOKEN" http://127.0.0.1:5000/generate
+# REST API, from the host. .env is not exported into your shell, so read the token out of it.
+TOKEN=$(grep ^CONFIG_API_TOKEN editions/pro/.env | cut -d= -f2)
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/targets
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/generate
 ```
 
 ### Ask Your Network How It's Doing
@@ -98,22 +99,24 @@ curl -X POST -H "Authorization: Bearer $CONFIG_API_TOKEN" http://127.0.0.1:5000/
 Pro ships an MCP server and a ready-made agent skill, so *"how was the week?"* is answered from recorded history rather than a live probe:
 
 ```bash
-# Start the MCP server (opt-in profile) and register it with a client
-COMPOSE_PROFILES=influxdb,mcp docker compose up -d mcp-server
-claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp
+# Opt in by adding the profile to .env, so a later bare `docker compose up -d` keeps it
+sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=influxdb,mcp/' editions/pro/.env
+(cd editions/pro && docker compose up -d mcp-server)
+claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp   # token: ./show-passwords.sh
 
-# Install the OpenClaw skill so a Telegram chat can ask; re-run after any change
+# Install the OpenClaw skill so a Telegram chat can ask; re-run after any change (from the checkout root)
 ./shared/scripts/install-openclaw-skill.sh --reload
 ./shared/scripts/install-openclaw-skill.sh --check     # non-zero if the copy is stale
 ```
 
-Tools: `get_latency_stats`, `get_loss_events`, `get_microcut_stats`, `system_status`, `get_chart` (a PNG, on request only), `mute_alerts` / `ack_incident`, and target management. Every answer carries deep links into the Grafana view for that target and window. See [docs/mcp-server.md](docs/mcp-server.md) and [docs/openclaw-integration.md](docs/openclaw-integration.md).
+Tools: `get_latency_stats`, `get_loss_events`, `get_microcut_stats`, `system_status`, `get_chart` (a PNG, on request only), `mute_alerts` / `ack_incident`, and target management. Once `PUBLIC_BASE_HOST` (and optionally `TUNNEL_BASE_HOST`) is set, every answer carries deep links into the Grafana view for that target and window; until then, answers are numbers only, on purpose. See [docs/mcp-server.md](docs/mcp-server.md) and [docs/openclaw-integration.md](docs/openclaw-integration.md).
 
 ### Alerts
 
 ```bash
-# Opt in, log-only until you point it somewhere
-COMPOSE_PROFILES=influxdb,alerts docker compose up -d alerter
+# Opt in (persisted in .env); log-only until NOTIFY_MODE points it somewhere
+sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=influxdb,alerts/' editions/pro/.env
+(cd editions/pro && docker compose up -d alerter)
 # Deliver to a chat via OpenClaw, or to any webhook -- see docs/alerting.md
 ```
 
@@ -122,21 +125,21 @@ Rules: target down, high loss, CPE microcut bursts, exporter stale. Each alert l
 ### Remote Access
 
 ```bash
-# Temporary URLs, no account needed (*.trycloudflare.com)
+# From the checkout root. Temporary URLs, no account needed (*.trycloudflare.com)
 ./shared/scripts/create-tunnel.sh create
 ./shared/scripts/show-tunnel-urls.sh
 ./shared/scripts/create-tunnel.sh stop
 
 # Permanent tunnel with your own Cloudflare account and domain
-cd shared/cloudflare-tunnel && cp .env.template .env   # add CLOUDFLARE_TUNNEL_TOKEN
-docker compose up -d
+(cd shared/cloudflare-tunnel && cp .env.template .env)   # then add CLOUDFLARE_TUNNEL_TOKEN
+(cd shared/cloudflare-tunnel && docker compose up -d)
 ```
 
 Anything you put a tunnel in front of should have authentication in front of the tunnel — see [SECURITY.md](SECURITY.md). Guides: [quick tunnels](shared/docs/quick-tunnels.md), [permanent tunnels](shared/docs/cloudflare-tunnel-setup.md).
 
 ### 🐳 Docker Usage
 
-Everything is Compose. Optional services are behind profiles so the default stack stays small:
+Everything is Compose. Optional services are behind profiles so the default stack stays small. `setup.sh` writes `COMPOSE_PROFILES` into `.env`; edit that line to opt in, because a profile given only on the command line is forgotten by the next bare `docker compose up -d`:
 
 | Profile | Adds | Needs |
 |---|---|---|
@@ -147,11 +150,14 @@ Everything is Compose. Optional services are behind profiles so the default stac
 | `ai` | AI health reports | `ANTHROPIC_API_KEY` |
 
 ```bash
-# Pro with alerts and the MCP server
-COMPOSE_PROFILES=influxdb,alerts,mcp docker compose up -d
+# In editions/pro/.env
+COMPOSE_PROFILES=influxdb,alerts,mcp
 
-# Pro on ClickHouse
-COMPOSE_PROFILES=clickhouse docker compose -f docker-compose.yml -f docker-compose.clickhouse.yml up -d
+# then, from editions/pro
+docker compose up -d
+
+# Pro on ClickHouse (setup.sh --database clickhouse writes COMPOSE_PROFILES=clickhouse)
+docker compose -f docker-compose.yml -f docker-compose.clickhouse.yml up -d
 
 # Rebuild one service after pulling changes
 docker compose build web-admin && docker compose up -d web-admin
@@ -161,7 +167,7 @@ docker compose build web-admin && docker compose up -d web-admin
 
 ### Environment Variables
 
-`setup.sh` writes `editions/<edition>/.env` from `.env.template`; every key in the template ships empty and is documented inline. The ones you are most likely to touch:
+`setup.sh` writes `editions/<edition>/.env` from `.env.template`; every secret in the template ships empty (non-secret defaults such as `TZ=UTC` and `INFLUX_ORG=smokeping` are filled in) and each key is documented inline. The ones you are most likely to touch:
 
 | Variable | Purpose |
 |---|---|
@@ -176,8 +182,9 @@ docker compose build web-admin && docker compose up -d web-admin
 
 ### Configuration Files
 
-- `editions/<edition>/config-manager/config/{targets,probes,sources}.yaml` — targets, probe definitions, and the top-sites sources (Tranco, CrUX, Cloudflare Radar) used to pick targets by country
-- Generated SmokePing `Targets` / `Probes` land in `config-manager/output/` and are mounted into the SmokePing container; do not edit them by hand
+- **Basic**: `editions/basic/config/targets.yaml` is the whole configuration
+- **Standard / Pro**: `editions/<edition>/config-manager/config/{targets,probes,sources}.yaml` seed PostgreSQL on first start and serve as import/export afterwards — targets, probe definitions, and the top-sites sources (Tranco, CrUX, Cloudflare Radar) used to pick targets by country
+- Generated SmokePing `Targets` / `Probes` are written by config-manager (a host directory in Pro, a named volume in Standard) and mounted into the SmokePing container; do not edit them by hand
 - Grafana dashboards are provisioned from `shared/modules/grafana/provisioning/` — separate sets for InfluxDB and ClickHouse
 
 ## 🏗️ Architecture
@@ -209,7 +216,7 @@ smoking-pi/
 └── examples/openclaw/         # the agent skill
 ```
 
-**Data flow:** YAML → config-manager bootstraps PostgreSQL → generates SmokePing `Targets`/`Probes` → SmokePing writes RRDs → exporters push to InfluxDB/ClickHouse → Grafana, the alerter and the MCP server read the time series.
+**Data flow (Pro):** YAML → config-manager bootstraps PostgreSQL → generates SmokePing `Targets`/`Probes` → SmokePing writes RRDs → exporters push to InfluxDB/ClickHouse → Grafana, the alerter and the MCP server read the time series. Standard stops at the RRDs (SmokePing's own graphs); Basic converts the YAML straight to SmokePing config.
 
 ## 🧪 Development
 
@@ -229,10 +236,9 @@ uv sync            # or: python -m venv .venv && pip install -e ".[dev]"
 Every module with a `tests/` directory is discovered by CI. Tests mock the network, the database and Docker; none needs a running stack.
 
 ```bash
-cd shared/modules/alerter     && pytest tests/ -q
-cd shared/modules/mcp-server  && pytest tests/ -q
-cd shared/modules/web-admin   && pytest tests/ -q
-cd shared/modules/config-manager && pytest tests/ -q
+for m in alerter mcp-server web-admin config-manager doctor smokeping-exporters; do
+  (cd shared/modules/$m && pytest tests/ -q)
+done
 ```
 
 ### Code Quality
@@ -247,7 +253,7 @@ PYTHONPATH=shared/modules/doctor python -m doctor --repo-root . --verbose
 PYTHONPATH=../../shared/modules/doctor python -m doctor --repo-root ../.. --live
 ```
 
-CI runs ruff, shell syntax, Compose config for every edition, Docker builds, the doctor, module tests on Python 3.14, and CodeQL. Every change goes branch → PR → green CI → merge → deploy → smoke test; the [CHANGELOG](CHANGELOG.md) records the why, not just the what.
+CI runs ruff, shell syntax, Compose config for every edition, Docker builds, the doctor, and module tests on Python 3.14; CodeQL runs on every PR through GitHub's default code-scanning setup rather than from the workflow file. Every change goes branch → PR → green CI → merge → deploy → smoke test; the [CHANGELOG](CHANGELOG.md) records the why, not just the what.
 
 ## 📊 Example Output
 
