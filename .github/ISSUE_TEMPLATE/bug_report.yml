@@ -1,0 +1,84 @@
+name: Bug report
+description: Something does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Behaviour depends on the edition, the database backend and the host,
+        so the details below matter more than usual.
+
+        **Please redact hostnames, IP addresses and tokens** you would rather
+        not publish. Never paste a `.env` file.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition
+      options:
+        - Pro (InfluxDB)
+        - Pro (ClickHouse)
+        - Standard
+        - Basic
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `git describe --tags` in the checkout
+      placeholder: "v2.8.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Containers and logs
+      description: >
+        `docker compose ps`, and the relevant lines of `docker compose logs
+        <service>`. If a response carried an `error_id`, include it and the
+        log line that mentions it.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor output
+      description: >
+        If the monitoring itself looks wrong (no data, a target that never
+        appears, graphs that stopped), paste the output of
+        `PYTHONPATH=../../shared/modules/doctor python -m doctor --repo-root ../.. --live`
+        run from the edition directory.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      description: Hardware and OS, e.g. "Raspberry Pi 5, Debian 12, Docker 28"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for a duplicate
+          required: true
+        - label: This is not a security issue (those go to the private advisory link)
+          required: true

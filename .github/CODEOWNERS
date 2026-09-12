@@ -1,0 +1,17 @@
+# Review requests. A sole maintainer for now; the split by area is so the
+# file already says where responsibility would land if that changes.
+*                                   @estcarisimo
+
+# The measurement path: what gets probed, how it is stored, how it is drawn.
+shared/modules/smokeping/           @estcarisimo
+shared/modules/smokeping-exporters/ @estcarisimo
+shared/modules/grafana/             @estcarisimo
+
+# Things that can page you, or silence a page.
+shared/modules/alerter/             @estcarisimo
+shared/modules/mcp-server/          @estcarisimo
+
+# Security-relevant surfaces.
+SECURITY.md                         @estcarisimo
+.github/                            @estcarisimo
+editions/*/.env.template            @estcarisimo
