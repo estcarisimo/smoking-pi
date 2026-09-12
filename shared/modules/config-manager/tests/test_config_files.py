@@ -81,3 +81,18 @@ def test_probes_template_parses():
     path = MODULE_DIR / "templates" / "probes.yaml"
     data = yaml.safe_load(path.read_text())
     assert "probes" in data or isinstance(data, dict)
+
+
+def test_update_config_never_builds_a_path_from_the_type_name(monkeypatch, tmp_path):
+    """REINTRODUCTION TEST: update_config used to format CONFIG_DIR/<type>.yaml
+    before checking the type, so a traversal type reached a write. The file is
+    now looked up in a literal table and an unknown type stops here."""
+    import api as api_module
+
+    monkeypatch.setattr(api_module, 'CONFIG_DIR', tmp_path)
+    monkeypatch.setattr(api_module, 'CONFIG_FILES',
+                        {'targets': tmp_path / 'targets.yaml'})
+    with pytest.raises(ValueError, match='Unknown configuration type'):
+        api_module.api.update_config('../../etc/evil', {'active_targets': {}})
+    assert list(tmp_path.iterdir()) == []
+    assert not (tmp_path.parent / 'etc').exists()

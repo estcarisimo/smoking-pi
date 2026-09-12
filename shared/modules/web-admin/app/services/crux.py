@@ -12,6 +12,8 @@ from pathlib import Path
 import requests
 from datetime import datetime, timedelta, timezone
 
+from .safe_path import confine
+
 logger = logging.getLogger(__name__)
 
 class CruxService:
@@ -19,7 +21,7 @@ class CruxService:
 
     def __init__(self):
         self.cache_dir = Path('/tmp/crux_cache')
-        self.cache_dir.mkdir(exist_ok=True)
+        self.cache_dir.mkdir(mode=0o700, exist_ok=True)
         self.cache_duration = timedelta(days=1)  # Cache daily at UTC midnight
         # Updated URL from TODO-220.md
         self.global_url = "https://github.com/zakird/crux-top-lists/raw/refs/heads/main/data/global/current.csv.gz"
@@ -42,7 +44,7 @@ class CruxService:
             url = self.global_url
             
             # Check cache (expires at UTC midnight)
-            cache_file = self.cache_dir / 'crux_global.csv'
+            cache_file = confine(self.cache_dir, 'crux_global.csv')
             if self._is_cache_valid(cache_file):
                 logger.info(f"Using cached CrUX data (offset={offset}, limit={limit})")
                 return self._read_cached_sites(cache_file, limit, offset)
@@ -89,7 +91,8 @@ class CruxService:
             logger.error(f"Invalid CrUX country code: {country!r}")
             return []
 
-        cache_file = self.cache_dir / f'crux_{country}.csv'
+        # Regex above bounds the string; confine() bounds the path.
+        cache_file = confine(self.cache_dir, f'crux_{country}.csv')
         if self._is_cache_valid(cache_file):
             logger.info(
                 f"Using cached CrUX data for {country} "
