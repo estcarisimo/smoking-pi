@@ -2,6 +2,7 @@
 API routes for AJAX operations
 """
 
+from app.errors import error_response
 from flask import Blueprint, jsonify, request, current_app, render_template_string
 from app.services.config_api import ConfigAPIGateway
 
@@ -35,14 +36,10 @@ def get_status():
         })
 
     except Exception as e:
-        current_app.logger.error(f"Status check failed: {e}")
-        return jsonify({
-            'smokeping_running': False,
-            'total_targets': 0,
-            'last_updated': 'Error',
-            'config_manager_available': False,
-            'error': str(e)
-        }), 500
+        return error_response(500, 'Status check failed', e,
+                              smokeping_running=False, total_targets=0,
+                              last_updated='Error',
+                              config_manager_available=False)
 
 @api_bp.route('/apply', methods=['POST'])
 def apply_configuration():
@@ -66,11 +63,8 @@ def apply_configuration():
             }), 500
 
     except Exception as e:
-        current_app.logger.error(f"Apply configuration failed: {e}")
-        return jsonify({
-            'success': False,
-            'error': f'Configuration application failed: {str(e)}'
-        }), 500
+        return error_response(500, 'Configuration application failed', e,
+                              success=False)
 
 @api_bp.route('/validate-hostname', methods=['POST'])
 def validate_hostname():
@@ -155,11 +149,8 @@ def restart_smokeping():
             }), 500
 
     except Exception as e:
-        current_app.logger.error(f"Error restarting SmokePing: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'Failed to restart SmokePing: {str(e)}'
-        }), 500
+        return error_response(500, 'Failed to restart SmokePing', e,
+                              success=False)
 
 @api_bp.route('/ocas/refresh', methods=['POST'])
 def refresh_ocas():
@@ -179,11 +170,7 @@ def refresh_ocas():
             }), 500
 
     except Exception as e:
-        current_app.logger.error(f"Error refreshing OCAs: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'Failed to refresh OCAs: {str(e)}'
-        }), 500
+        return error_response(500, 'Failed to refresh OCAs', e, success=False)
 
 @api_bp.route('/ocas/status')
 def get_oca_status():
@@ -208,12 +195,9 @@ def get_oca_status():
             'enabled': True
         })
     except Exception as e:
-        return jsonify({
-            'oca_count': 0,
-            'last_updated': 'Never',
-            'enabled': False,
-            'error': str(e)
-        })
+        # 200 on purpose: the dashboard polls this and renders the fields.
+        return error_response(200, 'OCA status unavailable', e,
+                              oca_count=0, last_updated='Never', enabled=False)
 
 @api_bp.route('/targets/<category>')
 def get_category_targets(category):
@@ -262,8 +246,5 @@ def get_category_targets(category):
         return response
 
     except Exception as e:
-        current_app.logger.error(f"Error getting category targets: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return error_response(500, 'Could not load category targets', e,
+                              success=False)

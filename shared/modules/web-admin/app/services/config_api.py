@@ -348,11 +348,11 @@ class ConfigAPIGateway:
                 'success': str(result.get('success', False)),
                 'message': result.get('message', 'Service restart attempted')
             }
-        except Exception as e:
-            logger.error(f"Failed to restart SmokePing via API: {e}")
+        except Exception:
+            logger.error("Failed to restart SmokePing via API", exc_info=True)
             return {
                 'success': 'False',
-                'message': f'SmokePing restart failed: {str(e)}'
+                'message': 'SmokePing restart failed; see web-admin log'
             }
     
     def generate_config(self) -> Dict[str, Any]:
@@ -363,12 +363,12 @@ class ConfigAPIGateway:
                 'success': result.get('success', False),
                 'message': result.get('message', 'Configuration generation attempted')
             }
-        except Exception as e:
-            logger.error(f"Failed to generate config via API: {e}")
+        except Exception:
+            logger.error("Failed to generate config via API", exc_info=True)
             # Return error - no fallback for config generation
             return {
                 'success': False,
-                'message': f'Configuration generation failed: {str(e)}'
+                'message': 'Configuration generation failed; see web-admin log'
             }
     
     def refresh_oca_data(self) -> Dict[str, Any]:
@@ -379,23 +379,24 @@ class ConfigAPIGateway:
                 'success': result.get('success', False),
                 'message': result.get('message', 'OCA refresh attempted')
             }
-        except Exception as e:
-            logger.error(f"Failed to refresh OCA via API: {e}")
+        except Exception:
+            logger.error("Failed to refresh OCA via API", exc_info=True)
             # Return error - no fallback for OCA refresh
             return {
                 'success': False,
-                'message': f'OCA refresh failed: {str(e)}'
+                'message': 'OCA refresh failed; see web-admin log'
             }
     
     def get_service_status(self) -> Dict[str, Any]:
         """Get comprehensive service status"""
         try:
             return self.client.get_status()
-        except Exception as e:
-            logger.error(f"Failed to get service status: {e}")
+        except Exception:
+            # The exception text is where the config-manager URL would be.
+            logger.error("Failed to get service status", exc_info=True)
             return {
                 'status': 'error',
-                'error': str(e),
+                'error': 'config-manager unreachable; see web-admin log',
                 'config_manager_available': False
             }
     
@@ -631,7 +632,8 @@ class ConfigAPIGateway:
                 'deactivated': deactivated_count
             }
             
-        except Exception as e:
-            logger.error(f"Failed to update targets in database: {e}")
-            return {'success': False, 'message': f'Database update failed: {str(e)}'}
+        except Exception:
+            logger.error("Failed to update targets in database", exc_info=True)
+            return {'success': False,
+                    'message': 'Database update failed; see web-admin log'}
 

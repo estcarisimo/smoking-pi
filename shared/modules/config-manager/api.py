@@ -6,6 +6,7 @@ Provides REST interface for SmokePing configuration management
 
 import hmac
 import logging
+import secrets
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -42,6 +43,25 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def error_response(status: int, message: str, exc: BaseException | None = None,
+                   **extra):
+    """A JSON error whose body is chosen here, never derived from an exception.
+
+    The old shape was ``{'error': str(e)}``, which put whatever the exception
+    carried -- a database URL, a file path, a Docker socket error, a
+    traceback fragment -- on the wire to any client that could reach the
+    port. The detail still matters to the operator, so it goes to the log
+    with a traceback, tagged with a short id that is also returned; grep the
+    id in ``docker compose logs config-manager`` to find the full story.
+    """
+    error_id = secrets.token_hex(4)
+    if exc is not None:
+        logger.error("%s [%s]", message, error_id, exc_info=exc)
+    else:
+        logger.error("%s [%s]", message, error_id)
+    return jsonify({'error': message, 'error_id': error_id, **extra}), status
 
 app = Flask(__name__)
 CORS(app)
@@ -233,13 +253,11 @@ class ConfigManagerAPI:
             if config_file is None:
                 raise ValueError(f"Unknown configuration type: {config_type}")
 
-            # Validate the configuration data
-            if config_type == 'targets':
-                self._validate_targets_config(config_data)
-            elif config_type == 'probes':
-                self._validate_probes_config(config_data)
-            else:
-                self._validate_sources_config(config_data)
+            # Validate the configuration data (the route already did, and
+            # returned the reasons; this is the guard for other callers).
+            problems = self.validate_config(config_type, config_data)
+            if problems:
+                raise ValueError("Invalid configuration: " + "; ".join(problems))
             
             with get_config_lock():
                 # Backup existing config (keep the 5 most recent)
@@ -394,11 +412,11 @@ class ConfigManagerAPI:
                 'last_check': datetime.now().isoformat()
             }
             
-        except Exception as e:
-            logger.error(f"Failed to get status: {e}")
+        except Exception:
+            logger.error("Failed to get status", exc_info=True)
             return {
                 'status': 'error',
-                'error': str(e),
+                'error': 'status check failed; see config-manager log',
                 'last_check': datetime.now().isoformat()
             }
     
@@ -430,17 +448,38 @@ class ConfigManagerAPI:
             finally:
                 session.close()
                 
-        except Exception as e:
-            logger.warning(f"Database check failed: {e}")
+        except Exception:
+            # The exception text is where the database URL (and password)
+            # would appear. It stays in the log.
+            logger.warning("Database check failed", exc_info=True)
             return {
                 'available': False,
-                'error': str(e)
+                'error': 'database unavailable; see config-manager log'
             }
     
-    def _validate_targets_config(self, config: Dict[str, Any]) -> None:
+    def validate_config(self, config_type: str, config: Dict[str, Any]) -> list:
+        """Problems with a config as a list of plain strings; [] when valid.
+
+        Returns rather than raises so the route can send the reasons back
+        to the caller: every string here is a literal we wrote, not
+        exception text, which is what keeps the response free of anything
+        an exception might carry. The targets validator also normalises
+        metadata in place, as before.
+        """
+        if config_type == 'targets':
+            return self._validate_targets_config(config)
+        if config_type == 'probes':
+            return self._validate_probes_config(config)
+        if config_type == 'sources':
+            return self._validate_sources_config(config)
+        return [f"Unknown configuration type: {config_type}"]
+
+    def _validate_targets_config(self, config: Dict[str, Any]) -> list:
         """Validate targets configuration"""
-        if 'active_targets' not in config:
-            raise ValueError("Missing 'active_targets' in configuration")
+        if not isinstance(config, dict) or 'active_targets' not in config:
+            return ["Missing 'active_targets' in configuration"]
+        if not isinstance(config['active_targets'], dict):
+            return ["'active_targets' must be a mapping of category to list"]
         
         if 'metadata' not in config:
             config['metadata'] = {}
@@ -448,6 +487,7 @@ class ConfigManagerAPI:
         # Update metadata
         config['metadata']['last_updated'] = datetime.now().isoformat()
         
+        problems = []
         # Count total targets
         total_targets = 0
         for category, targets in config['active_targets'].items():
@@ -457,25 +497,30 @@ class ConfigManagerAPI:
                 # Validate each target
                 for target in targets:
                     if not isinstance(target, dict):
-                        raise ValueError(f"Invalid target format in {category}")
-                    if 'name' not in target or 'host' not in target:
-                        raise ValueError(f"Target missing required fields (name, host) in {category}")
+                        problems.append(f"Invalid target format in {category}")
+                    elif 'name' not in target or 'host' not in target:
+                        problems.append(
+                            f"Target missing required fields (name, host) in {category}"
+                        )
         
         config['metadata']['total_targets'] = total_targets
+        return problems
     
-    def _validate_probes_config(self, config: Dict[str, Any]) -> None:
+    def _validate_probes_config(self, config: Dict[str, Any]) -> list:
         """Validate probes configuration"""
-        if 'probes' not in config:
-            raise ValueError("Missing 'probes' in configuration")
+        if not isinstance(config, dict) or 'probes' not in config:
+            return ["Missing 'probes' in configuration"]
         
         if not config['probes']:
-            raise ValueError("At least one probe must be configured")
+            return ["At least one probe must be configured"]
+        return []
     
-    def _validate_sources_config(self, config: Dict[str, Any]) -> None:
+    def _validate_sources_config(self, config: Dict[str, Any]) -> list:
         """Validate sources configuration"""
         # Sources config is more flexible, just ensure it's valid YAML
         if not isinstance(config, dict):
-            raise ValueError("Sources configuration must be a dictionary")
+            return ["Sources configuration must be a dictionary"]
+        return []
     
     def _regenerate_smokeping_config(self) -> None:
         """Regenerate SmokePing configuration in-process"""
@@ -577,19 +622,21 @@ class ConfigManagerAPI:
                     'error': f"Container '{container_name}' not found"
                 }
                 
-        except docker.errors.DockerException as e:
-            logger.error(f"Docker API error checking SmokePing status: {e}")
+        except docker.errors.DockerException:
+            logger.error("Docker API error checking SmokePing status",
+                         exc_info=True)
             return {
                 'running': False,
                 'status': 'error',
-                'error': f"Docker API error: {str(e)}"
+                'error': 'Docker API error; see config-manager log'
             }
-        except Exception as e:
-            logger.error(f"Unexpected error checking SmokePing status: {e}")
+        except Exception:
+            logger.error("Unexpected error checking SmokePing status",
+                         exc_info=True)
             return {
                 'running': False,
                 'status': 'unknown',
-                'error': str(e)
+                'error': 'status check failed; see config-manager log'
             }
 
 
@@ -735,8 +782,7 @@ def ipv6_status_refresh():
             regenerated = True
         return jsonify({**status, 'regenerated': regenerated})
     except Exception as e:
-        logger.error(f"IPv6 refresh failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "IPv6 refresh failed", e)
 
 
 @app.route('/status', methods=['GET'])
@@ -747,11 +793,8 @@ def get_status():
         status = api.get_status()
         return jsonify(status)
     except Exception as e:
-        logger.error(f"Status check failed: {e}")
-        return jsonify({
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
+        return error_response(500, "Status check failed", e,
+                              timestamp=datetime.now().isoformat())
 
 
 @app.route('/config', methods=['GET'])
@@ -763,10 +806,11 @@ def get_config(config_type='all'):
         config = api.get_config(config_type)
         return jsonify(config)
     except ValueError as e:
-        return jsonify({'error': str(e)}), 400
+        # Raised for an unknown type or an unreadable YAML file; the detail
+        # (a path, a parser message) belongs in the log.
+        return error_response(400, "Configuration could not be read", e)
     except Exception as e:
-        logger.error(f"Failed to get config: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to get config", e)
 
 
 @app.route('/config/<config_type>', methods=['PUT'])
@@ -780,17 +824,26 @@ def update_config(config_type):
         config_data = request.get_json()
         if not config_data:
             raise BadRequest("Empty request body")
-        
+
+        if config_type not in CONFIG_FILES:
+            return error_response(400, "Unknown configuration type",
+                                  known=sorted(CONFIG_FILES))
+        # Validation problems are plain strings built by our validators, not
+        # exception text, so they can be returned verbatim.
+        problems = api.validate_config(config_type, config_data)
+        if problems:
+            return jsonify({'error': 'Invalid configuration',
+                            'problems': problems}), 400
+
         result = api.update_config(config_type, config_data)
         return jsonify(result)
         
-    except BadRequest as e:
-        return jsonify({'error': str(e)}), 400
+    except BadRequest:
+        return error_response(400, "Request body must be a non-empty JSON object")
     except ValueError as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(400, "Invalid configuration", e)
     except Exception as e:
-        logger.error(f"Failed to update config: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to update config", e)
 
 
 @app.route('/generate', methods=['POST'])
@@ -801,8 +854,7 @@ def generate_config():
         result = api.generate_smokeping_config()
         return jsonify(result)
     except Exception as e:
-        logger.error(f"Failed to generate config: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to generate config", e)
 
 
 @app.route('/restart', methods=['POST'])
@@ -813,8 +865,7 @@ def restart_smokeping():
         result = api.restart_smokeping()
         return jsonify(result)
     except Exception as e:
-        logger.error(f"Failed to restart SmokePing: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to restart SmokePing", e)
 
 
 @app.route('/oca/refresh', methods=['POST'])
@@ -840,8 +891,7 @@ def refresh_oca():
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'OCA refresh timed out'}), 500
     except Exception as e:
-        logger.error(f"OCA refresh failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "OCA refresh failed", e)
 
 
 # Database-specific endpoints for target management
@@ -876,8 +926,7 @@ def get_targets():
             session.close()
             
     except Exception as e:
-        logger.error(f"Failed to get targets: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to get targets", e)
 
 
 @app.route('/targets', methods=['POST'])
@@ -918,11 +967,10 @@ def create_target():
         finally:
             session.close()
             
-    except BadRequest as e:
-        return jsonify({'error': str(e)}), 400
+    except BadRequest:
+        return error_response(400, "Request body must be a non-empty JSON object")
     except Exception as e:
-        logger.error(f"Failed to create target: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to create target", e)
 
 
 @app.route('/targets/<int:target_id>', methods=['PUT'])
@@ -960,11 +1008,10 @@ def update_target(target_id):
         finally:
             session.close()
             
-    except BadRequest as e:
-        return jsonify({'error': str(e)}), 400
+    except BadRequest:
+        return error_response(400, "Request body must be a non-empty JSON object")
     except Exception as e:
-        logger.error(f"Failed to update target: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to update target", e)
 
 
 @app.route('/targets/<int:target_id>', methods=['DELETE'])
@@ -995,8 +1042,7 @@ def delete_target(target_id):
             session.close()
             
     except Exception as e:
-        logger.error(f"Failed to delete target: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to delete target", e)
 
 
 @app.route('/targets/<int:target_id>/toggle', methods=['POST'])
@@ -1028,8 +1074,7 @@ def toggle_target(target_id):
             session.close()
             
     except Exception as e:
-        logger.error(f"Failed to toggle target: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to toggle target", e)
 
 
 @app.route('/categories', methods=['GET'])
@@ -1058,8 +1103,7 @@ def get_categories():
             session.close()
             
     except Exception as e:
-        logger.error(f"Failed to get categories: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to get categories", e)
 
 
 @app.route('/probes', methods=['GET'])
@@ -1091,8 +1135,7 @@ def get_probes():
             session.close()
             
     except Exception as e:
-        logger.error(f"Failed to get probes: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(500, "Failed to get probes", e)
 
 
 # Container resolution endpoints
@@ -1147,11 +1190,8 @@ def get_container_name(service_name):
             'container_name': container_name
         })
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'service': service_name,
-            'error': str(e)
-        }), 404
+        return error_response(404, "Container not found or Docker unavailable", e,
+                              success=False, service=service_name)
 
 
 @app.route('/api/containers', methods=['GET'])
@@ -1180,10 +1220,7 @@ def list_containers():
             'containers': containers
         })
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return error_response(500, "Could not list containers", e, success=False)
 
 
 @app.route('/api/containers/<service_name>/status', methods=['GET'])
@@ -1203,11 +1240,8 @@ def get_container_status(service_name):
             'health': container.attrs.get('State', {}).get('Health', {}).get('Status', 'none')
         })
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'service': service_name,
-            'error': str(e)
-        }), 404
+        return error_response(404, "Container not found or Docker unavailable", e,
+                              success=False, service=service_name)
 
 
 @app.errorhandler(404)

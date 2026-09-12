@@ -19,12 +19,15 @@ the SmokePing configuration automatically on every target change.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from datetime import datetime
 from typing import Any
 
 from app.services.config_api import ConfigAPIGateway
+
+logger = logging.getLogger(__name__)
 
 # One shared gateway (module-level, like app.routes.api.config_api)
 gateway = ConfigAPIGateway()
@@ -414,8 +417,9 @@ def _get_latency_stats(tool_input: dict) -> dict:
             f"|> filter(fn: (r) => r.target == {flux_str(target)}) " if target else ""
         )
         base = _base_flux(["latency", "dns_latency"], hours)
-    except ValueError as exc:
-        return {"error": str(exc)}
+    except ValueError:
+        return {"error": "Invalid target name: quotes, backslashes and "
+                         "control characters are not allowed."}
 
     group = '|> group(columns: ["target", "_measurement"]) '
     median_flux = (
@@ -585,5 +589,9 @@ def execute_tool(name: str, tool_input: dict | None) -> dict:
         return {"error": f"Unknown tool '{name}'."}
     try:
         return handler(tool_input or {})
-    except Exception as exc:  # backend/network errors become tool errors
-        return {"error": f"{type(exc).__name__}: {exc}"}
+    except Exception:  # backend/network errors become tool errors
+        # The result is shown to the model AND echoed to the browser in the
+        # chat transcript, so the exception text (which can carry a URL or a
+        # token) stays in the log.
+        logger.error("AI tool %s failed", name, exc_info=True)
+        return {"error": f"Tool '{name}' failed; see web-admin log."}
