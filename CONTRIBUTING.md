@@ -14,8 +14,10 @@ Please also read the [Code of Conduct](CODE_OF_CONDUCT.md).
   Everything runs in containers; nothing is installed on the host.
 - **Python 3.14** for running a module's tests locally. The images ship 3.14
   and CI tests on 3.14 — an older interpreter may pass locally and fail in CI.
-- [uv](https://docs.astral.sh/uv/) is recommended but not required; each
-  module has a `pyproject.toml` that works with plain `pip` too.
+- [uv](https://docs.astral.sh/uv/) is recommended but not required; every
+  module that has tests has a `pyproject.toml` that works with plain `pip`
+  too (`common/` is a shared package copied into images and has none — it is
+  tested through the modules that use it).
 - A Linux host (a Raspberry Pi is the reference target, ARM64; x86-64 works).
   The `smokeping` and `alerter` services use `network_mode: host`, which
   Docker Desktop on macOS does not fully support.
@@ -30,13 +32,15 @@ cd smoking-pi
 cd editions/pro && ./setup.sh
 ```
 
-Each Python module under `shared/modules/` is its own package with its own
-tests. Work in the module you are changing:
+Each test-bearing module under `shared/modules/` is its own package. Work in
+the module you are changing; `pytest` and `ruff` live in the `dev` extra, so
+ask for it:
 
 ```bash
 cd shared/modules/alerter
-uv sync                     # or: python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
+uv sync --extra dev         # or: python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
 uv run pytest tests/ -q     # ~220 tests, a few seconds, no network
+                            # (without uv: pytest tests/ -q inside the venv)
 ```
 
 The module directories with tests, and what they are:
@@ -55,18 +59,18 @@ The module directories with tests, and what they are:
 ## Development workflow
 
 ```bash
-# In a module directory
+# In a module directory (after `uv sync --extra dev` or `pip install -e ".[dev]"`)
 uv run pytest tests/ -q
 uv run ruff check .                 # the module's full ruff config (line length 88)
 
 # Repository-wide, what CI enforces on every file
 ruff check --select E9,F63,F7,F82 shared/modules editions
 
-# The doctor: dashboards, exporters, compose defaults and env docs agree with each other
-PYTHONPATH=shared/modules/doctor python -m doctor --repo-root . --verbose
-
-# ...and against a running stack (from an edition directory)
-PYTHONPATH=../../shared/modules/doctor python -m doctor --repo-root ../.. --live
+# The doctor is its own package (it needs PyYAML). Install it once into
+# whichever environment you use, then it runs from anywhere:
+pip install -e shared/modules/doctor          # or, with uv: cd shared/modules/doctor && uv sync
+python -m doctor --repo-root . --verbose      # dashboards, exporters, compose defaults, env docs agree
+python -m doctor --repo-root . --live         # ...and against the running stack
 ```
 
 CI runs, on every PR: ruff (critical rules), shell syntax for every `.sh`,
@@ -188,8 +192,9 @@ edition, the database backend and the host, please include:
 - `docker compose ps` and the relevant `docker compose logs <service>` lines
 - for an alert or chart problem, the `error_id` from the response, so the
   log line can be found
-- the doctor's output (`python -m doctor --live`) if the monitoring itself
-  looks wrong
+- the doctor's output (`python -m doctor --repo-root . --live`, after
+  `pip install -e shared/modules/doctor`) if the monitoring itself looks
+  wrong
 
 Please redact hostnames, IP addresses and tokens you would rather not publish.
 

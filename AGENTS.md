@@ -17,16 +17,18 @@ recorded history, which constrains what may be changed casually.
 ## Commands
 
 ```bash
-# Per module (cd shared/modules/<module>)
+# Per module (cd shared/modules/<module>); pytest/ruff are in the `dev` extra
+uv sync --extra dev                           # or: pip install -e ".[dev]"
 uv run pytest tests/ -q                       # seconds; mocks everything external
 uv run ruff check .                           # module config, line length 88
 
 # Repository-wide
 ruff check --select E9,F63,F7,F82 shared/modules editions      # what CI enforces
-PYTHONPATH=shared/modules/doctor python -m doctor --repo-root . # static checks (CI runs this)
+pip install -e shared/modules/doctor                            # once; the doctor needs PyYAML
+python -m doctor --repo-root .                                  # static checks (CI runs this)
+python -m doctor --repo-root . --live                           # ...against the running stack
 
-# Against a running stack, from editions/pro
-PYTHONPATH=../../shared/modules/doctor python -m doctor --repo-root ../.. --live
+# Deploy one service, from editions/pro
 docker compose build <service> && docker compose up -d <service>
 ```
 

@@ -13,7 +13,7 @@
 
 - [ ] The changed module's `pytest tests/` passes
 - [ ] `ruff check --select E9,F63,F7,F82 shared/modules editions` passes
-- [ ] `python -m doctor --repo-root .` passes (dashboards, exporters, env docs agree)
+- [ ] `python -m doctor --repo-root .` passes (after `pip install -e shared/modules/doctor`)
 - [ ] A new setting is in `.env.template` **and** the compose file
 - [ ] Error responses use `error_response()` — no `str(e)` on the wire
 - [ ] Added an entry under `## [Unreleased]` in `CHANGELOG.md`, if user-visible
