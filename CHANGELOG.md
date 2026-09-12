@@ -9,6 +9,28 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.8.0] — 2026-09-12
+
+A picture you can hand to anyone, and nothing on the wire that should not be.
+
+The one thing every answer this stack gave still lacked was something a
+person *without* a login could look at. Public snapshot links were the
+obvious route and were rejected in 2.7.0 for what they are — permanent,
+world-readable URLs with the measurements inside. This release takes the
+opposite trade: a static PNG, drawn on request by the MCP server, delivered
+into the chat, forwarded by the user to whoever they choose. It draws what
+SmokePing always drew — the median with the spread of the individual pings
+around it — because a jittery-but-alive link and a clean one can share a
+median, and the band is what tells them apart.
+
+The other half is the sixty-nine open CodeQL alerts, which were five
+problems: every route echoed exception text to the browser, request-named
+files reached the filesystem on the strength of a regex, a token lived in
+`localStorage`, the login redirect echoed its input, and CI's token had more
+rights than it used. None was a known exploit; all were the kind of thing
+that turns a small bug elsewhere into a disclosure. All closed, each with a
+test that reintroduces it, and the count on `main` is zero.
+
 ### Added
 
 - **`get_chart` — a picture, on request.** New MCP tool that draws one
