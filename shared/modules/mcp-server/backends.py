@@ -13,6 +13,7 @@ All clients are constructed lazily so that importing this module (or
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -22,6 +23,9 @@ DEFAULT_CONFIG_API_URL = "http://config-manager:5000"
 DEFAULT_INFLUX_URL = "http://influxdb:8086"
 DEFAULT_INFLUX_ORG = "smokeping"
 DEFAULT_INFLUX_BUCKET = "smokeping"
+
+
+log = logging.getLogger("mcp.backends")
 
 
 class ConfigAPIError(RuntimeError):
@@ -58,11 +62,19 @@ class ConfigAPI:
 
         Raises ConfigAPIError on HTTP errors or connection failures.
         """
+        # The message on this exception reaches the model, and through it
+        # the chat. It names the operation and the failure class -- never
+        # the URL (which can carry a userinfo token) and never the response
+        # body (config-manager's is static now, but a proxy's is not).
+        # The detail goes to the log.
         try:
             resp = self.client.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
+            log.warning("config-manager %s %s unreachable at %s: %s",
+                        method, path, self.base_url, exc)
             raise ConfigAPIError(
-                f"config-manager API unreachable at {self.base_url}: {exc}"
+                f"config-manager API unreachable ({type(exc).__name__}); "
+                "see the mcp-server log"
             ) from exc
         try:
             data = resp.json()
@@ -70,9 +82,11 @@ class ConfigAPI:
             data = {"raw": resp.text}
         if resp.status_code >= 400:
             message = data.get("error") if isinstance(data, dict) else None
+            log.warning("config-manager %s %s -> HTTP %s: %s",
+                        method, path, resp.status_code, resp.text[:500])
             raise ConfigAPIError(
-                f"{method} {path} failed with HTTP {resp.status_code}: "
-                f"{message or resp.text[:200]}"
+                f"{method} {path} failed with HTTP {resp.status_code}"
+                + (f": {message}" if isinstance(message, str) else "")
             )
         return data
 
