@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 from datetime import datetime
 from typing import Any
@@ -148,6 +149,21 @@ def logged_tool(func):
         return result
 
     return wrapper
+
+
+def _tool_error(message: str, exc: BaseException | None = None, **extra) -> dict:
+    """An error result whose text is chosen here, never derived from ``exc``.
+
+    A tool result goes to the model and from there into a chat, so it gets
+    the same discipline as an HTTP error body: the InfluxDB client's
+    exception, for one, carries the full response headers and the Flux
+    query. The detail goes to the log under a short id that is also
+    returned, so "see the mcp-server log" is a real instruction.
+    """
+    error_id = secrets.token_hex(4)
+    log.error("%s [%s]", message, error_id, exc_info=exc)
+    return {"error": f"{message} (log id {error_id})", "error_id": error_id,
+            **extra}
 
 
 _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -617,7 +633,7 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
         _merge(query_influx(p95_flux), "p95_ms", 1000.0)
         _merge(query_influx(loss_flux), "avg_loss_pct", 100.0)
     except Exception as exc:  # influx client raises many exception types
-        return {"error": f"InfluxDB query failed: {exc}"}
+        return _tool_error("InfluxDB query failed", exc)
 
     results = sorted(
         stats.values(), key=lambda e: (e.get("target") or "", e.get("measurement") or "")
@@ -692,7 +708,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
     try:
         rows = query_influx(flux)
     except Exception as exc:
-        return {"error": f"InfluxDB query failed: {exc}"}
+        return _tool_error("InfluxDB query failed", exc)
 
     events = [
         {
@@ -812,7 +828,7 @@ def get_microcut_stats(hours: int = 24) -> dict:
                lambda v: round(float(v), 3))
         worst_rows = query_influx(worst_flux)
     except Exception as exc:
-        return {"error": f"InfluxDB query failed: {exc}"}
+        return _tool_error("InfluxDB query failed", exc)
 
     for entry in stats.values():
         entry.setdefault("lossy_windows", 0)
@@ -964,15 +980,19 @@ def get_chart(
         measurement = links.measurement_for_probe(row.get("probe"))
         if with_peers:
             peers = _chart_peers(catalog, row)
-    elif _cpe_target_exists(target, hours):
-        measurement = "cpe_latency"
     else:
-        return {
-            "error": f"No monitoring target named '{target}' was found.",
-            "available_targets": sorted(
-                t.get("name") for t in catalog if t.get("name")
-            ),
-        }
+        try:
+            is_cpe = _cpe_target_exists(target, hours)
+        except Exception as exc:  # the Influx client raises many types
+            return _tool_error("InfluxDB query failed", exc)
+        if not is_cpe:
+            return {
+                "error": f"No monitoring target named '{target}' was found.",
+                "available_targets": sorted(
+                    t.get("name") for t in catalog if t.get("name")
+                ),
+            }
+        measurement = "cpe_latency"
 
     png = charts.render_target_chart(
         target, measurement=measurement, hours=hours, peers=peers,
@@ -1087,7 +1107,7 @@ def mute_alerts(target: str | None = None, rule: str | None = None,
     try:
         mutes.save(entries, now=now)
     except OSError as exc:
-        return {"error": f"Could not write the mutes file: {exc}"}
+        return _tool_error("Could not write the mutes file", exc)
 
     result = {
         "success": True,
@@ -1136,7 +1156,7 @@ def unmute_alerts(target: str | None = None, rule: str | None = None,
     try:
         mutes.save(remaining, now=now)
     except OSError as exc:
-        return {"error": f"Could not write the mutes file: {exc}"}
+        return _tool_error("Could not write the mutes file", exc)
 
     after = len(mutes.active(remaining, now))
     return {
@@ -1178,7 +1198,7 @@ def ack_incident(key: str, hours: float = 24) -> dict:
     try:
         mutes.save(entries, now=now)
     except OSError as exc:
-        return {"error": f"Could not write the mutes file: {exc}"}
+        return _tool_error("Could not write the mutes file", exc)
 
     return {
         "success": True,

@@ -9,6 +9,24 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Security
+
+- **MCP tool errors no longer carry exception text.** The roadmap's "make
+  sure the MCP server cannot leak credentials" item, reviewed end to end:
+  the bearer check is constant-time, tool arguments named like secrets are
+  redacted in the log, `/status` carries no secrets, and no token or
+  password can reach a tool result. Two internals could: an InfluxDB
+  failure returned the client's whole exception — response headers, body
+  and the Flux query — and a config-manager failure embedded the API's
+  base URL (which in a proxied deployment can carry userinfo) and up to 200
+  bytes of whatever body came back. A tool result goes to the model and
+  from there into a chat, so it now gets the same discipline as an HTTP
+  error body: a message chosen in code plus an `error_id`, detail in the
+  mcp-server log under that id. `ConfigAPIError` names the operation, the
+  HTTP status and config-manager's own (static) error, nothing else. Tests
+  raise an `ApiException`-shaped error carrying a fake token inside every
+  measurement tool and assert it never comes back.
+
 ## [2.8.1] — 2026-09-14
 
 The repository grows the files a contributor looks for first, and a fresh

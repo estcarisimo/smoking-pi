@@ -13,6 +13,7 @@ All clients are constructed lazily so that importing this module (or
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -22,6 +23,47 @@ DEFAULT_CONFIG_API_URL = "http://config-manager:5000"
 DEFAULT_INFLUX_URL = "http://influxdb:8086"
 DEFAULT_INFLUX_ORG = "smokeping"
 DEFAULT_INFLUX_BUCKET = "smokeping"
+
+
+log = logging.getLogger("mcp.backends")
+
+
+# Error strings config-manager sends that are worth relaying to the model
+# (all static, chosen in its code -- see error_response() there). Anything
+# else in an "error" field is treated as untrusted and left in the log.
+KNOWN_ERRORS = frozenset({
+    "Configuration could not be read",
+    "Container not found or Docker unavailable",
+    "Could not list containers",
+    "Database not available",
+    "Database not available, use /config/targets for YAML",
+    "Docker API error; see config-manager log",
+    "Endpoint not found",
+    "Failed to create target",
+    "Failed to delete target",
+    "Failed to generate config",
+    "Failed to get categories",
+    "Failed to get config",
+    "Failed to get probes",
+    "Failed to get targets",
+    "Failed to restart SmokePing",
+    "Failed to toggle target",
+    "Failed to update config",
+    "Failed to update target",
+    "IPv6 refresh failed",
+    "Internal server error",
+    "Invalid configuration",
+    "Method not allowed",
+    "OCA refresh failed",
+    "OCA refresh timed out",
+    "Request body must be a non-empty JSON object",
+    "Status check failed",
+    "Target not found",
+    "Unauthorized",
+    "Unknown configuration type",
+    "database unavailable; see config-manager log",
+    "status check failed; see config-manager log",
+})
 
 
 class ConfigAPIError(RuntimeError):
@@ -58,21 +100,45 @@ class ConfigAPI:
 
         Raises ConfigAPIError on HTTP errors or connection failures.
         """
+        # The message on this exception reaches the model, and through it
+        # the chat. It names the operation and the failure class -- never
+        # the URL (which can carry a userinfo token) and never the response
+        # body (config-manager's is static now, but a proxy's is not).
+        # The detail goes to the log.
         try:
             resp = self.client.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
+            log.warning("config-manager %s %s unreachable at %s: %s",
+                        method, path, self.base_url, exc)
             raise ConfigAPIError(
-                f"config-manager API unreachable at {self.base_url}: {exc}"
+                f"config-manager API unreachable ({type(exc).__name__}); "
+                "see the mcp-server log"
             ) from exc
         try:
             data = resp.json()
         except ValueError:
-            data = {"raw": resp.text}
+            data = None
         if resp.status_code >= 400:
+            log.warning("config-manager %s %s -> HTTP %s: %s",
+                        method, path, resp.status_code, resp.text[:500])
+            # Only the error text config-manager itself would send, matched
+            # against what it can say. A proxy in front of it can answer
+            # {"error": "<anything>"}, and that must not ride into a chat.
             message = data.get("error") if isinstance(data, dict) else None
+            detail = (f": {message}" if isinstance(message, str)
+                      and message in KNOWN_ERRORS else "")
             raise ConfigAPIError(
-                f"{method} {path} failed with HTTP {resp.status_code}: "
-                f"{message or resp.text[:200]}"
+                f"{method} {path} failed with HTTP {resp.status_code}{detail}"
+            )
+        if not isinstance(data, dict):
+            # A 200 that is not a JSON object is not config-manager talking:
+            # a captive portal, a proxy's login page. Nothing in it belongs
+            # in a tool result.
+            log.warning("config-manager %s %s -> HTTP %s with a non-JSON body: %s",
+                        method, path, resp.status_code, resp.text[:200])
+            raise ConfigAPIError(
+                f"{method} {path} returned a non-JSON response; "
+                "see the mcp-server log"
             )
         return data
 
