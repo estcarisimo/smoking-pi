@@ -184,12 +184,15 @@ def _fetch_spread(target: str, measurement: str, hours: int):
 
 
 def _percentile(values, q: float) -> float:
-    """Nearest-rank percentile; enough for an axis limit."""
+    """Nearest-rank percentile: the smallest value with at least q% of the
+    sample at or below it. ``ceil(q/100 * n) - 1`` as the index -- not a
+    rounded interpolation, which on a six-window chart rounds 4.5 to the
+    even 4 and drops the top window from the p90."""
     ordered = sorted(values)
     if not ordered:
         return 0.0
-    index = min(len(ordered) - 1, max(0, round(q / 100.0 * (len(ordered) - 1))))
-    return ordered[index]
+    rank = math.ceil(q / 100.0 * len(ordered))
+    return ordered[min(len(ordered) - 1, max(0, rank - 1))]
 
 
 def _latency_ceiling(hi_band, q3_band, medians, peers_ms) -> tuple[float, int, float]:

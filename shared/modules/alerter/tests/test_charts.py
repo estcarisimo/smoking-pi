@@ -412,3 +412,15 @@ def test_spiky_chart_still_renders(monkeypatch):
     monkeypatch.setattr(charts, "_fetch_spread", lambda *a, **k: spread)
     png = charts.render_target_chart("subject", hours=6)
     assert png and png.startswith(PNG_MAGIC)
+
+
+def test_percentile_is_nearest_rank():
+    """Six windows: nearest-rank p90 is the ceil(5.4)=6th value, the top
+    one. A rounded-interpolation index would pick the 5th (4.5 rounds to
+    the even 4) and let the ceiling clip a spike the rule says to keep."""
+    assert charts._percentile([1, 2, 3, 4, 5, 6], 90) == 6
+    assert charts._percentile([1, 2, 3, 4, 5, 6], 50) == 3
+    assert charts._percentile([7], 90) == 7
+    assert charts._percentile([], 90) == 0.0
+    # 120 windows: p90 is the 108th value, so twelve can sit above it.
+    assert charts._percentile(list(range(1, 121)), 90) == 108
