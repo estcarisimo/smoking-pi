@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **Charts: the scale follows the typical shape, not the worst spike.**
+  A 24 h gateway chart with nine windows peaking at 180 ms on a 9 ms link
+  let those nine set the axis, pressing the median and the inner band —
+  the part a reader actually judges by — into the bottom fifth of the
+  panel. The latency axis now follows the 90th percentile of the outer
+  band (with a third of headroom over the inner band, and never cutting
+  the median or a peer line); windows above it are clipped and *counted*,
+  and the count and true maximum are written on the chart ("▲ 9 windows
+  peaked above 81 ms (max 187 ms)"). A clipped chart that says it is
+  clipped hides nothing.
+
+  The loss panel draws the alert threshold that applies — `MICROCUT_LOSS_PCT`
+  for the gateway, `HIGH_LOSS_PCT` otherwise — as a dashed line with its
+  value, so the gateway's permanent 10 % ICMP floor reads as "well under
+  the line" rather than as loss. Dashed is reserved for this: the grid is
+  solid hairlines. The median gets a halo in the surface colour so it stays
+  legible where it runs through its own band. All three apply to alert
+  charts too, since the renderer is shared; the `mcp-server` service now
+  receives both threshold variables so `get_chart` draws the same line the
+  alerter would.
+
 ### Security
 
 - **MCP tool errors no longer carry exception text.** The roadmap's "make

@@ -347,3 +347,80 @@ def test_spread_uses_the_measurement_scale(monkeypatch):
                         lambda flux: _pivoted_rows([[4.0, 6.0, 8.0, 12.0]]))
     _t, lo, _q1, _q3, hi = charts._fetch_spread("gw", "cpe_latency", 6)
     assert lo == [4.0] and hi == [12.0]
+
+
+# ---------------------------------------------------------------------------
+# Axis ceiling and loss threshold
+# ---------------------------------------------------------------------------
+
+
+def test_a_few_spikes_do_not_own_the_latency_axis():
+    """REINTRODUCTION TEST: 120 windows around 50 ms with nine spikes to
+    180 ms. Let the max set the axis and the typical shape is pressed into
+    the bottom fifth; the ceiling must sit near the p90 and count the rest."""
+    hi = [50.0] * 111 + [180.0] * 9
+    q3 = [35.0] * 120
+    med = [9.0] * 120
+    ceiling, clipped, peak = charts._latency_ceiling(hi, q3, med, [])
+    assert ceiling < 100, f"ceiling {ceiling} lets nine spikes own the axis"
+    assert clipped == 9
+    assert peak == 180.0
+
+
+def test_the_median_and_peers_are_never_cut():
+    hi = [20.0] * 120
+    ceiling, clipped, _ = charts._latency_ceiling(hi, [15.0] * 120, [90.0] * 120,
+                                                  [120.0] * 50)
+    assert ceiling >= 120.0
+    assert clipped == 0
+
+
+def test_the_inner_band_keeps_headroom():
+    """The p90 of a flat outer band equals the band; the inner band must
+    still get a third of headroom above it."""
+    ceiling, _, _ = charts._latency_ceiling([40.0] * 120, [40.0] * 120,
+                                            [10.0] * 120, [])
+    assert ceiling >= 1.3 * 40.0
+
+
+def test_no_band_falls_back_to_the_medians():
+    ceiling, clipped, peak = charts._latency_ceiling([], [], [8.0, 9.0, 300.0], [])
+    assert ceiling >= 300.0 and clipped == 0 and peak == 300.0
+    assert charts._latency_ceiling([], [], [], []) == (0.0, 0, 0.0)
+
+
+def test_loss_threshold_follows_the_measurement(monkeypatch):
+    monkeypatch.setenv("MICROCUT_LOSS_PCT", "60")
+    monkeypatch.setenv("HIGH_LOSS_PCT", "25")
+    assert charts._loss_threshold("cpe_latency") == (60.0, "microcut threshold")
+    assert charts._loss_threshold("latency") == (25.0, "alert threshold")
+    assert charts._loss_threshold("dns_latency") == (25.0, "alert threshold")
+
+
+def test_loss_threshold_defaults_match_the_alerter():
+    assert charts._loss_threshold("cpe_latency")[0] == 50.0
+    assert charts._loss_threshold("latency")[0] == 20.0
+
+
+def test_spiky_chart_still_renders(monkeypatch):
+    times, med = _series(value=0.009)
+    spread = (times, [5.0] * len(times), [7.0] * len(times), [12.0] * len(times),
+              [50.0] * (len(times) - 4) + [180.0] * 4)
+    monkeypatch.setattr(charts, "_fetch",
+                        lambda t, m, f, h: (times, [0.0] * len(times)) if f == "loss"
+                        else (times, med))
+    monkeypatch.setattr(charts, "_fetch_spread", lambda *a, **k: spread)
+    png = charts.render_target_chart("subject", hours=6)
+    assert png and png.startswith(PNG_MAGIC)
+
+
+def test_percentile_is_nearest_rank():
+    """Six windows: nearest-rank p90 is the ceil(5.4)=6th value, the top
+    one. A rounded-interpolation index would pick the 5th (4.5 rounds to
+    the even 4) and let the ceiling clip a spike the rule says to keep."""
+    assert charts._percentile([1, 2, 3, 4, 5, 6], 90) == 6
+    assert charts._percentile([1, 2, 3, 4, 5, 6], 50) == 3
+    assert charts._percentile([7], 90) == 7
+    assert charts._percentile([], 90) == 0.0
+    # 120 windows: p90 is the 108th value, so twelve can sit above it.
+    assert charts._percentile(list(range(1, 121)), 90) == 108
