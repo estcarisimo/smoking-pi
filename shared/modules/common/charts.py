@@ -183,6 +183,55 @@ def _fetch_spread(target: str, measurement: str, hours: int):
             _to_ms(q3, measurement), _to_ms(hi, measurement))
 
 
+def _percentile(values, q: float) -> float:
+    """Nearest-rank percentile; enough for an axis limit."""
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    index = min(len(ordered) - 1, max(0, round(q / 100.0 * (len(ordered) - 1))))
+    return ordered[index]
+
+
+def _latency_ceiling(hi_band, q3_band, medians, peers_ms) -> tuple[float, int, float]:
+    """Top of the latency axis, and what it leaves out.
+
+    A handful of 180 ms windows on a 9 ms link is real and worth a word,
+    but not worth the scale: let the max set the axis and the median line
+    and inner band -- the part a reader actually judges by -- are pressed
+    into the bottom fifth of the panel. The axis follows the 98th
+    percentile of the outer band (or of the medians when there is no
+    band), so the typical shape fills the frame; anything above is clipped
+    and COUNTED, and the count and true max are written on the chart. A
+    clipped chart that says it is clipped hides nothing.
+    """
+    pool = list(hi_band) if hi_band else list(medians)
+    if not pool:
+        return 0.0, 0, 0.0
+    # p90 of the outer band: on a 120-window chart that is the twelfth
+    # highest maximum, so a dozen spikes still cannot own the axis. The
+    # inner band always keeps a third of headroom, and the median and peer
+    # lines are never cut -- only the spread's tail is.
+    top = max(
+        _percentile(pool, 90),
+        1.3 * max(q3_band or [0.0]),
+        max(medians or [0.0]),
+        max(peers_ms or [0.0]),
+    )
+    ceiling = top * 1.15 if top > 0 else 1.0
+    clipped = sum(1 for v in pool if v > ceiling)
+    return ceiling, clipped, max(pool)
+
+
+def _loss_threshold(measurement: str) -> tuple[float, str]:
+    """The alert threshold that applies to this measurement, for the loss
+    panel: the line a reader compares the trace against. The CPE gateway
+    rate-limits ICMP and carries a permanent loss floor, which is exactly
+    why its threshold is the microcut one and not the general one."""
+    if measurement == "cpe_latency":
+        return float(_env_int("MICROCUT_LOSS_PCT", 50)), "microcut threshold"
+    return float(_env_int("HIGH_LOSS_PCT", 20)), "alert threshold"
+
+
 def _minor_grid(ax, theme):
     """Major + minor grid, so a reader can put a number on a point.
 
@@ -329,21 +378,43 @@ def _render_series_chart(
 
     # Peers first, so the subject draws over them.
     drew_peer = False
+    peers_ms: list[float] = []
     for peer in peers[:MAX_PEERS]:
         p_times, p_vals = _fetch(peer, measurement, "median", hours)
         if p_times:
-            ax_lat.plot(p_times, _to_ms(p_vals, measurement), color=PEER,
+            p_ms = _to_ms(p_vals, measurement)
+            peers_ms.extend(p_ms)
+            ax_lat.plot(p_times, p_ms, color=PEER,
                         alpha=0.45, linewidth=1.0, zorder=2)
             drew_peer = True
 
+    ms: list[float] = []
     if times:
         ms = _to_ms(medians, measurement)
+        # A halo in the surface colour under the line, so the median stays
+        # legible where it runs through its own inner band (same hue, and
+        # the band is exactly where the median lives).
+        ax_lat.plot(times, ms, color=theme["SURFACE"], linewidth=4.0,
+                    alpha=0.7, zorder=3, solid_capstyle="round")
         ax_lat.plot(times, ms, color=accent, linewidth=2.0, zorder=3,
                     label=target)
         # Direct-label the last point only -- a number on every point is chaos.
         ax_lat.annotate(
             f"{ms[-1]:.0f} ms", (times[-1], ms[-1]), textcoords="offset points",
             xytext=(6, 0), va="center", color=accent, fontsize=8.5,
+        )
+    ceiling, clipped, peak = _latency_ceiling(s_hi, s_q3, ms, peers_ms)
+    if ceiling > 0:
+        ax_lat.set_ylim(0, ceiling)
+    if clipped:
+        # Say what the scale leaves out, in the corner the tail would have
+        # occupied. Absolute numbers, so the reader can decide if it matters.
+        ax_lat.annotate(
+            f"\u25b2 {clipped} window{'s' if clipped != 1 else ''} peaked above "
+            f"{ceiling:.0f} ms (max {peak:.0f} ms)",
+            (1.0, 1.0), xycoords="axes fraction", xytext=(-4, -4),
+            textcoords="offset points", ha="right", va="top",
+            color=theme["MUTED"], fontsize=7.5,
         )
     ax_lat.set_ylabel("median latency (ms)", color=theme["MUTED"], fontsize=8.5)
     ax_lat.set_title(
@@ -364,6 +435,18 @@ def _render_series_chart(
                 xycoords="axes fraction", ha="center", va="center",
                 color=theme["MUTED"], fontsize=9,
             )
+    # The line the trace is judged against. Dashed on purpose: the grid is
+    # solid hairlines so that dashed means "threshold" and nothing else.
+    threshold, threshold_label = _loss_threshold(measurement)
+    if 0 < threshold < 100:
+        ax_loss.axhline(threshold, color=theme["MUTED"], linewidth=0.9,
+                        linestyle=(0, (4, 3)), zorder=2)
+        ax_loss.annotate(
+            f"{threshold_label} {threshold:.0f}%", (1.0, threshold),
+            xycoords=("axes fraction", "data"), xytext=(-4, 3),
+            textcoords="offset points", ha="right", va="bottom",
+            color=theme["MUTED"], fontsize=7.5,
+        )
     # Pinned: an autoscaled loss axis makes 4% look catastrophic.
     ax_loss.set_ylim(0, 100)
     ax_loss.set_yticks([0, 50, 100])

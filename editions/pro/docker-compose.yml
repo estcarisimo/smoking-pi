@@ -336,6 +336,10 @@ services:
       # confusion that says nothing about itself.
       - CHART_THEME=${CHART_THEME:-dark}
       - CHART_MAX_BYTES=${CHART_MAX_BYTES:-700000}
+      # The loss panel draws the alert threshold that applies, so the chart
+      # says the same thing the alerter would. Same defaults as the alerter.
+      - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
+      - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
       - TZ=${TZ:-UTC}
     volumes:
       - alerter-mutes:/var/lib/alerter-mutes
