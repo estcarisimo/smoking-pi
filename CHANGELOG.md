@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.8.1] — 2026-09-14
+
+The repository grows the files a contributor looks for first, and a fresh
+install stops shipping two APIs unauthenticated.
+
+Two days after 2.8.0, on reading the code reviews that 2.8.0's PRs were
+merged over: `setup.sh` had never generated the config-manager or MCP bearer
+tokens, so both services — one of which exposes every mutation the other
+has — came up unauthenticated on a new box while the README said otherwise.
+They are generated now. The rest is the housekeeping a project is supposed
+to have (`CONTRIBUTING.md`, `AGENTS.md`, a code of conduct, owners,
+templates), a rule that every PR's Copilot review gets read, and the
+smaller findings from the reviews that went unread.
+
 ### Security
 
 - **`setup.sh` now generates `CONFIG_API_TOKEN` (Standard, Pro) and
