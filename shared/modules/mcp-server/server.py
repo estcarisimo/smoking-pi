@@ -980,15 +980,19 @@ def get_chart(
         measurement = links.measurement_for_probe(row.get("probe"))
         if with_peers:
             peers = _chart_peers(catalog, row)
-    elif _cpe_target_exists(target, hours):
-        measurement = "cpe_latency"
     else:
-        return {
-            "error": f"No monitoring target named '{target}' was found.",
-            "available_targets": sorted(
-                t.get("name") for t in catalog if t.get("name")
-            ),
-        }
+        try:
+            is_cpe = _cpe_target_exists(target, hours)
+        except Exception as exc:  # the Influx client raises many types
+            return _tool_error("InfluxDB query failed", exc)
+        if not is_cpe:
+            return {
+                "error": f"No monitoring target named '{target}' was found.",
+                "available_targets": sorted(
+                    t.get("name") for t in catalog if t.get("name")
+                ),
+            }
+        measurement = "cpe_latency"
 
     png = charts.render_target_chart(
         target, measurement=measurement, hours=hours, peers=peers,
