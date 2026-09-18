@@ -328,7 +328,7 @@ action_remove() {
         read -p "Are you sure? [y/N]: " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Operation cancelled"
+            log_info "Operation canceled"
             exit 0
         fi
     fi

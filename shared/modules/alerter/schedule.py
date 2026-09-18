@@ -85,13 +85,13 @@ def _slot_on(day: datetime, hour: int, minute: int, zone: ZoneInfo) -> datetime:
     Spring-forward can make the wall time nonexistent (02:30 where 02:00 jumps
     to 03:00) and autumn can make it ambiguous (01:30 happens twice). ``fold=0``
     picks the first of an ambiguous pair deterministically; a nonexistent time
-    is normalised by the round-trip through UTC below, which lands it just
+    is normalized by the round-trip through UTC below, which lands it just
     after the gap. Either way the slot is stable across ticks, which is the
     property the idempotence depends on.
     """
     naive = datetime(day.year, day.month, day.day, hour, minute, fold=0)
     local = naive.replace(tzinfo=zone)
-    # Round-tripping through UTC normalises a nonexistent wall time onto a real
+    # Round-tripping through UTC normalizes a nonexistent wall time onto a real
     # instant, so two ticks either side of the gap agree on the slot.
     return datetime.fromtimestamp(local.timestamp(), tz=zone)
 

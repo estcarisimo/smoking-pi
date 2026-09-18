@@ -19,15 +19,15 @@ Design follows the project's data-viz method:
 - **No dual axis.** Latency and loss have different scales, so they get two
   stacked panels sharing an x-axis, never twin y-axes.
 - **Emphasis, not categorical.** The story is one target, so the subject wears
-  a status colour and its peers recede to a muted neutral. Eight hues here
+  a status color and its peers recede to a muted neutral. Eight hues here
   would bury the point.
 - **The loss axis is pinned 0-100.** Autoscaling it makes 4% loss look like a
   catastrophe, and that axis is the one a reader interprets absolutely.
-- **Status colour only where it means status.** Digest bars are one hue;
-  bars over the alert threshold take the status colour, and every bar carries
-  its value as text, so colour never carries meaning alone.
+- **Status color only where it means status.** Digest bars are one hue;
+  bars over the alert threshold take the status color, and every bar carries
+  its value as text, so color never carries meaning alone.
 
-Colours are the project palette's dark chrome and status steps, validated
+Colors are the project palette's dark chrome and status steps, validated
 against the dark surface (critical 3.62:1, warning 9.49:1, muted 4.85:1).
 """
 
@@ -276,9 +276,9 @@ def _save(fig, max_bytes: int) -> bytes | None:
 
     for dpi in (DPI, 100):
         buf = io.BytesIO()
-        # facecolor is passed explicitly to pin the behaviour. Modern
+        # facecolor is passed explicitly to pin the behavior. Modern
         # matplotlib defaults rcParams["savefig.facecolor"] to "auto" (use
-        # the figure's own colour), but that default was "w" before 2.0 and
+        # the figure's own color), but that default was "w" before 2.0 and
         # is a global anyone can set -- and if it is ever white, a dark chart
         # ships with a white border around it. Cheap to pin, invisible to
         # debug if it regresses.
@@ -325,7 +325,7 @@ def render_target_chart(
 
     This is the on-request chart (MCP ``get_chart``), not an alert: there is
     no incident, so there is no "alert" marker and the series wears the
-    ordinary series colour rather than a status one. A status colour on a
+    ordinary series color rather than a status one. A status color on a
     chart with no status would tell the reader something is wrong when the
     whole point of asking may have been to show that nothing is.
 
@@ -370,7 +370,7 @@ def _render_series_chart(
 
     # The "smoke": spread of the individual pings, drawn under everything so
     # the median line stays the subject. Two bands -- outer min-max, inner
-    # quartiles -- read as density without a colour scale.
+    # quartiles -- read as density without a color scale.
     s_times, s_lo, s_q1, s_q3, s_hi = _fetch_spread(target, measurement, hours)
     drew_spread = bool(s_times)
     if drew_spread:
@@ -394,7 +394,7 @@ def _render_series_chart(
     ms: list[float] = []
     if times:
         ms = _to_ms(medians, measurement)
-        # A halo in the surface colour under the line, so the median stays
+        # A halo in the surface color under the line, so the median stays
         # legible where it runs through its own inner band (same hue, and
         # the band is exactly where the median lives).
         ax_lat.plot(times, ms, color=theme["SURFACE"], linewidth=4.0,
@@ -553,14 +553,14 @@ def _render_digest_chart(payload: dict, threshold_pct: float | None = None):
     _style(fig, (ax,), theme)
     ax.grid(axis="y", visible=False)
 
-    # ONE hue for every bar. Colouring each bar darker-where-bigger would
+    # ONE hue for every bar. Coloring each bar darker-where-bigger would
     # double-encode bar length as hue on nominal categories, and a wall of
     # saturated full-width blocks reads loud besides -- saturated fills belong
     # on small marks and accents, not large blocks.
     #
     # Status still has to be visible, so it rides on the LABEL: over-threshold
-    # rows get a marker plus a status-coloured value. That satisfies the status
-    # rule properly (icon + label, never colour alone) and keeps discriminating
+    # rows get a marker plus a status-colored value. That satisfies the status
+    # rule properly (icon + label, never color alone) and keeps discriminating
     # when, as here, every target happens to be over the line.
     # height < 1 leaves a surface gap between bars instead of a border.
     ax.barh(names, values, color=theme["SERIES"], height=0.58, zorder=3)
@@ -576,7 +576,7 @@ def _render_digest_chart(payload: dict, threshold_pct: float | None = None):
             color=STATUS["warning"] if over else theme["MUTED"],
         )
         # p95 latency is NOT the thing in status -- it wears the muted text
-        # token, so the status colour keeps meaning "this loss is over the
+        # token, so the status color keeps meaning "this loss is over the
         # line" rather than bleeding onto an unrelated number.
         if p95 is not None:
             ax.annotate(

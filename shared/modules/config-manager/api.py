@@ -463,7 +463,7 @@ class ConfigManagerAPI:
         Returns rather than raises so the route can send the reasons back
         to the caller: every string here is a literal we wrote, not
         exception text, which is what keeps the response free of anything
-        an exception might carry. The targets validator also normalises
+        an exception might carry. The targets validator also normalizes
         metadata in place, as before.
         """
         if config_type == 'targets':

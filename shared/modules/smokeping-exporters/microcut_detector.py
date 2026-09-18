@@ -214,7 +214,7 @@ def main():
 
         # Idle until the next window. The cycle is PROBE_WINDOW of probing plus
         # PROBE_IDLE of quiet, so set CPE_PROBE_IDLE=0 to restore the old
-        # continuous behaviour.
+        # continuous behavior.
         elapsed = time.time() - cycle_start
         remaining = max(0, (PROBE_WINDOW + PROBE_IDLE) - elapsed)
         if remaining > 0:

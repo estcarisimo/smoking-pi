@@ -556,9 +556,9 @@ def test_microcut_worst_windows_link_to_their_own_moment(monkeypatch, no_api, li
     # The per-target summary spans the whole window...
     assert "from=now-24h" in result["stats"][0]["links"]["graph"]
     # ...while an individual worst window is zoomed to when it happened.
-    centre = int(ts.timestamp() * 1000)
+    center = int(ts.timestamp() * 1000)
     graph = result["worst_windows"][0]["graph"]
-    assert f"from={centre - 15 * 60 * 1000}" in graph
+    assert f"from={center - 15 * 60 * 1000}" in graph
     assert "var-cpe=CPE" in graph
 
 

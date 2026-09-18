@@ -3,7 +3,7 @@
 Deterministic alerting for the Pro edition: a small Python service that
 evaluates rules against InfluxDB every minute and delivers notifications via
 an [OpenClaw](https://openclaw.ai) hook or a generic webhook. No LLM
-involved — the rules are plain thresholds, so behaviour is predictable and
+involved — the rules are plain thresholds, so behavior is predictable and
 testable.
 
 Module: `shared/modules/alerter/`. Opt-in via the `alerts` Compose profile:
@@ -255,7 +255,7 @@ Off by default. It needs `NOTIFY_MODE` set to deliver anywhere.
 | `DIGEST_ENABLED` | `false` | Opt in |
 | `DIGEST_AT` | `08:30` | Wall-clock `HH:MM`; anything else disables with a warning |
 | `DIGEST_TZ` | *(unset)* | Zone for `DIGEST_AT`; falls back to `TZ`, then UTC |
-| `DIGEST_WINDOW_HOURS` | `24` | How far back it summarises |
+| `DIGEST_WINDOW_HOURS` | `24` | How far back it summarizes |
 | `DIGEST_MAX_LATENESS` | `14400` | Seconds a missed slot may still be delivered |
 | `DIGEST_SILENT` | `true` | Deliver without a notification sound |
 | `DIGEST_HISTORY_MAX` | `200` | Cap on the retained notification history |
@@ -400,7 +400,7 @@ Cross-container *reads* are safe because both writers use a temp file in the
 same directory plus `os.replace`. That was introduced as crash-safety; it is
 now also the concurrency contract, because `os.replace` is atomic within a
 filesystem — a reader sees the whole old file or the whole new one, never a
-torn one. **Do not "optimise" either writer into an in-place write.**
+torn one. **Do not "optimize" either writer into an in-place write.**
 
 Expiry is evaluated at read time and pruned lazily on the next write, so
 readers never need to write a file their mount forbids them from writing.

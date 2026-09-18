@@ -1,4 +1,4 @@
-"""Notifier tests: per-mode delivery, formatting, retry behaviour."""
+"""Notifier tests: per-mode delivery, formatting, retry behavior."""
 
 import httpx
 import pytest
@@ -302,7 +302,7 @@ def test_preflight_reports_a_genuinely_missing_route(monkeypatch, openclaw, capl
 def test_preflight_reports_a_failing_gateway(monkeypatch, openclaw, caplog):
     """A 5xx says the gateway is broken, not that the tool is permitted.
 
-    The success branch reads "any status we did not recognise means the tool
+    The success branch reads "any status we did not recognize means the tool
     answered with its own argument validation" — which is true for a 4xx from
     the tool, and false for a gateway that never reached it. Treating 502 as
     a pass reports delivery as healthy at exactly the moment it is not.

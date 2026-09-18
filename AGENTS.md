@@ -53,6 +53,17 @@ so "0 results" on a PR means *no new alerts*, not "fixed".
 
 ## Constraints
 
+**American English, everywhere a name or an instruction lives.** Function,
+method, variable and parameter names, agent instructions (this file, the
+OpenClaw skill, `CLAUDE.md`), docs and comments use US spelling:
+`initialize`, `analyze`, `normalize`, `color`, `behavior`, `center`, `gray`.
+This is a project-wide rule, not a preference; a review should flag
+`colour` the way it flags a failing test. Existing *public* names are not
+renamed for spelling alone — an API field or env var that is already
+shipped keeps its spelling until a change that breaks it anyway, and then
+the rename is documented with the old name still accepted for a release.
+(`cancelled` in the web-admin AI result is the one such holdout.)
+
 **Containers cannot import across each other.** Shared code goes in
 `shared/modules/common/`, which each Dockerfile copies in. Build context for
 those images is `shared/`.
@@ -69,7 +80,7 @@ regex or type check does not clear it. Validation reasons are lists of
 literal strings, not exception text.
 
 **Request-named files go through `web-admin/app/services/safe_path.confine()`**
-(normalise + base-directory prefix). config-manager resolves `config_type`
+(normalize + base-directory prefix). config-manager resolves `config_type`
 through the `CONFIG_FILES` literal table. A regex allow-list alone is not a
 sanitizer to CodeQL and should not be one to you.
 
@@ -96,7 +107,7 @@ setting goes in `.env.template` *and* the compose file, or the doctor fails.
 
 **Stateful majors are not routine bumps.** `postgres` and `influxdb` major
 versions are excluded from Dependabot on purpose; a PG major over a live
-volume initialises an empty cluster while the real data sits orphaned, and CI
+volume initializes an empty cluster while the real data sits orphaned, and CI
 cannot catch it because CI has no data volume.
 
 **The OpenClaw skill is a copy.** After editing
@@ -106,16 +117,20 @@ stale copy. The gateway caches the tool set per session.
 
 ## Process
 
-Every change: branch → PR → CI green → **read the Copilot review** → merge →
+Every change: branch → PR → CI green → **independent review** → merge →
 deploy on the reference Pi (`docker compose build <svc> && up -d <svc>`) →
 smoke test → doctor `--live`. The CHANGELOG entry under `[Unreleased]` says
 what was wrong, what it would have cost, and what the change does about it.
 
-**Always request a Copilot review.** PRs on this repository get one
-automatically; if a PR shows no `copilot-pull-request-reviewer` review, request
-it from the Reviewers menu before merging. Address every comment or say why
-not. Copilot cannot formally approve, so a green review is the CI checks plus
-an answered review, not an "Approved" badge.
+**Every PR gets an independent review before merge.** Not a self-review:
+a fresh model session that has not seen the authoring conversation (the
+maintainer uses a cold Sonnet session per PR), or a human. The reviewer reads
+the whole diff against this file's contracts and reports findings with
+severity; the author addresses each one or says why not, and records the
+review's findings and their resolution in a PR comment. GitHub Copilot review
+is not requested — it is costly and its request API silently no-ops on this
+repository. Nobody can formally approve a sole-maintainer PR, so a green
+review is the CI checks plus an answered review, not an "Approved" badge.
 
 Commits follow Conventional Commits; the subject is a sentence about the
 outcome. Releases: `release/vX.Y.Z` branch converts `[Unreleased]` to a dated
