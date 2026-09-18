@@ -303,6 +303,7 @@ The workflow this repository follows for every change:
 | [docs/alerting.md](docs/alerting.md) | Rules, the verdict, charts, digest, muting, delivery, flap damping |
 | [docs/mcp-server.md](docs/mcp-server.md) | MCP tools, deep links, on-request charts |
 | [docs/openclaw-integration.md](docs/openclaw-integration.md) | Registering the MCP server and installing the skill for a chat assistant |
+| [docs/remote-openclaw.md](docs/remote-openclaw.md) | OpenClaw on another machine: SSH tunnel, Tailscale/WireGuard, or Cloudflare Access — ranked by exposure |
 | [docs/doctor.md](docs/doctor.md) | The instrumentation doctor: static and live checks |
 | [docs/clickhouse.md](docs/clickhouse.md) | Running Pro on ClickHouse, and its traps |
 | [docs/ipv6-gating.md](docs/ipv6-gating.md) | Why IPv6 targets disappear when there is no global IPv6 |

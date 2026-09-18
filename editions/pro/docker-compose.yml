@@ -286,11 +286,13 @@ services:
     # correct, keep it), which no bridge network can reach. get_chart's
     # deliver=true needs it. Loopback exposure is unchanged: MCP_HOST binds
     # the listener to 127.0.0.1 exactly as the old "127.0.0.1:8090:8090"
-    # port mapping did, so nothing on the LAN can see the server.
+    # port mapping did, so nothing on the LAN can see the server. The one
+    # reason to override it is a tailnet address for an OpenClaw on another
+    # machine (docs/remote-openclaw.md, option B2); never 0.0.0.0.
     network_mode: host
     environment:
       - MCP_TRANSPORT=http
-      - MCP_HOST=127.0.0.1
+      - MCP_HOST=${MCP_HOST:-127.0.0.1}
       - MCP_PORT=8090
       # Bearer token for the HTTP transport (empty = unauthenticated, as
       # before). The port is bound to 127.0.0.1, so this guards against other
