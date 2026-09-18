@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - name: Validate against the CFF schema
-        run: uvx cffconvert --validate
+        run: uvx cffconvert@2.0.0 --validate
       - name: Version and date match the newest release in CHANGELOG.md
         run: |
           set -e

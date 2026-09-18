@@ -15,7 +15,7 @@ public issue saying only *"security issue, please enable private reporting"*
 with no details, and wait.
 
 This is a self-hosted hobby project maintained by one person (the owner in
-[CODEOWNERS](CODEOWNERS) is who reads the reports). There is no
+[CODEOWNERS](.github/CODEOWNERS) is who reads the reports). There is no
 response-time commitment; expect an acknowledgement within a week and a fix
 on a timescale that depends on severity and on how much of the stack it
 touches.
