@@ -1,0 +1,30 @@
+# Citation metadata (https://citation-file-format.github.io/). GitHub reads
+# this file for the "Cite this repository" button. CI validates it and checks
+# that `version` and `date-released` match the newest released section of
+# CHANGELOG.md, so a release that forgets to update this file fails CI.
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Smoking Pi"
+abstract: >-
+  Home and small-network latency monitoring on a Raspberry Pi: SmokePing
+  probes exported to InfluxDB or ClickHouse, Grafana dashboards, an alerting
+  engine with microcut detection, and an MCP server that lets an AI assistant
+  answer questions about the connection.
+authors:
+  - family-names: Carisimo
+    given-names: Esteban
+repository-code: "https://github.com/estcarisimo/smoking-pi"
+url: "https://github.com/estcarisimo/smoking-pi"
+license: MIT
+version: 2.8.1
+date-released: "2026-09-14"
+keywords:
+  - network-monitoring
+  - latency
+  - smokeping
+  - raspberry-pi
+  - grafana
+  - influxdb
+  - clickhouse
+  - mcp
