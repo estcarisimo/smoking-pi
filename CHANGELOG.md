@@ -11,6 +11,26 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`CITATION.cff`, checked by CI.** GitHub's "Cite this repository" button
+  now works, giving author, title, version, date and repository URL in a
+  form citation managers import. Left out on purpose: a DOI and an ORCID,
+  because neither exists for this project yet and a citation file should
+  not carry a guess. The file is the kind that rots — the version in it is
+  wrong the day after the next release — so a CI job validates it against
+  the CFF schema and fails if `version`/`date-released` do not match the
+  newest released section of this changelog. The release procedure in
+  CONTRIBUTING and AGENTS names the step.
+
+- **SECURITY.md says what to send and what happens next.** The policy had a
+  private channel, a scope and a supported-versions line, but a reporter
+  had to guess what a useful report contains (edition, version, backend,
+  entry point, impact) and had no idea what happens after filing — whether
+  a fix goes on a public branch, when the advisory is published, whether
+  they get credit, when they may disclose. It now spells out the report
+  contents, a four-step coordinated-disclosure process on GitHub's private
+  advisory fork, the 14/30-day escalation, and who reads the reports
+  (the CODEOWNERS owner).
+
 - **The logo is back.** A steaming raspberry pie, drawn in August 2025 and
   committed only to a branch that never merged; the README on `main` had
   pointed at `img/logo.jpg` for a year without the file existing. Recovered

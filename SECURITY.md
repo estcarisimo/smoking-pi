@@ -14,8 +14,45 @@ If that link 404s, private reporting is not enabled on the repository — open a
 public issue saying only *"security issue, please enable private reporting"*
 with no details, and wait.
 
-This is a self-hosted hobby project maintained by one person. There is no
-response-time commitment; expect days rather than hours.
+This is a self-hosted hobby project maintained by one person (the owner in
+[CODEOWNERS](.github/CODEOWNERS) is who reads the reports). There is no
+response-time commitment; expect an acknowledgement within a week and a fix
+on a timescale that depends on severity and on how much of the stack it
+touches.
+
+### What to include
+
+Enough to reproduce it without guessing:
+
+- Edition (Basic / Standard / Pro), the version or commit, and the
+  time-series backend (`TSDB_TYPE`).
+- Which service (web-admin, config-manager, mcp-server, alerter, an
+  exporter, a compose file, a script) and the entry point — URL, MCP tool,
+  env var, config value.
+- Steps or a request that demonstrates it, and what you observed. A
+  minimal target name, YAML snippet or request body is worth more than a
+  scanner report.
+- What an attacker gains: which credential, which data, which host.
+- Anything you already know about the fix, if you have looked.
+
+Redact your own secrets before pasting logs; the generated `.env` and the
+config-manager `/status` output are the usual places they hide.
+
+### How disclosure works
+
+1. You file the advisory; the maintainer acknowledges it in the advisory
+   thread.
+2. The fix is developed on a private fork of the advisory (GitHub's
+   temporary private fork), not on a public branch. CI does not run there,
+   so the fix is tested on the reference Pi.
+3. A release ships the fix; the advisory is published the same day with
+   affected versions, the CVSS estimate, and credit to the reporter (unless
+   you ask to stay anonymous). The CHANGELOG names the advisory.
+4. If a fix is not possible or the report is out of scope, the advisory says
+   so and is closed; you are free to publish after that.
+
+If you have heard nothing after 14 days, comment on the advisory; if still
+nothing after 30, you are free to disclose. Please say you intend to.
 
 ## Scope
 

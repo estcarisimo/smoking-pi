@@ -189,7 +189,9 @@ Maintainer's job: a `release/vX.Y.Z` branch converts `[Unreleased]` into a
 dated section with an intro paragraph, merges, then `git tag -a` and `gh
 release create` with notes. Minor bump per batch of features, patch for a
 hotfix. Every release is deployed on the reference Pi and smoke-tested before
-the tag.
+the tag. The release branch also updates `version` and `date-released` in
+[CITATION.cff](CITATION.cff) — CI fails if they lag the newest CHANGELOG
+section.
 
 ## Reporting bugs
 

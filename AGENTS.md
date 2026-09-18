@@ -134,7 +134,9 @@ review is the CI checks plus an answered review, not an "Approved" badge.
 
 Commits follow Conventional Commits; the subject is a sentence about the
 outcome. Releases: `release/vX.Y.Z` branch converts `[Unreleased]` to a dated
-section with an intro, merge, `git tag -a`, `gh release create`.
+section with an intro and updates `version`/`date-released` in
+`CITATION.cff` (CI checks they match), merge, `git tag -a`,
+`gh release create`.
 
 ## Gotchas
 
