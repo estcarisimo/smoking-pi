@@ -272,7 +272,7 @@ main() {
     read -r response
     
     if [[ ! "$response" =~ ^[Yy]$ ]]; then
-        echo -e "${BLUE}Migration cancelled.${NC}"
+        echo -e "${BLUE}Migration canceled.${NC}"
         exit 0
     fi
     

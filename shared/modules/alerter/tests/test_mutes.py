@@ -145,7 +145,7 @@ def test_a_muted_incident_still_tracks_lifecycle(state_file, mutes_file):
     last_seen, the severity/message refresh and the missing_since clearing all
     have to keep running. Skipping them would leave the incident looking brand
     new when the mute lifts, sending it down the first-seen path and alerting
-    immediately -- exactly the flapping behaviour the grace period fixed.
+    immediately -- exactly the flapping behavior the grace period fixed.
     """
     mutes_file([_mute()])
     st = state.load_state()

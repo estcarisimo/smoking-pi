@@ -53,6 +53,17 @@ so "0 results" on a PR means *no new alerts*, not "fixed".
 
 ## Constraints
 
+**American English, everywhere a name or an instruction lives.** Function,
+method, variable and parameter names, agent instructions (this file, the
+OpenClaw skill, `CLAUDE.md`), docs and comments use US spelling:
+`initialize`, `analyze`, `normalize`, `color`, `behavior`, `center`, `gray`.
+This is a project-wide rule, not a preference; a review should flag
+`colour` the way it flags a failing test. Existing *public* names are not
+renamed for spelling alone — an API field or env var that is already
+shipped keeps its spelling until a change that breaks it anyway, and then
+the rename is documented with the old name still accepted for a release.
+(`cancelled` in the web-admin AI result is the one such holdout.)
+
 **Containers cannot import across each other.** Shared code goes in
 `shared/modules/common/`, which each Dockerfile copies in. Build context for
 those images is `shared/`.
@@ -69,7 +80,7 @@ regex or type check does not clear it. Validation reasons are lists of
 literal strings, not exception text.
 
 **Request-named files go through `web-admin/app/services/safe_path.confine()`**
-(normalise + base-directory prefix). config-manager resolves `config_type`
+(normalize + base-directory prefix). config-manager resolves `config_type`
 through the `CONFIG_FILES` literal table. A regex allow-list alone is not a
 sanitizer to CodeQL and should not be one to you.
 
@@ -96,7 +107,7 @@ setting goes in `.env.template` *and* the compose file, or the doctor fails.
 
 **Stateful majors are not routine bumps.** `postgres` and `influxdb` major
 versions are excluded from Dependabot on purpose; a PG major over a live
-volume initialises an empty cluster while the real data sits orphaned, and CI
+volume initializes an empty cluster while the real data sits orphaned, and CI
 cannot catch it because CI has no data volume.
 
 **The OpenClaw skill is a copy.** After editing

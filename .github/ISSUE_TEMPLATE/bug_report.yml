@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Behaviour depends on the edition, the database backend and the host,
+        Behavior depends on the edition, the database backend and the host,
         so the details below matter more than usual.
 
         **Please redact hostnames, IP addresses and tokens** you would rather

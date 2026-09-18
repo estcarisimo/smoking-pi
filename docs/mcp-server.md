@@ -189,7 +189,7 @@ TUNNEL_BASE_HOST=https://smokingpi.example.com   # from anywhere
 Same panel, same window, different host. `system_status()` twins its three
 entry points the same way (`grafana_overview_tunnel`, …).
 
-Three behaviours worth knowing, each of which exists to keep a link from
+Three behaviors worth knowing, each of which exists to keep a link from
 lying:
 
 - **Tunnel only is fine.** With `TUNNEL_BASE_HOST` set and `PUBLIC_BASE_HOST`

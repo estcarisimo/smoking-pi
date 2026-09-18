@@ -87,7 +87,7 @@ def _first_pixel(png: bytes) -> tuple[int, int, int]:
     # above, Average reads both, Paeth reads all three; none exist yet), so
     # pixel 0 is unchanged under any of them. Pinning to 0/1 would fail on a
     # matplotlib or zlib version that filters differently, testing the
-    # encoder's choices instead of the colour we came here to check.
+    # encoder's choices instead of the color we came here to check.
     assert raw[0] in (0, 1, 2, 3, 4), f"invalid PNG row filter {raw[0]}"
     return tuple(raw[1:1 + 3]) if channels >= 3 else (raw[1],) * 3
 
@@ -116,7 +116,7 @@ def test_a_white_savefig_default_cannot_leak_through(fake_influx):
     rcParams["savefig.facecolor"] is a global, and was "w" by default before
     matplotlib 2.0. If anything sets it, a figure that omits facecolor= ships
     with a white canvas under a dark chart. Passing it explicitly pins the
-    behaviour; drop that argument and this test fails.
+    behavior; drop that argument and this test fails.
     """
     import matplotlib
 
@@ -240,7 +240,7 @@ def test_target_chart_renders_a_png(fake_influx):
 
 
 def test_target_chart_carries_no_incident_marks(monkeypatch):
-    """No incident means no "alert" line and no status colour: a status hue
+    """No incident means no "alert" line and no status color: a status hue
     on a chart with no status tells the reader something is wrong."""
     seen = {}
 

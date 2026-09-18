@@ -30,7 +30,7 @@ TG_CAPTION_LIMIT = 1024
 
 # One traffic light, used everywhere a state is stated -- alerts here, and the
 # summaries the agent writes from the MCP tools (see the OpenClaw skill). A
-# reader scanning a phone should not have to learn a second colour vocabulary
+# reader scanning a phone should not have to learn a second color vocabulary
 # halfway down a report, so 🟢/🟡/🔴 means the same thing in both.
 STATUS_EMOJI = {"ok": "🟢", "watch": "🟡", "bad": "🔴"}
 
@@ -187,7 +187,7 @@ def _link_line(links: dict | None) -> str:
 
 
 def alert_sections(event: dict) -> list[Section]:
-    """Build the prioritised blocks for one alert or recovery."""
+    """Build the prioritized blocks for one alert or recovery."""
     etype = event.get("type", "alert")
     severity = str(event.get("severity") or "warning")
     target = event.get("target")

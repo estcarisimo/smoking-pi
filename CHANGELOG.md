@@ -19,6 +19,20 @@ version gets a matching GitHub release and git tag.
 
 ### Changed
 
+- **American English is the project's language, and now it says so.** The
+  code base had grown up bilingual: `initialize` next to `initialise`,
+  `color` in matplotlib calls and `colour` in the comment above them, a
+  `centre` variable in the deep-link code, `behaviour` in the agent
+  instructions and the OpenClaw skill. Harmless in any single file, but an
+  agent that reads AGENTS.md and copies its spelling into a new function
+  name produces the next inconsistency, and a reviewer has no rule to point
+  at. AGENTS.md, CONTRIBUTING.md and the PR template now state the rule
+  (US spelling for names, docs, comments and agent instructions), and the
+  sixty-odd existing deviations across docs, comments, the OpenClaw skill,
+  two shell messages and one local variable are corrected. No public name
+  changes: the one shipped British spelling (`cancelled` in the web-admin AI
+  result) stays, and the policy says why.
+
 - **Charts: the scale follows the typical shape, not the worst spike.**
   A 24 h gateway chart with nine windows peaking at 180 ms on a 9 ms link
   let those nine set the axis, pressing the median and the inner band —
@@ -34,7 +48,7 @@ version gets a matching GitHub release and git tag.
   for the gateway, `HIGH_LOSS_PCT` otherwise — as a dashed line with its
   value, so the gateway's permanent 10 % ICMP floor reads as "well under
   the line" rather than as loss. Dashed is reserved for this: the grid is
-  solid hairlines. The median gets a halo in the surface colour so it stays
+  solid hairlines. The median gets a halo in the surface color so it stays
   legible where it runs through its own band. All three apply to alert
   charts too, since the renderer is shared; the `mcp-server` service now
   receives both threshold variables so `get_chart` draws the same line the
@@ -84,7 +98,7 @@ smaller findings from the reviews that went unread.
   get the same protection (`openssl rand -hex 32`).
 
 - **`safe_path.confine()` also resolves symlinks**, and rejects `.`, `..`
-  and the empty name explicitly (on a root base, `..` normalises to the
+  and the empty name explicitly (on a root base, `..` normalizes to the
   base itself, which the prefix check cannot see). Both from the Copilot
   review of #52; the lexical check remains what CodeQL scores.
 
@@ -96,7 +110,7 @@ smaller findings from the reviews that went unread.
 
 - **Tests that were not testing what they said** (Copilot review of #52,
   #53): the config-manager unknown-type test used a path Werkzeug
-  normalises away before routing, so its assertions never ran; the status
+  normalizes away before routing, so its assertions never ran; the status
   test patched a method that does not exist; the CrUX confinement test
   failed the regex before reaching the code under test; the backslash
   redirect guard had no test at all. Each now exercises the real branch.
@@ -196,7 +210,7 @@ thing that turns a small bug elsewhere into a disclosure.
   a `country` query parameter, the AI reports page takes a `file` name, and
   config-manager formatted `CONFIG_DIR/<type>.yaml` before checking the
   type. Each had a regex allow-list, which bounds the string but not the
-  path. web-admin gains `services/safe_path.confine()` (normalise, then
+  path. web-admin gains `services/safe_path.confine()` (normalize, then
   require the base-directory prefix); config-manager resolves the type
   through a literal table so request text is never formatted into a path.
 
@@ -274,7 +288,7 @@ digest so silence stops being ambiguous, and mute control by conversation.
 The other half is about not trusting green lights. The doctor learned to check
 the *running* stack, not just the repo, after a masked build failure let a
 three-week-old image look healthy. That check then caught a stale container and
-a Dependabot PR that would have initialised an empty PostgreSQL over the config
+a Dependabot PR that would have initialized an empty PostgreSQL over the config
 source of truth — with CI passing, because CI never builds that image.
 
 
@@ -334,7 +348,7 @@ source of truth — with CI passing, because CI never builds that image.
   confirmed against the live volume: PG18 refuses to start on a PG15 directory
   (loud, safe), and — worse — PG18 relocated its default `PGDATA` to
   `/var/lib/postgresql/18/docker`, so with our mount it reports
-  "uninitialized" and would initialise an **empty** cluster while the real
+  "uninitialized" and would initialize an **empty** cluster while the real
   data sat orphaned. Postgres is this project's config source of truth, so
   that mode presents as every target vanishing from a container reporting
   healthy. New `docs/upgrades.md` carries the dump-first procedure for both
@@ -465,7 +479,7 @@ source of truth — with CI passing, because CI never builds that image.
   object gains a `_tunnel` twin: same panel, same window, different host.
   `system_status` twins its three entry points the same way.
 
-  Three behaviours keep a twin from lying about where it goes: a tunnel with no
+  Three behaviors keep a twin from lying about where it goes: a tunnel with no
   LAN address configured *becomes* the primary link rather than leaving a
   tunnel-only Pi with no links at all; two tiers resolving to the same base are
   not twinned, because two labels on one URL invite a reader to try "the other
@@ -515,7 +529,7 @@ source of truth — with CI passing, because CI never builds that image.
   README and `docs/openclaw-integration.md` now point at it.
 
 - **Alerts arrive with the graph.** Each one carries a rendered PNG: median
-  latency over packet loss for the target, its same-category peers as grey
+  latency over packet loss for the target, its same-category peers as gray
   context, and a marked line at the moment the incident started — so the
   question a Grafana trip is usually made to answer (*since when, and is it
   just this one?*) is answered in the notification.
@@ -533,10 +547,10 @@ source of truth — with CI passing, because CI never builds that image.
   - **The loss axis is pinned 0–100.** Autoscaled, 4% loss looks catastrophic,
     and loss is the axis a reader interprets absolutely.
   - **Emphasis, not eight hues.** The story is one target, so it wears a status
-    colour and the peers recede.
-  - **Digest bars are one hue.** Colouring each bar darker-where-bigger
+    color and the peers recede.
+  - **Digest bars are one hue.** Coloring each bar darker-where-bigger
     double-encodes bar length on nominal categories; over-threshold rows are
-    marked with a glyph and a status-coloured value instead, so colour never
+    marked with a glyph and a status-colored value instead, so color never
     carries meaning alone — and it keeps discriminating when everything is over
     the line.
 
@@ -910,7 +924,7 @@ adds one.
     packets/day) and pressured the gateway's ICMP rate limiter, making part of
     the "constant loss floor" self-inflicted. `CPE_PROBE_IDLE` (default 20 s)
     gives a 1-in-3 duty cycle; measured cadence 10 s → 30 s. Set it to `0` to
-    restore the old behaviour. `MICROCUT_BURST_N` rescaled 6 → 2 to match,
+    restore the old behavior. `MICROCUT_BURST_N` rescaled 6 → 2 to match,
     since it counts *observed* windows.
   - `rrd2influx` re-fetched all 40 RRDs every 60 s although SmokePing writes
     on a 300 s step, so most cycles spawned 40 `rrdtool` processes for
@@ -941,7 +955,7 @@ Upgrade notes:
 - **IPv6 targets may disappear.** On a host with no global IPv6 they are
   omitted from the generated config rather than charting 100% loss. Database
   rows are untouched and return automatically. `IPV6_MODE=force` keeps the old
-  behaviour.
+  behavior.
 - **Grafana jumps three majors** (10.4.2 → 12.4.3). The database migrates in
   place; dashboards need no changes.
 - New opt-in profiles: `alerts` (alerting engine) and the existing `mcp`.

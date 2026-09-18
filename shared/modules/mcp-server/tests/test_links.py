@@ -1,6 +1,6 @@
 """Unit tests for deep-link construction.
 
-The behaviour that matters most here is the negative one: with no base URL
+The behavior that matters most here is the negative one: with no base URL
 configured the tools must emit no links at all, because a guessed
 ``http://localhost:3000`` fails silently for whoever is reading the answer on
 their phone.
@@ -216,9 +216,9 @@ def test_event_time_becomes_a_bracketing_absolute_window(configured):
     moment = datetime(2026, 8, 7, 3, 30, tzinfo=timezone.utc)
     url = links.grafana_url("cpe-microcut-v1", "cpe", "CPE", at=moment)
     params = _query(url)
-    centre = int(moment.timestamp() * 1000)
-    assert int(params["from"][0]) == centre - 15 * 60 * 1000
-    assert int(params["to"][0]) == centre + 15 * 60 * 1000
+    center = int(moment.timestamp() * 1000)
+    assert int(params["from"][0]) == center - 15 * 60 * 1000
+    assert int(params["to"][0]) == center + 15 * 60 * 1000
 
 
 def test_iso_string_times_work_too(configured):

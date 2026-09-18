@@ -127,7 +127,7 @@ construction. The first real run of this check flagged all six healthy
 containers before that exclusion existed, which is how a check gets ignored.
 
 Both skip cleanly when Docker is absent, so `--live` is safe to run anywhere;
-without the flag the behaviour is exactly as before, and CI is unaffected.
+without the flag the behavior is exactly as before, and CI is unaffected.
 
 ## What is not covered yet
 

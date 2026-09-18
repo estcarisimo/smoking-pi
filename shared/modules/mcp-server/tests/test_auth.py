@@ -57,7 +57,7 @@ class TestTokenMatches:
 
 class TestIsAuthorized:
     def test_no_token_configured_allows_everything(self):
-        # Unset MCP_API_TOKEN must preserve the previous open behaviour.
+        # Unset MCP_API_TOKEN must preserve the previous open behavior.
         assert auth.is_authorized({}, "") is True
 
     def test_valid_token(self):

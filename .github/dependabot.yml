@@ -69,7 +69,7 @@ updates:
       # bump is a data migration, not a version string: PG18 both refuses to
       # start on a PG15 directory AND relocated its default PGDATA to
       # /var/lib/postgresql/18/docker, so with our mount it reports
-      # "uninitialized" and would initialise an EMPTY cluster while the real
+      # "uninitialized" and would initialize an EMPTY cluster while the real
       # data sits orphaned in the volume. Postgres is this project's config
       # source of truth, so that failure presents as every target vanishing
       # from a container reporting healthy. Do these deliberately, with a

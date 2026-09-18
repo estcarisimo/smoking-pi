@@ -1,7 +1,7 @@
 # ClickHouse Backend
 
 An alternative to InfluxDB for the Pro edition. InfluxDB stays the default;
-ClickHouse is fully wired but less travelled.
+ClickHouse is fully wired but less traveled.
 
 ```bash
 cd editions/pro
