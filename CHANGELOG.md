@@ -9,6 +9,14 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The logo is back.** A steaming raspberry pie, drawn in August 2025 and
+  committed only to a branch that never merged; the README on `main` had
+  pointed at `img/logo.jpg` for a year without the file existing. Recovered
+  while pruning that branch, downscaled from 2048² (700 KB) to 512² (about
+  a tenth of that), and placed above the title at 220 px.
+
 ### Changed
 
 - **Charts: the scale follows the typical shape, not the worst spike.**
