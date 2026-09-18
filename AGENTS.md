@@ -117,16 +117,20 @@ stale copy. The gateway caches the tool set per session.
 
 ## Process
 
-Every change: branch → PR → CI green → **read the Copilot review** → merge →
+Every change: branch → PR → CI green → **independent review** → merge →
 deploy on the reference Pi (`docker compose build <svc> && up -d <svc>`) →
 smoke test → doctor `--live`. The CHANGELOG entry under `[Unreleased]` says
 what was wrong, what it would have cost, and what the change does about it.
 
-**Always request a Copilot review.** PRs on this repository get one
-automatically; if a PR shows no `copilot-pull-request-reviewer` review, request
-it from the Reviewers menu before merging. Address every comment or say why
-not. Copilot cannot formally approve, so a green review is the CI checks plus
-an answered review, not an "Approved" badge.
+**Every PR gets an independent review before merge.** Not a self-review:
+a fresh model session that has not seen the authoring conversation (the
+maintainer uses a cold Sonnet session per PR), or a human. The reviewer reads
+the whole diff against this file's contracts and reports findings with
+severity; the author addresses each one or says why not, and records the
+review's findings and their resolution in a PR comment. GitHub Copilot review
+is not requested — it is costly and its request API silently no-ops on this
+repository. Nobody can formally approve a sole-maintainer PR, so a green
+review is the CI checks plus an answered review, not an "Approved" badge.
 
 Commits follow Conventional Commits; the subject is a sentence about the
 outcome. Releases: `release/vX.Y.Z` branch converts `[Unreleased]` to a dated

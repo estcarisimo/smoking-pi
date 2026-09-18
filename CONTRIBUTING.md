@@ -161,8 +161,11 @@ where they live; the short list:
    spellings as defects. A name that has already shipped (an API field, an
    env var) is not renamed for spelling alone; see AGENTS.md.
 
-Every PR gets an automatic **GitHub Copilot review**. Read it and either
-address each comment or reply saying why not; do not merge over it unread.
+Every PR gets an **independent review** before merge — a reviewer who did
+not write the change, human or a fresh model session (the maintainer uses a
+cold Sonnet session per PR). Its findings and how each was resolved go in a
+PR comment; do not merge over an unanswered finding. GitHub Copilot review is
+not used.
 
 ### Commit messages
 

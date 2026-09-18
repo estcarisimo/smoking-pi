@@ -19,7 +19,7 @@
 - [ ] Added an entry under `## [Unreleased]` in `CHANGELOG.md`, if user-visible
 - [ ] Updated the README or `docs/`, if behavior or usage changed
 - [ ] Names, docs and comments are in American English (`initialize`, `color`, `behavior`)
-- [ ] Read and answered the Copilot review
+- [ ] Independent review done (fresh model session or human) and every finding answered in a comment
 
 ## Notes for the reviewer
 

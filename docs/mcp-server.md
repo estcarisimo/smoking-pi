@@ -62,7 +62,7 @@ What it draws, for one target and one window (1–720 h, default 24):
   clean one can share a median; the band is what tells them apart.
 - **Packet loss** underneath, on an axis pinned to 0–100 so 4 % never looks
   like a catastrophe.
-- Major **and minor** gridlines, local-time axis, the last value labelled, and
+- Major **and minor** gridlines, local-time axis, the last value labeled, and
   a footer naming the source and when it was drawn — because the image is
   meant to leave the chat it was made in, and once it does nothing else says
   where it came from.

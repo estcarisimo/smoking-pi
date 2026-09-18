@@ -33,6 +33,17 @@ version gets a matching GitHub release and git tag.
   changes: the one shipped British spelling (`cancelled` in the web-admin AI
   result) stays, and the policy says why.
 
+- **The review step is an independent session, not Copilot.** AGENTS.md,
+  CONTRIBUTING.md and the PR template said every PR gets a Copilot review
+  and must not merge over it unread. In practice the review-request API
+  silently did nothing on a third of recent PRs (#57, #62, #63) and the
+  reviews cost more than they found. The rule is now: a reviewer who did
+  not write the change — a fresh model session (the maintainer uses a cold
+  Sonnet session per PR) or a human — reads the whole diff against
+  AGENTS.md's contracts, and its findings and their resolution are recorded
+  in a PR comment. The first two such reviews caught a broken link and two
+  lock files that had leaked into a docs PR, which is the argument.
+
 - **Charts: the scale follows the typical shape, not the worst spike.**
   A 24 h gateway chart with nine windows peaking at 180 ms on a 9 ms link
   let those nine set the axis, pressing the median and the inner band —
@@ -120,7 +131,7 @@ smaller findings from the reviews that went unread.
   are not persisted (edit `COMPOSE_PROFILES` in `.env`); `.env` is not
   exported into your shell; deep links appear only once `PUBLIC_BASE_HOST`
   is set; the config file paths and the data-flow description are Pro's,
-  now labelled as such; CodeQL runs through GitHub's default setup, not the
+  now labeled as such; CodeQL runs through GitHub's default setup, not the
   workflow; and every multi-line `cd` example is anchored at the checkout
   root.
 
