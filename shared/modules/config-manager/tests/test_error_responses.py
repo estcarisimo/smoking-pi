@@ -63,7 +63,7 @@ def test_validation_reasons_come_back_verbatim(client, monkeypatch):
 
 
 def test_unknown_config_type_is_named_without_echoing_it(client):
-    # A single segment: Werkzeug would normalise "../" away before routing,
+    # A single segment: Werkzeug would normalize "../" away before routing,
     # and a 404 would skip the branch under test.
     response = client.put("/config/not-a-real-type", json={"a": 1})
     assert response.status_code == 400
@@ -81,7 +81,7 @@ def test_bad_json_body_is_a_static_message(client):
 
 
 def test_status_dicts_carry_no_exception_text(monkeypatch):
-    """/status serialises get_status() as-is, so its inner error fields
+    """/status serializes get_status() as-is, so its inner error fields
     must be static too. Patches the checkers get_status() actually calls."""
     monkeypatch.setattr(api_module.api, "_check_database_status", _boom)
     status = api_module.api.get_status()

@@ -201,10 +201,10 @@ def _time_range(
 ) -> dict[str, str]:
     """Grafana from/to params: a window around `at`, else a relative lookback."""
     if at is not None:
-        centre = _epoch_ms(at)
-        if centre is not None:
+        center = _epoch_ms(at)
+        if center is not None:
             pad = pad_minutes * 60 * 1000
-            return {"from": str(centre - pad), "to": str(centre + pad)}
+            return {"from": str(center - pad), "to": str(center + pad)}
     if hours:
         return {"from": f"now-{int(hours)}h", "to": "now"}
     return {}

@@ -160,7 +160,7 @@ for.
 
 Quote real numbers with their window ("12% loss over the last hour"), never a
 bare adjective. When a question is about a specific target, query that target
-rather than summarising everything.
+rather than summarizing everything.
 
 If the data does not support a conclusion, say what is missing instead of
 guessing. "Only two samples since the restart — not enough to tell yet" is a
@@ -295,7 +295,7 @@ form:
   are sent with `parse_mode: "HTML"`, so `<b>DNS</b>` renders bold and is the
   only form that works here. `### DNS` arrives as literal hashes or flat
   text; `**DNS**` arrives as literal asterisks. Both are what make a correct
-  report read as one grey wall. Same for the `<b>Bottom line:</b>` lead-in.
+  report read as one gray wall. Same for the `<b>Bottom line:</b>` lead-in.
 
   Because it is HTML, `<` and `&` in a value must be escaped (`&lt;`, `&amp;`)
   — target names are user-editable and `a<b&c` is a legal one. Never wrap a
@@ -384,7 +384,7 @@ returns the same pair for the front doors: `grafana_overview`,
   with the incident against the left edge and no "before" to compare to.
 - **Every 🟡 and 🔴 bullet carries a time and a link. No exceptions.** The
   traffic light is the trigger — not whether you happened to mention a time.
-  You gave that line a warning colour, which means you are telling the person
+  You gave that line a warning color, which means you are telling the person
   something is wrong; the very next thing they want is to look at it. A 🟢
   bullet needs no link, because there is nothing to go and see.
 
@@ -400,7 +400,7 @@ returns the same pair for the front doors: `grafana_overview`,
   span. Neither is exempt; "there is no single moment to point at" is a
   reason to link the window, not a reason to drop the link.
 
-  If a line has a warning colour but nothing worth looking at, it is not a
+  If a line has a warning color but nothing worth looking at, it is not a
   finding — it is reassurance, and it should be 🟢.
 
 - **The link's time range must match the sentence's time range.** If a bullet

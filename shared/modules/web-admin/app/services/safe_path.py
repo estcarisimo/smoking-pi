@@ -4,9 +4,9 @@ Every path the web-admin builds from request data goes through here: the
 CrUX and Cloudflare cache files are named after a ``country`` query
 parameter, and the AI reports page takes a ``file`` parameter. Each caller
 already allow-lists the value with a regex, but a regex is a promise about
-the *string*; this is a check on the *path* -- normalise, then require that
+the *string*; this is a check on the *path* -- normalize, then require that
 the result still sits inside the base directory. It is also the shape CodeQL
-recognises as a sanitizer, which the regex alone is not.
+recognizes as a sanitizer, which the regex alone is not.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def confine(base: Path | str, name: str) -> Path:
     """Return ``base/name`` as a Path, or raise :class:`UnsafePath`.
 
     ``name`` must be a single path component: no separators, no ``..``. The
-    normalised join must start with the normalised base plus a separator, so
+    normalized join must start with the normalized base plus a separator, so
     ``base`` itself and any sibling that merely shares a prefix are rejected.
     """
     name = str(name)

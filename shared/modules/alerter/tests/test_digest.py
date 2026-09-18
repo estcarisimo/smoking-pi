@@ -1,6 +1,6 @@
 """Tests for the daily digest.
 
-The behaviour that matters most is negative: a digest must never report a
+The behavior that matters most is negative: a digest must never report a
 healthy network from an absence of data. Everything else — the wording, the
 chart, the links — is worth less than that one property, because a cheerful
 08:30 message is exactly how a broken monitor stays undetected.

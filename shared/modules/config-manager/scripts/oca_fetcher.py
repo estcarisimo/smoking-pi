@@ -290,7 +290,7 @@ class OCAFetcher:
                     return False
 
                 # Remove existing OCA targets (full replace semantics,
-                # matching the previous YAML behaviour). No commit here:
+                # matching the previous YAML behavior). No commit here:
                 # delete + inserts happen in ONE transaction so a failure
                 # mid-way cannot leave the category emptied.
                 existing = target_repo.get_all(category_name='netflix_oca')

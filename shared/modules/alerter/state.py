@@ -185,7 +185,7 @@ def _apply_mute(record: dict, incident: dict, entries: list[dict],
       we get here. Skipping the rest of the loop body instead would leave the
       incident looking brand new when the mute lifts: it would take the
       first-seen path and alert immediately, which is precisely the flapping
-      behaviour PR #34 fixed.
+      behavior PR #34 fixed.
 
     There is deliberately **no catch-up on unmute**. A still-active incident
     re-alerts once on the normal cooldown path. One that resolved while muted

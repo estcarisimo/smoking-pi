@@ -300,3 +300,6 @@ Claude.md
 TODO*/*.md
 # IPv6 gate verdict — runtime state, written by config-manager
 .ipv6-status.json
+
+# uv writes one per module on `uv run`; the project pins in pyproject.toml, not lockfiles
+uv.lock

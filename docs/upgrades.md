@@ -33,7 +33,7 @@ Two independent things break on a major bump, and the second is worse:
 2. **PG18 moved its default `PGDATA`**, from `/var/lib/postgresql/data` to
    `/var/lib/postgresql/18/docker`. Our compose mounts the volume at the old
    path, so the entrypoint does not find a cluster where it now looks, reports
-   *"Database is uninitialized"*, and — given a password — would **initialise a
+   *"Database is uninitialized"*, and — given a password — would **initialize a
    brand new empty cluster**, leaving the real data orphaned in the volume.
 
    This one **fails open**: the container comes up healthy, config-manager

@@ -146,7 +146,7 @@ where they live; the short list:
 ## Pull requests
 
 1. Branch from `main`.
-2. Keep the change focused; separate mechanical cleanups from behavioural
+2. Keep the change focused; separate mechanical cleanups from behavioral
    changes.
 3. Make sure the module's tests, ruff, and the doctor pass locally.
 4. Add an entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) for
@@ -155,9 +155,17 @@ where they live; the short list:
 5. Describe what you changed and why. If it touches measurement, alert rules,
    or the generated SmokePing config, say how you verified it against a real
    stack.
+6. Use **American English** in every name and every sentence — function,
+   method and variable names, docs, comments, agent instructions:
+   `initialize`, `analyze`, `color`, `behavior`. Reviews flag British
+   spellings as defects. A name that has already shipped (an API field, an
+   env var) is not renamed for spelling alone; see AGENTS.md.
 
-Every PR gets an automatic **GitHub Copilot review**. Read it and either
-address each comment or reply saying why not; do not merge over it unread.
+Every PR gets an **independent review** before merge — a reviewer who did
+not write the change, human or a fresh model session (the maintainer uses a
+cold Sonnet session per PR). Its findings and how each was resolved go in a
+PR comment; do not merge over an unanswered finding. GitHub Copilot review is
+not used.
 
 ### Commit messages
 
@@ -187,7 +195,7 @@ section.
 
 ## Reporting bugs
 
-Open an issue using the bug report template. Because behaviour depends on the
+Open an issue using the bug report template. Because behavior depends on the
 edition, the database backend and the host, please include:
 
 - the edition and the git tag or commit (`git describe --tags`)
