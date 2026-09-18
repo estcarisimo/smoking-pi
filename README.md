@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="img/logo.jpg" alt="Smoking Pi — a steaming raspberry pie" width="220"/>
+</div>
+
 # 🥧 Smoking Pi
 
 Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [SmokePing](https://oss.oetiker.ch/smokeping/) in Docker Compose and grows with you: from a single container reading a YAML file, to a full stack with a web admin, Grafana dashboards, a time-series database, alerting that leads with a verdict, and an MCP server so an AI assistant can answer *"how's my internet?"* from months of recorded history instead of a live `ping`. Built for a Raspberry Pi (ARM64) and runs anywhere Docker does.
