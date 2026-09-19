@@ -35,7 +35,7 @@ Source: `shared/modules/mcp-server/`.
 | `INFLUX_ORG` | `smokeping` | InfluxDB organization |
 | `INFLUX_BUCKET` | `smokeping` | InfluxDB bucket |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` (streamable-http) |
-| `MCP_HOST` | `0.0.0.0` | Bind address for the http transport. Compose sets `127.0.0.1` (the service runs on the host network) |
+| `MCP_HOST` | `0.0.0.0` | Bind address for the http transport. Compose sets `127.0.0.1` unless `.env` overrides it (the service runs on the host network); the only supported override is a tailnet address, see [remote-openclaw.md](remote-openclaw.md) |
 | `MCP_PORT` | `8090` | Listen port for the http transport |
 | `OPENCLAW_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_CHANNEL`, `OPENCLAW_TO` | *(unset)* | Where `get_chart(deliver=true)` posts the PNG — the alerter's delivery settings, reused verbatim (see `docs/alerting.md`) |
 | `CHART_THEME`, `CHART_MAX_BYTES` | `dark`, `700000` | Chart rendering, shared with the alerter |
@@ -264,7 +264,7 @@ It is opt-in via the `mcp` profile so the default stack is unchanged:
     network_mode: host
     environment:
       - MCP_TRANSPORT=http
-      - MCP_HOST=127.0.0.1
+      - MCP_HOST=${MCP_HOST:-127.0.0.1}
       - MCP_PORT=8090
       - CONFIG_API_URL=${MCP_CONFIG_API_URL:-http://127.0.0.1:5000}
       - CONFIG_API_TOKEN=${CONFIG_API_TOKEN:-}

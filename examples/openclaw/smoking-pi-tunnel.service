@@ -13,8 +13,9 @@
 
 [Unit]
 Description=SSH tunnel to Smoking Pi (MCP in, OpenClaw gateway out)
-After=network-online.target
-Wants=network-online.target
+# No After=network-online.target: that target does not exist in the user
+# manager, so the dependency would be silently ignored. Restart= below is
+# what actually rides out an early-boot "no route to host".
 
 [Service]
 Environment=TUNNEL_TARGET=smokingpi@smoking-pi

@@ -91,7 +91,7 @@ Give the tunnel its own key and let it do nothing but these two forwards.
 On the side being dialed into, in `~/.ssh/authorized_keys`:
 
 ```text
-restrict,port-forwarding,permitopen="127.0.0.1:8090",permitlisten="127.0.0.1:18789" ssh-ed25519 AAAA… openclaw-tunnel
+restrict,port-forwarding,permitopen="127.0.0.1:8090",permitlisten="localhost:18789" ssh-ed25519 AAAA… openclaw-tunnel
 ```
 
 `restrict` turns off everything (pty, agent/X11 forwarding, commands),
@@ -99,6 +99,15 @@ restrict,port-forwarding,permitopen="127.0.0.1:8090",permitlisten="127.0.0.1:187
 limit it to exactly the ports above. Swap the two port numbers when the Pi
 is the dialing side. A dedicated user with `/usr/sbin/nologin` as its shell
 is the next step if you want one.
+
+The two entries are spelled differently on purpose. `permitopen` is
+matched against the destination you typed in `-L` — `127.0.0.1:8090`,
+literally. `permitlisten` is matched against the listen address the client
+*sends*, and for an `-R` with no bind address ssh sends the name
+`localhost`, which sshd treats as distinct from `127.0.0.1` and `::1`
+(`authorized_keys(5)`). Write `permitlisten="127.0.0.1:18789"` and sshd
+refuses the very forward this line exists to allow, with nothing in the
+client's output to say why except `ExitOnForwardFailure`.
 
 ### Keep it up
 
@@ -125,7 +134,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -XPOST http://127.0.0.1:8090/mcp      #
 openclaw mcp probe smokeping                                                   # lists the tools
 
 # On the Pi: the gateway reachable through the tunnel
-cd editions/pro && docker compose logs alerter | grep -i preflight              # "delivery looks usable" or the specific reason
+cd editions/pro && docker compose logs alerter | grep -i preflight              # "Delivery preflight: … reachable, 'message' tool permitted" or the specific reason
 ```
 
 `get_chart(target, deliver=true)` from the chat is the end-to-end check: it
@@ -249,10 +258,27 @@ presents the token and exposes the far gateway on the Pi's loopback — where
 #     service: tcp://127.0.0.1:18789
 # plus an Access application + service-token policy for that hostname.
 
-# On the Pi, kept alive by systemd:
+# On the Pi:
 TUNNEL_SERVICE_TOKEN_ID=<id> TUNNEL_SERVICE_TOKEN_SECRET=<secret> \
   cloudflared access tcp --hostname openclaw-gw.example.com --url 127.0.0.1:18789
 ```
+
+That client process needs the same keep-alive treatment as the SSH tunnel;
+a user unit for it is the SSH one with a different `ExecStart`:
+
+```ini
+[Service]
+Environment=TUNNEL_SERVICE_TOKEN_ID=<id>
+Environment=TUNNEL_SERVICE_TOKEN_SECRET=<secret>
+ExecStart=/usr/local/bin/cloudflared access tcp --hostname openclaw-gw.example.com --url 127.0.0.1:18789
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=default.target
+```
+
+(Put the token in the unit's drop-in via `systemctl --user edit`, not in a
+file you might commit.)
 
 OpenClaw's own [Cloudflare Access page](https://docs.openclaw.ai/gateway/cloudflare-access)
 describes the same arrangement from its side and, importantly, says to keep
