@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.9.0] — 2026-09-19
+
+The hop every measurement crosses is measured too, and the project says
+what it is in the languages it uses.
+
+The reference Pi, it turns out, has never had a cable in `eth0`: every
+latency and loss figure in a year of history reached the internet over
+`wlan0`, and nothing recorded the state of that link. So a microcut that
+coincided with a signal dip could only ever be blamed on "your line". This
+release records the Wi-Fi uplink every ten seconds, charts it under the
+microcuts it explains, gives the assistant a tool for it, and lets the
+verdict say *the router or the air, not the ISP* — while stating plainly
+which numbers a Raspberry Pi's own driver does not report, rather than
+drawing an empty panel and calling it zero.
+
+Around it, the housekeeping a public project owes its readers: a guide for
+running OpenClaw on another machine without opening a port, a citation file
+CI keeps honest, a security policy that says what happens after you file,
+one spelling (American) written into the rules and applied to the tree, and
+a review step that is an independent session rather than a bot whose
+review request often went unanswered. Charts learned to scale to the typical shape instead of the worst
+spike, and an MCP error can no longer carry an InfluxDB token in its text.
+
 ### Added
 
 - **The Wi-Fi hop is explained: the verdict, the digest and an MCP tool now
