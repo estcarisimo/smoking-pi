@@ -28,8 +28,8 @@ Around it, the housekeeping a public project owes its readers: a guide for
 running OpenClaw on another machine without opening a port, a citation file
 CI keeps honest, a security policy that says what happens after you file,
 one spelling (American) written into the rules and applied to the tree, and
-a review step that is an independent session rather than a bot that never
-answered. Charts learned to scale to the typical shape instead of the worst
+a review step that is an independent session rather than a bot whose
+review request often went unanswered. Charts learned to scale to the typical shape instead of the worst
 spike, and an MCP error can no longer carry an InfluxDB token in its text.
 
 ### Added
