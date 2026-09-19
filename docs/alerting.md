@@ -192,6 +192,8 @@ missing reports directory is skipped quietly.
 | `VERDICT_MIN_TARGETS` | `3` | Below this many measurable targets, breadth means nothing |
 | `VERDICT_IMPAIRED_LOSS_PCT` | `10` | Mean loss percent at which a target counts as impaired |
 | `VERDICT_STALE_DOWN_HOURS` | `6` | A target at 100% for longer than this is treated as a host that never answered ICMP, and excluded from breadth |
+| `WIFI_WEAK_DBM` | `-75` | Wi-Fi uplink signal below which a sample counts as weak (also what `get_wifi_stats` reports against) |
+| `WIFI_WEAK_SAMPLES` | `6` | Weak samples in the hour before a cutting first hop is called `wifi` rather than `local_link`; rescale with `WIFI_SAMPLE_INTERVAL` |
 | `ALERT_MUTES_FILE` | `/var/lib/alerter-mutes/mutes.json` | Suppression windows. **Written by mcp-server, read-only here** — see [Muting](#muting-alerts-without-losing-them) |
 | `INFLUX_URL` | `http://localhost:8086` | InfluxDB (host network namespace) |
 | `INFLUX_TOKEN` / `INFLUX_ORG` / `INFLUX_BUCKET` | — / `smokeping` / `smokeping` | InfluxDB auth/scope |
@@ -216,6 +218,7 @@ Scopes, in precedence order — the first match wins:
 | Scope | Meaning |
 |---|---|
 | `monitoring` | `exporter_stale` fired. **Outranks everything unconditionally**: announcing a network fault from an *absence* of data is the worst thing this can do |
+| `wifi` | The first hop is dropping *and* the host's own Wi-Fi uplink was weak or dropped in the same hour (no breadth requirement — a dropped uplink takes everything with it). Only on a host whose default route is wireless; see [wifi.md](wifi.md) |
 | `local_link` | Broad impairment *and* the first hop is dropping |
 | `isp_upstream` | Broad impairment with a clean first hop |
 | `ipv6` | Every impaired target is IPv6 while IPv4 is healthy |
@@ -223,7 +226,16 @@ Scopes, in precedence order — the first match wins:
 | `remote_target` | One or two impaired, peers in the same category fine |
 | `unclear` | States the numbers and claims nothing |
 
-Two deliberate properties:
+Three deliberate properties:
+
+- **One weak Wi-Fi sample cannot trigger `wifi`.** The evaluator counts
+  samples below `WIFI_WEAK_DBM` (−75) over the hour, and the verdict needs
+  `WIFI_WEAK_SAMPLES` (6 — a minute's worth at the collector's 10 s
+  interval, anywhere in the window) or a carrier drop. A spare radio that is
+  not the default route is reported in the verdict's `wifi` block but never
+  acted on. When the Wi-Fi was fine, every other line is byte-identical to a
+  wired host's, and the alert's context line carries `wi-fi min −54 dBm` so
+  a reader can see it was checked.
 
 - **The CPE floor cannot trigger `local_link`.** The gateway rate-limits ICMP,
   so `cpe_latency` sits at a permanent single-digit loss floor (observed p50
@@ -238,7 +250,8 @@ Two deliberate properties:
   from both the numerator and the denominator.
 
 Every verdict logs its own inputs at INFO (`verdict inputs: 12/16 impaired
-(75.0%), cpe_cutting=…, excluded_chronic=…`), so a verdict you disagree with
+(75.0%), cpe_cutting=…, excluded_chronic=…, wifi=wlan0 min -54.0 dBm, 0 weak,
+0 drops`), so a verdict you disagree with
 can be diagnosed from `docker compose logs alerter` without reproducing the
 moment it was made.
 
@@ -298,6 +311,12 @@ on each alert or recovery the alerter decides to send — regardless of
 whether delivery then succeeded — and pruned to `DIGEST_HISTORY_MAX` and 48
 hours — necessary because `reconcile()` pops a record on recovery, so by
 08:30 an incident that fired and cleared at 03:00 has left no other trace.
+
+On a host whose uplink is Wi-Fi, a *Local link* section carries one line —
+`📶 Wi-Fi Supersonic ch36 — −52 dBm median, −71 dBm min, 433 Mb/s, 1
+disconnect.` — green, yellow (any drop, or a minimum below −75 dBm) or red
+(three or more drops). A wired host has no such section. The AI report's
+prompt carries the same block.
 
 With the `ai` profile enabled, `reports_watcher` also delivers LLM-written
 reports. Both paths then run; they are independent.

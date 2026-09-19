@@ -42,6 +42,7 @@ SEVERITY_EMOJI = {
 
 SCOPE_EMOJI = {
     "monitoring": "🛠",
+    "wifi": "📶",
     "local_link": "🏠",
     "isp_upstream": "🌐",
     "ipv6": "6️⃣",
@@ -239,6 +240,14 @@ def alert_sections(event: dict) -> list[Section]:
             if verdict.get("cpe_cutting")
             else "local link clean"
         )
+    # The Wi-Fi hop, whenever it was checked: a reader should see that a
+    # "your line" verdict was reached with the wireless link in view.
+    wifi = verdict.get("wifi") or {}
+    if wifi.get("min_dbm") is not None:
+        wifi_note = f"wi-fi min {wifi['min_dbm']:.0f} dBm"
+        if wifi.get("disconnects"):
+            wifi_note += f", {wifi['disconnects']} drop{'s' if wifi['disconnects'] != 1 else ''}"
+        context.append(wifi_note)
     if context:
         sections.append(Section(2, _i(esc(" · ".join(context)))))
 

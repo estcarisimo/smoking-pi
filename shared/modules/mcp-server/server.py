@@ -52,8 +52,11 @@ shell. A live probe describes one instant, cannot see the past, competes with
 the very measurement this host is taking, and will disagree with the graphs the
 user is looking at. Use `get_latency_stats` for how a target has been
 performing, `get_loss_events` for when packets were dropped, and
-`get_microcut_stats` for brief local-link dropouts. Start with `system_status`
-if something looks wrong with the monitoring itself.
+`get_microcut_stats` for brief local-link dropouts, and `get_wifi_stats` for
+the Pi's own wireless uplink (signal, bitrate, disconnects, roams) when the
+host is on Wi-Fi -- a microcut that lines up with a signal dip is the router
+or the air, not the ISP. Start with `system_status` if something looks wrong
+with the monitoring itself.
 
 Two things routinely look like faults and are not: hosts that never answer ICMP
 at all chart a permanently flat 100% loss (a dead-flat line with no variance is
@@ -167,6 +170,14 @@ def _tool_error(message: str, exc: BaseException | None = None, **extra) -> dict
 
 
 _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+# Linux interface names: up to 15 chars, letters/digits and the punctuation
+# udev actually produces (wlan0, wlp3s0, wlan0.1, wlan-ap). Not _NAME_RE:
+# that one is for SmokePing section names and rejects the dot and the dash.
+_IFACE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,15}$")
+
+# Below this the Wi-Fi link is called weak; shared with the alerter's verdict
+# through the same env var (docs/wifi.md).
+DEFAULT_WIFI_WEAK_DBM = -75.0
 
 MAX_HOURS = 24 * 365
 MAX_EVENT_ROWS = 500
@@ -183,6 +194,23 @@ def _validate_name(name: str) -> str | None:
             "names cannot contain spaces or punctuation)."
         )
     return None
+
+
+def _validate_interface(name: Any) -> str | None:
+    if not isinstance(name, str) or not _IFACE_RE.match(name):
+        return (
+            f"Invalid interface name {name!r}: a Linux interface name is 1-15 "
+            "characters of letters, digits, '.', '-' or '_' (for example wlan0)."
+        )
+    return None
+
+
+def _wifi_weak_dbm() -> float:
+    raw = (os.environ.get("WIFI_WEAK_DBM") or "").strip()
+    try:
+        return float(raw) if raw else DEFAULT_WIFI_WEAK_DBM
+    except ValueError:
+        return DEFAULT_WIFI_WEAK_DBM
 
 
 def _validate_hours(hours: Any) -> tuple[int | None, str | None]:
@@ -524,6 +552,14 @@ def system_status() -> dict:
     ]
     result["summary"] = "; ".join(parts)
 
+    # Whether this host measures through Wi-Fi changes how every other number
+    # should be read, so it belongs on the status page. Absent on a wired
+    # host (no wifi_link data) and on any failure -- the stack's health must
+    # not depend on one optional measurement.
+    wifi = _wifi_now()
+    if wifi:
+        result["wifi"] = wifi
+
     # The one place that reports on deep-link configuration. Repeating the
     # hint on every measurement response would be noise; saying it nowhere
     # would make an unconfigured deployment indistinguishable from a bug.
@@ -862,6 +898,233 @@ def get_microcut_stats(hours: int = 24) -> dict:
         ),
         "worst_windows": worst_windows,
     }
+
+
+def _wifi_last_flux(interface: str | None, minutes: int = 10) -> str:
+    """The latest value of every wifi_link field, whichever series holds it.
+
+    ``group(columns: ["_field"]) |> last()`` on purpose: a plain ``last()``
+    answers per series, and after a roam the stale BSSID's series is exactly
+    as "last" as the live one.
+    """
+    where = f" and r.interface == {flux_str(interface)}" if interface else ""
+    return (
+        f"from(bucket: {flux_str(influx_bucket())}) "
+        f"|> range(start: -{int(minutes)}m) "
+        f'|> filter(fn: (r) => r._measurement == "wifi_link"{where}) '
+        '|> group(columns: ["_field"]) |> last()'
+    )
+
+
+def _wifi_uplink_flux(hours: int) -> str:
+    """The last uplink flag per wireless interface within the window."""
+    return (
+        _base_flux(["wifi_link"], hours)
+        + '|> filter(fn: (r) => r._field == "uplink") '
+        '|> group(columns: ["interface"]) |> last()'
+    )
+
+
+def _wifi_uplink_interface(hours: int = 24) -> str | None:
+    """Which wireless interface to talk about when the caller named none:
+    the one carrying the default route, else the first seen. Pooling two
+    radios into one answer would blend their signals and counters -- the
+    verdict picks the uplink the same way (verdict._wifi_state)."""
+    rows = query_influx(_wifi_uplink_flux(hours))
+    by_iface = {r.get("interface"): r.get("_value") for r in rows if r.get("interface")}
+    if not by_iface:
+        return None
+    uplink = sorted(i for i, v in by_iface.items() if int(v or 0) == 1)
+    return uplink[0] if uplink else sorted(by_iface)[0]
+
+
+def _wifi_now(interface: str | None = None) -> dict | None:
+    """The link as it is right now, or None when there is no recent data or
+    anything at all goes wrong (logged under the exception type, never
+    surfaced -- system_status must not depend on one optional measurement).
+    """
+    try:
+        interface = interface or _wifi_uplink_interface(hours=1)
+        if interface is None:
+            return None
+        rows = query_influx(_wifi_last_flux(interface))
+        if not rows:
+            return None
+        fields = {r.get("_field"): r.get("_value") for r in rows if r.get("_field")}
+        latest = max(rows, key=lambda r: r.get("_time") or 0)
+        now: dict[str, Any] = {
+            "interface": interface,
+            "sampled_at": _iso(latest.get("_time")),
+            "associated": bool(fields.get("associated")),
+            "uplink_is_wifi": bool(fields.get("uplink")),
+        }
+        if now["associated"]:
+            # Tags ride on the row that carried the field; signal_dbm exists
+            # only while associated, so its row names the live AP.
+            sig = next((r for r in rows if r.get("_field") == "signal_dbm"), latest)
+            now["ssid"] = sig.get("ssid")
+            now["bssid"] = sig.get("bssid")
+        for src, dst, cast in (
+            ("signal_dbm", "signal_dbm", float), ("tx_bitrate_mbps", "tx_bitrate_mbps", float),
+            ("rx_bitrate_mbps", "rx_bitrate_mbps", float), ("channel", "channel", int),
+            ("band_ghz", "band_ghz", float), ("width_mhz", "width_mhz", int),
+            ("connected_seconds", "connected_seconds", int), ("noise_dbm", "noise_dbm", float),
+            ("snr_db", "snr_db", float),
+        ):
+            if fields.get(src) is not None:
+                now[dst] = cast(fields[src])
+        return now
+    except Exception as exc:
+        log.warning("wifi_link status lookup failed: %s", type(exc).__name__)
+        return None
+
+
+@mcp.tool()
+@logged_tool
+def get_wifi_stats(hours: int = 24, interface: str | None = None) -> dict:
+    """Summarize the Pi's own Wi-Fi uplink: how the wireless hop every other
+    measurement crosses has been behaving.
+
+    Reads the `wifi_link` measurement (the host's wireless interface, sampled
+    every 10 seconds) and returns:
+      - now: the current association (ssid, bssid, band/channel/width, signal
+        in dBm, negotiated tx/rx bitrate in Mbit/s, time associated) and
+        whether this interface carries the default route (uplink_is_wifi)
+      - window: over the lookback -- signal min/p10/median/max, the share of
+        samples below the weak threshold, disconnects, roams (distinct access
+        points), transmit failures, and peak throughput
+      - worst_windows: the 5 weakest samples, each with a graph link zoomed
+        to that moment
+    Empty (`present: false`) on a host that is wired.
+
+    Args:
+        hours: Lookback window in hours (default 24).
+        interface: Wireless interface name (default: whichever the collector
+            chose -- the one carrying the default route).
+
+    Reading the numbers: above -60 dBm is excellent, to -67 comfortable, to
+    -75 marginal, below that weak enough to expect retries and rate drops.
+    The bitrate is the negotiated PHY rate, not throughput. A steady failure
+    rate with a good signal is interference or a busy channel. Use this when
+    a microcut or a latency spike might be the Wi-Fi rather than the ISP, or
+    when the user asks about their Wi-Fi at all.
+    """
+    hours, err = _validate_hours(hours)
+    if err:
+        return {"error": err}
+    if interface is not None:
+        err = _validate_interface(interface)
+        if err:
+            return {"error": err}
+    weak_dbm = _wifi_weak_dbm()
+
+    try:
+        interface = interface or _wifi_uplink_interface(hours)
+    except Exception as exc:
+        return _tool_error("InfluxDB query failed", exc)
+    result: dict[str, Any] = {"window_hours": hours, "weak_below_dbm": weak_dbm}
+    if interface is None:
+        result["present"] = False
+        result["note"] = ("No wifi_link data: this host measures through a wired "
+                          "interface, or the collector is not running.")
+        return result
+
+    base = (_base_flux(["wifi_link"], hours)
+            + f"|> filter(fn: (r) => r.interface == {flux_str(interface)}) ")
+    signal = '|> filter(fn: (r) => r._field == "signal_dbm") |> group() '
+    summary_flux = (
+        base + signal
+        + "|> reduce(identity: {n: 0, weak: 0, min: 0.0, max: -999.0}, "
+        "fn: (r, accumulator) => ({"
+        "n: accumulator.n + 1, "
+        f"weak: accumulator.weak + (if r._value < {weak_dbm:.1f} then 1 else 0), "
+        "min: if accumulator.n == 0 or r._value < accumulator.min then r._value else accumulator.min, "
+        "max: if accumulator.n == 0 or r._value > accumulator.max then r._value else accumulator.max}))"
+    )
+    median_flux = base + signal + "|> median()"
+    p10_flux = base + signal + "|> quantile(q: 0.1)"
+    counters_flux = (
+        base
+        + '|> filter(fn: (r) => r._field == "carrier_down_count" or r._field == "tx_failed" '
+        'or r._field == "tx_retries" or r._field == "beacon_loss") '
+        '|> group(columns: ["_field"]) |> sort(columns: ["_time"]) |> increase() |> last()'
+    )
+    roams_flux = (
+        base + '|> filter(fn: (r) => r._field == "associated" and r._value == 1) '
+        '|> group() |> distinct(column: "bssid") |> count()'
+    )
+    throughput_flux = (
+        base + '|> filter(fn: (r) => r._field == "rx_bytes" or r._field == "tx_bytes") '
+        '|> group(columns: ["_field"]) |> sort(columns: ["_time"]) '
+        "|> derivative(unit: 1s, nonNegative: true) |> max()"
+    )
+    worst_flux = base + signal + '|> sort(columns: ["_value"]) |> limit(n: 5)'
+
+    try:
+        now = _wifi_now(interface)
+        summary_rows = query_influx(summary_flux)
+        median_rows = query_influx(median_flux)
+        p10_rows = query_influx(p10_flux)
+        counter_rows = query_influx(counters_flux)
+        roam_rows = query_influx(roams_flux)
+        throughput_rows = query_influx(throughput_flux)
+        worst_rows = query_influx(worst_flux)
+    except Exception as exc:
+        return _tool_error("InfluxDB query failed", exc)
+
+    if now is None and not summary_rows:
+        result["present"] = False
+        result["note"] = (f"No wifi_link data for {interface} in the last {hours}h: "
+                          "the collector is not running, or the interface is gone.")
+        return result
+    result["present"] = True
+    result["interface"] = interface
+    result["uplink_is_wifi"] = bool((now or {}).get("uplink_is_wifi"))
+    if now:
+        result["now"] = {k: v for k, v in now.items() if k not in ("interface", "uplink_is_wifi")}
+
+    window: dict[str, Any] = {}
+    if summary_rows:
+        row = summary_rows[0]
+        n = int(row.get("n") or 0)
+        window["samples"] = n
+        window["signal_dbm"] = {
+            "min": float(row.get("min")) if n else None,
+            "max": float(row.get("max")) if n else None,
+        }
+        window["weak_share_pct"] = round(100.0 * int(row.get("weak") or 0) / n, 1) if n else 0.0
+        if median_rows and median_rows[0].get("_value") is not None:
+            window["signal_dbm"]["median"] = round(float(median_rows[0]["_value"]), 1)
+        if p10_rows and p10_rows[0].get("_value") is not None:
+            window["signal_dbm"]["p10"] = round(float(p10_rows[0]["_value"]), 1)
+    counters = {r.get("_field"): r.get("_value") for r in counter_rows if r.get("_value") is not None}
+    window["disconnects"] = int(counters.get("carrier_down_count") or 0)
+    for name in ("tx_failed", "tx_retries", "beacon_loss"):
+        if name in counters:
+            window[name] = int(counters[name])
+    if roam_rows and roam_rows[0].get("_value") is not None:
+        window["roams"] = max(0, int(roam_rows[0]["_value"]) - 1)
+    peaks = {r.get("_field"): r.get("_value") for r in throughput_rows if r.get("_value") is not None}
+    if peaks:
+        window["throughput_mbps"] = {
+            f"max_{k.split('_')[0]}": round(float(v) * 8 / 1e6, 2) for k, v in peaks.items()
+        }
+    result["window"] = window
+
+    worst = []
+    for row in worst_rows:
+        w = {"time": _iso(row.get("_time")), "signal_dbm": float(row.get("_value", 0.0)),
+             "bssid": row.get("bssid")}
+        w_links = links.wifi_links(row.get("interface") or result["interface"], at=row.get("_time"))
+        if w_links.get("graph"):
+            w["graph"] = w_links["graph"]
+        worst.append(w)
+    result["worst_windows"] = worst
+
+    link_set = links.wifi_links(result["interface"], hours=hours)
+    if link_set:
+        result["links"] = link_set
+    return result
 
 
 # ---------------------------------------------------------------------------

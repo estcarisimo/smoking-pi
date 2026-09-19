@@ -348,6 +348,8 @@ services:
       # says the same thing the alerter would. Same defaults as the alerter.
       - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
+      # get_wifi_stats calls the uplink weak below this; same as the alerter.
+      - WIFI_WEAK_DBM=${WIFI_WEAK_DBM:--75}
       - TZ=${TZ:-UTC}
     volumes:
       - alerter-mutes:/var/lib/alerter-mutes
@@ -467,6 +469,12 @@ services:
       # A target stuck at 100% longer than this never answered ICMP in the
       # first place; counting it would turn one slow site into an outage.
       - VERDICT_STALE_DOWN_HOURS=${VERDICT_STALE_DOWN_HOURS:-6}
+      # The Wi-Fi uplink (wifi_link, when the host has one): a signal below
+      # WIFI_WEAK_DBM for at least WIFI_WEAK_SAMPLES samples in the hour --
+      # one minute's worth at WIFI_SAMPLE_INTERVAL=10, rescale together --
+      # makes a cutting first hop "your Wi-Fi" rather than "your line".
+      - WIFI_WEAK_DBM=${WIFI_WEAK_DBM:--75}
+      - WIFI_WEAK_SAMPLES=${WIFI_WEAK_SAMPLES:-6}
       # Deep links embedded in alerts. Unset = alerts carry no links, which
       # is deliberate: see docs/mcp-server.md.
       - TSDB_TYPE=${TSDB_TYPE:-influxdb}

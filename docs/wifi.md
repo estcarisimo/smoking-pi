@@ -102,6 +102,29 @@ Every `links` object the MCP server and the alerter emit can carry
 `grafana_wifi_link`; `links.wifi_links(interface, hours, at)` builds a link
 into this dashboard zoomed to a moment.
 
+## Saying it: MCP, the verdict, the digest
+
+- **`get_wifi_stats(hours, interface)`** (MCP) answers "how is the Wi-Fi?"
+  from the record: the current association (`now`), the window's signal
+  min/p10/median/max, the share of samples below `WIFI_WEAK_DBM`,
+  disconnects (`increase(carrier_down_count)`), roams (distinct BSSIDs − 1),
+  failures, peak throughput, and the five weakest samples each linked to its
+  moment. `system_status` carries a `wifi` block so an assistant knows every
+  other number crossed that link. Both use `group(columns: ["_field"]) |>
+  last()` for "now" — after a roam a plain `last()` would answer from the
+  stale series.
+- **The verdict** gains a `wifi` scope (📶): when the first hop is cutting
+  *and* the uplink had at least `WIFI_WEAK_SAMPLES` samples below
+  `WIFI_WEAK_DBM` in the hour, or a carrier drop, the line reads *"Your
+  Wi-Fi — the first hop is cutting out and the signal fell to −78 dBm; the
+  router or the air, not the ISP."* Otherwise nothing changes except the
+  context line, which shows `wi-fi min −54 dBm` so the reader knows the hop
+  was in view. A radio that is not the default route is reported, never
+  acted on. Details and the precedence table: [alerting.md](alerting.md).
+- **The digest** carries a *Local link* line with median/min signal,
+  bitrate, disconnects and roams; the AI report's prompt gets the same
+  block. Wired hosts see neither.
+
 ## Writing queries against it
 
 - Rates from counters: `derivative(unit: 1s, nonNegative: true)`. Totals

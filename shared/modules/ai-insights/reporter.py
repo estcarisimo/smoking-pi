@@ -78,6 +78,14 @@ Worst CPE windows:
 - {{ w.time }} {{ w.target }}/{{ w.protocol }}: {{ w.loss_pct }}% loss
 {% endfor %}
 {%- endif %}
+{% if data.wifi -%}
+Wi-Fi uplink ({{ data.wifi.interface }}{% if data.wifi.ssid %}, {{ data.wifi.ssid }}{% endif %}\
+{% if data.wifi.channel %}, ch{{ data.wifi.channel }}{% endif %}; the hop every measurement above crossed):
+- signal: median={{ data.wifi.median_dbm|default('n/a') }}dBm min={{ data.wifi.min_dbm }}dBm \
+max={{ data.wifi.max_dbm }}dBm over {{ data.wifi.samples }} samples; \
+bitrate={{ data.wifi.tx_bitrate_mbps|default('n/a') }}Mbit/s; \
+disconnects={{ data.wifi.disconnects }}; roams={{ data.wifi.roams }}
+{% endif %}
 """
 )
 

@@ -31,8 +31,19 @@ def clean_env(monkeypatch):
         "VERDICT_IMPAIRED_LOSS_PCT",
         "VERDICT_STALE_DOWN_HOURS",
         "MICROCUT_BURST_N",
+        "WIFI_WEAK_DBM",
+        "WIFI_WEAK_SAMPLES",
     ):
         monkeypatch.delenv(var, raising=False)
+
+
+def _wifi(n=360, weak=0, min_dbm=-52.0, drops=0, uplink=1, iface="wlan0"):
+    """The evaluator's three wifi_link aggregates, as rows."""
+    return {
+        "signal": [{"interface": iface, "n": n, "weak": weak, "min": min_dbm}],
+        "drops": [{"interface": iface, "_value": drops}],
+        "uplink": [{"interface": iface, "_value": uplink}],
+    }
 
 
 def _healthy(n, prefix="ok", category="top_sites"):
@@ -200,3 +211,90 @@ def test_thresholds_are_env_tunable(monkeypatch):
     assert verdict.classify([], rows, [])["scope"] != "isp_upstream"
     monkeypatch.setenv("VERDICT_BROAD_PCT", "25")
     assert verdict.classify([], rows, [])["scope"] == "isp_upstream"
+
+
+# ---------------------------------------------------------------------------
+# The Wi-Fi hop
+# ---------------------------------------------------------------------------
+
+def test_no_wifi_rows_changes_nothing():
+    """A wired host: every verdict is byte-identical to before, and the
+    result says the Wi-Fi was not in view."""
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    before = verdict.classify([], rows, [_micro("CPE", "ipv4", 5)])
+    after = verdict.classify([], rows, [_micro("CPE", "ipv4", 5)], wifi_rows=None)
+    assert after["scope"] == before["scope"] == "local_link"
+    assert after["line"] == before["line"]
+    assert after["wifi"] is None
+    assert verdict.classify([], rows, [], wifi_rows={"signal": [], "drops": [], "uplink": []})["wifi"] is None
+
+
+def test_cutting_with_a_weak_wifi_hour_is_the_wifi():
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 5)],
+                            wifi_rows=_wifi(weak=6, min_dbm=-78.0))
+    assert call["scope"] == "wifi"
+    assert "Your Wi-Fi" in call["line"] and "-78 dBm" in call["line"]
+    assert "not the ISP" in call["line"]
+    assert call["wifi"]["degraded"] is True
+
+
+def test_cutting_with_wifi_drops_names_the_drops():
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 5)],
+                            wifi_rows=_wifi(drops=2))
+    assert call["scope"] == "wifi"
+    assert "dropped 2 times" in call["line"]
+
+
+def test_wifi_needs_no_breadth_but_does_need_the_cpe_to_be_cutting():
+    """A dropped uplink takes everything with it, so breadth is not required;
+    but weak Wi-Fi with a clean first hop is not this verdict."""
+    healthy = _healthy(10)
+    cutting = verdict.classify([], healthy, [_micro("CPE", "ipv4", 5)],
+                               wifi_rows=_wifi(weak=10, min_dbm=-80.0))
+    assert cutting["scope"] == "wifi"
+    clean = verdict.classify([], [_mean(f"t{i}", 0.5) for i in range(10)], [],
+                             wifi_rows=_wifi(weak=10, min_dbm=-80.0))
+    assert clean["scope"] == "isp_upstream"
+    assert clean["wifi"]["degraded"] is True   # reported, not acted on
+
+
+def test_a_healthy_wifi_hour_leaves_the_local_link_verdict_alone():
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 5)], wifi_rows=_wifi())
+    assert call["scope"] == "local_link"
+    assert call["wifi"] == {"interface": "wlan0", "uplink": True, "samples": 360,
+                            "weak_samples": 0, "min_dbm": -52.0, "disconnects": 0,
+                            "degraded": False}
+
+
+def test_one_weak_sample_never_flips_the_verdict():
+    """Floor-safety: WIFI_WEAK_SAMPLES (6) below the threshold, not one."""
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 5)],
+                            wifi_rows=_wifi(weak=5, min_dbm=-90.0))
+    assert call["scope"] == "local_link"
+
+
+def test_weak_samples_threshold_is_configurable(monkeypatch):
+    monkeypatch.setenv("WIFI_WEAK_SAMPLES", "3")
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 5)],
+                            wifi_rows=_wifi(weak=3, min_dbm=-80.0))
+    assert call["scope"] == "wifi"
+
+
+def test_a_spare_radio_that_is_not_the_uplink_does_not_count():
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 5)],
+                            wifi_rows=_wifi(weak=30, min_dbm=-85.0, uplink=0))
+    assert call["scope"] == "local_link"
+    assert call["wifi"]["uplink"] is False and call["wifi"]["degraded"] is False
+
+
+def test_monitoring_still_outranks_wifi():
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([{"rule": "exporter_stale"}], rows, [_micro("CPE", "ipv4", 5)],
+                            wifi_rows=_wifi(drops=3))
+    assert call["scope"] == "monitoring"

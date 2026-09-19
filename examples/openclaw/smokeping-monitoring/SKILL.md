@@ -60,6 +60,12 @@ deployment-independent and should be left alone.
 - `get_loss_events(target, hours)` — discrete loss episodes rather than averages.
 - `get_microcut_stats(hours)` — sub-second CPE dropouts, sampled far more
   finely than the 5-minute target probes.
+- `get_wifi_stats(hours)` — the Pi's own Wi-Fi uplink, when it has one:
+  current SSID/channel/signal/bitrate, and over the window the signal range,
+  the share of weak samples, disconnects, roams and failures. `present:
+  false` means the host is wired. Use it whenever the person asks about
+  their Wi-Fi, and whenever a microcut or a latency spike might be the
+  wireless hop rather than the ISP.
 - `list_targets` — what is currently monitored.
 
 Responses carry a `links` object when deep links are configured: `graph`,
@@ -130,6 +136,17 @@ replies, so the CPE shows steady single-digit loss with nothing wrong. On this
 deployment the floor sits near 10% (p99 ≈ 30%). Only treat a CPE window as a
 real cut when loss is far above that — roughly 50%+. *(Tunable #2 — these
 three numbers are this gateway's, not a universal constant.)*
+
+**Wi-Fi signal is in dBm and negative; closer to zero is stronger.** Above
+−60 is excellent, down to −67 comfortable, down to −75 marginal, below −75
+weak enough to expect retries and bitrate drops (`weak_below_dbm` in the
+result is the line the alerter uses too). The *bitrate* is the negotiated
+PHY rate, not throughput — 433 Mbit/s on a link that moves 60 is normal. A
+steady failure rate with a good signal is interference or a busy channel; a
+falling bitrate with a falling signal is distance or an obstacle. Not every
+driver reports noise, retries or MCS: an absent field is "not measured", not
+zero. When `system_status` carries a `wifi` block, every other number in the
+report crossed that link first — say so when the Wi-Fi was weak at the time.
 
 ## Things that look broken but are not
 
@@ -241,6 +258,7 @@ a heading over "nothing to report" costs a phone screen to say nothing:
 🔴 Worst window 66% loss — Fri 28 Aug, 2:30 am CT. [graph]
 🟡 Peaks of 60–64% Sun 23 Aug midday CT. [graph]
 🟡 Median jitter 47.7 ms across the week — felt on calls. [graph, 7d]
+🟢 Wi-Fi: −52 dBm median, dipped to −71 Thu night, 1 disconnect, 433 Mb/s. [wi-fi]
 
 <b>Week so far</b>
 🟡 Sat 29 Aug ICMP run — still the week's worst. [graph, Sat]
@@ -255,6 +273,7 @@ run — DNS and the OCAs contradict a real outage.
 <b>Graphs</b>
 • Overview — home: <url> · anywhere: <url>
 • Microcuts — home: <url> · anywhere: <url>
+• Wi-Fi — home: <url> · anywhere: <url>   (only when the host is on Wi-Fi)
 ```
 
 A one-hour answer is the **same shape, fewer bullets** — never a flat list:

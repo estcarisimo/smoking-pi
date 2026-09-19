@@ -27,6 +27,7 @@ class _InfluxLikeError(Exception):
     (server.get_latency_stats, {}),
     (server.get_loss_events, {}),
     (server.get_microcut_stats, {}),
+    (server.get_wifi_stats, {}),
 ])
 def test_influx_exception_text_never_reaches_the_result(monkeypatch, tool, kwargs):
     def boom(flux):

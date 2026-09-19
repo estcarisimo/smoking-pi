@@ -11,6 +11,32 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The Wi-Fi hop is explained: the verdict, the digest and an MCP tool now
+  say it.** With the hop recorded and charted, the last step is letting the
+  words follow. `get_wifi_stats(hours, interface)` answers "how is the
+  Wi-Fi?" from the record — current association and signal, the window's
+  signal range and weak share, disconnects, roams, failures, peak throughput,
+  and the five weakest samples each linked to its moment — and
+  `system_status` carries a `wifi` block so an assistant knows every other
+  number crossed that link. The verdict gains a `wifi` scope, 📶, taken when
+  the first hop is cutting *and* the uplink spent at least a minute's worth
+  of samples below −75 dBm (or dropped) in the hour: *"Your Wi-Fi — the
+  first hop is cutting out and the signal fell to −78 dBm; the router or the
+  air, not the ISP."* When the Wi-Fi was fine every existing line is
+  byte-identical, and the context line shows `wi-fi min −54 dBm` so a reader
+  sees it was checked; a spare radio that is not the default route is
+  reported and never acted on. The daily digest and the AI report get a
+  *Local link* line. Two settings, `WIFI_WEAK_DBM` and `WIFI_WEAK_SAMPLES`,
+  shared by the alerter and the MCP server. The OpenClaw skill learns the
+  tool, the dBm bands, and a Wi-Fi bullet in its report template.
+
+- **The doctor reads negative defaults.** `DEFAULT_WIFI_WEAK_DBM = -75.0`
+  is a `UnaryOp` in the AST, not a `Constant`, so the compose-vs-module
+  default check silently skipped it and would have reported OK for a value
+  it never compared. It now resolves negated numbers; the test reintroduces
+  the gap with a compose file pinning −70 against a module −75 and asserts
+  the FAIL.
+
 - **The Wi-Fi hop is charted, next to the microcuts it explains.** A *Wi-Fi
   Link* dashboard (six rows: link now, signal, PHY bitrate, throughput,
   quality, roaming) and — the panel that matters — the Pi's signal and TX

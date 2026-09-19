@@ -42,6 +42,24 @@ def test_render_summary_contains_numbers():
     assert "loss_events=7" in text
 
 
+def test_render_summary_omits_wifi_on_a_wired_host():
+    """No `wifi` key (older aggregates) and an empty one both render nothing."""
+    assert "Wi-Fi" not in reporter.render_summary(SAMPLE_DATA)
+    assert "Wi-Fi" not in reporter.render_summary({**SAMPLE_DATA, "wifi": {}})
+
+
+def test_render_summary_describes_the_wifi_hop():
+    data = {**SAMPLE_DATA, "wifi": {
+        "interface": "wlan0", "uplink_is_wifi": True, "ssid": "ExampleNet", "channel": 36,
+        "band_ghz": 5.0, "tx_bitrate_mbps": 433.3, "samples": 8640, "min_dbm": -71.0,
+        "max_dbm": -49.0, "median_dbm": -52.0, "disconnects": 1, "roams": 0,
+    }}
+    text = reporter.render_summary(data)
+    assert "Wi-Fi uplink (wlan0, ExampleNet, ch36" in text
+    assert "median=-52.0dBm min=-71.0dBm max=-49.0dBm over 8640 samples" in text
+    assert "bitrate=433.3Mbit/s; disconnects=1; roams=0" in text
+
+
 def test_render_summary_truncates_with_note(monkeypatch):
     monkeypatch.setenv("AI_MAX_INPUT_CHARS", "200")
     big = dict(SAMPLE_DATA)

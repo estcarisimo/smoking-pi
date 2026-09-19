@@ -20,8 +20,12 @@ cpe_latency loss is a percent.
 
 from __future__ import annotations
 
+import logging
+
 from datetime import datetime
 from typing import Any
+
+log = logging.getLogger("aggregates")
 
 from .tsdb import (
     CLAMP_LOSS_RATIO as _CLAMP_LOSS_RATIO,
@@ -182,6 +186,75 @@ def _collect_cpe_stats(hours: int) -> dict:
     }
 
 
+def _collect_wifi_stats(hours: int) -> dict:
+    """The host's Wi-Fi uplink over the window, from ``wifi_link``; ``{}`` on
+    a wired host -- and on any failure, because a digest or a report must not
+    go unsent over one optional measurement (the caller sends nothing at all
+    when collect() raises)."""
+    try:
+        uplink_rows = query_influx(
+            _base_flux(["wifi_link"], hours)
+            + '|> filter(fn: (r) => r._field == "uplink") '
+            '|> group(columns: ["interface"]) |> last()'
+        )
+        by_iface = {r.get("interface"): r.get("_value") for r in uplink_rows if r.get("interface")}
+        if not by_iface:
+            return {}
+        # The interface carrying the default route, else the first: two
+        # radios pooled into one line would blend their signals.
+        uplink = sorted(i for i, v in by_iface.items() if int(v or 0) == 1)
+        interface = uplink[0] if uplink else sorted(by_iface)[0]
+        base = (_base_flux(["wifi_link"], hours)
+                + f"|> filter(fn: (r) => r.interface == {flux_str(interface)}) ")
+        signal = '|> filter(fn: (r) => r._field == "signal_dbm") |> group() '
+        summary_rows = query_influx(
+            base + signal
+            + "|> reduce(identity: {n: 0, min: 0.0, max: -999.0}, "
+            "fn: (r, accumulator) => ({n: accumulator.n + 1, "
+            "min: if accumulator.n == 0 or r._value < accumulator.min "
+            "then r._value else accumulator.min, "
+            "max: if accumulator.n == 0 or r._value > accumulator.max "
+            "then r._value else accumulator.max}))"
+        )
+        if not summary_rows or not int(summary_rows[0].get("n") or 0):
+            return {}
+        median_rows = query_influx(base + signal + "|> median()")
+        last_rows = query_influx(base + '|> group(columns: ["_field"]) |> last()')
+        drop_rows = query_influx(
+            base + '|> filter(fn: (r) => r._field == "carrier_down_count") '
+            '|> group() |> sort(columns: ["_time"]) |> increase() |> last()'
+        )
+        roam_rows = query_influx(
+            base + '|> filter(fn: (r) => r._field == "associated" and r._value == 1) '
+            '|> group() |> distinct(column: "bssid") |> count()'
+        )
+    except Exception:  # noqa: BLE001 - optional measurement, never fatal
+        log.warning("wifi_link aggregate failed; digest goes out without it",
+                    exc_info=True)
+        return {}
+
+    fields = {r.get("_field"): r for r in last_rows if r.get("_field")}
+    sig_row = fields.get("signal_dbm") or {}
+    out = {
+        "interface": interface,
+        "uplink_is_wifi": bool((fields.get("uplink") or {}).get("_value")),
+        "ssid": sig_row.get("ssid"),
+        "channel": int(fields["channel"]["_value"]) if fields.get("channel") else None,
+        "band_ghz": float(fields["band_ghz"]["_value"]) if fields.get("band_ghz") else None,
+        "tx_bitrate_mbps": (round(float(fields["tx_bitrate_mbps"]["_value"]), 1)
+                            if fields.get("tx_bitrate_mbps") else None),
+        "samples": int(summary_rows[0]["n"]),
+        "min_dbm": float(summary_rows[0]["min"]),
+        "max_dbm": float(summary_rows[0]["max"]),
+        "median_dbm": (round(float(median_rows[0]["_value"]), 1)
+                       if median_rows and median_rows[0].get("_value") is not None else None),
+        "disconnects": int(drop_rows[0]["_value"]) if drop_rows and drop_rows[0].get("_value") is not None else 0,
+        "roams": (max(0, int(roam_rows[0]["_value"]) - 1)
+                  if roam_rows and roam_rows[0].get("_value") is not None else 0),
+    }
+    return out
+
+
 def collect(hours: int = 24) -> dict:
     """Return the compact aggregate dict handed to the reporter.
 
@@ -192,6 +265,7 @@ def collect(hours: int = 24) -> dict:
     total = len(targets)
     truncated = total > MAX_TARGETS
     cpe = _collect_cpe_stats(hours)
+    wifi = _collect_wifi_stats(hours)
     return {
         "window_hours": hours,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -199,4 +273,5 @@ def collect(hours: int = 24) -> dict:
         "targets_truncated": truncated,
         "targets": targets[:MAX_TARGETS],
         "cpe": cpe,
+        "wifi": wifi,
     }

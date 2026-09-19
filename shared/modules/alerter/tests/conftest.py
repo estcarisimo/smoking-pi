@@ -47,6 +47,8 @@ SCRUB_ENV_VARS = [
     "VERDICT_MIN_TARGETS",
     "VERDICT_IMPAIRED_LOSS_PCT",
     "VERDICT_STALE_DOWN_HOURS",
+    "WIFI_WEAK_DBM",
+    "WIFI_WEAK_SAMPLES",
     # Link building reads these; an exported value would change the rendered
     # message and, with TSDB_TYPE, whether links appear at all.
     "PUBLIC_BASE_HOST",

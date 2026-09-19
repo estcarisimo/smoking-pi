@@ -222,3 +222,42 @@ def test_evaluate_dispatches_queries_and_excludes_down_from_high_loss(monkeypatc
         "high_loss:flaky",  # deadhost excluded: already down
         "microcut_burst:cpe1/ipv4",
     }
+
+
+def test_context_carries_the_three_wifi_aggregates(monkeypatch):
+    """Each wifi_link query is recognizable by its verb, and none of them
+    can be mistaken for the down-window probe (the fallthrough branch)."""
+    seen = []
+
+    def fake_query(flux_src):
+        if "wifi_link" in flux_src:
+            seen.append(flux_src)
+            if "reduce(" in flux_src:
+                assert "r._value < -75.0" in flux_src
+                return [{"interface": "wlan0", "n": 360, "weak": 0, "min": -52.0}]
+            if "increase()" in flux_src:
+                return [{"interface": "wlan0", "_value": 1}]
+            if '"uplink"' in flux_src:
+                return [{"interface": "wlan0", "_value": 1}]
+            raise AssertionError(flux_src)
+        if "-10m" in flux_src:
+            return [{"_value": 30}]
+        if "mean()" in flux_src or "cpe_latency" in flux_src:
+            return []
+        return []
+
+    monkeypatch.setattr(evaluator, "_query", fake_query)
+    monkeypatch.delenv("WIFI_WEAK_DBM", raising=False)
+    _, context = evaluator.evaluate_with_context()
+    assert len(seen) == 3
+    assert context["wifi_rows"] == {
+        "signal": [{"interface": "wlan0", "n": 360, "weak": 0, "min": -52.0}],
+        "drops": [{"interface": "wlan0", "_value": 1}],
+        "uplink": [{"interface": "wlan0", "_value": 1}],
+    }
+
+
+def test_wifi_weak_threshold_reaches_the_query(monkeypatch):
+    monkeypatch.setenv("WIFI_WEAK_DBM", "-70")
+    assert "r._value < -70.0" in evaluator._wifi_signal_flux(
+        evaluator._env_float("WIFI_WEAK_DBM", evaluator.DEFAULT_WIFI_WEAK_DBM))

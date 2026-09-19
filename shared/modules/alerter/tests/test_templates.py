@@ -260,3 +260,32 @@ def test_wifi_entry_point_renders_and_its_tunnel_twin_does_not():
     assert "https://t/d/wifi-link-v1" not in text
     assert text.count("🌐 anywhere") == 1
     assert 'href="https://t/o">🌐 anywhere</a>' in text
+
+
+def test_wifi_scope_has_its_own_light_and_the_context_line_shows_the_hop():
+    verdict = {
+        "scope": "wifi",
+        "line": "Your Wi-Fi — the first hop is cutting out and the signal fell to -78 dBm; "
+                "the router or the air, not the ISP.",
+        "affected": 12, "total": 16, "cpe_cutting": ["CPE/ipv4"],
+        "wifi": {"interface": "wlan0", "uplink": True, "samples": 360, "weak_samples": 9,
+                 "min_dbm": -78.0, "disconnects": 2, "degraded": True},
+    }
+    text = templates.format_message(_alert(verdict=verdict))
+    assert "📶" in text
+    assert "wi-fi min -78 dBm, 2 drops" in text
+
+
+def test_a_checked_but_healthy_wifi_still_appears_in_the_context_line():
+    verdict = dict(_alert()["verdict"])
+    verdict["wifi"] = {"interface": "wlan0", "uplink": True, "samples": 360,
+                       "weak_samples": 0, "min_dbm": -54.0, "disconnects": 0,
+                       "degraded": False}
+    text = templates.format_message(_alert(verdict=verdict))
+    assert "local link clean · wi-fi min -54 dBm" in text
+    assert "drop" not in text
+
+
+def test_no_wifi_means_no_wifi_words():
+    text = templates.format_message(_alert())
+    assert "wi-fi" not in text.lower()

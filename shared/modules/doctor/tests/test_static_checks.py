@@ -534,6 +534,23 @@ def test_numeric_defaults_compare_by_value_not_text(repo):
     assert run(repo)["alerter-env-defaults-match"].status is Status.OK
 
 
+def test_negative_defaults_are_compared_too(repo):
+    """``-75.0`` is a UnaryOp in the AST, not a Constant. Before this the
+    scanner skipped it, the pairing silently vanished, and a compose file
+    pinning -70 against a module default of -75 passed as OK."""
+    (repo.alerter / "evaluator.py").write_text(
+        ALERTER_SOURCE + "\nDEFAULT_WIFI_WEAK_DBM = -75.0\n"
+        "def weak():\n    return _env_int('WIFI_WEAK_DBM', DEFAULT_WIFI_WEAK_DBM)\n"
+    )
+    _set_compose_env(repo, ["WIFI_WEAK_DBM=${WIFI_WEAK_DBM:--75}"])
+    assert run(repo)["alerter-env-defaults-match"].status is Status.OK
+    _set_compose_env(repo, ["WIFI_WEAK_DBM=${WIFI_WEAK_DBM:--70}"])
+    check = run(repo)["alerter-env-defaults-match"]
+    assert check.status is Status.FAIL
+    assert "WIFI_WEAK_DBM" in " ".join(f.render() for f in check.findings)
+
+
+
 def test_env_without_a_compose_default_is_not_compared(repo):
     """`${VAR}` supplies no default, so there is nothing to disagree with."""
     _set_compose_env(repo, ["DOWN_WINDOW=${DOWN_WINDOW}"])

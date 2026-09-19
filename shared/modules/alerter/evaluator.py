@@ -126,6 +126,46 @@ def _microcut_flux(loss_pct: float) -> str:
     )
 
 
+# A Wi-Fi uplink signal below this counts as weak (see verdict.py for how
+# many weak samples it takes). The mcp-server reads the same variable.
+DEFAULT_WIFI_WEAK_DBM = -75.0  # WIFI_WEAK_DBM
+
+
+def _wifi_signal_flux(weak_dbm: float) -> str:
+    """Per interface over the last 60m: samples, samples below weak_dbm, and
+    the minimum signal -- one reduce instead of three aggregates."""
+    return (
+        flux.base_flux(["wifi_link"], "-60m")
+        + '|> filter(fn: (r) => r._field == "signal_dbm") '
+        + '|> group(columns: ["interface"]) '
+        + "|> reduce(identity: {n: 0, weak: 0, min: 0.0}, "
+        "fn: (r, accumulator) => ({"
+        "n: accumulator.n + 1, "
+        f"weak: accumulator.weak + (if r._value < {float(weak_dbm)} then 1 else 0), "
+        "min: if accumulator.n == 0 or r._value < accumulator.min "
+        "then r._value else accumulator.min}))"
+    )
+
+
+def _wifi_drops_flux() -> str:
+    """Carrier drops per interface over the last 60m (increase: reboot-safe)."""
+    return (
+        flux.base_flux(["wifi_link"], "-60m")
+        + '|> filter(fn: (r) => r._field == "carrier_down_count") '
+        + '|> group(columns: ["interface"]) |> sort(columns: ["_time"]) '
+        + "|> increase() |> last()"
+    )
+
+
+def _wifi_uplink_flux() -> str:
+    """Whether each wireless interface carries the default route, now."""
+    return (
+        flux.base_flux(["wifi_link"], "-10m")
+        + '|> filter(fn: (r) => r._field == "uplink") '
+        + '|> group(columns: ["interface"]) |> last()'
+    )
+
+
 def _stale_flux() -> str:
     """Total latency points written recently (exporter liveness).
 
@@ -346,6 +386,10 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
     exactly what these four queries already fetch and then throw away.
     Returning them means the verdict costs no additional Flux queries,
     which matters on a Pi that has already hit its thermal limit.
+
+    The one addition is the Wi-Fi uplink: three aggregate queries over the
+    small wifi_link measurement (a reduce, an increase and a last), which
+    return nothing at all on a wired host.
     """
     down_window = _env_int("DOWN_WINDOW", DEFAULT_DOWN_WINDOW)
 
@@ -355,6 +399,12 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
         _microcut_flux(_env_float("MICROCUT_LOSS_PCT", DEFAULT_MICROCUT_LOSS_PCT))
     )
     stale_rows = _query(_stale_flux())
+    wifi_rows = {
+        "signal": _query(_wifi_signal_flux(
+            _env_float("WIFI_WEAK_DBM", DEFAULT_WIFI_WEAK_DBM))),
+        "drops": _query(_wifi_drops_flux()),
+        "uplink": _query(_wifi_uplink_flux()),
+    }
 
     incidents = rule_target_down(down_rows)
     down_targets = {i["target"] for i in incidents}
@@ -369,6 +419,7 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
         "mean_rows": mean_rows,
         "micro_rows": micro_rows,
         "stale_rows": stale_rows,
+        "wifi_rows": wifi_rows,
     }
     return incidents, context
 
