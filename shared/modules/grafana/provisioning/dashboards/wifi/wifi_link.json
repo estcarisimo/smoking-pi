@@ -1,0 +1,1312 @@
+{
+  "uid": "wifi-link-v1",
+  "id": null,
+  "title": "Wi-Fi Link",
+  "description": "The wireless uplink of the machine running Smoking Pi, from wifi_link.py: signal, negotiated bitrate, throughput, failures, roams. Empty on a wired host. Some panels are empty on drivers that do not report a survey or modulation details (brcmfmac on a Raspberry Pi) — each says so.",
+  "schemaVersion": 37,
+  "version": 1,
+  "tags": [
+    "smokeping",
+    "wifi"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "links": [
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": [
+        "smokeping"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "interface",
+        "label": "Interface",
+        "datasource": {
+          "uid": "influxdb"
+        },
+        "query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"smokeping\", predicate: (r) => r._measurement == \"wifi_link\", tag: \"interface\")",
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Link now",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "SSID",
+      "description": "The network this interface is associated to.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"associated\") |> group() |> last() |> keep(columns:[\"_time\",\"ssid\"])"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "BSSID",
+      "description": "The access point's MAC. Changes on a roam.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"associated\") |> group() |> last() |> keep(columns:[\"_time\",\"bssid\"])"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Channel",
+      "description": "Channel number; band and width are in the panels below.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 8,
+        "y": 1
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"channel\") |> group() |> last()"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Width",
+      "description": "Channel width in MHz.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 10,
+        "y": 1
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MHz",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"width_mhz\") |> group() |> last()"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Signal",
+      "description": "Received signal. Above −67 dBm is comfortable; below −75 dBm expect retries and rate drops.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dBm",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": -75
+              },
+              {
+                "color": "green",
+                "value": -67
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"signal_dbm\") |> group() |> last()"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "TX bitrate",
+      "description": "The negotiated PHY rate — not throughput.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Mbits",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_bitrate_mbps\") |> group() |> last()"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Associated for",
+      "description": "Time since the current association.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 20,
+        "y": 1
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"connected_seconds\") |> group() |> last()"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Drops in range",
+      "description": "Times the carrier went down in the selected time range (increase() over carrier_down_count, so a reboot does not count as a drop).",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 22,
+        "y": 1
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"carrier_down_count\") |> group() |> increase() |> last()"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Signal",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Signal (dBm)",
+      "description": "Received signal and, where the driver reports it, its average. Dashed lines: −67 dBm (comfortable above) and −75 dBm (weak below).",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 3,
+            "showPoints": "auto",
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "unit": "dBm",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": -75
+              },
+              {
+                "color": "red",
+                "value": -67
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "signal avg"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"signal_dbm\") |> yield(name:\"signal\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"signal_avg_dbm\") |> yield(name:\"signal avg\")"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Noise floor and SNR",
+      "description": "Only on drivers that report a channel survey (brcmfmac on a Raspberry Pi does not; this panel stays empty there).",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 3,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "noise"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dBm"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "snr"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dB"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"noise_dbm\") |> yield(name:\"noise\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"snr_db\") |> yield(name:\"snr\")"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Bitrate (PHY rate)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Negotiated bitrate (Mbit/s)",
+      "description": "What the two radios agreed on for the last frame in each direction. It falls when the radio adapts to a worse channel; it is not throughput.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 3,
+            "showPoints": "auto"
+          },
+          "unit": "Mbits",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_bitrate_mbps\") |> yield(name:\"tx\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_bitrate_mbps\") |> yield(name:\"rx\")"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Modulation (MCS · spatial streams · width)",
+      "description": "Only on drivers that print them on the bitrate line (brcmfmac does not).",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 3,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "width MHz"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_mcs\") |> yield(name:\"MCS\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_nss\") |> yield(name:\"NSS\")"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_width_mhz\") |> yield(name:\"width MHz\")"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "Data rate (throughput)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Throughput (bit/s)",
+      "description": "What actually went through the interface, from the byte counters. Usually a small fraction of the bitrate; pinned at the bitrate means saturation.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 3,
+            "showPoints": "auto"
+          },
+          "unit": "bps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_bytes\") |> derivative(unit: 1s, nonNegative: true) |> map(fn:(r) => ({r with _value: r._value * 8.0})) |> yield(name:\"rx\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_bytes\") |> derivative(unit: 1s, nonNegative: true) |> map(fn:(r) => ({r with _value: r._value * 8.0})) |> yield(name:\"tx\")"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Packets/s",
+      "description": "",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 3,
+            "showPoints": "auto"
+          },
+          "unit": "pps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_packets\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"rx\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_packets\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"tx\")"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "Quality",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Failures per second",
+      "description": "Transmit failures and retries (retries and beacon loss only on drivers that report them). A steady non-zero rate with a good signal is interference or a busy channel.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 3,
+            "showPoints": "auto"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_failed\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"tx failed\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_retries\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"tx retries\")"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"beacon_loss\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"beacon loss\")"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_dropped\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"tx dropped\")"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Channel busy (%) and link quality",
+      "description": "Channel-busy share is anyone's traffic on the channel, from the driver survey (absent on brcmfmac). Link quality is the legacy /proc/net/wireless figure, driver-scaled.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 3,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "busy %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "link quality"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"chan_busy_pct\") |> yield(name:\"busy %\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"link_quality\") |> yield(name:\"link quality\")"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "row",
+      "title": "Roaming and association",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      }
+    },
+    {
+      "id": 23,
+      "type": "state-timeline",
+      "title": "Access point (BSSID) over time",
+      "description": "One band per BSSID; a change is a roam.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "showValue": "auto",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "alignValue": "center",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 70,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"associated\") |> filter(fn:(r) => r._value == 1) |> keep(columns:[\"_time\",\"bssid\"]) |> rename(columns:{bssid:\"_value\"})"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "state-timeline",
+      "title": "Associated",
+      "description": "1 while associated to an AP; 0 is a disconnect (the collector keeps writing counters while unassociated).",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "showValue": "auto",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "alignValue": "center",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 70,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"associated\") |> keep(columns:[\"_time\",\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Carrier drops (cumulative since boot)",
+      "description": "carrier_down_count from sysfs. A step is a disconnect; a fall to zero is a reboot.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "pointSize": 3,
+            "showPoints": "auto"
+          },
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"carrier_down_count\")"
+        }
+      ]
+    }
+  ]
+}

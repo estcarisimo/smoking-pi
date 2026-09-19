@@ -111,6 +111,13 @@ and the web-admin page for editing it:
 ±15-minute range around when it happened, so the link opens on the event rather
 than on the day containing it.
 
+`system_status` carries the entry points — `grafana_overview`,
+`grafana_cpe_microcuts`, `grafana_wifi_link`, `web_admin_targets` — each with
+a `_tunnel` twin when a tunnel base is configured. The Wi-Fi dashboard
+(`wifi-link-v1`, variable `interface`) is linked through `links.wifi_links()`
+rather than `target_links()`: an interface has a graph and nothing else — no
+per-ping detail, no peers, no web-admin page to edit.
+
 ### The `from`/`to` contract
 
 Two forms, both emitted by `links.py` and both accepted by Grafana:

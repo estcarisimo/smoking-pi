@@ -588,6 +588,7 @@ def test_system_status_offers_entry_points_when_configured(api, linked):
     assert "deep_links" not in result
     assert result["links"]["web_admin_targets"].endswith("/targets/")
     assert "/d/cpe-microcut-v1" in result["links"]["grafana_cpe_microcuts"]
+    assert "/d/wifi-link-v1" in result["links"]["grafana_wifi_link"]
     # No tunnel configured: no twins to try.
     assert not [key for key in result["links"] if key.endswith("_tunnel")]
 

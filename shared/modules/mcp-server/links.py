@@ -28,6 +28,7 @@ from common.links import (
     links_configured,
     measurement_for_probe,
     target_links,
+    wifi_links,
     web_admin_base,
     web_admin_target_url,
     web_admin_tunnel_base,
@@ -54,4 +55,5 @@ __all__ = [
     "web_admin_base",
     "web_admin_target_url",
     "web_admin_tunnel_base",
+    "wifi_links",
 ]
