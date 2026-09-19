@@ -8,6 +8,13 @@ Reads the measurements the exporters write:
 - ``cpe_latency``: ``median``/``min``/``max``/``jitter`` in milliseconds and
   ``loss`` as a PERCENT 0-100, tagged by ``target`` / ``protocol``. Written
   roughly every 10s per target+protocol.
+- ``wifi_link``: the host's own wireless uplink, tagged ``interface`` and,
+  while associated, ``ssid`` / ``bssid``. Levels in dBm (``signal_dbm``,
+  ``noise_dbm`` when the driver reports it), PHY rates in Mbit/s
+  (``tx_bitrate_mbps``), cumulative counters (``tx_failed``, ``rx_bytes``,
+  ``carrier_down_count`` -- take ``derivative``/``increase`` in Flux), and
+  ``chan_busy_pct`` already a percentage. Every 10s. Not latency, not loss:
+  nothing here goes through ``CLAMP_LOSS_RATIO``.
 
 The two loss units are the reason this is shared rather than copied: a
 module that clamps ``cpe_latency`` loss the way it clamps ``latency`` loss

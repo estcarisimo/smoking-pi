@@ -16,7 +16,7 @@ Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [
 
 - 📡 **Continuous measurement**: ICMP latency and loss to every target on a 300 s cycle, plus DNS resolution timing and IPv6 — recorded for months, not sampled once
 - 🎚️ **Three editions, one setup script**: Basic (YAML), Standard (web admin + PostgreSQL + REST API), Pro (everything + Grafana + InfluxDB/ClickHouse)
-- 📊 **Grafana dashboards**: per-target detail with every individual ping, side-by-side comparisons, percentiles, and CPE microcut detection sampled every 10 s
+- 📊 **Grafana dashboards**: per-target detail with every individual ping, side-by-side comparisons, percentiles, CPE microcut detection sampled every 10 s, and the Wi-Fi uplink itself (signal, bitrate, throughput, disconnects) when the Pi is on wireless
 - 🚨 **Alerts that say what they mean**: every alert leads with a verdict — *is it me or the internet?* — carries the chart, and can be muted by asking in chat
 - 🤖 **MCP server + agent skill**: ask an AI assistant about last night's outage; answers come with deep links into the exact Grafana view
 - 🖼️ **Charts you can forward**: `get_chart` renders a PNG of any target — median with the spread of individual pings — for someone with no login here
@@ -207,7 +207,7 @@ smoking-pi/
 │   │   ├── config-manager/    # Flask API: YAML ↔ PostgreSQL ↔ generated SmokePing config
 │   │   ├── web-admin/         # Flask UI: targets, sources, countries, AI assistant
 │   │   ├── grafana/           # Custom image with provisioned dashboards
-│   │   ├── smokeping-exporters/  # RRD → InfluxDB / ClickHouse, CPE microcut detector
+│   │   ├── smokeping-exporters/  # RRD → InfluxDB / ClickHouse, CPE microcut detector, Wi-Fi link collector
 │   │   ├── alerter/           # Rules, verdict, charts, digest, delivery
 │   │   ├── mcp-server/        # MCP tools over the config API and InfluxDB
 │   │   ├── ai-insights/       # Periodic AI health reports
@@ -304,6 +304,7 @@ The workflow this repository follows for every change:
 | [docs/mcp-server.md](docs/mcp-server.md) | MCP tools, deep links, on-request charts |
 | [docs/openclaw-integration.md](docs/openclaw-integration.md) | Registering the MCP server and installing the skill for a chat assistant |
 | [docs/remote-openclaw.md](docs/remote-openclaw.md) | OpenClaw on another machine: SSH tunnel, Tailscale/WireGuard, or Cloudflare Access — ranked by exposure |
+| [docs/wifi.md](docs/wifi.md) | Wi-Fi uplink stats: what is recorded, from where, and how to query it |
 | [docs/doctor.md](docs/doctor.md) | The instrumentation doctor: static and live checks |
 | [docs/clickhouse.md](docs/clickhouse.md) | Running Pro on ClickHouse, and its traps |
 | [docs/ipv6-gating.md](docs/ipv6-gating.md) | Why IPv6 targets disappear when there is no global IPv6 |

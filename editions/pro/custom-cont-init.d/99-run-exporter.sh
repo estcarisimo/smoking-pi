@@ -43,7 +43,7 @@ touch /config/CPE_Targets 2>/dev/null || true
 # (traceroute must be the full package; busybox's applet output is not
 # reliably parseable, so check via apk, not `command -v`.)
 missing_pkgs=""
-for pkg in python3 py3-pip rrdtool traceroute; do
+for pkg in python3 py3-pip rrdtool traceroute iw; do
     apk info -e "$pkg" >/dev/null 2>&1 || missing_pkgs="$missing_pkgs $pkg"
 done
 if [ -n "$missing_pkgs" ]; then
@@ -78,6 +78,14 @@ case "${TSDB_TYPE}" in
         if [ -f "/exporters/microcut_detector.py" ]; then
             echo "Starting microcut detector..."
             run_detached supervise_loop "Microcut detector" python3 /exporters/microcut_detector.py
+        fi
+
+        # Wi-Fi link collector (needs InfluxDB). Started unconditionally: on
+        # a wired host it idles and rescans, so a hot-plugged adapter is
+        # picked up and supervise_loop never sees an exit to restart.
+        if [ -f "/exporters/wifi_link.py" ]; then
+            echo "Starting Wi-Fi link collector..."
+            run_detached supervise_loop "Wi-Fi link" python3 /exporters/wifi_link.py
         fi
         ;;
 

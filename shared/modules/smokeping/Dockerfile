@@ -20,7 +20,9 @@ LABEL base.image="linuxserver/smokeping:version-2.9.0-r0"
 # - traceroute: full version; busybox's applet output is not reliably parseable
 # - influxdb-client: for the RRD -> InfluxDB exporter
 # - PyYAML: for the Basic edition YAML -> Targets converter
-RUN apk add --no-cache python3 py3-pip rrdtool traceroute && \
+# - iw: nl80211 station/info/survey for the Wi-Fi link collector (wifi_link.py);
+#   reads need no capability, the container just has to share the host netns
+RUN apk add --no-cache python3 py3-pip rrdtool traceroute iw && \
     pip3 install --no-cache-dir --break-system-packages influxdb-client PyYAML
 
 # The edition-specific naming is handled by docker-compose.yml
