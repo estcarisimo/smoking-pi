@@ -4,7 +4,7 @@
   "title": "CPE Microcut Detection",
   "description": "High-frequency (5 pps) probing of the CPE/first hop. Loss here is written by microcut_detector.py as PERCENT (0-100), unlike the SmokePing exporter which writes a 0-1 ratio.",
   "schemaVersion": 37,
-  "version": 2,
+  "version": 3,
   "tags": ["smokeping", "cpe", "microcuts"],
   "time": { "from": "now-1h", "to": "now" },
   "refresh": "10s",
@@ -143,9 +143,62 @@
       ]
     },
     {
+      "type": "timeseries",
+      "title": "Wi-Fi uplink – signal (dBm) and TX failures/s",
+      "description": "The Pi's own wireless link, on the same time axis as the microcuts above. A cut that lines up with a signal dip or a failure burst is the router or the air, not the ISP. Empty when the Pi is wired; every wireless interface is drawn (this dashboard has no interface variable). Dashed lines: −67 dBm (comfortable above) and −75 dBm (weak below). Full detail: the Wi-Fi Link dashboard.",
+      "datasource": { "uid": "influxdb" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 11 },
+      "maxDataPoints": 720,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dBm",
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": -75 },
+              { "color": "green", "value": -67 }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1, "fillOpacity": 10, "spanNulls": false, "pointSize": 3, "showPoints": "auto",
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "tx failed/s" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.drawStyle", "value": "bars" },
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r._field == \"signal_dbm\") |> yield(name:\"signal\")"
+        },
+        {
+          "refId": "B",
+          "datasource": { "uid": "influxdb" },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r._field == \"tx_failed\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"tx failed/s\")"
+        }
+      ]
+    },
+    {
       "type": "row",
       "title": "Packet Loss",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
       "collapsed": false,
       "panels": []
     },
@@ -154,7 +207,7 @@
       "title": "CPE Packet Loss (%) – IPv6",
       "description": "Loss per probe burst for $cpe, in percent (0-100) as written by microcut_detector.py. Thresholds match the stat tiles: yellow >= 1%, red >= 5%.",
       "datasource": { "uid": "influxdb" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
       "maxDataPoints": 720,
       "options": {
         "legend": { "displayMode": "list", "placement": "bottom" },
@@ -197,7 +250,7 @@
       "title": "CPE Packet Loss (%) – IPv4",
       "description": "Loss per probe burst for $cpe, in percent (0-100) as written by microcut_detector.py. Thresholds match the stat tiles: yellow >= 1%, red >= 5%.",
       "datasource": { "uid": "influxdb" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
       "maxDataPoints": 720,
       "options": {
         "legend": { "displayMode": "list", "placement": "bottom" },
@@ -238,7 +291,7 @@
     {
       "type": "row",
       "title": "Current Stats",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
       "collapsed": false,
       "panels": []
     },
@@ -246,7 +299,7 @@
       "type": "stat",
       "title": "IPv6 – Current Loss %",
       "datasource": { "uid": "influxdb" },
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 21 },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 28 },
       "maxDataPoints": 720,
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -273,7 +326,7 @@
       "type": "stat",
       "title": "IPv6 – Median Latency",
       "datasource": { "uid": "influxdb" },
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 21 },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 28 },
       "maxDataPoints": 720,
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -300,7 +353,7 @@
       "type": "stat",
       "title": "IPv6 – Jitter",
       "datasource": { "uid": "influxdb" },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 21 },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 28 },
       "maxDataPoints": 720,
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -327,7 +380,7 @@
       "type": "stat",
       "title": "IPv4 – Current Loss %",
       "datasource": { "uid": "influxdb" },
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 21 },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 28 },
       "maxDataPoints": 720,
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -354,7 +407,7 @@
       "type": "stat",
       "title": "IPv4 – Median Latency",
       "datasource": { "uid": "influxdb" },
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 21 },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 28 },
       "maxDataPoints": 720,
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -381,7 +434,7 @@
       "type": "stat",
       "title": "IPv4 – Jitter",
       "datasource": { "uid": "influxdb" },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 21 },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 28 },
       "maxDataPoints": 720,
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },

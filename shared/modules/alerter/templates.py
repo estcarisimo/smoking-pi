@@ -164,6 +164,7 @@ def _link_line(links: dict | None) -> str:
         # carries, since it is about everything rather than one target.
         ("grafana_overview", "overview"),
         ("grafana_cpe_microcuts", "microcuts"),
+        ("grafana_wifi_link", "wi-fi"),
         ("web_admin_targets", "targets"),
         ("grafana_overview_tunnel", "🌐 anywhere"),
     )

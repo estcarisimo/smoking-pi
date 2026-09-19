@@ -76,6 +76,32 @@ Set in `editions/pro/.env` (the template lists them); the compose file
 passes them to the `smokeping` service. `iw` is baked into the image; the
 init script installs it if a custom image lacks it.
 
+## The dashboard
+
+*Wi-Fi Link* (uid `wifi-link-v1`, folder *wifi*, variable `interface`), six
+rows top to bottom:
+
+1. **Link now** — SSID, BSSID, channel, width, signal (green above −67 dBm,
+   yellow to −75, red below), negotiated TX bitrate, time associated, and
+   carrier drops in the selected range.
+2. **Signal** — signal and its driver average with the −67/−75 dBm lines
+   dashed; noise floor and SNR beside it, empty on drivers without a survey.
+3. **Bitrate (PHY rate)** — tx/rx negotiated rate; MCS, spatial streams and
+   width where the driver prints them.
+4. **Data rate (throughput)** — bit/s and packets/s from the counters.
+5. **Quality** — failures, retries, beacon loss and drops per second;
+   channel-busy share and link quality.
+6. **Roaming and association** — a timeline of the BSSID, a timeline of the
+   associated flag, and the cumulative carrier-drop counter.
+
+The **CPE Microcut Detection** dashboard carries one Wi-Fi panel under its
+latency panels — signal with TX failures/s on the right axis — so a cut and a
+dip share an x-axis. That panel is the reason this collector exists.
+
+Every `links` object the MCP server and the alerter emit can carry
+`grafana_wifi_link`; `links.wifi_links(interface, hours, at)` builds a link
+into this dashboard zoomed to a moment.
+
 ## Writing queries against it
 
 - Rates from counters: `derivative(unit: 1s, nonNegative: true)`. Totals

@@ -51,6 +51,9 @@ DASHBOARD_BY_MEASUREMENT = {
     "latency": ("smokeping-lat-pct-v28", "target"),
     "dns_latency": ("smokeping-dns-resolvers-v4", "target"),
     "cpe_latency": ("cpe-microcut-v1", "cpe"),
+    # Not a target: the variable is the wireless interface (wlan0), which is
+    # why wifi_links() exists instead of routing through target_links().
+    "wifi_link": ("wifi-link-v1", "interface"),
 }
 
 # Per-ping detail, for "show me the actual pings" follow-ups.
@@ -336,8 +339,34 @@ def target_links(
     return _with_tunnel_twins(primary, tunnel)
 
 
+def wifi_links(
+    interface: str | None, hours: int | None = None, at: Any = None
+) -> dict[str, str]:
+    """Links for the Wi-Fi uplink: its dashboard, in both tiers.
+
+    Deliberately not target_links(): that always adds an ``edit`` link into
+    the web-admin target search and, given a category, a peers comparison,
+    and neither means anything for ``wlan0``. Only ``graph`` (and its tunnel
+    twin) is right here.
+    """
+    if not interface or not links_configured():
+        return {}
+    uid, var = DASHBOARD_BY_MEASUREMENT["wifi_link"]
+
+    def tier(grafana: str | None) -> dict[str, str]:
+        if not grafana:
+            return {}
+        url = grafana_url(uid, var, interface, hours=hours, at=at, base=grafana)
+        return {"graph": url} if url else {}
+
+    primary = tier(grafana_base())
+    if not has_tunnel_links():
+        return primary
+    return _with_tunnel_twins(primary, tier(grafana_tunnel_base()))
+
+
 def entry_point_links(hours: int = 24) -> dict[str, str]:
-    """The front doors: latency overview, CPE microcuts, the targets page.
+    """The front doors: latency overview, CPE microcuts, Wi-Fi link, targets.
 
     Lives here rather than in the MCP server so both tiers are assembled in
     one place -- a second hand-rolled copy is how the tunnel twin would end up
@@ -355,6 +384,9 @@ def entry_point_links(hours: int = 24) -> dict[str, str]:
             cpe = grafana_url("cpe-microcut-v1", hours=hours, base=grafana)
             if cpe:
                 out["grafana_cpe_microcuts"] = cpe
+            wifi = grafana_url("wifi-link-v1", hours=hours, base=grafana)
+            if wifi:
+                out["grafana_wifi_link"] = wifi
         if web_admin:
             admin = web_admin_target_url(base=web_admin)
             if admin:

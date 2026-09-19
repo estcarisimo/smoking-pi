@@ -11,6 +11,21 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The Wi-Fi hop is charted, next to the microcuts it explains.** A *Wi-Fi
+  Link* dashboard (six rows: link now, signal, PHY bitrate, throughput,
+  quality, roaming) and — the panel that matters — the Pi's signal and TX
+  failures drawn under the CPE microcut panels on the same time axis, so a
+  cut that lines up with a dip reads as the router or the air rather than
+  the ISP. Panels for what a driver may not report (noise, MCS, retries)
+  say so in their description instead of looking broken. Current-value
+  tiles use `group() |> last()`, because after a roam a plain `last()`
+  would happily show the stale access point. `links.wifi_links()` builds
+  deep links into the dashboard (the graph pair only — an interface has no
+  per-ping detail, peers or edit page), and `system_status`, the digest and
+  alerts gain a `grafana_wifi_link` entry point. Every panel query was run
+  through Grafana's datasource API on the reference Pi: 0 errors, and the
+  empty ones are exactly the fields brcmfmac does not write.
+
 - **The Wi-Fi hop is recorded.** The reference Pi's uplink is `wlan0` —
   `eth0` has never had a carrier — so every latency and loss figure in a
   year of history crossed a Wi-Fi link that nothing measured. A microcut

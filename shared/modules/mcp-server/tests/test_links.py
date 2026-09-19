@@ -168,13 +168,45 @@ def test_entry_points_carry_both_tiers(both_tiers):
     assert set(result) == {
         "grafana_overview",
         "grafana_cpe_microcuts",
+        "grafana_wifi_link",
         "web_admin_targets",
         "grafana_overview_tunnel",
         "grafana_cpe_microcuts_tunnel",
+        "grafana_wifi_link_tunnel",
         "web_admin_targets_tunnel",
     }
+    assert "/d/wifi-link-v1" in result["grafana_wifi_link"]
     assert result["web_admin_targets"] == "http://192.168.86.27:8080/targets/"
     assert result["web_admin_targets_tunnel"] == "https://smokingpi.example.com/targets/"
+
+
+def test_wifi_links_are_the_graph_pair_and_nothing_else(both_tiers):
+    """No edit link into a target search for wlan0, no peers: just the
+    dashboard, keyed by interface, in both tiers."""
+    result = links.wifi_links("wlan0", hours=6)
+    assert set(result) == {"graph", "graph_tunnel"}
+    assert "/d/wifi-link-v1" in result["graph"]
+    assert "var-interface=wlan0" in result["graph"]
+    assert "from=now-6h" in result["graph"]
+    assert result["graph_tunnel"].startswith("https://smokingpi.example.com/")
+
+
+def test_wifi_links_zoom_to_a_moment(both_tiers):
+    from datetime import datetime, timezone
+
+    moment = datetime(2026, 9, 19, 1, 30, tzinfo=timezone.utc)
+    result = links.wifi_links("wlan0", at=moment)
+    center = int(moment.timestamp() * 1000)
+    assert f"from={center - 15 * 60 * 1000}" in result["graph"]
+    assert f"to={center + 15 * 60 * 1000}" in result["graph"]
+
+
+def test_wifi_links_empty_without_interface_or_config(both_tiers, monkeypatch):
+    assert links.wifi_links(None) == {}
+    for var in ("PUBLIC_BASE_HOST", "GRAFANA_PUBLIC_URL", "WEB_ADMIN_PUBLIC_URL",
+                "TUNNEL_BASE_HOST", "GRAFANA_TUNNEL_URL", "WEB_ADMIN_TUNNEL_URL"):
+        monkeypatch.delenv(var, raising=False)
+    assert links.wifi_links("wlan0") == {}
 
 
 def test_tunnel_links_stay_off_under_clickhouse(both_tiers, monkeypatch):
