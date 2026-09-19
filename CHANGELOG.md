@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **ClickHouse mode never wrote a row.** Since the Sprint 13 revival the
+  exporter connected without a database so it could create the schema
+  first — and then never selected it, so every insert went to
+  `default.latency`, which does not exist; a second defect sent an
+  `rrd_file` column the table has no room for, which ClickHouse answers by
+  rejecting the whole batch. The schema check in `docs/clickhouse.md`
+  passed throughout, so nothing looked wrong until the HTTP dashboard's
+  ClickHouse variant was finally run against a live ClickHouse. The
+  exporter now selects the database once it exists and writes a declared
+  column list that a test holds against its own `CREATE TABLE`. Verified
+  against ClickHouse 24.1 from the reference Pi's RRDs: all four
+  measurement types land, and the *HTTP by Version* ClickHouse dashboard's
+  variable and panels return rows through Grafana's query API.
+
 ## [2.10.0] — 2026-09-19
 
 The web is measured the way it is served, and two roadmap questions get

@@ -330,6 +330,19 @@ class RRDDataPoint(BaseModel):
     rrd_file: str = Field(..., description="Source RRD file path")
 
 
+# Columns the exporter writes, in table order. Every name must exist in
+# the CREATE TABLE in ensure_schema: ClickHouse rejects the whole batch for
+# one unknown column, which is how an `rrd_file` provenance field once
+# silenced every insert. RRDDataPoint.rrd_file stays for logging only.
+INSERT_COLUMNS = (
+    "timestamp", "target", "category", "host", "measurement_type",
+    "min_latency", "max_latency", "avg_latency", "median_latency",
+    "p10_latency", "p20_latency", "p80_latency", "p90_latency",
+    "p95_latency", "p99_latency",
+    "packet_loss", "packets_sent", "packets_received",
+)
+
+
 class ClickHouseExporter:
     """
     SmokePing RRD to ClickHouse exporter.
@@ -434,6 +447,11 @@ class ClickHouseExporter:
             ORDER BY (target, timestamp)
             TTL toDateTime(timestamp) + INTERVAL 1 YEAR
         """)
+        # Now that the database exists, make it the session default. The
+        # client connected without one (see _init_clickhouse_client), so
+        # without this every unqualified insert lands in `default`, where
+        # no `latency` table exists — and every insert fails.
+        client.database = database
         logger.info("ClickHouse schema ensured", database=database)
 
     def _signal_handler(self, signum: int, frame) -> None:
@@ -445,7 +463,8 @@ class ClickHouseExporter:
         """Get the latest timestamp from ClickHouse to avoid reprocessing."""
         try:
             result = self.clickhouse_client.query(
-                "SELECT MAX(timestamp) as max_ts FROM smokeping.latency"
+                f"SELECT MAX(timestamp) as max_ts "
+                f"FROM {self.settings.clickhouse_db}.latency"
             ).result_rows
             
             if result and result[0][0]:
@@ -654,34 +673,17 @@ class ClickHouseExporter:
         
         try:
             # Convert to DataFrame for batch insert
-            df_data = []
-            for point in data_points:
-                df_data.append({
-                    'timestamp': point.timestamp,
-                    'target': point.target,
-                    'category': point.category,
-                    'host': point.host,
-                    'measurement_type': point.measurement_type,
-                    'min_latency': point.min_latency,
-                    'max_latency': point.max_latency,
-                    'avg_latency': point.avg_latency,
-                    'median_latency': point.median_latency,
-                    'p10_latency': point.p10_latency,
-                    'p20_latency': point.p20_latency,
-                    'p80_latency': point.p80_latency,
-                    'p90_latency': point.p90_latency,
-                    'p95_latency': point.p95_latency,
-                    'p99_latency': point.p99_latency,
-                    'packet_loss': point.packet_loss,
-                    'packets_sent': point.packets_sent,
-                    'packets_received': point.packets_received,
-                    'rrd_file': point.rrd_file
-                })
+            df_data = [
+                {column: getattr(point, column) for column in INSERT_COLUMNS}
+                for point in data_points
+            ]
             
             df = pd.DataFrame(df_data)
             
             # Insert to ClickHouse
-            self.clickhouse_client.insert_df('latency', df)
+            self.clickhouse_client.insert_df(
+                'latency', df, database=self.settings.clickhouse_db
+            )
             
             clickhouse_rows_inserted.inc(len(data_points))
             logger.info("Inserted data points to ClickHouse", count=len(data_points))

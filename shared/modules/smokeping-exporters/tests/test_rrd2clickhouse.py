@@ -101,3 +101,66 @@ class TestLossToPercent:
     def test_clamped(self):
         assert ch.loss_to_percent(25.0, 10) == 100.0
         assert ch.loss_to_percent(-1.0, 10) == 0.0
+
+
+class _FakeClient:
+    """Records the statements ensure_schema runs and the database it selects."""
+
+    def __init__(self):
+        self.commands = []
+        self.database = None
+
+    def command(self, sql):
+        self.commands.append(" ".join(sql.split()))
+
+
+class TestEnsureSchemaSelectsDatabase:
+    """The client connects without a database so the schema can be created
+    first; ensure_schema must then select it, or every unqualified insert
+    goes to `default.latency`, which does not exist (the bug behind
+    "Table default.latency does not exist" on a fresh ClickHouse)."""
+
+    def _exporter(self, db, tmp_path):
+        settings = ch.ExporterSettings(
+            clickhouse_password="x", clickhouse_db=db, rrd_dir=tmp_path
+        )
+        exporter = ch.ClickHouseExporter.__new__(ch.ClickHouseExporter)
+        exporter.settings = settings
+        return exporter
+
+    def test_selects_configured_database_after_creating_it(self, tmp_path):
+        client = _FakeClient()
+        self._exporter("smokeping", tmp_path).ensure_schema(client)
+        assert client.commands[0] == "CREATE DATABASE IF NOT EXISTS smokeping"
+        assert "CREATE TABLE IF NOT EXISTS smokeping.latency" in client.commands[1]
+        assert client.database == "smokeping"
+
+    def test_database_name_is_not_hardcoded(self, tmp_path):
+        client = _FakeClient()
+        self._exporter("pings", tmp_path).ensure_schema(client)
+        assert "pings.latency" in client.commands[1]
+        assert client.database == "pings"
+
+
+class TestInsertColumnsMatchSchema:
+    """Every column the exporter inserts must be declared by the table it
+    creates; one stray name fails the whole batch (the `rrd_file` bug)."""
+
+    def test_every_insert_column_is_in_create_table(self, tmp_path):
+        client = _FakeClient()
+        settings = ch.ExporterSettings(clickhouse_password="x", rrd_dir=tmp_path)
+        exporter = ch.ClickHouseExporter.__new__(ch.ClickHouseExporter)
+        exporter.settings = settings
+        exporter.ensure_schema(client)
+        create = client.commands[1]
+        body = create[create.index("(") + 1 : create.rindex(") ENGINE")]
+        # Splitting on every comma also splits inside CODEC(a, b); that only
+        # yields extra fragments like "LZ4)", never corrupts a column name,
+        # because a column's own name always follows the top-level comma.
+        declared = {line.strip().split()[0] for line in body.split(",") if line.strip()}
+        missing = set(ch.INSERT_COLUMNS) - declared
+        assert not missing, f"inserted but not in schema: {sorted(missing)}"
+
+    def test_insert_columns_are_data_point_fields(self):
+        assert set(ch.INSERT_COLUMNS) <= set(ch.RRDDataPoint.model_fields)
+        assert "rrd_file" not in ch.INSERT_COLUMNS

@@ -142,9 +142,10 @@ means renaming the other.
 The dashboard *HTTP by Version – Side-by-Side* (InfluxDB and ClickHouse
 variants) shows, per site, the median fetch time of the three versions on
 one panel, the failed-fetch share next to it, and the TCP handshake floor
-for all targets underneath. The ClickHouse variant was written against the
-plugin's documented time-series format and has not been run on a live
-ClickHouse; report what you see.
+for all targets underneath. The ClickHouse variant was checked on
+2026-09-19 against a ClickHouse 24.1 fed by the exporter from the reference
+Pi's RRDs: the site variable resolves and all three panels return rows
+through Grafana's query API. It has not been looked at in a browser.
 
 ## Reading the numbers
 
