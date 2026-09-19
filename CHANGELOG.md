@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **A documentation site.** Thirteen guides lived under `docs/` and three
+  more under `shared/docs/`, reachable only by knowing the path, with
+  cross-links nobody checked. `mkdocs.yml` now builds them into a site at
+  [estcarisimo.github.io/smoking-pi](https://estcarisimo.github.io/smoking-pi/)
+  (Material theme, search, a landing page, the changelog included by
+  snippet). CI builds it with `--strict`, so a broken link or a dangling
+  anchor fails the PR — the first build found one. `docs.yml` deploys the
+  same build to GitHub Pages on every push to `main`. The two tunnel guides
+  moved from `shared/docs/` into `docs/` so they are on the site; the
+  maintenance guide stays out until it is rewritten for the edition layout
+  (packaging backlog #7), because a published page that names containers
+  that do not exist is worse than none.
+
 ### Fixed
 
 - **ClickHouse mode never wrote a row.** Since the Sprint 13 revival the

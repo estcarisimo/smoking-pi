@@ -28,7 +28,7 @@ as a `301`.
 The three HTTP probes share one binary, `/usr/local/bin/curl-h3`, a static
 [stunnel/static-curl](https://github.com/stunnel/static-curl) build with
 ngtcp2/nghttp3 pinned by version and sha256 in
-[`shared/modules/smokeping/Dockerfile`](../shared/modules/smokeping/Dockerfile).
+[`shared/modules/smokeping/Dockerfile`](https://github.com/estcarisimo/smoking-pi/blob/main/shared/modules/smokeping/Dockerfile).
 Alpine's `curl` (and the official `curlimages/curl`) are built without a
 QUIC backend, so HTTP/3 needs its own binary — and once it exists, HTTP/1.1
 and HTTP/2 use it too on purpose: one TLS stack for all three, so a
@@ -61,7 +61,7 @@ reads `HTTPv=1.1`, `HTTPv=2` or `HTTPv=3` for its probe.
 ## How the four probes are configured
 
 In `probes.yaml` (per edition under `config-manager/config/`, defaults in
-[`shared/modules/config-manager/templates/probes.yaml`](../shared/modules/config-manager/templates/probes.yaml)):
+[`shared/modules/config-manager/templates/probes.yaml`](https://github.com/estcarisimo/smoking-pi/blob/main/shared/modules/config-manager/templates/probes.yaml)):
 
 ```yaml
 probes:

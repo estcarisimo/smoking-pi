@@ -1,0 +1,89 @@
+# Documentation site. Preview with `mkdocs serve`; CI runs `mkdocs build --strict`
+# (job "Docs build") and .github/workflows/docs.yml deploys the same build to
+# GitHub Pages on every push to main. Dependencies: docs/requirements.txt.
+site_name: Smoking Pi
+site_description: Continuous network monitoring for your home or lab, in a box — SmokePing, Grafana, alerts with a verdict, and an MCP server for your assistant
+site_url: https://estcarisimo.github.io/smoking-pi/
+repo_url: https://github.com/estcarisimo/smoking-pi
+repo_name: estcarisimo/smoking-pi
+edit_uri: edit/main/docs/
+exclude_docs: |
+  requirements.txt
+copyright: MIT license.
+
+nav:
+  - Home: index.md
+  - Measuring:
+      - HTTP/1.1, HTTP/2, HTTP/3 and TCP probes: http-probes.md
+      - Wi-Fi uplink stats: wifi.md
+      - The last mile from the CPE: cpe-last-mile.md
+      - IPv6 gating: ipv6-gating.md
+  - Alerts and the assistant:
+      - Alerting: alerting.md
+      - MCP server: mcp-server.md
+      - OpenClaw integration: openclaw-integration.md
+      - OpenClaw on another machine: remote-openclaw.md
+      - AI health reports: ai-insights.md
+  - Remote access:
+      - Quick tunnels: quick-tunnels.md
+      - Permanent Cloudflare tunnels: cloudflare-tunnel-setup.md
+  - Operating:
+      - Instrumentation doctor: doctor.md
+      - Upgrading: upgrades.md
+      - ClickHouse backend: clickhouse.md
+      - Packaging: packaging.md
+  - Changelog: changelog.md
+
+theme:
+  name: material
+  language: en
+  logo: https://raw.githubusercontent.com/estcarisimo/smoking-pi/main/img/logo.jpg
+  favicon: https://raw.githubusercontent.com/estcarisimo/smoking-pi/main/img/logo.jpg
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: red
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: red
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      # Paths in --8<-- directives are relative to the repository root.
+      base_path: ["."]
+      check_paths: true
+
+plugins:
+  - search
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+strict: false  # CI passes --strict explicitly

@@ -303,3 +303,4 @@ TODO*/*.md
 
 # uv writes one per module on `uv run`; the project pins in pyproject.toml, not lockfiles
 uv.lock
+.docs-venv/

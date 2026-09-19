@@ -7,6 +7,7 @@
 Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [SmokePing](https://oss.oetiker.ch/smokeping/) in Docker Compose and grows with you: from a single container reading a YAML file, to a full stack with a web admin, Grafana dashboards, a time-series database, alerting that leads with a verdict, and an MCP server so an AI assistant can answer *"how's my internet?"* from months of recorded history instead of a live `ping`. Built for a Raspberry Pi (ARM64) and runs anywhere Docker does.
 
 [![CI](https://github.com/estcarisimo/smoking-pi/actions/workflows/ci.yml/badge.svg)](https://github.com/estcarisimo/smoking-pi/actions/workflows/ci.yml)
+[![Docs](https://github.com/estcarisimo/smoking-pi/actions/workflows/docs.yml/badge.svg)](https://estcarisimo.github.io/smoking-pi/)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
 [![Docker Compose](https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![Raspberry Pi](https://img.shields.io/badge/raspberry%20pi-arm64-C51A4A.svg?logo=raspberrypi&logoColor=white)](https://www.raspberrypi.com/)
@@ -140,7 +141,7 @@ Rules: target down, high loss, CPE microcut bursts, exporter stale. Each alert l
 (cd shared/cloudflare-tunnel && docker compose up -d)
 ```
 
-Anything you put a tunnel in front of should have authentication in front of the tunnel — see [SECURITY.md](SECURITY.md). Guides: [quick tunnels](shared/docs/quick-tunnels.md), [permanent tunnels](shared/docs/cloudflare-tunnel-setup.md).
+Anything you put a tunnel in front of should have authentication in front of the tunnel — see [SECURITY.md](SECURITY.md). Guides: [quick tunnels](docs/quick-tunnels.md), [permanent tunnels](docs/cloudflare-tunnel-setup.md).
 
 ### 🐳 Docker Usage
 
@@ -215,9 +216,9 @@ smoking-pi/
 │   │   ├── doctor/            # Static + live instrumentation checks
 │   │   └── common/            # Flux helpers, chart renderer, deep links, mutes, OpenClaw client
 │   ├── scripts/               # setup helpers, container management, tunnels, skill install
-│   ├── docs/                  # tunnels, maintenance
+│   ├── docs/                  # maintenance (pending refresh)
 │   └── cloudflare-tunnel/     # permanent tunnel Compose
-├── docs/                      # alerting, MCP, OpenClaw, doctor, ClickHouse, IPv6, upgrades
+├── docs/                      # the documentation site (mkdocs.yml): probes, alerting, MCP, tunnels, doctor, upgrades
 └── examples/openclaw/         # the agent skill
 ```
 
@@ -294,6 +295,8 @@ The workflow this repository follows for every change:
 
 ### Project documentation
 
+Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](https://estcarisimo.github.io/smoking-pi/)** (MkDocs, built in CI, deployed from `main`).
+
 | Document | Contents |
 | --- | --- |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, workflow, PR expectations, the load-bearing oddities |
@@ -314,7 +317,8 @@ The workflow this repository follows for every change:
 | [docs/ai-insights.md](docs/ai-insights.md) | AI health reports |
 | [docs/upgrades.md](docs/upgrades.md) | Upgrading between versions |
 | [docs/packaging.md](docs/packaging.md) | Could this be an apt/Homebrew package? The evaluation, the `.deb` trial, and the backlog |
-| [shared/docs/maintenance.md](shared/docs/maintenance.md) | Stuck containers, volumes, cleanup |
+| [docs/quick-tunnels.md](docs/quick-tunnels.md) · [docs/cloudflare-tunnel-setup.md](docs/cloudflare-tunnel-setup.md) | Remote access: temporary tunnels without an account, permanent ones with yours |
+| [shared/docs/maintenance.md](shared/docs/maintenance.md) | Stuck containers, volumes, cleanup (pre-edition names; not on the site until refreshed) |
 | [editions/basic](editions/basic/README.md) · [standard](editions/standard/README.md) · [pro](editions/pro/README.md) | Per-edition guides |
 
 ### Getting Help

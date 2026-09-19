@@ -213,7 +213,7 @@ your latency figures, target names and alert text. For many people that is
 fine; it should be a decision, not a surprise.
 
 **Pi → public hostname for the MCP server.** The repository's
-[permanent tunnel guide](../shared/docs/cloudflare-tunnel-setup.md) sets up
+[permanent tunnel guide](cloudflare-tunnel-setup.md) sets up
 `cloudflared` and a named tunnel for Grafana and web-admin; add an ingress
 rule for the MCP server to the same tunnel:
 
