@@ -11,6 +11,26 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The Wi-Fi hop is recorded.** The reference Pi's uplink is `wlan0` —
+  `eth0` has never had a carrier — so every latency and loss figure in a
+  year of history crossed a Wi-Fi link that nothing measured. A microcut
+  coinciding with a −80 dBm dip is a router problem; the verdict could only
+  ever call it "your line". A new collector in the smokeping container,
+  `wifi_link.py`, samples the wireless uplink every 10 s through nl80211
+  (`iw`, now in the image; no capability needed under host networking) and
+  writes a `wifi_link` measurement: signal, negotiated PHY bitrate,
+  channel/band/width, failures, the interface byte counters that survive
+  re-association, `carrier_down_count` for disconnects, and — on drivers
+  that report a survey — noise, SNR and channel-busy share. Tags are
+  `interface` and, while associated, `ssid`/`bssid`, so a roam is a visible
+  series change. On a wired host it logs one line and idles. Field types
+  are pinned (counters `int`, levels `float`; a Python bool would have been
+  written as a boolean field and poisoned the measurement) and the tests
+  assert the line protocol. What the Pi's own `brcmfmac` does *not* report
+  — noise, retries, beacon loss, MCS — is documented as absent rather than
+  invented. The dashboard, the MCP tool and the verdict follow in their own
+  changes; `docs/wifi.md` says what is recorded and how to query it.
+
 - **A guide for OpenClaw on another machine.** The integration docs assumed
   OpenClaw and Smoking Pi share a host, and the security model depends on
   it: both the MCP server and the gateway listen on loopback and nothing

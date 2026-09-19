@@ -1,0 +1,112 @@
+# Wi-Fi link stats
+
+If the machine running Smoking Pi reaches the internet over Wi-Fi, every
+latency and loss figure it records crossed that hop first. A microcut that
+coincides with a signal dip or a burst of failed transmissions is a Wi-Fi
+problem, not an ISP one — but only if the dip was recorded. The `wifi_link`
+collector records it.
+
+It runs inside the `smokeping` container (Pro edition, InfluxDB mode), samples
+the wireless uplink every 10 s, and writes one point per sample to the
+`wifi_link` measurement. On a host with no wireless interface it logs one
+line and idles, rescanning every minute, so a wired Pi pays nothing and a
+USB adapter plugged in later is picked up.
+
+## What is recorded
+
+Tags: `interface` always; `ssid` and `bssid` while associated. An
+unassociated sample is a series of its own rather than a claim about the
+last access point, and a roam shows up as a new `bssid` series.
+
+| field | unit / type | meaning |
+| --- | --- | --- |
+| `associated`, `uplink` | 0/1 | associated to an AP; this interface carries the default route |
+| `signal_dbm`, `signal_avg_dbm` | dBm | received signal (average only on drivers that report it) |
+| `noise_dbm`, `snr_db` | dBm / dB | noise floor and signal-to-noise, only when the driver reports a survey |
+| `tx_bitrate_mbps`, `rx_bitrate_mbps` | Mbit/s | the negotiated **PHY rate** — see *bitrate vs data rate* |
+| `expected_throughput_mbps` | Mbit/s | the driver's own throughput estimate, on drivers that make one |
+| `tx_mcs`, `tx_nss`, `tx_width_mhz` (and `rx_*`) | — | modulation, spatial streams, channel width, when the driver spells them out |
+| `channel`, `freq_mhz`, `width_mhz`, `band_ghz`, `txpower_dbm` | — | where the link sits |
+| `tx_failed`, `tx_retries`, `beacon_loss`, `rx_drop_misc` | cumulative counts | failures; **take `derivative(nonNegative: true)`** for a rate |
+| `rx_bytes`, `tx_bytes`, `rx_packets`, `tx_packets`, `tx_dropped` | cumulative | interface counters from sysfs; they survive re-association, unlike the station's own |
+| `carrier_down_count` | cumulative | times the link dropped since boot — `increase()` over a range is the disconnect count |
+| `connected_seconds` | s | time since the current association |
+| `chan_active_ms`, `chan_busy_ms` | cumulative ms | the survey's raw counters; `chan_busy_pct` is their ratio between two reads |
+| `chan_busy_pct` | % | share of the channel busy (anyone's traffic), between two survey reads; only with a survey |
+| `link_quality` | driver units | the legacy `/proc/net/wireless` quality figure (0–70 on brcmfmac) |
+
+**Bitrate vs data rate.** Two different things, both charted. *Bitrate* is
+the PHY rate the two radios agreed on — 433 Mbit/s on a 2×2 80 MHz link — and
+is what `iw` prints. *Data rate* is what actually went through, `derivative`
+of the byte counters times 8, and is usually a small fraction of the bitrate.
+A falling bitrate with a steady data rate is the radio adapting to a worse
+channel; a data rate pinned at the bitrate is saturation.
+
+**Not every driver says everything.** The Pi 5's `brcmfmac` reports signal,
+bitrates, `tx_failed` and connected time, and no survey — so on the
+reference deployment `noise_dbm`, `snr_db`, `chan_busy_pct`, `signal_avg_dbm`,
+`tx_retries`, `beacon_loss` and MCS/NSS are simply never written. Panels for
+them stay empty and say why. `ath9k`, `iwlwifi` and most USB adapters fill
+them in.
+
+## Where the numbers come from
+
+| source | what | why this one |
+| --- | --- | --- |
+| `iw dev <if> station dump` | signal, bitrates, failures, association | nl80211 is the authoritative interface; reads need no capability, the container just has to share the host's network namespace (it does: `network_mode: host`) |
+| `iw dev <if> info` | channel, width, tx power, SSID | changes only on a roam, read every `WIFI_SLOW_INTERVAL` |
+| `iw dev <if> survey dump` | noise, busy time | when the driver supports it |
+| `/sys/class/net/<if>/…` | byte/packet counters, carrier, `carrier_down_count` | the station's counters reset on every association; these do not |
+| `/proc/net/wireless` | `link_quality` | and the whole fallback if `iw` is missing: signal from `level`, association from `carrier`, nothing else |
+
+One `iw` call per fast cycle and two more per slow cycle — eight a minute
+at the defaults, on a Pi that once throttled from ~40 process spawns a
+minute (`rrd2influx.py`). A new BSSID re-reads the slow set at once, so a
+roam does not leave the channel a minute behind the access point.
+
+## Configuration
+
+| variable | default | |
+| --- | --- | --- |
+| `WIFI_INTERFACE` | auto | the wireless interface to sample; auto = the one carrying the default route, else the first wireless one |
+| `WIFI_SAMPLE_INTERVAL` | `10` | seconds between station samples |
+| `WIFI_SLOW_INTERVAL` | `60` | seconds between channel/survey reads |
+
+Set in `editions/pro/.env` (the template lists them); the compose file
+passes them to the `smokeping` service. `iw` is baked into the image; the
+init script installs it if a custom image lacks it.
+
+## Writing queries against it
+
+- Rates from counters: `derivative(unit: 1s, nonNegative: true)`. Totals
+  over a range: `increase()`, not `spread()` — a reboot resets the counters
+  and `spread` would count the fall.
+- "Current state": `group() |> last()`. A plain `last()` returns one row per
+  series, and after a roam there are two `bssid` series — the stale one is
+  as "last" as the live one.
+- In provisioned dashboards, **select fields with `r._field == "…"` only;
+  never `pivot` and then write `r.<field>`**. The instrumentation doctor
+  treats every `r.<name>` in a dashboard query as a tag reference and fails
+  CI for names that no exporter writes as a tag. That is why
+  `chan_busy_pct` is computed in the collector rather than as a ratio of
+  two fields in Flux.
+
+## Field types are fixed
+
+InfluxDB fixes a field's type the first time it sees it and rejects writes
+that disagree. Counters and flags are always written as integers (`associated=1i`,
+never a boolean — the client would happily serialize a Python `True` as
+`associated=true`, after which every `0` is rejected), levels and rates as
+floats. The tests assert the line protocol, not just the values.
+
+## Not covered
+
+- **ClickHouse.** Like `cpe_latency`, the collector is InfluxDB-only; in
+  ClickHouse mode it is not started.
+- **Scanning for neighboring networks.** A scan needs `NET_ADMIN` and
+  interrupts the link being measured. The channel-busy figure, where the
+  driver gives one, is the passive version of the same question.
+- **Alerting on Wi-Fi alone.** A dropped uplink takes the whole monitor
+  offline, which already shows as exporter-stale and everything-down; the
+  useful addition is the verdict *explaining* those in terms of the Wi-Fi
+  hop, which the dashboard and MCP tool build toward.
