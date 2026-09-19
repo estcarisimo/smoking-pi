@@ -9,6 +9,28 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.10.0] — 2026-09-19
+
+The web is measured the way it is served, and two roadmap questions get
+their answers.
+
+Ping told you the path was fine; it never told you whether a page would
+load, or over which protocol. This release fetches `https://<host>/` over
+HTTP/1.1, HTTP/2 and HTTP/3 as three separate probes, with the negotiated
+version *enforced* — a server that quietly downgrades produces a loss, not
+a mislabeled sample — and times the bare TCP handshake beside them so the
+chart shows what each protocol adds on top of the connection. HTTP/3 needed
+a curl no distribution ships, so the image carries one, pinned by hash. The
+probes reach the exporters, a side-by-side dashboard (written for both
+backends, so far run only against InfluxDB), the add-target form and the
+assistant's deep links.
+
+Two questions the roadmap kept open are now closed with a document each:
+the last-mile signal the customer gateway would have to report, and does
+not; and what a package of this stack would have to be — one that manages
+the Compose deployment — with the trial `.deb` and the backlog that trial
+produced.
+
 ### Added
 
 - **HTTP/1.1, HTTP/2, HTTP/3 and TCP probes.** Four new probes, all
@@ -30,19 +52,16 @@ version gets a matching GitHub release and git tag.
   `http_latency` / `tcp_latency` with the version in `probe_type`; a
   Grafana dashboard (InfluxDB and ClickHouse) overlays the three versions
   per site with the TCP floor underneath; web-admin's add form offers
-  *HTTPS fetch* (with a version) and *TCP connect*. `docs/http-probes.md`.
+  *HTTPS fetch* (with a version) and *TCP connect*; the assistant's deep
+  links for the new measurements resolve to that dashboard. The ClickHouse
+  dashboard variant follows the plugin's documented format and has not yet
+  run against a live ClickHouse. `docs/http-probes.md`.
 - **The CPE last-mile question, answered.** `docs/cpe-last-mile.md`
   records the read-only exploration of the reference gateway (a Nest Wifi
   Pro in front of a transparent Fiber Jack), documents the one endpoint it
   exposes (`/api/v1/status`: WAN state, lease, first ISP hop, uptime — no
   physical layer), and parks the feature: PHY numbers reach the customer
   only when the ISP's own device is the router.
-
-### Removed
-
-- The `EchoPingDNS` and `EchoPingHttp` entries in the probes template:
-  `echoping` is unmaintained and not packaged, so they never ran.
-
 - **The packaging question, answered.** The roadmap asked whether a stack
   of ten Compose services fits apt and Homebrew, and what would have to
   change. `docs/packaging.md` inventories the system as a package sees it
@@ -63,6 +82,11 @@ version gets a matching GitHub release and git tag.
   ship under `packaging/` and work from a clone today; the builder took the
   working tree on its first run and shipped the reference Pi's target list,
   which is why it now takes only what is committed.
+
+### Removed
+
+- The `EchoPingDNS` and `EchoPingHttp` entries in the probes template:
+  `echoping` is unmaintained and not packaged, so they never ran.
 
 ## [2.9.0] — 2026-09-19
 
