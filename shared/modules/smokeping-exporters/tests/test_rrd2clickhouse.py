@@ -154,6 +154,9 @@ class TestInsertColumnsMatchSchema:
         exporter.ensure_schema(client)
         create = client.commands[1]
         body = create[create.index("(") + 1 : create.rindex(") ENGINE")]
+        # Splitting on every comma also splits inside CODEC(a, b); that only
+        # yields extra fragments like "LZ4)", never corrupts a column name,
+        # because a column's own name always follows the top-level comma.
         declared = {line.strip().split()[0] for line in body.split(",") if line.strip()}
         missing = set(ch.INSERT_COLUMNS) - declared
         assert not missing, f"inserted but not in schema: {sorted(missing)}"

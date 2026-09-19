@@ -681,7 +681,9 @@ class ClickHouseExporter:
             df = pd.DataFrame(df_data)
             
             # Insert to ClickHouse
-            self.clickhouse_client.insert_df('latency', df)
+            self.clickhouse_client.insert_df(
+                'latency', df, database=self.settings.clickhouse_db
+            )
             
             clickhouse_rows_inserted.inc(len(data_points))
             logger.info("Inserted data points to ClickHouse", count=len(data_points))
