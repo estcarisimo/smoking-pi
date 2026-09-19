@@ -37,8 +37,8 @@ nav:
 theme:
   name: material
   language: en
-  logo: https://raw.githubusercontent.com/estcarisimo/smoking-pi/main/img/logo.jpg
-  favicon: https://raw.githubusercontent.com/estcarisimo/smoking-pi/main/img/logo.jpg
+  logo: img/logo.jpg
+  favicon: img/logo.jpg
   features:
     - navigation.sections
     - navigation.top

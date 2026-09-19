@@ -1,7 +1,7 @@
 # Smoking Pi
 
 <div align="center" markdown>
-<img src="https://raw.githubusercontent.com/estcarisimo/smoking-pi/main/img/logo.jpg" alt="Smoking Pi — a steaming raspberry pie" width="200"/>
+<img src="img/logo.jpg" alt="Smoking Pi — a steaming raspberry pie" width="200"/>
 </div>
 
 Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps
@@ -46,9 +46,9 @@ cd smoking-pi/editions/pro
 - **The same page over HTTP/1.1, HTTP/2 and HTTP/3**, each version enforced
   rather than requested, with the bare TCP handshake underneath as the floor
   ([HTTP and TCP probes](http-probes.md)).
-- **The first hop**: the CPE sampled every 10 s for microcuts, and, when the
-  Pi is on wireless, the Wi-Fi link itself — signal, bitrate, throughput,
-  disconnects ([Wi-Fi uplink stats](wifi.md)). What the gateway will not tell
+- **The first hop**: the CPE probed five times a second, in 10 s windows,
+  for microcuts, and, when the Pi is on wireless, the Wi-Fi link itself —
+  signal, bitrate, throughput, disconnects ([Wi-Fi uplink stats](wifi.md)). What the gateway will not tell
   you about the physical last mile is written down too
   ([the last mile from the CPE](cpe-last-mile.md)).
 - **Netflix's Open Connect appliances** serving your network, discovered and
