@@ -6,6 +6,9 @@ menu = Top
 title = Network Latency Grapher
 remark = Smoking Pi - SmokePing on Containers
 
+# IPv6 targets omitted: no global IPv6 address on this host (only ULA/link-local, which cannot route to the IPv6 internet).
+# They return automatically once a recheck sees global IPv6 working.
+
 + websites
 menu = Popular websites
 title = Outbound from the Pi to the Internet (using Ping)
@@ -23,7 +26,7 @@ host = facebook.com
 ++ Amazon
 menu = Amazon
 title = Amazon
-host = amazon.com
+host = www.amazon.com
 
 ++ NYT
 menu = NYT
@@ -39,30 +42,30 @@ host = apple.com
 menu = Netflix
 title = Netflix Open Connect Appliances
 
-++ Ocean_Reef_Club_Airport_DFW_c525_1
-menu = Ocean_Reef_Club_Airport_DFW_c525_1
-title = ipv4-c525-dfw001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport DFW/c525_1)
-host = 23.246.2.186
+++ Ocean_Reef_Club_Airport_DFW_c563_1
+menu = Ocean_Reef_Club_Airport_DFW_c563_1
+title = ipv4-c563-dfw001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport DFW/c563_1)
+host = 23.246.3.189
 
-++ Ocean_Reef_Club_Airport_DFW_c588_2
-menu = Ocean_Reef_Club_Airport_DFW_c588_2
-title = ipv4-c588-dfw001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport DFW/c588_2)
-host = 23.246.3.225
+++ Ocean_Reef_Club_Airport_DFW_c463_2
+menu = Ocean_Reef_Club_Airport_DFW_c463_2
+title = ipv4-c463-dfw001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport DFW/c463_2)
+host = 23.246.2.198
 
-++ Ocean_Reef_Club_Airport_MCI_c092_3
-menu = Ocean_Reef_Club_Airport_MCI_c092_3
-title = ipv4-c092-mci001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport MCI/c092_3)
-host = 23.246.42.144
+++ Ocean_Reef_Club_Airport_MCI_c068_3
+menu = Ocean_Reef_Club_Airport_MCI_c068_3
+title = ipv4-c068-mci001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport MCI/c068_3)
+host = 23.246.42.133
 
-++ Ocean_Reef_Club_Airport_MCI_c073_4
-menu = Ocean_Reef_Club_Airport_MCI_c073_4
-title = ipv4-c073-mci001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport MCI/c073_4)
-host = 45.57.95.139
+++ Ocean_Reef_Club_Airport_MCI_c106_4
+menu = Ocean_Reef_Club_Airport_MCI_c106_4
+title = ipv4-c106-mci001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport MCI/c106_4)
+host = 45.57.95.133
 
-++ Ocean_Reef_Club_Airport_ATL_c329_5
-menu = Ocean_Reef_Club_Airport_ATL_c329_5
-title = ipv4-c329-atl001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport ATL/c329_5)
-host = 198.38.99.233
+++ Ocean_Reef_Club_Airport_ATL_c356_5
+menu = Ocean_Reef_Club_Airport_ATL_c356_5
+title = ipv4-c356-atl001-ix.1.oca.nflxvideo.net (Ocean Reef Club Airport ATL/c356_5)
+host = 198.38.98.141
 
 + DNS_Resolvers
 menu = DNS Resolvers
@@ -98,12 +101,6 @@ menu = UBA
 title = UBA
 host = ns1.uba.ar
 
-++ Google6
-menu = Google6
-title = Google6
-probe = FPing6
-host = www.google.com
-
 ++ UdeSA
 menu = UdeSA
 title = UdeSA
@@ -118,6 +115,86 @@ host = www.cloudflare.com
 menu = SpotifyWebPlayer
 title = Spotify Web Player
 host = open.spotify.com
+
++ HTTP
+menu = HTTP by version
+title = HTTPS fetch time by protocol version (curl, HTTP/1.1 vs 2 vs 3)
+
+++ Google_h1
+menu = Google_h1
+title = Google HTTP/1.1
+probe = CurlHTTP1
+host = www.google.com
+
+++ Google_h2
+menu = Google_h2
+title = Google HTTP/2
+probe = CurlHTTP2
+host = www.google.com
+
+++ Google_h3
+menu = Google_h3
+title = Google HTTP/3
+probe = CurlHTTP3
+host = www.google.com
+
+++ Cloudflare_h1
+menu = Cloudflare_h1
+title = Cloudflare HTTP/1.1
+probe = CurlHTTP1
+host = www.cloudflare.com
+
+++ Cloudflare_h2
+menu = Cloudflare_h2
+title = Cloudflare HTTP/2
+probe = CurlHTTP2
+host = www.cloudflare.com
+
+++ Cloudflare_h3
+menu = Cloudflare_h3
+title = Cloudflare HTTP/3
+probe = CurlHTTP3
+host = www.cloudflare.com
+
+++ Facebook_h1
+menu = Facebook_h1
+title = Facebook HTTP/1.1
+probe = CurlHTTP1
+host = www.facebook.com
+
+++ Facebook_h2
+menu = Facebook_h2
+title = Facebook HTTP/2
+probe = CurlHTTP2
+host = www.facebook.com
+
+++ Facebook_h3
+menu = Facebook_h3
+title = Facebook HTTP/3
+probe = CurlHTTP3
+host = www.facebook.com
+
++ TCP
+menu = TCP connect
+title = TCP handshake time (SYN to SYN/ACK, port 443)
+
+++ Google_tcp443
+menu = Google_tcp443
+title = Google TCP 443
+probe = TCPPing
+host = www.google.com
+
+++ Cloudflare_tcp443
+menu = Cloudflare_tcp443
+title = Cloudflare TCP 443
+probe = TCPPing
+host = www.cloudflare.com
+
+++ Facebook_tcp443
+menu = Facebook_tcp443
+title = Facebook TCP 443
+probe = TCPPing
+host = www.facebook.com
 
 # CPE targets (auto-discovered by cpe_discovery.py)
 @include /config/CPE_Targets

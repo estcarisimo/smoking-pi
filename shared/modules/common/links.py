@@ -37,6 +37,7 @@ Configuration (see ``docs/mcp-server.md``):
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -51,10 +52,21 @@ DASHBOARD_BY_MEASUREMENT = {
     "latency": ("smokeping-lat-pct-v28", "target"),
     "dns_latency": ("smokeping-dns-resolvers-v4", "target"),
     "cpe_latency": ("cpe-microcut-v1", "cpe"),
+    # The HTTP dashboard is per site, not per target: its variable is the
+    # target name minus the _h1/_h2/_h3 version suffix, so all three versions
+    # of that site land on one panel (see _dashboard_value).
+    "http_latency": ("http-by-version-v1", "site"),
+    # TCP handshakes are the bottom panel of the same dashboard, all targets
+    # at once; there is no variable to select one.
+    "tcp_latency": ("http-by-version-v1", None),
     # Not a target: the variable is the wireless interface (wlan0), which is
     # why wifi_links() exists instead of routing through target_links().
     "wifi_link": ("wifi-link-v1", "interface"),
 }
+
+# Curl targets carry the HTTP version they were probed with as a name suffix
+# (Google_h2); the exporters and the dashboard both key on it.
+HTTP_VERSION_SUFFIX_RE = re.compile(r"_h[123]$")
 
 # Per-ping detail, for "show me the actual pings" follow-ups.
 DETAIL_BY_MEASUREMENT = {
@@ -78,6 +90,10 @@ MEASUREMENT_BY_PROBE = {
     "FPing": "latency",
     "FPing6": "latency",
     "DNS": "dns_latency",
+    "CurlHTTP1": "http_latency",
+    "CurlHTTP2": "http_latency",
+    "CurlHTTP3": "http_latency",
+    "TCPPing": "tcp_latency",
 }
 
 
@@ -248,6 +264,14 @@ def measurement_for_probe(probe: str | None) -> str:
     return MEASUREMENT_BY_PROBE.get(probe or "", "latency")
 
 
+def _dashboard_value(measurement: str, name: str) -> str:
+    """The dashboard-variable value for a target: the site for HTTP targets
+    (Google_h2 -> Google), the target name itself everywhere else."""
+    if measurement == "http_latency":
+        return HTTP_VERSION_SUFFIX_RE.sub("", name)
+    return name
+
+
 def _target_links_for(
     name: str,
     measurement: str,
@@ -263,7 +287,8 @@ def _target_links_for(
     dashboard = DASHBOARD_BY_MEASUREMENT.get(measurement)
     if dashboard and grafana:
         uid, var = dashboard
-        url = grafana_url(uid, var, name, hours=hours, at=at, base=grafana)
+        url = grafana_url(uid, var, _dashboard_value(measurement, name),
+                          hours=hours, at=at, base=grafana)
         if url:
             out["graph"] = url
 

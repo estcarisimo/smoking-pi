@@ -45,6 +45,15 @@ WRITE_RETRIES = 3
 
 # Directories that hold DNS-probe RRDs (measurement dns_latency).
 DNS_DIRS = ("resolvers", "DNS_Resolvers")
+# ... HTTP fetch RRDs (Curl probes, one per HTTP version; measurement
+# http_latency) and TCP handshake RRDs (TCPPing; measurement tcp_latency).
+# These are the sections config_generator.CATEGORY_PRESENTATION emits.
+HTTP_DIRS = ("HTTP",)
+TCP_DIRS = ("TCP",)
+
+# HTTP target names end in the version they were probed with
+# (Google_h1, Google_h2, Google_h3); that suffix is the probe_type tag.
+HTTP_VERSION_SUFFIXES = {"_h1": "http1", "_h2": "http2", "_h3": "http3"}
 
 # SmokePing's per-ping data sources: ping1, ping2, ... one per ping sent.
 PING_DS_RE = re.compile(r"^ping\d+$")
@@ -57,6 +66,8 @@ CATEGORY_MAP = {
     "Netflix": "netflix",
     "DNS_Resolvers": "dns",
     "Custom": "custom",
+    "HTTP": "http",
+    "TCP": "tcp",
     # legacy directory names
     "TopSites": "topsites",
     "resolvers": "dns",
@@ -68,9 +79,17 @@ logging.basicConfig(level=logging.INFO,
 
 # ───────────────────────── classification ─────────────────────────
 def measurement_for(rrd_file: str, rrd_dir: str) -> str:
-    """RRDs under a DNS directory → dns_latency, everything else → latency."""
+    """Measurement by top-level directory: dns_latency, http_latency,
+    tcp_latency, and latency (ICMP) for everything else."""
     rel = pathlib.Path(rrd_file).relative_to(rrd_dir)
-    return "dns_latency" if rel.parts[0] in DNS_DIRS else "latency"
+    top = rel.parts[0]
+    if top in DNS_DIRS:
+        return "dns_latency"
+    if top in HTTP_DIRS:
+        return "http_latency"
+    if top in TCP_DIRS:
+        return "tcp_latency"
+    return "latency"
 
 
 def category_for(rrd_file: str, rrd_dir: str) -> str:
@@ -81,11 +100,20 @@ def category_for(rrd_file: str, rrd_dir: str) -> str:
 
 
 def probe_type_for(rrd_file: str, rrd_dir: str) -> str:
-    """dns for DNS measurements; fping6 for IPv6 targets (name ends in '6',
-    e.g. Google6); fping otherwise."""
-    if measurement_for(rrd_file, rrd_dir) == "dns_latency":
-        return "dns"
+    """dns for DNS measurements; http1/http2/http3 for HTTP targets by name
+    suffix (http when unsuffixed); tcpping for TCP; fping6 for IPv6 targets
+    (name ends in '6', e.g. Google6); fping otherwise."""
+    measurement = measurement_for(rrd_file, rrd_dir)
     target_name = pathlib.Path(rrd_file).stem
+    if measurement == "dns_latency":
+        return "dns"
+    if measurement == "http_latency":
+        for suffix, probe_type in HTTP_VERSION_SUFFIXES.items():
+            if target_name.endswith(suffix):
+                return probe_type
+        return "http"
+    if measurement == "tcp_latency":
+        return "tcpping"
     return "fping6" if target_name.endswith("6") else "fping"
 
 

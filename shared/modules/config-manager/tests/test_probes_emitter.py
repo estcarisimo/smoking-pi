@@ -64,3 +64,41 @@ def test_render_probe_value():
     assert render_probe_value(None) is None
     assert render_probe_value({"a": 1}) is None
     assert render_probe_value([1, 2]) is None
+
+
+def test_sub_probes_nest_under_their_module():
+    content = _generate({
+        "FPing": {"binary": "/usr/sbin/fping", "step": 300, "pings": 10},
+        "CurlHTTP1": {"module": "Curl", "binary": "/usr/local/bin/curl-h3",
+                      "pings": 5, "step": 300, "expect": "HTTPv=1.1"},
+        "CurlHTTP3": {"module": "Curl", "binary": "/usr/local/bin/curl-h3",
+                      "pings": 5, "step": 300, "expect": "HTTPv=3"},
+        "TCPPing": {"binary": "/usr/bin/tcpping", "pings": 5, "step": 300,
+                    "port": 443},
+    })
+    lines = content.splitlines()
+    # one class section, every sub-probe under it, plain probes untouched
+    assert lines.count("+ Curl") == 1
+    assert lines.index("+ Curl") < lines.index("++ CurlHTTP1") < lines.index("++ CurlHTTP3")
+    assert lines.index("++ CurlHTTP3") < lines.index("+ TCPPing")
+    assert "+ CurlHTTP1" not in lines and "+ CurlHTTP3" not in lines
+    # the class section is a template: no variables of its own
+    assert lines[lines.index("+ Curl") + 1] == ""
+    # `module` is ours, never SmokePing's
+    assert "module" not in content
+    assert "expect = HTTPv=3" in content
+    assert "port = 443" in content
+
+
+def test_curl_target_vars_are_emitted_verbatim():
+    fmt = "Time: %{time_total} HTTPv=%{http_version}\\n"
+    content = _generate({
+        "CurlHTTP2": {"module": "Curl", "binary": "/usr/local/bin/curl-h3",
+                      "pings": 5, "step": 300, "urlformat": "https://%host%/",
+                      "extrare": "/;/", "extraargs": "--http2;-w;" + fmt,
+                      "require_zero_status": "yes"},
+    })
+    assert "urlformat = https://%host%/" in content
+    assert "extrare = /;/" in content
+    assert "extraargs = --http2;-w;" + fmt in content
+    assert "require_zero_status = yes" in content

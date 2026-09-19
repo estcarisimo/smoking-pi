@@ -208,7 +208,19 @@ def _wants_json():
     )
 
 
-def _add_target_error_response(errors, name, hostname, title, target_type, dns_query):
+# HTTP version chosen in the add form -> Curl sub-probe in the Probes file
+# -> target-name suffix the exporters read the version back from (a target
+# in the HTTP section without a suffix is tagged plain "http").
+HTTP_VERSION_PROBES = {
+    '1.1': ('CurlHTTP1', '_h1'),
+    '2': ('CurlHTTP2', '_h2'),
+    '3': ('CurlHTTP3', '_h3'),
+}
+TCP_PROBE = 'TCPPing'
+
+
+def _add_target_error_response(errors, name, hostname, title, target_type,
+                               dns_query, http_version=''):
     """Render the add-target failure response (JSON for AJAX, HTML otherwise)."""
     if _wants_json():
         return jsonify({'success': False, 'errors': errors}), 400
@@ -216,7 +228,8 @@ def _add_target_error_response(errors, name, hostname, title, target_type, dns_q
         flash(error, 'error')
     return render_template('targets/add.html',
                          name=name, hostname=hostname, title=title,
-                         target_type=target_type, dns_query=dns_query)
+                         target_type=target_type, dns_query=dns_query,
+                         http_version=http_version)
 
 
 @targets_bp.route('/add', methods=['GET', 'POST'])
@@ -229,6 +242,7 @@ def add_target():
         target_type = request.form.get('target_type', 'icmp').strip()
         dns_query = request.form.get('dns_query', '').strip()
         force_probe = request.form.get('force_probe', '').strip()
+        http_version = request.form.get('http_version', '').strip()
 
         using_database = config_api.is_database_available()
 
@@ -237,6 +251,9 @@ def add_target():
         valid, error = validate_target_name(name)
         if not valid:
             errors['name'] = error
+
+        if target_type == 'http' and http_version not in HTTP_VERSION_PROBES:
+            errors['http_version'] = "Choose an HTTP version (1.1, 2 or 3)"
 
         # For DNS targets, hostname is optional (will use default DNS if blank)
         if target_type == 'dns':
@@ -265,12 +282,23 @@ def add_target():
 
         if errors:
             return _add_target_error_response(
-                errors, name, hostname, title, target_type, dns_query)
+                errors, name, hostname, title, target_type, dns_query,
+                http_version)
         
         # Determine probe type and target category
         if target_type == 'dns':
             probe = 'DNS'
             target_category = 'dns_resolvers'
+        elif target_type == 'http':
+            probe, suffix = HTTP_VERSION_PROBES[http_version]
+            target_category = 'http'
+            # The suffix is what tells the dashboards which version a series
+            # is; add it rather than let the target land as plain "http".
+            if not name.endswith(suffix):
+                name += suffix
+        elif target_type == 'tcp':
+            probe = TCP_PROBE
+            target_category = 'tcp'
         else:
             # Pass force_probe parameter if provided
             force_probe_param = force_probe if force_probe and force_probe != 'auto' else None
@@ -292,20 +320,23 @@ def add_target():
                 if not category_id:
                     return _add_target_error_response(
                         {'_form': f"Category '{target_category}' not found in database"},
-                        name, hostname, title, target_type, dns_query)
+                        name, hostname, title, target_type, dns_query,
+                    http_version)
 
                 probe_id = probes.get(probe)
                 if not probe_id:
                     return _add_target_error_response(
                         {'_form': f"Probe '{probe}' not found in database"},
-                        name, hostname, title, target_type, dns_query)
+                        name, hostname, title, target_type, dns_query,
+                    http_version)
 
                 # Check for duplicates
                 existing_targets = config_api.get_all_targets_from_db()
                 if any(t['name'] == name for t in existing_targets.get('targets', [])):
                     return _add_target_error_response(
                         {'name': f"Target with name '{name}' already exists"},
-                        name, hostname, title, target_type, dns_query)
+                        name, hostname, title, target_type, dns_query,
+                    http_version)
                 
                 # Create target data for database
                 target_data = {
@@ -340,7 +371,8 @@ def add_target():
                                          exc_info=True)
                 return _add_target_error_response(
                     {'_form': "Failed to create target; see web-admin log"},
-                    name, hostname, title, target_type, dns_query)
+                    name, hostname, title, target_type, dns_query,
+                    http_version)
         else:
             # YAML fallback mode
             try:
@@ -360,7 +392,8 @@ def add_target():
             if any(t['name'] == name for t in all_targets):
                 return _add_target_error_response(
                     {'name': f"Target with name '{name}' already exists"},
-                    name, hostname, title, target_type, dns_query)
+                    name, hostname, title, target_type, dns_query,
+                    http_version)
         
             # Create new target for YAML
             new_target = {
@@ -392,12 +425,14 @@ def add_target():
                 if not success:
                     return _add_target_error_response(
                         {'_form': "Failed to save configuration"},
-                        name, hostname, title, target_type, dns_query)
+                        name, hostname, title, target_type, dns_query,
+                    http_version)
             except Exception as e:
                 current_app.logger.error(f"Failed to update targets via API: {e}")
                 return _add_target_error_response(
                     {'_form': "Failed to save configuration"},
-                    name, hostname, title, target_type, dns_query)
+                    name, hostname, title, target_type, dns_query,
+                    http_version)
 
             # Regenerate the SmokePing config so the new target is picked up
             # without a separate Apply step

@@ -46,11 +46,30 @@
                             Target Type <span class="text-danger">*</span>
                         </label>
                         <select class="form-select" id="target_type" name="target_type" required>
-                            <option value="icmp" selected>ICMP Ping</option>
-                            <option value="dns">DNS Query</option>
+                            <option value="icmp" {% if not target_type or target_type == 'icmp' %}selected{% endif %}>ICMP Ping</option>
+                            <option value="dns" {% if target_type == 'dns' %}selected{% endif %}>DNS Query</option>
+                            <option value="http" {% if target_type == 'http' %}selected{% endif %}>HTTPS fetch (HTTP/1.1, 2 or 3)</option>
+                            <option value="tcp" {% if target_type == 'tcp' %}selected{% endif %}>TCP connect (port 443)</option>
                         </select>
                         <small class="form-text text-muted">
-                            Choose between ICMP ping monitoring or DNS query monitoring.
+                            ICMP ping, DNS query, an HTTPS fetch of <code>https://&lt;host&gt;/</code> over one HTTP version, or a bare TCP handshake.
+                        </small>
+                    </div>
+
+                    <div class="mb-3" id="http-version-field" style="display: none;">
+                        <label for="http_version" class="form-label">
+                            HTTP Version <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select" id="http_version" name="http_version">
+                            <option value="" {% if not http_version %}selected{% endif %}>Choose…</option>
+                            <option value="1.1" {% if http_version == '1.1' %}selected{% endif %}>HTTP/1.1</option>
+                            <option value="2" {% if http_version == '2' %}selected{% endif %}>HTTP/2</option>
+                            <option value="3" {% if http_version == '3' %}selected{% endif %}>HTTP/3 (QUIC)</option>
+                        </select>
+                        <div class="validation-feedback" id="http-version-feedback"></div>
+                        <small class="form-text text-muted">
+                            The version is enforced: if the server negotiates anything else the sample counts as loss.
+                            The target name gets a <code>_h1</code>/<code>_h2</code>/<code>_h3</code> suffix — that is how the dashboards tell versions apart.
                         </small>
                     </div>
 
@@ -232,6 +251,11 @@ document.getElementById('target_type').addEventListener('change', function() {
     const hostnameRequired = document.getElementById('hostname-required');
     const hostnameInput = document.getElementById('hostname');
     const dnsQueryInput = document.getElementById('dns_query');
+    const httpVersionField = document.getElementById('http-version-field');
+    const httpVersionInput = document.getElementById('http_version');
+
+    httpVersionField.style.display = targetType === 'http' ? 'block' : 'none';
+    httpVersionInput.required = targetType === 'http';
     
     if (targetType === 'dns') {
         // Show DNS-specific fields, hide probe selection
@@ -249,6 +273,20 @@ document.getElementById('target_type').addEventListener('change', function() {
         
         // Update probe display
         updateProbeDisplayForDNS();
+    } else if (targetType === 'http' || targetType === 'tcp') {
+        // Probe is fixed by the type (and, for HTTP, the version)
+        dnsQueryField.style.display = 'none';
+        probeSelectionField.style.display = 'none';
+        dnsQueryInput.required = false;
+
+        hostnameLabel.textContent = targetType === 'http' ? 'Site hostname' : 'Hostname or IP Address';
+        hostnameHelp.textContent = targetType === 'http'
+            ? 'Hostname only, no scheme or path: the probe fetches https://<host>/.'
+            : 'The probe times the TCP handshake to port 443 (SYN to SYN/ACK).';
+        hostnameRequired.style.display = 'inline';
+        hostnameInput.required = true;
+
+        updateProbeDisplayForFixedType();
     } else {
         // Hide DNS-specific fields, show probe selection
         dnsQueryField.style.display = 'none';
@@ -295,6 +333,11 @@ document.getElementById('name').addEventListener('input', function() {
 
 document.getElementById('dns_query').addEventListener('input', function() {
     validateDNSQuery(this.value.trim());
+});
+
+document.getElementById('http_version').addEventListener('change', function() {
+    updateProbeDisplayForFixedType();
+    updateSubmitButton();
 });
 
 // Handle probe selection changes
@@ -414,6 +457,8 @@ function detectProbeType(hostname, ipv6Info = null) {
     
     if (targetType === 'dns') {
         probeDisplay.innerHTML = '<span class="badge bg-success">DNS</span> <span class="probe-info">DNS query response time</span>';
+    } else if (targetType === 'http' || targetType === 'tcp') {
+        updateProbeDisplayForFixedType();
     } else {
         let probeHtml = '';
         let ipv6Indicator = '';
@@ -453,6 +498,35 @@ function detectProbeType(hostname, ipv6Info = null) {
 function updateProbeDisplayForDNS() {
     const probeDisplay = document.getElementById('probe-display');
     probeDisplay.innerHTML = '<span class="badge bg-success">DNS</span> <span class="probe-info">DNS query response time</span>';
+}
+
+// HTTP and TCP targets: the probe follows from the type, nothing to detect.
+// Built from DOM nodes, not an HTML string: the version comes from a form
+// field, and a field value must never be spliced into innerHTML.
+function updateProbeDisplayForFixedType() {
+    const probeDisplay = document.getElementById('probe-display');
+    const targetType = document.getElementById('target_type').value;
+    const version = document.getElementById('http_version').value;
+    const probes = {
+        '1.1': ['CurlHTTP1', 'HTTPS fetch over HTTP/1.1 (version enforced)'],
+        '2': ['CurlHTTP2', 'HTTPS fetch over HTTP/2 (version enforced)'],
+        '3': ['CurlHTTP3', 'HTTPS fetch over HTTP/3 (version enforced)'],
+    };
+    let badgeClass, badgeText, infoText;
+    if (targetType === 'tcp') {
+        [badgeClass, badgeText, infoText] = ['badge bg-dark', 'TCPPing', 'TCP handshake time to port 443'];
+    } else if (Object.prototype.hasOwnProperty.call(probes, version)) {
+        [badgeClass, [badgeText, infoText]] = ['badge bg-warning text-dark', probes[version]];
+    } else {
+        [badgeClass, badgeText, infoText] = ['badge bg-secondary', 'Curl', 'choose an HTTP version'];
+    }
+    const badge = document.createElement('span');
+    badge.className = badgeClass;
+    badge.textContent = badgeText;
+    const info = document.createElement('span');
+    info.className = 'probe-info';
+    info.textContent = infoText;
+    probeDisplay.replaceChildren(badge, document.createTextNode(' '), info);
 }
 
 function handleIPv6ReachabilityStatus(ipv6Info) {
@@ -580,6 +654,9 @@ function updateSubmitButton() {
     // For DNS targets, hostname is optional but DNS query and name are required
     if (targetType === 'dns') {
         submitBtn.disabled = !(nameValid && dnsQueryValid && (hostnameValid || hostnameEmpty));
+    } else if (targetType === 'http') {
+        const versionChosen = !!document.getElementById('http_version').value;
+        submitBtn.disabled = !(hostnameValid && nameValid && versionChosen);
     } else {
         // For ICMP targets, both hostname and name must be valid
         submitBtn.disabled = !(hostnameValid && nameValid);
@@ -655,6 +732,12 @@ document.getElementById('targetForm').addEventListener('submit', async function 
 window.addEventListener('load', function() {
     const hostname = document.getElementById('hostname').value.trim();
     const name = document.getElementById('name').value.trim();
+
+    // A re-rendered form (validation error) comes back with a type already
+    // chosen; show that type's fields as if the user had just picked it.
+    if (document.getElementById('target_type').value !== 'icmp') {
+        document.getElementById('target_type').dispatchEvent(new Event('change'));
+    }
     
     if (hostname) {
         validateHostname(hostname);

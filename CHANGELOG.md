@@ -11,6 +11,38 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **HTTP/1.1, HTTP/2, HTTP/3 and TCP probes.** Four new probes, all
+  running inside the SmokePing container: `CurlHTTP1`, `CurlHTTP2` and
+  `CurlHTTP3` fetch `https://<host>/` over one HTTP version each, and
+  `TCPPing` times the SYN/SYN-ACK handshake to port 443. The version is
+  enforced, not requested: the probe's own `-w` format prints the
+  negotiated version and `expect` turns a downgrade into a loss, so an
+  HTTP/2 series never quietly contains HTTP/1.1 samples. HTTP/3 needs a
+  curl with a QUIC backend, which neither Alpine nor `curlimages/curl`
+  ship, so the image adds a static `stunnel/static-curl` build pinned by
+  version and sha256 per architecture — and the 1.1 and 2 probes use the
+  same binary so the comparison is protocol, not TLS stack. Sub-probes
+  (`+ Curl` / `++ CurlHTTP2`) are now expressible in `probes.yaml` via a
+  `module` key; the `probes` table gains `module` and `options` columns,
+  added to existing tables on startup. An already-migrated deployment
+  picks up the new probes, the `http`/`tcp` categories and their example
+  targets on its next start. Exporters classify `HTTP/` and `TCP/` RRDs as
+  `http_latency` / `tcp_latency` with the version in `probe_type`; a
+  Grafana dashboard (InfluxDB and ClickHouse) overlays the three versions
+  per site with the TCP floor underneath; web-admin's add form offers
+  *HTTPS fetch* (with a version) and *TCP connect*. `docs/http-probes.md`.
+- **The CPE last-mile question, answered.** `docs/cpe-last-mile.md`
+  records the read-only exploration of the reference gateway (a Nest Wifi
+  Pro in front of a transparent Fiber Jack), documents the one endpoint it
+  exposes (`/api/v1/status`: WAN state, lease, first ISP hop, uptime — no
+  physical layer), and parks the feature: PHY numbers reach the customer
+  only when the ISP's own device is the router.
+
+### Removed
+
+- The `EchoPingDNS` and `EchoPingHttp` entries in the probes template:
+  `echoping` is unmaintained and not packaged, so they never ran.
+
 - **The packaging question, answered.** The roadmap asked whether a stack
   of ten Compose services fits apt and Homebrew, and what would have to
   change. `docs/packaging.md` inventories the system as a package sees it

@@ -58,8 +58,11 @@ logger = structlog.get_logger(__name__)
 # Keep them in sync: a divergence here silently makes the two time-series
 # stores disagree about what the same RRD means.
 
-# Directories holding DNS-probe RRDs (measurement_type dns_latency).
+# Directories holding DNS-probe RRDs (measurement_type dns_latency), HTTP
+# fetch RRDs (http_latency) and TCP handshake RRDs (tcp_latency).
 DNS_DIRS = ("resolvers", "DNS_Resolvers")
+HTTP_DIRS = ("HTTP",)
+TCP_DIRS = ("TCP",)
 
 # Directory → category. Current names are what smokeping_targets.j2 generates
 # (websites, Netflix, DNS_Resolvers, Custom); legacy names are kept so old RRD
@@ -69,6 +72,8 @@ CATEGORY_MAP = {
     "Netflix": "netflix",
     "DNS_Resolvers": "dns",
     "Custom": "custom",
+    "HTTP": "http",
+    "TCP": "tcp",
     # legacy directory names
     "TopSites": "topsites",
     "resolvers": "dns",
@@ -82,9 +87,17 @@ DEFAULT_PINGS = 20
 
 
 def measurement_type_for(rrd_file: Path, rrd_dir: Path) -> str:
-    """RRDs under a DNS directory → dns_latency, everything else → latency."""
+    """Measurement by top-level directory: dns_latency, http_latency,
+    tcp_latency, and latency (ICMP) for everything else."""
     rel = Path(rrd_file).relative_to(rrd_dir)
-    return "dns_latency" if rel.parts[0] in DNS_DIRS else "latency"
+    top = rel.parts[0]
+    if top in DNS_DIRS:
+        return "dns_latency"
+    if top in HTTP_DIRS:
+        return "http_latency"
+    if top in TCP_DIRS:
+        return "tcp_latency"
+    return "latency"
 
 
 def category_for(rrd_file: Path, rrd_dir: Path) -> str:

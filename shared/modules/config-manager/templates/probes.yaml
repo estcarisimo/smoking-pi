@@ -18,18 +18,68 @@ probes:
     binary: /usr/bin/dig
     pings: 5
     step: 300
-    
-  EchoPingDNS:
-    binary: /usr/bin/echoping
-    dns: true
-    pings: 5
+
+  # HTTPS fetch time, one probe per HTTP version. All three run the same
+  # static curl (built with ngtcp2/nghttp3 for HTTP/3; see the smokeping
+  # Dockerfile) so a difference between versions is the protocol, not the
+  # TLS stack. The sample SmokePing records is time_total minus
+  # time_namelookup: TCP/QUIC connect + TLS + request + first byte,
+  # DNS excluded.
+  #
+  # The version is enforced, not just requested: our own -w format prints
+  # HTTPv=<negotiated version>, and `expect` makes any other outcome a
+  # loss. Without that, --http2 against a server that only speaks
+  # HTTP/1.1 would silently chart an HTTP/1.1 sample under HTTP/2.
+  # extraargs is split on ';' (extrare) because the -w format has spaces.
+  CurlHTTP1:
+    module: Curl
+    binary: /usr/local/bin/curl-h3
     step: 300
-    
-  EchoPingHttp:
-    binary: /usr/bin/echoping
-    url: /
     pings: 5
+    forks: 5
+    timeout: 10
+    urlformat: https://%host%/
+    require_zero_status: 'yes'
+    extrare: '/;/'
+    extraargs: '--http1.1;-s;-o;/dev/null;-w;Time: %{time_total} DNS time: %{time_namelookup} Redirect time: %{time_redirect} HTTPv=%{http_version}\n'
+    expect: HTTPv=1.1
+
+  CurlHTTP2:
+    module: Curl
+    binary: /usr/local/bin/curl-h3
     step: 300
+    pings: 5
+    forks: 5
+    timeout: 10
+    urlformat: https://%host%/
+    require_zero_status: 'yes'
+    extrare: '/;/'
+    extraargs: '--http2;-s;-o;/dev/null;-w;Time: %{time_total} DNS time: %{time_namelookup} Redirect time: %{time_redirect} HTTPv=%{http_version}\n'
+    expect: HTTPv=2
+
+  CurlHTTP3:
+    module: Curl
+    binary: /usr/local/bin/curl-h3
+    step: 300
+    pings: 5
+    forks: 5
+    timeout: 10
+    urlformat: https://%host%/
+    require_zero_status: 'yes'
+    extrare: '/;/'
+    extraargs: '--http3-only;-s;-o;/dev/null;-w;Time: %{time_total} DNS time: %{time_namelookup} Redirect time: %{time_redirect} HTTPv=%{http_version}\n'
+    expect: HTTPv=3
+
+  # TCP handshake time: SYN to SYN/ACK on port 443, via tcptraceroute
+  # (setuid in the image, so it runs as SmokePing's user). Pure transport
+  # RTT to the server — no TLS, no HTTP — the baseline the Curl probes
+  # sit on top of.
+  TCPPing:
+    binary: /usr/bin/tcpping
+    step: 300
+    pings: 5
+    forks: 5
+    port: 443
 
 # Default probe for targets without explicit probe
 default_probe: FPing
