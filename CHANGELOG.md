@@ -21,8 +21,9 @@ version *enforced* — a server that quietly downgrades produces a loss, not
 a mislabeled sample — and times the bare TCP handshake beside them so the
 chart shows what each protocol adds on top of the connection. HTTP/3 needed
 a curl no distribution ships, so the image carries one, pinned by hash. The
-probes reach the exporters, both time-series backends, a side-by-side
-dashboard, the add-target form and the assistant's deep links.
+probes reach the exporters, a side-by-side dashboard (written for both
+backends, so far run only against InfluxDB), the add-target form and the
+assistant's deep links.
 
 Two questions the roadmap kept open are now closed with a document each:
 the last-mile signal the customer gateway would have to report, and does
@@ -51,7 +52,10 @@ produced.
   `http_latency` / `tcp_latency` with the version in `probe_type`; a
   Grafana dashboard (InfluxDB and ClickHouse) overlays the three versions
   per site with the TCP floor underneath; web-admin's add form offers
-  *HTTPS fetch* (with a version) and *TCP connect*. `docs/http-probes.md`.
+  *HTTPS fetch* (with a version) and *TCP connect*; the assistant's deep
+  links for the new measurements resolve to that dashboard. The ClickHouse
+  dashboard variant follows the plugin's documented format and has not yet
+  run against a live ClickHouse. `docs/http-probes.md`.
 - **The CPE last-mile question, answered.** `docs/cpe-last-mile.md`
   records the read-only exploration of the reference gateway (a Nest Wifi
   Pro in front of a transparent Fiber Jack), documents the one endpoint it
