@@ -348,7 +348,7 @@ The tool responses already carry both. Every `links` object has a primary set
 (`graph`, `per_ping_detail`, `compare_with_peers`, `edit`) and, when a tunnel
 is configured, a `_tunnel` twin of each (`graph_tunnel`, …). `system_status`
 returns the same pair for the front doors: `grafana_overview`,
-`grafana_cpe_microcuts`, `web_admin_targets`.
+`grafana_cpe_microcuts`, `grafana_wifi_link`, `web_admin_targets`.
 
 - Label them for where the reader is, not for the technology: *home* /
   *anywhere*, not *LAN* / *Cloudflare tunnel*.

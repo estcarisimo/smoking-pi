@@ -244,3 +244,19 @@ def test_only_one_anywhere_link_even_if_both_keys_are_present():
     }
     text = templates.format_message(_alert(links=links, verdict={}))
     assert text.count("🌐 anywhere") == 1
+
+
+def test_wifi_entry_point_renders_and_its_tunnel_twin_does_not():
+    """The digest's link row gains "wi-fi"; the tunnel twin stays out, so the
+    one-from-anywhere link is still the overview's."""
+    links = {
+        "grafana_overview": "http://h/o",
+        "grafana_wifi_link": "http://h/d/wifi-link-v1",
+        "grafana_wifi_link_tunnel": "https://t/d/wifi-link-v1",
+        "grafana_overview_tunnel": "https://t/o",
+    }
+    text = templates.format_message(_alert(links=links, verdict={}))
+    assert 'href="http://h/d/wifi-link-v1">wi-fi</a>' in text
+    assert "https://t/d/wifi-link-v1" not in text
+    assert text.count("🌐 anywhere") == 1
+    assert 'href="https://t/o">🌐 anywhere</a>' in text

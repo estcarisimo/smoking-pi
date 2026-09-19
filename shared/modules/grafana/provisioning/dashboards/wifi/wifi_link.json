@@ -4,7 +4,7 @@
   "title": "Wi-Fi Link",
   "description": "The wireless uplink of the machine running Smoking Pi, from wifi_link.py: signal, negotiated bitrate, throughput, failures, roams. Empty on a wired host. Some panels are empty on drivers that do not report a survey or modulation details (brcmfmac on a Raspberry Pi) — each says so.",
   "schemaVersion": 37,
-  "version": 1,
+  "version": 2,
   "tags": [
     "smokeping",
     "wifi"
@@ -560,7 +560,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
@@ -568,7 +568,7 @@
                 "value": -75
               },
               {
-                "color": "red",
+                "color": "green",
                 "value": -67
               }
             ]
@@ -825,14 +825,14 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_mcs\") |> yield(name:\"MCS\")"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_mcs\") |> yield(name:\"tx MCS\")"
         },
         {
           "refId": "B",
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_nss\") |> yield(name:\"NSS\")"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_nss\") |> yield(name:\"tx NSS\")"
         },
         {
           "refId": "C",
@@ -840,6 +840,20 @@
             "uid": "influxdb"
           },
           "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_width_mhz\") |> yield(name:\"width MHz\")"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_mcs\") |> yield(name:\"rx MCS\")"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_nss\") |> yield(name:\"rx NSS\")"
         }
       ]
     },
@@ -991,7 +1005,7 @@
       "id": 20,
       "type": "timeseries",
       "title": "Failures per second",
-      "description": "Transmit failures and retries (retries and beacon loss only on drivers that report them). A steady non-zero rate with a good signal is interference or a busy channel.",
+      "description": "Transmit failures and retries (retries, beacon loss and rx drops only on drivers that report them). A steady non-zero rate with a good signal is interference or a busy channel.",
       "datasource": {
         "uid": "influxdb"
       },
@@ -1056,6 +1070,13 @@
             "uid": "influxdb"
           },
           "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_dropped\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"tx dropped\")"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_drop_misc\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"rx drop misc\")"
         }
       ]
     },
@@ -1205,7 +1226,7 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"associated\") |> filter(fn:(r) => r._value == 1) |> keep(columns:[\"_time\",\"bssid\"]) |> rename(columns:{bssid:\"_value\"})"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"associated\") |> filter(fn:(r) => r._value == 1) |> group() |> keep(columns:[\"_time\",\"bssid\"]) |> rename(columns:{bssid:\"_value\"})"
         }
       ]
     },
