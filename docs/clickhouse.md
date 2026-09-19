@@ -36,6 +36,23 @@ The exporter therefore applies `CREATE DATABASE / TABLE IF NOT EXISTS` on
 connect. That is idempotent and works whether or not the hook ever fires. The
 SQL files are kept as documentation of the intended schema.
 
+### The client must select the database after creating it
+
+Because the schema may not exist yet, the exporter connects *without* a
+database (naming a missing one fails the connection outright), creates
+`smokeping` and `smokeping.latency`, and only then sets the client's
+default database. Skip that last step and every unqualified insert goes to
+`default.latency`, which does not exist — the log fills with
+`Table default.latency does not exist. Maybe you meant smokeping.latency?`
+while the schema check above looks fine. This is exactly what happened
+between the Sprint 13 revival and 2026-09-19: the fix that let the exporter
+create the schema also stopped it from ever writing to it.
+
+The related trap: ClickHouse rejects a whole batch for one column the table
+does not declare (`Unrecognized column 'rrd_file'`). The columns the
+exporter writes are listed once, in `INSERT_COLUMNS`, and a test checks
+every one of them against the `CREATE TABLE` the exporter runs.
+
 ### The datasource takes host/port, not url
 
 The official plugin reads `host` and `port` from `jsonData` and **ignores** the
