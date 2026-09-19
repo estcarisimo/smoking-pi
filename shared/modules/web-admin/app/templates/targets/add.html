@@ -500,21 +500,33 @@ function updateProbeDisplayForDNS() {
     probeDisplay.innerHTML = '<span class="badge bg-success">DNS</span> <span class="probe-info">DNS query response time</span>';
 }
 
-// HTTP and TCP targets: the probe follows from the type, nothing to detect
+// HTTP and TCP targets: the probe follows from the type, nothing to detect.
+// Built from DOM nodes, not an HTML string: the version comes from a form
+// field, and a field value must never be spliced into innerHTML.
 function updateProbeDisplayForFixedType() {
     const probeDisplay = document.getElementById('probe-display');
     const targetType = document.getElementById('target_type').value;
-    if (targetType === 'tcp') {
-        probeDisplay.innerHTML = '<span class="badge bg-dark">TCPPing</span> <span class="probe-info">TCP handshake time to port 443</span>';
-        return;
-    }
     const version = document.getElementById('http_version').value;
-    const probes = { '1.1': 'CurlHTTP1', '2': 'CurlHTTP2', '3': 'CurlHTTP3' };
-    if (probes[version]) {
-        probeDisplay.innerHTML = '<span class="badge bg-warning text-dark">' + probes[version] + '</span> <span class="probe-info">HTTPS fetch over HTTP/' + version + ' (version enforced)</span>';
+    const probes = {
+        '1.1': ['CurlHTTP1', 'HTTPS fetch over HTTP/1.1 (version enforced)'],
+        '2': ['CurlHTTP2', 'HTTPS fetch over HTTP/2 (version enforced)'],
+        '3': ['CurlHTTP3', 'HTTPS fetch over HTTP/3 (version enforced)'],
+    };
+    let badgeClass, badgeText, infoText;
+    if (targetType === 'tcp') {
+        [badgeClass, badgeText, infoText] = ['badge bg-dark', 'TCPPing', 'TCP handshake time to port 443'];
+    } else if (Object.prototype.hasOwnProperty.call(probes, version)) {
+        [badgeClass, [badgeText, infoText]] = ['badge bg-warning text-dark', probes[version]];
     } else {
-        probeDisplay.innerHTML = '<span class="badge bg-secondary">Curl</span> <span class="probe-info">choose an HTTP version</span>';
+        [badgeClass, badgeText, infoText] = ['badge bg-secondary', 'Curl', 'choose an HTTP version'];
     }
+    const badge = document.createElement('span');
+    badge.className = badgeClass;
+    badge.textContent = badgeText;
+    const info = document.createElement('span');
+    info.className = 'probe-info';
+    info.textContent = infoText;
+    probeDisplay.replaceChildren(badge, document.createTextNode(' '), info);
 }
 
 function handleIPv6ReachabilityStatus(ipv6Info) {
