@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The packaging question, answered.** The roadmap asked whether a stack
+  of ten Compose services fits apt and Homebrew, and what would have to
+  change. `docs/packaging.md` inventories the system as a package sees it
+  (nine images built on the target, a checkout that is a runtime
+  dependency, git-tracked directories the running stack mutates, no unit,
+  no registry), weighs four shapes, and picks one: a package that manages
+  the Compose deployment, never native packages of four upstream projects.
+  An end-to-end trial backs it — `packaging/deb/build.sh` builds a 1.4 MB
+  `.deb` from `git archive HEAD` in two seconds, and `docker compose
+  config` resolves the relative `../../shared` paths from `/opt/smoking-pi`
+  unchanged — and the trial's failures are the backlog: relocatable state
+  first (`.env` and the mutated config directories out of the tree, which
+  also ends the runtime churn in `git status`), no source bind-mounts in
+  packaged mode, multi-arch images on GHCR, the `smoking-pi` command as the
+  installer the roadmap wants, a signed apt repository, an uninstall that
+  never deletes a year of measurements. About ten days in total; the first
+  two pay for themselves without any packaging. The prototype CLI and unit
+  ship under `packaging/` and work from a clone today; the builder took the
+  working tree on its first run and shipped the reference Pi's target list,
+  which is why it now takes only what is committed.
+
 ## [2.9.0] — 2026-09-19
 
 The hop every measurement crosses is measured too, and the project says

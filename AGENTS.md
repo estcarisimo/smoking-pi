@@ -49,7 +49,8 @@ so "0 results" on a PR means *no new alerts*, not "fixed".
 | `shared/modules/doctor/` | Static + live checks that the pieces agree |
 | `shared/modules/common/` | The only code shared between images: Flux, charts, links, mutes, OpenClaw client |
 | `shared/modules/grafana/provisioning/` | Dashboards as JSON; separate trees for InfluxDB and ClickHouse |
-| `docs/` | alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, doctor, clickhouse, ipv6-gating, upgrades |
+| `docs/` | alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, doctor, clickhouse, ipv6-gating, upgrades, packaging |
+| `packaging/` | Prototype `smoking-pi` CLI, systemd unit, `.deb` builder — the trial behind `docs/packaging.md`, not a supported install path yet |
 
 ## Constraints
 

@@ -310,6 +310,7 @@ The workflow this repository follows for every change:
 | [docs/ipv6-gating.md](docs/ipv6-gating.md) | Why IPv6 targets disappear when there is no global IPv6 |
 | [docs/ai-insights.md](docs/ai-insights.md) | AI health reports |
 | [docs/upgrades.md](docs/upgrades.md) | Upgrading between versions |
+| [docs/packaging.md](docs/packaging.md) | Could this be an apt/Homebrew package? The evaluation, the `.deb` trial, and the backlog |
 | [shared/docs/maintenance.md](shared/docs/maintenance.md) | Stuck containers, volumes, cleanup |
 | [editions/basic](editions/basic/README.md) · [standard](editions/standard/README.md) · [pro](editions/pro/README.md) | Per-edition guides |
 

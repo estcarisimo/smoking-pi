@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# smoking-pi — one command in front of the Compose stack.
+#
+# Prototype from the packaging evaluation (docs/packaging.md). Works from a
+# clone today (SMOKING_PI_HOME defaults to the checkout this file sits in)
+# and from /opt/smoking-pi when installed by the .deb. Everything it does is
+# what the README tells a person to type by hand; it adds no behavior, it
+# removes the need to know which directory to be in.
+set -euo pipefail
+
+SMOKING_PI_HOME="${SMOKING_PI_HOME:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)}"
+SMOKING_PI_EDITION="${SMOKING_PI_EDITION:-pro}"
+EDITION_DIR="$SMOKING_PI_HOME/editions/$SMOKING_PI_EDITION"
+VERSION_FILE="$SMOKING_PI_HOME/CITATION.cff"
+
+usage() {
+    cat <<USAGE
+smoking-pi — SmokePing on a Raspberry Pi, with the trimmings
+
+Usage: smoking-pi <command> [args]
+
+  install [--edition basic|standard|pro] [--database influxdb|clickhouse] [--yes]
+                     Generate secrets, choose profiles, start the stack, print
+                     what to open. Interactive unless --yes.
+  up | down | restart | status | logs [service]
+                     The Compose stack, with the profiles recorded in .env.
+  passwords          Show credentials and URLs (show-passwords.sh).
+  doctor [--live]    Instrumentation doctor (needs the doctor package).
+  paths              Where things are (home, edition, .env, data).
+  version            Installed version.
+
+Environment: SMOKING_PI_HOME (default: this checkout or /opt/smoking-pi),
+             SMOKING_PI_EDITION (default: pro).
+USAGE
+}
+
+need_edition() {
+    [ -d "$EDITION_DIR" ] || { echo "no edition at $EDITION_DIR" >&2; exit 1; }
+}
+
+profiles() {
+    # COMPOSE_PROFILES is written into .env by setup.sh; honor it.
+    [ -f "$EDITION_DIR/.env" ] && sed -n 's/^COMPOSE_PROFILES=//p' "$EDITION_DIR/.env" | tail -1 || true
+}
+
+compose() {
+    need_edition
+    local p; p="$(profiles)"
+    local extra=()
+    if [ "$SMOKING_PI_EDITION" = pro ] && [[ "$p" == *clickhouse* ]]; then
+        extra=(-f docker-compose.yml -f docker-compose.clickhouse.yml)
+    fi
+    ( cd "$EDITION_DIR" && COMPOSE_PROFILES="$p" docker compose "${extra[@]}" "$@" )
+}
+
+cmd_install() {
+    local edition="$SMOKING_PI_EDITION" database=influxdb yes=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --edition) edition="$2"; shift 2 ;;
+            --database) database="$2"; shift 2 ;;
+            --yes|-y) yes=1; shift ;;
+            *) echo "unknown option $1" >&2; exit 2 ;;
+        esac
+    done
+    if [ "$yes" = 0 ] && command -v whiptail >/dev/null; then
+        edition=$(whiptail --title "Smoking Pi" --menu "Which edition?" 15 60 3 \
+            basic "SmokePing only" standard "+ web admin and PostgreSQL" \
+            pro "+ Grafana, InfluxDB, alerts, MCP" 3>&1 1>&2 2>&3) || exit 1
+        if [ "$edition" = pro ]; then
+            database=$(whiptail --title "Smoking Pi" --menu "Time-series backend?" 12 60 2 \
+                influxdb "InfluxDB 2 (recommended)" clickhouse "ClickHouse (experimental)" 3>&1 1>&2 2>&3) || exit 1
+        fi
+    fi
+    SMOKING_PI_EDITION="$edition"; EDITION_DIR="$SMOKING_PI_HOME/editions/$edition"
+    need_edition
+    echo "Installing the $edition edition from $SMOKING_PI_HOME"
+    if [ "$edition" = pro ]; then
+        ( cd "$EDITION_DIR" && ./setup.sh --database "$database" )
+    else
+        ( cd "$EDITION_DIR" && ./setup.sh )
+    fi
+    if [ "$edition" = pro ] && [ "$yes" = 0 ] && command -v whiptail >/dev/null; then
+        if whiptail --title "Smoking Pi" --yesno \
+            "Connect a chat assistant?\n\nOpenClaw can answer 'how is my internet?' from this Pi's history (docs/openclaw-integration.md). Show the steps now?" 12 70; then
+            echo; echo "Next: enable the mcp profile and register the server —"
+            echo "  see $SMOKING_PI_HOME/docs/openclaw-integration.md"
+        fi
+    fi
+    echo; ( cd "$EDITION_DIR" && ./show-passwords.sh 2>/dev/null || true )
+}
+
+case "${1:-}" in
+    install) shift; cmd_install "$@" ;;
+    up) shift; compose up -d "$@" ;;
+    down) shift; compose down "$@" ;;
+    restart) shift; compose restart "$@" ;;
+    status) shift; compose ps "$@" ;;
+    logs) shift; compose logs --tail=200 -f "$@" ;;
+    passwords) need_edition; ( cd "$EDITION_DIR" && ./show-passwords.sh ) ;;
+    doctor) shift; ( cd "$SMOKING_PI_HOME" && python3 -m doctor --repo-root . "$@" ) ;;
+    paths)
+        echo "home:     $SMOKING_PI_HOME"; echo "edition:  $SMOKING_PI_EDITION ($EDITION_DIR)"
+        echo "env:      $EDITION_DIR/.env"; echo "profiles: $(profiles)"
+        echo "data:     docker volumes ${SMOKING_PI_EDITION}_* (docker volume ls)" ;;
+    version) sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || echo unknown ;;
+    -h|--help|help|"") usage ;;
+    *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
+esac

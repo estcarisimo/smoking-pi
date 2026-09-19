@@ -1,0 +1,23 @@
+# Starts the Smoking Pi stack at boot and stops it cleanly at shutdown.
+# Docker's own restart policy already restarts containers; this unit exists
+# so that `systemctl status smoking-pi` means something, so the stack starts
+# after the Docker daemon (and the network) rather than racing it, and so an
+# uninstall has one thing to disable.
+[Unit]
+Description=Smoking Pi network monitoring stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=SMOKING_PI_HOME=/opt/smoking-pi
+Environment=SMOKING_PI_EDITION=pro
+EnvironmentFile=-/etc/default/smoking-pi
+ExecStart=/usr/bin/smoking-pi up
+ExecStop=/usr/bin/smoking-pi down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
