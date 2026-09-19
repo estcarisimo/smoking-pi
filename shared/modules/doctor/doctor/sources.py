@@ -529,17 +529,40 @@ class _EnvVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+def _literal_value(node: ast.expr) -> tuple[bool, object]:
+    """``(True, value)`` for a literal, including a negated number.
+
+    ``-75.0`` parses as ``UnaryOp(USub, Constant(75.0))``, not a Constant;
+    without this a negative default (a dBm threshold) silently drops out of
+    the compose-vs-module comparison, and the check reports OK for a value
+    it never looked at.
+    """
+    if isinstance(node, ast.Constant):
+        return True, node.value
+    if (
+        isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, (ast.USub, ast.UAdd))
+        and isinstance(node.operand, ast.Constant)
+        and isinstance(node.operand.value, (int, float))
+        and not isinstance(node.operand.value, bool)
+    ):
+        value = node.operand.value
+        return True, -value if isinstance(node.op, ast.USub) else value
+    return False, None
+
+
 def _module_constants(tree: ast.Module) -> dict[str, object]:
     """Top-level UPPER_SNAKE assignments bound to a literal."""
     constants: dict[str, object] = {}
     for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
-        if not isinstance(node.value, ast.Constant):
+        ok, value = _literal_value(node.value)
+        if not ok:
             continue
         for target in node.targets:
             if isinstance(target, ast.Name) and target.id.isupper():
-                constants[target.id] = node.value.value
+                constants[target.id] = value
     return constants
 
 

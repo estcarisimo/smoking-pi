@@ -108,6 +108,15 @@ def api(monkeypatch):
     return fake
 
 
+@pytest.fixture(autouse=True)
+def no_wifi_influx(monkeypatch):
+    """system_status reads wifi_link; by default there is none (wired host)
+    and, more to the point, no network. Tests that want data patch over it."""
+    monkeypatch.setattr(backends, "query_influx", lambda flux: [])
+    monkeypatch.setattr(server, "query_influx", lambda flux: [])
+    monkeypatch.delenv("WIFI_WEAK_DBM", raising=False)
+
+
 @pytest.fixture()
 def no_api(monkeypatch):
     monkeypatch.setattr(backends, "get_config_api", lambda: ExplodingConfigAPI())
@@ -146,6 +155,15 @@ def test_hours_validation():
     assert "error" in server.get_loss_events(hours="yesterday")
     assert "error" in server.get_latency_stats(hours=-4)
     assert "error" in server.get_microcut_stats(hours=10**9)
+    assert "error" in server.get_wifi_stats(hours=0)
+
+
+def test_wifi_interface_validation():
+    assert "error" in server.get_wifi_stats(interface="wlan 0")
+    assert "error" in server.get_wifi_stats(interface='x"|>drop()')
+    assert "error" in server.get_wifi_stats(interface="a" * 16)
+    for ok in ("wlan0", "wlp3s0", "wlan0.1", "wlan-ap", "wl_0"):
+        assert "error" not in server.get_wifi_stats(interface=ok)
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +268,43 @@ def test_system_status_summary(api):
     result = server.system_status()
     assert "overall status: healthy" in result["summary"]
     assert "smokeping container running: True" in result["summary"]
+    assert "wifi" not in result            # wired host: nothing to say
+
+
+def _wifi_last_rows(**over):
+    """What group(columns:["_field"]) |> last() returns for an associated
+    link: one row per field, tags riding along on each."""
+    tags = {"interface": "wlan0", "ssid": "ExampleNet", "bssid": "00:00:5e:00:53:01",
+            "_time": datetime(2026, 9, 19, 2, 0, tzinfo=timezone.utc)}
+    fields = {"associated": 1, "uplink": 1, "signal_dbm": -52.0, "tx_bitrate_mbps": 433.3,
+              "rx_bitrate_mbps": 433.3, "channel": 36, "band_ghz": 5.0, "width_mhz": 80,
+              "connected_seconds": 1648, "rx_bytes": 10, "carrier_down_count": 2}
+    fields.update(over)
+    return [{**tags, "_field": k, "_value": v} for k, v in fields.items()]
+
+
+def test_system_status_carries_the_wifi_hop_when_there_is_one(api, monkeypatch):
+    _patch_influx(monkeypatch, lambda flux: _wifi_last_rows() if "wifi_link" in flux else [])
+    result = server.system_status()
+    assert result["wifi"] == {
+        "interface": "wlan0", "sampled_at": "2026-09-19T02:00:00+00:00",
+        "associated": True, "uplink_is_wifi": True, "ssid": "ExampleNet",
+        "bssid": "00:00:5e:00:53:01", "signal_dbm": -52.0, "tx_bitrate_mbps": 433.3,
+        "rx_bitrate_mbps": 433.3, "channel": 36, "band_ghz": 5.0, "width_mhz": 80,
+        "connected_seconds": 1648,
+    }
+
+
+def test_system_status_survives_a_wifi_lookup_failure(api, monkeypatch, caplog):
+    """The stack's health page must not depend on one optional measurement,
+    and the failure text must not reach the result."""
+    def boom(flux):
+        raise RuntimeError("Token hunter2 leaked")
+    _patch_influx(monkeypatch, boom)
+    result = server.system_status()
+    assert "wifi" not in result
+    assert "hunter2" not in str(result)
+    assert "overall status: healthy" in result["summary"]
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +322,74 @@ def _patch_influx(monkeypatch, fake):
     monkeypatch.setattr(backends, "query_influx", wrapper)
     monkeypatch.setattr(server, "query_influx", wrapper)
     return captured
+
+
+def test_wifi_stats_shaping(monkeypatch, no_api):
+    def fake(flux):
+        assert "wifi_link" in flux
+        if 'group(columns: ["_field"]) |> last()' in flux:
+            return _wifi_last_rows()
+        if "reduce(" in flux:
+            assert "r._value < -75.0" in flux
+            return [{"n": 8640, "weak": 43, "min": -81.0, "max": -49.0}]
+        if "median()" in flux:
+            return [{"_value": -52.0}]
+        if "quantile(" in flux:
+            return [{"_value": -58.4}]
+        if "increase()" in flux:
+            return [{"_field": "carrier_down_count", "_value": 1},
+                    {"_field": "tx_failed", "_value": 12}]
+        if "distinct(" in flux:
+            return [{"_value": 2}]
+        if "derivative(" in flux:
+            return [{"_field": "rx_bytes", "_value": 7_807_500.0},
+                    {"_field": "tx_bytes", "_value": 300_000.0}]
+        if "limit(n: 5)" in flux:
+            return [{"_time": datetime(2026, 9, 19, 1, 0, tzinfo=timezone.utc),
+                     "_value": -81.0, "bssid": "00:00:5e:00:53:01", "interface": "wlan0"}]
+        raise AssertionError(flux)
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_wifi_stats(hours=24)
+    assert result["present"] is True
+    assert result["interface"] == "wlan0" and result["uplink_is_wifi"] is True
+    assert result["weak_below_dbm"] == -75.0
+    assert result["now"]["ssid"] == "ExampleNet" and result["now"]["signal_dbm"] == -52.0
+    assert "interface" not in result["now"]
+    assert result["window"] == {
+        "samples": 8640,
+        "signal_dbm": {"min": -81.0, "max": -49.0, "median": -52.0, "p10": -58.4},
+        "weak_share_pct": 0.5,
+        "disconnects": 1,
+        "tx_failed": 12,
+        "roams": 1,
+        "throughput_mbps": {"max_rx": 62.46, "max_tx": 2.4},
+    }
+    assert result["worst_windows"] == [
+        {"time": "2026-09-19T01:00:00+00:00", "signal_dbm": -81.0, "bssid": "00:00:5e:00:53:01"}
+    ]
+    assert "links" not in result           # no base URL configured
+
+
+def test_wifi_stats_on_a_wired_host(monkeypatch, no_api):
+    _patch_influx(monkeypatch, lambda flux: [])
+    result = server.get_wifi_stats()
+    assert result["present"] is False and "wired" in result["note"]
+    assert "now" not in result and "window" not in result
+
+
+def test_wifi_stats_interface_filter_reaches_every_query(monkeypatch, no_api):
+    captured = _patch_influx(monkeypatch, lambda flux: [])
+    server.get_wifi_stats(interface="wlp3s0")
+    assert captured and all('r.interface == "wlp3s0"' in q for q in captured)
+
+
+def test_wifi_weak_threshold_is_configurable(monkeypatch, no_api):
+    monkeypatch.setenv("WIFI_WEAK_DBM", "-70")
+    captured = _patch_influx(monkeypatch, lambda flux: [])
+    result = server.get_wifi_stats()
+    assert result["weak_below_dbm"] == -70.0
+    assert any("r._value < -70.0" in q for q in captured)
 
 
 def test_latency_stats_shaping(monkeypatch, no_api):
@@ -581,6 +704,23 @@ def test_system_status_distinguishes_wrong_backend_from_unconfigured(
     assert "links" not in result
     assert "clickhouse" in result["deep_links"].lower()
     assert "PUBLIC_BASE_HOST" not in result["deep_links"]
+
+
+def test_wifi_stats_links_zoom_each_worst_window(monkeypatch, no_api, linked):
+    moment = datetime(2026, 9, 19, 1, 0, tzinfo=timezone.utc)
+
+    def fake(flux):
+        if "limit(n: 5)" in flux:
+            return [{"_time": moment, "_value": -81.0, "interface": "wlan0"}]
+        if "reduce(" in flux:
+            return [{"n": 10, "weak": 1, "min": -81.0, "max": -50.0}]
+        return []
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_wifi_stats(hours=6)
+    assert "/d/wifi-link-v1?var-interface=wlan0&from=now-6h" in result["links"]["graph"]
+    center = int(moment.timestamp() * 1000)
+    assert f"from={center - 15 * 60 * 1000}" in result["worst_windows"][0]["graph"]
 
 
 def test_system_status_offers_entry_points_when_configured(api, linked):

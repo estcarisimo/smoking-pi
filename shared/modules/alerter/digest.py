@@ -174,6 +174,7 @@ def build(
         "targets": targets,
         "target_total": data.get("target_total", len(targets)),
         "cpe": data.get("cpe", []),
+        "wifi": data.get("wifi") or {},
         "alerts_fired": len(alerts),
         "recoveries": len(recoveries),
         "active_incidents": len(active),
@@ -183,7 +184,7 @@ def build(
         "muted_suppressed": suppressed,
         "message": render(
             hours, targets, lossy, worst, len(alerts), len(recoveries),
-            len(active), active_mutes, suppressed,
+            len(active), active_mutes, suppressed, wifi=data.get("wifi") or {},
         ),
         "links": links.entry_point_links(hours=hours),
     }
@@ -199,6 +200,7 @@ def render(
     active: int,
     active_mutes: list[dict] | None = None,
     suppressed: int = 0,
+    wifi: dict | None = None,
 ) -> str:
     """The digest text, in the same shape as everything else this bot sends.
 
@@ -254,6 +256,28 @@ def render(
             lines.append(f"{watch} …and {len(lossy) - 5} more with loss.")
     else:
         lines.append(f"{ok} All {len(targets)} targets clean.")
+
+    # Only when the host is on Wi-Fi: the hop every measurement above
+    # crossed, in one line, so a bad night on the wireless side is not read
+    # as a bad night at the ISP.
+    if wifi and wifi.get("min_dbm") is not None:
+        lines.append("")
+        lines.append(b("Local link"))
+        drops = int(wifi.get("disconnects") or 0)
+        weak = wifi["min_dbm"] < -75.0
+        light = bad if drops >= 3 else (watch if drops or weak else ok)
+        where = esc(str(wifi.get("ssid") or wifi.get("interface") or "wi-fi"))
+        if wifi.get("channel"):
+            where += f" ch{wifi['channel']}"
+        detail = f"{wifi['min_dbm']:.0f} dBm min"
+        if wifi.get("median_dbm") is not None:
+            detail = f"{wifi['median_dbm']:.0f} dBm median, " + detail
+        if wifi.get("tx_bitrate_mbps"):
+            detail += f", {wifi['tx_bitrate_mbps']:.0f} Mb/s"
+        detail += f", {_plural(drops, 'disconnect', 'disconnects')}"
+        if wifi.get("roams"):
+            detail += f", {_plural(int(wifi['roams']), 'roam', 'roams')}"
+        lines.append(f"{light} Wi-Fi {where} — {detail}.")
 
     # Only when something is muted: a "Muted: nothing" line every morning
     # would train the reader to skip the section that matters on the one day

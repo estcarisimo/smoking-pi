@@ -43,6 +43,13 @@ DEFAULT_STALE_DOWN_HOURS = 6.0  # VERDICT_STALE_DOWN_HOURS
 
 CHRONIC_LOSS_RATIO = 0.999
 
+# The Wi-Fi uplink (wifi_link, when the host has one) counts as weak once
+# this many samples in the hour were below WIFI_WEAK_DBM (the threshold
+# lives in evaluator.py, next to the query that applies it) -- one minute's
+# worth at the collector's default 10 s interval, anywhere in the window, so
+# a single dip never flips a verdict. Rescale with WIFI_SAMPLE_INTERVAL.
+DEFAULT_WIFI_WEAK_SAMPLES = 6  # WIFI_WEAK_SAMPLES
+
 
 def _env_float(name: str, default: float) -> float:
     try:
@@ -109,14 +116,50 @@ def _cpe_cutting(micro_rows: list[dict], burst_n: int) -> list[str]:
     return sorted(cutting)
 
 
+def _wifi_state(wifi_rows: dict | None, weak_samples: int) -> dict | None:
+    """The uplink's Wi-Fi hour, from the evaluator's three aggregate queries,
+    or None when the host has no wifi_link data.
+
+    ``signal`` rows carry ``n``/``weak``/``min`` per interface (a Flux
+    reduce), ``drops`` rows the hour's increase of carrier_down_count, and
+    ``uplink`` rows the last uplink flag -- the interface that carries the
+    default route is the one that matters; a spare radio's weak signal is
+    not the connection's problem.
+    """
+    if not wifi_rows:
+        return None
+    signal = {r.get("interface"): r for r in wifi_rows.get("signal") or [] if r.get("interface")}
+    drops = {r.get("interface"): r.get("_value") for r in wifi_rows.get("drops") or []}
+    uplinks = {r.get("interface"): r.get("_value") for r in wifi_rows.get("uplink") or []}
+    candidates = set(signal) | set(drops) | set(uplinks)
+    if not candidates:
+        return None
+    uplink = [i for i in candidates if int(uplinks.get(i) or 0) == 1]
+    iface = sorted(uplink)[0] if uplink else sorted(candidates)[0]
+    row = signal.get(iface, {})
+    n = int(row.get("n") or 0)
+    weak = int(row.get("weak") or 0)
+    state = {
+        "interface": iface,
+        "uplink": bool(uplink),
+        "samples": n,
+        "weak_samples": weak,
+        "min_dbm": float(row["min"]) if n and row.get("min") is not None else None,
+        "disconnects": int(drops.get(iface) or 0),
+    }
+    state["degraded"] = bool(uplink) and (weak >= weak_samples or state["disconnects"] > 0)
+    return state
+
+
 def classify(
     incidents: list[dict],
     mean_rows: list[dict],
     micro_rows: list[dict],
     records: dict | None = None,
     now: float | None = None,
+    wifi_rows: dict | None = None,
 ) -> dict:
-    """Return ``{scope, line, affected, total, cpe_cutting, evidence}``.
+    """Return ``{scope, line, affected, total, cpe_cutting, wifi, evidence}``.
 
     Pure: rows in, verdict out, no network and no clock unless one is given.
     """
@@ -135,6 +178,7 @@ def classify(
         "VERDICT_STALE_DOWN_HOURS", DEFAULT_STALE_DOWN_HOURS
     )
     burst_n = _env_int("MICROCUT_BURST_N", 2)
+    weak_samples = _env_int("WIFI_WEAK_SAMPLES", DEFAULT_WIFI_WEAK_SAMPLES)
 
     means = _mean_by_target(mean_rows)
     excluded = [
@@ -150,6 +194,7 @@ def classify(
     total = len(measurable)
     affected = len(impaired)
     cutting = _cpe_cutting(micro_rows, burst_n)
+    wifi = _wifi_state(wifi_rows, weak_samples)
     share = (100.0 * affected / total) if total else 0.0
     broad = total >= min_targets and share >= broad_pct
 
@@ -159,13 +204,16 @@ def classify(
         "excluded_chronic": sorted(excluded),
         "share_pct": round(share, 1),
         "cpe_cutting": cutting,
+        "wifi": wifi,
     }
     # Logged every iteration: a wrong verdict must be diagnosable from
     # `docker logs` alone, without reproducing the moment it was made.
     log.info(
         "verdict inputs: %d/%d impaired (%.1f%%), cpe_cutting=%s, "
-        "excluded_chronic=%s",
+        "excluded_chronic=%s, wifi=%s",
         affected, total, share, cutting or "none", excluded or "none",
+        (f"{wifi['interface']} min {wifi['min_dbm']} dBm, {wifi['weak_samples']} weak, "
+         f"{wifi['disconnects']} drops") if wifi else "none",
     )
 
     def _out(scope: str, line: str) -> dict:
@@ -175,6 +223,7 @@ def classify(
             "affected": affected,
             "total": total,
             "cpe_cutting": cutting,
+            "wifi": wifi,
             "evidence": evidence,
         }
 
@@ -190,7 +239,25 @@ def classify(
     if total == 0:
         return _out("unclear", "No comparable measurements in the last 15m.")
 
-    # 2. Local link: the first hop is dropping AND the damage is broad.
+    # 2. The Wi-Fi hop: the first hop is dropping AND the host's own
+    #    wireless uplink was weak or dropped in the same hour. The CPE probes
+    #    cross that link too, so its dips are microcuts by construction --
+    #    and the fix is a router or a channel, not a call to the ISP. No
+    #    breadth requirement: a dropped uplink takes everything with it.
+    if cutting and wifi and wifi.get("degraded"):
+        if wifi["disconnects"]:
+            why = (f"the Wi-Fi link dropped "
+                   f"{wifi['disconnects']} time{'s' if wifi['disconnects'] != 1 else ''} "
+                   "in the last hour")
+        else:
+            why = f"the Wi-Fi signal fell to {wifi['min_dbm']:.0f} dBm"
+        return _out(
+            "wifi",
+            f"Your Wi-Fi — the first hop is cutting out and {why}; "
+            "the router or the air, not the ISP.",
+        )
+
+    # 3. Local link: the first hop is dropping AND the damage is broad.
     #    Breadth matters -- CPE microcuts alone can coexist with a fine
     #    connection, since a rate-limited gateway is not a broken one.
     if cutting and broad:
@@ -200,7 +267,7 @@ def classify(
             f"the first hop is cutting out.",
         )
 
-    # 3. Broad damage with a clean first hop: upstream.
+    # 4. Broad damage with a clean first hop: upstream.
     if broad:
         return _out(
             "isp_upstream",
@@ -214,7 +281,7 @@ def classify(
             f"No target is above {impaired_pct:.0f}% mean loss over 15m.",
         )
 
-    # 4/5. A uniform impaired set names its own cause.
+    # 5/6. A uniform impaired set names its own cause.
     if all(_is_ipv6_target(t, measurable[t][1]) for t in impaired):
         healthy_v4 = any(
             not _is_ipv6_target(t, cat) and ratio * 100.0 <= impaired_pct
@@ -236,7 +303,7 @@ def classify(
             f"everything else is fine.",
         )
 
-    # 6. One or two sites, peers fine: theirs, not yours.
+    # 7. One or two sites, peers fine: theirs, not yours.
     if affected <= 2:
         peers = _healthy_peers(impaired, measurable, impaired_pct)
         if peers:

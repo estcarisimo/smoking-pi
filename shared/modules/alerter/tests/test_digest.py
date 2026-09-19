@@ -359,3 +359,38 @@ def test_the_digest_reports_how_much_a_mute_swallowed(collected, mutes_file):
     payload = digest.build(state, now=_at())
     assert payload["muted_suppressed"] == 7
     assert "7 alerts suppressed" in payload["message"]
+
+
+# ---------------------------------------------------------------------------
+# The Wi-Fi hop, when the host has one
+# ---------------------------------------------------------------------------
+
+def test_wifi_line_appears_only_when_collected(collected):
+    payload = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)
+    assert "Local link" not in payload["message"]
+    assert payload["wifi"] == {}
+
+    collected["value"]["wifi"] = {
+        "interface": "wlan0", "uplink_is_wifi": True, "ssid": "ExampleNet",
+        "channel": 36, "band_ghz": 5.0, "tx_bitrate_mbps": 433.3, "samples": 8640,
+        "min_dbm": -71.0, "max_dbm": -49.0, "median_dbm": -52.0,
+        "disconnects": 1, "roams": 0,
+    }
+    payload = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)
+    text = payload["message"]
+    assert "<b>Local link</b>" in text
+    assert "🟡 Wi-Fi ExampleNet ch36 — -52 dBm median, -71 dBm min, 433 Mb/s, 1 disconnect." in text
+    assert payload["wifi"]["ssid"] == "ExampleNet"
+
+
+def test_wifi_line_lights(collected):
+    base = {"interface": "wlan0", "uplink_is_wifi": True, "ssid": "N", "channel": 1,
+            "tx_bitrate_mbps": 100.0, "samples": 10, "max_dbm": -50.0, "median_dbm": -55.0}
+    for extra, light in (
+        ({"min_dbm": -60.0, "disconnects": 0}, "🟢"),
+        ({"min_dbm": -80.0, "disconnects": 0}, "🟡"),
+        ({"min_dbm": -60.0, "disconnects": 3}, "🔴"),
+    ):
+        collected["value"]["wifi"] = {**base, **extra}
+        text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+        assert f"{light} Wi-Fi N ch1" in text

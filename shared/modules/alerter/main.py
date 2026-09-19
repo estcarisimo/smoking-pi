@@ -148,6 +148,7 @@ def run_iteration() -> None:
         context["mean_rows"],
         context["micro_rows"],
         records=current.get("incidents", {}),
+        wifi_rows=context.get("wifi_rows"),
     )
     actions = state.reconcile(current, incidents)
     peers = _peers_by_target(context["mean_rows"])
