@@ -61,6 +61,22 @@ jobs:
           [ "$cff_version" = "$changelog_version" ] || { echo "CITATION.cff version is stale"; exit 1; }
           [ "$cff_date" = "$changelog_date" ] || { echo "CITATION.cff date-released is stale"; exit 1; }
 
+  docs:
+    name: Docs build (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      # --strict turns every warning (broken link, missing page, dangling
+      # anchor) into a failure. docs.yml deploys the same build to Pages.
+      - name: Build the documentation site
+        run: |
+          uv venv .docs-venv
+          uv pip install --python .docs-venv/bin/python -r docs/requirements.txt
+          .docs-venv/bin/mkdocs build --strict
+
   compose-config:
     name: Compose config (${{ matrix.edition }})
     runs-on: ubuntu-latest

@@ -1,0 +1,51 @@
+name: Docs
+
+# Builds the MkDocs site and publishes it to GitHub Pages on every push to
+# main. The Pages source must be "GitHub Actions" in the repository settings.
+# Pull requests only build (CI job "Docs build (strict)"); the deployment
+# needs the pages permissions, which are granted here and nowhere else.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Build the documentation site
+        run: |
+          uv venv .docs-venv
+          uv pip install --python .docs-venv/bin/python -r docs/requirements.txt
+          .docs-venv/bin/mkdocs build --strict
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

@@ -1,0 +1,5 @@
+# Documentation site. `pip install -r docs/requirements.txt && mkdocs build --strict`
+# is what CI runs; docs.yml deploys the same build to GitHub Pages.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+pymdown-extensions==12.0.1

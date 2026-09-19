@@ -8,7 +8,7 @@ Two independent integrations, useful separately:
 2. **Be told about the network** — have the alerter push incidents into a chat.
    This works against a stock gateway too, via its `POST /tools/invoke`
    endpoint; it needs the Gateway token and the `message` tool permitted by
-   tool policy. See [Alert delivery](#alert-delivery).
+   tool policy. See [Alert delivery](#2-alert-delivery).
 
 All commands below use placeholders. Nothing machine-specific is committed to
 this repository — generate your own tokens and substitute your own ids.
