@@ -56,6 +56,13 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(str(os.environ.get(name, "")).strip())
@@ -264,7 +271,7 @@ def render(
         lines.append("")
         lines.append(b("Local link"))
         drops = int(wifi.get("disconnects") or 0)
-        weak = wifi["min_dbm"] < -75.0
+        weak = wifi["min_dbm"] < _env_float("WIFI_WEAK_DBM", -75.0)
         light = bad if drops >= 3 else (watch if drops or weak else ok)
         where = esc(str(wifi.get("ssid") or wifi.get("interface") or "wi-fi"))
         if wifi.get("channel"):

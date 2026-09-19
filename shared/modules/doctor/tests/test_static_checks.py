@@ -550,6 +550,7 @@ def test_negative_defaults_are_compared_too(repo):
     assert "WIFI_WEAK_DBM" in " ".join(f.render() for f in check.findings)
 
 
+
 def test_env_without_a_compose_default_is_not_compared(repo):
     """`${VAR}` supplies no default, so there is nothing to disagree with."""
     _set_compose_env(repo, ["DOWN_WINDOW=${DOWN_WINDOW}"])

@@ -394,3 +394,15 @@ def test_wifi_line_lights(collected):
         collected["value"]["wifi"] = {**base, **extra}
         text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
         assert f"{light} Wi-Fi N ch1" in text
+
+
+def test_wifi_line_weak_light_follows_the_configured_threshold(collected, monkeypatch):
+    """The same WIFI_WEAK_DBM the verdict and the MCP tool use, not a literal."""
+    collected["value"]["wifi"] = {"interface": "wlan0", "ssid": "N", "channel": 1,
+                                  "min_dbm": -72.0, "disconnects": 0, "samples": 10}
+    monkeypatch.setenv("WIFI_WEAK_DBM", "-70")
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert "🟡 Wi-Fi N ch1" in text
+    monkeypatch.setenv("WIFI_WEAK_DBM", "-75")
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert "🟢 Wi-Fi N ch1" in text

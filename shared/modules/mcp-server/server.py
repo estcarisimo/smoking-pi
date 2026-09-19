@@ -916,40 +916,67 @@ def _wifi_last_flux(interface: str | None, minutes: int = 10) -> str:
     )
 
 
+def _wifi_uplink_flux(hours: int) -> str:
+    """The last uplink flag per wireless interface within the window."""
+    return (
+        _base_flux(["wifi_link"], hours)
+        + '|> filter(fn: (r) => r._field == "uplink") '
+        '|> group(columns: ["interface"]) |> last()'
+    )
+
+
+def _wifi_uplink_interface(hours: int = 24) -> str | None:
+    """Which wireless interface to talk about when the caller named none:
+    the one carrying the default route, else the first seen. Pooling two
+    radios into one answer would blend their signals and counters -- the
+    verdict picks the uplink the same way (verdict._wifi_state)."""
+    rows = query_influx(_wifi_uplink_flux(hours))
+    by_iface = {r.get("interface"): r.get("_value") for r in rows if r.get("interface")}
+    if not by_iface:
+        return None
+    uplink = sorted(i for i, v in by_iface.items() if int(v or 0) == 1)
+    return uplink[0] if uplink else sorted(by_iface)[0]
+
+
 def _wifi_now(interface: str | None = None) -> dict | None:
     """The link as it is right now, or None when there is no recent data or
-    the query fails (logged, never surfaced -- see system_status)."""
+    anything at all goes wrong (logged under the exception type, never
+    surfaced -- system_status must not depend on one optional measurement).
+    """
     try:
+        interface = interface or _wifi_uplink_interface(hours=1)
+        if interface is None:
+            return None
         rows = query_influx(_wifi_last_flux(interface))
+        if not rows:
+            return None
+        fields = {r.get("_field"): r.get("_value") for r in rows if r.get("_field")}
+        latest = max(rows, key=lambda r: r.get("_time") or 0)
+        now: dict[str, Any] = {
+            "interface": interface,
+            "sampled_at": _iso(latest.get("_time")),
+            "associated": bool(fields.get("associated")),
+            "uplink_is_wifi": bool(fields.get("uplink")),
+        }
+        if now["associated"]:
+            # Tags ride on the row that carried the field; signal_dbm exists
+            # only while associated, so its row names the live AP.
+            sig = next((r for r in rows if r.get("_field") == "signal_dbm"), latest)
+            now["ssid"] = sig.get("ssid")
+            now["bssid"] = sig.get("bssid")
+        for src, dst, cast in (
+            ("signal_dbm", "signal_dbm", float), ("tx_bitrate_mbps", "tx_bitrate_mbps", float),
+            ("rx_bitrate_mbps", "rx_bitrate_mbps", float), ("channel", "channel", int),
+            ("band_ghz", "band_ghz", float), ("width_mhz", "width_mhz", int),
+            ("connected_seconds", "connected_seconds", int), ("noise_dbm", "noise_dbm", float),
+            ("snr_db", "snr_db", float),
+        ):
+            if fields.get(src) is not None:
+                now[dst] = cast(fields[src])
+        return now
     except Exception as exc:
         log.warning("wifi_link status lookup failed: %s", type(exc).__name__)
         return None
-    if not rows:
-        return None
-    fields = {r.get("_field"): r.get("_value") for r in rows if r.get("_field")}
-    latest = max(rows, key=lambda r: r.get("_time") or 0)
-    now: dict[str, Any] = {
-        "interface": latest.get("interface"),
-        "sampled_at": _iso(latest.get("_time")),
-        "associated": bool(fields.get("associated")),
-        "uplink_is_wifi": bool(fields.get("uplink")),
-    }
-    if now["associated"]:
-        # Tags ride on the row that carried the field; signal_dbm exists
-        # only while associated, so its row names the live AP.
-        sig = next((r for r in rows if r.get("_field") == "signal_dbm"), latest)
-        now["ssid"] = sig.get("ssid")
-        now["bssid"] = sig.get("bssid")
-    for src, dst, cast in (
-        ("signal_dbm", "signal_dbm", float), ("tx_bitrate_mbps", "tx_bitrate_mbps", float),
-        ("rx_bitrate_mbps", "rx_bitrate_mbps", float), ("channel", "channel", int),
-        ("band_ghz", "band_ghz", float), ("width_mhz", "width_mhz", int),
-        ("connected_seconds", "connected_seconds", int), ("noise_dbm", "noise_dbm", float),
-        ("snr_db", "snr_db", float),
-    ):
-        if fields.get(src) is not None:
-            now[dst] = cast(fields[src])
-    return now
 
 
 @mcp.tool()
@@ -991,8 +1018,19 @@ def get_wifi_stats(hours: int = 24, interface: str | None = None) -> dict:
             return {"error": err}
     weak_dbm = _wifi_weak_dbm()
 
-    where = f"and r.interface == {flux_str(interface)} " if interface else ""
-    base = _base_flux(["wifi_link"], hours) + (f"|> filter(fn: (r) => true {where}) " if where else "")
+    try:
+        interface = interface or _wifi_uplink_interface(hours)
+    except Exception as exc:
+        return _tool_error("InfluxDB query failed", exc)
+    result: dict[str, Any] = {"window_hours": hours, "weak_below_dbm": weak_dbm}
+    if interface is None:
+        result["present"] = False
+        result["note"] = ("No wifi_link data: this host measures through a wired "
+                          "interface, or the collector is not running.")
+        return result
+
+    base = (_base_flux(["wifi_link"], hours)
+            + f"|> filter(fn: (r) => r.interface == {flux_str(interface)}) ")
     signal = '|> filter(fn: (r) => r._field == "signal_dbm") |> group() '
     summary_flux = (
         base + signal
@@ -1001,7 +1039,7 @@ def get_wifi_stats(hours: int = 24, interface: str | None = None) -> dict:
         "n: accumulator.n + 1, "
         f"weak: accumulator.weak + (if r._value < {weak_dbm:.1f} then 1 else 0), "
         "min: if accumulator.n == 0 or r._value < accumulator.min then r._value else accumulator.min, "
-        "max: if r._value > accumulator.max then r._value else accumulator.max}))"
+        "max: if accumulator.n == 0 or r._value > accumulator.max then r._value else accumulator.max}))"
     )
     median_flux = base + signal + "|> median()"
     p10_flux = base + signal + "|> quantile(q: 0.1)"
@@ -1034,20 +1072,13 @@ def get_wifi_stats(hours: int = 24, interface: str | None = None) -> dict:
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
 
-    result: dict[str, Any] = {"window_hours": hours, "weak_below_dbm": weak_dbm}
     if now is None and not summary_rows:
         result["present"] = False
-        result["note"] = ("No wifi_link data: this host measures through a wired "
-                          "interface, or the collector is not running.")
+        result["note"] = (f"No wifi_link data for {interface} in the last {hours}h: "
+                          "the collector is not running, or the interface is gone.")
         return result
     result["present"] = True
-    # The interface name comes from the freshest source that has it: the
-    # current sample, the argument, or -- when the collector went quiet
-    # inside the window -- the rows the window itself returned.
-    result["interface"] = (
-        (now or {}).get("interface") or interface
-        or next((r.get("interface") for r in worst_rows if r.get("interface")), None)
-    )
+    result["interface"] = interface
     result["uplink_is_wifi"] = bool((now or {}).get("uplink_is_wifi"))
     if now:
         result["now"] = {k: v for k, v in now.items() if k not in ("interface", "uplink_is_wifi")}

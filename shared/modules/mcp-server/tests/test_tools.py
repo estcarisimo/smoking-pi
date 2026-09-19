@@ -108,15 +108,6 @@ def api(monkeypatch):
     return fake
 
 
-@pytest.fixture(autouse=True)
-def no_wifi_influx(monkeypatch):
-    """system_status reads wifi_link; by default there is none (wired host)
-    and, more to the point, no network. Tests that want data patch over it."""
-    monkeypatch.setattr(backends, "query_influx", lambda flux: [])
-    monkeypatch.setattr(server, "query_influx", lambda flux: [])
-    monkeypatch.delenv("WIFI_WEAK_DBM", raising=False)
-
-
 @pytest.fixture()
 def no_api(monkeypatch):
     monkeypatch.setattr(backends, "get_config_api", lambda: ExplodingConfigAPI())
@@ -284,7 +275,11 @@ def _wifi_last_rows(**over):
 
 
 def test_system_status_carries_the_wifi_hop_when_there_is_one(api, monkeypatch):
-    _patch_influx(monkeypatch, lambda flux: _wifi_last_rows() if "wifi_link" in flux else [])
+    def fake(flux):
+        if '"uplink"' in flux and 'group(columns: ["interface"])' in flux:
+            return [{"interface": "wlan0", "_value": 1}]
+        return _wifi_last_rows() if "wifi_link" in flux else []
+    _patch_influx(monkeypatch, fake)
     result = server.system_status()
     assert result["wifi"] == {
         "interface": "wlan0", "sampled_at": "2026-09-19T02:00:00+00:00",
@@ -304,6 +299,21 @@ def test_system_status_survives_a_wifi_lookup_failure(api, monkeypatch, caplog):
     result = server.system_status()
     assert "wifi" not in result
     assert "hunter2" not in str(result)
+    assert "overall status: healthy" in result["summary"]
+
+
+def test_system_status_survives_malformed_wifi_rows(api, monkeypatch):
+    """Not just a failing query: a row shape the post-processing chokes on
+    (a missing _time makes max() compare datetime with int) is swallowed too."""
+    def fake(flux):
+        if '"uplink"' in flux and 'group(columns: ["interface"])' in flux:
+            return [{"interface": "wlan0", "_value": 1}]
+        rows = _wifi_last_rows()
+        del rows[0]["_time"]
+        return rows
+    _patch_influx(monkeypatch, fake)
+    result = server.system_status()
+    assert "wifi" not in result
     assert "overall status: healthy" in result["summary"]
 
 
@@ -327,6 +337,9 @@ def _patch_influx(monkeypatch, fake):
 def test_wifi_stats_shaping(monkeypatch, no_api):
     def fake(flux):
         assert "wifi_link" in flux
+        if '"uplink"' in flux and 'group(columns: ["interface"])' in flux:
+            return [{"interface": "wlan1", "_value": 0}, {"interface": "wlan0", "_value": 1}]
+        assert 'r.interface == "wlan0"' in flux      # the uplink, never the spare radio
         if 'group(columns: ["_field"]) |> last()' in flux:
             return _wifi_last_rows()
         if "reduce(" in flux:
@@ -372,10 +385,33 @@ def test_wifi_stats_shaping(monkeypatch, no_api):
 
 
 def test_wifi_stats_on_a_wired_host(monkeypatch, no_api):
-    _patch_influx(monkeypatch, lambda flux: [])
+    captured = _patch_influx(monkeypatch, lambda flux: [])
     result = server.get_wifi_stats()
     assert result["present"] is False and "wired" in result["note"]
     assert "now" not in result and "window" not in result
+    assert len(captured) == 1                 # one probe, then stop
+
+
+def test_wifi_stats_picks_the_uplink_when_two_radios_exist(monkeypatch, no_api):
+    """A spare radio's numbers must never blend into the uplink's."""
+    def fake(flux):
+        if '"uplink"' in flux and 'group(columns: ["interface"])' in flux:
+            return [{"interface": "wlan1", "_value": 0}, {"interface": "wlan0", "_value": 1}]
+        assert 'r.interface == "wlan0"' in flux
+        return []
+    _patch_influx(monkeypatch, fake)
+    result = server.get_wifi_stats()
+    assert result["present"] is False and "wlan0" in result["note"]
+
+
+def test_wifi_stats_without_an_uplink_flag_takes_the_first_radio(monkeypatch, no_api):
+    def fake(flux):
+        if '"uplink"' in flux and 'group(columns: ["interface"])' in flux:
+            return [{"interface": "wlp3s0", "_value": 0}, {"interface": "wlan0", "_value": 0}]
+        assert 'r.interface == "wlan0"' in flux
+        return []
+    _patch_influx(monkeypatch, fake)
+    assert server.get_wifi_stats()["present"] is False
 
 
 def test_wifi_stats_interface_filter_reaches_every_query(monkeypatch, no_api):
@@ -386,7 +422,8 @@ def test_wifi_stats_interface_filter_reaches_every_query(monkeypatch, no_api):
 
 def test_wifi_weak_threshold_is_configurable(monkeypatch, no_api):
     monkeypatch.setenv("WIFI_WEAK_DBM", "-70")
-    captured = _patch_influx(monkeypatch, lambda flux: [])
+    captured = _patch_influx(monkeypatch, lambda flux: (
+        [{"interface": "wlan0", "_value": 1}] if '"uplink"' in flux else []))
     result = server.get_wifi_stats()
     assert result["weak_below_dbm"] == -70.0
     assert any("r._value < -70.0" in q for q in captured)
@@ -710,6 +747,8 @@ def test_wifi_stats_links_zoom_each_worst_window(monkeypatch, no_api, linked):
     moment = datetime(2026, 9, 19, 1, 0, tzinfo=timezone.utc)
 
     def fake(flux):
+        if '"uplink"' in flux and 'group(columns: ["interface"])' in flux:
+            return [{"interface": "wlan0", "_value": 1}]
         if "limit(n: 5)" in flux:
             return [{"_time": moment, "_value": -81.0, "interface": "wlan0"}]
         if "reduce(" in flux:

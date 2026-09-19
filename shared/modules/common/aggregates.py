@@ -192,7 +192,20 @@ def _collect_wifi_stats(hours: int) -> dict:
     go unsent over one optional measurement (the caller sends nothing at all
     when collect() raises)."""
     try:
-        base = _base_flux(["wifi_link"], hours)
+        uplink_rows = query_influx(
+            _base_flux(["wifi_link"], hours)
+            + '|> filter(fn: (r) => r._field == "uplink") '
+            '|> group(columns: ["interface"]) |> last()'
+        )
+        by_iface = {r.get("interface"): r.get("_value") for r in uplink_rows if r.get("interface")}
+        if not by_iface:
+            return {}
+        # The interface carrying the default route, else the first: two
+        # radios pooled into one line would blend their signals.
+        uplink = sorted(i for i, v in by_iface.items() if int(v or 0) == 1)
+        interface = uplink[0] if uplink else sorted(by_iface)[0]
+        base = (_base_flux(["wifi_link"], hours)
+                + f"|> filter(fn: (r) => r.interface == {flux_str(interface)}) ")
         signal = '|> filter(fn: (r) => r._field == "signal_dbm") |> group() '
         summary_rows = query_influx(
             base + signal
@@ -200,16 +213,13 @@ def _collect_wifi_stats(hours: int) -> dict:
             "fn: (r, accumulator) => ({n: accumulator.n + 1, "
             "min: if accumulator.n == 0 or r._value < accumulator.min "
             "then r._value else accumulator.min, "
-            "max: if r._value > accumulator.max then r._value else accumulator.max}))"
+            "max: if accumulator.n == 0 or r._value > accumulator.max "
+            "then r._value else accumulator.max}))"
         )
         if not summary_rows or not int(summary_rows[0].get("n") or 0):
             return {}
         median_rows = query_influx(base + signal + "|> median()")
-        last_rows = query_influx(
-            f"from(bucket: {flux_str(influx_bucket())}) |> range(start: -{hours}h) "
-            '|> filter(fn: (r) => r._measurement == "wifi_link") '
-            '|> group(columns: ["_field"]) |> last()'
-        )
+        last_rows = query_influx(base + '|> group(columns: ["_field"]) |> last()')
         drop_rows = query_influx(
             base + '|> filter(fn: (r) => r._field == "carrier_down_count") '
             '|> group() |> sort(columns: ["_time"]) |> increase() |> last()'
@@ -226,8 +236,7 @@ def _collect_wifi_stats(hours: int) -> dict:
     fields = {r.get("_field"): r for r in last_rows if r.get("_field")}
     sig_row = fields.get("signal_dbm") or {}
     out = {
-        "interface": sig_row.get("interface") or next(
-            (r.get("interface") for r in last_rows if r.get("interface")), None),
+        "interface": interface,
         "uplink_is_wifi": bool((fields.get("uplink") or {}).get("_value")),
         "ssid": sig_row.get("ssid"),
         "channel": int(fields["channel"]["_value"]) if fields.get("channel") else None,
