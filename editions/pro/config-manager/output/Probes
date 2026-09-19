@@ -15,3 +15,48 @@ forks = 5
 binary = /usr/sbin/fping
 step = 300
 pings = 10
+
++ Curl
+
+++ CurlHTTP1
+binary = /usr/local/bin/curl-h3
+step = 300
+pings = 5
+forks = 5
+timeout = 10
+urlformat = https://%host%/
+require_zero_status = yes
+extrare = /;/
+extraargs = --http1.1;-s;-o;/dev/null;-w;Time: %{time_total} DNS time: %{time_namelookup} Redirect time: %{time_redirect} HTTPv=%{http_version}\n
+expect = HTTPv=1.1
+
+++ CurlHTTP2
+binary = /usr/local/bin/curl-h3
+step = 300
+pings = 5
+forks = 5
+timeout = 10
+urlformat = https://%host%/
+require_zero_status = yes
+extrare = /;/
+extraargs = --http2;-s;-o;/dev/null;-w;Time: %{time_total} DNS time: %{time_namelookup} Redirect time: %{time_redirect} HTTPv=%{http_version}\n
+expect = HTTPv=2
+
+++ CurlHTTP3
+binary = /usr/local/bin/curl-h3
+step = 300
+pings = 5
+forks = 5
+timeout = 10
+urlformat = https://%host%/
+require_zero_status = yes
+extrare = /;/
+extraargs = --http3-only;-s;-o;/dev/null;-w;Time: %{time_total} DNS time: %{time_namelookup} Redirect time: %{time_redirect} HTTPv=%{http_version}\n
+expect = HTTPv=3
+
++ TCPPing
+binary = /usr/bin/tcpping
+step = 300
+pings = 5
+forks = 5
+port = 443

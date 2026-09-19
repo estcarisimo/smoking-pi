@@ -146,10 +146,72 @@ active_targets:
     name: Apple
     probe: FPing
     title: Apple
+  http:
+  - name: Google_h1
+    host: www.google.com
+    title: Google HTTP/1.1
+    probe: CurlHTTP1
+    category: http
+  - name: Google_h2
+    host: www.google.com
+    title: Google HTTP/2
+    probe: CurlHTTP2
+    category: http
+  - name: Google_h3
+    host: www.google.com
+    title: Google HTTP/3
+    probe: CurlHTTP3
+    category: http
+  - name: Cloudflare_h1
+    host: www.cloudflare.com
+    title: Cloudflare HTTP/1.1
+    probe: CurlHTTP1
+    category: http
+  - name: Cloudflare_h2
+    host: www.cloudflare.com
+    title: Cloudflare HTTP/2
+    probe: CurlHTTP2
+    category: http
+  - name: Cloudflare_h3
+    host: www.cloudflare.com
+    title: Cloudflare HTTP/3
+    probe: CurlHTTP3
+    category: http
+  - name: Facebook_h1
+    host: www.facebook.com
+    title: Facebook HTTP/1.1
+    probe: CurlHTTP1
+    category: http
+  - name: Facebook_h2
+    host: www.facebook.com
+    title: Facebook HTTP/2
+    probe: CurlHTTP2
+    category: http
+  - name: Facebook_h3
+    host: www.facebook.com
+    title: Facebook HTTP/3
+    probe: CurlHTTP3
+    category: http
+  tcp:
+  - name: Google_tcp443
+    host: www.google.com
+    title: Google TCP 443
+    probe: TCPPing
+    category: tcp
+  - name: Cloudflare_tcp443
+    host: www.cloudflare.com
+    title: Cloudflare TCP 443
+    probe: TCPPing
+    category: tcp
+  - name: Facebook_tcp443
+    host: www.facebook.com
+    title: Facebook TCP 443
+    probe: TCPPing
+    category: tcp
 metadata:
   bandwidth_estimate_mbps: 0.0
   bootstrap_completed: true
   created_by: bootstrap
-  last_updated: '2026-07-29T00:41:24.147717'
-  total_targets: 18
+  last_updated: '2026-09-19T18:30:07.380605'
+  total_targets: 30
   version: '1.0'

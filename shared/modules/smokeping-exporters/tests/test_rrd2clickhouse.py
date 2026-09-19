@@ -23,6 +23,10 @@ class TestMeasurementType:
         assert ch.measurement_type_for(BASE / "DNS_Resolvers/Google.rrd", BASE) == "dns_latency"
         assert ch.measurement_type_for(BASE / "resolvers/Quad9.rrd", BASE) == "dns_latency"
 
+    def test_http_and_tcp_directories(self):
+        assert ch.measurement_type_for(BASE / "HTTP/Google_h3.rrd", BASE) == "http_latency"
+        assert ch.measurement_type_for(BASE / "TCP/Google_tcp443.rrd", BASE) == "tcp_latency"
+
     def test_everything_else_is_latency(self):
         assert ch.measurement_type_for(BASE / "websites/Google.rrd", BASE) == "latency"
         assert ch.measurement_type_for(BASE / "Netflix/oca1.rrd", BASE) == "latency"
@@ -34,6 +38,8 @@ class TestCategory:
         assert ch.category_for(BASE / "Netflix/oca1.rrd", BASE) == "netflix"
         assert ch.category_for(BASE / "DNS_Resolvers/Google.rrd", BASE) == "dns"
         assert ch.category_for(BASE / "Custom/Thing.rrd", BASE) == "custom"
+        assert ch.category_for(BASE / "HTTP/Google_h1.rrd", BASE) == "http"
+        assert ch.category_for(BASE / "TCP/Google_tcp443.rrd", BASE) == "tcp"
 
     def test_legacy_directory_names(self):
         assert ch.category_for(BASE / "TopSites/Google.rrd", BASE) == "topsites"
@@ -50,9 +56,12 @@ class TestCategory:
     def test_matches_influx_exporter(self):
         import rrd2influx
         for path in ("websites/Google.rrd", "Netflix/oca.rrd",
-                     "DNS_Resolvers/G.rrd", "Custom/C.rrd", "odd/X.rrd"):
+                     "DNS_Resolvers/G.rrd", "Custom/C.rrd", "odd/X.rrd",
+                     "HTTP/G_h2.rrd", "TCP/G_tcp443.rrd"):
             assert ch.category_for(BASE / path, BASE) == \
                 rrd2influx.category_for(str(BASE / path), str(BASE))
+            assert ch.measurement_type_for(BASE / path, BASE) == \
+                rrd2influx.measurement_for(str(BASE / path), str(BASE))
 
 
 class TestPingCount:

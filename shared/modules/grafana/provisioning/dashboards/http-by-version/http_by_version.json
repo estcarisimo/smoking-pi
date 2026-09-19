@@ -1,0 +1,333 @@
+{
+  "uid": "http-by-version-v1",
+  "id": null,
+  "title": "HTTP by Version \u2013 Side-by-Side (1.1 vs 2 vs 3, fetch time & failures)",
+  "description": "The same page fetched over HTTP/1.1, HTTP/2 and HTTP/3 by three separate Curl probes, one per version, version enforced (a downgrade counts as a failure). The sample is time_total minus DNS lookup: connect + TLS + request + first byte. The TCP row underneath is the bare SYN/SYN-ACK handshake to port 443 \u2014 the transport floor the HTTP numbers sit on.",
+  "schemaVersion": 37,
+  "version": 1,
+  "tags": [
+    "smokeping",
+    "http",
+    "side-by-side"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "links": [
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": [
+        "smokeping"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "site",
+        "label": "Site",
+        "datasource": {
+          "uid": "influxdb"
+        },
+        "query": "import \"regexp\" from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"http_latency\") |> keep(columns: [\"target\"]) |> distinct(column: \"target\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /_h[123]$/, v: r._value, t: \"\") })) |> distinct() |> sort()",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "includeAll": true,
+        "multi": true,
+        "allValue": null,
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTPS fetch time \u2013 ${site} \u2013 median by HTTP version (ms)",
+      "description": "Median of the 5 fetches per 5-minute cycle, one line per HTTP version.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*http1.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "HTTP/1.1"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*http2.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "HTTP/2"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*http3.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "HTTP/3"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "median",
+          "queryType": "flux",
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r._field == \"median\" and r.target =~ /^${site}_h[123]$/) |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> keep(columns:[\"_time\",\"_value\",\"probe_type\"]) |> group(columns:[\"probe_type\"])"
+        }
+      ],
+      "repeat": "site",
+      "repeatDirection": "v",
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Failed fetches \u2013 ${site} (%)",
+      "description": "Share of fetches per cycle that failed or negotiated a different HTTP version.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "max": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*http1.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "HTTP/1.1"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*http2.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "HTTP/2"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*http3.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "HTTP/3"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "loss",
+          "queryType": "flux",
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r._field == \"loss\" and r.target =~ /^${site}_h[123]$/) |> keep(columns:[\"_time\",\"_value\",\"probe_type\"]) |> group(columns:[\"probe_type\"])"
+        }
+      ],
+      "repeat": "site",
+      "repeatDirection": "v",
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "TCP handshake time \u2013 all targets \u2013 median (ms)",
+      "description": "SYN to SYN/ACK on port 443 (TCPPing), median of 5 per cycle. No TLS, no HTTP.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 100
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "${__field.labels.target}"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "median",
+          "queryType": "flux",
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> keep(columns:[\"_time\",\"_value\",\"target\"]) |> group(columns:[\"target\"])"
+        }
+      ],
+      "id": 3
+    }
+  ]
+}

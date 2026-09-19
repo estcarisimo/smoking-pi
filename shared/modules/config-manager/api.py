@@ -23,7 +23,7 @@ from flask_cors import CORS
 from werkzeug.exceptions import BadRequest
 
 # Import our existing config generator and bootstrap
-from scripts.config_generator import ConfigGenerator
+from scripts.config_generator import ConfigGenerator, probe_dict_from_row
 from scripts.bootstrap import run_bootstrap
 from scripts import ipv6_check
 
@@ -170,16 +170,10 @@ class ConfigManagerAPI:
                 }
             
             if config_type in ['all', 'probes']:
-                probes = session.query(Probe).all()
-                probes_config = {}
-                for probe in probes:
-                    probes_config[probe.name] = {
-                        'binary': probe.binary_path,
-                        'step': probe.step_seconds,
-                        'pings': probe.pings
-                    }
-                    if probe.forks:
-                        probes_config[probe.name]['forks'] = probe.forks
+                probes = session.query(Probe).order_by(Probe.id).all()
+                probes_config = {
+                    probe.name: probe_dict_from_row(probe) for probe in probes
+                }
                 
                 result['probes'] = {'probes': probes_config}
             
@@ -1127,7 +1121,9 @@ def get_probes():
                     'step_seconds': probe.step_seconds,
                     'pings': probe.pings,
                     'forks': probe.forks,
-                    'is_default': probe.is_default
+                    'is_default': probe.is_default,
+                    'module': probe.module,
+                    'options': probe.options or {},
                 } for probe in probes]
             })
             

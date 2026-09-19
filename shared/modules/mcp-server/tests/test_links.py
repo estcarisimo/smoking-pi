@@ -318,12 +318,30 @@ def test_missing_target_name_yields_nothing(configured):
         ("FPing", "latency"),
         ("FPing6", "latency"),
         ("DNS", "dns_latency"),
+        ("CurlHTTP1", "http_latency"),
+        ("CurlHTTP2", "http_latency"),
+        ("CurlHTTP3", "http_latency"),
+        ("TCPPing", "tcp_latency"),
         (None, "latency"),
         ("SomethingNew", "latency"),
     ],
 )
 def test_probe_maps_to_measurement(probe, expected):
     assert links.measurement_for_probe(probe) == expected
+
+
+def test_http_target_links_to_its_site_panel(configured):
+    """Google_h2's graph is the site panel with all three versions on it."""
+    out = links.target_links("Google_h2", measurement="http_latency")
+    assert "/d/http-by-version-v1?" in out["graph"]
+    assert "var-site=Google" in out["graph"]
+    assert "var-site=Google_h2" not in out["graph"]
+
+
+def test_tcp_target_links_to_the_dashboard_without_a_variable(configured):
+    out = links.target_links("Google_tcp443", measurement="tcp_latency")
+    assert "/d/http-by-version-v1" in out["graph"]
+    assert "var-" not in out["graph"]
 
 
 def test_every_dashboard_uid_referenced_here_is_provisioned():

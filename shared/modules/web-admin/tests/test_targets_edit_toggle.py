@@ -166,3 +166,73 @@ def test_bulk_delete_validates_payload(client, monkeypatch):
     for bad_payload in ({}, {'ids': []}, {'ids': ['x']}, {'ids': 'nope'}):
         response = client.post('/targets/bulk-delete', json=bad_payload)
         assert response.status_code == 400, bad_payload
+
+
+def _capture_db_create(monkeypatch, targets_module):
+    """Stub the DB lookups the add route makes; capture what it creates."""
+    created = {}
+    monkeypatch.setattr(targets_module.config_api, 'get_categories_from_db',
+                        lambda: {'categories': [
+                            {'name': 'custom', 'id': 1},
+                            {'name': 'dns_resolvers', 'id': 2},
+                            {'name': 'http', 'id': 3},
+                            {'name': 'tcp', 'id': 4}]})
+    monkeypatch.setattr(targets_module.config_api, 'get_probes_from_db',
+                        lambda: {'probes': [
+                            {'name': 'FPing', 'id': 1}, {'name': 'DNS', 'id': 2},
+                            {'name': 'CurlHTTP1', 'id': 3},
+                            {'name': 'CurlHTTP2', 'id': 4},
+                            {'name': 'CurlHTTP3', 'id': 5},
+                            {'name': 'TCPPing', 'id': 6}]})
+    monkeypatch.setattr(targets_module.config_api, 'get_all_targets_from_db',
+                        lambda: {'targets': []})
+    monkeypatch.setattr(targets_module.config_api, 'create_target_in_db',
+                        lambda data: created.update(data))
+    return created
+
+
+def test_add_http_target_picks_probe_by_version_and_suffixes_name(client, monkeypatch):
+    targets_module = _db_available(monkeypatch)
+    created = _capture_db_create(monkeypatch, targets_module)
+
+    login(client)
+    response = client.post(
+        '/targets/add',
+        data={'name': 'Google', 'hostname': 'www.google.com',
+              'target_type': 'http', 'http_version': '3'},
+        headers={'X-Requested-With': 'XMLHttpRequest'},
+    )
+    assert response.status_code == 200, response.get_json()
+    assert created['name'] == 'Google_h3'      # exporters read the version here
+    assert created['probe_id'] == 5             # CurlHTTP3
+    assert created['category_id'] == 3          # http section
+
+
+def test_add_http_target_without_version_is_a_field_error(client, monkeypatch):
+    targets_module = _db_available(monkeypatch)
+    _capture_db_create(monkeypatch, targets_module)
+
+    login(client)
+    response = client.post(
+        '/targets/add',
+        data={'name': 'Google', 'hostname': 'www.google.com',
+              'target_type': 'http'},
+        headers={'X-Requested-With': 'XMLHttpRequest'},
+    )
+    assert response.status_code == 400
+    assert 'http_version' in response.get_json()['errors']
+
+
+def test_add_tcp_target_uses_tcpping(client, monkeypatch):
+    targets_module = _db_available(monkeypatch)
+    created = _capture_db_create(monkeypatch, targets_module)
+
+    login(client)
+    response = client.post(
+        '/targets/add',
+        data={'name': 'Google_tcp443', 'hostname': 'www.google.com',
+              'target_type': 'tcp'},
+        headers={'X-Requested-With': 'XMLHttpRequest'},
+    )
+    assert response.status_code == 200, response.get_json()
+    assert created['probe_id'] == 6 and created['category_id'] == 4

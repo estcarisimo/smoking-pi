@@ -15,6 +15,7 @@ Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [
 ## ✨ Features
 
 - 📡 **Continuous measurement**: ICMP latency and loss to every target on a 300 s cycle, plus DNS resolution timing and IPv6 — recorded for months, not sampled once
+- 🌐 **HTTP/1.1 vs 2 vs 3**: the same page fetched over each version by separate probes, version enforced, with the bare TCP handshake underneath as the floor — see [docs/http-probes.md](docs/http-probes.md)
 - 🎚️ **Three editions, one setup script**: Basic (YAML), Standard (web admin + PostgreSQL + REST API), Pro (everything + Grafana + InfluxDB/ClickHouse)
 - 📊 **Grafana dashboards**: per-target detail with every individual ping, side-by-side comparisons, percentiles, CPE microcut detection sampled every 10 s, and the Wi-Fi uplink itself (signal, bitrate, throughput, disconnects) when the Pi is on wireless
 - 🚨 **Alerts that say what they mean**: every alert leads with a verdict — *is it me or the internet?* — carries the chart, and can be muted by asking in chat
@@ -305,6 +306,8 @@ The workflow this repository follows for every change:
 | [docs/openclaw-integration.md](docs/openclaw-integration.md) | Registering the MCP server and installing the skill for a chat assistant |
 | [docs/remote-openclaw.md](docs/remote-openclaw.md) | OpenClaw on another machine: SSH tunnel, Tailscale/WireGuard, or Cloudflare Access — ranked by exposure |
 | [docs/wifi.md](docs/wifi.md) | Wi-Fi uplink stats: what is recorded, from where, and how to query it |
+| [docs/http-probes.md](docs/http-probes.md) | HTTP/1.1 vs 2 vs 3 fetch time and TCP handshake probes: how the version is enforced, where the data lands |
+| [docs/cpe-last-mile.md](docs/cpe-last-mile.md) | Reading the physical last mile (optical/DSL/DOCSIS levels) from the CPE: what the gateway exposes, why it is parked |
 | [docs/doctor.md](docs/doctor.md) | The instrumentation doctor: static and live checks |
 | [docs/clickhouse.md](docs/clickhouse.md) | Running Pro on ClickHouse, and its traps |
 | [docs/ipv6-gating.md](docs/ipv6-gating.md) | Why IPv6 targets disappear when there is no global IPv6 |

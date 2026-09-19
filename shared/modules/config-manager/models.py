@@ -5,8 +5,8 @@ SQLAlchemy models for SmokePing Target Management Database
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import (
-    Column, Integer, String, Boolean, Text, DateTime, 
-    DECIMAL, ForeignKey, create_engine, text
+    Column, Integer, String, Boolean, Text, DateTime, JSON,
+    DECIMAL, ForeignKey, create_engine, inspect, text
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker, Session
@@ -37,7 +37,15 @@ class TargetCategory(Base):
         return f"<TargetCategory(name='{self.name}', display_name='{self.display_name}')>"
 
 class Probe(Base):
-    """Probe configurations (FPing, FPing6, DNS)"""
+    """Probe configurations (FPing, FPing6, DNS, CurlHTTP1/2/3, TCPPing)
+
+    `name` is what targets reference (`probe = CurlHTTP2`). When several
+    probes share one SmokePing class, `module` names that class (`Curl`) and
+    the generator emits them as sub-probes (`+ Curl` / `++ CurlHTTP2`);
+    a NULL module means the name is the class, as for FPing or DNS.
+    `options` holds the class-specific variables SmokePing needs beyond
+    binary/step/pings/forks (urlformat, extraargs, expect, port, ...).
+    """
     __tablename__ = 'probes'
     
     id = Column(Integer, primary_key=True)
@@ -47,6 +55,8 @@ class Probe(Base):
     pings = Column(Integer, nullable=False, default=10)
     forks = Column(Integer, nullable=True)
     is_default = Column(Boolean, default=False)
+    module = Column(String(50), nullable=True)
+    options = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=func.current_timestamp())
     updated_at = Column(DateTime, default=func.current_timestamp(), onupdate=func.current_timestamp())
     
@@ -208,8 +218,30 @@ class DatabaseManager:
         logger.info("Database connection established successfully")
     
     def create_tables(self):
-        """Create all tables"""
+        """Create all tables, then add columns newer than an existing table.
+
+        create_all() never alters a table it finds. Deployments that
+        migrated before a column existed would otherwise fail on the first
+        SELECT that names it, so the columns added since are appended here
+        when missing — the whole schema-migration story this project needs.
+        """
         Base.metadata.create_all(bind=self.engine)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self):
+        """ALTER TABLE ... ADD COLUMN for model columns absent from the DB."""
+        inspector = inspect(self.engine)
+        with self.engine.begin() as conn:
+            for table in Base.metadata.sorted_tables:
+                present = {c['name'] for c in inspector.get_columns(table.name)}
+                for column in table.columns:
+                    if column.name in present:
+                        continue
+                    col_type = column.type.compile(dialect=self.engine.dialect)
+                    conn.execute(text(
+                        f'ALTER TABLE {table.name} ADD COLUMN {column.name} {col_type}'
+                    ))
+                    logger.info(f"Added column {table.name}.{column.name}")
     
     def get_session(self) -> Session:
         """Get database session"""

@@ -64,10 +64,79 @@ active_targets:
       probe: FPing
       category: custom
 
+  # HTTPS fetch time per protocol version. Three sites that serve all of
+  # HTTP/1.1, 2 and 3; the _h1/_h2/_h3 suffix is how the exporters tag
+  # the version (probe_type), so keep it when adding your own.
+  http:
+    - name: Google_h1
+      host: www.google.com
+      title: Google HTTP/1.1
+      probe: CurlHTTP1
+      category: http
+    - name: Google_h2
+      host: www.google.com
+      title: Google HTTP/2
+      probe: CurlHTTP2
+      category: http
+    - name: Google_h3
+      host: www.google.com
+      title: Google HTTP/3
+      probe: CurlHTTP3
+      category: http
+    - name: Cloudflare_h1
+      host: www.cloudflare.com
+      title: Cloudflare HTTP/1.1
+      probe: CurlHTTP1
+      category: http
+    - name: Cloudflare_h2
+      host: www.cloudflare.com
+      title: Cloudflare HTTP/2
+      probe: CurlHTTP2
+      category: http
+    - name: Cloudflare_h3
+      host: www.cloudflare.com
+      title: Cloudflare HTTP/3
+      probe: CurlHTTP3
+      category: http
+    - name: Facebook_h1
+      host: www.facebook.com
+      title: Facebook HTTP/1.1
+      probe: CurlHTTP1
+      category: http
+    - name: Facebook_h2
+      host: www.facebook.com
+      title: Facebook HTTP/2
+      probe: CurlHTTP2
+      category: http
+    - name: Facebook_h3
+      host: www.facebook.com
+      title: Facebook HTTP/3
+      probe: CurlHTTP3
+      category: http
+
+  # TCP handshake time to port 443 — the transport baseline under the HTTP
+  # probes above.
+  tcp:
+    - name: Google_tcp443
+      host: www.google.com
+      title: Google TCP 443
+      probe: TCPPing
+      category: tcp
+    - name: Cloudflare_tcp443
+      host: www.cloudflare.com
+      title: Cloudflare TCP 443
+      probe: TCPPing
+      category: tcp
+    - name: Facebook_tcp443
+      host: www.facebook.com
+      title: Facebook TCP 443
+      probe: TCPPing
+      category: tcp
+
 # Metadata about the configuration
 metadata:
   last_updated: "1970-01-01T00:00:00"
-  total_targets: 9
+  total_targets: 21
   bandwidth_estimate_mbps: 0.0
   version: "1.0"
   created_by: "bootstrap"

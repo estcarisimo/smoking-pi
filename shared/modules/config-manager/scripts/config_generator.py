@@ -15,7 +15,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
@@ -68,11 +68,25 @@ CATEGORY_PRESENTATION = {
         'menu': 'Custom Targets',
         'title': 'User-Defined Targets',
     },
+    # The section names double as RRD directory names, which is how the
+    # exporters classify measurements (HTTP -> http_latency, TCP ->
+    # tcp_latency). Renaming one here means renaming it there.
+    'http': {
+        'section': 'HTTP',
+        'menu': 'HTTP by version',
+        'title': 'HTTPS fetch time by protocol version (curl, HTTP/1.1 vs 2 vs 3)',
+    },
+    'tcp': {
+        'section': 'TCP',
+        'menu': 'TCP connect',
+        'title': 'TCP handshake time (SYN to SYN/ACK, port 443)',
+    },
 }
 
 # Stable section ordering (known categories first, then any others in
 # data order) so the generated file does not churn between runs.
-CATEGORY_ORDER = ['top_sites', 'netflix_oca', 'dns_resolvers', 'custom']
+CATEGORY_ORDER = ['top_sites', 'netflix_oca', 'dns_resolvers', 'custom',
+                  'http', 'tcp']
 
 # Probe configuration keys that may be emitted into the SmokePing Probes
 # file. Anything else in probes.yaml (metadata, nested structures, ...)
@@ -81,7 +95,43 @@ PROBE_CONFIG_KEYS = frozenset({
     'binary', 'lookup', 'pings', 'step', 'forks', 'timeout', 'port',
     'offset', 'packetsize', 'hostinterval', 'mininterval', 'blazemode',
     'sourceaddress', 'protocol', 'retry', 'url', 'dns',
+    # Curl probe target-vars (defaults set at probe level)
+    'urlformat', 'agent', 'interface', 'insecure_ssl', 'follow_redirects',
+    'include_redirects', 'extraargs', 'extrare', 'expect',
+    'require_zero_status',
 })
+
+# Keys that describe a probe to this project rather than to SmokePing.
+# `module` is the SmokePing class when it differs from the probe name.
+PROBE_META_KEYS = frozenset({'module'})
+
+# Columns the Probe table stores natively; everything else in
+# PROBE_CONFIG_KEYS lives in Probe.options.
+PROBE_NATIVE_KEYS = frozenset({'binary', 'step', 'pings', 'forks'})
+
+
+def probe_options(probe_config: Dict[str, Any]) -> Dict[str, Any]:
+    """The SmokePing variables of a probe that are not native columns."""
+    return {
+        k: v for k, v in probe_config.items()
+        if k in PROBE_CONFIG_KEYS and k not in PROBE_NATIVE_KEYS
+    }
+
+
+def probe_dict_from_row(probe) -> Dict[str, Any]:
+    """Rebuild the probes.yaml-shaped dict for a Probe row."""
+    probe_dict: Dict[str, Any] = {
+        'binary': probe.binary_path,
+        'step': probe.step_seconds,
+        'pings': probe.pings,
+    }
+    if probe.forks:
+        probe_dict['forks'] = probe.forks
+    if probe.module:
+        probe_dict['module'] = probe.module
+    if probe.options:
+        probe_dict.update(probe.options)
+    return probe_dict
 
 
 def _sanitize_section_name(name: str) -> str:
@@ -259,15 +309,7 @@ class ConfigGenerator:
                 default_probe = None
 
                 for probe in probes:
-                    probe_dict = {
-                        'binary': probe.binary_path,
-                        'step': probe.step_seconds,
-                        'pings': probe.pings
-                    }
-                    if probe.forks:
-                        probe_dict['forks'] = probe.forks
-
-                    probes_config[probe.name] = probe_dict
+                    probes_config[probe.name] = probe_dict_from_row(probe)
 
                     if probe.is_default:
                         default_probe = probe.name
@@ -346,25 +388,55 @@ class ConfigGenerator:
             logger.error(f"Failed to generate Targets file: {e}")
             return None
 
+    @staticmethod
+    def _probe_var_lines(probe_name: str, probe_config: Any) -> List[str]:
+        """`key = value` lines for one probe, skipping what SmokePing must not see."""
+        if not isinstance(probe_config, dict):
+            return []
+        lines = []
+        for key, value in probe_config.items():
+            if key not in PROBE_CONFIG_KEYS:
+                if key not in PROBE_META_KEYS:
+                    logger.debug(f"Skipping non-probe key '{key}' for probe {probe_name}")
+                continue
+            rendered = render_probe_value(value)
+            if rendered is None:
+                logger.debug(f"Skipping unrenderable value for {probe_name}.{key}")
+                continue
+            lines.append(f"{key} = {rendered}")
+        return lines
+
     def generate_probes_file(self) -> str:
-        """Generate SmokePing Probes configuration"""
+        """Generate SmokePing Probes configuration.
+
+        A probe whose config names a `module` is emitted as a sub-probe of
+        that class: `+ Curl` once, then `++ CurlHTTP1`, `++ CurlHTTP2`, ...
+        each with its own variables. SmokePing treats the `+` section as a
+        template of defaults when sub-sections exist, so it stays empty
+        here and every sub-probe carries its full configuration. Probes
+        without a `module` are plain `+ Name` sections, as before.
+        """
         lines = ["*** Probes ***", ""]
+        emitted_modules: set = set()
+        probes = self.probes_config['probes']
 
-        for probe_name, probe_config in self.probes_config['probes'].items():
-            lines.append(f"+ {probe_name}")
+        for probe_name, probe_config in probes.items():
+            module = probe_config.get('module') if isinstance(probe_config, dict) else None
+            if not module:
+                lines.append(f"+ {probe_name}")
+                lines.extend(self._probe_var_lines(probe_name, probe_config))
+                lines.append("")
+                continue
 
-            if isinstance(probe_config, dict):
-                for key, value in probe_config.items():
-                    if key not in PROBE_CONFIG_KEYS:
-                        logger.debug(f"Skipping non-probe key '{key}' for probe {probe_name}")
-                        continue
-                    rendered = render_probe_value(value)
-                    if rendered is None:
-                        logger.debug(f"Skipping unrenderable value for {probe_name}.{key}")
-                        continue
-                    lines.append(f"{key} = {rendered}")
-
-            lines.append("")
+            if module not in emitted_modules:
+                lines.append(f"+ {module}")
+                lines.append("")
+                emitted_modules.add(module)
+                for sub_name, sub_config in probes.items():
+                    if isinstance(sub_config, dict) and sub_config.get('module') == module:
+                        lines.append(f"++ {sub_name}")
+                        lines.extend(self._probe_var_lines(sub_name, sub_config))
+                        lines.append("")
 
         content = "\n".join(lines)
         logger.info("Successfully generated Probes configuration")

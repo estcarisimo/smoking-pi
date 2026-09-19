@@ -28,13 +28,19 @@ from pydantic_settings import BaseSettings
 
 
 class ProbeType(str, Enum):
-    """Supported probe types for network monitoring."""
+    """Supported probe types for network monitoring.
+
+    Values are the probe names in the SmokePing Probes file, which is what
+    a target's `probe = ...` line must match.
+    """
     
     FPING = "FPing"
     FPING6 = "FPing6" 
     DNS = "DNS"
-    HTTP = "HTTP"
-    HTTPS = "HTTPS"
+    CURL_HTTP1 = "CurlHTTP1"
+    CURL_HTTP2 = "CurlHTTP2"
+    CURL_HTTP3 = "CurlHTTP3"
+    TCPPING = "TCPPing"
 
 
 class TargetStatus(str, Enum):

@@ -11,7 +11,7 @@ import sys
 import yaml
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,6 +21,7 @@ from models import (
     Target, TargetCategory, Probe, Source, SystemMetadata,
     TargetRepository, CategoryRepository, ProbeRepository
 )
+from scripts.config_generator import probe_options
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +67,12 @@ class YAMLToDBMigrator:
             'sources': sources_config
         }
     
-    def migrate_categories(self, session, targets_config: Dict):
-        """Migrate target categories"""
+    def migrate_categories(self, session, targets_config: Dict) -> List[str]:
+        """Migrate target categories. Returns the names that were added."""
         logger.info("Migrating target categories...")
         category_repo = CategoryRepository(session)
         
-        categories_added = 0
+        categories_added = []
         for category_name in targets_config.get('active_targets', {}).keys():
             existing = category_repo.get_by_name(category_name)
             if not existing:
@@ -80,7 +81,9 @@ class YAMLToDBMigrator:
                     'custom': 'Custom Targets',
                     'dns_resolvers': 'DNS Resolvers',
                     'netflix_oca': 'Netflix OCA',
-                    'top_sites': 'Top Sites'
+                    'top_sites': 'Top Sites',
+                    'http': 'HTTP by version',
+                    'tcp': 'TCP connect',
                 }.get(category_name, category_name.replace('_', ' ').title())
                 
                 category = TargetCategory(
@@ -89,11 +92,12 @@ class YAMLToDBMigrator:
                     description=f"Migrated from YAML: {category_name}"
                 )
                 session.add(category)
-                categories_added += 1
+                categories_added.append(category_name)
                 logger.info(f"Added category: {category_name}")
         
         session.commit()
-        logger.info(f"Migrated {categories_added} target categories")
+        logger.info(f"Migrated {len(categories_added)} target categories")
+        return categories_added
     
     def migrate_probes(self, session, probes_config: Dict):
         """Migrate probe configurations"""
@@ -110,7 +114,9 @@ class YAMLToDBMigrator:
                     step_seconds=probe_data.get('step', 300),
                     pings=probe_data.get('pings', 10),
                     forks=probe_data.get('forks'),
-                    is_default=(probe_name == 'FPing')
+                    is_default=(probe_name == 'FPing'),
+                    module=probe_data.get('module'),
+                    options=probe_options(probe_data) or None,
                 )
                 session.add(probe)
                 probes_added += 1
@@ -141,8 +147,9 @@ class YAMLToDBMigrator:
         session.commit()
         logger.info(f"Migrated {sources_added} sources")
     
-    def migrate_targets(self, session, targets_config: Dict):
-        """Migrate targets"""
+    def migrate_targets(self, session, targets_config: Dict,
+                        only_categories: Optional[List[str]] = None):
+        """Migrate targets, optionally only those in the given categories."""
         logger.info("Migrating targets...")
         target_repo = TargetRepository(session)
         category_repo = CategoryRepository(session)
@@ -151,6 +158,8 @@ class YAMLToDBMigrator:
         targets_added = 0
         for category_name, targets_list in targets_config.get('active_targets', {}).items():
             if not isinstance(targets_list, list):
+                continue
+            if only_categories is not None and category_name not in only_categories:
                 continue
             
             category = category_repo.get_by_name(category_name)
@@ -244,9 +253,13 @@ class YAMLToDBMigrator:
     def run_migration(self, backup_yaml: bool = False) -> bool:
         """Run the migration. Idempotent: safe to call on every startup.
 
-        If the migration marker is already present, only missing probes are
-        upserted (so existing deployments pick up e.g. FPing6 without a full
-        re-migration). Otherwise a full YAML -> DB migration is performed.
+        If the migration marker is already present, only what is new to the
+        database is added: missing probes (so existing deployments pick up
+        e.g. FPing6 without a full re-migration), missing categories, and
+        the YAML targets of those new categories — a category the DB has
+        never seen is seeded from YAML, one it knows is left alone, since
+        the DB is the source of truth for targets from then on. Otherwise a
+        full YAML -> DB migration is performed.
         """
         try:
             # Load YAML configurations
@@ -260,9 +273,14 @@ class YAMLToDBMigrator:
             try:
                 if self.migration_completed(session):
                     logger.info(
-                        "Migration marker present - upserting missing probes only"
+                        "Migration marker present - adding only what is new"
                     )
                     self.migrate_probes(session, configs['probes'])
+                    new_categories = self.migrate_categories(
+                        session, configs['targets'])
+                    if new_categories:
+                        self.migrate_targets(session, configs['targets'],
+                                             only_categories=new_categories)
                     return True
 
                 logger.info("Starting YAML to PostgreSQL migration...")

@@ -27,6 +27,8 @@ class TestCategoryMapping:
             ("Netflix", "netflix"),
             ("DNS_Resolvers", "dns"),
             ("Custom", "custom"),
+            ("HTTP", "http"),
+            ("TCP", "tcp"),
             # legacy directory names must keep working
             ("TopSites", "topsites"),
             ("resolvers", "dns"),
@@ -47,6 +49,17 @@ class TestCategoryMapping:
         assert rrd2influx.measurement_for(f"{base}/DNS_Resolvers/Google.rrd", base) == "dns_latency"
         assert rrd2influx.measurement_for(f"{base}/resolvers/Google.rrd", base) == "dns_latency"
         assert rrd2influx.measurement_for(f"{base}/websites/Google.rrd", base) == "latency"
+        assert rrd2influx.measurement_for(f"{base}/HTTP/Google_h2.rrd", base) == "http_latency"
+        assert rrd2influx.measurement_for(f"{base}/TCP/Google_tcp443.rrd", base) == "tcp_latency"
+
+    def test_http_probe_type_comes_from_the_version_suffix(self):
+        base = "/var/lib/smokeping"
+        assert rrd2influx.probe_type_for(f"{base}/HTTP/Google_h1.rrd", base) == "http1"
+        assert rrd2influx.probe_type_for(f"{base}/HTTP/Google_h2.rrd", base) == "http2"
+        assert rrd2influx.probe_type_for(f"{base}/HTTP/Google_h3.rrd", base) == "http3"
+        # an HTTP target added without a suffix is still HTTP, not fping
+        assert rrd2influx.probe_type_for(f"{base}/HTTP/Site.rrd", base) == "http"
+        assert rrd2influx.probe_type_for(f"{base}/TCP/Google_tcp443.rrd", base) == "tcpping"
 
     def test_probe_type(self):
         base = "/var/lib/smokeping"

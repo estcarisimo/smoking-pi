@@ -153,3 +153,107 @@ def test_missing_probes_upserted_after_migration(config_dir, db_url):
         assert session.query(Target).count() == 2
     finally:
         session.close()
+
+
+CURL_HTTP2 = {
+    "module": "Curl",
+    "binary": "/usr/local/bin/curl-h3",
+    "step": 300,
+    "pings": 5,
+    "forks": 5,
+    "urlformat": "https://%host%/",
+    "extrare": "/;/",
+    "extraargs": "--http2;-s;-o;/dev/null;-w;HTTPv=%{http_version}\\n",
+    "expect": "HTTPv=2",
+    "metadata": {"not": "a probe var"},
+}
+
+
+def test_probe_module_and_options_round_trip(config_dir, db_url):
+    """A sub-probe's class and SmokePing variables survive YAML -> DB ->
+    generator, and the generated Probes file nests it under its class."""
+    probes = {"probes": dict(PROBES_V1["probes"], CurlHTTP2=CURL_HTTP2),
+              "default_probe": "FPing"}
+    (Path(config_dir) / "probes.yaml").write_text(yaml.dump(probes))
+    assert run_migration(config_dir=config_dir, database_url=db_url) is True
+
+    session = _session(db_url)
+    try:
+        row = session.query(Probe).filter(Probe.name == "CurlHTTP2").one()
+        assert row.module == "Curl"
+        assert row.options == {
+            "urlformat": "https://%host%/",
+            "extrare": "/;/",
+            "extraargs": "--http2;-s;-o;/dev/null;-w;HTTPv=%{http_version}\\n",
+            "expect": "HTTPv=2",
+        }
+        fping = session.query(Probe).filter(Probe.name == "FPing").one()
+        assert fping.module is None and fping.options is None
+
+        from scripts.config_generator import ConfigGenerator, probe_dict_from_row
+        gen = ConfigGenerator()
+        gen.probes_config = {
+            "probes": {p.name: probe_dict_from_row(p)
+                       for p in session.query(Probe).order_by(Probe.id)},
+            "default_probe": "FPing",
+        }
+        content = gen.generate_probes_file()
+    finally:
+        session.close()
+
+    assert "+ Curl\n" in content
+    assert "++ CurlHTTP2\n" in content
+    assert "expect = HTTPv=2" in content
+    assert "module" not in content
+    assert "metadata" not in content
+
+
+def test_new_categories_are_seeded_after_migration(config_dir, db_url):
+    """A category the DB has never seen is seeded from YAML on a
+    marker-present run; categories it knows are left alone."""
+    assert run_migration(config_dir=config_dir, database_url=db_url) is True
+
+    targets = yaml.safe_load((Path(config_dir) / "targets.yaml").read_text())
+    targets["active_targets"]["custom"].append(
+        {"name": "LateCustom", "host": "late.example", "title": "Late",
+         "probe": "FPing", "category": "custom"})
+    targets["active_targets"]["tcp"] = [
+        {"name": "Google_tcp443", "host": "www.google.com",
+         "title": "Google TCP 443", "probe": "TCPPing", "category": "tcp"},
+    ]
+    (Path(config_dir) / "targets.yaml").write_text(yaml.dump(targets))
+    probes = {"probes": dict(PROBES_V1["probes"], TCPPing={
+        "binary": "/usr/bin/tcpping", "step": 300, "pings": 5, "port": 443}),
+        "default_probe": "FPing"}
+    (Path(config_dir) / "probes.yaml").write_text(yaml.dump(probes))
+    assert run_migration(config_dir=config_dir, database_url=db_url) is True
+
+    session = _session(db_url)
+    try:
+        names = {t.name for t in session.query(Target).all()}
+        assert "Google_tcp443" in names          # new category: seeded
+        assert "LateCustom" not in names         # known category: DB rules
+        tcp = session.query(Target).filter(Target.name == "Google_tcp443").one()
+        assert tcp.probe.name == "TCPPing"
+        assert tcp.probe.options == {"port": 443}
+    finally:
+        session.close()
+
+
+def test_existing_table_gains_new_probe_columns(config_dir, db_url):
+    """create_tables() must add columns to a probes table created before
+    they existed, instead of failing on the first SELECT."""
+    from sqlalchemy import create_engine, inspect, text
+
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE probes (id INTEGER PRIMARY KEY, name VARCHAR(50), "
+            "binary_path VARCHAR(200), step_seconds INTEGER, pings INTEGER, "
+            "forks INTEGER, is_default BOOLEAN, created_at DATETIME, "
+            "updated_at DATETIME)"))
+    engine.dispose()
+
+    assert run_migration(config_dir=config_dir, database_url=db_url) is True
+    cols = {c["name"] for c in inspect(create_engine(db_url)).get_columns("probes")}
+    assert {"module", "options"} <= cols
