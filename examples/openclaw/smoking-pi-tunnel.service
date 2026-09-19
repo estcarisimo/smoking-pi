@@ -1,0 +1,36 @@
+# SSH tunnel between an OpenClaw host and a Smoking Pi on another machine.
+# See docs/remote-openclaw.md, Option A. Install as a *user* unit on the
+# host that dials (the OpenClaw host in the default direction):
+#
+#   cp examples/openclaw/smoking-pi-tunnel.service ~/.config/systemd/user/
+#   systemctl --user edit smoking-pi-tunnel     # override Environment= below
+#   systemctl --user enable --now smoking-pi-tunnel
+#   loginctl enable-linger "$USER"              # survive logout
+#
+# -L: this host's 127.0.0.1:8090  -> the Pi's MCP server
+# -R: the Pi's 127.0.0.1:18789    -> this host's OpenClaw gateway
+# When the Pi is the dialing side, swap -L and -R (see the doc).
+
+[Unit]
+Description=SSH tunnel to Smoking Pi (MCP in, OpenClaw gateway out)
+# No After=network-online.target: that target does not exist in the user
+# manager, so the dependency would be silently ignored. Restart= below is
+# what actually rides out an early-boot "no route to host".
+
+[Service]
+Environment=TUNNEL_TARGET=smokingpi@smoking-pi
+Environment=TUNNEL_KEY=%h/.ssh/openclaw-tunnel
+ExecStart=/usr/bin/ssh -N \
+    -i ${TUNNEL_KEY} \
+    -L 8090:127.0.0.1:8090 \
+    -R 18789:127.0.0.1:18789 \
+    -o ServerAliveInterval=30 \
+    -o ServerAliveCountMax=3 \
+    -o ExitOnForwardFailure=yes \
+    -o BatchMode=yes \
+    ${TUNNEL_TARGET}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

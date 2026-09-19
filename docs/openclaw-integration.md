@@ -13,6 +13,11 @@ Two independent integrations, useful separately:
 All commands below use placeholders. Nothing machine-specific is committed to
 this repository — generate your own tokens and substitute your own ids.
 
+Everything here assumes OpenClaw and Smoking Pi share a machine. If OpenClaw
+lives elsewhere, read [remote-openclaw.md](remote-openclaw.md) first: it
+connects the two loopbacks with a tunnel so that this page then applies
+unchanged.
+
 ---
 
 ## 1. MCP server registration

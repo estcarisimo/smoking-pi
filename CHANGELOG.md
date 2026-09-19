@@ -11,6 +11,26 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **A guide for OpenClaw on another machine.** The integration docs assumed
+  OpenClaw and Smoking Pi share a host, and the security model depends on
+  it: both the MCP server and the gateway listen on loopback and nothing
+  else can reach them. Someone with OpenClaw on a desktop or a VPS had no
+  supported way to connect the two, and the obvious one — forward the port,
+  rely on the bearer token — puts a server that can add targets and restart
+  SmokePing behind a single secret on the public internet.
+  `docs/remote-openclaw.md` gives three ways that keep both loopback binds,
+  ranked by exposure: an SSH tunnel carrying both directions in one session
+  (after which the co-located guide applies verbatim; a systemd unit in
+  `examples/openclaw/` keeps it up), a Tailscale/WireGuard mesh (Serve or a
+  direct tailnet bind), and Cloudflare Tunnel with an Access service token
+  (with the plain statement that Cloudflare then sees the traffic). It says
+  what each one exposes to floods and to third parties, what not to do, and
+  records the resolv.conf trap that once cost the reference Pi nine targets
+  for ten days when Tailscale logged out. One knob to make the tailnet
+  variant possible: `MCP_HOST` is now overridable from `.env` (default
+  unchanged, `127.0.0.1`; the template says never `0.0.0.0`). The reference
+  deployment stays co-located.
+
 - **`CITATION.cff`, checked by CI.** GitHub's "Cite this repository" button
   now works, giving author, title, version, date and repository URL in a
   form citation managers import. Left out on purpose: a DOI and an ORCID,
