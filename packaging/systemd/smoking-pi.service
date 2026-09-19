@@ -17,7 +17,13 @@ Environment=SMOKING_PI_EDITION=pro
 EnvironmentFile=-/etc/default/smoking-pi
 ExecStart=/usr/bin/smoking-pi up
 ExecStop=/usr/bin/smoking-pi down
-TimeoutStartSec=600
+# The first `up` on a fresh host builds nine images (until they are pulled
+# from a registry -- docs/packaging.md backlog #3), which can take longer
+# than any sensible timeout; systemd killing a build half-way is worse than
+# waiting. Run `smoking-pi install` interactively first; this unit is for
+# every boot after that.
+TimeoutStartSec=infinity
+TimeoutStopSec=120
 
 [Install]
 WantedBy=multi-user.target

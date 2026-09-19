@@ -78,13 +78,14 @@ reference Pi's generated target list). Contents: the tracked `editions/`,
 as `/usr/bin/smoking-pi`; `packaging/systemd/smoking-pi.service`;
 `/etc/default/smoking-pi` as a conffile; `postinst`/`prerm` that reload
 systemd and disable the unit. `Depends: docker.io | docker-ce,
-docker-compose-plugin | docker-compose-v2, openssl, python3, git`;
+docker-compose-plugin | docker-compose-v2, openssl, python3, python3-yaml,
+git`;
 `Architecture: all` because the package holds no binaries — the images are
 built or pulled per architecture at first start.
 
 What worked, on the Pi, with no Docker involved in the build:
 
-- Builds in about two seconds; 1.4 MB; 366 files. `dpkg-deb --info` and
+- Builds in about two seconds; 1.4 MB; some 370 files. `dpkg-deb --info` and
   `--contents` are what you would expect.
 - Extracted into a scratch root (not installed on the reference Pi), the
   CLI runs from the `/opt`-style path: `smoking-pi version` reads 2.9.0
@@ -95,7 +96,15 @@ What worked, on the Pi, with no Docker involved in the build:
   build contexts and mounts resolve under a fixed install prefix. The
   layout does not have to change for a package to work.
 - The unit verifies (`systemd-analyze verify`, once `/usr/bin/smoking-pi`
-  exists).
+  exists). Its start timeout is `infinity` on purpose: until images are
+  pulled rather than built (#3), a cold first `up` can outlast any timeout,
+  and systemd killing a build half-way is the worst outcome — so `install`
+  is run interactively first and the unit handles every boot after.
+- `smoking-pi install` refuses to run over an existing `.env`: `setup.sh`
+  regenerates every secret, and the PostgreSQL and InfluxDB volumes keep
+  the old ones. Re-running it is how a working stack stops authenticating
+  to its own database — a hazard the inventory names and the CLI now
+  guards against.
 
 What the trial shows cannot work yet — each is a backlog item below:
 
@@ -135,7 +144,7 @@ rough engineer-days for someone who knows the repo.
 | 5 | **A release that produces the package.** `nfpm` (or the trial script) in the release workflow on tag: `.deb` attached to the GitHub release, plus an apt repository on GitHub Pages (`reprepro`, signed with a key in Actions secrets) so `apt upgrade` sees new versions. Version embedded in the package and in `smoking-pi version`. | 1–2 | `apt install smoking-pi` |
 | 6 | **Uninstall and data policy.** `apt remove` keeps volumes and `/etc/smoking-pi`; `apt purge` removes `/etc/smoking-pi` but never Docker volumes (dpkg must not delete a year of measurements); `smoking-pi purge` does, explicitly. Document in `docs/upgrades.md`. | 0.5 | trust |
 | 7 | **Script hygiene.** Derive container/volume/network names from `COMPOSE_PROJECT_NAME` in `sync-influx-token.sh`, `verify-postgres.sh`, `create-tunnel.sh`, `migrate-to-edition.sh`, `show-passwords.sh`; drop the Compose v1 calls; refresh `shared/docs/maintenance.md`. | 1 | #4 without surprises |
-| 8 | **Homebrew tap**, only if there is a macOS audience. A formula installs the same tree under the Cellar and the CLI; `brew services` wraps `smoking-pi up`. Requires Docker Desktop, and **Pro's measurement fidelity is reduced on macOS**: `network_mode: host` is the Linux VM's network, not the Mac's — no real first hop, no nl80211 — so the CPE and Wi-Fi features report the VM. Basic and Standard are fine. Untested here (no `brew` on a Pi). | 1, after #5 | Mac users |
+| 8 | **Homebrew tap**, only if there is a macOS audience. A formula installs the same tree under the Cellar and the CLI (which needs `bash` ≥ 4.4 and GNU `readlink` — both Homebrew dependencies, since macOS ships bash 3.2 and BSD readlink); `brew services` wraps `smoking-pi up`. Requires Docker Desktop, and **Pro's measurement fidelity is reduced on macOS**: `network_mode: host` is the Linux VM's network, not the Mac's — no real first hop, no nl80211 — so the CPE and Wi-Fi features report the VM. Basic and Standard are fine. Untested here (no `brew` on a Pi). | 1, after #5 | Mac users |
 
 Total for a real `apt install smoking-pi` on a Raspberry Pi: **about ten
 days**, of which the first two (#1) are the ones that also pay for
