@@ -158,7 +158,7 @@ All data is stored in Docker volumes:
 
 ## Technical Details
 
-- **Base Image**: basic-smokeping (built on linuxserver/smokeping:latest)
+- **Base Image**: ghcr.io/estcarisimo/smoking-pi/smokeping (built on linuxserver/smokeping)
 - **Web Interface**: Built-in SmokePing CGI interface
 - **Data Format**: RRD (Round Robin Database) files
 - **Update Schedule**: Automatic updates from LinuxServer.io

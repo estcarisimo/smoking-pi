@@ -9,6 +9,16 @@ x-logging: &default-logging
     max-size: ${LOG_MAX_SIZE:-10m}
     max-file: "${LOG_MAX_FILE:-3}"
 
+# Images. Every service built here also names its published image,
+# ghcr.io/estcarisimo/smoking-pi/<service>:<version>, and `pull_policy:
+# missing` makes Compose pull that name first and build from `build:` only
+# when the pull fails. SMOKING_PI_VERSION unset means `:dev`, a tag the
+# release workflow never publishes, so a clone builds what it checked out;
+# the package sets SMOKING_PI_VERSION to its own version and pulls (the
+# release workflow builds arm64+amd64 on every `vX.Y.Z` tag). Point
+# SMOKING_PI_REGISTRY at a fork's registry to pull from there.
+# (docs/packaging.md, "Published images".)
+
 services:
   smokeping:
     build:
@@ -16,7 +26,8 @@ services:
       # (shared/modules/smokeping-exporters) -- docs/packaging.md backlog #2.
       context: ../../shared
       dockerfile: modules/smokeping/Dockerfile
-    image: pro-smokeping
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/smokeping:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
     network_mode: host
     restart: unless-stopped
     logging: *default-logging
@@ -90,6 +101,8 @@ services:
 
   influxdb:
     build: ../../shared/modules/influxdb
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/influxdb:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -117,6 +130,8 @@ services:
 
   grafana:
     build: ../../shared/modules/grafana
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/grafana:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -181,6 +196,8 @@ services:
       # the microcut definition from common/microcuts.py.
       context: ../../shared
       dockerfile: modules/web-admin/Dockerfile
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/web-admin:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -233,6 +250,8 @@ services:
 
   config-manager:
     build: ../../shared/modules/config-manager
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/config-manager:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -273,7 +292,8 @@ services:
     build: 
       context: ../../shared/modules/postgres
       dockerfile: Dockerfile
-    image: pro-postgres
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/postgres:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -305,6 +325,8 @@ services:
       # UID maps). Containers cannot import across each other.
       context: ../../shared
       dockerfile: modules/mcp-server/Dockerfile
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/mcp-server:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
     container_name: smokeping-mcp-server
     restart: unless-stopped
     logging: *default-logging
@@ -387,6 +409,8 @@ services:
       # UID maps). Containers cannot import across each other.
       context: ../../shared
       dockerfile: modules/ai-insights/Dockerfile
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/ai-insights:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
     restart: unless-stopped
     logging: *default-logging
     profiles:
@@ -422,6 +446,8 @@ services:
       # UID maps). Containers cannot import across each other.
       context: ../../shared
       dockerfile: modules/alerter/Dockerfile
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/alerter:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
     network_mode: host
     restart: unless-stopped
     logging: *default-logging

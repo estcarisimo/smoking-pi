@@ -34,7 +34,12 @@ SMOKING_PI_OUTPUT_DIR=/var/lib/smoking-pi/output
 # images, so replacing /opt/smoking-pi cannot reach a running stack
 # (docker-compose.packaged.yml).
 SMOKING_PI_PACKAGED=1
+# The images this version was released with: the compose files pull
+# ghcr.io/estcarisimo/smoking-pi/<service>:<version> instead of building
+# (docs/packaging.md, "Published images"). Leave it matching the package.
+SMOKING_PI_VERSION=__VERSION__
 ENV
+sed -i "s/__VERSION__/$VERSION/" "$PKG/etc/default/smoking-pi"
 SIZE=$(du -sk "$PKG" | cut -f1)
 cat > "$PKG/DEBIAN/control" <<CTL
 Package: smoking-pi

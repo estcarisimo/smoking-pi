@@ -1,13 +1,18 @@
 name: CI
 
+# The cheap checks, on every PR and push to main: minutes, no Docker builds.
+# Image builds (all nine, arm64+amd64), the docs deploy and, later, the
+# package are release work and run from release.yml / docs.yml on a
+# `vX.Y.Z` tag. Every change is built and deployed on the reference Pi
+# before merge (AGENTS.md, Process), which is where a broken Dockerfile
+# surfaces between releases.
 on:
   push:
     branches: [main]
   pull_request:
 
 # Least privilege for GITHUB_TOKEN. Nothing here writes to the repository:
-# lint, tests, compose config, image builds and the doctor all only read the
-# checkout. Without this the token defaults to the repository's setting,
+# lint, tests, compose config and the doctor all only read the checkout. Without this the token defaults to the repository's setting,
 # which on older repos is read-write -- and a compromised action step could
 # push. (CodeQL: actions/missing-workflow-permissions.)
 permissions:
@@ -122,6 +127,15 @@ jobs:
             COMPOSE_PROFILES=clickhouse docker compose -f docker-compose.yml -f docker-compose.clickhouse.yml -f docker-compose.packaged.yml config \
               | { ! grep -q 'clickhouse/init'; } || { echo "packaged override must come last"; exit 1; }
           fi
+      - name: Images agree across compose, Dockerfiles and the release matrix (pro only)
+        if: matrix.edition == 'pro'
+        run: |
+          # docs/packaging.md "Published images": every built service names
+          # ghcr.io/estcarisimo/smoking-pi/<module>:${SMOKING_PI_VERSION:-dev}
+          # with pull_policy: missing, every Dockerfile is built somewhere,
+          # and release.yml's matrix lists exactly those modules. Renders all
+          # three editions itself, so it runs once.
+          python3 ../../packaging/check-images.py --repo-root ../..
       - name: Validate ClickHouse overlay (pro only)
         if: matrix.edition == 'pro'
         working-directory: editions/pro
@@ -190,26 +204,3 @@ jobs:
           done
           [ "$found" = "1" ] || { echo "No module tests found — failing loudly rather than passing silently"; exit 1; }
 
-  docker-build:
-    name: Docker build (${{ matrix.module }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        module: [config-manager, web-admin, grafana, smokeping]
-        include:
-          # web-admin builds from `shared/` so the image can copy in
-          # shared/modules/common (same layout as the alerter, ai-insights
-          # and mcp-server images; see editions/pro/docker-compose.yml).
-          - module: web-admin
-            context: shared
-            dockerfile: modules/web-admin/Dockerfile
-          # smokeping likewise, to bake in shared/modules/smokeping-exporters.
-          - module: smokeping
-            context: shared
-            dockerfile: modules/smokeping/Dockerfile
-    steps:
-      - uses: actions/checkout@v7
-      - name: Build image
-        working-directory: ${{ matrix.context || format('shared/modules/{0}', matrix.module) }}
-        run: docker build -t ci-${{ matrix.module }} -f ${{ matrix.dockerfile || 'Dockerfile' }} .
