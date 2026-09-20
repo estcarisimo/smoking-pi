@@ -148,6 +148,124 @@ never a boolean — the client would happily serialize a Python `True` as
 `associated=true`, after which every `0` is rejected), levels and rates as
 floats. The tests assert the line protocol, not just the values.
 
+## When the radio hangs
+
+Twice in September 2026 the reference Pi lost every target at once for
+hours with nothing wrong on the network: 2026-09-02 22:35Z → 09-03 19:35Z
+(21 hours, came back on its own) and 2026-09-20 01:40Z → 04:58Z (3 h 20 min,
+ended by a reboot). For the second one the `wifi_link` collector — added on
+2026-09-19, so it saw only that event — shows the radio still associated and
+receiving nothing. The first is classified by its pattern (the same
+all-targets shape, no reboot, self-recovered), not by measurement. The
+evidence and the detector changes it forced are in
+[Detection reliability](detection-reliability.md); this section is about
+the radio itself, and about a change that was **documented on purpose and
+not made**.
+
+### The signature
+
+- Every target at 100% loss in the same probe cycle — the LAN gateway too.
+- `wifi_link` says the link is fine: `associated=1`, a normal signal
+  (−49 dBm here), `uplink=1`, `tx_packets` still climbing (the probes go
+  out) and **`rx_packets` flat at zero** for the whole span.
+- SSH to the Pi over Wi-Fi is dead. `eth0` on the reference Pi has no
+  carrier, so there is no other way in.
+
+The verdict names it — *"This host's Wi-Fi (wlan0) — still associated at
+−49 dBm but it has received nothing for the whole window: the radio is
+hung, not the network. Reconnect the interface or reboot, and turn off
+Wi-Fi power save if it recurs."* — as one `uplink_down` incident instead of
+one per target. The `rx_packets` comparison behind that line is the
+alerter's own; `get_wifi_stats` does not return the raw counter, but its
+`throughput_mbps.max_rx` collapses to zero for the window.
+
+### What is known, and what is only suspected
+
+Known: the Pi is a Raspberry Pi 5 on kernel 6.12.25 with the in-tree
+`brcmfmac` driver (BCM4345/6, firmware 7.45.265), and **Wi-Fi power save is
+on**: `iw dev wlan0 get power_save` answers `on`, and the kernel logs
+`brcmf_cfg80211_set_power_mgmt: power save enabled` at every boot.
+NetworkManager is not the one turning it on — the connection profile says
+`802-11-wireless.powersave: default`, and with no `wifi.powersave` override
+in `NetworkManager.conf` on this host that resolves to *ignore*, i.e.
+NetworkManager leaves the setting alone. It is on because that is the
+driver's own default.
+
+Suspected: that power save is the cause. A station in power save sleeps
+between beacons and depends on the AP buffering and announcing its frames;
+"associated, transmitting, receiving nothing until reconnect" is the shape
+widely reported for this driver family with power save on, and turning it
+off is the usual advice. It fits both hangs. It is **not proven** here: two
+events, no kernel messages from either (the journal on this host is not
+persistent, so a hang's own log lines do not survive the reboot that ends
+it), and no A/B run with the setting off.
+
+### Why the change is not simply made
+
+`nmcli connection modify Supersonic 802-11-wireless.powersave 2` is one
+line. It is nevertheless the operator's decision, for three reasons:
+
+1. **It is a host setting, reached over the link it changes.** Nothing in
+   this repository configures the host's Wi-Fi, and the Pi is headless:
+   applying it means dropping and re-raising the connection you are logged
+   in over. If the profile comes back wrong, the next step is a keyboard on
+   the Pi.
+2. **It changes the measurement.** The Pi measures *through* this radio.
+   Power save adds wake-up latency to every reply; with it off, the latency
+   floor of every target may drop by a few milliseconds and the CPE
+   microcut floor may move. That is a change point in a year of data and
+   should be dated if it happens.
+3. **The evidence is two events.** The detector work made the hang cost
+   four notifications instead of a hundred and say what it is; the fix on
+   the radio side is a hypothesis. Living with a rare hang that the system
+   now reports correctly is a legitimate choice.
+
+### If you decide to try it
+
+Do it in a way that undoes itself:
+
+1. First the non-persistent form, which a reboot reverts:
+
+   ```bash
+   sudo iw dev wlan0 set power_save off
+   iw dev wlan0 get power_save   # → off
+   ```
+
+   This does not drop the link. Leave it for a few weeks; a hang with power
+   save off rules the hypothesis out, and none in a period that would have
+   held one is (weak) evidence for it.
+
+2. Only then make it persistent, from a session that can afford to lose the
+   link — a wired console, or with a scheduled revert armed first:
+
+   ```bash
+   sudo systemd-run --on-active=10m --unit=wifi-powersave-revert \
+     sh -c 'nmcli connection modify Supersonic 802-11-wireless.powersave 0 && nmcli connection up Supersonic'
+   sudo nmcli connection modify Supersonic 802-11-wireless.powersave 2   # 2 = disable
+   sudo nmcli connection up Supersonic                                  # re-raises the link
+   ```
+
+   If the link comes back, cancel the revert
+   (`sudo systemctl stop wifi-powersave-revert.timer`). The reconnect takes
+   a few seconds; expect one partial probe cycle and possibly one transient
+   `outage` from the alerter, nothing more.
+
+3. **Write the date down** — a CHANGELOG entry, or the project page — so a
+   later change in the latency floor can be read.
+
+### While it stays on
+
+A reboot ends a hang (that is what ended the second one); the first cleared
+itself after 21 hours. `nmcli device disconnect wlan0 && nmcli device
+connect wlan0` from a console would be the gentler first attempt and is
+untested here (there is no `nmcli device reconnect`). The doctor does not yet
+check for the condition (backlog item 3 under *Downtime* in the detection
+page); until it does, the `uplink_down` incident and its verdict line are
+the signal.
+
+**Decision record, 2026-09-20:** documented, not applied. Power save stays
+on on the reference Pi.
+
 ## Not covered
 
 - **ClickHouse.** Like `cpe_latency`, the collector is InfluxDB-only; in

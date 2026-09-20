@@ -128,9 +128,10 @@ clear pattern"*, which is honest if not helpful. Backlog below.
 
 1. **Turn off Wi-Fi power save on the reference Pi.** Not a detector change
    and not done by the PR that added this page — it is a host setting and
-   the operator's call: `nmcli connection modify "<SSID>"
-   802-11-wireless.powersave 2` (2 = disabled), then reconnect. It is the
-   likeliest fix for the two multi-hour hangs.
+   the operator's call. **Decided 2026-09-20: documented, not applied.**
+   What is known, what is only suspected, why the change is sensitive on a
+   headless Pi that measures through the same radio, and how to try it so
+   that it undoes itself are in [When the radio hangs](wifi.md#when-the-radio-hangs).
 2. Classify "every hostname target down, every IP target fine" as name
    resolution on the monitor. Needs the alerter to know each target's host,
    which it does not today.
