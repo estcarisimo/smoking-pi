@@ -42,7 +42,9 @@ detect_timezone() {
 create_env_file() {
     local edition=$1
     local env_file=$2
-    local template_file="${env_file}.template"
+    # The template is beside the edition's compose file (target dir); the
+    # env file itself may live elsewhere (--env-file / SMOKING_PI_ENV_FILE).
+    local template_file=$3
     
     if [ ! -f "$template_file" ]; then
         echo -e "${RED}Error: Template file $template_file not found${NC}"
@@ -203,6 +205,7 @@ show_credentials() {
 main() {
     local edition=""
     local target_dir=""
+    local env_file="${SMOKING_PI_ENV_FILE:-}"
     
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -215,12 +218,18 @@ main() {
                 target_dir="$2"  
                 shift 2
                 ;;
+            --env-file)
+                env_file="$2"
+                shift 2
+                ;;
             -h|--help)
-                echo "Usage: $0 --edition <basic|standard|pro> [--target-dir <directory>]"
+                echo "Usage: $0 --edition <basic|standard|pro> [--target-dir <directory>] [--env-file <path>]"
                 echo ""
                 echo "Options:"
                 echo "  --edition      Edition to generate passwords for (basic|standard|pro)"
-                echo "  --target-dir   Target directory (default: current directory)"
+                echo "  --target-dir   Edition directory holding .env.template (default: current directory)"
+                echo "  --env-file     Where to write the env file (default: <target-dir>/.env;"
+                echo "                 also read from SMOKING_PI_ENV_FILE)"
                 echo "  -h, --help     Show this help message"
                 exit 0
                 ;;
@@ -248,23 +257,28 @@ main() {
         target_dir="."
     fi
     
-    local env_file="$target_dir/.env"
+    local template_file="$target_dir/.env.template"
+    if [ -z "$env_file" ]; then
+        env_file="$target_dir/.env"
+    fi
+    mkdir -p "$(dirname "$env_file")"
     
     echo -e "${GREEN}🚀 SmokePing Password Generator${NC}"
     echo -e "${GREEN}═══════════════════════════════${NC}"
     echo -e "Edition: ${BLUE}$edition${NC}"
     echo -e "Target:  ${BLUE}$target_dir${NC}"
+    echo -e "Env:     ${BLUE}$env_file${NC}"
     
     # Generate passwords
-    create_env_file "$edition" "$env_file"
+    create_env_file "$edition" "$env_file" "$template_file"
     
     # Show credentials
     show_credentials "$edition" "$env_file"
     
     echo -e "\n${GREEN}✅ Password generation complete!${NC}"
     echo -e "${YELLOW}Next steps:${NC}"
-    echo -e "  1. Review the generated .env file"
-    echo -e "  2. Run: docker-compose up -d"
+    echo -e "  1. Review the generated env file: $env_file"
+    echo -e "  2. Run: docker compose up -d"
     echo -e "  3. Access your services using the credentials above"
 }
 

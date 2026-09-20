@@ -9,6 +9,31 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **Relocatable state (packaging backlog #1).** The YAML config-manager
+  edits, the SmokePing config it generates and the `.env` with the secrets
+  all lived inside the source tree — the first two *tracked in git*, so the
+  reference Pi's `git status` had shown the running stack's rewrites as
+  modified files since the day it went live, and a package upgrade would
+  have replaced them. Three variables now decide where that state lives:
+  `SMOKING_PI_CONFIG_DIR`, `SMOKING_PI_OUTPUT_DIR` (read by the compose
+  files' bind mounts) and `SMOKING_PI_ENV_FILE` (passed as `--env-file` by
+  `setup.sh`, `generate-passwords.sh`, `show-passwords.sh`,
+  `manage-containers.sh` and the `smoking-pi` command). Unset, everything
+  stays where it was — beside the edition's compose file — but untracked:
+  `editions/pro/config-manager/{config,output}` keep only a `.gitkeep`. A
+  fresh config directory is seeded by config-manager's bootstrap from
+  `templates/`, as it always was for a missing file; the image no longer
+  copies a `config/` directory, and the stale
+  `shared/modules/config-manager/{config,output}` copies (five probes,
+  untouched since Sprint 3) are deleted — `templates/` is the one seed set
+  and a test holds it to the current probe list. The `.deb` sets the
+  packaged layout (`/etc/smoking-pi/{env,config}`,
+  `/var/lib/smoking-pi/output`) in `/etc/default/smoking-pi` and creates the
+  directories; CI renders both compose files with that layout and fails if
+  a mount is hardcoded again. `docs/packaging.md`, *Relocatable state*.
+
 ## [2.11.0] — 2026-09-20
 
 The detectors say what happened, once; the documentation has a site; and

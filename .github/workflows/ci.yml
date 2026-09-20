@@ -93,6 +93,21 @@ jobs:
           cp .env.template .env
           sed -i 's/^\([A-Z_]*\)=$/\1=dummy/' .env
           docker compose config -q
+      - name: Relocatable state resolves (standard, pro)
+        if: matrix.edition != 'basic'
+        working-directory: editions/${{ matrix.edition }}
+        run: |
+          # docs/packaging.md "Relocatable state": the directories the stack
+          # rewrites must follow SMOKING_PI_CONFIG_DIR / _OUTPUT_DIR, and a
+          # relocated env file must be accepted. A re-hardcoded mount fails here.
+          cp .env /tmp/relocated-env
+          out=$(SMOKING_PI_CONFIG_DIR=/etc/smoking-pi/config SMOKING_PI_OUTPUT_DIR=/var/lib/smoking-pi/output \
+                docker compose --env-file /tmp/relocated-env config)
+          echo "$out" | grep -q 'source: /etc/smoking-pi/config' || { echo "config mount ignores SMOKING_PI_CONFIG_DIR"; exit 1; }
+          if [ "${{ matrix.edition }}" = pro ]; then
+            echo "$out" | grep -q 'source: /var/lib/smoking-pi/output' || { echo "output mount ignores SMOKING_PI_OUTPUT_DIR"; exit 1; }
+          fi
+          ! echo "$out" | grep -q 'config-manager/config$' || { echo "a config mount is still hardcoded"; exit 1; }
       - name: Validate ClickHouse overlay (pro only)
         if: matrix.edition == 'pro'
         working-directory: editions/pro

@@ -56,8 +56,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 
-# Copy application code
-COPY config/ ./config/
+# Copy application code. There is no config/ to copy: the YAML the stack
+# edits lives in the bind-mounted CONFIG_DIR, and bootstrap (scripts/
+# bootstrap.py) seeds an empty one from templates/ on first start.
 COPY templates/ ./templates/
 COPY scripts/ ./scripts/
 COPY api.py ./
@@ -69,8 +70,8 @@ COPY pydantic_models.py ./
 # Make scripts executable
 RUN chmod +x scripts/*.py
 
-# Create output directory
-RUN mkdir -p /app/output
+# Create the config and output directories (both normally bind-mounted)
+RUN mkdir -p /app/config /app/output
 
 # Set environment variables
 ENV CONFIG_DIR=/app/config

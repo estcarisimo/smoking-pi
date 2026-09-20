@@ -42,7 +42,8 @@ services:
       # single-file bind mount would keep pointing at the old inode until the
       # container restarts. The 05-link-generated-config.sh cont-init script
       # symlinks /config/{Targets,Probes} -> /config/generated/{Targets,Probes}.
-      - ./config-manager/output:/config/generated:ro
+      # SMOKING_PI_OUTPUT_DIR relocates it (packaged: /var/lib/smoking-pi/output).
+      - ${SMOKING_PI_OUTPUT_DIR:-./config-manager/output}:/config/generated:ro
       - ../../shared/modules/smokeping-exporters:/exporters:ro
       - ./custom-cont-init.d:/custom-cont-init.d:ro
       - /etc/localtime:/etc/localtime:ro
@@ -181,7 +182,7 @@ services:
     ports:
       - "0.0.0.0:8080:8080"  # Explicitly bind to all interfaces
     volumes:
-      - ./config-manager/config:/app/config
+      - ${SMOKING_PI_CONFIG_DIR:-./config-manager/config}:/app/config
       - ../../shared/modules/web-admin/app:/app/app  # Mount source code for development
       # (/app/common is NOT mounted: a change to shared/modules/common needs
       # `docker compose build web-admin`, as for the other three images)
@@ -231,8 +232,13 @@ services:
     ports:
       - "127.0.0.1:5000:5000"
     volumes:
-      - ./config-manager/config:/app/config
-      - ./config-manager/output:/app/output
+      # The YAML the stack rewrites and the generated SmokePing config live
+      # outside the source tree when SMOKING_PI_CONFIG_DIR / _OUTPUT_DIR are
+      # set (packaged layout: /etc/smoking-pi/config, /var/lib/smoking-pi/output).
+      # The defaults are untracked directories; config-manager seeds an
+      # empty config dir from its templates/ on first start.
+      - ${SMOKING_PI_CONFIG_DIR:-./config-manager/config}:/app/config
+      - ${SMOKING_PI_OUTPUT_DIR:-./config-manager/output}:/app/output
       - ./smokeping/config:/app/smokeping-config
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/localtime:/etc/localtime:ro

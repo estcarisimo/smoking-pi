@@ -111,9 +111,10 @@ What the trial shows cannot work yet — each is a backlog item below:
 1. **`.env` and the mutated config directories sit inside `/opt`.** A
    package upgrade replaces `/opt/smoking-pi`; `editions/pro/.env` would be
    orphaned or clobbered, and `config-manager/config/targets.yaml` — which
-   the running stack rewrites and which is *tracked in git* — would conflict
+   the running stack rewrites and which was *tracked in git* — would conflict
    with the package's copy on every upgrade. dpkg's conffile handling is
-   for `/etc`, not for a YAML the application edits.
+   for `/etc`, not for a YAML the application edits. **Closed by backlog #1
+   (2026-09-20) — see [Relocatable state](#relocatable-state) below.**
 2. **First start builds nine images on the target**, needing the internet
    in four places and, on a Pi 5, minutes per Python image (matplotlib) —
    the three images that embed `common/` took about ten minutes together to
@@ -137,7 +138,7 @@ rough engineer-days for someone who knows the repo.
 
 | # | Change | Cost | Unblocks |
 | --- | --- | --- | --- |
-| 1 | **Relocatable state.** `SMOKING_PI_CONFIG_DIR` (default `./config-manager/config`), `SMOKING_PI_OUTPUT_DIR`, `SMOKING_PI_ENV_FILE` honored by the compose files (`${VAR:-default}` in every bind mount) and by `setup.sh`/`generate-passwords.sh` (`--env-file`). Stop tracking `editions/pro/config-manager/{config,output}`: the seeds move to `shared/modules/config-manager/config/` (already the module defaults) and `setup.sh` copies them on first run. Packaged layout: `/etc/smoking-pi/{env,config}`, `/var/lib/smoking-pi/output`. Also ends the "runtime churn in `git status`" nuisance on the reference Pi. | 2 | everything below; in-place upgrades |
+| 1 | **Relocatable state — done (2026-09-20).** `SMOKING_PI_CONFIG_DIR` (default `./config-manager/config`), `SMOKING_PI_OUTPUT_DIR`, `SMOKING_PI_ENV_FILE` honored by the compose files (`${VAR:-default}` in every bind mount), by `setup.sh`/`generate-passwords.sh`/`show-passwords.sh`/`manage-containers.sh` (`--env-file`) and by the CLI. `editions/pro/config-manager/{config,output}` are no longer tracked; the seed set is `config-manager/templates/`, which bootstrap copies into an empty config dir on first start (it always did — the plan's "seeds move to the module defaults" pointed at a stale third copy, now deleted). Packaged layout: `/etc/smoking-pi/{env,config}`, `/var/lib/smoking-pi/output`, set in `/etc/default/smoking-pi`. Also ended the "runtime churn in `git status`" nuisance on the reference Pi. Details: [Relocatable state](#relocatable-state). | 2 | everything below; in-place upgrades |
 | 2 | **No source mounts in packaged mode.** A `docker-compose.packaged.yml` override that drops the web-admin app mount and bakes the exporters into the smokeping image (`COPY` in the Dockerfile; the `:/exporters:ro` mount stays for development). | 1 | #3, upgrades that restart what changed |
 | 3 | **Published multi-arch images.** A release workflow building all nine images for `linux/arm64` and `linux/amd64` on tag (`docker/build-push-action`, native arm64 runners rather than QEMU for the matplotlib images) to `ghcr.io/estcarisimo/smoking-pi/<service>:<version>`. Compose files gain `image:` next to `build:` with `SMOKING_PI_VERSION`; `pull_policy: missing` so a clone still builds. Closes the CI gap where five images are never built at all. | 2–3 | a first start measured in seconds; Dependabot-driven rebuilds become releases |
 | 4 | **The `smoking-pi` command and unit, for real.** The prototype (`packaging/smoking-pi`) grows `upgrade` (pull images, `up -d`, doctor), `purge` (volumes, with a typed confirmation), `backup`/`restore` (the `pg_dumpall` + volume tar that `docs/upgrades.md` describes by hand). `install` is the installer the roadmap asks for: whiptail TUI on a terminal, flags for automation, edition/database/profile choice, an OpenClaw step that offers the skill install, passwords printed at the end. Shell-syntax CI covers it; add a `bats` smoke test. | 2 | the "instalador CLI/TUI" roadmap item |
@@ -147,8 +148,53 @@ rough engineer-days for someone who knows the repo.
 | 8 | **Homebrew tap**, only if there is a macOS audience. A formula installs the same tree under the Cellar and the CLI (which needs `bash` ≥ 4.4 and GNU `readlink` — both Homebrew dependencies, since macOS ships bash 3.2 and BSD readlink); `brew services` wraps `smoking-pi up`. Requires Docker Desktop, and **Pro's measurement fidelity is reduced on macOS**: `network_mode: host` is the Linux VM's network, not the Mac's — no real first hop, no nl80211 — so the CPE and Wi-Fi features report the VM. Basic and Standard are fine. Untested here (no `brew` on a Pi). | 1, after #5 | Mac users |
 
 Total for a real `apt install smoking-pi` on a Raspberry Pi: **about ten
-days**, of which the first two (#1) are the ones that also pay for
+days**, of which the first two (#1, now done) are the ones that also pay for
 themselves without any packaging.
+
+### Relocatable state
+
+Done 2026-09-20. Three variables decide where the state the stack rewrites
+lives; unset, everything stays beside the edition's compose file, untracked
+by git, exactly where it was:
+
+| Variable | What | Default (from a clone) | Packaged |
+| --- | --- | --- | --- |
+| `SMOKING_PI_ENV_FILE` | the secrets and settings `setup.sh` generates | `editions/<edition>/.env` | `/etc/smoking-pi/env` |
+| `SMOKING_PI_CONFIG_DIR` | `targets.yaml`, `probes.yaml`, `sources.yaml` — the YAML config-manager edits (import/export; PostgreSQL is the source of truth) | `editions/<edition>/config-manager/config` | `/etc/smoking-pi/config` |
+| `SMOKING_PI_OUTPUT_DIR` | the generated SmokePing `Targets`/`Probes` (Pro; Standard keeps them in a named volume) | `editions/pro/config-manager/output` | `/var/lib/smoking-pi/output` |
+
+The two directories are read by the compose files themselves
+(`${SMOKING_PI_CONFIG_DIR:-./config-manager/config}:/app/config`), so they
+work with a bare `docker compose` as long as they are exported or in the
+env file; relative values are relative to the edition directory, as every
+other path in those files. The env file is different: Compose only finds
+`./.env` on its own, so a relocated one has to be named on every call.
+`setup.sh --env-file`, `generate-passwords.sh --env-file`,
+`show-passwords.sh`, `manage-containers.sh` and the `smoking-pi` command
+all read `SMOKING_PI_ENV_FILE` and pass `--env-file`; the `.deb` sets all
+three in `/etc/default/smoking-pi`, which the systemd unit loads and
+`postinst` creates the two directories for.
+
+**Seeding.** A fresh config directory holds nothing (from a clone, a
+`.gitkeep`). config-manager's bootstrap copies the three YAML files from
+its own `templates/` on first start — the same mechanism that has recovered
+a deleted file since Sprint 3 — and then generates the output. The image no
+longer carries a `config/` copy, and the stale
+`shared/modules/config-manager/{config,output}` copies (five probes,
+untouched since Sprint 3, never read by anything) are gone; `templates/` is
+the one seed set, and a test holds it to the current probe list. Verified
+by running the rebuilt image against an empty directory: three files, the
+HTTP/TCP probes among them, `Probes` and `Targets` generated.
+
+**What this changes on the reference Pi:** nothing at runtime — the
+defaults are the old paths, and the untracked files stay where they are.
+`git status` is clean for the first time since the stack went live. CI
+renders both compose files with the packaged layout and fails if a mount is
+hardcoded again.
+
+**Still true:** `smoking-pi install` refuses an existing env file, because
+regenerating secrets against live volumes breaks authentication; `upgrade`
+is backlog #4.
 
 ### Own repository or a distribution's?
 

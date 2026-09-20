@@ -46,8 +46,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Persist YAML configs on the host so bootstrap output survives
-      # container recreation (was previously lost in the container layer)
-      - ./config-manager/config:/app/config
+      # container recreation (was previously lost in the container layer).
+      # SMOKING_PI_CONFIG_DIR relocates it (packaged: /etc/smoking-pi/config);
+      # an empty directory is seeded from config-manager's templates/.
+      - ${SMOKING_PI_CONFIG_DIR:-./config-manager/config}:/app/config
       - config-manager-output:/app/output
       - smokeping-config:/smokeping-config
     depends_on:
@@ -115,8 +117,8 @@ services:
       # generated Targets/Probes appear under /config/generated, and the
       # 05-link-generated-config.sh cont-init script symlinks
       # /config/{Targets,Probes} to them. (Previously smokeping bind-mounted
-      # the git-tracked shared/modules/config-manager/output files, so
-      # generated config never reached SmokePing.)
+      # a git-tracked copy of generated output, so generated config never
+      # reached SmokePing.)
       - config-manager-output:/config/generated:ro
       - ./custom-cont-init.d:/custom-cont-init.d:ro
       - /etc/localtime:/etc/localtime:ro

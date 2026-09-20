@@ -15,6 +15,16 @@ SMOKING_PI_HOME="${SMOKING_PI_HOME:-$(cd "$(dirname "$(readlink -f "${BASH_SOURC
 SMOKING_PI_EDITION="${SMOKING_PI_EDITION:-pro}"
 EDITION_DIR="$SMOKING_PI_HOME/editions/$SMOKING_PI_EDITION"
 VERSION_FILE="$SMOKING_PI_HOME/CITATION.cff"
+# Where the state the stack rewrites lives (docs/packaging.md, "Relocatable
+# state"). From a clone the defaults are beside the compose file, untracked;
+# the .deb sets the packaged layout in /etc/default/smoking-pi. The env file
+# is passed to every compose call; the two directories are read by the
+# compose file itself, so they only need exporting.
+SMOKING_PI_ENV_FILE_SET="${SMOKING_PI_ENV_FILE:+1}"
+ENV_FILE="${SMOKING_PI_ENV_FILE:-$EDITION_DIR/.env}"
+export SMOKING_PI_ENV_FILE="$ENV_FILE"
+export SMOKING_PI_CONFIG_DIR="${SMOKING_PI_CONFIG_DIR:-}"
+export SMOKING_PI_OUTPUT_DIR="${SMOKING_PI_OUTPUT_DIR:-}"
 
 usage() {
     cat <<USAGE
@@ -25,17 +35,20 @@ Usage: smoking-pi <command> [args]
   install [--edition basic|standard|pro] [--database influxdb|clickhouse] [--yes]
                      First install only: generate secrets, choose profiles,
                      start the stack, print what to open. Interactive unless
-                     --yes. Refuses to run over an existing .env (it would
-                     rotate the secrets the data volumes already hold).
+                     --yes. Refuses to run over an existing env file (it
+                     would rotate the secrets the data volumes already hold).
   up | down | restart | status | logs [service]
-                     The Compose stack, with the profiles recorded in .env.
+                     The Compose stack, with the profiles recorded in the env file.
   passwords          Show credentials and URLs (show-passwords.sh).
   doctor [--live]    Instrumentation doctor (needs the doctor package).
-  paths              Where things are (home, edition, .env, data).
+  paths              Where things are (home, edition, env file, config, output, data).
   version            Installed version.
 
 Environment: SMOKING_PI_HOME (default: this checkout or /opt/smoking-pi),
-             SMOKING_PI_EDITION (default: pro).
+             SMOKING_PI_EDITION (default: pro),
+             SMOKING_PI_ENV_FILE, SMOKING_PI_CONFIG_DIR, SMOKING_PI_OUTPUT_DIR
+             (default: beside the edition's compose file; the package sets
+             /etc/smoking-pi/env, /etc/smoking-pi/config, /var/lib/smoking-pi/output).
 USAGE
 }
 
@@ -44,16 +57,16 @@ need_edition() {
 }
 
 profiles() {
-    # COMPOSE_PROFILES is written into .env by setup.sh; honor it.
-    [ -f "$EDITION_DIR/.env" ] && sed -n 's/^COMPOSE_PROFILES=//p' "$EDITION_DIR/.env" | tail -1 || true
+    # COMPOSE_PROFILES is written into the env file by setup.sh; honor it.
+    [ -f "$ENV_FILE" ] && sed -n 's/^COMPOSE_PROFILES=//p' "$ENV_FILE" | tail -1 || true
 }
 
 compose() {
     need_edition
     local p; p="$(profiles)"
-    local extra=()
+    local extra=(--env-file "$ENV_FILE")
     if [ "$SMOKING_PI_EDITION" = pro ] && [[ "$p" == *clickhouse* ]]; then
-        extra=(-f docker-compose.yml -f docker-compose.clickhouse.yml)
+        extra+=(-f docker-compose.yml -f docker-compose.clickhouse.yml)
     fi
     ( cd "$EDITION_DIR" && COMPOSE_PROFILES="$p" docker compose "${extra[@]}" "$@" )
 }
@@ -78,21 +91,25 @@ cmd_install() {
         fi
     fi
     SMOKING_PI_EDITION="$edition"; EDITION_DIR="$SMOKING_PI_HOME/editions/$edition"
+    # An explicit SMOKING_PI_ENV_FILE wins; otherwise the env file follows
+    # the edition chosen here, not the default edition computed at the top.
+    [ -n "${SMOKING_PI_ENV_FILE_SET:-}" ] || ENV_FILE="$EDITION_DIR/.env"
+    export SMOKING_PI_ENV_FILE="$ENV_FILE"
     need_edition
-    if [ -f "$EDITION_DIR/.env" ]; then
+    if [ -f "$ENV_FILE" ]; then
         # setup.sh regenerates every secret. Against volumes that already
         # hold the old PostgreSQL/InfluxDB credentials that is a broken
         # stack, not a reinstall -- so an existing install is never re-run
-        # by accident. (Backlog #1 in docs/packaging.md moves .env out of
-        # the tree and gives upgrade its own command.)
-        echo "$EDITION_DIR/.env exists: this edition is already installed." >&2
+        # by accident. (Backlog #4 in docs/packaging.md gives upgrade its
+        # own command.)
+        echo "$ENV_FILE exists: this edition is already installed." >&2
         echo "Use 'smoking-pi up' to start it. To start over, stop the stack, remove its" >&2
-        echo "volumes (docker volume ls | grep ${edition}_), delete .env, then run install again." >&2
+        echo "volumes (docker volume ls | grep ${edition}_), delete the env file, then run install again." >&2
         exit 1
     fi
-    echo "Installing the $edition edition from $SMOKING_PI_HOME"
+    echo "Installing the $edition edition from $SMOKING_PI_HOME (env file: $ENV_FILE)"
     if [ "$edition" = pro ]; then
-        ( cd "$EDITION_DIR" && ./setup.sh --database "$database" )
+        ( cd "$EDITION_DIR" && ./setup.sh --database "$database" --env-file "$ENV_FILE" )
     else
         ( cd "$EDITION_DIR" && ./setup.sh )
     fi
@@ -117,7 +134,9 @@ case "${1:-}" in
     doctor) shift; ( cd "$SMOKING_PI_HOME" && PYTHONPATH="$SMOKING_PI_HOME/shared/modules/doctor${PYTHONPATH:+:$PYTHONPATH}" python3 -m doctor --repo-root . "$@" ) ;;
     paths)
         echo "home:     $SMOKING_PI_HOME"; echo "edition:  $SMOKING_PI_EDITION ($EDITION_DIR)"
-        echo "env:      $EDITION_DIR/.env"; echo "profiles: $(profiles)"
+        echo "env:      $ENV_FILE"; echo "profiles: $(profiles)"
+        echo "config:   ${SMOKING_PI_CONFIG_DIR:-$EDITION_DIR/config-manager/config}"
+        echo "output:   ${SMOKING_PI_OUTPUT_DIR:-$EDITION_DIR/config-manager/output}"
         echo "data:     docker volumes ${SMOKING_PI_EDITION}_* (docker volume ls)" ;;
     version) sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || echo unknown ;;
     -h|--help|help|"") usage ;;

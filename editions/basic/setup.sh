@@ -19,17 +19,20 @@ echo -e "${GREEN}═════════════════════
 
 # Generate passwords/environment
 echo -e "${BLUE}📋 Setting up environment...${NC}"
-"$ROOT_DIR/shared/scripts/generate-passwords.sh" --edition basic --target-dir "$SCRIPT_DIR"
+# SMOKING_PI_ENV_FILE relocates the env file (docs/packaging.md, "Relocatable
+# state"); the default is ./.env beside this script.
+ENV_FILE="${SMOKING_PI_ENV_FILE:-$SCRIPT_DIR/.env}"
+"$ROOT_DIR/shared/scripts/generate-passwords.sh" --edition basic --target-dir "$SCRIPT_DIR" --env-file "$ENV_FILE"
 
 # Start services
 echo -e "${BLUE}🐳 Starting SmokePing...${NC}"
 cd "$SCRIPT_DIR"
-docker compose up -d
+docker compose --env-file "$ENV_FILE" up -d
 
 echo -e "${YELLOW}⏳ Waiting for services to be ready...${NC}"
 sleep 10
 
 echo -e "${GREEN}✅ SmokePing Basic Edition is ready!${NC}"
-echo -e "🌐 Web Interface: http://localhost:$(grep SMOKEPING_PORT .env | cut -d= -f2 || echo 8080)"
+echo -e "🌐 Web Interface: http://localhost:$(grep SMOKEPING_PORT "$ENV_FILE" | cut -d= -f2 || echo 8080)"
 echo -e "📁 Configuration: Edit config/Targets to add monitoring targets"
 echo -e "📊 View graphs and statistics through the web interface"
