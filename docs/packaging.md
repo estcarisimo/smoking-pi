@@ -124,7 +124,8 @@ What the trial shows cannot work yet — each is a backlog item below:
    into `/opt`, which works but means the package is the code the
    containers run — fine for a package, but the "dev mount" comment on
    web-admin is then a lie, and an `apt upgrade` changes code inside a
-   running container without a restart.
+   running container without a restart. **Closed by backlog #2
+   (2026-09-20) — see [Packaged mode](#packaged-mode) below.**
 4. **config-manager writes generated output as root** into a directory the
    package owns; upgrades would tread on it. It belongs in `/var/lib`.
 5. **Helper scripts hard-code `pro-influxdb-1`, `pro_default`,
@@ -139,7 +140,7 @@ rough engineer-days for someone who knows the repo.
 | # | Change | Cost | Unblocks |
 | --- | --- | --- | --- |
 | 1 | **Relocatable state — done (2026-09-20).** `SMOKING_PI_CONFIG_DIR` (default `./config-manager/config`), `SMOKING_PI_OUTPUT_DIR`, `SMOKING_PI_ENV_FILE` honored by the compose files (`${VAR:-default}` in every bind mount), by `setup.sh`/`generate-passwords.sh`/`show-passwords.sh`/`manage-containers.sh` (`--env-file`) and by the CLI. `editions/pro/config-manager/{config,output}` are no longer tracked; the seed set is `config-manager/templates/`, which bootstrap copies into an empty config dir on first start (it always did — the plan's "seeds move to the module defaults" pointed at a stale third copy, now deleted). Packaged layout: `/etc/smoking-pi/{env,config}`, `/var/lib/smoking-pi/output`, set in `/etc/default/smoking-pi`. Also ended the "runtime churn in `git status`" nuisance on the reference Pi. Details: [Relocatable state](#relocatable-state). | 2 | everything below; in-place upgrades |
-| 2 | **No source mounts in packaged mode.** A `docker-compose.packaged.yml` override that drops the web-admin app mount and bakes the exporters into the smokeping image (`COPY` in the Dockerfile; the `:/exporters:ro` mount stays for development). | 1 | #3, upgrades that restart what changed |
+| 2 | **No source mounts in packaged mode — done (2026-09-20).** The exporters are baked into the smokeping image (`COPY` from a `shared/` build context; the `:/exporters:ro` mount stays for development); `docker-compose.packaged.yml` (Pro, Standard) drops every bind mount of `shared/modules` — seven in Pro: exporters, three Grafana provisioning directories, the web-admin `app` package, the PostgreSQL and ClickHouse init SQL, all of which the images already carry. `SMOKING_PI_PACKAGED=1` (set by the package) makes the CLI, `setup.sh` and `manage-containers.sh` add it, last. `packaging/check-packaged-override.py` renders both and fails if the override drops anything else; the doctor's `deployed-code-current` now also hashes `/exporters`. Details: [Packaged mode](#packaged-mode). | 1 | #3, upgrades that restart what changed |
 | 3 | **Published multi-arch images.** A release workflow building all nine images for `linux/arm64` and `linux/amd64` on tag (`docker/build-push-action`, native arm64 runners rather than QEMU for the matplotlib images) to `ghcr.io/estcarisimo/smoking-pi/<service>:<version>`. Compose files gain `image:` next to `build:` with `SMOKING_PI_VERSION`; `pull_policy: missing` so a clone still builds. Closes the CI gap where five images are never built at all. | 2–3 | a first start measured in seconds; Dependabot-driven rebuilds become releases |
 | 4 | **The `smoking-pi` command and unit, for real.** The prototype (`packaging/smoking-pi`) grows `upgrade` (pull images, `up -d`, doctor), `purge` (volumes, with a typed confirmation), `backup`/`restore` (the `pg_dumpall` + volume tar that `docs/upgrades.md` describes by hand). `install` is the installer the roadmap asks for: whiptail TUI on a terminal, flags for automation, edition/database/profile choice, an OpenClaw step that offers the skill install, passwords printed at the end. Shell-syntax CI covers it; add a `bats` smoke test. | 2 | the "instalador CLI/TUI" roadmap item |
 | 5 | **A release that produces the package.** `nfpm` (or the trial script) in the release workflow on tag: `.deb` attached to the GitHub release, plus an apt repository on GitHub Pages (`reprepro`, signed with a key in Actions secrets) so `apt upgrade` sees new versions. Version embedded in the package and in `smoking-pi version`. | 1–2 | `apt install smoking-pi` |
@@ -197,6 +198,50 @@ hardcoded again.
 **Still true:** `smoking-pi install` refuses an existing env file, because
 regenerating secrets against live volumes breaks authentication; `upgrade`
 is backlog #4.
+
+### Packaged mode
+
+Done 2026-09-20. From a clone, the compose files bind-mount parts of the
+checkout into the containers as development overlays — edit an exporter or
+a dashboard and the container sees it without a rebuild. Every one of those
+directories is also baked into its image, so a packaged install does not
+need the mounts, and should not have them: with `/opt/smoking-pi` mounted
+into running containers, an `apt upgrade` would change code under a running
+process (Grafana re-reads provisioning live; a crashed exporter's supervisor
+would restart it on the new file) with nothing restarted deliberately.
+
+| Mount (Pro) | Container | Baked in by |
+| --- | --- | --- |
+| `shared/modules/smokeping-exporters` → `/exporters` | smokeping | `COPY modules/smokeping-exporters/*.py /exporters/` (this change; build context is now `shared/`, like the alerter, ai-insights, mcp-server and web-admin images) |
+| `shared/modules/grafana/provisioning/{dashboards,dashboards-clickhouse,datasources}` | grafana | the Grafana Dockerfile's `COPY provisioning/`, since v2.5 |
+| `shared/modules/web-admin/app` → `/app/app` | web-admin | the web-admin Dockerfile's `COPY modules/web-admin/` |
+| `shared/modules/postgres/init` → `/docker-entrypoint-initdb.d` | postgres | the postgres Dockerfile's `COPY init/` |
+| `shared/modules/clickhouse/init` → `/docker-entrypoint-initdb.d` | clickhouse | nothing — and it never runs ([ClickHouse](clickhouse.md)); the exporter creates the schema |
+
+`editions/pro/docker-compose.packaged.yml` (and a one-service one for
+Standard) replaces those services' volume lists with the same lists minus
+the code mounts. It has to be a full replacement — Compose merges volume
+lists by target and cannot remove one entry — so the file repeats every
+other volume, and `packaging/check-packaged-override.py` renders the base
+and the packaged stack through Compose with every profile on and fails if
+the override dropped or added anything but bind mounts of `shared/modules`.
+CI runs it for both editions. The file goes **last** in the `-f` order:
+`docker-compose.clickhouse.yml` re-adds the ClickHouse init mount, and only
+a later `!override` removes it again (CI checks that too).
+
+`SMOKING_PI_PACKAGED=1`, set in `/etc/default/smoking-pi` by the package,
+makes the `smoking-pi` command, `setup.sh` (Pro, Standard) and
+`manage-containers.sh` add the file. `smoking-pi paths` prints the mode.
+From a clone nothing changes: the variable is unset, the overlays stay, and
+editing an exporter still needs no rebuild.
+
+The doctor's `deployed-code-current` check now also hashes `/exporters` in
+the smokeping container against `shared/modules/smokeping-exporters/*.py`,
+so a stale smokeping image in packaged mode is reported the way a stale
+alerter image is (from a clone the mount makes it trivially current). The
+edition's `custom-cont-init.d` scripts stay bind-mounted: they are
+edition configuration, not shared code, and are read once at container
+start.
 
 ### Own repository or a distribution's?
 

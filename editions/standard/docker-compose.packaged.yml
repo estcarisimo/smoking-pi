@@ -1,0 +1,7 @@
+# Packaged mode: the same stack with no source bind-mounts (see the Pro
+# edition's docker-compose.packaged.yml for the full explanation). Standard
+# has one: the PostgreSQL init SQL, which the postgres image also bakes in.
+services:
+  postgres:
+    volumes: !override
+      - postgres-data:/var/lib/postgresql/data

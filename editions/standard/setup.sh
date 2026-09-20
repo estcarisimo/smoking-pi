@@ -31,14 +31,19 @@ ENV_FILE="${SMOKING_PI_ENV_FILE:-$SCRIPT_DIR/.env}"
 # Start services
 echo -e "${BLUE}🐳 Starting services...${NC}"
 cd "$SCRIPT_DIR"
-docker compose --env-file "$ENV_FILE" up -d
+COMPOSE_ARGS=(--env-file "$ENV_FILE" -f docker-compose.yml)
+# Packaged mode: no source bind-mounts (docs/packaging.md, "Packaged mode").
+if [ "${SMOKING_PI_PACKAGED:-0}" = 1 ]; then
+    COMPOSE_ARGS+=(-f docker-compose.packaged.yml)
+fi
+docker compose "${COMPOSE_ARGS[@]}" up -d
 
 echo -e "${YELLOW}⏳ Waiting for services to be ready...${NC}"
 sleep 15
 
 # Check service health
 echo -e "${BLUE}🔍 Checking service status...${NC}"
-docker compose --env-file "$ENV_FILE" ps
+docker compose "${COMPOSE_ARGS[@]}" ps
 
 echo -e "${GREEN}✅ SmokePing Standard Edition is ready!${NC}"
 echo ""

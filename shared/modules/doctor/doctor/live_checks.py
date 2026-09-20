@@ -50,9 +50,15 @@ from .report import CheckResult, Finding, Status, result, skipped
 # non-default project name made this check quietly report "nothing is
 # running" while the alerter was up -- a drift check that silently stops
 # checking, which is worse than not having it.
+# module directory -> (compose service, path of the module's .py files in the
+# container, whether the image also carries shared/modules/common at
+# <path>/common). The exporters are baked into the smokeping image at
+# /exporters (packaged mode runs that copy; from a clone the checkout is
+# bind-mounted over it, so the comparison is trivially true there).
 DEPLOYED_MODULES = {
-    "alerter": "alerter",
-    "mcp-server": "mcp-server",
+    "alerter": ("alerter", "/app", True),
+    "mcp-server": ("mcp-server", "/app", True),
+    "smokeping-exporters": ("smokeping", "/exporters", False),
 }
 
 # Compose stamps this on every container it creates.
@@ -199,7 +205,7 @@ def check_deployed_code_current(
     compared = 0
     checked_containers = 0
 
-    for module, service in sorted(DEPLOYED_MODULES.items()):
+    for module, (service, code_path, has_common) in sorted(DEPLOYED_MODULES.items()):
         module_dir = repo.root / "shared/modules" / module
         if not module_dir.is_dir():
             continue
@@ -210,11 +216,14 @@ def check_deployed_code_current(
             continue
         checked_containers += 1
 
-        for label, source_dir, container_path in (
-            (module, module_dir, "/app"),
-            (f"{module}:{COMMON_DIR}", repo.root / "shared/modules" / COMMON_DIR,
-             "/app/common"),
-        ):
+        comparisons = [(module, module_dir, code_path)]
+        if has_common:
+            comparisons.append(
+                (f"{module}:{COMMON_DIR}",
+                 repo.root / "shared/modules" / COMMON_DIR,
+                 f"{code_path}/{COMMON_DIR}")
+            )
+        for label, source_dir, container_path in comparisons:
             repo_files = _repo_py_files(source_dir)
             if not repo_files:
                 continue
@@ -238,7 +247,7 @@ def check_deployed_code_current(
                         Finding(
                             f"{name} exists in the repo but not in "
                             f"{container_path} — the image predates it; "
-                            f"rebuild: docker compose build {module}",
+                            f"rebuild: docker compose build {service}",
                             where=f"{container}:{container_path}/{name}",
                         )
                     )
@@ -247,7 +256,7 @@ def check_deployed_code_current(
                         Finding(
                             f"{name} differs from the repository — the "
                             f"container is running older code; rebuild: "
-                            f"docker compose build {module}",
+                            f"docker compose build {service}",
                             where=f"{container}:{container_path}/{name}",
                         )
                     )

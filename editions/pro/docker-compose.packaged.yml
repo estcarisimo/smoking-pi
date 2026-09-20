@@ -1,0 +1,52 @@
+# Packaged mode: the same stack with no source bind-mounts.
+#
+# From a clone, docker-compose.yml bind-mounts parts of the checkout into
+# four containers as development overlays (exporters, Grafana provisioning,
+# the web-admin app package, the PostgreSQL init SQL). Every one of those
+# is also baked into its image, so a packaged install (/opt/smoking-pi, an
+# apt upgrade replacing the tree under a running stack) runs the images'
+# copies instead -- docs/packaging.md, "Packaged mode".
+#
+# `!override` replaces a service's whole volume list (Compose merges lists
+# by mount target, so a single entry cannot be removed), which is why the
+# non-code volumes are repeated here verbatim. CI renders both files and
+# fails if this file drops anything but the four code mounts.
+#
+# Used automatically by the smoking-pi command and setup.sh when
+# SMOKING_PI_PACKAGED=1 (set by /etc/default/smoking-pi); by hand:
+#   docker compose -f docker-compose.yml -f docker-compose.packaged.yml up -d
+# It goes LAST: docker-compose.clickhouse.yml re-adds the ClickHouse init
+# mount, and only a later `!override` removes it again.
+services:
+  smokeping:
+    volumes: !override
+      - smokeping-data:/data
+      - smokeping-config:/config
+      - ${SMOKING_PI_OUTPUT_DIR:-./config-manager/output}:/config/generated:ro
+      # Edition-specific init scripts (config, not shared code): read once
+      # at container start, so a replaced tree cannot reach a running one.
+      - ./custom-cont-init.d:/custom-cont-init.d:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+  grafana:
+    volumes: !override
+      - grafana-data:/var/lib/grafana
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+  web-admin:
+    volumes: !override
+      - ${SMOKING_PI_CONFIG_DIR:-./config-manager/config}:/app/config
+      - reports:/reports:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+  postgres:
+    volumes: !override
+      - postgres-data:/var/lib/postgresql/data
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+  clickhouse:
+    # The init SQL never runs anyway (docs/clickhouse.md: Docker seeds the
+    # volume from the image first; the exporter creates the schema).
+    volumes: !override
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server

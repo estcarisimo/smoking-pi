@@ -11,6 +11,27 @@ version gets a matching GitHub release and git tag.
 
 ### Changed
 
+- **Packaged mode runs no source bind-mounts (packaging backlog #2).**
+  From a clone, seven directories of `shared/modules` are bind-mounted into
+  the Pro containers as development overlays — the exporters, three Grafana
+  provisioning trees, the web-admin `app` package, the PostgreSQL and
+  ClickHouse init SQL. For a package that would mean `apt upgrade` changing
+  code under running processes. Every one of them is already baked into its
+  image except the exporters, which now are (`COPY` into the smokeping
+  image from a `shared/` build context, like the four Python images).
+  `docker-compose.packaged.yml` (Pro; a one-service one for Standard)
+  replaces those services' volume lists without the code mounts, and
+  `SMOKING_PI_PACKAGED=1` — set by the package in `/etc/default/smoking-pi`
+  — makes the `smoking-pi` command, `setup.sh` and `manage-containers.sh`
+  add it, last, so it also wins over the ClickHouse overlay. Because a
+  Compose override can only replace a volume list, not remove one entry,
+  `packaging/check-packaged-override.py` renders both stacks with every
+  profile on and fails if the override drops or adds anything but the code
+  mounts; CI runs it for both editions. The doctor's `deployed-code-current`
+  now hashes `/exporters` in the smokeping container too, so a stale
+  smokeping image in packaged mode is reported like a stale alerter image.
+  From a clone nothing changes. `docs/packaging.md`, *Packaged mode*.
+
 - **Relocatable state (packaging backlog #1).** The YAML config-manager
   edits, the SmokePing config it generates and the `.env` with the secrets
   all lived inside the source tree — the first two *tracked in git*, so the

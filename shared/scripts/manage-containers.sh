@@ -207,6 +207,10 @@ check_docker_compose() {
     if [ -n "${SMOKING_PI_ENV_FILE:-}" ]; then
         COMPOSE="$COMPOSE --env-file $SMOKING_PI_ENV_FILE"
     fi
+    # Packaged mode: no source bind-mounts (docs/packaging.md, "Packaged mode").
+    if [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] && [ -f docker-compose.packaged.yml ]; then
+        COMPOSE="$COMPOSE -f docker-compose.yml -f docker-compose.packaged.yml"
+    fi
     
     if [ ! -f "docker-compose.yml" ]; then
         log_error "docker-compose.yml not found in current directory"

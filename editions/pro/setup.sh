@@ -107,11 +107,16 @@ fi
 # --env-file so a relocated env file is honored; with the default it is the
 # same .env Compose would have read on its own.
 if [ "$DATABASE" = "clickhouse" ]; then
-    COMPOSE_FILE=(--env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.clickhouse.yml)
+    COMPOSE_ARGS=(--env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.clickhouse.yml)
     echo -e "${BLUE}🗄️ Using ClickHouse as time-series database${NC}"
 else
-    COMPOSE_FILE=(--env-file "$ENV_FILE")
+    COMPOSE_ARGS=(--env-file "$ENV_FILE" -f docker-compose.yml)
     echo -e "${BLUE}🗄️ Using InfluxDB as time-series database${NC}"
+fi
+# Packaged mode: no source bind-mounts (docs/packaging.md, "Packaged mode").
+# Last, so its !override wins over the ClickHouse overlay.
+if [ "${SMOKING_PI_PACKAGED:-0}" = 1 ]; then
+    COMPOSE_ARGS+=(-f docker-compose.packaged.yml)
 fi
 
 # Start services
@@ -119,9 +124,9 @@ echo -e "${BLUE}🐳 Starting services...${NC}"
 cd "$SCRIPT_DIR"
 if [ "$DATABASE" = "clickhouse" ]; then
     # For ClickHouse, we need to use the profile and override files
-    COMPOSE_PROFILES=clickhouse docker compose "${COMPOSE_FILE[@]}" up -d
+    COMPOSE_PROFILES=clickhouse docker compose "${COMPOSE_ARGS[@]}" up -d
 else
-    COMPOSE_PROFILES=influxdb docker compose "${COMPOSE_FILE[@]}" up -d
+    COMPOSE_PROFILES=influxdb docker compose "${COMPOSE_ARGS[@]}" up -d
 fi
 
 # Wait for services to be ready
@@ -132,7 +137,7 @@ sleep 10
 echo -e "${BLUE}🗄️ Checking PostgreSQL readiness...${NC}"
 max_attempts=30
 attempt=0
-postgres_container=$(docker compose "${COMPOSE_FILE[@]}" ps -q postgres)
+postgres_container=$(docker compose "${COMPOSE_ARGS[@]}" ps -q postgres)
 
 while [ $attempt -lt $max_attempts ]; do
     if docker exec "$postgres_container" pg_isready -U smokeping -d smokeping_targets >/dev/null 2>&1; then
@@ -154,7 +159,7 @@ if [ "$DATABASE" = "influxdb" ]; then
     echo -e "${BLUE}🔄 Checking InfluxDB readiness...${NC}"
     max_attempts=30
     attempt=0
-    container_name=$(docker compose "${COMPOSE_FILE[@]}" ps -q influxdb)
+    container_name=$(docker compose "${COMPOSE_ARGS[@]}" ps -q influxdb)
     
     while [ $attempt -lt $max_attempts ]; do
         if docker exec "$container_name" influx ping 2>/dev/null; then
@@ -179,7 +184,7 @@ fi
 
 # Check service health
 echo -e "${BLUE}🔍 Checking service status...${NC}"
-docker compose "${COMPOSE_FILE[@]}" ps
+docker compose "${COMPOSE_ARGS[@]}" ps
 
 # Verify PostgreSQL connection
 echo -e "${BLUE}🔗 Verifying PostgreSQL connection...${NC}"
@@ -220,8 +225,8 @@ echo -e "  Run: ${YELLOW}./show-passwords.sh${NC} to display all credentials"
 echo -e "  Or check the env file directly: $ENV_FILE"
 echo ""
 echo -e "${CYAN}💡 Tips:${NC}"
-echo -e "  - View logs: docker compose ${COMPOSE_FILE[*]} logs"
-echo -e "  - Stop services: docker compose ${COMPOSE_FILE[*]} down"
+echo -e "  - View logs: docker compose ${COMPOSE_ARGS[*]} logs"
+echo -e "  - Stop services: docker compose ${COMPOSE_ARGS[*]} down"
 echo -e "  - View passwords: ./show-passwords.sh"
 echo -e "  - Verify PostgreSQL: ./verify-postgres.sh"
 echo -e "  - Access Grafana dashboards for advanced monitoring"

@@ -30,6 +30,10 @@ cat > "$PKG/etc/default/smoking-pi" <<'ENV'
 SMOKING_PI_ENV_FILE=/etc/smoking-pi/env
 SMOKING_PI_CONFIG_DIR=/etc/smoking-pi/config
 SMOKING_PI_OUTPUT_DIR=/var/lib/smoking-pi/output
+# No source bind-mounts: the containers run the code baked into their
+# images, so replacing /opt/smoking-pi cannot reach a running stack
+# (docker-compose.packaged.yml).
+SMOKING_PI_PACKAGED=1
 ENV
 SIZE=$(du -sk "$PKG" | cut -f1)
 cat > "$PKG/DEBIAN/control" <<CTL
