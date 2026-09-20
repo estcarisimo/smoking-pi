@@ -375,6 +375,8 @@ services:
       - REPORT_INTERVAL=${REPORT_INTERVAL:-86400}
       - AI_REPORTS_PER_DAY=${AI_REPORTS_PER_DAY:-8}
       - REPORTS_DIR=/reports
+      # The report reads CPE cuts against the same threshold as the alerter.
+      - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG:-smokeping}
@@ -454,8 +456,12 @@ services:
       # probe cycle. All of them at 100% for three cycles is uplink_down.
       - WIDESPREAD_PCT=${WIDESPREAD_PCT:-80}
       - WIDESPREAD_LOSS_PCT=${WIDESPREAD_LOSS_PCT:-30}
-      # Counts OBSERVED windows, so rescale it with CPE_PROBE_IDLE.
-      - MICROCUT_BURST_N=${MICROCUT_BURST_N:-2}
+      # microcut_burst fires on any confirmed cut (two consecutive windows
+      # above MICROCUT_LOSS_PCT, or one at 100%), or on this many isolated
+      # single windows in the hour (possible cuts). Windows are ~30 s apart;
+      # rescale the notion of "consecutive" (common/microcuts.py GAP_S) if
+      # CPE_PROBE_IDLE changes.
+      - MICROCUT_BURST_N=${MICROCUT_BURST_N:-3}
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
       - REPORT_MAX_CHARS=${REPORT_MAX_CHARS:-3500}
       # Message rendering: html (Telegram's default parse mode) | plain

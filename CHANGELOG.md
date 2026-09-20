@@ -11,6 +11,27 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Microcuts are cuts, not windows.** The other half of the detection
+  reliability work. On a gateway that rate-limits ICMP, 98% of the 10 s
+  CPE windows show some loss and the daily p90 sits at 14–22% with nothing
+  wrong — and `get_microcut_stats` counted "windows with any loss" and
+  always returned a top-5, so every answer for weeks said "strong
+  microcuts, worst 82%" about the floor's tail; the alerter's
+  `microcut_burst` counted windows above 50% and called two isolated ones
+  23 minutes apart a burst. Fourteen days of data held 17 isolated windows
+  and one real cut: six consecutive windows at 100%. One definition now
+  lives in `common/microcuts.py` and every consumer reads it: a cut is a
+  run of consecutive windows above `MICROCUT_LOSS_PCT`, confirmed with two
+  or more windows or a 100% window, possible when it is one isolated window
+  below that; the floor is reported as p50/p90 beside it. The tool returns
+  `cuts` with durations and zoomed links, the per-target floor, only cut
+  windows in `worst_windows`, and a note stating the floor when there were
+  no cuts; the alert says *"1 cut of 2 min 40 s (6 windows, all at 100%)"*
+  and fires on a confirmed cut or `MICROCUT_BURST_N` (now 3) possible ones;
+  the digest and the AI report carry the same fields. Verified against the
+  Pi's data before merging: over seven days, one 3 h 25 min total cut (the
+  hung radio), the 2 min 40 s cut, one possible cut.
+
 - **Downtime detection reports one event once.** After weeks of use the
   reference Pi's downtime alerts were mostly false in a specific way: one
   event with one cause reported once per target. The night its Wi-Fi radio

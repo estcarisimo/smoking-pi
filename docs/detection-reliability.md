@@ -189,11 +189,51 @@ Against that, what the two detectors do:
   worth one sentence with the p90, not a list.
 - A burst is several cuts in an hour, not several windows.
 
-### Status
+### What changed
 
-Investigated; fixes not started. Planned as its own change:
-`get_microcut_stats` to report `cut_windows` above the threshold instead of
-any loss, the day's floor (`p50`/`p90`), cuts folded into runs with
-durations, and `worst_windows` only above the threshold (empty, with the
-floor stated, when there were none); `microcut_burst` to count runs rather
-than windows; the OpenClaw skill's *Reading the numbers* to match.
+One definition, in `shared/modules/common/microcuts.py`, read by every
+consumer: a **cut window** is above `MICROCUT_LOSS_PCT` (50%); a **cut** is
+a run of cut windows with at most one missing window between them (30 s
+cadence, `GAP_S` = 70), its duration first-to-last plus the window; it is
+**confirmed** with two or more windows or a 100% window, otherwise
+**possible**. The **floor** is the window-loss p50 / p90.
+
+- `get_microcut_stats` returns `cuts` (newest first, each with `start`,
+  `seconds`, `windows`, `max_loss_pct`, `total`, `confirmed`, and a link
+  zoomed to its moment), per-target `windows` / `cut_windows` /
+  `confirmed_cuts` / `possible_cuts` / `p50_loss_pct` / `p90_loss_pct`, the
+  five worst **cut** windows, and — when there were none — a `note` that
+  states the floor and says it is rate limiting, not a fault.
+  `lossy_windows` (any loss) is gone.
+- The alerter's `microcut_burst` folds the hour's cut windows the same way
+  and fires on any confirmed cut or on `MICROCUT_BURST_N` (now 3, was 2
+  windows) possible ones. Its message names the cut: *"1 cut of 2 min 40 s
+  (6 windows, all at 100%)"*. The verdict's "first hop cutting" signal
+  applies the same bar.
+- The digest's and the AI report's CPE summary (`common.aggregates`) carry
+  the same fields; the report template explains the floor before listing
+  cuts.
+- The OpenClaw skill's *Reading the numbers* describes cuts, possible cuts
+  and the floor in those words.
+
+### Replayed against the evidence
+
+| Evidence | Before | After |
+|---|---|---|
+| a quiet day (max window 44%) | five `worst_windows` at 31–44%, *"worst microcut 44%"* | no cuts; `note`: *"no microcuts; the floor sat at p50 10% / p90 18%; rate limiting, not a fault"* |
+| 2026-09-19 00:42–00:45, six windows at 100% | *"6 windows over 50% (microcut burst)"*, six worst windows | one confirmed cut of 2 min 40 s, all at 100% |
+| 2026-09-07 10:17 + 10:40, two isolated windows at 52% and 62% | a `microcut_burst` warning | two possible cuts, no alert; three in an hour would alert |
+| the 2026-09-20 hang, live over 7 days | — | one confirmed cut of 3 h 25 min (411 windows, total), the Sep 19 cut, one possible cut (Sep 15, 52%); floor p50 10% / p90 16% |
+
+The last row is the tool run against the Pi's InfluxDB before the change
+was merged; the others are tests that replay the rows
+(`mcp-server/tests/test_tools.py`, `alerter/tests/test_evaluator.py`,
+`test_verdict.py`, `ai-insights/tests/test_collector.py`).
+
+### Microcut backlog
+
+1. The web-admin assistant keeps its own copy of `get_microcut_stats`
+   (`web-admin/app/services/ai_tools.py`) and cannot import `common`; it
+   still counts any loss. Mirror when the web-admin AI is next touched.
+2. `GAP_S` and the 30 s cadence are constants; if `CPE_PROBE_IDLE` is
+   changed they must follow by hand.

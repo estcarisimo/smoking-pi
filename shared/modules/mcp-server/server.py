@@ -29,7 +29,7 @@ except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
 import backends
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
-from common import charts, mutes, openclaw
+from common import charts, microcuts, mutes, openclaw
 
 # Framing for the connecting client. Without it an agent that also has shell
 # access will answer "how is my internet?" by running ping/curl itself, which
@@ -1009,48 +1009,53 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
 @mcp.tool()
 @logged_tool
 def get_microcut_stats(hours: int = 24) -> dict:
-    """Summarize CPE microcut activity (brief loss spikes on the local link).
+    """Summarize CPE microcuts: brief cuts on the local link, and the floor
+    they stand on.
 
-    Reads the high-frequency `cpe_latency` measurement (fields in ms, loss
-    as a 0-100 percentage, tagged by target and protocol) and returns, per
-    target+protocol:
-      - lossy_windows: number of measurement windows with any loss (>0%)
-      - max_loss_pct: worst loss percentage seen
-      - median_jitter_ms: median jitter in milliseconds
-    plus the 5 worst individual windows as {time, target, protocol, loss_pct}.
+    Reads the high-frequency `cpe_latency` measurement (10 s windows at 5
+    pps, one every ~30 s; loss as a 0-100 percentage, tagged by target and
+    protocol). A window counts as a CUT WINDOW only above `cut_loss_pct`
+    (MICROCUT_LOSS_PCT, default 50): home gateways rate-limit ICMP, so
+    nearly every window shows some loss and the floor is not a fault.
+
+    Returns:
+      - `cuts`: runs of cut windows folded into one each, newest first, with
+        `start`, `seconds`, `windows`, `max_loss_pct`, `total` (every window
+        lost everything) and `confirmed` — two or more windows, or a 100%
+        window. A single window at 51-99% is `confirmed: false`: a possible
+        cut, five seconds of nothing, not a pattern on its own. Each carries a
+        `graph` link zoomed to its moment when links are configured.
+      - `stats` per target+protocol: `windows` sampled, `cut_windows`,
+        `confirmed_cuts`, `possible_cuts`, the floor as `p50_loss_pct` /
+        `p90_loss_pct`, `max_loss_pct`, `median_jitter_ms`.
+      - `worst_windows`: the five worst CUT windows; empty when there were
+        none, and then `note` states the floor instead.
 
     Args:
         hours: Lookback window in hours (default 24).
 
-    Sampled every 10 seconds, which is fine-grained enough to catch dropouts
-    far too brief for a ping run to notice — that is the point of this tool.
     Use it for "were there microcuts last night?", "is the CPE link
     flapping?", and for explaining call/game stutters that leave no trace in
-    the 300-second target data.
-
-    Home gateways rate-limit ICMP, so a constant single-digit loss floor here
-    is normal and not a fault; look for windows far above that floor.
+    the 300-second target data. Report the floor as the floor ("the gateway
+    sat at p90 18%"), confirmed cuts with their duration, and possible cuts
+    as possible; never a top-5 as if it were five events.
     """
     hours, err = _validate_hours(hours)
     if err:
         return {"error": err}
 
+    threshold = microcuts.loss_pct()
     base = _base_flux(["cpe_latency"], hours)
     group = '|> group(columns: ["target", "protocol"]) '
     loss = '|> filter(fn: (r) => r._field == "loss") '
-    lossy_count_flux = (
-        base + loss + "|> filter(fn: (r) => r._value > 0.0) " + group + "|> count()"
-    )
+    windows_flux = base + loss + group + "|> count()"
+    p50_flux = base + loss + group + "|> quantile(q: 0.5)"
+    p90_flux = base + loss + group + "|> quantile(q: 0.9)"
     max_loss_flux = base + loss + group + "|> max()"
     median_jitter_flux = (
         base + '|> filter(fn: (r) => r._field == "jitter") ' + group + "|> median()"
     )
-    worst_flux = (
-        base + loss
-        + "|> group() "
-        + '|> sort(columns: ["_value"], desc: true) '
-        + "|> limit(n: 5)"
-    )
+    cut_windows_flux = microcuts.cut_windows_flux(f"-{hours}h", threshold)
 
     stats: dict[tuple, dict] = {}
 
@@ -1063,48 +1068,84 @@ def get_microcut_stats(hours: int = 24) -> dict:
             entry = stats.setdefault(k, {"target": k[0], "protocol": k[1]})
             entry[key] = cast(value)
 
+    def _pct(v: Any) -> float:
+        return round(float(v), 2)
+
     try:
-        _merge(query_influx(lossy_count_flux), "lossy_windows", int)
-        _merge(query_influx(max_loss_flux), "max_loss_pct",
-               lambda v: round(float(v), 2))
+        _merge(query_influx(windows_flux), "windows", int)
+        _merge(query_influx(p50_flux), "p50_loss_pct", _pct)
+        _merge(query_influx(p90_flux), "p90_loss_pct", _pct)
+        _merge(query_influx(max_loss_flux), "max_loss_pct", _pct)
         _merge(query_influx(median_jitter_flux), "median_jitter_ms",
                lambda v: round(float(v), 3))
-        worst_rows = query_influx(worst_flux)
+        cut_rows = query_influx(cut_windows_flux)
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
 
+    cuts = microcuts.fold_cuts(cut_rows)
     for entry in stats.values():
-        entry.setdefault("lossy_windows", 0)
+        entry.setdefault("windows", 0)
+        own = [c for c in cuts
+               if c["target"] == entry["target"] and c["protocol"] == entry["protocol"]]
+        entry["cut_windows"] = sum(c["windows"] for c in own)
+        entry["confirmed_cuts"] = sum(1 for c in own if c["confirmed"])
+        entry["possible_cuts"] = sum(1 for c in own if not c["confirmed"])
         entry_links = links.target_links(
             entry.get("target"), measurement="cpe_latency", hours=hours
         )
         if entry_links:
             entry["links"] = entry_links
 
+    for cut in cuts:
+        # Each cut gets a link zoomed to its own moment -- the whole value of
+        # a microcut report is being able to look at the one that mattered.
+        cut_links = links.target_links(
+            cut["target"], measurement="cpe_latency",
+            at=datetime.fromtimestamp(cut.pop("start_epoch"), tz=timezone.utc),
+        )
+        if cut_links.get("graph"):
+            cut["graph"] = cut_links["graph"]
+    cuts.reverse()
+
     worst_windows = []
-    for row in worst_rows:
+    for row in sorted(cut_rows, key=lambda r: float(r.get("_value") or 0.0),
+                      reverse=True)[:5]:
         window = {
             "time": _iso(row.get("_time")),
             "target": row.get("target"),
             "protocol": row.get("protocol"),
             "loss_pct": round(float(row.get("_value", 0.0)), 2),
         }
-        # Only five of these, so each gets a link zoomed to its own moment --
-        # which is the whole value of a microcut report.
         window_links = links.target_links(
             window["target"], measurement="cpe_latency", at=row.get("_time")
         )
         if window_links.get("graph"):
             window["graph"] = window_links["graph"]
         worst_windows.append(window)
-    return {
+
+    result = {
         "window_hours": hours,
+        "cut_loss_pct": threshold,
+        "cuts": cuts,
+        "truncated": len(cut_rows) >= microcuts.MAX_ROWS,
         "stats": sorted(
             stats.values(),
             key=lambda e: (e.get("target") or "", e.get("protocol") or ""),
         ),
         "worst_windows": worst_windows,
     }
+    if not cuts and stats:
+        floor = ", ".join(
+            f"{e['target']}/{e['protocol']} p50 {e.get('p50_loss_pct', 0):g}% / "
+            f"p90 {e.get('p90_loss_pct', 0):g}%"
+            for e in result["stats"]
+        )
+        result["note"] = (
+            f"No window exceeded {threshold:g}% loss in the last {hours}h: no "
+            f"microcuts. The gateway's ICMP floor sat at {floor}; that is "
+            "rate limiting, not a fault."
+        )
+    return result
 
 
 def _wifi_last_flux(interface: str | None, minutes: int = 10) -> str:

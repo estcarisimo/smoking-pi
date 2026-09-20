@@ -67,8 +67,12 @@ deployment-independent and should be left alone.
   duration. The default threshold is 15%: two or more lost pings; the
   single-ping points below it are counted in `background_points` and are
   not events.
-- `get_microcut_stats(hours)` — sub-second CPE dropouts, sampled far more
-  finely than the 5-minute target probes.
+- `get_microcut_stats(hours)` — brief cuts on the local link, from 10 s
+  windows sampled every 30 s. Read `cuts` (each with its duration and
+  `confirmed`/possible) and the per-target floor (`p50_loss_pct`,
+  `p90_loss_pct`); `worst_windows` holds only windows above the cut
+  threshold, and when there are none the `note` states the floor. Never
+  turn a top-5 into five events.
 - `get_wifi_stats(hours)` — the Pi's own Wi-Fi uplink, when it has one:
   current SSID/channel/signal/bitrate, and over the window the signal range,
   the share of weak samples, disconnects, roams and failures. `present:
@@ -155,10 +159,16 @@ until a reboot). Report it as *this host's uplink*, give the start and the
 duration, and do not list the targets it took with it as if each had failed.
 
 **The CPE has a permanent ICMP loss floor.** Home gateways rate-limit ICMP
-replies, so the CPE shows steady single-digit loss with nothing wrong. On this
-deployment the floor sits near 10% (p99 ≈ 30%). Only treat a CPE window as a
-real cut when loss is far above that — roughly 50%+. *(Tunable #2 — these
-three numbers are this gateway's, not a universal constant.)*
+replies, so the CPE shows steady loss with nothing wrong. On this deployment
+the floor sits near 10% (p90 ≈ 16–22% by day, single windows up to ~45%).
+`get_microcut_stats` already applies the cut threshold (50%): a **confirmed
+cut** is two or more consecutive windows above it, or one window at 100% —
+say its duration ("a 2 min 40 s cut at 00:42"); a **possible cut** is one
+isolated window at 51–99% — say "one possible cut", never "strong
+microcuts"; everything below the threshold is the floor, and a day with a
+high p90 is "the gateway had a bad day (p90 22%)", one sentence, not a list.
+*(Tunable #2 — the floor numbers are this gateway's, not a universal
+constant; the threshold is `MICROCUT_LOSS_PCT`.)*
 
 **Wi-Fi signal is in dBm and negative; closer to zero is stronger.** Above
 −60 is excellent, down to −67 comfortable, down to −75 marginal, below −75

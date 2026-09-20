@@ -9,10 +9,11 @@ previously discarded:
 
 - ``mean_rows``  -- mean clamped loss per target over 15m, for EVERY target.
   This is the breadth signal: how much of the internet looks broken.
-- ``micro_rows`` -- count of cpe_latency windows above MICROCUT_LOSS_PCT.
-  This is the local-link signal, and it is floor-safe by construction: the
-  CPE rate-limits ICMP, giving a constant p50 10% / p99 30% loss floor that
-  a 50% threshold cannot see. Never read raw CPE loss here.
+- ``micro_rows`` -- per CPE target, the hour's cut windows folded into
+  confirmed and possible cuts (evaluator.microcut_rows). This is the
+  local-link signal, and it is floor-safe by construction: the CPE
+  rate-limits ICMP, giving a constant p50 10% / p90 ~20% loss floor that a
+  50% threshold cannot see. Never read raw CPE loss here.
 - ``stale_rows`` -- exporter liveness, via the incident list.
 
 The ordering below is a precedence, not a scoring function: the first scope
@@ -26,7 +27,7 @@ from __future__ import annotations
 import logging
 import os
 
-from evaluator import _is_ipv6_target
+from evaluator import DEFAULT_MICROCUT_BURST_N, _is_ipv6_target
 
 log = logging.getLogger("alerter.verdict")
 
@@ -104,13 +105,22 @@ def _chronic(target: str, ratio: float, records: dict, now: float,
 
 
 def _cpe_cutting(micro_rows: list[dict], burst_n: int) -> list[str]:
-    """CPE target/protocol pairs showing a burst of real microcuts."""
+    """CPE target/protocol pairs with a confirmed cut, or MICROCUT_BURST_N
+    possible ones, in the hour -- the same bar as rule_microcut_burst.
+
+    Rows carry ``cuts`` / ``possible`` (evaluator.microcut_rows); a row
+    without them is the older count-of-windows shape and is read as such.
+    """
     cutting = []
     for row in micro_rows:
-        value = row.get("_value")
-        if value is None:
-            continue
-        if int(value) >= burst_n:
+        if "cuts" in row:
+            hit = int(row.get("cuts") or 0) >= 1 or int(row.get("possible") or 0) >= burst_n
+        else:
+            value = row.get("_value")
+            if value is None:
+                continue
+            hit = int(value) >= burst_n
+        if hit:
             target = row.get("target") or "?"
             cutting.append(f"{target}/{row.get('protocol') or '?'}")
     return sorted(cutting)
@@ -180,7 +190,7 @@ def classify(
     stale_hours = _env_float(
         "VERDICT_STALE_DOWN_HOURS", DEFAULT_STALE_DOWN_HOURS
     )
-    burst_n = _env_int("MICROCUT_BURST_N", 2)
+    burst_n = _env_int("MICROCUT_BURST_N", DEFAULT_MICROCUT_BURST_N)
     weak_samples = _env_int("WIFI_WEAK_SAMPLES", DEFAULT_WIFI_WEAK_SAMPLES)
 
     means = _mean_by_target(mean_rows)

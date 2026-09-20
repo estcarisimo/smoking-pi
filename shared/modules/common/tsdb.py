@@ -6,8 +6,9 @@ Reads the measurements the exporters write:
   (ratio 0-1; legacy points may be packet counts 0..20 -- clamp!), tagged by
   ``target`` / ``category``. Written roughly every 60s per target.
 - ``cpe_latency``: ``median``/``min``/``max``/``jitter`` in milliseconds and
-  ``loss`` as a PERCENT 0-100, tagged by ``target`` / ``protocol``. Written
-  roughly every 10s per target+protocol.
+  ``loss`` as a PERCENT 0-100, tagged by ``target`` / ``protocol``. One 10 s
+  window every ~30 s per target+protocol; what counts as a microcut lives in
+  ``common.microcuts``.
 - ``wifi_link``: the host's own wireless uplink, tagged ``interface`` and,
   while associated, ``ssid`` / ``bssid``. Levels in dBm (``signal_dbm``,
   ``noise_dbm`` when the driver reports it), PHY rates in Mbit/s

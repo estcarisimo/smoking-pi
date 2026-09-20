@@ -19,8 +19,13 @@ def _mean(target, ratio, category=None):
     return {"target": target, "_value": ratio, "category": category}
 
 
-def _micro(target, protocol, count):
-    return {"target": target, "protocol": protocol, "_value": count}
+def _micro(target, protocol, count, cuts=None, possible=0):
+    """A folded microcut row (evaluator.microcut_rows); ``cuts=None`` gives
+    the older count-of-windows shape, which the verdict still reads."""
+    row = {"target": target, "protocol": protocol, "_value": count}
+    if cuts is not None:
+        row["cuts"], row["possible"] = cuts, possible
+    return row
 
 
 @pytest.fixture(autouse=True)
@@ -381,3 +386,31 @@ def test_without_the_uplink_incident_a_total_loss_is_still_the_local_link():
     rows = [_mean(f"t{i}", 1.0) for i in range(10)]
     call = verdict.classify([], rows, [_micro("CPE", "ipv4", 99)])
     assert call["scope"] == "local_link"
+
+
+# ---------------------------------------------------------------------------
+# The local-link signal reads cuts, not windows
+# ---------------------------------------------------------------------------
+
+
+def test_two_isolated_windows_are_not_a_cutting_first_hop():
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 2, cuts=0, possible=2)])
+    assert call["scope"] == "isp_upstream"
+    assert call["cpe_cutting"] == []
+
+
+def test_one_confirmed_cut_is_a_cutting_first_hop():
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 6, cuts=1, possible=0)])
+    assert call["scope"] == "local_link"
+    assert call["cpe_cutting"] == ["CPE/ipv4"]
+
+
+def test_enough_possible_cuts_count_and_the_bar_is_env_tunable(monkeypatch):
+    rows = [_mean(f"t{i}", 0.5) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 3, cuts=0, possible=3)])
+    assert call["scope"] == "local_link"
+    monkeypatch.setenv("MICROCUT_BURST_N", "5")
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 3, cuts=0, possible=3)])
+    assert call["scope"] == "isp_upstream"
