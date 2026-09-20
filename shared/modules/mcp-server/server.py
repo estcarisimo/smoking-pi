@@ -809,7 +809,9 @@ def _widespread_runs(events: list[dict], reporting: dict[int, int]) -> list[dict
             lost_steps = sum(
                 1 for s in run if sum(by_step[s].values()) >= needed(s)
             )
-            all_lost = lost_steps >= max(1, len(run) - 2)
+            all_lost = (
+                lost_steps >= len(run) - 2 if len(run) > 2 else lost_steps == len(run)
+            )
             uplink = all_lost and lost_steps >= UPLINK_MIN_STEPS
             runs.append(
                 {
@@ -970,7 +972,10 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
         epoch = _epoch(row.get("_time"))
         if epoch is None or row.get("_value") is None:
             continue
-        reporting[int(epoch // STEP_S) * STEP_S] = int(row["_value"])
+        # max, not overwrite: if jitter ever splits one cycle over two
+        # _time values, the larger count is the cycle's.
+        step = int(epoch // STEP_S) * STEP_S
+        reporting[step] = max(reporting.get(step, 0), int(row["_value"]))
     background = 0
     for row in background_rows:
         if row.get("_value") is not None:

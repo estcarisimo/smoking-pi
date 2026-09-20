@@ -983,3 +983,37 @@ def test_loss_events_a_cut_with_partial_edge_cycles_is_still_total_loss(monkeypa
     assert run["all_lost"] is True
     assert "this host's uplink" in run["cause"]
     assert "for 4 cycles" in run["cause"]
+
+
+def test_loss_events_a_two_cycle_run_has_no_interior_to_excuse(monkeypatch, no_api):
+    # Review of #76: with two steps both are edges; one total-loss cycle
+    # out of two is not "every packet lost".
+    per_target = {t: [0.0, 1.0, 0.5, 0.0] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    run = server.get_loss_events(hours=24)["widespread"][0]
+    assert run["minutes"] == 10 and run["all_lost"] is False
+    per_target = {t: [0.0, 1.0, 1.0, 0.0] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    assert server.get_loss_events(hours=24)["widespread"][0]["all_lost"] is True
+
+
+def test_loss_events_reporting_takes_the_larger_count_when_a_cycle_splits(monkeypatch, no_api):
+    per_target = {t: [1.0, 1.0, 1.0, 1.0] for t in _TEN}
+    events = _rows(per_target)
+
+    def fake(flux):
+        if "distinct(" in flux:
+            rows = []
+            for i in range(4):
+                t = _T0 + timedelta(seconds=300 * i)
+                rows.append({"_time": t, "_value": 10})
+                rows.append({"_time": t + timedelta(seconds=7), "_value": 1})  # jittered straggler
+            return rows
+        if "r._value > 0.0 and" in flux:
+            return [{"_value": 0}]
+        return events
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_loss_events(hours=24)
+    assert result["targets_reporting"] == 10
+    assert len(result["widespread"]) == 1
