@@ -95,6 +95,34 @@ Then bump `shared/modules/grafana/Dockerfile`, rebuild, and check
 `docker compose logs grafana` for `migrations completed` before assuming it
 worked.
 
+## Pulling past v2.11 on a host that runs the stack
+
+Since the relocatable-state change (after v2.11.0, `docs/packaging.md`),
+`editions/<edition>/config-manager/{config,output}` are no longer tracked.
+The commit that untracked them *deletes* them from any working tree that
+still has them tracked — so on a host running the stack, `git pull` past
+that commit removes `targets.yaml`, `probes.yaml`, `sources.yaml`, `Targets`
+and `Probes` from the host directories the containers have mounted. This
+happened on the reference Pi.
+
+Nothing is lost: PostgreSQL is the source of truth and SmokePing keeps its
+loaded configuration until it is told to reload. Recreate config-manager:
+
+```bash
+cd editions/pro && docker compose up -d config-manager
+```
+
+On start it re-seeds the three YAML files from its `templates/` (the
+mechanism that has always recovered a missing file), runs the idempotent
+migration (marker present — nothing is re-imported), regenerates `Targets`
+and `Probes` from the database and signals SmokePing. Check with
+`python -m doctor --repo-root . --live`. Any local edits that lived only in
+the YAML (not in the database) are gone; the YAML is import/export, and
+the database has had every target since Sprint 3.
+
+From then on the directories are ignored by git and `git pull` leaves them
+alone.
+
 ## Verifying any upgrade
 
 `doctor --live` is the check that the thing you built is the thing that is

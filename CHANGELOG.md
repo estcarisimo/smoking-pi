@@ -33,6 +33,10 @@ version gets a matching GitHub release and git tag.
   `/var/lib/smoking-pi/output`) in `/etc/default/smoking-pi` and creates the
   directories; CI renders both compose files with that layout and fails if
   a mount is hardcoded again. `docs/packaging.md`, *Relocatable state*.
+  **Upgrading a running host:** `git pull` past this change deletes the
+  now-untracked files from the working tree; recreate config-manager and
+  it regenerates everything from the database — `docs/upgrades.md`,
+  *Pulling past v2.11*.
 
 ## [2.11.0] — 2026-09-20
 
