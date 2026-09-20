@@ -825,7 +825,7 @@ def _loss_fake(per_target, background=0, targets=None):
     total = len(targets if targets is not None else per_target)
 
     def fake(flux):
-        if "count(column" in flux:
+        if "distinct(" in flux:
             return [{"_value": total}]
         if "r._value > 0.0 and" in flux:
             return [{"_value": background}]
@@ -838,6 +838,10 @@ def test_loss_events_default_threshold_skips_single_lost_pings(monkeypatch, no_a
     result = server.get_loss_events(hours=24)
     assert result["min_loss_pct"] == 15.0
     assert "r._value >= 0.15" in captured[0]
+    # The denominator query must put its count in _value, where it is read:
+    # distinct() does; count(column: "target") does not (seen live).
+    assert 'distinct(column: "target") |> count()' in captured[2]
+    assert "count(column" not in captured[2]
     # The excluded background is counted, not hidden.
     assert "r._value > 0.0 and r._value < 0.15" in captured[1]
     assert result["background_points"] == 143
