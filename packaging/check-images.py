@@ -42,7 +42,10 @@ def render(edition: Path, env_file: str | None) -> dict:
     for f in files:
         cmd += ["-f", f]
     cmd += ["config", "--format", "json"]
-    # The developer's shell must not decide the defaults under test.
+    # The developer's shell must not decide the defaults under test. (The
+    # edition's own .env still applies -- Compose reads it regardless -- so a
+    # local .env carrying SMOKING_PI_VERSION would show up here as a
+    # "default tag" problem; none of the templates declare it.)
     env = {k: v for k, v in os.environ.items() if not k.startswith("SMOKING_PI_")}
     env["COMPOSE_PROFILES"] = ALL_PROFILES
     out = subprocess.run(
@@ -60,6 +63,8 @@ def module_of(build: dict | str, edition: Path) -> str:
         dockerfile = build.get("dockerfile", "Dockerfile")
     path = (edition / context / dockerfile).resolve()
     parts = path.parts
+    if "modules" not in parts:
+        raise ValueError(f"{path} is not under shared/modules")
     idx = len(parts) - 1 - parts[::-1].index("modules")
     return parts[idx + 1]
 
@@ -92,7 +97,11 @@ def main() -> int:
         for svc, spec in config.get("services", {}).items():
             if "build" not in spec:
                 continue
-            module = module_of(spec["build"], edition)
+            try:
+                module = module_of(spec["build"], edition)
+            except ValueError as exc:
+                problems.append(f"{name}/{svc}: {exc}")
+                continue
             built.add(module)
             checked += 1
             image = spec.get("image", "")

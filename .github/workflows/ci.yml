@@ -12,9 +12,10 @@ on:
   pull_request:
 
 # Least privilege for GITHUB_TOKEN. Nothing here writes to the repository:
-# lint, tests, compose config and the doctor all only read the checkout. Without this the token defaults to the repository's setting,
-# which on older repos is read-write -- and a compromised action step could
-# push. (CodeQL: actions/missing-workflow-permissions.)
+# lint, tests, compose config and the doctor all only read the checkout.
+# Without this the token defaults to the repository's setting, which on older
+# repos is read-write -- and a compromised action step could push. (CodeQL:
+# actions/missing-workflow-permissions.)
 permissions:
   contents: read
 

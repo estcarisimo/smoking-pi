@@ -172,18 +172,18 @@ jobs:
         run: |
           set -e
           [ "$(ls | wc -l)" = 2 ] || { echo "expected two digests (amd64, arm64), found: $(ls)"; exit 1; }
-          image="$IMAGE"
           tag_args=""
-          for t in $TAGS; do tag_args="$tag_args -t $image:$t"; done
-          # shellcheck disable=SC2046
-          docker buildx imagetools create $tag_args $(printf "$image@sha256:%s " *)
+          for t in $TAGS; do tag_args="$tag_args -t $IMAGE:$t"; done
+          refs=""
+          for f in *; do refs="$refs $IMAGE@sha256:$f"; done
+          # shellcheck disable=SC2086
+          docker buildx imagetools create $tag_args $refs
       - name: Both platforms are in the published manifest
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ matrix.service }}:${{ needs.version.outputs.version }}
         run: |
           set -e
-          image="$IMAGE"
-          out=$(docker buildx imagetools inspect "$image")
+          out=$(docker buildx imagetools inspect "$IMAGE")
           echo "$out"
           echo "$out" | grep -q 'linux/amd64' || { echo "amd64 missing"; exit 1; }
           echo "$out" | grep -q 'linux/arm64' || { echo "arm64 missing"; exit 1; }
