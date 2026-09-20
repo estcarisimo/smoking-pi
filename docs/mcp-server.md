@@ -20,7 +20,7 @@ Source: `shared/modules/mcp-server/`.
 | `apply_config()` | Regenerate SmokePing config + restart the service |
 | `system_status()` | Health of config-manager, database, SmokePing container; a `wifi` block (SSID, signal, bitrate, `uplink_is_wifi`) when the host is on Wi-Fi |
 | `get_latency_stats(target, hours)` | Median/p95 latency (ms) and mean loss % per target |
-| `get_loss_events(hours, min_loss_pct)` | Windows where packet loss exceeded a threshold, plus a per-target rollup |
+| `get_loss_events(hours, min_loss_pct)` | Packet loss in the window and its shape: `widespread` runs (most targets lossy at once, with a `cause` — this host's uplink when every target lost every packet for three cycles or more, a brief cut of the link otherwise), per-target `episodes` (consecutive points folded into one, with duration), the per-target rollup and the raw points. Default threshold 15%: two or more lost pings; the single-ping background is counted in `background_points`, not listed — see [detection-reliability.md](detection-reliability.md) |
 | `get_microcut_stats(hours)` | CPE microcut summary per target+protocol, plus worst 5 windows |
 | `get_wifi_stats(hours, interface)` | The host's own Wi-Fi uplink: current association and signal/bitrate, the window's signal range, weak share, disconnects, roams, failures and peak throughput, worst 5 samples with zoomed links; `present: false` on a wired host — see [wifi.md](wifi.md) |
 | `get_chart(target, hours, with_peers, deliver)` | **On request only:** a PNG of one target's latency (median + spread of individual pings) over its loss — see [On-request charts](#on-request-charts) |

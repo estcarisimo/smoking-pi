@@ -11,6 +11,27 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Downtime detection reports one event once.** After weeks of use the
+  reference Pi's downtime alerts were mostly false in a specific way: one
+  event with one cause reported once per target. The night its Wi-Fi radio
+  hung (associated at −49 dBm, zero packets received for 3 h 20 min) the
+  alerter sent 18 `target_down` criticals and 18 `high_loss` warnings, each
+  re-sent every cooldown — about 110 messages — with a verdict of "local
+  link cutting out"; a three-minute blink on 2026-09-19 produced 18
+  warnings and 18 recoveries; and the assistant's `get_loss_events` listed
+  every single lost ping (60–300 a day across every target) as an event.
+  Now: a loss that hits most targets in the same probe cycle is ONE
+  incident — `uplink_down` (critical) while every target sits at 100%,
+  named as a hung radio when the Wi-Fi counters show one; `outage`
+  (warning, no recovery) for a brief cut that already ended — and the
+  per-target incidents it would fan out into are not sent. `high_loss`
+  needs the loss to persist for two cycles. `get_loss_events` defaults to
+  15% (two or more lost pings), counts the single-ping background instead
+  of listing it, folds consecutive points into `episodes` with durations,
+  and reports `widespread` runs with their cause. The evidence, the numbers
+  behind every threshold, and the microcut half of the investigation
+  (found, not yet fixed) are in `docs/detection-reliability.md`.
+
 - **A documentation site.** Thirteen guides lived under `docs/` and three
   more under `shared/docs/`, reachable only by knowing the path, with
   cross-links nobody checked. `mkdocs.yml` now builds them into a site at

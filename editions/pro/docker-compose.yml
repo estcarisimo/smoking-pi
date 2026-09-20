@@ -446,6 +446,14 @@ services:
       - DOWN_WINDOW=${DOWN_WINDOW:-1200}
       - STALE_WINDOW=${STALE_WINDOW:-1200}
       - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
+      # high_loss must PERSIST: this many probe cycles above 15% loss in the
+      # window, not one bad cycle averaged over the threshold.
+      - HIGH_LOSS_MIN_POINTS=${HIGH_LOSS_MIN_POINTS:-2}
+      # Widespread loss (one incident instead of one per target): the share
+      # of reporting targets that must lose WIDESPREAD_LOSS_PCT in the same
+      # probe cycle. All of them at 100% for three cycles is uplink_down.
+      - WIDESPREAD_PCT=${WIDESPREAD_PCT:-80}
+      - WIDESPREAD_LOSS_PCT=${WIDESPREAD_LOSS_PCT:-30}
       # Counts OBSERVED windows, so rescale it with CPE_PROBE_IDLE.
       - MICROCUT_BURST_N=${MICROCUT_BURST_N:-2}
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}

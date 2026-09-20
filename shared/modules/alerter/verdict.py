@@ -121,16 +121,18 @@ def _wifi_state(wifi_rows: dict | None, weak_samples: int) -> dict | None:
     or None when the host has no wifi_link data.
 
     ``signal`` rows carry ``n``/``weak``/``min`` per interface (a Flux
-    reduce), ``drops`` rows the hour's increase of carrier_down_count, and
+    reduce), ``drops`` rows the hour's increase of carrier_down_count,
     ``uplink`` rows the last uplink flag -- the interface that carries the
     default route is the one that matters; a spare radio's weak signal is
-    not the connection's problem.
+    not the connection's problem -- and ``rx`` rows the packets received over
+    the down window, absent when the collector predates that field.
     """
     if not wifi_rows:
         return None
     signal = {r.get("interface"): r for r in wifi_rows.get("signal") or [] if r.get("interface")}
     drops = {r.get("interface"): r.get("_value") for r in wifi_rows.get("drops") or []}
     uplinks = {r.get("interface"): r.get("_value") for r in wifi_rows.get("uplink") or []}
+    rx = {r.get("interface"): r.get("_value") for r in wifi_rows.get("rx") or []}
     candidates = set(signal) | set(drops) | set(uplinks)
     if not candidates:
         return None
@@ -146,6 +148,7 @@ def _wifi_state(wifi_rows: dict | None, weak_samples: int) -> dict | None:
         "weak_samples": weak,
         "min_dbm": float(row["min"]) if n and row.get("min") is not None else None,
         "disconnects": int(drops.get(iface) or 0),
+        "rx_packets": int(rx[iface]) if rx.get(iface) is not None else None,
     }
     state["degraded"] = bool(uplink) and (weak >= weak_samples or state["disconnects"] > 0)
     return state
@@ -236,6 +239,15 @@ def classify(
             "so treat everything below as unknown.",
         )
 
+    # 1b. This host's uplink. Every destination including the first hop is
+    #     unreachable from here, so the internet is not what we are looking
+    #     at: the radio, the cable, the association. Named as precisely as
+    #     wifi_link allows -- a hung radio reports a healthy link and
+    #     receives nothing, which is the one shape a person cannot see from
+    #     the router's lights.
+    if any(i.get("rule") == "uplink_down" for i in incidents):
+        return _out("monitor_uplink", _uplink_line(wifi))
+
     if total == 0:
         return _out("unclear", "No comparable measurements in the last 15m.")
 
@@ -317,6 +329,31 @@ def classify(
         "unclear",
         f"{affected} of {total} destinations affected — not a clear pattern.",
     )
+
+
+def _uplink_line(wifi: dict | None) -> str:
+    """The monitor_uplink verdict, specific to what the Wi-Fi hour shows."""
+    tail = ("every destination including the first hop is unreachable from "
+            "this host, so nothing beyond it can be judged.")
+    if not wifi or not wifi.get("uplink"):
+        return f"This host's uplink — {tail}"
+    iface = wifi["interface"]
+    if wifi.get("rx_packets") == 0 and wifi.get("samples"):
+        dbm = (f" at {wifi['min_dbm']:.0f} dBm" if wifi.get("min_dbm") is not None
+               else "")
+        return (
+            f"This host's Wi-Fi ({iface}) — still associated{dbm} but it has "
+            "received nothing for the whole window: the radio is hung, not the "
+            "network. Reconnect the interface or reboot, and turn off Wi-Fi "
+            "power save if it recurs."
+        )
+    if wifi.get("disconnects"):
+        n = wifi["disconnects"]
+        return (
+            f"This host's Wi-Fi ({iface}) — the link dropped "
+            f"{n} time{'s' if n != 1 else ''} in the last hour and {tail}"
+        )
+    return f"This host's uplink ({iface}) — {tail}"
 
 
 def _healthy_peers(

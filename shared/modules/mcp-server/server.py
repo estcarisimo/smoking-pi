@@ -16,7 +16,7 @@ import os
 import re
 import secrets
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 try:
@@ -181,6 +181,28 @@ DEFAULT_WIFI_WEAK_DBM = -75.0
 
 MAX_HOURS = 24 * 365
 MAX_EVENT_ROWS = 500
+# Rows fetched for the roll-ups in get_loss_events. The events list stays
+# capped at MAX_EVENT_ROWS, but episodes and widespread runs must be computed
+# from everything in the window: a three-hour cut across 18 targets is 720
+# points, and a roll-up built from the newest 500 of them gets its start wrong.
+MAX_ROLLUP_ROWS = 5000
+
+# get_loss_events defaults. A single lost ping of ten is 10% and is the
+# Wi-Fi hop's background on this host (60-300 such points a day, spread over
+# every target); 15 keeps anything that lost two or more, and any DNS point
+# (5 queries, so one lost is 20%).
+DEFAULT_MIN_LOSS_PCT = 15.0
+# A run of loss points on one target with gaps no longer than this is one
+# episode. Two probe steps: one missing point does not split a cut in two.
+EPISODE_GAP_S = 600
+# Share of the reporting targets that must have an event in the same probe
+# step for that step to count as widespread -- the same bar the alerter's
+# rule_widespread applies (its own copy; the alerter is not importable here).
+WIDESPREAD_SHARE = 0.8
+STEP_S = 300
+# Cycles of total loss before a widespread run is attributed to this host's
+# uplink rather than to a brief cut -- the alerter's DOWN_MIN_POINTS.
+UPLINK_MIN_STEPS = 3
 
 _TARGET_FIELDS = ("id", "name", "host", "title", "category", "probe", "is_active")
 
@@ -693,25 +715,145 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
     return {"window_hours": hours, "stats": results}
 
 
+def _epoch(value: Any) -> float | None:
+    if isinstance(value, datetime):
+        return value.timestamp()
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def _loss_episodes(events: list[dict]) -> list[dict]:
+    """Fold per-target events (any order) into runs no more than
+    EPISODE_GAP_S apart. Newest episode first."""
+    by_key: dict[tuple, list[dict]] = {}
+    for event in events:
+        if event.get("_epoch") is None:
+            continue
+        by_key.setdefault((event["target"], event["measurement"]), []).append(event)
+
+    episodes: list[dict] = []
+    for (target, measurement), rows in by_key.items():
+        rows.sort(key=lambda e: e["_epoch"])
+        run: list[dict] = []
+        for row in rows + [None]:
+            if row is not None and (not run or row["_epoch"] - run[-1]["_epoch"] <= EPISODE_GAP_S):
+                run.append(row)
+                continue
+            if run:
+                episodes.append(
+                    {
+                        "target": target,
+                        "measurement": measurement,
+                        "start": run[0]["time"],
+                        "end": run[-1]["time"],
+                        "minutes": int((run[-1]["_epoch"] - run[0]["_epoch"]) // 60) + STEP_S // 60,
+                        "points": len(run),
+                        "max_loss_pct": max(e["loss_pct"] for e in run),
+                        "all_lost": all(e["loss_pct"] >= 99.9 for e in run),
+                    }
+                )
+            run = [row] if row is not None else []
+    episodes.sort(key=lambda e: (e["start"], e["target"]), reverse=True)
+    return episodes
+
+
+def _widespread_runs(events: list[dict], targets_total: int) -> list[dict]:
+    """Probe steps in which WIDESPREAD_SHARE of the targets had an event,
+    folded into runs. Newest first.
+
+    Every target lossy in the same step is one event with one cause: the
+    link, or this host. When every one of them lost every packet, the host's
+    own uplink was gone (the reference Pi's Wi-Fi radio hung twice in
+    September 2026, associated and receiving nothing for 3 and 21 hours) --
+    and nothing beyond it could be judged, so the per-target picture for
+    those steps is not evidence about any target.
+    """
+    if targets_total < 3:
+        return []
+    by_step: dict[int, dict[str, bool]] = {}
+    for event in events:
+        epoch = event.get("_epoch")
+        if epoch is None:
+            continue
+        step = int(epoch // STEP_S) * STEP_S
+        by_step.setdefault(step, {})[event["target"]] = event["loss_pct"] >= 99.9
+
+    needed = WIDESPREAD_SHARE * targets_total
+    steps = sorted(step for step, hits in by_step.items() if len(hits) >= needed)
+    runs: list[dict] = []
+    run: list[int] = []
+    for step in steps + [None]:
+        if step is not None and (not run or step - run[-1] <= EPISODE_GAP_S):
+            run.append(step)
+            continue
+        if run:
+            affected = max(len(by_step[s]) for s in run)
+            all_lost = all(
+                sum(by_step[s].values()) >= needed for s in run
+            )
+            uplink = all_lost and len(run) >= UPLINK_MIN_STEPS
+            runs.append(
+                {
+                    "start": datetime.fromtimestamp(run[0], tz=timezone.utc).isoformat(),
+                    "end": datetime.fromtimestamp(run[-1], tz=timezone.utc).isoformat(),
+                    "minutes": (run[-1] - run[0]) // 60 + STEP_S // 60,
+                    "targets_affected": affected,
+                    "targets_total": targets_total,
+                    "all_lost": all_lost,
+                    "cause": (
+                        "this host's uplink: every target lost every packet for "
+                        f"{len(run)} cycles, so nothing beyond it could be judged "
+                        "(a hung Wi-Fi radio, a dropped association, a cable) — "
+                        "not the ISP"
+                        if uplink
+                        else "the link: a brief cut that hit every target at once"
+                        + (", every packet lost" if all_lost else "")
+                    ),
+                }
+            )
+        run = [step] if step is not None else []
+    runs.reverse()
+    return runs
+
+
 @mcp.tool()
 @logged_tool
-def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
-    """Find time windows where packet loss exceeded a threshold.
+def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT) -> dict:
+    """Find packet loss in the window and say what shape it had.
 
-    Scans the `latency` and `dns_latency` measurements and returns every
-    data point in the window whose packet loss was at or above
-    min_loss_pct, as a list of {time, target, measurement, loss_pct},
-    newest first (capped at 500 events).
+    Scans the `latency` and `dns_latency` measurements for data points whose
+    packet loss was at or above min_loss_pct and returns them three ways:
 
-    Also returns `by_target`: one row per affected target with its event
-    count, worst loss, the span it covers, and links to the graph — usually
-    the more useful summary, since a hundred loss points on one target is one
-    story rather than a hundred.
+      - `widespread`: runs of probe steps in which most targets (80%) had
+        loss at once, with a `cause` line. `all_lost: true` for three or
+        more cycles means every target lost every packet from this host:
+        its own uplink was down, and the per-target numbers for that span
+        say nothing about any target. Shorter runs are a brief cut of the
+        link. Read this first; when it is non-empty it is usually the whole
+        story.
+      - `episodes`: per target, consecutive loss points folded into one run
+        with its start, duration in minutes, point count, worst loss and
+        whether it was total. One 25-minute cut is one episode, not five
+        events.
+      - `by_target` and `events`: the counts and the raw points (newest
+        first, `events` capped at 500 with `truncated` set when it was).
+
+    `background_points` counts the points BELOW min_loss_pct but above zero
+    that were left out: on a host measuring across Wi-Fi that is one lost
+    ping of ten, a few dozen to a few hundred a day, and not an event.
 
     Args:
         hours: Lookback window in hours (default 24).
         min_loss_pct: Minimum loss percentage (0-100) for a point to count
-            as an event (default 5).
+            as an event. Default 15: two or more lost pings of ten, or any
+            lost DNS query of five. Lower it to see the single-ping
+            background; it is noise, not events.
 
     Because the measurement is continuous, this answers questions about
     moments nobody was watching: "did we drop packets last night?", "when did
@@ -732,17 +874,34 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
     if not 0 <= threshold <= 100:
         return {"error": "min_loss_pct must be between 0 and 100."}
 
-    flux = (
+    base = (
         _base_flux(["latency", "dns_latency"], hours)
         + '|> filter(fn: (r) => r._field == "loss") '
         + _CLAMP_LOSS_RATIO
+    )
+    flux = (
+        base
         + f"|> filter(fn: (r) => r._value >= {threshold / 100.0}) "
         + "|> group() "
         + '|> sort(columns: ["_time"], desc: true) '
-        + f"|> limit(n: {MAX_EVENT_ROWS})"
+        + f"|> limit(n: {MAX_ROLLUP_ROWS})"
+    )
+    background_flux = (
+        base
+        + f"|> filter(fn: (r) => r._value > 0.0 and r._value < {threshold / 100.0}) "
+        + "|> group() |> count()"
+    )
+    # How many targets reported at all, so "most targets" has a denominator
+    # that is the window's, not the catalog's -- a target added yesterday
+    # does not shrink last week's share.
+    targets_flux = (
+        base + '|> group(columns: ["target"]) |> count() '
+        + '|> group() |> count(column: "target")'
     )
     try:
         rows = query_influx(flux)
+        background_rows = query_influx(background_flux)
+        targets_rows = query_influx(targets_flux)
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
 
@@ -752,6 +911,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
             "target": row.get("target"),
             "measurement": row.get("_measurement"),
             "loss_pct": round(float(row.get("_value", 0.0)) * 100.0, 2),
+            "_epoch": _epoch(row.get("_time")),
         }
         for row in rows
     ]
@@ -789,13 +949,37 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = 5) -> dict:
         if entry_links:
             entry["links"] = entry_links
 
+    targets_total = 0
+    for row in targets_rows:
+        if row.get("_value") is not None:
+            targets_total = int(row["_value"])
+    background = 0
+    for row in background_rows:
+        if row.get("_value") is not None:
+            background += int(row["_value"])
+
+    episodes = _loss_episodes(events)
+    for episode in episodes:
+        episode_links = _links_for(
+            catalog, episode["target"], episode["measurement"], hours=hours
+        )
+        if episode_links.get("graph"):
+            episode["graph"] = episode_links["graph"]
+    widespread = _widespread_runs(events, targets_total)
+    for event in events:
+        del event["_epoch"]
+
     return {
         "window_hours": hours,
         "min_loss_pct": threshold,
         "event_count": len(events),
         "truncated": len(events) >= MAX_EVENT_ROWS,
+        "targets_reporting": targets_total,
+        "background_points": background,
+        "widespread": widespread,
+        "episodes": episodes,
         "by_target": by_target,
-        "events": events,
+        "events": events[:MAX_EVENT_ROWS],
     }
 
 

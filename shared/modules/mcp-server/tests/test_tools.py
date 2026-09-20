@@ -5,7 +5,7 @@ Everything is mocked at the backends layer -- no network access:
 - InfluxDB via a fake ``query_influx`` returning canned record dicts
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -790,3 +790,159 @@ def test_entry_points_and_target_links_both_twin(api, linked_with_tunnel):
     first = server.list_targets()["targets"][0]
     assert first["links"]["graph"].startswith("http://192.168.86.27:3000/")
     assert first["links"]["graph_tunnel"].startswith("https://smokingpi.example.com/")
+
+
+# ---------------------------------------------------------------------------
+# get_loss_events: the shape of the loss, not just the points
+#
+# Two real nights drove this. 2026-09-20: the Pi's Wi-Fi radio hung for 3 h
+# 20 min, every target went to 100%, and the answer "18 targets had loss
+# events" was true and useless. Every ordinary day: 60-300 single-lost-ping
+# points spread across every target, reported as "3 loss events ~9%" -- the
+# Wi-Fi hop breathing, not events.
+# ---------------------------------------------------------------------------
+
+_T0 = datetime(2026, 9, 20, 1, 40, tzinfo=timezone.utc)
+_TEN = ["Google", "Apple", "Amazon", "NYT", "Facebook", "cloudflare",
+        "GoogleDNS", "CloudflareDNS", "Quad9DNS", "CPE_IPv4"]
+
+
+def _rows(per_target, start=_T0):
+    """Newest-first rows for {target: [ratio per 300 s step]}; zeros are
+    omitted the way the >= threshold filter would omit them."""
+    rows = []
+    for target, values in per_target.items():
+        for i, v in enumerate(values):
+            if v:
+                rows.append({"_time": start + timedelta(seconds=300 * i), "target": target,
+                             "_measurement": "latency", "_value": v})
+    rows.sort(key=lambda r: r["_time"], reverse=True)
+    return rows
+
+
+def _loss_fake(per_target, background=0, targets=None):
+    events = _rows(per_target)
+    total = len(targets if targets is not None else per_target)
+
+    def fake(flux):
+        if "count(column" in flux:
+            return [{"_value": total}]
+        if "r._value > 0.0 and" in flux:
+            return [{"_value": background}]
+        return events
+    return fake
+
+
+def test_loss_events_default_threshold_skips_single_lost_pings(monkeypatch, no_api):
+    captured = _patch_influx(monkeypatch, _loss_fake({}, background=143))
+    result = server.get_loss_events(hours=24)
+    assert result["min_loss_pct"] == 15.0
+    assert "r._value >= 0.15" in captured[0]
+    # The excluded background is counted, not hidden.
+    assert "r._value > 0.0 and r._value < 0.15" in captured[1]
+    assert result["background_points"] == 143
+    assert result["events"] == [] and result["episodes"] == [] and result["widespread"] == []
+
+
+def test_loss_events_folds_a_run_into_one_episode(monkeypatch, no_api):
+    # One target, 25 minutes of total loss, then one more point 20 minutes
+    # later: one episode of five points, and a second, separate one.
+    per_target = {"NYT": [1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6]}
+    _patch_influx(monkeypatch, _loss_fake(per_target, targets=_TEN))
+    result = server.get_loss_events(hours=24)
+    assert result["event_count"] == 6
+    assert len(result["episodes"]) == 2
+    later, cut = result["episodes"]          # newest first
+    assert cut == {
+        "target": "NYT", "measurement": "latency",
+        "start": "2026-09-20T01:40:00+00:00", "end": "2026-09-20T02:00:00+00:00",
+        "minutes": 25, "points": 5, "max_loss_pct": 100.0, "all_lost": True,
+    }
+    assert later["points"] == 1 and later["all_lost"] is False
+    # One target down is not widespread.
+    assert result["widespread"] == []
+
+
+def test_loss_events_names_the_hung_radio_night_as_this_hosts_uplink(monkeypatch, no_api):
+    per_target = {t: [1.0, 1.0, 1.0, 1.0] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    result = server.get_loss_events(hours=24)
+    assert result["targets_reporting"] == 10
+    assert len(result["widespread"]) == 1
+    run = result["widespread"][0]
+    assert run["targets_affected"] == 10 and run["targets_total"] == 10
+    assert run["all_lost"] is True
+    assert run["minutes"] == 20
+    assert run["start"] == "2026-09-20T01:40:00+00:00"
+    assert "this host's uplink" in run["cause"]
+    assert "for 4 cycles" in run["cause"]
+    assert "not the ISP" in run["cause"]
+    # Still reported per target underneath, for anyone who wants the detail.
+    assert len(result["episodes"]) == 10
+
+
+def test_loss_events_one_total_loss_cycle_is_a_cut_not_the_uplink(monkeypatch, no_api):
+    """Review of #74: the alerter needs three cycles of total loss before
+    it calls the uplink down; the tool must not blame this host on one."""
+    per_target = {t: [0.0, 1.0, 0.0, 0.0] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    run = server.get_loss_events(hours=24)["widespread"][0]
+    assert run["all_lost"] is True
+    assert run["cause"].startswith("the link: a brief cut")
+    assert "every packet lost" in run["cause"]
+    assert "this host" not in run["cause"]
+
+
+def test_loss_events_calls_a_blink_across_everyone_a_cut_of_the_link(monkeypatch, no_api):
+    per_target = {t: [0.0, 0.8, 0.0, 0.0] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    run = server.get_loss_events(hours=24)["widespread"][0]
+    assert run["all_lost"] is False
+    assert run["minutes"] == 5
+    assert run["cause"].startswith("the link: a brief cut")
+
+
+def test_loss_events_widespread_tolerates_a_lucky_target(monkeypatch, no_api):
+    per_target = {t: [1.0, 1.0, 1.0] for t in _TEN}
+    per_target["Google"] = [0.0, 0.0, 0.0]
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    result = server.get_loss_events(hours=24)
+    assert result["widespread"][0]["targets_affected"] == 9
+    assert result["widespread"][0]["all_lost"] is True
+
+
+def test_loss_events_two_separate_cuts_are_two_widespread_runs(monkeypatch, no_api):
+    per_target = {t: [1.0, 0.0, 0.0, 0.0, 1.0] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    runs = server.get_loss_events(hours=24)["widespread"]
+    assert len(runs) == 2
+    assert runs[0]["start"] > runs[1]["start"]   # newest first
+
+
+def test_loss_events_widespread_needs_a_denominator(monkeypatch, no_api):
+    # Two targets reporting: breadth means nothing, say nothing.
+    per_target = {"a": [1.0, 1.0], "b": [1.0, 1.0]}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    assert server.get_loss_events(hours=24)["widespread"] == []
+
+
+def test_loss_events_rollups_see_past_the_events_cap(monkeypatch, no_api):
+    """720 points (18 targets, 40 steps) exceed the 500-row events cap; the
+    episodes and the widespread run must still cover the whole cut."""
+    targets = [f"t{i}" for i in range(18)]
+    per_target = {t: [1.0] * 40 for t in targets}
+    captured = _patch_influx(monkeypatch, _loss_fake(per_target))
+    result = server.get_loss_events(hours=24)
+    assert f"limit(n: {server.MAX_ROLLUP_ROWS})" in captured[0]
+    assert result["event_count"] == 720
+    assert len(result["events"]) == 500 and result["truncated"] is True
+    assert result["widespread"][0]["minutes"] == 200
+    assert all(e["points"] == 40 for e in result["episodes"])
+
+
+def test_loss_events_episode_carries_a_graph_link(monkeypatch, api, linked):
+    per_target = {"NYT": [1.0, 1.0, 1.0]}
+    _patch_influx(monkeypatch, _loss_fake(per_target, targets=_TEN))
+    episode = server.get_loss_events(hours=6)["episodes"][0]
+    assert "/d/smokeping-lat-pct-v28" in episode["graph"]
+    assert "var-target=NYT" in episode["graph"]

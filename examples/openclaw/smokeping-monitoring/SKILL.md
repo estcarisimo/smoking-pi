@@ -57,7 +57,16 @@ deployment-independent and should be left alone.
 - `system_status` — service health and target counts. Start here when someone
   asks an open question like "how's the network?"
 - `get_latency_stats(target, hours)` — median latency and loss over a window.
-- `get_loss_events(target, hours)` — discrete loss episodes rather than averages.
+- `get_loss_events(hours, min_loss_pct)` — the shape of the loss, not just the
+  points. Read `widespread` first: a run there means most targets were lossy
+  at once, and its `cause` says whether it was a brief cut of the link or
+  this host's own uplink (every target lost every packet — a hung Wi-Fi
+  radio, say — so nothing beyond it could be judged and the per-target
+  numbers for that span are not evidence about any target). Then
+  `episodes`, one per target per run of consecutive lossy points, with its
+  duration. The default threshold is 15%: two or more lost pings; the
+  single-ping points below it are counted in `background_points` and are
+  not events.
 - `get_microcut_stats(hours)` — sub-second CPE dropouts, sampled far more
   finely than the 5-minute target probes.
 - `get_wifi_stats(hours)` — the Pi's own Wi-Fi uplink, when it has one:
@@ -130,6 +139,20 @@ directly or quote one as the other.
 **Probes run every 5 minutes.** A single missed cycle is one data point, not a
 trend. Do not describe a target as "down" on one bad sample — look for a run of
 them. Microcut data is the exception: it samples every 10 seconds.
+
+**One lost ping is not a loss event.** Each cycle sends ten pings, so a point
+at 10% is one lost packet — on a host measuring across Wi-Fi that happens a
+few dozen to a few hundred times a day, spread over every target, with
+nothing wrong. `get_loss_events` leaves those out by default and counts them
+in `background_points`; say "a normal background of single lost pings" if
+you mention them at all, never "N loss events".
+
+**When everything was lost at once, the monitor could not see the internet.**
+A `widespread` run with `all_lost: true` means every target, the gateway
+included, lost every packet from this host: the uplink was down (on this
+deployment the Wi-Fi radio has hung twice — associated, receiving nothing —
+until a reboot). Report it as *this host's uplink*, give the start and the
+duration, and do not list the targets it took with it as if each had failed.
 
 **The CPE has a permanent ICMP loss floor.** Home gateways rate-limit ICMP
 replies, so the CPE shows steady single-digit loss with nothing wrong. On this

@@ -7,6 +7,8 @@ Lifecycle per incident key:
 - still active, cooldown elapsed -> fire again (re-notify)
 - stops being reported -> enter a "missing" grace period, notify nothing
 - missing for ALERT_RESOLVE_AFTER seconds -> fire a "recovery" and drop it
+  (a ``transient`` incident -- a brief cut that has already ended by the
+  time it is reported -- is dropped silently: there is nothing to recover)
 - reappears while missing -> it never recovered; clear the grace timer and
                              stay silent (the cooldown still governs re-alerts)
 
@@ -243,6 +245,8 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
                 "notified_count": 0,
                 "recent_notifications": [],
             }
+            if incident.get("transient"):
+                record["transient"] = True
             records[key] = record
             if _rate_limited(record, now, limit):  # pragma: no cover - new key
                 continue
@@ -262,6 +266,10 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
         record["message"] = incident["message"]
         record["value"] = incident.get("value")
         record["severity"] = incident["severity"]
+        if incident.get("transient"):
+            record["transient"] = True
+        else:
+            record.pop("transient", None)
         if now - float(record.get("last_notified", 0)) < cooldown:
             continue
         if _rate_limited(record, now, limit):
@@ -288,7 +296,7 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
             continue
 
         records.pop(key)
-        if int(record.get("notified_count", 0)) > 0:
+        if int(record.get("notified_count", 0)) > 0 and not record.get("transient"):
             recoveries.append(
                 {
                     "rule": record.get("rule"),
