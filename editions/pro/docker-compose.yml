@@ -170,7 +170,12 @@ services:
         required: false
 
   web-admin:
-    build: ../../shared/modules/web-admin
+    build:
+      # Context is `shared/`, like the alerter and the MCP server, so the
+      # image can copy in shared/modules/common: the assistant's tools read
+      # the microcut definition from common/microcuts.py.
+      context: ../../shared
+      dockerfile: modules/web-admin/Dockerfile
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -178,6 +183,8 @@ services:
     volumes:
       - ./config-manager/config:/app/config
       - ../../shared/modules/web-admin/app:/app/app  # Mount source code for development
+      # (/app/common is NOT mounted: a change to shared/modules/common needs
+      # `docker compose build web-admin`, as for the other three images)
       - reports:/reports:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
@@ -204,6 +211,9 @@ services:
       INFLUX_TOKEN: ${INFLUX_TOKEN}
       INFLUX_ORG: ${INFLUX_ORG:-smokeping}
       INFLUX_BUCKET: ${INFLUX_BUCKET:-smokeping}
+      # The assistant's get_microcut_stats reads CPE cuts against the same
+      # threshold as the alerter and the MCP server.
+      MICROCUT_LOSS_PCT: ${MICROCUT_LOSS_PCT:-50}
     depends_on:
       smokeping:
         condition: service_started

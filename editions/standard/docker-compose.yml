@@ -65,8 +65,9 @@ services:
 
   web-admin:
     build:
-      context: ../../shared/modules/web-admin  
-      dockerfile: Dockerfile
+      # Context is `shared/` so the image can copy in shared/modules/common
+      context: ../../shared
+      dockerfile: modules/web-admin/Dockerfile
     container_name: smokeping-standard-web-admin
     environment:
       CONFIG_MANAGER_URL: "http://config-manager:5000"

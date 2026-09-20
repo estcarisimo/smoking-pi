@@ -105,6 +105,14 @@ target) that are **never executed directly** — the UI shows a confirmation
 card and only executes after you approve. Config regeneration happens
 automatically on target changes, so there is no `apply_config` tool.
 
+The loss-event threshold and the definition of a microcut are the shared
+ones (`common/aggregates.py`, `common/microcuts.py`), the same code the MCP
+server, the alerter and the reports read — see
+[Detection reliability](detection-reliability.md). `get_microcut_stats`
+answers with cuts and their durations plus the gateway's loss floor, and
+`get_loss_events` defaults to 15% (two or more lost pings), so the in-UI
+assistant and the OpenClaw one say the same thing about the same night.
+
 Responses are non-streaming (Haiku answers small tool-augmented prompts in
 a couple of seconds), and the conversation history lives in the browser
 tab — reloading the page starts a fresh conversation.

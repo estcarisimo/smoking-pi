@@ -230,10 +230,24 @@ was merged; the others are tests that replay the rows
 (`mcp-server/tests/test_tools.py`, `alerter/tests/test_evaluator.py`,
 `test_verdict.py`, `ai-insights/tests/test_collector.py`).
 
+**The web-admin assistant reads the same definition.** Its `get_microcut_stats`
+(`web-admin/app/services/ai_tools.py`) was a separate copy that still counted
+windows with any loss and always returned a top-5, so the in-UI chat kept
+saying "strong microcuts" after the MCP tool had stopped. The web-admin image
+now builds from `shared/` like the alerter, ai-insights and mcp-server
+images, copies `common/` in, and the tool calls `common.microcuts` for the
+cut windows, the folding and the threshold; its `get_loss_events` default
+rose from 5% to the shared `LOSS_EVENT_PCT` (15%) for the reason given under
+[Downtime](#downtime). Run against the Pi's InfluxDB beside the MCP tool, the
+two answer identically for 24 h and 7 d (`web-admin/tests/test_ai_tools_microcuts.py`
+replays the quiet day, the six-window cut and the two isolated windows).
+
 ### Microcut backlog
 
-1. The web-admin assistant keeps its own copy of `get_microcut_stats`
-   (`web-admin/app/services/ai_tools.py`) and cannot import `common`; it
-   still counts any loss. Mirror when the web-admin AI is next touched.
-2. `GAP_S` and the 30 s cadence are constants; if `CPE_PROBE_IDLE` is
+1. `GAP_S` and the 30 s cadence are constants; if `CPE_PROBE_IDLE` is
    changed they must follow by hand.
+2. The web-admin assistant's `get_loss_events` still lists points newest
+   first; the `episodes` / `widespread` folding lives in
+   `mcp-server/server.py`, not in `common`. Move it there when either side is
+   next touched, so the in-UI chat can name a hung radio the way the MCP tool
+   does.

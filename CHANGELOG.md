@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The in-UI assistant reads the same microcut definition.** The
+  web-admin chat kept its own copy of `get_microcut_stats` that could not
+  import `common`, so after the MCP tool, the alerter and the reports were
+  fixed it still counted every window with any loss and returned a top-5 —
+  the same "strong microcuts, worst 82%" about the gateway's floor, now
+  from the other assistant. The web-admin image builds from `shared/` like
+  its three siblings and copies `common/` in; the tool folds cuts, reports
+  the floor as p50/p90 and states it in a note when there were none, and
+  `get_loss_events` defaults to the shared 15% instead of 5%, so a single
+  lost ping out of ten is background there too. Verified against the Pi's
+  InfluxDB beside the MCP tool: identical cuts and floor over 24 h and 7 d.
+
 ### Added
 
 - **Microcuts are cuts, not windows.** The other half of the detection
