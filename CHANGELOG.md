@@ -9,7 +9,7 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
-### Documentation
+### Changed
 
 - **When the radio hangs.** The two September hangs of the reference Pi's
   Wi-Fi radio (associated, transmitting, receiving nothing; 21 h and

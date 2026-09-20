@@ -150,13 +150,17 @@ floats. The tests assert the line protocol, not just the values.
 
 ## When the radio hangs
 
-Twice in September 2026 the reference Pi's Wi-Fi radio stopped receiving
-while staying associated: 2026-09-02 22:35Z → 09-03 19:35Z (21 hours, came
-back on its own) and 2026-09-20 01:40Z → 04:58Z (3 h 20 min, ended by a
-reboot). Nothing was wrong with the network. The evidence and the detector
-changes it forced are in [Detection reliability](detection-reliability.md);
-this section is about the radio itself, and about a change that was
-**documented on purpose and not made**.
+Twice in September 2026 the reference Pi lost every target at once for
+hours with nothing wrong on the network: 2026-09-02 22:35Z → 09-03 19:35Z
+(21 hours, came back on its own) and 2026-09-20 01:40Z → 04:58Z (3 h 20 min,
+ended by a reboot). For the second one the `wifi_link` collector — added on
+2026-09-19, so it saw only that event — shows the radio still associated and
+receiving nothing. The first is classified by its pattern (the same
+all-targets shape, no reboot, self-recovered), not by measurement. The
+evidence and the detector changes it forced are in
+[Detection reliability](detection-reliability.md); this section is about
+the radio itself, and about a change that was **documented on purpose and
+not made**.
 
 ### The signature
 
@@ -167,19 +171,25 @@ this section is about the radio itself, and about a change that was
 - SSH to the Pi over Wi-Fi is dead. `eth0` on the reference Pi has no
   carrier, so there is no other way in.
 
-The verdict names it: *"still associated at −49 dBm but it has received
-nothing for 40 cycles — the radio is hung, not the network"*, one
-`uplink_down` incident instead of one per target. `get_wifi_stats` shows
-the flat receive counter.
+The verdict names it — *"This host's Wi-Fi (wlan0) — still associated at
+−49 dBm but it has received nothing for the whole window: the radio is
+hung, not the network. Reconnect the interface or reboot, and turn off
+Wi-Fi power save if it recurs."* — as one `uplink_down` incident instead of
+one per target. The `rx_packets` comparison behind that line is the
+alerter's own; `get_wifi_stats` does not return the raw counter, but its
+`throughput_mbps.max_rx` collapses to zero for the window.
 
 ### What is known, and what is only suspected
 
 Known: the Pi is a Raspberry Pi 5 on kernel 6.12.25 with the in-tree
 `brcmfmac` driver (BCM4345/6, firmware 7.45.265), and **Wi-Fi power save is
-on** — NetworkManager's connection profile says `802-11-wireless.powersave:
-default`, which for Wi-Fi means enabled, and the kernel logs
+on**: `iw dev wlan0 get power_save` answers `on`, and the kernel logs
 `brcmf_cfg80211_set_power_mgmt: power save enabled` at every boot.
-`iw dev wlan0 get power_save` answers `on`.
+NetworkManager is not the one turning it on — the connection profile says
+`802-11-wireless.powersave: default`, and with no `wifi.powersave` override
+in `NetworkManager.conf` on this host that resolves to *ignore*, i.e.
+NetworkManager leaves the setting alone. It is on because that is the
+driver's own default.
 
 Suspected: that power save is the cause. A station in power save sleeps
 between beacons and depends on the AP buffering and announcing its frames;
@@ -240,14 +250,15 @@ Do it in a way that undoes itself:
    a few seconds; expect one partial probe cycle and possibly one transient
    `outage` from the alerter, nothing more.
 
-3. **Write the date down** — in the CHANGELOG's deployment notes or the
-   project page — so a later change in the latency floor can be read.
+3. **Write the date down** — a CHANGELOG entry, or the project page — so a
+   later change in the latency floor can be read.
 
 ### While it stays on
 
 A reboot ends a hang (that is what ended the second one); the first cleared
-itself after 21 hours. `nmcli device reconnect wlan0` from a console would
-be the gentler first attempt and is untested here. The doctor does not yet
+itself after 21 hours. `nmcli device disconnect wlan0 && nmcli device
+connect wlan0` from a console would be the gentler first attempt and is
+untested here (there is no `nmcli device reconnect`). The doctor does not yet
 check for the condition (backlog item 3 under *Downtime* in the detection
 page); until it does, the `uplink_down` incident and its verdict line are
 the signal.
