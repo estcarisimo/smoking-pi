@@ -894,9 +894,12 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
     # How many targets reported at all, so "most targets" has a denominator
     # that is the window's, not the catalog's -- a target added yesterday
     # does not shrink last week's share.
+    # distinct() writes into _value; count(column: "target") would write
+    # the count into the target column instead, where nothing reads it --
+    # verified live: that shape returned targets_reporting = 0.
     targets_flux = (
-        base + '|> group(columns: ["target"]) |> count() '
-        + '|> group() |> count(column: "target")'
+        base + '|> group() |> keep(columns: ["target"]) '
+        + '|> distinct(column: "target") |> count()'
     )
     try:
         rows = query_influx(flux)
