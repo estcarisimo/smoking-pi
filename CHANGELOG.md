@@ -18,11 +18,13 @@ version gets a matching GitHub release and git tag.
   volume rm`. Now: `upgrade` (the release's images pulled, or rebuilt with
   fresh bases from a clone; `up -d`; the doctor), `backup` (dump, then the
   volumes the active services mount as tarballs with the stack stopped,
-  env file, config), `restore` (volumes refilled under this project's
-  name, env and config where missing), `purge` (after typing the project
-  name; `--config` for a clean `install`), and `install --profiles
-  mcp,alerts,ai` (or a whiptail checklist). `packaging/tests/cli.bats`, 20
-  tests against a stubbed docker, runs in CI. Verified on the reference
+  env file, config), `restore` (each tarball's Compose volume key resolved
+  to the volume this stack mounts — fixed `name:` included — after you
+  type the project name; env and config where missing), `purge` (after
+  typing the project name; `--config` for a clean `install`), and `install
+  --profiles mcp,alerts,ai` (or a whiptail checklist).
+  `packaging/tests/cli.bats`, 22 tests against a stubbed docker, runs in
+  CI. Verified on the reference
   Pi: an offline backup (156 s, ~1 min stopped), a restore into a scratch
   project, a purge of it, an upgrade against the published throwaway
   images (28 s, doctor 13 ok).

@@ -59,15 +59,16 @@ Usage: smoking-pi <command> [args]
                      doctor. Read docs/upgrades.md first for a PostgreSQL or
                      InfluxDB major; 'backup' before one.
   backup [DIR] [--online]
-                     pg_dumpall, then every volume as a tarball with the stack
-                     stopped (--online: keep it running; the tarballs may be
-                     inconsistent), plus the env file and config directory.
-                     Default DIR: ./smoking-pi-backup-<timestamp>.
-  restore DIR [--force] [--no-start]
-                     Stop the stack, refill the volumes from DIR's tarballs,
-                     put back the env file and config (--force: overwrite
-                     ones that exist), start the stack (--no-start: leave it
-                     stopped to inspect first).
+                     pg_dumpall, then every volume the stack mounts as a
+                     tarball with the stack stopped (--online: keep it running;
+                     the tarballs may be inconsistent), plus the env file and
+                     config directory. Default DIR: ./smoking-pi-backup-<timestamp>.
+  restore DIR [--force] [--no-start] [--yes]
+                     Put back the env file and config (--force: overwrite ones
+                     that exist); then, after you type the project name, stop
+                     the stack, replace each volume's contents from DIR's
+                     tarballs and start it (--no-start: leave it stopped to
+                     inspect first).
   purge [--config] [--yes]
                      Stop the stack and delete its Docker volumes -- a year of
                      measurements -- after you type the project name.
@@ -130,21 +131,31 @@ volumes() {
     # fixed names whether or not that profile is on, and the first offline
     # backup on the reference Pi spent ten minutes of downtime tarring a
     # 5.9 GB leftover from a ClickHouse trial that no running service used.
+    #
+    # Prints "key name" per line: the Compose key (postgres-data) and the
+    # Docker name it resolves to here (pro_postgres-data, or the fixed
+    # `name:` -- Basic's and Standard's volumes all have one). backup files
+    # tarballs by KEY and restore resolves the name from the config it is
+    # restoring INTO, so a backup moves between project names and editions'
+    # fixed names without guessing from a string.
     compose config --format json 2>/dev/null | python3 -c '
 import json, sys
 cfg = json.load(sys.stdin)
 decl = cfg.get("volumes") or {}
-seen = []
+seen = {}
 for svc in (cfg.get("services") or {}).values():
     for v in svc.get("volumes") or []:
         if v.get("type") != "volume":
             continue
         key = v["source"]
-        name = (decl.get(key) or {}).get("name") or cfg["name"] + "_" + key
-        if name not in seen:
-            seen.append(name)
-print("\n".join(seen))'
+        seen.setdefault(key, (decl.get(key) or {}).get("name") or cfg["name"] + "_" + key)
+for key, name in seen.items():
+    print(key, name)'
 }
+
+volume_names() { volumes | cut -d" " -f2; }
+
+installed_version() { sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || true; }
 
 volume_sizes() {
     # One `docker system df -v` for all of them: a person deciding whether
@@ -168,9 +179,8 @@ has_service() {
 confirm_typed() {
     # A destructive step asks for the project name, not y/n: typing "pro"
     # is a decision, Enter on a default is a reflex.
-    local expected="$1" prompt="$2" answer
-    echo "$prompt"
-    read -r -p "Type '$expected' to continue, anything else to abort: " answer
+    local expected="$1" answer
+    read -r -p "Type '$expected' to continue, anything else to abort: " answer || answer=""
     [ "$answer" = "$expected" ] || { echo "aborted."; exit 1; }
 }
 
@@ -219,7 +229,9 @@ cmd_install() {
             profiles=$(echo "$profiles" | tr -d '"' | tr ' ' ',')
         fi
     fi
-    [ "$edition" = pro ] || profiles=""
+    if [ "$edition" != pro ] && [ -n "$profiles" ]; then
+        echo "note: --profiles applies to the pro edition only; ignored for $edition" >&2; profiles=""
+    fi
     SMOKING_PI_EDITION="$edition"; EDITION_DIR="$SMOKING_PI_HOME/editions/$edition"
     # An explicit SMOKING_PI_ENV_FILE wins; otherwise the env file follows
     # the edition chosen here, not the default edition computed at the top.
@@ -272,7 +284,7 @@ cmd_upgrade() {
     done
     need_edition
     [ -f "$ENV_FILE" ] || { echo "no env file at $ENV_FILE: nothing installed to upgrade" >&2; exit 1; }
-    echo "Upgrading the $SMOKING_PI_EDITION edition ($(cat "$VERSION_FILE" 2>/dev/null | sed -n 's/^version: *//p' || echo unknown))."
+    echo "Upgrading the $SMOKING_PI_EDITION edition ($(installed_version))."
     echo "A PostgreSQL or InfluxDB major is a data migration: docs/upgrades.md, and 'smoking-pi backup' first."
     if [ -n "${SMOKING_PI_VERSION:-}" ]; then
         # The compose files name ghcr.io/.../<service>:$SMOKING_PI_VERSION;
@@ -308,7 +320,7 @@ cmd_backup() {
     echo "Backing up project $proj to $dir"
     {
         echo "edition=$SMOKING_PI_EDITION"; echo "project=$proj"
-        echo "version=$(sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || echo unknown)"
+        echo "version=$(installed_version)"
         echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "online=$online"
     } > "$dir/manifest"
     # The dump is the restore path for a PostgreSQL major (docs/upgrades.md);
@@ -318,8 +330,8 @@ cmd_backup() {
         compose exec -T postgres pg_dumpall -U "${pguser:-smokeping}" > "$dir/postgres.sql"
         echo "  postgres.sql ($(wc -c < "$dir/postgres.sql") bytes)"
     fi
-    local vols; vols="$(volumes)"
-    echo "Volumes to copy:"; volume_sizes $vols
+    local pairs; pairs="$(volumes)"
+    echo "Volumes to copy:"; volume_sizes $(echo "$pairs" | cut -d" " -f2)
     if [ "$online" = 0 ]; then
         # InfluxDB and PostgreSQL write continuously; a tarball of a live
         # volume can hold a half-written file. Stopping costs a minute of
@@ -329,12 +341,14 @@ cmd_backup() {
         trap 'echo "backup interrupted: starting the stack again"; compose up -d' EXIT
         compose down
     fi
-    local v
-    for v in $vols; do
-        docker run --rm -v "$v:/from:ro" -v "$dir/volumes:/to" alpine:3.20 \
-            tar czf "/to/$v.tgz" -C /from .
-        echo "  volumes/$v.tgz ($(du -h "$dir/volumes/$v.tgz" | cut -f1))"
-    done
+    local key name
+    while read -r key name; do
+        [ -n "$key" ] || continue
+        docker run --rm -v "$name:/from:ro" -v "$dir/volumes:/to" alpine:3.20 \
+            tar czf "/to/$key.tgz" -C /from .
+        echo "volume=$key=$name" >> "$dir/manifest"
+        echo "  volumes/$key.tgz ($(du -h "$dir/volumes/$key.tgz" | cut -f1)) from $name"
+    done <<< "$pairs"
     if [ "$online" = 0 ]; then
         trap - EXIT
         compose up -d
@@ -350,11 +364,12 @@ cmd_backup() {
 }
 
 cmd_restore() {
-    local dir="" force=0 start=1
+    local dir="" force=0 start=1 yes=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --force) force=1; shift ;;
             --no-start) start=0; shift ;;
+            --yes|-y) yes=1; shift ;;
             -*) echo "unknown option $1" >&2; exit 2 ;;
             *) dir="$1"; shift ;;
         esac
@@ -380,23 +395,48 @@ cmd_restore() {
         fi
     fi
     local proj; proj="$(project)"
-    compose down
-    local tgz v
+    # Which tarball goes into which volume is decided by THIS project's
+    # rendered config: the backup's key (postgres-data) resolves to the name
+    # this stack mounts, whatever the backup's project or edition named it.
+    local pairs; pairs="$(volumes)"
+    local plan="" skipped="" key name tgz
     for tgz in "$dir"/volumes/*.tgz; do
         [ -e "$tgz" ] || continue
-        v="$(basename "$tgz" .tgz)"
-        # The backup's project name may differ from this one's (a restore
-        # onto another host with COMPOSE_PROJECT_NAME set): keep the suffix,
-        # use this project's prefix, and label it so `volumes` finds it.
-        v="${proj}_${v#*_}"
-        docker volume create --label "com.docker.compose.project=$proj" \
-            --label "com.docker.compose.volume=${v#*_}" "$v" >/dev/null
-        # Replace the contents, dotfiles included; a merge would leave a
-        # newer WAL beside an older data directory.
-        docker run --rm -v "$v:/to" -v "$tgz:/from.tgz:ro" alpine:3.20 \
-            sh -c 'find /to -mindepth 1 -delete && tar xzf /from.tgz -C /to'
-        echo "  volume $v restored"
+        key="$(basename "$tgz" .tgz)"
+        name="$(echo "$pairs" | awk -v k="$key" '$1 == k {print $2}')"
+        if [ -n "$name" ]; then plan="$plan$key $name"$'\n'; else skipped="$skipped $key"; fi
     done
+    [ -n "$plan" ] || { echo "no tarball in $dir/volumes matches a volume this stack mounts" >&2; exit 1; }
+    echo "Volumes to replace (current contents are deleted first):"
+    printf '%s' "$plan" | while read -r key name; do echo "  $name  <- volumes/$key.tgz"; done
+    [ -z "$skipped" ] || echo "Skipped (no active service mounts them here):$skipped"
+    if grep -qx 'online=1' "$dir/manifest"; then
+        echo "WARNING: this backup was taken --online; a database file in it may be inconsistent."
+    fi
+    # As destructive as purge, so the same gate.
+    [ "$yes" = 1 ] || confirm_typed "$proj"
+    compose down
+    local failed=""
+    while read -r key name; do
+        [ -n "$key" ] || continue
+        docker volume create --label "com.docker.compose.project=$proj" \
+            --label "com.docker.compose.volume=$key" "$name" >/dev/null
+        # Replace the contents, dotfiles included: a merge would leave a
+        # newer WAL beside an older data directory. Two steps, reported
+        # apart, and a failure moves on to the next volume rather than
+        # aborting with the rest untouched and unmentioned.
+        if ! docker run --rm -v "$name:/to" alpine:3.20 sh -c 'find /to -mindepth 1 -delete'; then
+            echo "  $name: could not empty the volume" >&2; failed="$failed $name"; continue
+        fi
+        if ! docker run --rm -v "$name:/to" -v "$dir/volumes/$key.tgz:/from.tgz:ro" alpine:3.20 tar xzf /from.tgz -C /to; then
+            echo "  $name: emptied but the tarball did not extract" >&2; failed="$failed $name"; continue
+        fi
+        echo "  volume $name restored"
+    done <<< "$plan"
+    if [ -n "$failed" ]; then
+        echo "restore INCOMPLETE; the stack is stopped. Failed:$failed" >&2
+        exit 1
+    fi
     if [ "$start" = 1 ]; then
         compose up -d
         echo "Restored from $dir. Check: smoking-pi doctor --live"
@@ -417,16 +457,21 @@ cmd_purge() {
     need_edition
     local proj; proj="$(project)"
     [ -n "$proj" ] || { echo "cannot resolve the Compose project (is the env file there?)" >&2; exit 1; }
-    local vols; vols="$(volumes)"
+    local vols; vols="$(volume_names)"
     echo "This deletes the Docker volumes the $proj stack uses:"
     if [ -n "$vols" ]; then volume_sizes $vols; else echo "  (none)"; fi
     if [ "$config" = 1 ]; then echo "and the env file $ENV_FILE, $(config_dir), $(output_dir)."; fi
     echo "The measurements and the target list go with them. 'smoking-pi backup' first if in doubt."
     # --yes is for scripts (the bats suite, an automated teardown); a person
     # types the project name.
-    [ "$yes" = 1 ] || confirm_typed "$proj" ""
+    [ "$yes" = 1 ] || confirm_typed "$proj"
     compose down
-    [ -n "$vols" ] && echo "$vols" | xargs docker volume rm >/dev/null
+    if [ -n "$vols" ]; then
+        # Report and carry on to the --config cleanup: a volume still held
+        # by a stray container is a message, not a reason to leave the env
+        # file behind.
+        echo "$vols" | xargs docker volume rm >/dev/null || echo "warning: some volumes could not be removed (docker volume ls)" >&2
+    fi
     if [ "$config" = 1 ]; then
         rm -f "$ENV_FILE"
         rm -rf "$(config_dir)" "$(output_dir)"
@@ -457,7 +502,7 @@ case "${1:-}" in
         echo "mode:     $([ "${SMOKING_PI_PACKAGED:-0}" = 1 ] && echo packaged '(no source mounts)' || echo development '(source mounts from home)')"
         echo "images:   ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/<service>:${SMOKING_PI_VERSION:-dev}$([ -n "${SMOKING_PI_VERSION:-}" ] || echo ' (dev: built from home, never pulled)')"
         echo "data:     docker volumes ${SMOKING_PI_EDITION}_* (docker volume ls)" ;;
-    version) sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || echo unknown ;;
+    version) v="$(installed_version)"; echo "${v:-unknown}" ;;
     -h|--help|help|"") usage ;;
     *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
 esac
