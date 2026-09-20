@@ -9,30 +9,34 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
-### Changed
+## [2.11.0] — 2026-09-20
 
-- **When the radio hangs.** The two September hangs of the reference Pi's
-  Wi-Fi radio (associated, transmitting, receiving nothing; 21 h and
-  3 h 20 min) have a likely cause — `brcmfmac` with power save on — and a
-  one-line fix that is deliberately not applied. `docs/wifi.md` now records
-  the signature, what is known against what is only suspected, why the
-  change is the operator's (it is a host setting reached over the link it
-  drops, and it moves the latency floor the Pi measures), how to try it so
-  it reverts itself, and the decision to leave it on.
+The detectors say what happened, once; the documentation has a site; and
+ClickHouse mode writes rows.
 
-### Fixed
+After weeks of use the reference Pi's alerts were mostly false in a
+specific way — one event, one cause, reported once per target. The night
+its Wi-Fi radio hung (still associated, receiving nothing for three hours)
+produced about a hundred and ten messages; a three-minute blink produced
+thirty-six; and the assistant listed every single lost ping as a loss
+event, and called the gateway's ICMP rate-limit floor "strong microcuts"
+for weeks. This release treats downtime and microcuts as two separate
+investigations, each with thirty days of evidence, a definition, tests
+that replay the real nights, and a live check against the Pi's own data
+before merging. A loss that hits most targets in the same probe cycle is
+one incident, named as a hung radio when the Wi-Fi counters show one; a
+microcut is a run of windows above the threshold, confirmed or possible,
+with a duration, beside the floor it stands on. The same definition is
+read by the alerter, the MCP server, the in-UI assistant, the digest and
+the AI report. The radio itself is documented, with the power-save
+hypothesis and the reasons the one-line fix is left to the operator.
 
-- **The in-UI assistant reads the same microcut definition.** The
-  web-admin chat kept its own copy of `get_microcut_stats` that could not
-  import `common`, so after the MCP tool, the alerter and the reports were
-  fixed it still counted every window with any loss and returned a top-5 —
-  the same "strong microcuts, worst 82%" about the gateway's floor, now
-  from the other assistant. The web-admin image builds from `shared/` like
-  its three siblings and copies `common/` in; the tool folds cuts, reports
-  the floor as p50/p90 and states it in a note when there were none, and
-  `get_loss_events` defaults to the shared 15% instead of 5%, so a single
-  lost ping out of ten is background there too. Verified against the Pi's
-  InfluxDB beside the MCP tool: identical cuts and floor over 24 h and 7 d.
+The guides are now a site — [estcarisimo.github.io/smoking-pi](https://estcarisimo.github.io/smoking-pi/)
+— built strictly in CI and deployed from `main`. And ClickHouse mode,
+revived in 2.5 and believed to work since, had never written a row; it
+now does, verified end to end against a ClickHouse 24.1 from the Pi's
+RRDs — on a throwaway stack, not on the reference Pi, which stays on
+InfluxDB.
 
 ### Added
 
@@ -74,9 +78,9 @@ version gets a matching GitHub release and git tag.
   needs the loss to persist for two cycles. `get_loss_events` defaults to
   15% (two or more lost pings), counts the single-ping background instead
   of listing it, folds consecutive points into `episodes` with durations,
-  and reports `widespread` runs with their cause. The evidence, the numbers
-  behind every threshold, and the microcut half of the investigation
-  (found, not yet fixed) are in `docs/detection-reliability.md`.
+  and reports `widespread` runs with their cause. The evidence and the numbers
+  behind every threshold are in `docs/detection-reliability.md`; the
+  microcut half is the entry above.
 
 - **A documentation site.** Thirteen guides lived under `docs/` and three
   more under `shared/docs/`, reachable only by knowing the path, with
@@ -91,7 +95,30 @@ version gets a matching GitHub release and git tag.
   (packaging backlog #7), because a published page that names containers
   that do not exist is worse than none.
 
+### Changed
+
+- **When the radio hangs.** The two September hangs of the reference Pi's
+  Wi-Fi radio (associated, transmitting, receiving nothing; 21 h and
+  3 h 20 min) have a likely cause — `brcmfmac` with power save on — and a
+  one-line fix that is deliberately not applied. `docs/wifi.md` now records
+  the signature, what is known against what is only suspected, why the
+  change is the operator's (it is a host setting reached over the link it
+  drops, and it moves the latency floor the Pi measures), how to try it so
+  it reverts itself, and the decision to leave it on.
+
 ### Fixed
+
+- **The in-UI assistant reads the same microcut definition.** The
+  web-admin chat kept its own copy of `get_microcut_stats` that could not
+  import `common`, so after the MCP tool, the alerter and the reports were
+  fixed it still counted every window with any loss and returned a top-5 —
+  the same "strong microcuts, worst 82%" about the gateway's floor, now
+  from the other assistant. The web-admin image builds from `shared/` like
+  its three siblings and copies `common/` in; the tool folds cuts, reports
+  the floor as p50/p90 and states it in a note when there were none, and
+  `get_loss_events` defaults to the shared 15% instead of 5%, so a single
+  lost ping out of ten is background there too. Verified against the Pi's
+  InfluxDB beside the MCP tool: identical cuts and floor over 24 h and 7 d.
 
 - **ClickHouse mode never wrote a row.** Since the Sprint 13 revival the
   exporter connected without a database so it could create the schema
