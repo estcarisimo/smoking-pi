@@ -23,7 +23,15 @@ def test_fold_cuts_folds_consecutive_windows_and_measures_them():
 
 def test_fold_cuts_tolerates_one_missing_window_but_not_two():
     assert len(microcuts.fold_cuts(_rows([(0, 100.0), (60, 100.0)]))) == 1
+    # Exactly GAP_S apart still folds; one second more does not.
+    assert len(microcuts.fold_cuts(_rows([(0, 100.0), (microcuts.GAP_S, 100.0)]))) == 1
+    assert len(microcuts.fold_cuts(_rows([(0, 100.0), (microcuts.GAP_S + 1, 100.0)]))) == 2
     assert len(microcuts.fold_cuts(_rows([(0, 100.0), (90, 100.0)]))) == 2
+
+
+def test_fold_cuts_reads_a_numeric_string_value():
+    rows = [{"_time": T0, "target": "cpe", "protocol": "ipv4", "_value": "100"}]
+    assert microcuts.fold_cuts(rows)[0]["total"] is True
 
 
 def test_fold_cuts_keeps_targets_and_protocols_apart_and_sorts_by_start():
@@ -54,6 +62,8 @@ def test_describe_cuts_reads_naturally():
     assert microcuts.describe_cuts(six) == "1 cut of 2 min 40 s (6 windows, all at 100%)"
     one = microcuts.fold_cuts(_rows([(0, 52.0)]))
     assert microcuts.describe_cuts(one) == "1 possible cut (single window, 52%)"
+    single = microcuts.fold_cuts(_rows([(0, 100.0)]))
+    assert microcuts.describe_cuts(single) == "1 cut of 10 s (1 window, all at 100%)"
     three = microcuts.fold_cuts(_rows([(0, 52.0), (600, 62.0), (1200, 54.0)]))
     assert microcuts.describe_cuts(three) == "3 possible cuts (single windows, 52-62%)"
     mixed = microcuts.fold_cuts(_rows([(0, 100.0), (30, 60.0), (900, 52.0)]))

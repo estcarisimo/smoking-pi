@@ -141,7 +141,7 @@ def describe_cuts(cuts: list[dict]) -> str:
     parts: list[str] = []
     if confirmed:
         longest = max(confirmed, key=lambda c: c["seconds"])
-        detail = f"{longest['windows']} windows"
+        detail = f"{longest['windows']} window{'s' if longest['windows'] != 1 else ''}"
         if longest["total"]:
             detail += ", all at 100%"
         else:

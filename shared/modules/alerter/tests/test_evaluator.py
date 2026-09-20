@@ -203,7 +203,7 @@ def test_microcut_burst_fires_on_enough_possible_cuts():
 def test_microcut_burst_a_single_total_window_is_confirmed():
     incidents = evaluator.rule_microcut_burst(_windows([(0, 100.0)]))
     assert len(incidents) == 1
-    assert "1 cut of 10 s (1 windows, all at 100%)" in incidents[0]["message"]
+    assert "1 cut of 10 s (1 window, all at 100%)" in incidents[0]["message"]
 
 
 def test_microcut_burst_env_tunable(monkeypatch):
