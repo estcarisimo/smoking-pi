@@ -36,12 +36,20 @@ def render(edition: Path, files: list[str], env_file: str | None) -> dict:
 
 
 def mounts(config: dict) -> dict[str, set[str]]:
-    """service -> {"type source -> target"} for every volume."""
+    """service -> {"type source -> target ro=bool"} for every volume.
+
+    ``read_only`` is part of the signature: an override that copies an entry
+    and drops its ``:ro`` turns a read-only mount writable and must fail
+    here too, not only a missing entry.
+    """
     result: dict[str, set[str]] = {}
     for name, svc in config.get("services", {}).items():
         entries = set()
         for v in svc.get("volumes", []) or []:
-            entries.add(f"{v.get('type')} {v.get('source')} -> {v.get('target')}")
+            entries.add(
+                f"{v.get('type')} {v.get('source')} -> {v.get('target')} "
+                f"ro={bool(v.get('read_only', False))}"
+            )
         result[name] = entries
     return result
 

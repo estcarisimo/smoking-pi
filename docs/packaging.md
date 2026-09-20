@@ -213,7 +213,7 @@ would restart it on the new file) with nothing restarted deliberately.
 | Mount (Pro) | Container | Baked in by |
 | --- | --- | --- |
 | `shared/modules/smokeping-exporters` → `/exporters` | smokeping | `COPY modules/smokeping-exporters/*.py /exporters/` (this change; build context is now `shared/`, like the alerter, ai-insights, mcp-server and web-admin images) |
-| `shared/modules/grafana/provisioning/{dashboards,dashboards-clickhouse,datasources}` | grafana | the Grafana Dockerfile's `COPY provisioning/`, since v2.5 |
+| `shared/modules/grafana/provisioning/{dashboards,dashboards-clickhouse,datasources}` | grafana | the Grafana Dockerfile's `COPY provisioning/` (there since before the multi-edition layout) |
 | `shared/modules/web-admin/app` → `/app/app` | web-admin | the web-admin Dockerfile's `COPY modules/web-admin/` |
 | `shared/modules/postgres/init` → `/docker-entrypoint-initdb.d` | postgres | the postgres Dockerfile's `COPY init/` |
 | `shared/modules/clickhouse/init` → `/docker-entrypoint-initdb.d` | clickhouse | nothing — and it never runs ([ClickHouse](clickhouse.md)); the exporter creates the schema |

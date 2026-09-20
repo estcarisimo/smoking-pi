@@ -152,7 +152,8 @@ def _repo_py_files(directory: pathlib.Path) -> dict[str, pathlib.Path]:
 def _container_hashes(docker: Docker, container: str, path: str) -> dict[str, str]:
     """sha256 of every .py directly under `path` inside the container.
 
-    Uses sha256sum from the image (present in the python:slim base). A missing
+    Uses sha256sum from the image (present in the python:slim base of the
+    Python modules and in the Alpine base of the smokeping image). A missing
     tool yields {}, which the caller reports as "could not verify" rather than
     as drift -- claiming drift we did not measure would be its own version of
     the bug these checks exist to catch.

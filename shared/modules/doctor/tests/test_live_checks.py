@@ -166,13 +166,14 @@ def test_exporters_baked_into_the_smokeping_image_are_checked(repo):
     responses["exec pro-smokeping-1 sh -c cd /exporters "] = (
         0, _hashes_for(repo, [("rrd2influx.py", "print('stale')\n")]),
     )
-    res = live_checks.check_deployed_code_current(repo, FakeDocker(responses))
+    docker = FakeDocker(responses)
+    res = live_checks.check_deployed_code_current(repo, docker)
     assert res.status is Status.FAIL
     assert len(res.findings) == 1
     assert "/exporters/rrd2influx.py" in res.findings[0].where
     assert "docker compose build smokeping" in res.findings[0].message  # the service, not the module dir
     # No /exporters/common lookup was made.
-    assert not any("cd /exporters/common" in c for c in FakeDocker(responses).calls)
+    assert not any("cd /exporters/common" in c for c in docker.calls)
     responses["exec pro-smokeping-1 sh -c cd /exporters "] = (
         0, _hashes_for(repo, [("rrd2influx.py", "print('rrd')\n")]),
     )
