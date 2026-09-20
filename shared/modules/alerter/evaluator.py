@@ -17,6 +17,7 @@ import os
 from datetime import datetime, timezone
 
 import flux
+from common import microcuts
 
 # Thresholds (env-tunable).
 # SmokePing probes on a 300 s step, so a 300 s window holds a single point —
@@ -35,20 +36,20 @@ DEFAULT_HIGH_LOSS_PCT = 20.0  # percent; HIGH_LOSS_PCT
 # Exporter-liveness window. Four 300 s steps, so a burst arriving late does not
 # read as a stall. See _stale_flux for why 10m was too tight.
 DEFAULT_STALE_WINDOW = 1200  # seconds; STALE_WINDOW
-# Microcut windows per 60 min needed to fire; MICROCUT_BURST_N.
-# This counts OBSERVED windows, so it must track the probe's duty cycle. The
-# detector samples a 10 s window every CPE_PROBE_WINDOW + CPE_PROBE_IDLE
-# seconds — 30 s by default, so ~120 windows/hour. It used to probe
-# back-to-back (~360 windows/hour) where 6 was the threshold; at a third of the
-# sample rate the same real event rate yields a third as many observations, so
-# 2 keeps the sensitivity equivalent. Raise it if bursts read as noisy, and
-# rescale it whenever you change CPE_PROBE_IDLE.
-DEFAULT_MICROCUT_BURST_N = 2
-# A window counts as a microcut only above this loss percent. CPE gateways
-# commonly rate-limit ICMP, so a 5 pps probe sees a constant single-digit loss
-# floor (observed: p50 10%, p99 30%) with no outage at all — counting every
-# window with any loss would flag that floor forever. A real microcut drops
-# most of a 10 s window.
+# microcut_burst fires on any CONFIRMED cut in the last 60 min -- a run of
+# two or more consecutive windows above MICROCUT_LOSS_PCT, or one window
+# that lost everything -- or on MICROCUT_BURST_N POSSIBLE cuts: isolated
+# single windows at 51-99%. It used to count windows, and two isolated
+# windows 23 minutes apart were a "burst" (2026-09-07, twice), while the
+# floor's tail was never a cut at all. Fourteen days of the reference
+# gateway held 17 isolated windows and never three in an hour; a real cut
+# (2026-09-19) was six consecutive windows at 100%. See common/microcuts.py.
+DEFAULT_MICROCUT_BURST_N = 3
+# A window counts as a cut window only above this loss percent. CPE gateways
+# commonly rate-limit ICMP, so a 5 pps probe sees a constant loss floor
+# (observed: p50 10%, p90 14-22% by day) with no outage at all -- counting
+# every window with any loss would flag that floor forever. A real microcut
+# drops most of a 10 s window.
 DEFAULT_MICROCUT_LOSS_PCT = 50.0  # percent; MICROCUT_LOSS_PCT
 
 DOWN_MIN_POINTS = 3
@@ -140,19 +141,14 @@ def _mean_loss_flux() -> str:
 
 
 def _microcut_flux(loss_pct: float) -> str:
-    """Count of microcut cpe windows per target+protocol over the last 60m.
+    """Every cpe window above MICROCUT_LOSS_PCT in the last 60m, in time
+    order, so the rule can fold them into cuts (common.microcuts).
 
     cpe_latency loss is a percent (0-100), so no ratio clamping applies; a
-    window counts only above MICROCUT_LOSS_PCT (see the constant for why
-    "any loss at all" is the wrong bar).
+    window counts only above the threshold (see the constant for why "any
+    loss at all" is the wrong bar).
     """
-    return (
-        flux.base_flux(["cpe_latency"], "-60m")
-        + '|> filter(fn: (r) => r._field == "loss") '
-        + f"|> filter(fn: (r) => r._value > {float(loss_pct)}) "
-        + '|> group(columns: ["target", "protocol"]) '
-        + "|> count()"
-    )
+    return microcuts.cut_windows_flux("-60m", loss_pct)
 
 
 # A Wi-Fi uplink signal below this counts as weak (see verdict.py for how
@@ -363,39 +359,61 @@ def rule_high_loss(
     return incidents
 
 
+def microcut_rows(cuts: list[dict], window_rows: list[dict]) -> list[dict]:
+    """Per target+protocol: cut windows, confirmed and possible cuts -- the
+    shape the verdict reads (``_value`` = cut windows, as before)."""
+    keys = {(r.get("target"), r.get("protocol")) for r in window_rows}
+    rows = []
+    for target, protocol in sorted(keys, key=lambda k: (k[0] or "", k[1] or "")):
+        own = [c for c in cuts if c["target"] == target and c["protocol"] == protocol]
+        rows.append(
+            {
+                "target": target,
+                "protocol": protocol,
+                "_value": sum(c["windows"] for c in own),
+                "cuts": sum(1 for c in own if c["confirmed"]),
+                "possible": sum(1 for c in own if not c["confirmed"]),
+            }
+        )
+    return rows
+
+
 def rule_microcut_burst(
-    count_rows: list[dict], burst_n: int | None = None
+    window_rows: list[dict], burst_n: int | None = None
 ) -> list[dict]:
-    """warning: >= MICROCUT_BURST_N microcut cpe windows in the last 60m."""
+    """warning: a confirmed cut, or MICROCUT_BURST_N possible ones, in 60m.
+
+    ``window_rows`` are the raw cut windows from :func:`_microcut_flux`;
+    they are folded into cuts here (common.microcuts.fold_cuts), so the
+    message can say "1 cut of 2 min 40 s (6 windows, all at 100%)" rather
+    than "6 windows over 50%".
+    """
     if burst_n is None:
         burst_n = _env_int("MICROCUT_BURST_N", DEFAULT_MICROCUT_BURST_N)
     loss_pct = _env_float("MICROCUT_LOSS_PCT", DEFAULT_MICROCUT_LOSS_PCT)
 
+    cuts = microcuts.fold_cuts(window_rows)
     incidents = []
-    for row in sorted(
-        count_rows,
-        key=lambda r: (r.get("target") or "", r.get("protocol") or ""),
-    ):
-        target = row.get("target")
-        protocol = row.get("protocol") or "?"
-        value = row.get("_value")
-        if target is None or value is None:
+    for row in microcut_rows(cuts, window_rows):
+        target, protocol = row["target"], row["protocol"] or "?"
+        if target is None:
             continue
-        count = int(value)
-        if count >= burst_n:
-            incidents.append(
-                {
-                    "rule": "microcut_burst",
-                    "severity": "warning",
-                    "key": f"microcut_burst:{target}/{protocol}",
-                    "target": target,
-                    "message": (
-                        f"{target} ({protocol}): {count} windows over "
-                        f"{loss_pct:g}% loss in the last 60m (microcut burst)"
-                    ),
-                    "value": count,
-                }
-            )
+        if row["cuts"] < 1 and row["possible"] < burst_n:
+            continue
+        own = [c for c in cuts if c["target"] == target and c["protocol"] == row["protocol"]]
+        incidents.append(
+            {
+                "rule": "microcut_burst",
+                "severity": "warning",
+                "key": f"microcut_burst:{target}/{protocol}",
+                "target": target,
+                "message": (
+                    f"{target} ({protocol}): {microcuts.describe_cuts(own)} "
+                    f"over {loss_pct:g}% loss in the last 60m"
+                ),
+                "value": row["_value"],
+            }
+        )
     return incidents
 
 
@@ -672,6 +690,8 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
     down_targets = {i["target"] for i in incidents}
     incidents += rule_high_loss(mean_rows, exclude=down_targets, points=down_rows)
     incidents += rule_microcut_burst(micro_rows)
+    # The verdict reads the folded shape, not the raw windows.
+    micro_rows = microcut_rows(microcuts.fold_cuts(micro_rows), micro_rows)
     widespread = rule_widespread(down_rows)
     incidents = widespread + suppress_widespread(incidents, widespread)
     incidents += rule_exporter_stale(

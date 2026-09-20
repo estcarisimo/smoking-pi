@@ -24,7 +24,7 @@ SAMPLE_DATA = {
             "loss_events": 7,
         }
     ],
-    "cpe": {"stats": [], "worst_windows": []},
+    "cpe": {"cut_loss_pct": 50.0, "stats": [], "cuts": [], "worst_windows": []},
 }
 
 

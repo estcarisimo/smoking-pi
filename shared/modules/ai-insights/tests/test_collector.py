@@ -7,7 +7,7 @@ in its own globals, so patching the re-exported name leaves the real one in
 place and the test silently talks to a live InfluxDB instead of the stub.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -51,22 +51,23 @@ def _target_rows(flux):
 
 
 def _cpe_rows(flux):
+    tp = {"target": "cpe", "protocol": "icmp"}
+    if "r._value > 50.0" in flux:
+        # Two consecutive windows at 100%: one confirmed cut of 40 s.
+        t0 = datetime(2026, 7, 28, 3, 0, tzinfo=timezone.utc)
+        return [{**tp, "_value": 100.0, "_time": t0},
+                {**tp, "_value": 100.0, "_time": t0 + timedelta(seconds=30)}]
     if "count()" in flux:
-        return [{"target": "cpe", "protocol": "icmp", "_value": 4}]
+        return [{**tp, "_value": 2880}]
+    if "quantile(q: 0.5)" in flux:
+        return [{**tp, "_value": 10.0}]
+    if "quantile(q: 0.9)" in flux:
+        return [{**tp, "_value": 18.0}]
     if "max()" in flux:
         # cpe loss is already a 0-100 percentage
-        return [{"target": "cpe", "protocol": "icmp", "_value": 40.0}]
+        return [{**tp, "_value": 100.0}]
     if "median()" in flux:
-        return [{"target": "cpe", "protocol": "icmp", "_value": 1.25}]
-    if "sort" in flux:
-        return [
-            {
-                "target": "cpe",
-                "protocol": "icmp",
-                "_value": 40.0,
-                "_time": datetime(2026, 7, 28, 3, 0, tzinfo=timezone.utc),
-            }
-        ]
+        return [{**tp, "_value": 1.25}]
     raise AssertionError(f"unexpected cpe flux: {flux}")
 
 
@@ -95,10 +96,17 @@ def test_collect_converts_both_loss_scales(monkeypatch):
 
     # cpe_latency: loss stays as a percentage, jitter stays in ms
     cpe = data["cpe"]["stats"][0]
-    assert cpe["max_loss_pct"] == 40.0
+    assert cpe["max_loss_pct"] == 100.0
     assert cpe["median_jitter_ms"] == 1.25
-    assert cpe["lossy_windows"] == 4
-    assert data["cpe"]["worst_windows"][0]["loss_pct"] == 40.0
+    assert cpe["windows"] == 2880
+    assert cpe["p50_loss_pct"] == 10.0 and cpe["p90_loss_pct"] == 18.0
+    assert cpe["cut_windows"] == 2
+    assert cpe["confirmed_cuts"] == 1 and cpe["possible_cuts"] == 0
+    assert data["cpe"]["cut_loss_pct"] == 50.0
+    cut = data["cpe"]["cuts"][0]
+    assert cut["seconds"] == 40 and cut["total"] is True and cut["confirmed"] is True
+    assert "start_epoch" not in cut
+    assert data["cpe"]["worst_windows"][0]["loss_pct"] == 100.0
     assert data["cpe"]["worst_windows"][0]["time"].startswith("2026-07-28T03:00")
 
 

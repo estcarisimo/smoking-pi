@@ -162,32 +162,76 @@ def test_high_loss_threshold_env_tunable(monkeypatch):
 # microcut_burst
 # ---------------------------------------------------------------------------
 
-def test_microcut_burst_default_threshold():
-    # Default is 2, rescaled when the probe went to a 1-in-3 duty cycle: the
-    # rule counts OBSERVED windows, so a third of the sample rate sees a third
-    # as many for the same real event rate.
-    assert evaluator.DEFAULT_MICROCUT_BURST_N == 2
-    rows = [
-        {"target": "cpe1", "protocol": "ipv4", "_value": 2},
-        {"target": "cpe1", "protocol": "ipv6", "_value": 1},
-    ]
+CPE_T0 = datetime(2026, 9, 19, 0, 42, 33, tzinfo=timezone.utc)
+
+
+def _windows(spec, target="136.25.220.1", protocol="ipv4"):
+    """Raw cut windows as [(seconds after CPE_T0, loss_pct), ...]."""
+    return [{"_time": CPE_T0 + timedelta(seconds=off), "target": target,
+             "protocol": protocol, "_value": loss} for off, loss in spec]
+
+
+def test_microcut_burst_fires_on_one_confirmed_cut_and_names_its_duration():
+    """2026-09-19 00:42:33Z: six consecutive windows at 100%, 30 s apart.
+    One cut of 2 min 40 s -- and the rule said "6 windows over 50%"."""
+    incidents = evaluator.rule_microcut_burst(_windows([(30 * i, 100.0) for i in range(6)]))
+    assert len(incidents) == 1
+    inc = incidents[0]
+    assert inc["key"] == "microcut_burst:136.25.220.1/ipv4"
+    assert inc["severity"] == "warning"
+    assert inc["value"] == 6
+    assert "1 cut of 2 min 40 s (6 windows, all at 100%)" in inc["message"]
+    assert "over 50% loss in the last 60m" in inc["message"]
+
+
+def test_microcut_burst_does_not_fire_on_two_isolated_windows():
+    """2026-09-07 10:17 and 10:40Z: two single windows at 52% and 62%, 23
+    minutes apart, were a "burst". They are two possible cuts, under the
+    default of three."""
+    assert evaluator.DEFAULT_MICROCUT_BURST_N == 3
+    rows = _windows([(0, 52.0), (23 * 60, 62.0)])
+    assert evaluator.rule_microcut_burst(rows) == []
+
+
+def test_microcut_burst_fires_on_enough_possible_cuts():
+    rows = _windows([(0, 52.0), (20 * 60, 62.0), (40 * 60, 54.0)])
     incidents = evaluator.rule_microcut_burst(rows)
     assert len(incidents) == 1
-    assert incidents[0]["key"] == "microcut_burst:cpe1/ipv4"
-    assert incidents[0]["value"] == 2
+    assert "3 possible cuts (single windows, 52-62%)" in incidents[0]["message"]
+
+
+def test_microcut_burst_a_single_total_window_is_confirmed():
+    incidents = evaluator.rule_microcut_burst(_windows([(0, 100.0)]))
+    assert len(incidents) == 1
+    assert "1 cut of 10 s (1 window, all at 100%)" in incidents[0]["message"]
 
 
 def test_microcut_burst_env_tunable(monkeypatch):
-    monkeypatch.setenv("MICROCUT_BURST_N", "3")
-    rows = [{"target": "cpe1", "protocol": "ipv6", "_value": 3}]
-    assert len(evaluator.rule_microcut_burst(rows)) == 1
+    monkeypatch.setenv("MICROCUT_BURST_N", "2")
+    rows = _windows([(0, 52.0), (23 * 60, 62.0)], protocol="ipv6")
+    incidents = evaluator.rule_microcut_burst(rows)
+    assert len(incidents) == 1
+    assert incidents[0]["key"] == "microcut_burst:136.25.220.1/ipv6"
+
+
+def test_microcut_burst_keeps_protocols_apart():
+    rows = _windows([(0, 100.0)], protocol="ipv4") + _windows([(0, 52.0)], protocol="ipv6")
+    keys = [i["key"] for i in evaluator.rule_microcut_burst(rows)]
+    assert keys == ["microcut_burst:136.25.220.1/ipv4"]
 
 
 def test_microcut_message_states_the_loss_threshold(monkeypatch):
-    monkeypatch.setenv("MICROCUT_LOSS_PCT", "70")
-    rows = [{"target": "cpe1", "protocol": "ipv4", "_value": 9}]
-    incidents = evaluator.rule_microcut_burst(rows)
-    assert "9 windows over 70% loss" in incidents[0]["message"]
+    monkeypatch.setenv("MICROCUT_LOSS_PCT", "80")
+    incidents = evaluator.rule_microcut_burst(_windows([(0, 100.0)]))
+    assert "over 80% loss" in incidents[0]["message"]
+
+
+def test_microcut_rows_carry_the_folded_shape_for_the_verdict():
+    raw = _windows([(30 * i, 100.0) for i in range(6)] + [(50 * 60, 52.0)])
+    from common import microcuts
+    rows = evaluator.microcut_rows(microcuts.fold_cuts(raw), raw)
+    assert rows == [{"target": "136.25.220.1", "protocol": "ipv4",
+                     "_value": 7, "cuts": 1, "possible": 1}]
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +421,7 @@ def test_evaluate_collapses_the_hung_radio_night_into_one_incident(monkeypatch):
     one incident, and it leads the list."""
     def fake_query(flux_src):
         if "cpe_latency" in flux_src:
-            return [{"target": "136.25.220.1", "protocol": "ipv4", "_value": 99}]
+            return _windows([(30 * i, 100.0) for i in range(99)])
         if "wifi_link" in flux_src:
             return []
         if "-10m" in flux_src or ("count()" in flux_src and "group()" in flux_src):
@@ -471,7 +515,7 @@ def test_ipv6_down_quiet_when_ipv4_also_down():
 def test_evaluate_dispatches_queries_and_excludes_down_from_high_loss(monkeypatch):
     def fake_query(flux_src):
         if "cpe_latency" in flux_src:
-            return [{"target": "cpe1", "protocol": "ipv4", "_value": 7}]
+            return _windows([(0, 100.0), (30, 100.0)], target="cpe1")
         if "-10m" in flux_src:  # exporter staleness probe
             return [{"_value": 30}]
         if "mean()" in flux_src:
@@ -484,13 +528,17 @@ def test_evaluate_dispatches_queries_and_excludes_down_from_high_loss(monkeypatc
                               "flaky": [0.3, 0.0, 0.3, 0.3]})
 
     monkeypatch.setattr(evaluator, "_query", fake_query)
-    incidents = evaluator.evaluate()
+    incidents, context = evaluator.evaluate_with_context()
     keys = {i["key"] for i in incidents}
     assert keys == {
         "target_down:deadhost",
         "high_loss:flaky",  # deadhost excluded: already down
         "microcut_burst:cpe1/ipv4",
     }
+    # The context carries the folded shape the verdict reads, not raw windows.
+    assert context["micro_rows"] == [
+        {"target": "cpe1", "protocol": "ipv4", "_value": 2, "cuts": 1, "possible": 0}
+    ]
 
 
 def test_evaluate_passes_the_raw_points_to_high_loss_for_persistence(monkeypatch):

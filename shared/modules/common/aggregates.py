@@ -27,6 +27,7 @@ from typing import Any
 
 log = logging.getLogger("aggregates")
 
+from . import microcuts
 from .tsdb import (
     CLAMP_LOSS_RATIO as _CLAMP_LOSS_RATIO,
 )
@@ -130,24 +131,23 @@ def _collect_target_stats(hours: int) -> list[dict]:
 
 
 def _collect_cpe_stats(hours: int) -> dict:
-    """CPE microcut summary from ``cpe_latency`` (loss already 0-100 %)."""
+    """CPE microcut summary from ``cpe_latency`` (loss already 0-100 %):
+    the floor per target+protocol, and the cuts above MICROCUT_LOSS_PCT
+    folded into runs (common.microcuts) -- the same reading the MCP tool
+    and the alerter give, so the AI report cannot call the floor's tail a
+    microcut when the alert did not."""
     base = _base_flux(["cpe_latency"], hours)
     group = '|> group(columns: ["target", "protocol"]) '
     loss = '|> filter(fn: (r) => r._field == "loss") '
 
-    lossy_count_flux = (
-        base + loss + "|> filter(fn: (r) => r._value > 0.0) " + group + "|> count()"
-    )
+    windows_flux = base + loss + group + "|> count()"
+    p50_flux = base + loss + group + "|> quantile(q: 0.5)"
+    p90_flux = base + loss + group + "|> quantile(q: 0.9)"
     max_loss_flux = base + loss + group + "|> max()"
     median_jitter_flux = (
         base + '|> filter(fn: (r) => r._field == "jitter") ' + group + "|> median()"
     )
-    worst_flux = (
-        base + loss
-        + "|> group() "
-        + '|> sort(columns: ["_value"], desc: true) '
-        + f"|> limit(n: {MAX_WORST_WINDOWS})"
-    )
+    threshold = microcuts.loss_pct()
 
     stats: dict[tuple, dict] = {}
 
@@ -160,17 +160,29 @@ def _collect_cpe_stats(hours: int) -> dict:
             entry = stats.setdefault(k, {"target": k[0], "protocol": k[1]})
             entry[key] = cast(value)
 
-    _merge(query_influx(lossy_count_flux), "lossy_windows", int)
-    _merge(query_influx(max_loss_flux), "max_loss_pct", lambda v: round(float(v), 2))
+    pct = lambda v: round(float(v), 2)  # noqa: E731
+    _merge(query_influx(windows_flux), "windows", int)
+    _merge(query_influx(p50_flux), "p50_loss_pct", pct)
+    _merge(query_influx(p90_flux), "p90_loss_pct", pct)
+    _merge(query_influx(max_loss_flux), "max_loss_pct", pct)
     _merge(
         query_influx(median_jitter_flux),
         "median_jitter_ms",
         lambda v: round(float(v), 3),
     )
-    worst_rows = query_influx(worst_flux)
+    cut_rows = query_influx(microcuts.cut_windows_flux(f"-{int(hours)}h", threshold))
+    cuts = microcuts.fold_cuts(cut_rows)
+    for cut in cuts:
+        cut.pop("start_epoch", None)
+    cuts.reverse()  # newest first, as the tool reports them
 
     for entry in stats.values():
-        entry.setdefault("lossy_windows", 0)
+        entry.setdefault("windows", 0)
+        own = [c for c in cuts
+               if c["target"] == entry["target"] and c["protocol"] == entry["protocol"]]
+        entry["cut_windows"] = sum(c["windows"] for c in own)
+        entry["confirmed_cuts"] = sum(1 for c in own if c["confirmed"])
+        entry["possible_cuts"] = sum(1 for c in own if not c["confirmed"])
 
     worst_windows = [
         {
@@ -179,14 +191,16 @@ def _collect_cpe_stats(hours: int) -> dict:
             "protocol": row.get("protocol"),
             "loss_pct": round(float(row.get("_value", 0.0)), 2),
         }
-        for row in worst_rows
-        if row.get("_value") is not None and float(row["_value"]) > 0.0
+        for row in sorted(cut_rows, key=lambda r: float(r.get("_value") or 0.0),
+                          reverse=True)[:MAX_WORST_WINDOWS]
     ]
     return {
+        "cut_loss_pct": threshold,
         "stats": sorted(
             stats.values(),
             key=lambda e: (e.get("target") or "", e.get("protocol") or ""),
         ),
+        "cuts": cuts,
         "worst_windows": worst_windows,
     }
 

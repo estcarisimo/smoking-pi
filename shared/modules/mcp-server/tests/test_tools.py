@@ -495,42 +495,109 @@ def test_loss_events_threshold_validation(no_api):
     assert "error" in server.get_loss_events(min_loss_pct="lots")
 
 
-def test_microcut_stats_shaping(monkeypatch, no_api):
-    ts = datetime(2026, 7, 28, 2, 0, tzinfo=timezone.utc)
+_CPE_T0 = datetime(2026, 9, 19, 0, 42, 33, tzinfo=timezone.utc)
+
+
+def _cpe_fake(cut_windows, windows=2880, p50=10.0, p90=18.0, max_loss=None,
+              target="136.25.220.1", protocol="ipv4"):
+    """A day of cpe_latency: the floor as aggregates, plus the raw windows
+    above the threshold as [(seconds after _CPE_T0, loss_pct), ...]."""
+    rows = [{"_time": _CPE_T0 + timedelta(seconds=off), "target": target,
+             "protocol": protocol, "_value": loss} for off, loss in cut_windows]
+    if max_loss is None:
+        max_loss = max([loss for _, loss in cut_windows] + [p90 + 4])
+    tp = {"target": target, "protocol": protocol}
 
     def fake(flux):
         assert "cpe_latency" in flux
+        if "r._value > 50.0" in flux:
+            return rows
         if "count()" in flux:
-            return [{"target": "cpe", "protocol": "icmp", "_value": 7}]
+            return [{**tp, "_value": windows}]
+        if "quantile(q: 0.5)" in flux:
+            return [{**tp, "_value": p50}]
+        if "quantile(q: 0.9)" in flux:
+            return [{**tp, "_value": p90}]
         if "max()" in flux:
-            return [{"target": "cpe", "protocol": "icmp", "_value": 12.5}]
+            return [{**tp, "_value": max_loss}]
         if '_field == "jitter"' in flux:
-            return [{"target": "cpe", "protocol": "icmp", "_value": 3.14159}]
-        if "limit(n: 5)" in flux:
-            return [
-                {"_time": ts, "target": "cpe", "protocol": "icmp", "_value": 12.5}
-            ]
+            return [{**tp, "_value": 3.14159}]
         raise AssertionError(f"unexpected flux: {flux}")
+    return fake
 
-    _patch_influx(monkeypatch, fake)
+
+def test_microcut_stats_a_quiet_day_reports_the_floor_and_no_cuts(monkeypatch, no_api):
+    """2026-08-30: 'worst window 20%' was reported as a microcut. It was the
+    floor's tail; with nothing above 50% the answer is the floor itself."""
+    _patch_influx(monkeypatch, _cpe_fake([], p50=14.0, p90=22.0, max_loss=44.0))
     result = server.get_microcut_stats(hours=24)
-    assert result["stats"] == [
-        {
-            "target": "cpe",
-            "protocol": "icmp",
-            "lossy_windows": 7,
-            "max_loss_pct": 12.5,
-            "median_jitter_ms": 3.142,
-        }
-    ]
-    assert result["worst_windows"] == [
-        {
-            "time": "2026-07-28T02:00:00+00:00",
-            "target": "cpe",
-            "protocol": "icmp",
-            "loss_pct": 12.5,
-        }
-    ]
+    assert result["cut_loss_pct"] == 50.0
+    assert result["cuts"] == [] and result["worst_windows"] == []
+    assert result["stats"] == [{
+        "target": "136.25.220.1", "protocol": "ipv4", "windows": 2880,
+        "p50_loss_pct": 14.0, "p90_loss_pct": 22.0, "max_loss_pct": 44.0,
+        "median_jitter_ms": 3.142, "cut_windows": 0, "confirmed_cuts": 0,
+        "possible_cuts": 0,
+    }]
+    assert "no microcuts" in result["note"]
+    assert "p50 14% / p90 22%" in result["note"]
+    assert "rate limiting, not a fault" in result["note"]
+
+
+def test_microcut_stats_folds_the_real_cut_into_one_with_its_duration(monkeypatch, no_api):
+    """2026-09-19 00:42:33-00:45:03Z: six consecutive windows at 100%, one
+    every 30 s. One confirmed cut of 2 min 40 s, not six events."""
+    six = [(30 * i, 100.0) for i in range(6)]
+    _patch_influx(monkeypatch, _cpe_fake(six))
+    result = server.get_microcut_stats(hours=24)
+    assert len(result["cuts"]) == 1
+    cut = result["cuts"][0]
+    assert cut["start"] == "2026-09-19T00:42:33+00:00"
+    assert cut["end"] == "2026-09-19T00:45:03+00:00"
+    assert cut["seconds"] == 160 and cut["windows"] == 6
+    assert cut["total"] is True and cut["confirmed"] is True
+    assert "start_epoch" not in cut
+    stats = result["stats"][0]
+    assert stats["cut_windows"] == 6
+    assert stats["confirmed_cuts"] == 1 and stats["possible_cuts"] == 0
+    assert len(result["worst_windows"]) == 5          # the five worst CUT windows
+    assert all(w["loss_pct"] == 100.0 for w in result["worst_windows"])
+    assert "note" not in result
+
+
+def test_microcut_stats_an_isolated_window_is_a_possible_cut(monkeypatch, no_api):
+    """2026-09-07: seventeen isolated windows at 52-78% in fourteen days,
+    reported as 'strong microcuts'. Each is a possible cut, and says so."""
+    _patch_influx(monkeypatch, _cpe_fake([(0, 52.0), (23 * 60, 62.0)]))
+    result = server.get_microcut_stats(hours=24)
+    assert [c["confirmed"] for c in result["cuts"]] == [False, False]
+    assert result["cuts"][0]["start"] > result["cuts"][1]["start"]   # newest first
+    assert result["stats"][0]["possible_cuts"] == 2
+    assert result["stats"][0]["confirmed_cuts"] == 0
+    assert len(result["worst_windows"]) == 2
+
+
+def test_microcut_stats_a_single_total_window_is_confirmed(monkeypatch, no_api):
+    _patch_influx(monkeypatch, _cpe_fake([(0, 100.0)]))
+    cut = server.get_microcut_stats(hours=24)["cuts"][0]
+    assert cut["confirmed"] is True and cut["windows"] == 1 and cut["seconds"] == 10
+
+
+def test_microcut_stats_tolerates_one_missing_window_inside_a_cut(monkeypatch, no_api):
+    # 30 s cadence: windows at 0, 30, (missing 60), 90 are one cut; a gap of
+    # two missing windows (0 -> 120) is two.
+    _patch_influx(monkeypatch, _cpe_fake([(0, 100.0), (30, 100.0), (90, 100.0)]))
+    assert len(server.get_microcut_stats(hours=24)["cuts"]) == 1
+    _patch_influx(monkeypatch, _cpe_fake([(0, 100.0), (120, 100.0)]))
+    assert len(server.get_microcut_stats(hours=24)["cuts"]) == 2
+
+
+def test_microcut_stats_threshold_follows_the_env(monkeypatch, no_api):
+    monkeypatch.setenv("MICROCUT_LOSS_PCT", "80")
+    captured = _patch_influx(monkeypatch, lambda flux: [])
+    result = server.get_microcut_stats(hours=24)
+    assert result["cut_loss_pct"] == 80.0
+    assert any("r._value > 80.0" in q for q in captured)
 
 
 # ---------------------------------------------------------------------------
@@ -698,28 +765,18 @@ def test_loss_events_roll_up_per_target(monkeypatch, api, linked):
     assert "/d/smokeping-lat-pct-v28" in busiest["links"]["graph"]
 
 
-def test_microcut_worst_windows_link_to_their_own_moment(monkeypatch, no_api, linked):
-    ts = datetime(2026, 7, 28, 2, 0, tzinfo=timezone.utc)
-
-    def fake(flux):
-        if "count()" in flux:
-            return [{"target": "CPE", "protocol": "ipv4", "_value": 3}]
-        if "max()" in flux:
-            return [{"target": "CPE", "protocol": "ipv4", "_value": 40.0}]
-        if "median()" in flux:
-            return [{"target": "CPE", "protocol": "ipv4", "_value": 1.5}]
-        return [{"_time": ts, "target": "CPE", "protocol": "ipv4", "_value": 40.0}]
-
-    _patch_influx(monkeypatch, fake)
+def test_microcut_cuts_and_worst_windows_link_to_their_own_moment(monkeypatch, no_api, linked):
+    _patch_influx(monkeypatch, _cpe_fake([(0, 100.0), (30, 100.0)], target="CPE"))
     result = server.get_microcut_stats(hours=24)
 
     # The per-target summary spans the whole window...
     assert "from=now-24h" in result["stats"][0]["links"]["graph"]
-    # ...while an individual worst window is zoomed to when it happened.
-    center = int(ts.timestamp() * 1000)
+    # ...while a cut and a worst window are zoomed to when they happened.
+    center = int(_CPE_T0.timestamp() * 1000)
+    assert f"from={center - 15 * 60 * 1000}" in result["cuts"][0]["graph"]
+    assert "var-cpe=CPE" in result["cuts"][0]["graph"]
     graph = result["worst_windows"][0]["graph"]
-    assert f"from={center - 15 * 60 * 1000}" in graph
-    assert "var-cpe=CPE" in graph
+    assert "var-cpe=CPE" in graph and "from=" in graph
 
 
 def test_system_status_reports_unconfigured_links(api, unlinked):

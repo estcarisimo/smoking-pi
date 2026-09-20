@@ -64,19 +64,28 @@ max_loss={{ t.max_loss_pct|default(0) }}% loss_events={{ t.loss_events }}
 {% else -%}
 (no latency/dns data points in this window)
 {% endfor %}
-CPE microcuts (high-frequency local-link probing; loss in %):
+CPE microcuts (10 s windows on the local link; loss in %). The gateway
+rate-limits ICMP, so the floor (p50/p90) is normal; a cut is a window above
+{{ data.cpe.cut_loss_pct|default(50) }}%, confirmed when it spans two windows
+or lost everything, possible when it is a single window below 100%:
 {% for c in data.cpe.stats -%}
-- {{ c.target }}/{{ c.protocol }}: lossy_windows={{ c.lossy_windows }} \
-max_loss={{ c.max_loss_pct|default(0) }}% \
+- {{ c.target }}/{{ c.protocol }}: windows={{ c.windows }} \
+floor p50={{ c.p50_loss_pct|default(0) }}% p90={{ c.p90_loss_pct|default(0) }}% \
+max={{ c.max_loss_pct|default(0) }}% \
+confirmed_cuts={{ c.confirmed_cuts|default(0) }} possible_cuts={{ c.possible_cuts|default(0) }} \
 median_jitter={{ c.median_jitter_ms|default('n/a') }}ms
 {% else -%}
 (no cpe_latency data in this window)
 {% endfor %}
-{% if data.cpe.worst_windows -%}
-Worst CPE windows:
-{% for w in data.cpe.worst_windows -%}
-- {{ w.time }} {{ w.target }}/{{ w.protocol }}: {{ w.loss_pct }}% loss
+{% if data.cpe.cuts -%}
+Cuts (newest first):
+{% for c in data.cpe.cuts -%}
+- {{ c.start }} {{ c.target }}/{{ c.protocol }}: {{ c.seconds }} s, {{ c.windows }} windows, \
+worst {{ c.max_loss_pct }}%{% if c.total %}, all at 100%{% endif %} \
+({{ 'confirmed' if c.confirmed else 'possible' }})
 {% endfor %}
+{%- else -%}
+No cuts above the threshold in this window.
 {%- endif %}
 {% if data.wifi -%}
 Wi-Fi uplink ({{ data.wifi.interface }}{% if data.wifi.ssid %}, {{ data.wifi.ssid }}{% endif %}\
