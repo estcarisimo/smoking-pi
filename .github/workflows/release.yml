@@ -38,7 +38,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: Version from the git tag (vX.Y.Z: release; test-*: throwaway)
+      - name: Version from the git tag (vX.Y.Z is a release, test-* a throwaway)
         id: resolve
         run: |
           set -e
