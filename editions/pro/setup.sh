@@ -19,12 +19,19 @@ NC='\033[0m'
 
 # Default database
 DATABASE="influxdb"
+# Where the stack's state lives (docs/packaging.md, "Relocatable state").
+# Defaults keep everything beside this script, untracked by git.
+ENV_FILE="${SMOKING_PI_ENV_FILE:-$SCRIPT_DIR/.env}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --database)
             DATABASE="$2"
+            shift 2
+            ;;
+        --env-file)
+            ENV_FILE="$2"
             shift 2
             ;;
         influxdb|clickhouse)
@@ -42,7 +49,13 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --database <type>   Choose database: influxdb (default) or clickhouse"
+            echo "  --env-file <path>   Where to write the env file (default: ./.env;"
+            echo "                      also read from SMOKING_PI_ENV_FILE)"
             echo "  -h, --help         Show this help message"
+            echo ""
+            echo "Environment: SMOKING_PI_ENV_FILE, SMOKING_PI_CONFIG_DIR, SMOKING_PI_OUTPUT_DIR"
+            echo "  relocate the env file, the YAML the stack edits and the generated"
+            echo "  SmokePing config (docs/packaging.md). Defaults stay beside this script."
             echo ""
             echo "Examples:"
             echo "  $0                      # Use InfluxDB (default)"
@@ -71,24 +84,33 @@ echo ""
 
 # Generate passwords/environment
 echo -e "${BLUE}📋 Setting up environment...${NC}"
-"$ROOT_DIR/shared/scripts/generate-passwords.sh" --edition pro --target-dir "$SCRIPT_DIR"
+"$ROOT_DIR/shared/scripts/generate-passwords.sh" --edition pro --target-dir "$SCRIPT_DIR" --env-file "$ENV_FILE"
+
+# The directories the stack rewrites must exist before Compose mounts them
+# (Compose would create them, owned by root, which is fine for the containers
+# but not for an operator's /etc). Relative values are relative to this
+# directory, as in the compose file.
+cd "$SCRIPT_DIR"
+mkdir -p "${SMOKING_PI_CONFIG_DIR:-./config-manager/config}" "${SMOKING_PI_OUTPUT_DIR:-./config-manager/output}"
 
 # Set TSDB_TYPE in the generated .env (never mutate the tracked template).
 # COMPOSE_PROFILES is persisted alongside it rather than only passed on the
 # command line below: a profile that exists solely in this script's argv is
 # forgotten by the next bare `docker compose up -d`, which then quietly runs
 # without that service.
-if [ -f "$SCRIPT_DIR/.env" ]; then
-    sed -i "s/^TSDB_TYPE=.*/TSDB_TYPE=$DATABASE/" "$SCRIPT_DIR/.env"
-    sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$DATABASE/" "$SCRIPT_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+    sed -i "s/^TSDB_TYPE=.*/TSDB_TYPE=$DATABASE/" "$ENV_FILE"
+    sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$DATABASE/" "$ENV_FILE"
 fi
 
-# Choose compose file based on database
+# Choose compose file based on database. Every compose call below carries
+# --env-file so a relocated env file is honored; with the default it is the
+# same .env Compose would have read on its own.
 if [ "$DATABASE" = "clickhouse" ]; then
-    COMPOSE_FILE="-f docker-compose.yml -f docker-compose.clickhouse.yml"
+    COMPOSE_FILE=(--env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.clickhouse.yml)
     echo -e "${BLUE}🗄️ Using ClickHouse as time-series database${NC}"
 else
-    COMPOSE_FILE=""
+    COMPOSE_FILE=(--env-file "$ENV_FILE")
     echo -e "${BLUE}🗄️ Using InfluxDB as time-series database${NC}"
 fi
 
@@ -97,9 +119,9 @@ echo -e "${BLUE}🐳 Starting services...${NC}"
 cd "$SCRIPT_DIR"
 if [ "$DATABASE" = "clickhouse" ]; then
     # For ClickHouse, we need to use the profile and override files
-    COMPOSE_PROFILES=clickhouse docker compose $COMPOSE_FILE up -d
+    COMPOSE_PROFILES=clickhouse docker compose "${COMPOSE_FILE[@]}" up -d
 else
-    COMPOSE_PROFILES=influxdb docker compose up -d
+    COMPOSE_PROFILES=influxdb docker compose "${COMPOSE_FILE[@]}" up -d
 fi
 
 # Wait for services to be ready
@@ -110,7 +132,7 @@ sleep 10
 echo -e "${BLUE}🗄️ Checking PostgreSQL readiness...${NC}"
 max_attempts=30
 attempt=0
-postgres_container=$(docker compose $COMPOSE_FILE ps -q postgres)
+postgres_container=$(docker compose "${COMPOSE_FILE[@]}" ps -q postgres)
 
 while [ $attempt -lt $max_attempts ]; do
     if docker exec "$postgres_container" pg_isready -U smokeping -d smokeping_targets >/dev/null 2>&1; then
@@ -132,7 +154,7 @@ if [ "$DATABASE" = "influxdb" ]; then
     echo -e "${BLUE}🔄 Checking InfluxDB readiness...${NC}"
     max_attempts=30
     attempt=0
-    container_name=$(docker compose $COMPOSE_FILE ps -q influxdb)
+    container_name=$(docker compose "${COMPOSE_FILE[@]}" ps -q influxdb)
     
     while [ $attempt -lt $max_attempts ]; do
         if docker exec "$container_name" influx ping 2>/dev/null; then
@@ -157,7 +179,7 @@ fi
 
 # Check service health
 echo -e "${BLUE}🔍 Checking service status...${NC}"
-docker compose $COMPOSE_FILE ps
+docker compose "${COMPOSE_FILE[@]}" ps
 
 # Verify PostgreSQL connection
 echo -e "${BLUE}🔗 Verifying PostgreSQL connection...${NC}"
@@ -195,11 +217,11 @@ fi
 echo ""
 echo -e "${CYAN}🔐 Credentials:${NC}"
 echo -e "  Run: ${YELLOW}./show-passwords.sh${NC} to display all credentials"
-echo -e "  Or check the .env file directly"
+echo -e "  Or check the env file directly: $ENV_FILE"
 echo ""
 echo -e "${CYAN}💡 Tips:${NC}"
-echo -e "  - View logs: docker compose $COMPOSE_FILE logs"
-echo -e "  - Stop services: docker compose $COMPOSE_FILE down"
+echo -e "  - View logs: docker compose ${COMPOSE_FILE[*]} logs"
+echo -e "  - Stop services: docker compose ${COMPOSE_FILE[*]} down"
 echo -e "  - View passwords: ./show-passwords.sh"
 echo -e "  - Verify PostgreSQL: ./verify-postgres.sh"
 echo -e "  - Access Grafana dashboards for advanced monitoring"

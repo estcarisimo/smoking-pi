@@ -304,3 +304,12 @@ TODO*/*.md
 # uv writes one per module on `uv run`; the project pins in pyproject.toml, not lockfiles
 uv.lock
 .docs-venv/
+
+# State the running stack rewrites (docs/packaging.md, "Relocatable state"):
+# the YAML config-manager edits and the SmokePing config it generates. The
+# directories stay (with .gitkeep) so the default bind mounts have a target;
+# config-manager seeds an empty config dir from its templates/ on first start.
+editions/*/config-manager/config/*
+editions/*/config-manager/output/*
+!editions/*/config-manager/config/.gitkeep
+!editions/*/config-manager/output/.gitkeep

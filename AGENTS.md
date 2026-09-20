@@ -104,10 +104,13 @@ request.** The server instructions and the OpenClaw skill both say so. Do not
 attach images to other tools, and do not add public/snapshot URLs — Grafana
 snapshots are deliberately disabled (see CHANGELOG 2.7.0).
 
-**Never commit runtime churn or secrets.** A running stack rewrites
-`editions/*/config-manager/{config,output}`; add files by name, never
-`git add -A`. `.env` is gitignored; `.env.template` values ship empty. A new
-setting goes in `.env.template` *and* the compose file, or the doctor fails.
+**Never commit runtime state or secrets.** A running stack rewrites
+`editions/*/config-manager/{config,output}`; those are gitignored (`.gitkeep`
+only) and relocatable via `SMOKING_PI_CONFIG_DIR`/`_OUTPUT_DIR`/`_ENV_FILE`
+(docs/packaging.md). The seed YAML is `config-manager/templates/`, the one
+copy. Add files by name, never `git add -A`. `.env` is gitignored;
+`.env.template` values ship empty. A new setting goes in `.env.template`
+*and* the compose file, or the doctor fails.
 
 **Stateful majors are not routine bumps.** `postgres` and `influxdb` major
 versions are excluded from Dependabot on purpose; a PG major over a live

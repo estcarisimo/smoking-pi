@@ -89,13 +89,17 @@ suite stays hermetic regardless of the developer's shell.
 Tests that **reintroduce a bug** are the house style: when you fix something,
 add the test that fails with the fix reverted, and say so in its docstring.
 
-### Do not commit runtime churn
+### Runtime state is not in the tree
 
-A running stack rewrites `editions/<edition>/config-manager/config/*.yaml` and
-`config-manager/output/*` (PostgreSQL is the source of truth; the YAML is
-import/export). Those files will show as modified on a host that runs the
-stack. Never `git add -A`; add the files you changed by name. The `tests/
-fixtures/` directories hold the goldens.
+A running stack rewrites `editions/<edition>/config-manager/config/*.yaml`
+and `config-manager/output/*` (PostgreSQL is the source of truth; the YAML
+is import/export). Those directories are gitignored (only a `.gitkeep` is
+tracked) and can be moved out of the tree entirely with
+`SMOKING_PI_CONFIG_DIR` / `SMOKING_PI_OUTPUT_DIR` / `SMOKING_PI_ENV_FILE`
+(`docs/packaging.md`, *Relocatable state*). The seed YAML lives in
+`shared/modules/config-manager/templates/` — edit it there. Still: never
+`git add -A`; add the files you changed by name. The `tests/fixtures/`
+directories hold the goldens.
 
 ### Secrets
 

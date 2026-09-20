@@ -189,7 +189,7 @@ docker compose build web-admin && docker compose up -d web-admin
 ### Configuration Files
 
 - **Basic**: `editions/basic/config/targets.yaml` is the whole configuration
-- **Standard / Pro**: `editions/<edition>/config-manager/config/{targets,probes,sources}.yaml` seed PostgreSQL on first start and serve as import/export afterwards — targets, probe definitions, and the top-sites sources (Tranco, CrUX, Cloudflare Radar) used to pick targets by country
+- **Standard / Pro**: `editions/<edition>/config-manager/config/{targets,probes,sources}.yaml` (seeded from `shared/modules/config-manager/templates/` on first start; untracked; relocatable with `SMOKING_PI_CONFIG_DIR`, see `docs/packaging.md`) seed PostgreSQL on first start and serve as import/export afterwards — targets, probe definitions, and the top-sites sources (Tranco, CrUX, Cloudflare Radar) used to pick targets by country
 - Generated SmokePing `Targets` / `Probes` are written by config-manager (a host directory in Pro, a named volume in Standard) and mounted into the SmokePing container; do not edit them by hand
 - Grafana dashboards are provisioned from `shared/modules/grafana/provisioning/` — separate sets for InfluxDB and ClickHouse
 

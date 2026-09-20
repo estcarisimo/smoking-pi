@@ -12,12 +12,33 @@ MODULE_DIR = Path(__file__).resolve().parent.parent
 
 
 @pytest.mark.parametrize("name", ["targets.yaml", "probes.yaml", "sources.yaml"])
-def test_default_config_parses(name):
-    path = MODULE_DIR / "config" / name
-    if not path.exists():
-        pytest.skip(f"{name} not present in module defaults")
+def test_seed_config_parses(name):
+    """templates/ is THE seed set: bootstrap copies it into an empty config
+    dir on first start (there is no other copy in the tree any more). It
+    must exist and parse -- no skipping."""
+    path = MODULE_DIR / "templates" / name
+    assert path.exists(), f"{name} missing from templates/, the bootstrap seeds"
     data = yaml.safe_load(path.read_text())
     assert isinstance(data, dict), f"{name} must parse to a mapping"
+
+
+def test_bootstrap_seeds_an_empty_config_dir(tmp_path, monkeypatch):
+    """A fresh install has an empty (or .gitkeep-only) config directory bind-
+    mounted over /app/config; the three YAML files must come from templates/."""
+    from scripts import bootstrap as bootstrap_module
+
+    cfg = tmp_path / "config"
+    cfg.mkdir()
+    (cfg / ".gitkeep").touch()
+    monkeypatch.setattr(bootstrap_module, "CONFIG_DIR", cfg)
+    monkeypatch.setattr(bootstrap_module, "OUTPUT_DIR", tmp_path / "output")
+    assert bootstrap_module.run_bootstrap() is True
+    for name in ("targets.yaml", "probes.yaml", "sources.yaml"):
+        assert (cfg / name).exists(), f"{name} was not seeded"
+    probes = yaml.safe_load((cfg / "probes.yaml").read_text())["probes"]
+    # The seed is the current one (the HTTP/TCP probes of v2.10.0), not a
+    # stale copy.
+    assert "CurlHTTP3" in probes and "TCPPing" in probes
 
 
 def test_targets_template_renders():

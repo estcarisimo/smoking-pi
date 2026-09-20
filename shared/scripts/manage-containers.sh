@@ -202,6 +202,11 @@ check_docker_compose() {
         log_error "Docker Compose is not available (neither 'docker compose' nor 'docker-compose')"
         exit 1
     fi
+    # A relocated env file (docs/packaging.md, "Relocatable state") has to be
+    # named on every call; Compose only finds ./.env on its own.
+    if [ -n "${SMOKING_PI_ENV_FILE:-}" ]; then
+        COMPOSE="$COMPOSE --env-file $SMOKING_PI_ENV_FILE"
+    fi
     
     if [ ! -f "docker-compose.yml" ]; then
         log_error "docker-compose.yml not found in current directory"
@@ -252,8 +257,8 @@ action_start() {
     log_info "Starting $EDITION edition containers..."
     
     # Ensure environment is set up
-    if [ ! -f ".env" ]; then
-        log_warning "No .env file found"
+    if [ ! -f "${SMOKING_PI_ENV_FILE:-.env}" ]; then
+        log_warning "No env file found (${SMOKING_PI_ENV_FILE:-.env})"
         log_info "Run the setup script first: ./setup.sh"
         if [ "$DRY_RUN" = false ]; then
             exit 1
