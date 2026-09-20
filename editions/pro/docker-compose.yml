@@ -183,6 +183,8 @@ services:
     volumes:
       - ./config-manager/config:/app/config
       - ../../shared/modules/web-admin/app:/app/app  # Mount source code for development
+      # (/app/common is NOT mounted: a change to shared/modules/common needs
+      # `docker compose build web-admin`, as for the other three images)
       - reports:/reports:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
