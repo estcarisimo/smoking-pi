@@ -143,7 +143,7 @@ rough engineer-days for someone who knows the repo.
 | 1 | **Relocatable state — done (2026-09-20).** `SMOKING_PI_CONFIG_DIR` (default `./config-manager/config`), `SMOKING_PI_OUTPUT_DIR`, `SMOKING_PI_ENV_FILE` honored by the compose files (`${VAR:-default}` in every bind mount), by `setup.sh`/`generate-passwords.sh`/`show-passwords.sh`/`manage-containers.sh` (`--env-file`) and by the CLI. `editions/pro/config-manager/{config,output}` are no longer tracked; the seed set is `config-manager/templates/`, which bootstrap copies into an empty config dir on first start (it always did — the plan's "seeds move to the module defaults" pointed at a stale third copy, now deleted). Packaged layout: `/etc/smoking-pi/{env,config}`, `/var/lib/smoking-pi/output`, set in `/etc/default/smoking-pi`. Also ended the "runtime churn in `git status`" nuisance on the reference Pi. Details: [Relocatable state](#relocatable-state). | 2 | everything below; in-place upgrades |
 | 2 | **No source mounts in packaged mode — done (2026-09-20).** The exporters are baked into the smokeping image (`COPY` from a `shared/` build context; the `:/exporters:ro` mount stays for development); `docker-compose.packaged.yml` (Pro, Standard) drops every bind mount of `shared/modules` — seven in Pro: exporters, three Grafana provisioning directories, the web-admin `app` package, the PostgreSQL and ClickHouse init SQL, all of which the images already carry. `SMOKING_PI_PACKAGED=1` (set by the package) makes the CLI, `setup.sh` and `manage-containers.sh` add it, last. `packaging/check-packaged-override.py` renders both and fails if the override drops anything else; the doctor's `deployed-code-current` now also hashes `/exporters`. Details: [Packaged mode](#packaged-mode). | 1 | #3, upgrades that restart what changed |
 | 3 | **Published multi-arch images — done (2026-09-20).** `release.yml` builds all nine images for `linux/arm64` and `linux/amd64` on a `vX.Y.Z` tag — each architecture natively on its own GitHub-hosted runner (`ubuntu-24.04-arm`, free for public repositories; QEMU would spend most of an hour on the matplotlib images), pushed by digest and merged into one manifest per service — to `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` and `:latest`. The compose files name that image next to `build:` with `pull_policy: missing`; `SMOKING_PI_VERSION` unset means `:dev`, never published, so a clone builds; the package sets its version and pulls. `packaging/check-images.py` (CI) keeps compose, Dockerfiles and the matrix in agreement. Closed the CI gap where five images were never built at all. Details: [Published images](#published-images). | 2–3 | a first start measured in seconds; Dependabot-driven rebuilds become releases |
-| 4 | **The `smoking-pi` command and unit, for real.** The prototype (`packaging/smoking-pi`) grows `upgrade` (pull images, `up -d`, doctor), `purge` (volumes, with a typed confirmation), `backup`/`restore` (the `pg_dumpall` + volume tar that `docs/upgrades.md` describes by hand). `install` is the installer the roadmap asks for: whiptail TUI on a terminal, flags for automation, edition/database/profile choice, an OpenClaw step that offers the skill install, passwords printed at the end. Shell-syntax CI covers it; add a `bats` smoke test. | 2 | the "instalador CLI/TUI" roadmap item |
+| 4 | **The `smoking-pi` command, for real — done (2026-09-20).** `upgrade` (pull the release's images, or `build --pull` from a clone; `up -d`; doctor), `backup`/`restore` (`pg_dumpall`, then every volume the active services mount as a tarball with the stack stopped, plus env file and config; restore refills the volumes under this project's name), `purge` (the volumes, after typing the project name; `--config` also the env file and directories). `install` chooses edition, backend and the optional profiles (`mcp`, `alerts`, `ai`) by whiptail or `--profiles`. `packaging/tests/cli.bats` (20 tests, CI) runs it against a stubbed docker. Details: [The command](#the-command). | 2 | the "instalador CLI/TUI" roadmap item |
 | 5 | **A release that produces the package.** `nfpm` (or the trial script) in the release workflow on tag: `.deb` attached to the GitHub release, plus an apt repository on GitHub Pages (`reprepro`, signed with a key in Actions secrets) so `apt upgrade` sees new versions. Version embedded in the package and in `smoking-pi version`. | 1–2 | `apt install smoking-pi` |
 | 6 | **Uninstall and data policy.** `apt remove` keeps volumes and `/etc/smoking-pi`; `apt purge` removes `/etc/smoking-pi` but never Docker volumes (dpkg must not delete a year of measurements); `smoking-pi purge` does, explicitly. Document in `docs/upgrades.md`. | 0.5 | trust |
 | 7 | **Script hygiene.** Derive container/volume/network names from `COMPOSE_PROJECT_NAME` in `sync-influx-token.sh`, `verify-postgres.sh`, `create-tunnel.sh`, `migrate-to-edition.sh`, `show-passwords.sh`; drop the Compose v1 calls; refresh `shared/docs/maintenance.md`. | 1 | #4 without surprises |
@@ -319,6 +319,47 @@ done
 (`pro-smokeping` and `pro-postgres` were the explicit names; the rest were
 Compose's `pro-<service>` default.) The containers still restart once.
 
+### The command
+
+Done 2026-09-20. `packaging/smoking-pi` (installed as `/usr/bin/smoking-pi`
+by the package; runs from a clone as `packaging/smoking-pi`) is the
+lifecycle table below, as commands. Everything it does is what the README
+and [Upgrades](upgrades.md) say to type by hand; what it adds is the order
+and the guards.
+
+| Command | What it does | Guard |
+| --- | --- | --- |
+| `install [--edition] [--database] [--profiles mcp,alerts,ai] [--yes]` | whiptail menus or flags; `setup.sh` (secrets, backend profile); the optional profiles appended to `COMPOSE_PROFILES` in the env file and started; passwords printed | refuses over an existing env file (`setup.sh` would rotate the secrets the volumes hold); validates edition, backend and profile names before touching anything; says which profiles need a key (`ai`: `ANTHROPIC_API_KEY`, `alerts`: `NOTIFY_MODE`) |
+| `upgrade [--skip-doctor]` | `SMOKING_PI_VERSION` set (the package): `compose pull` — the version changed with the package, so this fetches the release; unset (a clone): `compose build --pull`; then `up -d --remove-orphans`, then the doctor `--live` | refuses without an env file; prints the reminder that a PostgreSQL or InfluxDB major is a migration ([Upgrades](upgrades.md)) |
+| `backup [DIR] [--online]` | `pg_dumpall` (the restore path for a PostgreSQL major); the volumes **the active services mount**, each as `volumes/<name>.tgz`, with the stack stopped (`--online` skips the stop; the tarballs may be inconsistent); the env file (mode 600) and the config directory; a `manifest` | lists the volumes with sizes before stopping; a `trap` restarts the stack if a tar fails; the directory is mode 700 (it holds every secret) |
+| `restore DIR [--force] [--no-start]` | env file and config only where missing (`--force` overwrites); `down`; each tarball into a volume named `<this project>_<suffix>` (created with Compose's labels), contents replaced, not merged; `up` (`--no-start` leaves it stopped to inspect) | refuses a directory without a manifest or of another edition |
+| `purge [--config] [--yes]` | `down`; `docker volume rm` of the active services' volumes; `--config` also the env file, config and output directories (what `install` needs gone to start over) | asks you to type the project name — `--yes` is for scripts |
+
+Two details cost a lesson each on the reference Pi:
+
+- **Which volumes.** The first version selected volumes by Compose's
+  project label. That set includes a 5.9 GB ClickHouse volume declared in
+  the base file with a fixed name and mounted by no running service (a
+  leftover of the ClickHouse trial), and the first offline backup spent
+  ten minutes of downtime tarring it. The command now reads the rendered
+  config and takes the volumes the active services actually mount — the
+  same set `purge` deletes.
+- **Which env file.** Every command takes the env file from
+  `SMOKING_PI_ENV_FILE`; `upgrade` run with a stand-in env file (CI's
+  dummy one, by mistake) rebuilt and recreated four containers with dummy
+  secrets against the real volumes. Nothing in the volumes changed — those
+  passwords only apply at first initialization — and `up` with the real
+  file put it back in two minutes; but `smoking-pi paths` exists for that
+  reason: read it before `upgrade` on a host with more than one env file.
+
+`packaging/tests/cli.bats` runs the command against a stubbed `docker`
+that records every invocation and answers `config --format json`,
+`--services` and `ps`: which files in which order (`clickhouse` overlay,
+`packaged` override last), the refusals, the order dump → down → tars → up,
+that the ClickHouse volume is skipped, the typed confirmation. CI runs it
+(`smoking-pi command (bats)`). It found one bug before the Pi did: a
+trailing `[ … ] && run_doctor` made `upgrade --skip-doctor` exit 1.
+
 ### Own repository or a distribution's?
 
 Own. A Debian or Raspberry Pi OS package must build from source and cannot
@@ -346,10 +387,10 @@ can follow once the apt path is proven.
 | Step | Command | What happens |
 | --- | --- | --- |
 | Install | `apt install smoking-pi` | Code under `/opt/smoking-pi`, CLI, unit; nothing runs yet |
-| Configure | `smoking-pi install` | Edition, backend, profiles (TUI or flags); secrets into `/etc/smoking-pi/env`; images pulled; first start; passwords shown; OpenClaw offered |
+| Configure | `smoking-pi install` | Edition, backend, profiles (TUI or flags); secrets into `/etc/smoking-pi/env`; images pulled; first start; passwords shown; OpenClaw offered — **done** |
 | Boot | `systemctl enable smoking-pi` | `up` after Docker; `down` at shutdown |
 | Status | `smoking-pi status`, `smoking-pi doctor --live` | Compose state; the doctor's checks |
-| Upgrade | `apt upgrade && smoking-pi upgrade` | New tree and CLI; new images pulled; `up -d` restarts what changed; doctor after. Stateful majors (PostgreSQL, InfluxDB) are excluded from routine upgrades exactly as they are excluded from Dependabot today; `smoking-pi backup` before a major |
+| Upgrade | `apt upgrade && smoking-pi upgrade` | New tree and CLI; new images pulled; `up -d` restarts what changed; doctor after. Stateful majors (PostgreSQL, InfluxDB) are excluded from routine upgrades exactly as they are excluded from Dependabot today; `smoking-pi backup` before a major — **done** (the command; the `.deb` in the release is #5) |
 | Failure | `smoking-pi logs <service>` | And the doctor's `deployed-code-current` says whether the container matches the package |
 | Remove | `apt remove` / `apt purge` / `smoking-pi purge` | Code; +config; +volumes, in that order, the last one only on explicit confirmation |
 

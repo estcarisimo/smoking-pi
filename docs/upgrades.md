@@ -12,6 +12,14 @@ against. A green check on such a PR means nothing was tested. Dependabot is
 configured to leave these alone (`.github/dependabot.yml`); do them by hand,
 deliberately, using the procedures below.
 
+## With the command
+
+`smoking-pi backup` does the dump and the volume tarballs below in one go
+(with the stack stopped for a minute), `smoking-pi restore DIR` puts them
+back, and `smoking-pi upgrade` pulls or rebuilds, recreates what changed
+and runs the doctor — [Packaging](packaging.md#the-command). The procedures
+below are what those commands do, for when you need one step of them.
+
 ## PostgreSQL
 
 PostgreSQL is this project's **config source of truth** — the YAML files are

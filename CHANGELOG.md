@@ -11,6 +11,22 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The `smoking-pi` command does the lifecycle (packaging backlog #4).**
+  The prototype could start, stop and install; a backup was a `pg_dumpall`
+  and a `docker run … tar` typed from `docs/upgrades.md`, a restore was
+  nowhere written down, and "start over" meant finding the right `docker
+  volume rm`. Now: `upgrade` (the release's images pulled, or rebuilt with
+  fresh bases from a clone; `up -d`; the doctor), `backup` (dump, then the
+  volumes the active services mount as tarballs with the stack stopped,
+  env file, config), `restore` (volumes refilled under this project's
+  name, env and config where missing), `purge` (after typing the project
+  name; `--config` for a clean `install`), and `install --profiles
+  mcp,alerts,ai` (or a whiptail checklist). `packaging/tests/cli.bats`, 20
+  tests against a stubbed docker, runs in CI. Verified on the reference
+  Pi: an offline backup (156 s, ~1 min stopped), a restore into a scratch
+  project, a purge of it, an upgrade against the published throwaway
+  images (28 s, doctor 13 ok).
+
 - **Published multi-arch images and a release-only build (packaging
   backlog #3).** Nothing built the nine images anywhere but on the target
   host: CI built four of them, amd64 only, on every PR, and published
@@ -36,6 +52,9 @@ version gets a matching GitHub release and git tag.
   under the new image names (`docs/upgrades.md`).
 
 ### Fixed
+
+- **`smoking-pi help` printed `dev: command not found`** — the usage text
+  is a heredoc, and the previous change put a backticked word in it. Quoted.
 
 - **`shared/modules/influxdb/Dockerfile` was never in git.** A `.gitignore`
   rule for InfluxDB *data* directories (`influxdb/`) matched the module

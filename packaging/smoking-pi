@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # smoking-pi — one command in front of the Compose stack.
 #
-# Prototype from the packaging evaluation (docs/packaging.md). Works from a
-# clone today (SMOKING_PI_HOME defaults to the checkout this file sits in)
-# and from /opt/smoking-pi when installed by the .deb. Everything it does is
-# what the README tells a person to type by hand; it adds no behavior, it
-# removes the need to know which directory to be in.
+# Works from a clone (SMOKING_PI_HOME defaults to the checkout this file
+# sits in) and from /opt/smoking-pi when installed by the .deb
+# (docs/packaging.md). Everything it does is what the README and
+# docs/upgrades.md tell a person to type by hand -- it adds no behavior, it
+# removes the need to know which directory to be in and which order the
+# steps go in. Tested by packaging/tests/cli.bats against a stubbed docker.
 #
 # Needs bash >= 4.4 and GNU readlink (Debian, Ubuntu, Raspberry Pi OS). On
 # macOS that means Homebrew's bash and coreutils -- see docs/packaging.md.
@@ -38,18 +39,40 @@ export SMOKING_PI_CONFIG_DIR="${SMOKING_PI_CONFIG_DIR:-}"
 export SMOKING_PI_OUTPUT_DIR="${SMOKING_PI_OUTPUT_DIR:-}"
 
 usage() {
-    cat <<USAGE
+    cat <<'USAGE'
 smoking-pi — SmokePing on a Raspberry Pi, with the trimmings
 
 Usage: smoking-pi <command> [args]
 
-  install [--edition basic|standard|pro] [--database influxdb|clickhouse] [--yes]
-                     First install only: generate secrets, choose profiles,
-                     start the stack, print what to open. Interactive unless
-                     --yes. Refuses to run over an existing env file (it
-                     would rotate the secrets the data volumes already hold).
+  install [--edition basic|standard|pro] [--database influxdb|clickhouse]
+          [--profiles mcp,alerts,ai] [--yes]
+                     First install only: generate secrets, choose the edition,
+                     backend and optional profiles, start the stack, print what
+                     to open. Interactive unless --yes. Refuses to run over an
+                     existing env file (it would rotate the secrets the data
+                     volumes already hold).
   up | down | restart | status | logs [service]
                      The Compose stack, with the profiles recorded in the env file.
+  upgrade [--skip-doctor]
+                     After a new package or checkout: pull the release's images
+                     (or rebuild, from a clone), recreate what changed, run the
+                     doctor. Read docs/upgrades.md first for a PostgreSQL or
+                     InfluxDB major; 'backup' before one.
+  backup [DIR] [--online]
+                     pg_dumpall, then every volume as a tarball with the stack
+                     stopped (--online: keep it running; the tarballs may be
+                     inconsistent), plus the env file and config directory.
+                     Default DIR: ./smoking-pi-backup-<timestamp>.
+  restore DIR [--force] [--no-start]
+                     Stop the stack, refill the volumes from DIR's tarballs,
+                     put back the env file and config (--force: overwrite
+                     ones that exist), start the stack (--no-start: leave it
+                     stopped to inspect first).
+  purge [--config] [--yes]
+                     Stop the stack and delete its Docker volumes -- a year of
+                     measurements -- after you type the project name.
+                     --config also deletes the env file, config and output
+                     directories (what 'install' needs gone to start over).
   passwords          Show credentials and URLs (show-passwords.sh).
   doctor [--live]    Instrumentation doctor (needs the doctor package).
   paths              Where things are (home, edition, env file, config, output, images, data).
@@ -93,15 +116,92 @@ compose() {
     ( cd "$EDITION_DIR" && COMPOSE_PROFILES="$p" docker compose "${extra[@]}" "$@" )
 }
 
+project() {
+    # The Compose project name decides the volume names (pro_postgres-data)
+    # and the labels; ask Compose rather than assume the directory name, so
+    # a COMPOSE_PROJECT_NAME in the env file is honored.
+    compose config --format json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])'
+}
+
+volumes() {
+    # The volumes the ACTIVE services mount, by their Docker names -- the
+    # set `backup` copies and `purge` deletes. Not "every volume with this
+    # project's label": the base file declares the ClickHouse volumes with
+    # fixed names whether or not that profile is on, and the first offline
+    # backup on the reference Pi spent ten minutes of downtime tarring a
+    # 5.9 GB leftover from a ClickHouse trial that no running service used.
+    compose config --format json 2>/dev/null | python3 -c '
+import json, sys
+cfg = json.load(sys.stdin)
+decl = cfg.get("volumes") or {}
+seen = []
+for svc in (cfg.get("services") or {}).values():
+    for v in svc.get("volumes") or []:
+        if v.get("type") != "volume":
+            continue
+        key = v["source"]
+        name = (decl.get(key) or {}).get("name") or cfg["name"] + "_" + key
+        if name not in seen:
+            seen.append(name)
+print("\n".join(seen))'
+}
+
+volume_sizes() {
+    # One `docker system df -v` for all of them: a person deciding whether
+    # to stop the stack should see "5.9 GB" before, not after.
+    local df; df="$(docker system df -v 2>/dev/null)"
+    local v
+    for v in "$@"; do
+        echo "  $v  $(echo "$df" | awk -v n="$v" '$1 == n {print $NF}')"
+    done
+}
+
+config_dir() { echo "${SMOKING_PI_CONFIG_DIR:-$EDITION_DIR/config-manager/config}"; }
+output_dir() { echo "${SMOKING_PI_OUTPUT_DIR:-$EDITION_DIR/config-manager/output}"; }
+
+has_service() {
+    # Whether the edition defines the service at all (postgres: Standard and
+    # Pro, not Basic), profiles included.
+    compose config --services 2>/dev/null | grep -qx "$1"
+}
+
+confirm_typed() {
+    # A destructive step asks for the project name, not y/n: typing "pro"
+    # is a decision, Enter on a default is a reflex.
+    local expected="$1" prompt="$2" answer
+    echo "$prompt"
+    read -r -p "Type '$expected' to continue, anything else to abort: " answer
+    [ "$answer" = "$expected" ] || { echo "aborted."; exit 1; }
+}
+
+run_doctor() {
+    # The doctor needs PyYAML: the package depends on python3-yaml; a clone
+    # may have `uv sync`ed a venv in the module instead. Either works.
+    local py=python3
+    [ -x "$SMOKING_PI_HOME/shared/modules/doctor/.venv/bin/python" ] && py="$SMOKING_PI_HOME/shared/modules/doctor/.venv/bin/python"
+    if [ -d "$SMOKING_PI_HOME/shared/modules/doctor" ] && "$py" -c 'import yaml' 2>/dev/null; then
+        ( cd "$SMOKING_PI_HOME" && PYTHONPATH="$SMOKING_PI_HOME/shared/modules/doctor${PYTHONPATH:+:$PYTHONPATH}" "$py" -m doctor --repo-root . "$@" )
+    else
+        echo "(doctor skipped: PyYAML not installed -- apt install python3-yaml)"
+    fi
+}
+
 cmd_install() {
-    local edition="$SMOKING_PI_EDITION" database=influxdb yes=0
+    local edition="$SMOKING_PI_EDITION" database=influxdb profiles="" yes=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --edition) edition="$2"; shift 2 ;;
             --database) database="$2"; shift 2 ;;
+            --profiles) profiles="$2"; shift 2 ;;
             --yes|-y) yes=1; shift ;;
             *) echo "unknown option $1" >&2; exit 2 ;;
         esac
+    done
+    case "$edition" in basic|standard|pro) ;; *) echo "unknown edition: $edition" >&2; exit 2 ;; esac
+    case "$database" in influxdb|clickhouse) ;; *) echo "unknown database: $database" >&2; exit 2 ;; esac
+    local pr
+    for pr in ${profiles//,/ }; do
+        case "$pr" in mcp|alerts|ai) ;; *) echo "unknown profile: $pr (mcp, alerts, ai)" >&2; exit 2 ;; esac
     done
     if [ "$yes" = 0 ] && command -v whiptail >/dev/null; then
         edition=$(whiptail --title "Smoking Pi" --menu "Which edition?" 15 60 3 \
@@ -110,8 +210,16 @@ cmd_install() {
         if [ "$edition" = pro ]; then
             database=$(whiptail --title "Smoking Pi" --menu "Time-series backend?" 12 60 2 \
                 influxdb "InfluxDB 2 (recommended)" clickhouse "ClickHouse (experimental)" 3>&1 1>&2 2>&3) || exit 1
+            # Optional services are Compose profiles; the choice is written
+            # into the env file so a plain `up` keeps it (setup.sh explains).
+            profiles=$(whiptail --title "Smoking Pi" --checklist "Optional services (space toggles)" 14 70 3 \
+                mcp "MCP server: a chat assistant can ask about your network" OFF \
+                alerts "Alerter: downtime, microcut and Wi-Fi alerts (needs NOTIFY_MODE)" OFF \
+                ai "AI reports (needs ANTHROPIC_API_KEY in the env file)" OFF 3>&1 1>&2 2>&3) || exit 1
+            profiles=$(echo "$profiles" | tr -d '"' | tr ' ' ',')
         fi
     fi
+    [ "$edition" = pro ] || profiles=""
     SMOKING_PI_EDITION="$edition"; EDITION_DIR="$SMOKING_PI_HOME/editions/$edition"
     # An explicit SMOKING_PI_ENV_FILE wins; otherwise the env file follows
     # the edition chosen here, not the default edition computed at the top.
@@ -132,6 +240,15 @@ cmd_install() {
     echo "Installing the $edition edition from $SMOKING_PI_HOME (env file: $ENV_FILE)"
     if [ "$edition" = pro ]; then
         ( cd "$EDITION_DIR" && ./setup.sh --database "$database" --env-file "$ENV_FILE" )
+        if [ -n "$profiles" ]; then
+            # setup.sh records the backend profile; append the optional ones
+            # and start them. `ai` and `alerts` need keys the env file does
+            # not have yet -- say so rather than let a container crash-loop.
+            sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$database,$profiles/" "$ENV_FILE"
+            if [[ ",$profiles," == *,ai,* ]]; then echo "note: the ai profile needs ANTHROPIC_API_KEY in $ENV_FILE"; fi
+            if [[ ",$profiles," == *,alerts,* ]]; then echo "note: the alerts profile needs NOTIFY_MODE (and its keys) in $ENV_FILE"; fi
+            compose up -d
+        fi
     else
         ( cd "$EDITION_DIR" && ./setup.sh )
     fi
@@ -145,15 +262,193 @@ cmd_install() {
     echo; ( cd "$EDITION_DIR" && ./show-passwords.sh 2>/dev/null || true )
 }
 
+cmd_upgrade() {
+    local doctor=1
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --skip-doctor) doctor=0; shift ;;
+            *) echo "unknown option $1" >&2; exit 2 ;;
+        esac
+    done
+    need_edition
+    [ -f "$ENV_FILE" ] || { echo "no env file at $ENV_FILE: nothing installed to upgrade" >&2; exit 1; }
+    echo "Upgrading the $SMOKING_PI_EDITION edition ($(cat "$VERSION_FILE" 2>/dev/null | sed -n 's/^version: *//p' || echo unknown))."
+    echo "A PostgreSQL or InfluxDB major is a data migration: docs/upgrades.md, and 'smoking-pi backup' first."
+    if [ -n "${SMOKING_PI_VERSION:-}" ]; then
+        # The compose files name ghcr.io/.../<service>:$SMOKING_PI_VERSION;
+        # a new package changed the version, so the pull fetches the release.
+        compose pull
+    else
+        # A clone: the images are built here. --pull refreshes the base
+        # images so a Dependabot bump in a Dockerfile actually lands.
+        compose build --pull
+    fi
+    # Only the services whose image or config changed are recreated.
+    compose up -d --remove-orphans
+    # An `if`, not `[ ] &&`: as the function's last statement a false test
+    # would become its exit status, and --skip-doctor would "fail".
+    if [ "$doctor" = 1 ]; then run_doctor --live; fi
+}
+
+cmd_backup() {
+    local dir="" online=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --online) online=1; shift ;;
+            -*) echo "unknown option $1" >&2; exit 2 ;;
+            *) dir="$1"; shift ;;
+        esac
+    done
+    need_edition
+    local proj; proj="$(project)"
+    [ -n "$proj" ] || { echo "cannot resolve the Compose project (is the env file there?)" >&2; exit 1; }
+    dir="${dir:-./smoking-pi-backup-$(date +%Y%m%d-%H%M%S)}"
+    mkdir -p "$dir/volumes"
+    dir="$(cd "$dir" && pwd)"
+    echo "Backing up project $proj to $dir"
+    {
+        echo "edition=$SMOKING_PI_EDITION"; echo "project=$proj"
+        echo "version=$(sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || echo unknown)"
+        echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "online=$online"
+    } > "$dir/manifest"
+    # The dump is the restore path for a PostgreSQL major (docs/upgrades.md);
+    # the volume tarball below is the restore path for everything else.
+    if has_service postgres && compose ps --status running --services 2>/dev/null | grep -qx postgres; then
+        local pguser; pguser="$(sed -n 's/^POSTGRES_USER=//p' "$ENV_FILE" | tail -1)"
+        compose exec -T postgres pg_dumpall -U "${pguser:-smokeping}" > "$dir/postgres.sql"
+        echo "  postgres.sql ($(wc -c < "$dir/postgres.sql") bytes)"
+    fi
+    local vols; vols="$(volumes)"
+    echo "Volumes to copy:"; volume_sizes $vols
+    if [ "$online" = 0 ]; then
+        # InfluxDB and PostgreSQL write continuously; a tarball of a live
+        # volume can hold a half-written file. Stopping costs a minute of
+        # measurements and buys a restore that works. Whatever happens
+        # below, the stack comes back: a failed tar must not leave the
+        # monitor down.
+        trap 'echo "backup interrupted: starting the stack again"; compose up -d' EXIT
+        compose down
+    fi
+    local v
+    for v in $vols; do
+        docker run --rm -v "$v:/from:ro" -v "$dir/volumes:/to" alpine:3.20 \
+            tar czf "/to/$v.tgz" -C /from .
+        echo "  volumes/$v.tgz ($(du -h "$dir/volumes/$v.tgz" | cut -f1))"
+    done
+    if [ "$online" = 0 ]; then
+        trap - EXIT
+        compose up -d
+    fi
+    # Secrets and the target list: the env file is what `install` refuses to
+    # regenerate, the config directory is the YAML import/export.
+    install -m 0600 "$ENV_FILE" "$dir/env"
+    if [ -d "$(config_dir)" ]; then
+        mkdir -p "$dir/config" && cp -a "$(config_dir)/." "$dir/config/"
+    fi
+    chmod 0700 "$dir"
+    echo "Done: $dir (mode 700; it holds every secret of this install)"
+}
+
+cmd_restore() {
+    local dir="" force=0 start=1
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force) force=1; shift ;;
+            --no-start) start=0; shift ;;
+            -*) echo "unknown option $1" >&2; exit 2 ;;
+            *) dir="$1"; shift ;;
+        esac
+    done
+    [ -n "$dir" ] && [ -f "$dir/manifest" ] || { echo "usage: smoking-pi restore DIR (a directory written by 'smoking-pi backup')" >&2; exit 2; }
+    need_edition
+    dir="$(cd "$dir" && pwd)"
+    local b_edition; b_edition="$(sed -n 's/^edition=//p' "$dir/manifest")"
+    [ "$b_edition" = "$SMOKING_PI_EDITION" ] || { echo "backup is of the $b_edition edition, this is $SMOKING_PI_EDITION" >&2; exit 1; }
+    # The env file first: without it Compose cannot even name the project.
+    if [ -f "$ENV_FILE" ] && [ "$force" = 0 ]; then
+        echo "keeping the existing $ENV_FILE (--force overwrites it with the backup's)"
+    else
+        mkdir -p "$(dirname "$ENV_FILE")" && install -m 0600 "$dir/env" "$ENV_FILE"
+        echo "  env file restored to $ENV_FILE"
+    fi
+    if [ -d "$dir/config" ]; then
+        if [ -n "$(ls -A "$(config_dir)" 2>/dev/null)" ] && [ "$force" = 0 ]; then
+            echo "keeping the existing config directory (--force overwrites it)"
+        else
+            mkdir -p "$(config_dir)" && cp -a "$dir/config/." "$(config_dir)/"
+            echo "  config restored to $(config_dir)"
+        fi
+    fi
+    local proj; proj="$(project)"
+    compose down
+    local tgz v
+    for tgz in "$dir"/volumes/*.tgz; do
+        [ -e "$tgz" ] || continue
+        v="$(basename "$tgz" .tgz)"
+        # The backup's project name may differ from this one's (a restore
+        # onto another host with COMPOSE_PROJECT_NAME set): keep the suffix,
+        # use this project's prefix, and label it so `volumes` finds it.
+        v="${proj}_${v#*_}"
+        docker volume create --label "com.docker.compose.project=$proj" \
+            --label "com.docker.compose.volume=${v#*_}" "$v" >/dev/null
+        # Replace the contents, dotfiles included; a merge would leave a
+        # newer WAL beside an older data directory.
+        docker run --rm -v "$v:/to" -v "$tgz:/from.tgz:ro" alpine:3.20 \
+            sh -c 'find /to -mindepth 1 -delete && tar xzf /from.tgz -C /to'
+        echo "  volume $v restored"
+    done
+    if [ "$start" = 1 ]; then
+        compose up -d
+        echo "Restored from $dir. Check: smoking-pi doctor --live"
+    else
+        echo "Restored from $dir; the stack is stopped. Start it: smoking-pi up"
+    fi
+}
+
+cmd_purge() {
+    local config=0 yes=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --config) config=1; shift ;;
+            --yes|-y) yes=1; shift ;;
+            *) echo "unknown option $1" >&2; exit 2 ;;
+        esac
+    done
+    need_edition
+    local proj; proj="$(project)"
+    [ -n "$proj" ] || { echo "cannot resolve the Compose project (is the env file there?)" >&2; exit 1; }
+    local vols; vols="$(volumes)"
+    echo "This deletes the Docker volumes the $proj stack uses:"
+    if [ -n "$vols" ]; then volume_sizes $vols; else echo "  (none)"; fi
+    if [ "$config" = 1 ]; then echo "and the env file $ENV_FILE, $(config_dir), $(output_dir)."; fi
+    echo "The measurements and the target list go with them. 'smoking-pi backup' first if in doubt."
+    # --yes is for scripts (the bats suite, an automated teardown); a person
+    # types the project name.
+    [ "$yes" = 1 ] || confirm_typed "$proj" ""
+    compose down
+    [ -n "$vols" ] && echo "$vols" | xargs docker volume rm >/dev/null
+    if [ "$config" = 1 ]; then
+        rm -f "$ENV_FILE"
+        rm -rf "$(config_dir)" "$(output_dir)"
+        # From a clone the directories are tracked as .gitkeep placeholders.
+        mkdir -p "$(config_dir)" "$(output_dir)"
+    fi
+    echo "Purged. 'smoking-pi install' starts over."
+}
+
 case "${1:-}" in
     install) shift; cmd_install "$@" ;;
+    upgrade) shift; cmd_upgrade "$@" ;;
+    backup) shift; cmd_backup "$@" ;;
+    restore) shift; cmd_restore "$@" ;;
+    purge) shift; cmd_purge "$@" ;;
     up) shift; compose up -d "$@" ;;
     down) shift; compose down "$@" ;;
     restart) shift; compose restart "$@" ;;
     status) shift; compose ps "$@" ;;
     logs) shift; compose logs --tail=200 -f "$@" ;;
     passwords) need_edition; ( cd "$EDITION_DIR" && ./show-passwords.sh ) ;;
-    doctor) shift; ( cd "$SMOKING_PI_HOME" && PYTHONPATH="$SMOKING_PI_HOME/shared/modules/doctor${PYTHONPATH:+:$PYTHONPATH}" python3 -m doctor --repo-root . "$@" ) ;;
+    doctor) shift; run_doctor "$@" ;;
     paths)
         echo "home:     $SMOKING_PI_HOME"; echo "edition:  $SMOKING_PI_EDITION ($EDITION_DIR)"
         echo "env:      $ENV_FILE"; echo "profiles: $(profiles)"
