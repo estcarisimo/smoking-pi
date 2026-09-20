@@ -235,11 +235,16 @@ jobs:
           echo "$out" | grep -q "env:      /etc/smoking-pi/env" || { echo "env file not relocated"; exit 1; }
           echo "$out" | grep -q "/<service>:$DEB_VERSION" || { echo "images not pinned to the package version"; exit 1; }
           grep -qx "SMOKING_PI_VERSION=$DEB_VERSION" /etc/default/smoking-pi
-          [ -d /etc/smoking-pi/config ] && [ -d /var/lib/smoking-pi/output ]
+          # /etc/smoking-pi is 0750 root: only root can look inside, so the
+          # state checks run as root (an unprivileged `[ -d ]` is false there).
+          sudo test -d /etc/smoking-pi/config || { echo "config dir missing"; exit 1; }
+          sudo test -d /var/lib/smoking-pi/output || { echo "output dir missing"; exit 1; }
           systemd-analyze verify /lib/systemd/system/smoking-pi.service
           # The doctor's static checks run from /opt: the package carries
-          # everything they read.
-          smoking-pi doctor
+          # everything they read. A skipped doctor is a failed check.
+          python3 -c 'import yaml' || { echo "python3-yaml not importable by $(command -v python3)"; exit 1; }
+          smoking-pi doctor | tee /tmp/doctor.out
+          grep -q ' ok, 0 warn, 0 fail' /tmp/doctor.out || { echo "doctor did not pass"; exit 1; }
           # `install` refuses to run over an existing env file -- the guard
           # that stops a reinstall from rotating live secrets.
           sudo mkdir -p /etc/smoking-pi && sudo touch /etc/smoking-pi/env
@@ -248,7 +253,8 @@ jobs:
           # configured or measured (backlog #6 is the purge policy).
           sudo dpkg -r smoking-pi
           [ ! -e /usr/bin/smoking-pi ] || { echo "CLI left behind"; exit 1; }
-          [ -f /etc/smoking-pi/env ] && [ -d /var/lib/smoking-pi/output ] || { echo "removal deleted state"; exit 1; }
+          sudo test -f /etc/smoking-pi/env || { echo "removal deleted the env file"; exit 1; }
+          sudo test -d /var/lib/smoking-pi/output || { echo "removal deleted the output dir"; exit 1; }
           echo "package OK"
       - uses: actions/upload-artifact@v7
         with:
