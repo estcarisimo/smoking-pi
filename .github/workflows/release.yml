@@ -13,19 +13,15 @@ name: Release
 # digests into one multi-arch manifest per service, which is what carries
 # the tags. docs/packaging.md, "Published images".
 #
-# `workflow_dispatch` exists to exercise the pipeline against a throwaway
-# tag (test-<sha>) before a real release; it refuses anything that looks
-# like a version and never moves `latest`.
+# A `test-*` git tag (e.g. test-1a2b3c4, on any branch) exercises the same
+# pipeline against a throwaway image tag of that name -- no `latest`, no
+# version check -- before a real release; delete the tag and the package
+# versions afterwards. (workflow_dispatch would only work once the file is
+# on the default branch, so it is not offered.)
 
 on:
   push:
-    tags: ['v*']
-  workflow_dispatch:
-    inputs:
-      image_tag:
-        description: 'Throwaway image tag (e.g. test-1a2b3c4). Not a version: releases come from the git tag.'
-        required: true
-        type: string
+    tags: ['v*', 'test-*']
 
 permissions:
   contents: read
@@ -42,26 +38,19 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: Version from the git tag (release) or the input (throwaway)
+      - name: Version from the git tag (vX.Y.Z: release; test-*: throwaway)
         id: resolve
-        # Inputs reach the shell through the environment, never by
-        # interpolation into the script (CodeQL: actions/code-injection).
-        env:
-          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           set -e
-          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
-            tag="$IMAGE_TAG"
-            case "$tag" in
-              [0-9]*|v[0-9]*|latest|dev)
-                echo "refusing '$tag': a manual run publishes only throwaway tags"; exit 1 ;;
-              *[!A-Za-z0-9._-]*|'')
-                echo "refusing '$tag': not a valid image tag"; exit 1 ;;
-            esac
-            echo "version=$tag" >> "$GITHUB_OUTPUT"
-            echo "tags=$tag" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          case "$GITHUB_REF_NAME" in
+            test-*)
+              case "$GITHUB_REF_NAME" in
+                *[!A-Za-z0-9._-]*) echo "refusing '$GITHUB_REF_NAME': not a valid image tag"; exit 1 ;;
+              esac
+              echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+              echo "tags=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+              exit 0 ;;
+          esac
           version="${GITHUB_REF_NAME#v}"
           # The package and `smoking-pi version` report CITATION.cff; the
           # images must carry the same number or `SMOKING_PI_VERSION` set

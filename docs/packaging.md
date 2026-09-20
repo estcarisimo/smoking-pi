@@ -282,9 +282,10 @@ per service stitches the two digests into one manifest list carrying
 `:<version>` and `:latest` and checks both platforms are in it. The
 workflow refuses a tag whose version differs from `CITATION.cff` (the
 package and `smoking-pi version` report that file, so a mismatch would make
-a packaged install pull nothing). A `workflow_dispatch` run publishes a
-throwaway tag (`test-<sha>`; never a version, never `latest`) to exercise
-the pipeline before a release.
+a packaged install pull nothing). A `test-*` git tag on any branch runs the
+same pipeline for a throwaway image tag of that name (never `latest`, no
+version check) to exercise it before a release; delete the tag and the
+package versions afterwards.
 
 Three places name the images and drift independently — the compose files,
 `shared/modules/*/Dockerfile`, the workflow's matrix — so

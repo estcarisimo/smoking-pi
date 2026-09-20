@@ -20,7 +20,8 @@ version gets a matching GitHub release and git tag.
   each architecture on its own GitHub-hosted runner, pushed by digest and
   merged into one manifest per service — to
   `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` (and `:latest`),
-  refusing a tag that disagrees with `CITATION.cff`. Every built service in
+  refusing a tag that disagrees with `CITATION.cff` (a `test-*` tag runs the
+  same pipeline for a throwaway image tag). Every built service in
   the compose files names that image next to its `build:` with
   `pull_policy: missing`, which makes Compose pull first and build only if
   the pull fails: `SMOKING_PI_VERSION` unset means `:dev`, a tag never
