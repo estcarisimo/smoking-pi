@@ -35,6 +35,19 @@ version gets a matching GitHub release and git tag.
   merge. On a development host the next `up -d` recreates every container
   under the new image names (`docs/upgrades.md`).
 
+### Fixed
+
+- **`shared/modules/influxdb/Dockerfile` was never in git.** A `.gitignore`
+  rule for InfluxDB *data* directories (`influxdb/`) matched the module
+  directory too, so every clone but the reference Pi lacked the file the
+  Pro compose file builds from — `docker compose up` failed on
+  `influxdb` — no CI job built that image, and Dependabot's docker
+  ecosystem (with its careful influxdb major-version guard) watched a file
+  it could not see. The first run of the release workflow found it. The
+  directory is un-ignored and the Dockerfile tracked; `check-images.py`
+  now fails CI when an edition builds from a directory without a
+  Dockerfile in the checkout.
+
 ### Changed
 
 - **Packaged mode runs no source bind-mounts (packaging backlog #2).**

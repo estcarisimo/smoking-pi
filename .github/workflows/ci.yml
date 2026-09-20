@@ -135,7 +135,7 @@ jobs:
           # with pull_policy: missing, every Dockerfile is built somewhere,
           # and release.yml's matrix lists exactly those modules. Renders all
           # three editions itself, so it runs once.
-          python3 ../../packaging/check-images.py --repo-root ../..
+          python3 packaging/check-images.py --repo-root .
       - name: Validate ClickHouse overlay (pro only)
         if: matrix.edition == 'pro'
         working-directory: editions/pro

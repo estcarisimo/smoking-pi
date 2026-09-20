@@ -118,9 +118,13 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
       - name: Export the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
+          # The file is named by the bare hash: upload-artifact rejects a
+          # colon in a path, and the merge job prepends `sha256:` again.
           mkdir -p /tmp/digests
-          touch "/tmp/digests/${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
       - uses: actions/upload-artifact@v7
         with:
           name: digest-${{ matrix.service }}-${{ matrix.arch }}
