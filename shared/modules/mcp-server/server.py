@@ -763,9 +763,14 @@ def _loss_episodes(events: list[dict]) -> list[dict]:
     return episodes
 
 
-def _widespread_runs(events: list[dict], targets_total: int) -> list[dict]:
-    """Probe steps in which WIDESPREAD_SHARE of the targets had an event,
-    folded into runs. Newest first.
+def _widespread_runs(events: list[dict], reporting: dict[int, int]) -> list[dict]:
+    """Probe steps in which WIDESPREAD_SHARE of the targets reporting IN
+    THAT STEP had an event, folded into runs. Newest first.
+
+    The denominator is per step, not per window: the Netflix OCA targets
+    rotate, so a day holds more distinct names than any one cycle does, and
+    a window-wide count (23 here) put 80% out of reach of the 18 that were
+    actually down together -- seen live, the night the field was built for.
 
     Every target lossy in the same step is one event with one cause: the
     link, or this host. When every one of them lost every packet, the host's
@@ -774,8 +779,6 @@ def _widespread_runs(events: list[dict], targets_total: int) -> list[dict]:
     and nothing beyond it could be judged, so the per-target picture for
     those steps is not evidence about any target.
     """
-    if targets_total < 3:
-        return []
     by_step: dict[int, dict[str, bool]] = {}
     for event in events:
         epoch = event.get("_epoch")
@@ -784,8 +787,14 @@ def _widespread_runs(events: list[dict], targets_total: int) -> list[dict]:
         step = int(epoch // STEP_S) * STEP_S
         by_step.setdefault(step, {})[event["target"]] = event["loss_pct"] >= 99.9
 
-    needed = WIDESPREAD_SHARE * targets_total
-    steps = sorted(step for step, hits in by_step.items() if len(hits) >= needed)
+    def needed(step: int) -> float | None:
+        total = reporting.get(step, 0)
+        return WIDESPREAD_SHARE * total if total >= 3 else None
+
+    steps = sorted(
+        step for step, hits in by_step.items()
+        if needed(step) is not None and len(hits) >= needed(step)
+    )
     runs: list[dict] = []
     run: list[int] = []
     for step in steps + [None]:
@@ -794,21 +803,25 @@ def _widespread_runs(events: list[dict], targets_total: int) -> list[dict]:
             continue
         if run:
             affected = max(len(by_step[s]) for s in run)
-            all_lost = all(
-                sum(by_step[s].values()) >= needed for s in run
+            # A cut that starts or ends mid-cycle shows partial loss in its
+            # edge cycles; the 3 h 20 min hang began with one at 95%. Total
+            # loss in every cycle but the two edges is total loss.
+            lost_steps = sum(
+                1 for s in run if sum(by_step[s].values()) >= needed(s)
             )
-            uplink = all_lost and len(run) >= UPLINK_MIN_STEPS
+            all_lost = lost_steps >= max(1, len(run) - 2)
+            uplink = all_lost and lost_steps >= UPLINK_MIN_STEPS
             runs.append(
                 {
                     "start": datetime.fromtimestamp(run[0], tz=timezone.utc).isoformat(),
                     "end": datetime.fromtimestamp(run[-1], tz=timezone.utc).isoformat(),
                     "minutes": (run[-1] - run[0]) // 60 + STEP_S // 60,
                     "targets_affected": affected,
-                    "targets_total": targets_total,
+                    "targets_total": max(reporting[s] for s in run),
                     "all_lost": all_lost,
                     "cause": (
                         "this host's uplink: every target lost every packet for "
-                        f"{len(run)} cycles, so nothing beyond it could be judged "
+                        f"{lost_steps} cycles, so nothing beyond it could be judged "
                         "(a hung Wi-Fi radio, a dropped association, a cable) — "
                         "not the ISP"
                         if uplink
@@ -891,14 +904,14 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
         + f"|> filter(fn: (r) => r._value > 0.0 and r._value < {threshold / 100.0}) "
         + "|> group() |> count()"
     )
-    # How many targets reported at all, so "most targets" has a denominator
-    # that is the window's, not the catalog's -- a target added yesterday
-    # does not shrink last week's share.
+    # How many targets reported in EACH probe step, so "most targets" has the
+    # denominator of that cycle: the catalog would count targets that were
+    # paused, and the whole window counts names that rotated through it.
     # distinct() writes into _value; count(column: "target") would write
     # the count into the target column instead, where nothing reads it --
-    # verified live: that shape returned targets_reporting = 0.
+    # verified live: that shape returned 0 targets.
     targets_flux = (
-        base + '|> group() |> keep(columns: ["target"]) '
+        base + '|> group(columns: ["_time"]) |> keep(columns: ["_time", "target"]) '
         + '|> distinct(column: "target") |> count()'
     )
     try:
@@ -952,10 +965,12 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
         if entry_links:
             entry["links"] = entry_links
 
-    targets_total = 0
+    reporting: dict[int, int] = {}
     for row in targets_rows:
-        if row.get("_value") is not None:
-            targets_total = int(row["_value"])
+        epoch = _epoch(row.get("_time"))
+        if epoch is None or row.get("_value") is None:
+            continue
+        reporting[int(epoch // STEP_S) * STEP_S] = int(row["_value"])
     background = 0
     for row in background_rows:
         if row.get("_value") is not None:
@@ -968,7 +983,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
         )
         if episode_links.get("graph"):
             episode["graph"] = episode_links["graph"]
-    widespread = _widespread_runs(events, targets_total)
+    widespread = _widespread_runs(events, reporting)
     for event in events:
         del event["_epoch"]
 
@@ -977,7 +992,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
         "min_loss_pct": threshold,
         "event_count": len(events),
         "truncated": len(events) >= MAX_EVENT_ROWS,
-        "targets_reporting": targets_total,
+        "targets_reporting": max(reporting.values(), default=0),
         "background_points": background,
         "widespread": widespread,
         "episodes": episodes,
