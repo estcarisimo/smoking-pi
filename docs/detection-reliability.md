@@ -81,7 +81,8 @@ per target, plus a background counted as events.**
   `microcut_burst` under `uplink_down`, where "99 windows over 50%" says
   nothing the critical did not).
 - `high_loss` needs persistence: `HIGH_LOSS_MIN_POINTS` (2) cycles above 15%
-  in the window, not one bad cycle averaged over the threshold.
+  within the mean's own 15 minutes, not one bad cycle averaged over the
+  threshold.
 - New verdict scope `monitor_uplink` (🔌), right after `monitoring`. The
   evaluator now also fetches the packets-received increase for the Wi-Fi
   uplink over the down window; zero while associated is named as a hung
@@ -99,7 +100,8 @@ which the digest and the AI report use):
   duration, worst loss and whether it was total.
 - `widespread`: runs of cycles in which 80% of the reporting targets had an
   event, with a `cause` line — *this host's uplink* when every target lost
-  every packet, *a brief cut of the link* otherwise. Roll-ups are computed
+  every packet for three cycles or more (the alerter's own bar), *a brief
+  cut of the link* otherwise. Roll-ups are computed
   from up to 5,000 rows, so a three-hour cut across 18 targets (720 points)
   is not misread from the newest 500.
 

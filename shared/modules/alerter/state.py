@@ -266,6 +266,10 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
         record["message"] = incident["message"]
         record["value"] = incident.get("value")
         record["severity"] = incident["severity"]
+        if incident.get("transient"):
+            record["transient"] = True
+        else:
+            record.pop("transient", None)
         if now - float(record.get("last_notified", 0)) < cooldown:
             continue
         if _rate_limited(record, now, limit):

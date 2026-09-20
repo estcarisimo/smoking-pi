@@ -230,3 +230,11 @@ def test_non_transient_incidents_keep_their_recovery(state_file):
     state.reconcile(st, [_incident()], now=1000.0)
     state.reconcile(st, [], now=2500.0)
     assert len(state.reconcile(st, [], now=3400.0)["recoveries"]) == 1
+
+
+def test_transient_flag_follows_the_latest_report_of_a_key(state_file):
+    st = state.load_state()
+    state.reconcile(st, [_incident(transient=True)], now=1000.0)
+    assert st["incidents"]["target_down:google"]["transient"] is True
+    state.reconcile(st, [_incident()], now=1060.0)
+    assert "transient" not in st["incidents"]["target_down:google"]

@@ -875,9 +875,22 @@ def test_loss_events_names_the_hung_radio_night_as_this_hosts_uplink(monkeypatch
     assert run["minutes"] == 20
     assert run["start"] == "2026-09-20T01:40:00+00:00"
     assert "this host's uplink" in run["cause"]
+    assert "for 4 cycles" in run["cause"]
     assert "not the ISP" in run["cause"]
     # Still reported per target underneath, for anyone who wants the detail.
     assert len(result["episodes"]) == 10
+
+
+def test_loss_events_one_total_loss_cycle_is_a_cut_not_the_uplink(monkeypatch, no_api):
+    """Review of #74: the alerter needs three cycles of total loss before
+    it calls the uplink down; the tool must not blame this host on one."""
+    per_target = {t: [0.0, 1.0, 0.0, 0.0] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    run = server.get_loss_events(hours=24)["widespread"][0]
+    assert run["all_lost"] is True
+    assert run["cause"].startswith("the link: a brief cut")
+    assert "every packet lost" in run["cause"]
+    assert "this host" not in run["cause"]
 
 
 def test_loss_events_calls_a_blink_across_everyone_a_cut_of_the_link(monkeypatch, no_api):

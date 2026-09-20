@@ -200,6 +200,9 @@ EPISODE_GAP_S = 600
 # rule_widespread applies (its own copy; the alerter is not importable here).
 WIDESPREAD_SHARE = 0.8
 STEP_S = 300
+# Cycles of total loss before a widespread run is attributed to this host's
+# uplink rather than to a brief cut -- the alerter's DOWN_MIN_POINTS.
+UPLINK_MIN_STEPS = 3
 
 _TARGET_FIELDS = ("id", "name", "host", "title", "category", "probe", "is_active")
 
@@ -794,6 +797,7 @@ def _widespread_runs(events: list[dict], targets_total: int) -> list[dict]:
             all_lost = all(
                 sum(by_step[s].values()) >= needed for s in run
             )
+            uplink = all_lost and len(run) >= UPLINK_MIN_STEPS
             runs.append(
                 {
                     "start": datetime.fromtimestamp(run[0], tz=timezone.utc).isoformat(),
@@ -803,11 +807,13 @@ def _widespread_runs(events: list[dict], targets_total: int) -> list[dict]:
                     "targets_total": targets_total,
                     "all_lost": all_lost,
                     "cause": (
-                        "this host's uplink: every target lost every packet, so "
-                        "nothing beyond it could be judged (a hung Wi-Fi radio, a "
-                        "dropped association, a cable) — not the ISP"
-                        if all_lost
+                        "this host's uplink: every target lost every packet for "
+                        f"{len(run)} cycles, so nothing beyond it could be judged "
+                        "(a hung Wi-Fi radio, a dropped association, a cable) — "
+                        "not the ISP"
+                        if uplink
                         else "the link: a brief cut that hit every target at once"
+                        + (", every packet lost" if all_lost else "")
                     ),
                 }
             )
@@ -825,10 +831,12 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
     packet loss was at or above min_loss_pct and returns them three ways:
 
       - `widespread`: runs of probe steps in which most targets (80%) had
-        loss at once, with a `cause` line. `all_lost: true` means every
-        target lost every packet: this host's own uplink was down, and the
-        per-target numbers for that span say nothing about any target. Read
-        this first; when it is non-empty it is usually the whole story.
+        loss at once, with a `cause` line. `all_lost: true` for three or
+        more cycles means every target lost every packet from this host:
+        its own uplink was down, and the per-target numbers for that span
+        say nothing about any target. Shorter runs are a brief cut of the
+        link. Read this first; when it is non-empty it is usually the whole
+        story.
       - `episodes`: per target, consecutive loss points folded into one run
         with its start, duration in minutes, point count, worst loss and
         whether it was total. One 25-minute cut is one episode, not five

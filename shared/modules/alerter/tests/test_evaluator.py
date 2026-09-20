@@ -122,6 +122,24 @@ def test_high_loss_persistence_ignores_single_lost_pings():
     assert evaluator.rule_high_loss(mean_rows, points=rows) == []
 
 
+def test_high_loss_persistence_counts_only_the_means_own_three_cycles():
+    """Review of #74: the raw points span the 20 min down window, the mean
+    15 min. A lossy cycle that has aged out of the mean must not corroborate
+    a single new one -- oldest first: [0.8, 0.0, 0.8, 0.0] holds two lossy
+    cycles in the window but only one in the mean's three."""
+    mean_rows = [{"target": "Apple", "category": "top_sites", "_value": 0.27}]
+    rows = _timed_points({"Apple": [0.8, 0.0, 0.8, 0.0]})
+    assert evaluator.rule_high_loss(mean_rows, points=rows) == []
+    rows = _timed_points({"Apple": [0.0, 0.8, 0.0, 0.8]})
+    assert len(evaluator.rule_high_loss(mean_rows, points=rows)) == 1
+
+
+def test_high_loss_persistence_counts_untimed_rows_as_given():
+    mean_rows = [{"target": "x", "category": "ping", "_value": 0.3}]
+    rows = _loss_points("x", [0.3, 0.3, 0.3])
+    assert len(evaluator.rule_high_loss(mean_rows, points=rows)) == 1
+
+
 def test_high_loss_min_points_env_tunable(monkeypatch):
     monkeypatch.setenv("HIGH_LOSS_MIN_POINTS", "1")
     mean_rows = [{"target": "GoogleDNS", "category": "dns", "_value": 0.272}]
@@ -180,8 +198,8 @@ TARGETS = ["Google", "Apple", "Amazon", "NYT", "Facebook", "cloudflare",
            "GoogleDNS", "CloudflareDNS", "Quad9DNS", "CPE_IPv4"]
 
 
-def _everyone(values, targets=TARGETS):
-    return _timed_points({t: list(values) for t in targets})
+def _everyone(values, targets=TARGETS, start=STEP0):
+    return _timed_points({t: list(values) for t in targets}, start=start)
 
 
 def test_uplink_down_replaces_a_target_down_per_target():
@@ -257,6 +275,34 @@ def test_two_separate_blinks_are_two_outages():
     rows = _everyone([0.9, 0.0, 0.9, 0.0])
     keys = [i["key"] for i in evaluator.rule_widespread(rows)]
     assert len(keys) == 2 and keys[0] != keys[1]
+
+
+def test_uplink_down_needs_the_latest_cycles_to_be_consecutive_in_time():
+    """Review of #74: adjacent in the list is not adjacent in time. Three
+    total-loss cycles at 01:40, 01:45 and 02:30 (the cycles between them
+    absent because too few targets reported) are not 'consecutive'."""
+    early = _everyone([1.0, 1.0])
+    late = _everyone([1.0], start=STEP0 + timedelta(seconds=3000))
+    widespread = evaluator.rule_widespread(early + late)
+    assert [i["rule"] for i in widespread] == ["outage", "outage"]
+
+
+def test_outage_runs_do_not_bridge_a_gap_in_time():
+    early = _everyone([0.9], start=STEP0)
+    late = _everyone([0.9], start=STEP0 + timedelta(seconds=3000))
+    widespread = evaluator.rule_widespread(early + late)
+    assert len(widespread) == 2
+    assert all("5-minute span" in i["message"] for i in widespread)
+
+
+def test_outage_runs_tolerate_one_missing_cycle():
+    rows = _everyone([0.9, 0.0, 0.9])
+    # 0.0 rows are filtered by the Flux threshold only in the MCP tool; here
+    # the middle cycle is present and clean, so it splits the run...
+    assert len(evaluator.rule_widespread(rows)) == 2
+    # ...whereas a cycle that is simply absent (nobody reported) does not.
+    rows = _everyone([0.9], start=STEP0) + _everyone([0.9], start=STEP0 + timedelta(seconds=600))
+    assert len(evaluator.rule_widespread(rows)) == 1
 
 
 def test_widespread_needs_real_loss_not_the_single_ping_background():

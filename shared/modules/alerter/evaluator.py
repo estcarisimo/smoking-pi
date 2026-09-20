@@ -64,6 +64,11 @@ HEALTHY_LOSS_RATIO = 0.5  # < this mean ratio counts as "healthy" (ipv6 rule)
 # HIGH_LOSS_MIN_POINTS of them: loss that lasted, not loss that happened.
 DEFAULT_HIGH_LOSS_MIN_POINTS = 2  # HIGH_LOSS_MIN_POINTS
 HIGH_LOSS_POINT_PCT = 15.0  # percent; a single lost ping of ten is 10%
+# The mean is over 15 min = three steps; persistence is counted over the SAME
+# three steps, not the wider down window the raw points come from. Otherwise
+# a lossy cycle that has aged out of the mean could still corroborate a
+# single new one -- the exact false positive persistence exists to remove.
+MEAN_STEPS = 3
 
 # Widespread loss: the same probe cycle lossy on most targets at once. That
 # is one event with one cause -- the link, or this host -- and it used to be
@@ -256,13 +261,47 @@ def rule_target_down(rows: list[dict], min_points: int = DOWN_MIN_POINTS) -> lis
     return incidents
 
 
-def _lossy_points_by_target(points: list[dict], min_pct: float) -> dict[str, int]:
-    """How many raw points per target lost more than ``min_pct``."""
+def _step_of(value: object) -> int | None:
+    """A point's probe step as epoch seconds, or None when unparseable.
+
+    The Influx client hands back datetimes; a test or a CSV hands back ISO
+    strings. Every target's point for one cycle shares the same RRD-aligned
+    timestamp, but bucketing to STEP_S costs nothing and holds if it ever
+    does not.
+    """
+    if isinstance(value, datetime):
+        ts = value.timestamp()
+    elif isinstance(value, (int, float)):
+        ts = float(value)
+    elif isinstance(value, str):
+        try:
+            ts = datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    else:
+        return None
+    return int(ts // STEP_S) * STEP_S
+
+
+def _lossy_points_by_target(
+    points: list[dict], min_pct: float, steps: int = MEAN_STEPS
+) -> dict[str, int]:
+    """How many raw points per target lost more than ``min_pct``, within the
+    latest ``steps`` probe cycles present in ``points``.
+
+    Rows without a usable ``_time`` are counted regardless: a caller with
+    untimed rows gets the plain count rather than nothing.
+    """
+    timed = [(_step_of(r.get("_time")), r) for r in points]
+    known = [step for step, _ in timed if step is not None]
+    cutoff = (max(known) - (steps - 1) * STEP_S) if known else None
     counts: dict[str, int] = {}
-    for row in points:
+    for step, row in timed:
         target = row.get("target")
         value = row.get("_value")
         if target is None or value is None:
+            continue
+        if step is not None and cutoff is not None and step < cutoff:
             continue
         if flux.clamp_loss_ratio(value) * 100.0 >= min_pct:
             counts[target] = counts.get(target, 0) + 1
@@ -279,10 +318,11 @@ def rule_high_loss(
     """warning: mean loss over 15m above HIGH_LOSS_PCT (excl. down targets).
 
     With ``points`` (the raw down-window rows) the loss must also have
-    PERSISTED: at least ``min_points`` points above HIGH_LOSS_POINT_PCT. A
-    single bad probe cycle can push a 15 min mean over the threshold on its
-    own, and one cycle is a blink, not high loss. Without ``points`` the rule
-    is the bare mean comparison, for callers that have no raw rows.
+    PERSISTED: at least ``min_points`` points above HIGH_LOSS_POINT_PCT in
+    the latest MEAN_STEPS cycles -- the same span as the mean. A single bad
+    probe cycle can push a 15 min mean over the threshold on its own, and
+    one cycle is a blink, not high loss. Without ``points`` the rule is the
+    bare mean comparison, for callers that have no raw rows.
     """
     if threshold_pct is None:
         threshold_pct = _env_float("HIGH_LOSS_PCT", DEFAULT_HIGH_LOSS_PCT)
@@ -393,28 +433,6 @@ def rule_exporter_stale(
     ]
 
 
-def _step_of(value: object) -> int | None:
-    """A point's probe step as epoch seconds, or None when unparseable.
-
-    The Influx client hands back datetimes; a test or a CSV hands back ISO
-    strings. Every target's point for one cycle shares the same RRD-aligned
-    timestamp, but bucketing to STEP_S costs nothing and holds if it ever
-    does not.
-    """
-    if isinstance(value, datetime):
-        ts = value.timestamp()
-    elif isinstance(value, (int, float)):
-        ts = float(value)
-    elif isinstance(value, str):
-        try:
-            ts = datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
-        except ValueError:
-            return None
-    else:
-        return None
-    return int(ts // STEP_S) * STEP_S
-
-
 def _hhmm(step: int) -> str:
     return datetime.fromtimestamp(step, tz=timezone.utc).strftime("%H:%M UTC")
 
@@ -473,8 +491,18 @@ def rule_widespread(
     def share(bucket: dict[int, set[str]], step: int) -> float:
         return 100.0 * len(bucket.get(step, ())) / len(reporting[step])
 
+    # Adjacent in the list is not adjacent in time: a cycle in which too few
+    # targets reported is simply absent from ``steps``. "Consecutive" and
+    # "the same span" mean gaps of at most one missing cycle.
+    def contiguous(run: list[int]) -> bool:
+        return all(b - a <= 2 * STEP_S for a, b in zip(run, run[1:]))
+
     latest = steps[-min_points:]
-    if len(latest) >= min_points and all(share(lost, s) >= share_pct for s in latest):
+    if (
+        len(latest) >= min_points
+        and contiguous(latest)
+        and all(share(lost, s) >= share_pct for s in latest)
+    ):
         step = latest[-1]
         n_lost, n_all = len(lost[step]), len(reporting[step])
         return [
@@ -495,7 +523,11 @@ def rule_widespread(
     incidents = []
     run: list[int] = []
     for step in steps + [None]:
-        if step is not None and share(lossy, step) >= share_pct:
+        if (
+            step is not None
+            and share(lossy, step) >= share_pct
+            and (not run or step - run[-1] <= 2 * STEP_S)
+        ):
             run.append(step)
             continue
         if run:
@@ -521,6 +553,8 @@ def rule_widespread(
                 }
             )
             run = []
+        if step is not None and share(lossy, step) >= share_pct:
+            run = [step]
     return incidents
 
 
