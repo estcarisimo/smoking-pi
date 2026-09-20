@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Documentation
+
+- **When the radio hangs.** The two September hangs of the reference Pi's
+  Wi-Fi radio (associated, transmitting, receiving nothing; 21 h and
+  3 h 20 min) have a likely cause — `brcmfmac` with power save on — and a
+  one-line fix that is deliberately not applied. `docs/wifi.md` now records
+  the signature, what is known against what is only suspected, why the
+  change is the operator's (it is a host setting reached over the link it
+  drops, and it moves the latency floor the Pi measures), how to try it so
+  it reverts itself, and the decision to leave it on.
+
 ### Fixed
 
 - **The in-UI assistant reads the same microcut definition.** The
