@@ -231,6 +231,9 @@ jobs:
           v=$(smoking-pi version); echo "smoking-pi version: $v"
           case "$DEB_VERSION" in 0.0.0~*) ;; *) [ "$v" = "$VERSION" ] || { echo "package reports $v, tag says $VERSION"; exit 1; } ;; esac
           out=$(smoking-pi paths); echo "$out"
+          # Installed at /usr/bin, the command must find the tree in /opt --
+          # the first packaged run resolved "one directory up" to / instead.
+          echo "$out" | grep -q 'home:     /opt/smoking-pi' || { echo "home is not /opt/smoking-pi"; exit 1; }
           echo "$out" | grep -q 'mode:     packaged' || { echo "not in packaged mode"; exit 1; }
           echo "$out" | grep -q "env:      /etc/smoking-pi/env" || { echo "env file not relocated"; exit 1; }
           echo "$out" | grep -q "/<service>:$DEB_VERSION" || { echo "images not pinned to the package version"; exit 1; }

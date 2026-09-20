@@ -70,6 +70,16 @@ fail_docker_on() {
     [[ "$output" != *"not found"* ]]
 }
 
+@test "installed outside a checkout, home defaults to /opt/smoking-pi; inside one, to the checkout" {
+    mkdir -p "$BATS_TEST_TMPDIR/usr/bin"
+    cp "$CLI" "$BATS_TEST_TMPDIR/usr/bin/smoking-pi"
+    unset SMOKING_PI_HOME
+    run "$BATS_TEST_TMPDIR/usr/bin/smoking-pi" paths
+    [[ "$output" == *"home:     /opt/smoking-pi"* ]]
+    run "$CLI" paths
+    [[ "$output" == *"home:     $REPO"* ]]
+}
+
 @test "unknown command exits 2" {
     run "$CLI" frobnicate
     [ "$status" -eq 2 ]

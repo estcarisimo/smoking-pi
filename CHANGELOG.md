@@ -68,6 +68,15 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Installed by the package, `smoking-pi` looked for the tree in `/`.**
+  The command took its home as one directory above itself — right from a
+  checkout (`packaging/smoking-pi`), and `/` from `/usr/bin/smoking-pi`;
+  the `/opt/smoking-pi` fallback the usage text promised was never
+  written, so a packaged `smoking-pi version` said `unknown` and `doctor`
+  found nothing to check. The first run of the release's package job
+  caught it. Now: the checkout when there is an `editions/` beside it,
+  `/opt/smoking-pi` otherwise; the package's defaults file also sets it;
+  the job checks `paths` reports `/opt/smoking-pi`.
 - **`smoking-pi help` printed `dev: command not found`** — the usage text
   is a heredoc, and the previous change put a backticked word in it. Quoted.
 
