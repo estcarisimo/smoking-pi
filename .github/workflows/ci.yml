@@ -168,8 +168,15 @@ jobs:
       fail-fast: false
       matrix:
         module: [config-manager, web-admin, grafana, smokeping]
+        include:
+          # web-admin builds from `shared/` so the image can copy in
+          # shared/modules/common (same layout as the alerter, ai-insights
+          # and mcp-server images; see editions/pro/docker-compose.yml).
+          - module: web-admin
+            context: shared
+            dockerfile: modules/web-admin/Dockerfile
     steps:
       - uses: actions/checkout@v7
       - name: Build image
-        working-directory: shared/modules/${{ matrix.module }}
-        run: docker build -t ci-${{ matrix.module }} .
+        working-directory: ${{ matrix.context || format('shared/modules/{0}', matrix.module) }}
+        run: docker build -t ci-${{ matrix.module }} -f ${{ matrix.dockerfile || 'Dockerfile' }} .

@@ -6,7 +6,11 @@ against web-admin's own backends:
 
 - config-manager REST via the existing ConfigAPIGateway (target CRUD,
   system status)
-- InfluxDB 2.x via influxdb-client (latency / loss / microcut queries)
+- InfluxDB 2.x via influxdb-client (latency / loss / microcut queries); the
+  microcut definition and the loss-event threshold come from the shared
+  ``common`` package (common/microcuts.py, common/aggregates.py), the same
+  code the MCP server, the alerter and the reports read, so the two
+  assistants cannot drift apart on what a microcut is
 
 ``TOOLS`` is the Anthropic ``tools`` schema list; ``execute_tool`` is the
 dispatcher. Mutating tools are listed in ``MUTATING_TOOLS`` and are executed
@@ -26,6 +30,8 @@ from datetime import datetime
 from typing import Any
 
 from app.services.config_api import ConfigAPIGateway
+from common import microcuts
+from common.aggregates import LOSS_EVENT_PCT
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +233,9 @@ TOOLS = [
         "name": "get_loss_events",
         "description": (
             "Find data points where packet loss met or exceeded a threshold "
-            "percentage, newest first."
+            "percentage, newest first. The default threshold means two or "
+            "more lost pings in a cycle; a single lost ping out of ten is "
+            "background on a healthy link, not an event."
         ),
         "input_schema": {
             "type": "object",
@@ -235,7 +243,9 @@ TOOLS = [
                 "hours": _HOURS_PROP,
                 "min_loss_pct": {
                     "type": "number",
-                    "description": "Loss threshold percentage 0-100 (default 5).",
+                    "description": (
+                        f"Loss threshold percentage 0-100 (default {LOSS_EVENT_PCT:g})."
+                    ),
                 },
             },
         },
@@ -243,8 +253,14 @@ TOOLS = [
     {
         "name": "get_microcut_stats",
         "description": (
-            "Summarize CPE microcut activity (brief loss spikes on the "
-            "local link) from the high-frequency cpe_latency measurement."
+            "CPE microcuts from the high-frequency cpe_latency measurement: "
+            "'cuts' are runs of 10 s windows above the cut threshold "
+            "(confirmed: two or more windows, or a window at 100%; possible: "
+            "one isolated window), each with its duration; 'stats' carry the "
+            "per-target floor (p50/p90 loss over every window). The gateway "
+            "rate-limits ICMP, so most windows show some loss with nothing "
+            "wrong: report cuts, and describe the floor with its p90, never as "
+            "microcuts. When 'cuts' is empty there were no microcuts."
         ),
         "input_schema": {
             "type": "object",
@@ -467,7 +483,7 @@ def _get_loss_events(tool_input: dict) -> dict:
     hours, err = _validate_hours(tool_input.get("hours"))
     if err:
         return {"error": err}
-    raw = tool_input.get("min_loss_pct", 5)
+    raw = tool_input.get("min_loss_pct", LOSS_EVENT_PCT)
     try:
         threshold = float(raw)
     except (TypeError, ValueError):
@@ -504,26 +520,27 @@ def _get_loss_events(tool_input: dict) -> dict:
 
 
 def _get_microcut_stats(tool_input: dict) -> dict:
+    """Same definition as the MCP server's tool: cuts (runs of windows above
+    ``MICROCUT_LOSS_PCT``, folded by common.microcuts), the per-target floor
+    as p50/p90, and a note stating the floor when there were no cuts. Never
+    "windows with any loss" -- on a rate-limited gateway that is 98% of them.
+    """
     hours, err = _validate_hours(tool_input.get("hours"))
     if err:
         return {"error": err}
 
+    threshold = microcuts.loss_pct()
     base = _base_flux(["cpe_latency"], hours)
     group = '|> group(columns: ["target", "protocol"]) '
     loss = '|> filter(fn: (r) => r._field == "loss") '
-    lossy_count_flux = (
-        base + loss + "|> filter(fn: (r) => r._value > 0.0) " + group + "|> count()"
-    )
+    windows_flux = base + loss + group + "|> count()"
+    p50_flux = base + loss + group + "|> quantile(q: 0.5)"
+    p90_flux = base + loss + group + "|> quantile(q: 0.9)"
     max_loss_flux = base + loss + group + "|> max()"
     median_jitter_flux = (
         base + '|> filter(fn: (r) => r._field == "jitter") ' + group + "|> median()"
     )
-    worst_flux = (
-        base + loss
-        + "|> group() "
-        + '|> sort(columns: ["_value"], desc: true) '
-        + "|> limit(n: 5)"
-    )
+    cut_windows_flux = microcuts.cut_windows_flux(f"-{hours}h", threshold)
 
     stats: dict = {}
 
@@ -536,20 +553,43 @@ def _get_microcut_stats(tool_input: dict) -> dict:
             entry = stats.setdefault(k, {"target": k[0], "protocol": k[1]})
             entry[key] = cast(value)
 
-    _merge(query_influx(lossy_count_flux), "lossy_windows", int)
-    _merge(query_influx(max_loss_flux), "max_loss_pct", lambda v: round(float(v), 2))
+    def _pct(v: Any) -> float:
+        return round(float(v), 2)
+
+    _merge(query_influx(windows_flux), "windows", int)
+    _merge(query_influx(p50_flux), "p50_loss_pct", _pct)
+    _merge(query_influx(p90_flux), "p90_loss_pct", _pct)
+    _merge(query_influx(max_loss_flux), "max_loss_pct", _pct)
     _merge(
         query_influx(median_jitter_flux),
         "median_jitter_ms",
         lambda v: round(float(v), 3),
     )
-    worst_rows = query_influx(worst_flux)
+    cut_rows = query_influx(cut_windows_flux)
 
+    cuts = microcuts.fold_cuts(cut_rows)
     for entry in stats.values():
-        entry.setdefault("lossy_windows", 0)
+        entry.setdefault("windows", 0)
+        own = [
+            c
+            for c in cuts
+            if c["target"] == entry["target"] and c["protocol"] == entry["protocol"]
+        ]
+        entry["cut_windows"] = sum(c["windows"] for c in own)
+        entry["confirmed_cuts"] = sum(1 for c in own if c["confirmed"])
+        entry["possible_cuts"] = sum(1 for c in own if not c["confirmed"])
+    for cut in cuts:
+        cut.pop("start_epoch", None)
+    cuts.reverse()  # newest first, like the events
 
-    return {
+    worst_rows = sorted(
+        cut_rows, key=lambda r: float(r.get("_value") or 0.0), reverse=True
+    )[:5]
+    result = {
         "window_hours": hours,
+        "cut_loss_pct": threshold,
+        "cuts": cuts,
+        "truncated": len(cut_rows) >= microcuts.MAX_ROWS,
         "stats": sorted(
             stats.values(),
             key=lambda e: (e.get("target") or "", e.get("protocol") or ""),
@@ -564,6 +604,18 @@ def _get_microcut_stats(tool_input: dict) -> dict:
             for row in worst_rows
         ],
     }
+    if not cuts and stats:
+        floor = ", ".join(
+            f"{e['target']}/{e['protocol']} p50 {e.get('p50_loss_pct', 0):g}% / "
+            f"p90 {e.get('p90_loss_pct', 0):g}%"
+            for e in result["stats"]
+        )
+        result["note"] = (
+            f"No window exceeded {threshold:g}% loss in the last {hours}h: no "
+            f"microcuts. The gateway's ICMP floor sat at {floor}; that is "
+            "rate limiting, not a fault."
+        )
+    return result
 
 
 _DISPATCH = {

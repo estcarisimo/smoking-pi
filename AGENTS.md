@@ -67,7 +67,8 @@ the rename is documented with the old name still accepted for a release.
 
 **Containers cannot import across each other.** Shared code goes in
 `shared/modules/common/`, which each Dockerfile copies in. Build context for
-those images is `shared/`.
+those images (alerter, ai-insights, mcp-server, web-admin) is `shared/`, in
+every edition's compose file and in the CI `docker-build` matrix.
 
 **Never make real network, database or Docker calls in tests.** Every suite
 mocks them; `web-admin` fails a test if the Docker SDK is importable. New env

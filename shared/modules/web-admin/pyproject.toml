@@ -189,6 +189,9 @@ addopts = [
     "--cov-report=xml",
 ]
 testpaths = ["tests"]
+# ".." puts shared/modules on the path so `common` imports as a package,
+# matching the image layout where it is copied to /app/common.
+pythonpath = [".", ".."]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",

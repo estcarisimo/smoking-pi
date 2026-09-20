@@ -17,8 +17,10 @@ RUN pip install uv
 # Set working directory
 WORKDIR /app
 
-# Copy dependency files
-COPY pyproject.toml ./
+# Build context is `shared/` (see the `context: ../../shared` build blocks in
+# editions/*/docker-compose.yml), so the shared `common` package is reachable
+# alongside this module's own source. Containers cannot import each other.
+COPY modules/web-admin/pyproject.toml ./
 
 # Install dependencies with uv (dependencies only, not as editable package)
 RUN uv venv /opt/venv
@@ -47,8 +49,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Set working directory
 WORKDIR /app
 
-# Copy application code
-COPY . .
+# Copy application code, then the shared package beside it (importable as
+# `common`; the assistant's tools read the microcut definition from there)
+COPY modules/web-admin/ ./
+COPY modules/common/*.py ./common/
 
 # Create necessary directories
 RUN mkdir -p /app/config /app/logs /app/uploads /app/static/uploads \

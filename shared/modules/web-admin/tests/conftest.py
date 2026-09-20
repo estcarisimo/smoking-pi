@@ -19,6 +19,10 @@ os.environ['WEB_ADMIN_USERNAME'] = 'admin'
 os.environ['WEB_ADMIN_PASSWORD'] = 'test-password'
 os.environ.pop('WEB_ADMIN_PASSWORD_HASH', None)
 os.environ.pop('ENABLE_SCHEDULER', None)
+# The assistant's microcut tool reads the shared threshold from the
+# environment (common.microcuts); a developer's exported value would move
+# every cut/floor assertion in the suite.
+os.environ.pop('MICROCUT_LOSS_PCT', None)
 
 from app import create_app  # noqa: E402
 
