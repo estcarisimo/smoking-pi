@@ -271,6 +271,24 @@ def test_outage_spans_consecutive_cycles_as_one_incident():
     assert "lost every packet" in widespread[0]["message"]
 
 
+def test_outage_with_partial_edge_cycles_still_says_every_packet():
+    # The cut started and ended mid-cycle: 95% on the way in, 60% on the
+    # way out, everything lost in between.
+    rows = _everyone([0.0, 0.95, 1.0, 1.0, 1.0, 0.6, 0.0])
+    widespread = evaluator.rule_widespread(rows)
+    assert len(widespread) == 1
+    assert "lost every packet" in widespread[0]["message"]
+    assert "25-minute span" in widespread[0]["message"]
+
+
+def test_a_two_cycle_outage_needs_both_cycles_total_to_say_every_packet():
+    rows = _everyone([0.0, 1.0, 0.5, 0.0])
+    inc = evaluator.rule_widespread(rows)[0]
+    assert "10-minute span" in inc["message"] and "lost packets" in inc["message"]
+    rows = _everyone([0.0, 1.0, 1.0, 0.0])
+    assert "lost every packet" in evaluator.rule_widespread(rows)[0]["message"]
+
+
 def test_two_separate_blinks_are_two_outages():
     rows = _everyone([0.9, 0.0, 0.9, 0.0])
     keys = [i["key"] for i in evaluator.rule_widespread(rows)]

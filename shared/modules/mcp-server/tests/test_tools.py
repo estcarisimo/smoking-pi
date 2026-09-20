@@ -820,13 +820,17 @@ def _rows(per_target, start=_T0):
     return rows
 
 
-def _loss_fake(per_target, background=0, targets=None):
+def _loss_fake(per_target, background=0, targets=None, steps=None):
     events = _rows(per_target)
     total = len(targets if targets is not None else per_target)
+    if steps is None:
+        steps = max((len(v) for v in per_target.values()), default=0)
 
     def fake(flux):
         if "distinct(" in flux:
-            return [{"_value": total}]
+            # One row per probe step: how many targets reported in it.
+            return [{"_time": _T0 + timedelta(seconds=300 * i), "_value": total}
+                    for i in range(steps)]
         if "r._value > 0.0 and" in flux:
             return [{"_value": background}]
         return events
@@ -838,8 +842,11 @@ def test_loss_events_default_threshold_skips_single_lost_pings(monkeypatch, no_a
     result = server.get_loss_events(hours=24)
     assert result["min_loss_pct"] == 15.0
     assert "r._value >= 0.15" in captured[0]
-    # The denominator query must put its count in _value, where it is read:
-    # distinct() does; count(column: "target") does not (seen live).
+    # The denominator query must put its count in _value, where it is read
+    # (distinct() does; count(column: "target") does not -- seen live), and
+    # it must be PER STEP: over a day more names rotate through than report
+    # in any one cycle, which put 80% out of reach -- also seen live.
+    assert 'group(columns: ["_time"])' in captured[2]
     assert 'distinct(column: "target") |> count()' in captured[2]
     assert "count(column" not in captured[2]
     # The excluded background is counted, not hidden.
@@ -950,3 +957,63 @@ def test_loss_events_episode_carries_a_graph_link(monkeypatch, api, linked):
     episode = server.get_loss_events(hours=6)["episodes"][0]
     assert "/d/smokeping-lat-pct-v28" in episode["graph"]
     assert "var-target=NYT" in episode["graph"]
+
+
+def test_loss_events_denominator_is_the_cycles_own_not_the_windows(monkeypatch, no_api):
+    """Seen live after #75: 23 distinct names over the day (OCA targets
+    rotate), 18 reporting in any one cycle, 18 down together -- and 80% of
+    23 is 19. The share must be of the targets that reported in that step."""
+    per_target = {t: [1.0, 1.0, 1.0, 1.0] for t in _TEN}
+    rotated = [f"oca_{i}" for i in range(4)]     # names seen elsewhere in the day
+    _patch_influx(monkeypatch, _loss_fake(per_target, targets=_TEN))
+    result = server.get_loss_events(hours=24)
+    assert result["targets_reporting"] == 10
+    assert len(result["widespread"]) == 1
+    assert result["widespread"][0]["targets_total"] == 10
+    # The same rows with a window-wide denominator of 14 would need 12 of 10.
+    assert len(_TEN) < 0.8 * (len(_TEN) + len(rotated))
+
+
+def test_loss_events_a_cut_with_partial_edge_cycles_is_still_total_loss(monkeypatch, no_api):
+    """Seen live: the 3 h 20 min hang began with a 95% cycle (it started
+    mid-cycle), and `all(...)` over the run called it 'a brief cut'."""
+    per_target = {t: [0.95, 1.0, 1.0, 1.0, 1.0, 0.6] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    run = server.get_loss_events(hours=24)["widespread"][0]
+    assert run["all_lost"] is True
+    assert "this host's uplink" in run["cause"]
+    assert "for 4 cycles" in run["cause"]
+
+
+def test_loss_events_a_two_cycle_run_has_no_interior_to_excuse(monkeypatch, no_api):
+    # Review of #76: with two steps both are edges; one total-loss cycle
+    # out of two is not "every packet lost".
+    per_target = {t: [0.0, 1.0, 0.5, 0.0] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    run = server.get_loss_events(hours=24)["widespread"][0]
+    assert run["minutes"] == 10 and run["all_lost"] is False
+    per_target = {t: [0.0, 1.0, 1.0, 0.0] for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    assert server.get_loss_events(hours=24)["widespread"][0]["all_lost"] is True
+
+
+def test_loss_events_reporting_takes_the_larger_count_when_a_cycle_splits(monkeypatch, no_api):
+    per_target = {t: [1.0, 1.0, 1.0, 1.0] for t in _TEN}
+    events = _rows(per_target)
+
+    def fake(flux):
+        if "distinct(" in flux:
+            rows = []
+            for i in range(4):
+                t = _T0 + timedelta(seconds=300 * i)
+                rows.append({"_time": t, "_value": 10})
+                rows.append({"_time": t + timedelta(seconds=7), "_value": 1})  # jittered straggler
+            return rows
+        if "r._value > 0.0 and" in flux:
+            return [{"_value": 0}]
+        return events
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_loss_events(hours=24)
+    assert result["targets_reporting"] == 10
+    assert len(result["widespread"]) == 1

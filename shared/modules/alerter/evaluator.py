@@ -534,7 +534,12 @@ def rule_widespread(
             first, last = run[0], run[-1]
             n_lossy = max(len(lossy[s]) for s in run)
             n_all = max(len(reporting[s]) for s in run)
-            all_lost = all(share(lost, s) >= share_pct for s in run)
+            # Edge cycles of a cut are partial by construction (it started
+            # or ended mid-cycle); total loss everywhere else is total loss.
+            lost_steps = sum(1 for s in run if share(lost, s) >= share_pct)
+            all_lost = (
+                lost_steps >= len(run) - 2 if len(run) > 2 else lost_steps == len(run)
+            )
             minutes = (last - first) // 60 + STEP_S // 60
             incidents.append(
                 {
