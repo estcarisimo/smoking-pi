@@ -465,7 +465,7 @@ if [ "$EDITION" = "pro" ]; then
 fi
 check_port 8081 "SmokePing"
 
-# Check if .env has been modified from defaults
+# Check if the env file has been modified from defaults
 if grep -q "supersecrettoken\|your-secret-key-here" "$ENV_FILE" 2>/dev/null; then
     echo
     echo -e "${RED}⚠️  WARNING: Default passwords detected!${NC}"

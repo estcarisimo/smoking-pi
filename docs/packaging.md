@@ -172,8 +172,10 @@ other path in those files. The env file is different: Compose only finds
 `setup.sh --env-file`, `generate-passwords.sh --env-file`,
 `show-passwords.sh`, `manage-containers.sh` and the `smoking-pi` command
 all read `SMOKING_PI_ENV_FILE` and pass `--env-file`; the `.deb` sets all
-three in `/etc/default/smoking-pi`, which the systemd unit loads and
-`postinst` creates the two directories for.
+three in `/etc/default/smoking-pi`, which the systemd unit loads through
+`EnvironmentFile` and the `smoking-pi` command sources itself (the
+environment still wins), so a manual `sudo smoking-pi install` lands in the
+same place as the unit's `up`; `postinst` creates the two directories.
 
 **Seeding.** A fresh config directory holds nothing (from a clone, a
 `.gitkeep`). config-manager's bootstrap copies the three YAML files from

@@ -108,6 +108,7 @@ jobs:
             echo "$out" | grep -q 'source: /var/lib/smoking-pi/output' || { echo "output mount ignores SMOKING_PI_OUTPUT_DIR"; exit 1; }
           fi
           ! echo "$out" | grep -q 'config-manager/config$' || { echo "a config mount is still hardcoded"; exit 1; }
+          ! echo "$out" | grep -q 'config-manager/output$' || { echo "an output mount is still hardcoded"; exit 1; }
       - name: Validate ClickHouse overlay (pro only)
         if: matrix.edition == 'pro'
         working-directory: editions/pro

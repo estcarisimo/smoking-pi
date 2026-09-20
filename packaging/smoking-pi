@@ -11,6 +11,17 @@
 # macOS that means Homebrew's bash and coreutils -- see docs/packaging.md.
 set -euo pipefail
 
+# The package's settings (/etc/default/smoking-pi: edition, the packaged
+# state layout). Debian's convention is that every consumer sources it; the
+# unit does via EnvironmentFile, and so must a manual `sudo smoking-pi
+# install`, or it would write into /opt. The environment still wins.
+if [ -f /etc/default/smoking-pi ]; then
+    _env_before="$(export -p)"
+    # shellcheck disable=SC1091
+    set -a; . /etc/default/smoking-pi; set +a
+    # Re-apply what the caller had exported, so it overrides the file.
+    eval "$_env_before"; unset _env_before
+fi
 SMOKING_PI_HOME="${SMOKING_PI_HOME:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)}"
 SMOKING_PI_EDITION="${SMOKING_PI_EDITION:-pro}"
 EDITION_DIR="$SMOKING_PI_HOME/editions/$SMOKING_PI_EDITION"
