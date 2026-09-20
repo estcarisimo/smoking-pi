@@ -289,3 +289,21 @@ def test_a_checked_but_healthy_wifi_still_appears_in_the_context_line():
 def test_no_wifi_means_no_wifi_words():
     text = templates.format_message(_alert())
     assert "wi-fi" not in text.lower()
+
+
+def test_monitor_uplink_scope_has_its_own_light_and_no_mute_hint():
+    event = _alert(verdict={
+        "scope": "monitor_uplink",
+        "line": "This host's Wi-Fi (wlan0) — still associated at -49 dBm but it has "
+                "received nothing for the whole window: the radio is hung, not the network.",
+        "affected": 10, "total": 10, "cpe_cutting": ["CPE/ipv4"],
+        "wifi": {"interface": "wlan0", "uplink": True, "samples": 120, "weak_samples": 0,
+                 "min_dbm": -49.0, "disconnects": 0, "degraded": False, "rx_packets": 0},
+    })
+    event["rule"] = "uplink_down"
+    event["target"] = None
+    event["message"] = "10 of 10 targets at 100% loss for 4 consecutive probe cycles"
+    text = templates.format_message(event)
+    assert "🔌" in text
+    assert "radio is hung" in text
+    assert "mute:" not in text

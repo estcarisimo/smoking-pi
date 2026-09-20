@@ -42,6 +42,7 @@ SEVERITY_EMOJI = {
 
 SCOPE_EMOJI = {
     "monitoring": "🛠",
+    "monitor_uplink": "🔌",
     "wifi": "📶",
     "local_link": "🏠",
     "isp_upstream": "🌐",

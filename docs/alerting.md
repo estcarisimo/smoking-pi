@@ -21,8 +21,10 @@ The service runs with `network_mode: host`, so it reaches InfluxDB on
 
 | Rule | Severity | Condition | Tunables (default) |
 |------|----------|-----------|--------------------|
-| `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points | `DOWN_WINDOW` (1200 s) |
-| `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold (targets already down are excluded) | `HIGH_LOSS_PCT` (20 %) |
+| `uplink_down` | critical | Most targets (`WIDESPREAD_PCT` of those reporting) at 100% loss in each of the latest 3 probe cycles — every destination including the first hop is unreachable from this host, so the monitor's own uplink is gone. ONE incident; the per-target ones it would fan out into are not sent | `WIDESPREAD_PCT` (80 %), `DOWN_WINDOW` |
+| `outage` | warning | A run of probe cycles in which most targets lost at least `WIDESPREAD_LOSS_PCT` at once — a brief cut of the link that had ended by the time it was seen. ONE incident per run, keyed by its first cycle; *transient*: it leaves the window on its own and no recovery notice follows | `WIDESPREAD_PCT` (80 %), `WIDESPREAD_LOSS_PCT` (30 %) |
+| `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points. Not sent while anything widespread is active | `DOWN_WINDOW` (1200 s) |
+| `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold **and** the loss persisted: at least `HIGH_LOSS_MIN_POINTS` probe cycles above 15% (more than one lost ping) in the window. Targets already down are excluded; not sent while anything widespread is active | `HIGH_LOSS_PCT` (20 %), `HIGH_LOSS_MIN_POINTS` (2) |
 | `microcut_burst` | warning | Per target+protocol in `cpe_latency`: number of 10 s windows whose loss exceeds `MICROCUT_LOSS_PCT` in the last 60 min reaches the burst count | `MICROCUT_BURST_N` (2), `MICROCUT_LOSS_PCT` (50 %) |
 | `exporter_stale` | critical | Zero `latency` points written in the last window (global — the RRD exporter is probably stalled) | `STALE_WINDOW` (1200 s) |
 | `ipv6_down` | warning | Every IPv6 target (name ends in `6`, or an `fping6`-ish category) at 100% loss for 15 min while at least one IPv4 target is healthy; emits ONE aggregate incident | — |
@@ -30,6 +32,18 @@ The service runs with `network_mode: host`, so it reaches InfluxDB on
 Loss semantics match the exporters: `latency`/`dns_latency` loss is a 0-1
 ratio (legacy packet counts 0..20 are clamped), `cpe_latency` loss is a
 percent 0-100.
+
+**Why the widespread rules exist.** On the reference Pi the Wi-Fi radio hung
+twice in September 2026 — associated to the access point at −49 dBm, uplink
+flag set, and not one packet received for 3 h 20 min (and, earlier, 21 h).
+Every target went to 100% including the LAN gateway, and the alerter sent 18
+`target_down` criticals plus 18 `high_loss` warnings, re-sent at every
+cooldown: about 110 messages for one fact. A 3-minute blink on 2026-09-19 did
+the same in miniature — every target got one bad cycle, every 15-minute mean
+cleared 20%, and 18 warnings plus 18 recoveries went out for a link that
+blinked. Both shapes are now one incident, and its verdict line says what it
+is (see `monitor_uplink` below). The evidence and the numbers behind the
+thresholds are in [detection-reliability.md](detection-reliability.md).
 
 ## Incident lifecycle
 
@@ -41,6 +55,9 @@ State lives in a JSON file (`ALERT_STATE_FILE`, default
 - **Still active** → silent until `ALERT_COOLDOWN` (default 3600 s) has
   elapsed since the last notification, then re-notifies.
 - **Cleared** → a single recovery notice (only if the incident ever fired).
+  A *transient* incident (`outage`) is dropped silently instead: it
+  describes a cut that had already ended when it was reported, and
+  "recovered — was down 20 min" would be false twice over.
 
 Per incident the state tracks `first_seen`, `last_seen`, `last_notified`,
 and `notified_count`.
@@ -176,6 +193,9 @@ missing reports directory is skipped quietly.
 | `DOWN_WINDOW` | `1200` | `target_down` window (seconds). SmokePing probes on a 300 s step and `DOWN_MIN_POINTS` is 3, so this must span **strictly more** than 3 steps — at exactly 3 the rule stops matching whenever jitter costs it one point, and the incident flaps. See [Flap damping](#flap-damping-and-why-the-cooldown-alone-is-not-enough) |
 | `STALE_WINDOW` | `1200` | `exporter_stale` window (seconds); same step arithmetic as `DOWN_WINDOW` |
 | `HIGH_LOSS_PCT` | `20` | `high_loss` threshold (percent) |
+| `HIGH_LOSS_MIN_POINTS` | `2` | Probe cycles above 15% loss that `high_loss` needs in the window. One bad cycle can average over `HIGH_LOSS_PCT` on its own, and one cycle is a blink |
+| `WIDESPREAD_PCT` | `80` | Share of the reporting targets that must be lossy in the same probe cycle for `outage`, or at 100% for `uplink_down` |
+| `WIDESPREAD_LOSS_PCT` | `30` | Loss percent a point needs to count toward `outage` — above the single-lost-ping background |
 | `MICROCUT_BURST_N` | `2` | Microcut windows per 60 min to flag a burst. Counts OBSERVED windows, so it tracks the probe duty cycle: the detector samples a 10 s window every `CPE_PROBE_WINDOW + CPE_PROBE_IDLE` seconds (~120 windows/hour by default). Rescale it if you change `CPE_PROBE_IDLE` |
 | `MICROCUT_LOSS_PCT` | `50` | Loss percent above which a 10 s CPE window counts as a microcut. CPE gateways rate-limit ICMP, giving a constant single-digit loss floor, so counting any loss at all would flag that floor permanently |
 | `REPORTS_DIR` | `/reports` | Where ai-insights reports are read from |
@@ -218,6 +238,7 @@ Scopes, in precedence order — the first match wins:
 | Scope | Meaning |
 |---|---|
 | `monitoring` | `exporter_stale` fired. **Outranks everything unconditionally**: announcing a network fault from an *absence* of data is the worst thing this can do |
+| `monitor_uplink` | `uplink_down` fired: every destination including the first hop is unreachable from this host, so nothing beyond it can be judged. Named as precisely as `wifi_link` allows — *"still associated at −49 dBm but it has received nothing for the whole window: the radio is hung, not the network"* when the packets-received counter did not move; *"the link dropped N times"* on a carrier drop; the generic line on a wired host |
 | `wifi` | The first hop is dropping *and* the host's own Wi-Fi uplink was weak or dropped in the same hour (no breadth requirement — a dropped uplink takes everything with it). Only on a host whose default route is wireless; see [wifi.md](wifi.md) |
 | `local_link` | Broad impairment *and* the first hop is dropping |
 | `isp_upstream` | Broad impairment with a clean first hop |

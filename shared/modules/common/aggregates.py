@@ -38,7 +38,12 @@ from .tsdb import (
 )
 
 # Loss threshold (percent) above which a data point counts as a "loss event".
-LOSS_EVENT_PCT = 5.0
+# 15, not 5: a single lost ping of ten is 10%, and on a host that measures
+# across Wi-Fi that happens 60-300 times a day spread over every target --
+# background, not events. 15 keeps anything that lost two pings or more, and
+# any lost DNS query (five per cycle, so one is 20%). Same bar as the MCP
+# tool get_loss_events' default.
+LOSS_EVENT_PCT = 15.0
 
 # Keep the payload small: only the worst N targets (by mean loss, then p95
 # latency) are included.

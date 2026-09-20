@@ -56,7 +56,7 @@ Window: last {{ data.window_hours }}h (generated {{ data.generated_at }})
 Targets with data: {{ data.target_total }}\
 {% if data.targets_truncated %} (showing worst {{ data.targets|length }} by loss){% endif %}
 
-Per-target stats (latency in ms; loss in %; loss_events = samples with >=5% loss):
+Per-target stats (latency in ms; loss in %; loss_events = samples with >=15% loss, i.e. more than one lost ping):
 {% for t in data.targets -%}
 - {{ t.target }} [{{ t.measurement }}]: median={{ t.median_ms|default('n/a') }}ms \
 p95={{ t.p95_ms|default('n/a') }}ms avg_loss={{ t.avg_loss_pct }}% \

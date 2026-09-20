@@ -196,3 +196,37 @@ def test_corrupt_state_file_starts_fresh(state_file):
 def test_fallback_when_default_dir_unwritable(monkeypatch):
     monkeypatch.setattr(state, "_dir_writable", lambda path: False)
     assert state.state_file() == state.FALLBACK_STATE_FILE
+
+
+# ---------------------------------------------------------------------------
+# Transient incidents
+#
+# An `outage` is a cut that had already ended when it was reported; it leaves
+# the evaluator's window twenty minutes later on its own. A "recovered — was
+# down 20 min" for that would be false twice over.
+# ---------------------------------------------------------------------------
+
+
+def test_transient_incident_alerts_once_and_never_recovers(state_file):
+    st = state.load_state()
+    cut = _incident(key="outage:1789869600", rule="outage", severity="warning",
+                    target=None, transient=True)
+    actions = state.reconcile(st, [cut], now=1000.0)
+    assert len(actions["alerts"]) == 1
+    assert st["incidents"]["outage:1789869600"]["transient"] is True
+
+    # Still in the window a minute later: silent, as any active incident.
+    assert state.reconcile(st, [cut], now=1060.0) == {"alerts": [], "recoveries": []}
+
+    # Gone, grace elapsed: dropped without a recovery notice.
+    state.reconcile(st, [], now=2500.0)
+    actions = state.reconcile(st, [], now=2500.0 + 900)
+    assert actions == {"alerts": [], "recoveries": []}
+    assert st["incidents"] == {}
+
+
+def test_non_transient_incidents_keep_their_recovery(state_file):
+    st = state.load_state()
+    state.reconcile(st, [_incident()], now=1000.0)
+    state.reconcile(st, [], now=2500.0)
+    assert len(state.reconcile(st, [], now=3400.0)["recoveries"]) == 1

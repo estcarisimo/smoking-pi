@@ -37,13 +37,20 @@ def clean_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
-def _wifi(n=360, weak=0, min_dbm=-52.0, drops=0, uplink=1, iface="wlan0"):
-    """The evaluator's three wifi_link aggregates, as rows."""
-    return {
+def _wifi(n=360, weak=0, min_dbm=-52.0, drops=0, uplink=1, iface="wlan0", rx=4053):
+    """The evaluator's four wifi_link aggregates, as rows. ``rx=None``
+    omits the packets-received row, as a collector without it would."""
+    rows = {
         "signal": [{"interface": iface, "n": n, "weak": weak, "min": min_dbm}],
         "drops": [{"interface": iface, "_value": drops}],
         "uplink": [{"interface": iface, "_value": uplink}],
     }
+    if rx is not None:
+        rows["rx"] = [{"interface": iface, "_value": rx}]
+    return rows
+
+
+UPLINK_DOWN = {"rule": "uplink_down", "severity": "critical", "key": "uplink_down"}
 
 
 def _healthy(n, prefix="ok", category="top_sites"):
@@ -266,7 +273,7 @@ def test_a_healthy_wifi_hour_leaves_the_local_link_verdict_alone():
     assert call["scope"] == "local_link"
     assert call["wifi"] == {"interface": "wlan0", "uplink": True, "samples": 360,
                             "weak_samples": 0, "min_dbm": -52.0, "disconnects": 0,
-                            "degraded": False}
+                            "rx_packets": 4053, "degraded": False}
 
 
 def test_one_weak_sample_never_flips_the_verdict():
@@ -298,3 +305,79 @@ def test_monitoring_still_outranks_wifi():
     call = verdict.classify([{"rule": "exporter_stale"}], rows, [_micro("CPE", "ipv4", 5)],
                             wifi_rows=_wifi(drops=3))
     assert call["scope"] == "monitoring"
+
+
+# ---------------------------------------------------------------------------
+# This host's uplink
+# ---------------------------------------------------------------------------
+
+
+def test_uplink_down_names_this_host_not_the_internet():
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([UPLINK_DOWN], rows, [_micro("CPE", "ipv4", 99)])
+    assert call["scope"] == "monitor_uplink"
+    assert "This host's uplink" in call["line"]
+    assert "nothing beyond it can be judged" in call["line"]
+
+
+def test_a_hung_radio_is_named_as_such():
+    """2026-09-20: associated to the AP at -49 dBm, uplink flag set, and
+    zero packets received in 20 minutes. Nothing about that looks broken
+    from the router's side, so the line has to say what it is."""
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([UPLINK_DOWN], rows, [_micro("CPE", "ipv4", 99)],
+                            wifi_rows=_wifi(min_dbm=-49.0, rx=0))
+    assert call["scope"] == "monitor_uplink"
+    assert "Wi-Fi (wlan0)" in call["line"]
+    assert "-49 dBm" in call["line"]
+    assert "received nothing" in call["line"]
+    assert "radio is hung" in call["line"]
+    assert "power save" in call["line"]
+    assert call["wifi"]["rx_packets"] == 0
+
+
+def test_a_dropped_association_is_named_as_such():
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([UPLINK_DOWN], rows, [], wifi_rows=_wifi(drops=2, rx=0))
+    # Drops outrank the hung-radio reading only when the radio did receive
+    # something; here it received nothing, so the hung line wins.
+    assert "radio is hung" in call["line"]
+    call = verdict.classify([UPLINK_DOWN], rows, [], wifi_rows=_wifi(drops=2, rx=120))
+    assert "dropped 2 times" in call["line"]
+    assert "radio is hung" not in call["line"]
+
+
+def test_a_collector_without_rx_packets_still_gets_the_generic_line():
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([UPLINK_DOWN], rows, [], wifi_rows=_wifi(rx=None))
+    assert call["scope"] == "monitor_uplink"
+    assert "radio is hung" not in call["line"]
+    assert call["wifi"]["rx_packets"] is None
+
+
+def test_a_wired_host_gets_the_generic_uplink_line():
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([UPLINK_DOWN], rows, [], wifi_rows=None)
+    assert call["line"].startswith("This host's uplink —")
+
+
+def test_uplink_down_outranks_the_wifi_and_local_link_scopes():
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([UPLINK_DOWN], rows, [_micro("CPE", "ipv4", 99)],
+                            wifi_rows=_wifi(weak=30, min_dbm=-80.0, rx=0))
+    assert call["scope"] == "monitor_uplink"
+
+
+def test_monitoring_still_outranks_uplink_down():
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([{"rule": "exporter_stale"}, UPLINK_DOWN], rows, [])
+    assert call["scope"] == "monitoring"
+
+
+def test_without_the_uplink_incident_a_total_loss_is_still_the_local_link():
+    # The verdict does not infer uplink_down from breadth on its own; the
+    # evaluator decides that from the raw cycles. Total loss with the first
+    # hop cutting stays "your line" -- which is also true.
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([], rows, [_micro("CPE", "ipv4", 99)])
+    assert call["scope"] == "local_link"
