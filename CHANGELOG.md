@@ -24,8 +24,9 @@ for weeks. This release treats downtime and microcuts as two separate
 investigations, each with weeks of the Pi's own data as evidence, a
 definition, and tests that replay the real nights; the microcut definition
 was also run against the Pi's InfluxDB before merging, in the MCP tool and
-again in the in-UI assistant. A loss that hits most targets in the same probe cycle is
-one incident, named as a hung radio when the Wi-Fi counters show one; a
+again in the in-UI assistant. A loss that hits most targets in the same
+probe cycle is one incident, named as a hung radio when the Wi-Fi counters
+show one; a
 microcut is a run of windows above the threshold, confirmed or possible,
 with a duration, beside the floor it stands on. The same definition is
 read by the alerter, the MCP server, the in-UI assistant, the digest and
