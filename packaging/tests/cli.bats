@@ -75,8 +75,10 @@ fail_docker_on() {
     cp "$CLI" "$BATS_TEST_TMPDIR/usr/bin/smoking-pi"
     unset SMOKING_PI_HOME
     run "$BATS_TEST_TMPDIR/usr/bin/smoking-pi" paths
+    [ "$status" -eq 0 ]
     [[ "$output" == *"home:     /opt/smoking-pi"* ]]
     run "$CLI" paths
+    [ "$status" -eq 0 ]
     [[ "$output" == *"home:     $REPO"* ]]
 }
 

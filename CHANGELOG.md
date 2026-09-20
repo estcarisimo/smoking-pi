@@ -75,8 +75,10 @@ version gets a matching GitHub release and git tag.
   written, so a packaged `smoking-pi version` said `unknown` and `doctor`
   found nothing to check. The first run of the release's package job
   caught it. Now: the checkout when there is an `editions/` beside it,
-  `/opt/smoking-pi` otherwise; the package's defaults file also sets it;
-  the job checks `paths` reports `/opt/smoking-pi`.
+  `/opt/smoking-pi` otherwise (the package's defaults file documents the
+  knob, commented out — set there it would also capture a checkout's own
+  script on the same host); the job checks `paths` reports
+  `/opt/smoking-pi`.
 - **`smoking-pi help` printed `dev: command not found`** — the usage text
   is a heredoc, and the previous change put a backticked word in it. Quoted.
 

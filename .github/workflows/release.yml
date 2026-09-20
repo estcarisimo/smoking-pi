@@ -206,6 +206,10 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The only authenticated call here is `gh release upload` through
+          # GH_TOKEN; git needs no credential left in the checkout.
+          persist-credentials: false
       - name: Build the package from the tagged tree
         run: |
           set -e
@@ -220,7 +224,7 @@ jobs:
           ls -l dist/
       - name: Install it, check what a package can prove without Docker, remove it
         run: |
-          set -e
+          set -eo pipefail
           # dpkg does not resolve dependencies; docker and compose are not
           # what this checks. Install the metadata dependencies it can.
           sudo apt-get install -y --no-install-recommends python3-yaml whiptail >/dev/null
@@ -264,6 +268,9 @@ jobs:
           name: smoking-pi-deb
           path: dist/*.deb
           if-no-files-found: error
+      # Not yet exercised by a real run: a test-* tag never takes this
+      # branch (nor the version-equality check above). The first vX.Y.Z
+      # tag after this lands proves both; watch that run.
       - name: Attach it to the release the maintainer created (release tags only)
         if: startsWith(github.ref_name, 'v')
         env:
