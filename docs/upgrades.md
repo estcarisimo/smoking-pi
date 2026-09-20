@@ -95,7 +95,7 @@ Then bump `shared/modules/grafana/Dockerfile`, rebuild, and check
 `docker compose logs grafana` for `migrations completed` before assuming it
 worked.
 
-## Pulling past v2.11 on a host that runs the stack
+## Pulling past v2.11
 
 Since the relocatable-state change (after v2.11.0, `docs/packaging.md`),
 `editions/<edition>/config-manager/{config,output}` are no longer tracked.
@@ -106,19 +106,33 @@ and `Probes` from the host directories the containers have mounted. This
 happened on the reference Pi.
 
 Nothing is lost: PostgreSQL is the source of truth and SmokePing keeps its
-loaded configuration until it is told to reload. Recreate config-manager:
+loaded configuration until it is told to reload. Rebuild and recreate
+config-manager (the same commit changed its image, and a plain `up -d`
+does nothing when neither the image nor the resolved service config
+changed):
 
 ```bash
-cd editions/pro && docker compose up -d config-manager
+cd editions/pro && docker compose build config-manager && docker compose up -d config-manager
 ```
 
 On start it re-seeds the three YAML files from its `templates/` (the
 mechanism that has always recovered a missing file), runs the idempotent
-migration (marker present — nothing is re-imported), regenerates `Targets`
-and `Probes` from the database and signals SmokePing. Check with
-`python -m doctor --repo-root . --live`. Any local edits that lived only in
-the YAML (not in the database) are gone; the YAML is import/export, and
-the database has had every target since Sprint 3.
+migration (marker present: only a probe or category the database has never
+seen would be added — none, on a current deployment) and regenerates
+`Targets` and `Probes` from the database. The startup path writes the
+files but does **not** signal SmokePing; that only happens on an API-driven
+change. It does not matter here — the regenerated files equal what
+SmokePing already has loaded — unless the database changed in between, in
+which case reload it:
+
+```bash
+docker compose exec smokeping killall -HUP smokeping
+```
+
+Check with `python -m doctor --repo-root . --live`. Any local edits that
+lived only in the YAML (not in the database) are gone; the YAML is
+import/export, and the database has had every target since Sprint 3
+(v2.1.0).
 
 From then on the directories are ignored by git and `git pull` leaves them
 alone.
