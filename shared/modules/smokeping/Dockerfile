@@ -52,6 +52,15 @@ RUN set -eu; \
     apk del .fetch; \
     /usr/local/bin/curl-h3 --version | grep -q HTTP3
 
+# The exporters (RRD -> InfluxDB/ClickHouse, microcut detector, CPE
+# discovery, Wi-Fi link collector) are baked in at /exporters so a packaged
+# install runs with no source bind-mount (docs/packaging.md, "Packaged
+# mode"). Build context is `shared/` for this COPY -- see the `context:
+# ../../shared` build blocks in editions/*/docker-compose.yml. The
+# development compose files bind-mount the checkout over /exporters, so
+# editing an exporter still needs no rebuild there.
+COPY modules/smokeping-exporters/*.py /exporters/
+
 # The edition-specific naming is handled by docker-compose.yml
 # No additional changes needed as all customization happens via:
 # - Volume mounts (config, scripts)

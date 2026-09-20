@@ -12,8 +12,10 @@ x-logging: &default-logging
 services:
   smokeping:
     build:
-      context: ../../shared/modules/smokeping
-      dockerfile: Dockerfile
+      # Context is `shared/` so the image can copy in the exporters
+      # (shared/modules/smokeping-exporters) -- docs/packaging.md backlog #2.
+      context: ../../shared
+      dockerfile: modules/smokeping/Dockerfile
     image: pro-smokeping
     network_mode: host
     restart: unless-stopped
@@ -44,6 +46,8 @@ services:
       # symlinks /config/{Targets,Probes} -> /config/generated/{Targets,Probes}.
       # SMOKING_PI_OUTPUT_DIR relocates it (packaged: /var/lib/smoking-pi/output).
       - ${SMOKING_PI_OUTPUT_DIR:-./config-manager/output}:/config/generated:ro
+      # Development overlay over the copy baked into the image; dropped by
+      # docker-compose.packaged.yml (docs/packaging.md, "Packaged mode").
       - ../../shared/modules/smokeping-exporters:/exporters:ro
       - ./custom-cont-init.d:/custom-cont-init.d:ro
       - /etc/localtime:/etc/localtime:ro
@@ -183,7 +187,9 @@ services:
       - "0.0.0.0:8080:8080"  # Explicitly bind to all interfaces
     volumes:
       - ${SMOKING_PI_CONFIG_DIR:-./config-manager/config}:/app/config
-      - ../../shared/modules/web-admin/app:/app/app  # Mount source code for development
+      # Development overlay over the code in the image; dropped by
+      # docker-compose.packaged.yml.
+      - ../../shared/modules/web-admin/app:/app/app
       # (/app/common is NOT mounted: a change to shared/modules/common needs
       # `docker compose build web-admin`, as for the other three images)
       - reports:/reports:ro

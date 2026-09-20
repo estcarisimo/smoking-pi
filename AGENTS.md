@@ -67,10 +67,14 @@ the rename is documented with the old name still accepted for a release.
 
 **Containers cannot import across each other.** Shared code goes in
 `shared/modules/common/`, which each Dockerfile copies in. Build context for
-those images (alerter, ai-insights, mcp-server, web-admin) is `shared/` in
-every edition's compose file. Of the four, only web-admin is in the CI
-`docker-build` matrix (via an `include` entry that sets the context); the
-other three are not docker-built in CI at all.
+those images (alerter, ai-insights, mcp-server, web-admin) and for smokeping
+(which bakes in `shared/modules/smokeping-exporters`) is `shared/` in every
+edition's compose file. Of those, web-admin and smokeping are in the CI
+`docker-build` matrix (via `include` entries that set the context); the
+other three are not docker-built in CI at all. **Source bind-mounts are
+development overlays**: anything mounted from `shared/modules` must also be
+baked into the image, and `docker-compose.packaged.yml` must drop it —
+`packaging/check-packaged-override.py` (run in CI) enforces both halves.
 
 **Never make real network, database or Docker calls in tests.** Every suite
 mocks them; `web-admin` fails a test if the Docker SDK is importable. New env

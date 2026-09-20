@@ -102,8 +102,10 @@ services:
 
   smokeping:
     build:
-      context: ../../shared/modules/smokeping
-      dockerfile: Dockerfile
+      # Context is `shared/` so the image can copy in the exporters
+      # (shared/modules/smokeping-exporters) -- docs/packaging.md backlog #2.
+      context: ../../shared
+      dockerfile: modules/smokeping/Dockerfile
     image: standard-smokeping
     container_name: smokeping-standard
     environment:

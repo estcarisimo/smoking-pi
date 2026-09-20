@@ -150,6 +150,40 @@ def test_a_file_missing_from_the_image_is_caught(repo):
     assert "predates it" in res.findings[0].render()
 
 
+SMOKEPING_PS = "ps --filter label=com.docker.compose.service=smokeping"
+
+
+def test_exporters_baked_into_the_smokeping_image_are_checked(repo):
+    """Packaged mode runs the exporters copied into the smokeping image at
+    /exporters (no source mount), so a stale smokeping image is the same
+    invisible failure as a stale alerter image -- and the exporters image
+    carries no common/ package, so none is demanded of it."""
+    exporters = repo.root / "shared/modules/smokeping-exporters"
+    exporters.mkdir(parents=True)
+    (exporters / "rrd2influx.py").write_text("print('rrd')\n")
+    responses = _healthy_alerter(repo)
+    responses[SMOKEPING_PS] = (0, "pro-smokeping-1\n")
+    responses["exec pro-smokeping-1 sh -c cd /exporters "] = (
+        0, _hashes_for(repo, [("rrd2influx.py", "print('stale')\n")]),
+    )
+    docker = FakeDocker(responses)
+    res = live_checks.check_deployed_code_current(repo, docker)
+    assert res.status is Status.FAIL
+    assert len(res.findings) == 1
+    assert "/exporters/rrd2influx.py" in res.findings[0].where
+    assert "docker compose build smokeping" in res.findings[0].message  # the service, not the module dir
+    # No /exporters/common lookup was made.
+    assert not any("cd /exporters/common" in c for c in docker.calls)
+    responses["exec pro-smokeping-1 sh -c cd /exporters "] = (
+        0, _hashes_for(repo, [("rrd2influx.py", "print('rrd')\n")]),
+    )
+    docker = FakeDocker(responses)
+    res = live_checks.check_deployed_code_current(repo, docker)
+    assert res.status is Status.OK
+    assert "4 deployed files" in res.summary
+    assert not any("cd /exporters/common" in c for c in docker.calls)
+
+
 def test_drift_in_the_shared_common_package_is_caught(repo):
     responses = _healthy_alerter(repo)
     responses["exec pro-alerter-1 sh -c cd /app/common "] = (

@@ -109,6 +109,19 @@ jobs:
           fi
           ! echo "$out" | grep -q 'config-manager/config$' || { echo "a config mount is still hardcoded"; exit 1; }
           ! echo "$out" | grep -q 'config-manager/output$' || { echo "an output mount is still hardcoded"; exit 1; }
+      - name: Packaged override drops the code mounts and nothing else (standard, pro)
+        if: matrix.edition != 'basic'
+        working-directory: editions/${{ matrix.edition }}
+        run: |
+          # docs/packaging.md "Packaged mode": docker-compose.packaged.yml must
+          # remove every bind mount of shared/modules and keep every other
+          # volume -- with every profile on, so the gated services count too.
+          COMPOSE_PROFILES=influxdb,mcp,alerts,ai,clickhouse python3 ../../packaging/check-packaged-override.py .
+          if [ "${{ matrix.edition }}" = pro ]; then
+            # The ClickHouse overlay re-adds its init mount; packaged last wins.
+            COMPOSE_PROFILES=clickhouse docker compose -f docker-compose.yml -f docker-compose.clickhouse.yml -f docker-compose.packaged.yml config \
+              | { ! grep -q 'clickhouse/init'; } || { echo "packaged override must come last"; exit 1; }
+          fi
       - name: Validate ClickHouse overlay (pro only)
         if: matrix.edition == 'pro'
         working-directory: editions/pro
@@ -191,6 +204,10 @@ jobs:
           - module: web-admin
             context: shared
             dockerfile: modules/web-admin/Dockerfile
+          # smokeping likewise, to bake in shared/modules/smokeping-exporters.
+          - module: smokeping
+            context: shared
+            dockerfile: modules/smokeping/Dockerfile
     steps:
       - uses: actions/checkout@v7
       - name: Build image

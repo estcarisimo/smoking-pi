@@ -57,6 +57,8 @@ Usage: smoking-pi <command> [args]
 
 Environment: SMOKING_PI_HOME (default: this checkout or /opt/smoking-pi),
              SMOKING_PI_EDITION (default: pro),
+             SMOKING_PI_PACKAGED=1 adds docker-compose.packaged.yml (no source
+             bind-mounts; the package sets it),
              SMOKING_PI_ENV_FILE, SMOKING_PI_CONFIG_DIR, SMOKING_PI_OUTPUT_DIR
              (default: beside the edition's compose file; the package sets
              /etc/smoking-pi/env, /etc/smoking-pi/config, /var/lib/smoking-pi/output).
@@ -75,9 +77,14 @@ profiles() {
 compose() {
     need_edition
     local p; p="$(profiles)"
-    local extra=(--env-file "$ENV_FILE")
+    local extra=(--env-file "$ENV_FILE" -f docker-compose.yml)
     if [ "$SMOKING_PI_EDITION" = pro ] && [[ "$p" == *clickhouse* ]]; then
-        extra+=(-f docker-compose.yml -f docker-compose.clickhouse.yml)
+        extra+=(-f docker-compose.clickhouse.yml)
+    fi
+    # Packaged mode: no source bind-mounts (docs/packaging.md, "Packaged
+    # mode"). Last, so its !override wins over the ClickHouse overlay.
+    if [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] && [ -f "$EDITION_DIR/docker-compose.packaged.yml" ]; then
+        extra+=(-f docker-compose.packaged.yml)
     fi
     ( cd "$EDITION_DIR" && COMPOSE_PROFILES="$p" docker compose "${extra[@]}" "$@" )
 }
@@ -148,6 +155,7 @@ case "${1:-}" in
         echo "env:      $ENV_FILE"; echo "profiles: $(profiles)"
         echo "config:   ${SMOKING_PI_CONFIG_DIR:-$EDITION_DIR/config-manager/config}"
         echo "output:   ${SMOKING_PI_OUTPUT_DIR:-$EDITION_DIR/config-manager/output}"
+        echo "mode:     $([ "${SMOKING_PI_PACKAGED:-0}" = 1 ] && echo packaged '(no source mounts)' || echo development '(source mounts from home)')"
         echo "data:     docker volumes ${SMOKING_PI_EDITION}_* (docker volume ls)" ;;
     version) sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || echo unknown ;;
     -h|--help|help|"") usage ;;
