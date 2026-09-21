@@ -18,19 +18,29 @@
 #                        it, and only then remove the package
 #     --image-tag TAG    for a throwaway build whose images are tagged
 #                        differently from the package version (test-* tags)
+#     --old-image-tag TAG
+#                        the images the previous release runs, when they are
+#                        not its own version either (a local run)
+#     --upgrade-from OLD.deb
+#                        with --start: install OLD first, start the edition on
+#                        it, then install the package over it and
+#                        `smoking-pi upgrade` -- the secrets must survive and
+#                        the containers must run the new images
 #
 # Runs as root and leaves the host without the package. Local use: any
 # distro container on the Pi (mount the .deb), or a scratch VM.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-DEB="" VERSION="" ENGINE="" START="" IMAGE_TAG=""
+DEB="" VERSION="" ENGINE="" START="" IMAGE_TAG="" OLD_DEB="" OLD_IMAGE_TAG=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --version) VERSION="$2"; shift 2 ;;
         --expect-engine) ENGINE="$2"; shift 2 ;;
         --start) START="$2"; shift 2 ;;
         --image-tag) IMAGE_TAG="$2"; shift 2 ;;
+        --upgrade-from) OLD_DEB="$2"; shift 2 ;;
+        --old-image-tag) OLD_IMAGE_TAG="$2"; shift 2 ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) DEB="$1"; shift ;;
     esac
@@ -38,16 +48,79 @@ done
 [ -n "$DEB" ] && [ -f "$DEB" ] || { echo "usage: $0 <package.deb> [--version V] [--expect-engine docker-ce|docker.io] [--start EDITION] [--image-tag TAG]" >&2; exit 2; }
 [ "$(id -u)" = 0 ] || { echo "run as root: apt installs and the state directories are root's" >&2; exit 2; }
 DEB="$(readlink -f "$DEB")"
+[ -z "$OLD_DEB" ] || { [ -n "$START" ] && [ -f "$OLD_DEB" ] || { echo "--upgrade-from needs --start and an existing file" >&2; exit 2; }; OLD_DEB="$(readlink -f "$OLD_DEB")"; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
+port_of() { local p; p=$(sed -n 's/^SMOKEPING_PORT=//p' /etc/smoking-pi/env); echo "${p:-80}"; }
+wait_web() {
+    # The edition's web UI (Basic: SmokePing on SMOKEPING_PORT) answers.
+    local port code=000; port=$(port_of)
+    for _ in $(seq 60); do
+        code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$port/" || true)
+        case "$code" in 2*|3*) echo "web UI answers on :$port ($code)"; return 0 ;; esac
+        sleep 5
+    done
+    smoking-pi logs 2>&1 | tail -30; fail "web UI on :$port did not answer (last: $code)"
+}
+running_images() {
+    # What the stack's containers run right now, one image ref per line.
+    local project; project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' /etc/smoking-pi/env)
+    docker ps --filter "label=com.docker.compose.project=${project:-$START}" --format '{{.Image}}' | sort
+}
+image_tag() { smoking-pi paths | sed -n 's|^images: .*/<service>:\([^ ]*\).*|\1|p'; }
+pin_images() {
+    # A throwaway build: its images carry the git tag, not a Debian
+    # version. Pinned through the environment (this script's commands) and
+    # a unit drop-in (the unit's), never by editing the conffile: the check
+    # below wants that file exactly as shipped.
+    local tag="$1"
+    if [ -z "$tag" ] || [ "$tag" = "$(smoking-pi version)" ]; then
+        unset SMOKING_PI_VERSION; rm -rf /etc/systemd/system/smoking-pi.service.d
+    else
+        export SMOKING_PI_VERSION="$tag"
+        mkdir -p /etc/systemd/system/smoking-pi.service.d
+        printf '[Service]\nEnvironment=SMOKING_PI_VERSION=%s\n' "$tag" > /etc/systemd/system/smoking-pi.service.d/check.conf
+    fi
+    [ ! -d /run/systemd/system ] || systemctl daemon-reload
+}
+conffile_as_shipped() {
+    # dpkg records the shipped conffile's md5; a byte's difference here
+    # means a later upgrade stops at the conffile prompt (fatal under a
+    # non-interactive apt). Nothing the package or the command does may
+    # edit it -- only the user, knowingly.
+    local shipped; shipped=$(dpkg-query -W -f '${Conffiles}\n' smoking-pi | awk '$1 == "/etc/default/smoking-pi" { print $2 }')
+    [ "$(md5sum /etc/default/smoking-pi | cut -d' ' -f1)" = "$shipped" ] || fail "/etc/default/smoking-pi differs from what the package shipped ($1)"
+}
 # Not sourced: os-release sets VERSION, which is this script's option.
 PRETTY_NAME=$(sed -n 's/^PRETTY_NAME="\(.*\)"/\1/p' /etc/os-release)
 echo "== $PRETTY_NAME, $(uname -m), $(dpkg --print-architecture)"
 
+apt-get update -qq
+
+# 0. The previous release first, installed and running, so that the
+# package under test arrives the way it will on every user's host: as an
+# upgrade over a working install with secrets in the volumes.
+if [ -n "$OLD_DEB" ]; then
+    apt-get install -y -qq --no-install-recommends "$OLD_DEB" >/tmp/check-package.apt-old.log 2>&1 \
+        || { tail -20 /tmp/check-package.apt-old.log; fail "apt could not install the previous release $OLD_DEB"; }
+    old_version=$(smoking-pi version); pin_images "$OLD_IMAGE_TAG"; old_tag=$(image_tag)
+    echo "== previous release installed: $old_version (images :$old_tag)"
+    docker info >/dev/null || fail "no Docker daemon to start $START with"
+    smoking-pi install --edition "$START" --yes
+    conffile_as_shipped "after the previous release's install"
+    [ "$(cat /etc/smoking-pi/edition)" = "$START" ] || fail "the previous release did not record the edition"
+    wait_web
+    old_env_sum=$(sha256sum /etc/smoking-pi/env | cut -d' ' -f1)
+    old_images=$(running_images); echo "$old_images" | sed 's/^/   running: /'
+    echo "$old_images" | grep -q ":$old_tag\$" || fail "the previous release is not running the images it names"
+fi
+
 # 1. The host's resolver, worst case: no Recommends. A missing alternative
 # (Debian 12 without Docker's repository, Debian 13's split CLI) fails here.
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends "$DEB" >/tmp/check-package.apt.log 2>&1 \
+# --allow-downgrades: a throwaway build (0.0.0~test-*) sorts below every
+# release it upgrades from; dpkg runs the same maintainer scripts and
+# conffile handling either way.
+apt-get install -y -qq --no-install-recommends --allow-downgrades "$DEB" >/tmp/check-package.apt.log 2>&1 \
     || { tail -20 /tmp/check-package.apt.log; fail "apt could not install the package from this host's repositories"; }
 picked=$(dpkg-query -W -f '${db:Status-Status} ${Package} ${Version}\n' docker-ce docker.io docker-ce-cli docker-cli \
     docker-compose-plugin docker-compose-v2 docker-compose 2>/dev/null | awk '$1 == "installed" { print "   " $2 " " $3 }')
@@ -61,20 +134,28 @@ docker compose version || fail "no 'docker compose' plugin after install"
 python3 --version
 python3 -c 'import yaml' || fail "python3-yaml not importable by $(command -v python3)"
 
-# 2. What the package reports and where it put things.
+# 2. What the package reports and where it put things. Unpinned: the
+# images must follow the installed tree's version on their own.
+pin_images ""
 v=$(smoking-pi version); echo "smoking-pi version: $v"
 if [ -n "$VERSION" ]; then
     case "$VERSION" in 0.0.0~*) ;; *) [ "$v" = "$VERSION" ] || fail "package reports $v, expected $VERSION" ;; esac
 fi
-deb_version=$(sed -n 's/^SMOKING_PI_VERSION=//p' /etc/default/smoking-pi)
-[ -n "$deb_version" ] || fail "/etc/default/smoking-pi has no SMOKING_PI_VERSION"
+deb_version=$(dpkg-query -W -f '${Version}' smoking-pi)
+# The command reports the tree's CITATION.cff; dpkg the package's version.
+# Equal on a release; a throwaway (0.0.0~*) carries the tree's last release.
+case "$deb_version" in 0.0.0~*) ;; *) [ "$v" = "$deb_version" ] || fail "smoking-pi version says $v, dpkg says $deb_version" ;; esac
+# The conffile carries no version: the installed tree's is what the
+# images follow, so an upgrade never stays pinned to the first release.
+! grep -q '^SMOKING_PI_VERSION=' /etc/default/smoking-pi || fail "the conffile pins a version"
+conffile_as_shipped "after install"
 out=$(smoking-pi paths); echo "$out"
 # Installed at /usr/bin, the command must find the tree in /opt -- the
 # first packaged run resolved "one directory up" to / instead.
 echo "$out" | grep -q 'home:     /opt/smoking-pi' || fail "home is not /opt/smoking-pi"
 echo "$out" | grep -q 'mode:     packaged' || fail "not in packaged mode"
 echo "$out" | grep -q 'env:      /etc/smoking-pi/env' || fail "env file not relocated"
-echo "$out" | grep -q "/<service>:$deb_version" || fail "images not pinned to the package version"
+echo "$out" | grep -q "/<service>:$v" || fail "images do not follow the installed tree's version ($v)"
 [ -d /etc/smoking-pi/config ] || fail "config dir missing"
 [ -d /var/lib/smoking-pi/output ] || fail "output dir missing"
 [ "$(stat -c %a /etc/smoking-pi)" = 750 ] || fail "/etc/smoking-pi is not 0750"
@@ -111,28 +192,37 @@ done
 
 # 5. `install` refuses to run over an existing env file -- the guard that
 # stops a reinstall from rotating live secrets.
-touch /etc/smoking-pi/env
-! smoking-pi install --yes 2>/dev/null || fail "install ran over an existing env file"
-rm -f /etc/smoking-pi/env
+if [ -f /etc/smoking-pi/env ]; then
+    ! smoking-pi install --yes 2>/dev/null || fail "install ran over an existing env file"
+else
+    touch /etc/smoking-pi/env
+    ! smoking-pi install --yes 2>/dev/null || fail "install ran over an existing env file"
+    rm -f /etc/smoking-pi/env
+fi
 
-# 6. With a daemon: the real first install of an edition, the unit around
-# it, a clean stop. The images are the release's own, pulled from GHCR.
+# 6. With a daemon: the real first install of an edition -- or, after
+# step 0, the real upgrade of one -- the unit around it, a clean stop.
+# The images are the release's own, pulled from GHCR.
 if [ -n "$START" ]; then
-    if [ -n "$IMAGE_TAG" ] && [ "$IMAGE_TAG" != "$deb_version" ]; then
-        # A throwaway build: its images carry the git tag, not a Debian
-        # version. The conffile is the documented place to say so.
-        sed -i "s/^SMOKING_PI_VERSION=.*/SMOKING_PI_VERSION=$IMAGE_TAG/" /etc/default/smoking-pi
-    fi
     docker info >/dev/null || fail "no Docker daemon to start $START with"
-    smoking-pi install --edition "$START" --yes
-    grep -qx "SMOKING_PI_EDITION=$START" /etc/default/smoking-pi || fail "install did not record the edition"
-    port=$(sed -n 's/^SMOKEPING_PORT=//p' /etc/smoking-pi/env); port="${port:-80}"
-    for _ in $(seq 60); do
-        code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$port/" || true)
-        case "$code" in 2*|3*) break ;; esac
-        sleep 5
-    done
-    case "$code" in 2*|3*) echo "web UI answers on :$port ($code)" ;; *) smoking-pi logs 2>&1 | tail -30; fail "web UI on :$port did not answer (last: $code)" ;; esac
+    pin_images "$IMAGE_TAG"
+    if [ -n "$OLD_DEB" ]; then
+        # The recorded edition and the secrets survived the package upgrade.
+        [ "$(cat /etc/smoking-pi/edition)" = "$START" ] || fail "the upgrade lost the recorded edition"
+        [ "$(sha256sum /etc/smoking-pi/env | cut -d' ' -f1)" = "$old_env_sum" ] || fail "the package upgrade touched the env file"
+        smoking-pi upgrade --skip-doctor
+        wait_web
+        [ "$(sha256sum /etc/smoking-pi/env | cut -d' ' -f1)" = "$old_env_sum" ] || fail "smoking-pi upgrade touched the env file"
+        new_images=$(running_images); echo "$new_images" | sed 's/^/   running: /'
+        want=$(image_tag)
+        [ "$want" != "$old_tag" ] || fail "the new package names the same images as the old one (:$want)"
+        echo "$new_images" | grep -q ":$want\$" || fail "after upgrade the stack does not run the :$want images"
+        ! echo "$new_images" | grep -q ":$old_tag\$" || fail "after upgrade a container still runs :$old_tag"
+    else
+        smoking-pi install --edition "$START" --yes
+        [ "$(cat /etc/smoking-pi/edition)" = "$START" ] || fail "install did not record the edition"
+        wait_web
+    fi
     smoking-pi status
     if [ -d /run/systemd/system ]; then
         systemctl enable --now smoking-pi || fail "the unit did not start"
@@ -141,15 +231,26 @@ if [ -n "$START" ]; then
     else
         smoking-pi down
     fi
-    project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' /etc/smoking-pi/env)
-    [ -z "$(docker ps -q --filter "label=com.docker.compose.project=${project:-$START}")" ] || fail "containers still running after stop"
+    [ -z "$(running_images)" ] || fail "containers still running after stop"
+    conffile_as_shipped "after the stack ran"
+    pin_images ""
 fi
 
 # 7. Removal keeps the state: apt remove never deletes what a user
-# configured or measured (backlog #6 is the purge policy).
+# configured or measured; apt purge removes the regenerable directories
+# and the conffile but keeps the env file and the Docker volumes (the
+# uninstall policy, docs/packaging.md backlog #6).
 touch /etc/smoking-pi/env
+volumes_before=$(docker volume ls -q 2>/dev/null | sort || true)
 apt-get remove -y -qq smoking-pi >/dev/null
 [ ! -e /usr/bin/smoking-pi ] || fail "CLI left behind"
 [ -f /etc/smoking-pi/env ] || fail "removal deleted the env file"
 [ -d /var/lib/smoking-pi/output ] || fail "removal deleted the output dir"
+[ -f /etc/default/smoking-pi ] || fail "removal deleted the conffile (that is purge's job)"
+apt-get purge -y -qq smoking-pi 2>&1 | grep -i 'kept /etc/smoking-pi/env' || fail "purge did not say what it kept"
+[ ! -e /etc/default/smoking-pi ] || fail "purge left the conffile"
+[ ! -e /etc/smoking-pi/config ] || fail "purge left the seeded config dir"
+[ ! -e /var/lib/smoking-pi ] || fail "purge left /var/lib/smoking-pi"
+[ -f /etc/smoking-pi/env ] || fail "purge deleted the env file (the volumes' credentials)"
+[ "$(docker volume ls -q 2>/dev/null | sort || true)" = "$volumes_before" ] || fail "purge touched the Docker volumes"
 echo "== package OK on $PRETTY_NAME ($(dpkg --print-architecture)): $(echo "$picked" | tr -s ' \n' ' ')"

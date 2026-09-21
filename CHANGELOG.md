@@ -23,6 +23,38 @@ version gets a matching GitHub release and git tag.
   attaches it to the GitHub release the maintainer created for the tag.
   The workflow never creates a release. What remains of #5 is the signed
   apt repository on Pages.
+- **The release proves the upgrade, not just the install — and the
+  upgrade test found two ways the package would have broken it.** Once a
+  release carries a `.deb`, each `host` job first installs *that* one and
+  starts Basic on it, then installs the new package over it and runs
+  `smoking-pi upgrade`: the secrets must survive byte for byte and every
+  container must run the new images. Proven locally first, on Debian 12
+  with Docker's engine under a nested daemon, which is where the two
+  findings came from. (1) The package version lived in
+  `/etc/default/smoking-pi`, a conffile that `install` had just started
+  editing; dpkg keeps an edited conffile on upgrade, so every upgrade
+  would have kept pulling the first release's images. The packaged
+  command now takes its version from the tree it installed. (2) Worse: an
+  edited conffile plus a shipped conffile that changes by one character
+  stops the upgrade at dpkg's conffile prompt, which under a
+  non-interactive `apt` is a failed upgrade for every user. `install` now
+  records the edition in `/etc/smoking-pi/edition` (the unit no longer
+  hard-codes `pro`), nothing edits the conffile, and the check fails if
+  its md5 ever differs from the one dpkg recorded.
+- **Uninstall policy (packaging backlog #6).** `apt remove` keeps
+  everything; `apt purge` removes the regenerable directories and the
+  conffile but never the Docker volumes nor `/etc/smoking-pi/env` — the
+  file holds the credentials the volumes are locked with, so deleting it
+  alone would turn a year of kept measurements into unreadable ones —
+  and `postrm` says so. `smoking-pi purge --config` is the explicit way.
+  Documented in `docs/upgrades.md`, *Uninstalling*.
+- **Release acceptance on a Raspberry Pi** (`docs/release-acceptance.md`):
+  the checklist every release goes through on the reference Pi before the
+  tag — backup and rollback first, upgrade, reboot recovery, doctor, data
+  for every probe, detections, 24 hours of stability — and the
+  *Validation* section its GitHub release notes end with, untested
+  combinations named. What the release workflow proves on Ubuntu VMs and
+  Debian containers is written next to what only the Pi shows.
 - **The release installs the `.deb` on every supported host, with that
   host's own `apt`.** Measured first, in containers of each OS: Debian 12
   (today's Raspberry Pi OS) ships no Compose v2 at all, Debian 13 split

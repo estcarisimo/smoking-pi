@@ -29,8 +29,8 @@ cat > "$PKG/etc/default/smoking-pi" <<'ENV'
 # tree. Setting it here would also capture a checkout's own
 # packaging/smoking-pi on this host, which sources this file.
 #SMOKING_PI_HOME=/opt/smoking-pi
-# The edition: `smoking-pi install` records the one it installed here, so
-# the unit and every later command run the same one.
+# The edition: `smoking-pi install` records the one it installed in
+# /etc/smoking-pi/edition; set here only to override that record.
 #SMOKING_PI_EDITION=pro
 # The packaged layout: nothing the stack rewrites lives under /opt, so a
 # package upgrade replaces code only (docs/packaging.md, "Relocatable state").
@@ -41,12 +41,14 @@ SMOKING_PI_OUTPUT_DIR=/var/lib/smoking-pi/output
 # images, so replacing /opt/smoking-pi cannot reach a running stack
 # (docker-compose.packaged.yml).
 SMOKING_PI_PACKAGED=1
-# The images this version was released with: the compose files pull
-# ghcr.io/estcarisimo/smoking-pi/<service>:<version> instead of building
-# (docs/packaging.md, "Published images"). Leave it matching the package.
-SMOKING_PI_VERSION=__VERSION__
+# The images: ghcr.io/estcarisimo/smoking-pi/<service>:<this package's
+# version>, pulled instead of built (docs/packaging.md, "Published
+# images"). The version is not written here on purpose: this file keeps
+# your edits across upgrades, so a version line would pin every upgrade to
+# the first release installed. Set it only to pin other images (a test
+# build, a fork's registry with SMOKING_PI_REGISTRY).
+#SMOKING_PI_VERSION=
 ENV
-sed -i "s/__VERSION__/$VERSION/" "$PKG/etc/default/smoking-pi"
 SIZE=$(du -sk "$PKG" | cut -f1)
 # The Docker dependencies, measured against each host's own repositories
 # (docs/packaging.md, "Supported hosts"; packaging/tests/check-package.sh
@@ -97,9 +99,35 @@ if [ "$1" = remove ]; then
     systemctl disable --now smoking-pi >/dev/null 2>&1 || true
 fi
 # Data stays: docker volumes, /etc/smoking-pi and /var/lib/smoking-pi are not
-# removed (docs/packaging.md backlog #6 is the purge policy).
+# removed; postrm says what `purge` does (docs/packaging.md, backlog #6).
 PRE
-chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/prerm"
+cat > "$PKG/DEBIAN/postrm" <<'POSTRM'
+#!/bin/sh
+set -e
+# The uninstall policy (docs/packaging.md, backlog #6): dpkg never deletes
+# a year of measurements. `remove` keeps everything; `purge` removes what
+# the stack regenerates (the seeded config, the generated output) and the
+# conffile, but neither the Docker volumes nor the env file -- the file
+# holds the credentials those volumes are locked with, so deleting it
+# alone would make the kept data unreadable. `smoking-pi purge --config`
+# is the explicit way to delete the data, before the package.
+case "$1" in
+    purge)
+        rm -rf /etc/smoking-pi/config /var/lib/smoking-pi/output
+        rmdir /var/lib/smoking-pi 2>/dev/null || true
+        if [ -f /etc/smoking-pi/env ]; then
+            echo "smoking-pi: kept /etc/smoking-pi/env and the Docker volumes (docker volume ls):"
+            echo "  the file holds their credentials. To delete the measurements too, reinstall and"
+            echo "  run 'smoking-pi purge --config', or 'docker volume rm' them and remove the file."
+        else
+            rmdir /etc/smoking-pi 2>/dev/null || true
+        fi ;;
+esac
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+POSTRM
+chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/prerm" "$PKG/DEBIAN/postrm"
 echo "/etc/default/smoking-pi" > "$PKG/DEBIAN/conffiles"
 
 mkdir -p "$ROOT/dist"

@@ -36,9 +36,29 @@ if [ -z "${SMOKING_PI_HOME:-}" ]; then
     if [ -d "$_self_home/editions" ]; then SMOKING_PI_HOME="$_self_home"; else SMOKING_PI_HOME=/opt/smoking-pi; fi
     unset _self_home
 fi
+# The edition. Packaged, `install` records the one it installed in a state
+# file beside the env file (the env file is that edition's), so the unit
+# and every later command run the same one. Not in the conffile: an edited
+# conffile makes every later package upgrade stop at dpkg's conffile
+# prompt -- fatal under a non-interactive apt -- the first time the
+# shipped file changes by a character.
+EDITION_FILE="${SMOKING_PI_ENV_FILE:+$(dirname "$SMOKING_PI_ENV_FILE")/edition}"
+if [ -z "${SMOKING_PI_EDITION:-}" ] && [ -n "$EDITION_FILE" ] && [ -f "$EDITION_FILE" ]; then
+    SMOKING_PI_EDITION="$(head -n1 "$EDITION_FILE")"
+fi
 SMOKING_PI_EDITION="${SMOKING_PI_EDITION:-pro}"
 EDITION_DIR="$SMOKING_PI_HOME/editions/$SMOKING_PI_EDITION"
 VERSION_FILE="$SMOKING_PI_HOME/CITATION.cff"
+# The images a packaged install runs: the version of the tree the package
+# put in /opt, so a new package pulls its own release. Not written into
+# the conffile: `install` edits that file (the edition), and an edited
+# conffile is kept as-is by dpkg on upgrade -- a version line there would
+# have pinned every upgrade to the first release installed. An explicit
+# SMOKING_PI_VERSION (environment or conffile) still wins: a pin.
+if [ "${SMOKING_PI_PACKAGED:-}" = 1 ] && [ -z "${SMOKING_PI_VERSION:-}" ]; then
+    SMOKING_PI_VERSION="$(sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || true)"
+    export SMOKING_PI_VERSION
+fi
 # Where the state the stack rewrites lives (docs/packaging.md, "Relocatable
 # state"). From a clone the defaults are beside the compose file, untracked;
 # the .deb sets the packaged layout in /etc/default/smoking-pi. The env file
@@ -99,8 +119,8 @@ Environment: SMOKING_PI_HOME (default: this checkout or /opt/smoking-pi),
              (default: beside the edition's compose file; the package sets
              /etc/smoking-pi/env, /etc/smoking-pi/config, /var/lib/smoking-pi/output).
              SMOKING_PI_VERSION pulls the published images of that release
-             instead of building (the package sets its own version; unset
-             means `dev`, which is never published, so a clone builds),
+             instead of building (packaged: the installed version unless
+             set; a clone: unset means `dev`, never published, so it builds),
              SMOKING_PI_REGISTRY to pull a fork's images.
 USAGE
 }
@@ -262,16 +282,14 @@ cmd_install() {
         exit 1
     fi
     echo "Installing the $edition edition from $SMOKING_PI_HOME (env file: $ENV_FILE)"
-    # The unit and every later command take the edition from the defaults
-    # file (a clone has none: there the edition is an environment variable).
-    # Without this line a packaged Basic install was started as Pro by
-    # `systemctl start smoking-pi`, against Basic's env file.
-    if [ -w "$DEFAULTS_FILE" ]; then
-        if grep -q '^#\?SMOKING_PI_EDITION=' "$DEFAULTS_FILE"; then
-            sed -i "s/^#\?SMOKING_PI_EDITION=.*/SMOKING_PI_EDITION=$edition/" "$DEFAULTS_FILE"
-        else
-            printf 'SMOKING_PI_EDITION=%s\n' "$edition" >> "$DEFAULTS_FILE"
-        fi
+    # Packaged: the unit and every later command take the edition from the
+    # state file beside the env file (see EDITION_FILE at the top). Without
+    # it a packaged Basic install was started as Pro by `systemctl start
+    # smoking-pi`, against Basic's env file. A clone needs none: its env
+    # file lives beside the edition it belongs to.
+    if [ "${SMOKING_PI_PACKAGED:-}" = 1 ] && [ -n "$EDITION_FILE" ]; then
+        mkdir -p "$(dirname "$EDITION_FILE")"
+        printf '%s\n' "$edition" > "$EDITION_FILE"
     fi
     if [ "$edition" = pro ]; then
         ( cd "$EDITION_DIR" && ./setup.sh --database "$database" --env-file "$ENV_FILE" )

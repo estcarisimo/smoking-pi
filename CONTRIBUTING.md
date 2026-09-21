@@ -196,8 +196,10 @@ why. The history before mid-2026 predates this convention.
 Maintainer's job: a `release/vX.Y.Z` branch converts `[Unreleased]` into a
 dated section with an intro paragraph, merges, then `git tag -a` and `gh
 release create` with notes. Minor bump per batch of features, patch for a
-hotfix. Every release is deployed on the reference Pi and smoke-tested before
-the tag. The release branch also updates `version` and `date-released` in
+hotfix. Every release is deployed on the reference Pi and taken through
+[docs/release-acceptance.md](docs/release-acceptance.md) before the tag;
+the release notes end with the **Validation** section that checklist
+produces, untested combinations named. The release branch also updates `version` and `date-released` in
 [CITATION.cff](CITATION.cff) — CI fails if they lag the newest CHANGELOG
 section. The tag is what publishes: `release.yml` builds the nine images
 for arm64 and amd64 (refusing a tag that disagrees with `CITATION.cff`),
