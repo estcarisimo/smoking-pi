@@ -213,6 +213,9 @@ deploys the site from the same tag. If the `attach` job runs before the
 release exists, the `.deb` is the run's `smoking-pi-deb` artifact —
 create the release and re-run that job. A container is not a Raspberry
 Pi: the release is still deployed and smoke-tested on the reference Pi.
+After the release: `packaging/homebrew/bump.sh vX.Y.Z` and a PR with the
+bumped `Formula/smoking-pi.rb` (`brew tap` reads `main`; the tarball's
+checksum cannot exist before the tag).
 
 ## Reporting bugs
 

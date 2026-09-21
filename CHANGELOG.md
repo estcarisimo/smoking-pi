@@ -23,6 +23,17 @@ version gets a matching GitHub release and git tag.
   attaches it to the GitHub release the maintainer created for the tag.
   The workflow never creates a release. What remains of #5 is the signed
   apt repository on Pages.
+- **A Homebrew formula (packaging backlog #8), untested on a Mac.**
+  `Formula/smoking-pi.rb`: `brew tap estcarisimo/smoking-pi
+  https://github.com/estcarisimo/smoking-pi && brew install smoking-pi`
+  installs the release tarball under the Cellar with the command on
+  PATH, Homebrew's bash/coreutils/gnu-sed ahead of macOS's (bash 3.2,
+  BSD `sed -i` and `readlink`), a venv with PyYAML for the doctor, and
+  `brew services` for `smoking-pi up` at login. The caveats say what the
+  doc says: on macOS Pro's host-network measurements see Docker's Linux
+  VM. `packaging/homebrew/bump.sh vX.Y.Z` is the maintainer's post-release
+  step; CI proves the formula parses and its checksum is the tarball's,
+  which is all that can be proven without a Mac.
 - **Script hygiene (packaging backlog #7): no script guesses a container
   name, and the helper scripts tell the truth.** `sync-influx-token.sh`
   and `verify-postgres.sh` ask Compose for the container
