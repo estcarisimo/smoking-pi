@@ -99,7 +99,11 @@ apt-get update -qq
 
 # 0. The previous release first, installed and running, so that the
 # package under test arrives the way it will on every user's host: as an
-# upgrade over a working install with secrets in the volumes.
+# upgrade over a working install with secrets in the volumes. The
+# assertions below read the old package's own output (`paths`, the
+# edition file): every released package has them, because the first
+# packaged release came after this check -- a release tagged from a
+# branch without them would fail here, on purpose.
 if [ -n "$OLD_DEB" ]; then
     apt-get install -y -qq --no-install-recommends "$OLD_DEB" >/tmp/check-package.apt-old.log 2>&1 \
         || { tail -20 /tmp/check-package.apt-old.log; fail "apt could not install the previous release $OLD_DEB"; }

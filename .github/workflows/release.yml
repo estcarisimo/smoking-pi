@@ -315,6 +315,9 @@ jobs:
           set -e
           case "$ENGINE" in distro) expect=docker.io ;; *) expect=docker-ce ;; esac
           old=$(ls previous/*.deb 2>/dev/null | head -1)
+          # ${old:+--upgrade-from "$old"}: nothing when there is no previous
+          # package, two words when there is -- the inner quotes keep the
+          # path whole, the outer expansion must stay unquoted (SC2086).
           # shellcheck disable=SC2086
           sudo packaging/tests/check-package.sh dist/smoking-pi_"$DEB_VERSION"_all.deb \
             --version "$DEB_VERSION" --expect-engine "$expect" --start basic --image-tag "$VERSION" \
