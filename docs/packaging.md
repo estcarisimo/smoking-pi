@@ -348,7 +348,14 @@ How it is built, and why this shape:
   the tag push, in parallel with the release. The `.deb` of that tag is
   attached by the release's `attach` job, after every host in the matrix
   passed, so the docs now run on `workflow_run` of *Release* completing
-  successfully for a `v*` tag. A `test-*` tag's run publishes nothing.
+  successfully. Whether that run was a release is read from the commit it
+  built (`git tag --points-at HEAD` after checking out `head_sha`), not
+  from `workflow_run.head_branch`, whose value for a tag push is a known
+  source of surprises; a `test-*` tag's run ends in a visible "nothing
+  published" notice and a skipped deploy, never a silent no-op. **Not yet
+  exercised:** `workflow_run` only fires for a workflow on the default
+  branch, so the first `vX.Y.Z` release after this lands is the first real
+  run — watch it, and its "Is this a release?" line.
 - **Signed, or absent.** `APT_SIGNING_KEY` (an Actions secret, the
   ASCII-armored private key without passphrase) signs `InRelease` and
   `Release.gpg`; the public key is exported as `smoking-pi.gpg` (binary,

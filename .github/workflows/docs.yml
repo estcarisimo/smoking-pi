@@ -35,55 +35,80 @@ concurrency:
 jobs:
   build:
     name: build
-    # A finished Release run for a release tag, or a manual run. A test-*
-    # tag's run, or a failed one, publishes nothing.
+    # A successfully finished Release run, or a manual run. Whether that
+    # run was for a release tag is decided from the commit itself below --
+    # `workflow_run.head_branch` is not relied on for a tag push -- and a
+    # test-* tag's run ends with a visible skip, never a silent one.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       startsWith(github.event.workflow_run.head_branch, 'v'))
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.tag.outputs.publish }}
     env:
       # Job-level so the steps' `if` can see whether it is set.
       APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # The tag the Release run was for; a manual run takes its own ref.
-          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+          # The commit the Release run built; a manual run takes its own ref.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+          fetch-tags: true
           persist-credentials: false
+      - name: Is this a release?
+        id: tag
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -e
+          tags=$(git tag --points-at HEAD)
+          echo "event: $EVENT; workflow_run.head_branch: ${HEAD_BRANCH:-n/a}; tags at HEAD: ${tags:-none}"
+          if [ "$EVENT" = workflow_dispatch ] || echo "$tags" | grep -q '^v'; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::not a vX.Y.Z release (tags at HEAD: ${tags:-none}); nothing published"
+          fi
       - uses: astral-sh/setup-uv@v7
+        if: steps.tag.outputs.publish == 'true'
         with:
           python-version: "3.12"
       - name: Build the documentation site
+        if: steps.tag.outputs.publish == 'true'
         run: |
           uv venv .docs-venv
           uv pip install --python .docs-venv/bin/python -r docs/requirements.txt
           .docs-venv/bin/mkdocs build --strict
       - name: Every release's package, from the GitHub releases
+        if: steps.tag.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -e
           mkdir -p debs
+          # --limit 100: releases beyond the hundredth would drop off the
+          # repository; raise it before that day.
           for tag in $(gh release list --repo "$REPO" --exclude-drafts --exclude-pre-releases --limit 100 --json tagName -q '.[].tagName'); do
             case "$tag" in v*) ;; *) continue ;; esac
-            gh release download "$tag" --repo "$REPO" --pattern 'smoking-pi_*_all.deb' --dir debs 2>/dev/null \
+            gh release download "$tag" --repo "$REPO" --pattern 'smoking-pi_*_all.deb' --dir debs --clobber 2>/dev/null \
               && echo "$tag: $(find debs -name '*.deb' | wc -l) package(s) so far" \
               || echo "$tag: no .deb attached (a release before packaging)"
           done
           ls -l debs
       - name: The apt repository under /apt, signed
-        if: env.APT_SIGNING_KEY != ''
+        if: steps.tag.outputs.publish == 'true' && env.APT_SIGNING_KEY != ''
         run: |
           set -e
           sudo apt-get install -y -qq --no-install-recommends dpkg-dev apt-utils gnupg >/dev/null
           [ -n "$(find debs -name '*.deb')" ] || { echo "::warning::no release carries a .deb yet; /apt not published"; exit 0; }
           packaging/apt/build-repo.sh site/apt debs/*.deb
       - name: No signing key, no repository
-        if: env.APT_SIGNING_KEY == ''
+        if: steps.tag.outputs.publish == 'true' && env.APT_SIGNING_KEY == ''
         run: echo "::warning::APT_SIGNING_KEY is not set; the site is published without /apt (docs/packaging.md, The apt repository)"
       - name: Upload the site
+        if: steps.tag.outputs.publish == 'true'
         uses: actions/upload-pages-artifact@v5
         with:
           path: site/
@@ -91,6 +116,7 @@ jobs:
   deploy:
     name: deploy
     needs: build
+    if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       pages: write
