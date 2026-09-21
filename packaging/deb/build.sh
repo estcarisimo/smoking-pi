@@ -29,6 +29,8 @@ cat > "$PKG/etc/default/smoking-pi" <<'ENV'
 # tree. Setting it here would also capture a checkout's own
 # packaging/smoking-pi on this host, which sources this file.
 #SMOKING_PI_HOME=/opt/smoking-pi
+# The edition: `smoking-pi install` records the one it installed here, so
+# the unit and every later command run the same one.
 #SMOKING_PI_EDITION=pro
 # The packaged layout: nothing the stack rewrites lives under /opt, so a
 # package upgrade replaces code only (docs/packaging.md, "Relocatable state").
@@ -46,13 +48,26 @@ SMOKING_PI_VERSION=__VERSION__
 ENV
 sed -i "s/__VERSION__/$VERSION/" "$PKG/etc/default/smoking-pi"
 SIZE=$(du -sk "$PKG" | cut -f1)
+# The Docker dependencies, measured against each host's own repositories
+# (docs/packaging.md, "Supported hosts"; packaging/tests/check-package.sh
+# repeats the measurement on every release):
+#  - engine: apt takes the first installable alternative, so docker-ce
+#    wins wherever Docker's repository is configured (the Raspberry Pi OS
+#    path, since Debian 12 ships no Compose v2 at all) and Ubuntu's
+#    docker.io otherwise;
+#  - CLI: Debian 13 split it out of docker.io (docker-cli, only
+#    Recommended by the daemon); Ubuntu's docker.io Provides docker-cli;
+#    Debian 12's docker.io still contains it, hence the version bound;
+#  - Compose v2: Docker's plugin, Ubuntu's docker-compose-v2, or Debian
+#    13's docker-compose 2.x -- the 1.x docker-compose of Debian 12 and
+#    Ubuntu is Python, not the plugin, hence the (>= 2).
 cat > "$PKG/DEBIAN/control" <<CTL
 Package: smoking-pi
 Version: $VERSION
 Section: net
 Priority: optional
 Architecture: all
-Depends: docker.io | docker-ce, docker-compose-plugin | docker-compose-v2, openssl, python3, python3-yaml, git
+Depends: docker-ce | docker.io, docker-ce-cli | docker-cli | docker.io (<< 26.1.4), docker-compose-plugin | docker-compose-v2 | docker-compose (>= 2), openssl, python3, python3-yaml, git
 Recommends: whiptail
 Installed-Size: $SIZE
 Maintainer: Esteban Carisimo <noreply@smoking-pi.dev>

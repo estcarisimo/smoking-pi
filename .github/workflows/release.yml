@@ -13,13 +13,13 @@ name: Release
 # digests into one multi-arch manifest per service, which is what carries
 # the tags. docs/packaging.md, "Published images".
 #
-# After the images, the `package` job builds the .deb from the tagged tree,
-# installs it on the runner as the check a package can pass without a
-# Docker daemon (version, packaged paths, the unit verifies, removal keeps
-# the state directories), keeps it as a workflow artifact, and on a release
-# tag attaches it to the GitHub release the maintainer created for that
-# tag (`gh release create`, AGENTS.md). The workflow never creates a
-# release itself: publishing stays a human act.
+# After the images, `package` builds the .deb from the tagged tree and
+# keeps it as a workflow artifact; `host` and `debian` install it with
+# each supported host's own apt (the comment above them says what each
+# tier proves); and on a release tag, once every host passed, `attach`
+# uploads it to the GitHub release the maintainer created for that tag
+# (`gh release create`, AGENTS.md). The workflow never creates a release
+# itself: publishing stays a human act.
 #
 # A `test-*` git tag (e.g. test-1a2b3c4, on any branch) exercises the same
 # pipeline against a throwaway image tag of that name -- no `latest`, no
@@ -197,20 +197,19 @@ jobs:
           echo "$out" | grep -q 'linux/arm64' || { echo "arm64 missing"; exit 1; }
 
   package:
-    name: Build, install and attach the .deb
-    needs: [version, merge]
+    name: Build the .deb from the tagged tree
+    needs: version
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write   # only to attach the asset to an existing release
+    outputs:
+      deb_version: ${{ steps.build.outputs.deb_version }}
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # The only authenticated call here is `gh release upload` through
-          # GH_TOKEN; git needs no credential left in the checkout.
           persist-credentials: false
-      - name: Build the package from the tagged tree
+      - name: Build the package
+        id: build
         run: |
           set -e
           # A Debian version must start with a digit; a throwaway tag gets
@@ -219,68 +218,154 @@ jobs:
             [0-9]*) deb_version="$VERSION" ;;
             *) deb_version="0.0.0~$VERSION" ;;
           esac
-          echo "DEB_VERSION=$deb_version" >> "$GITHUB_ENV"
+          echo "deb_version=$deb_version" >> "$GITHUB_OUTPUT"
           packaging/deb/build.sh "$deb_version"
           ls -l dist/
-      - name: Install it, check what a package can prove without Docker, remove it
-        run: |
-          set -eo pipefail
-          # dpkg does not resolve dependencies; docker and compose are not
-          # what this checks. Install the metadata dependencies it can.
-          sudo apt-get install -y --no-install-recommends python3-yaml whiptail >/dev/null
-          sudo dpkg -i --force-depends dist/smoking-pi_"$DEB_VERSION"_all.deb
-          # The version the package reports is the tag's (CITATION.cff was
-          # checked against it in the version job), the layout is the
-          # packaged one, and the images are pinned to this version.
-          v=$(smoking-pi version); echo "smoking-pi version: $v"
-          case "$DEB_VERSION" in 0.0.0~*) ;; *) [ "$v" = "$VERSION" ] || { echo "package reports $v, tag says $VERSION"; exit 1; } ;; esac
-          out=$(smoking-pi paths); echo "$out"
-          # Installed at /usr/bin, the command must find the tree in /opt --
-          # the first packaged run resolved "one directory up" to / instead.
-          echo "$out" | grep -q 'home:     /opt/smoking-pi' || { echo "home is not /opt/smoking-pi"; exit 1; }
-          echo "$out" | grep -q 'mode:     packaged' || { echo "not in packaged mode"; exit 1; }
-          echo "$out" | grep -q "env:      /etc/smoking-pi/env" || { echo "env file not relocated"; exit 1; }
-          echo "$out" | grep -q "/<service>:$DEB_VERSION" || { echo "images not pinned to the package version"; exit 1; }
-          grep -qx "SMOKING_PI_VERSION=$DEB_VERSION" /etc/default/smoking-pi
-          # /etc/smoking-pi is 0750 root: only root can look inside, so the
-          # state checks run as root (an unprivileged `[ -d ]` is false there).
-          sudo test -d /etc/smoking-pi/config || { echo "config dir missing"; exit 1; }
-          sudo test -d /var/lib/smoking-pi/output || { echo "output dir missing"; exit 1; }
-          systemd-analyze verify /lib/systemd/system/smoking-pi.service
-          # The doctor's static checks run from /opt: the package carries
-          # everything they read. A skipped doctor is a failed check.
-          python3 -c 'import yaml' || { echo "python3-yaml not importable by $(command -v python3)"; exit 1; }
-          smoking-pi doctor | tee /tmp/doctor.out
-          grep -q ' ok, 0 warn, 0 fail' /tmp/doctor.out || { echo "doctor did not pass"; exit 1; }
-          # `install` refuses to run over an existing env file -- the guard
-          # that stops a reinstall from rotating live secrets.
-          sudo mkdir -p /etc/smoking-pi && sudo touch /etc/smoking-pi/env
-          ! sudo smoking-pi install --yes 2>/dev/null || { echo "install ran over an existing env file"; exit 1; }
-          # Removal keeps the state: apt remove never deletes what a user
-          # configured or measured (backlog #6 is the purge policy).
-          sudo dpkg -r smoking-pi
-          [ ! -e /usr/bin/smoking-pi ] || { echo "CLI left behind"; exit 1; }
-          sudo test -f /etc/smoking-pi/env || { echo "removal deleted the env file"; exit 1; }
-          sudo test -d /var/lib/smoking-pi/output || { echo "removal deleted the output dir"; exit 1; }
-          echo "package OK"
+          dpkg-deb --info dist/smoking-pi_"$deb_version"_all.deb
       - uses: actions/upload-artifact@v7
         with:
           name: smoking-pi-deb
           path: dist/*.deb
           if-no-files-found: error
-      # Not yet exercised by a real run: a test-* tag never takes this
-      # branch (nor the version-equality check above). The first vX.Y.Z
-      # tag after this lands proves both; watch that run.
-      - name: Attach it to the release the maintainer created (release tags only)
-        if: startsWith(github.ref_name, 'v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+
+  # The supported hosts (docs/packaging.md, "Supported hosts"), each
+  # installing the .deb with ITS OWN apt so its own resolver picks the
+  # Docker engine, CLI and Compose from the repositories that host has.
+  # Two tiers, because GitHub only hosts Ubuntu VMs:
+  #
+  #  - `host`: Ubuntu 22.04 and 24.04, amd64 and arm64, real VMs with
+  #    systemd and a daemon. The check installs the package, then the Basic
+  #    edition with the images this run published, waits for its web UI,
+  #    enables and starts the unit, stops it, removes the package. The
+  #    runner comes with Docker's own engine; the `distro` entries purge it
+  #    and drop its repository first, so apt installs Ubuntu's docker.io and
+  #    docker-compose-v2 -- the stock path -- and one entry keeps Docker's.
+  #  - `debian`: Debian 12 and 13 containers, what Raspberry Pi OS is built
+  #    on, on both architectures. No daemon, so no stack: dependency
+  #    resolution, the command, the unit, the doctor, and every edition
+  #    rendered with THAT Debian's Compose. Debian 12 ships no Compose v2,
+  #    so its entry adds Docker's repository first -- the documented
+  #    Raspberry Pi OS path; Debian 13 resolves from its own archive.
+  #
+  # A container is not a Raspberry Pi: the kernel, the Wi-Fi driver, the
+  # first hop and boot ordering are only proven by the release acceptance
+  # on the reference Pi (docs/packaging.md). What passes here is the
+  # package on that OS version, no more.
+  host:
+    name: Install and start on ${{ matrix.os }} ${{ matrix.arch }} (${{ matrix.engine }} engine)
+    needs: [version, merge, package]
+    runs-on: ${{ matrix.arch == 'arm64' && format('{0}-arm', matrix.os) || matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        arch: [amd64, arm64]
+        engine: [distro]
+        include:
+          - os: ubuntu-24.04
+            arch: arm64
+            engine: docker.com
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      DEB_VERSION: ${{ needs.package.outputs.deb_version }}
+      ENGINE: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: smoking-pi-deb
+          path: dist
+      - name: Replace the runner's Docker with nothing, so apt installs the distribution's
+        if: matrix.engine == 'distro'
         run: |
           set -e
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/smoking-pi_"$DEB_VERSION"_all.deb --clobber
-            gh release view "$TAG" --json assets -q '.assets[].name'
+          sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources
+          pkgs=$(dpkg-query -W -f '${Package}\n' 'docker*' 'containerd*' 'moby-*' 2>/dev/null || true)
+          # shellcheck disable=SC2086
+          [ -z "$pkgs" ] || sudo apt-get purge -y -qq $pkgs >/dev/null
+          ! command -v docker || { echo "docker still present: $(command -v docker)"; exit 1; }
+      - name: Install the package, start Basic with this run's images, stop, remove
+        run: |
+          set -e
+          case "$ENGINE" in distro) expect=docker.io ;; *) expect=docker-ce ;; esac
+          sudo packaging/tests/check-package.sh dist/smoking-pi_"$DEB_VERSION"_all.deb \
+            --version "$DEB_VERSION" --expect-engine "$expect" --start basic --image-tag "$VERSION"
+
+  debian:
+    name: Install on Debian ${{ matrix.codename }} ${{ matrix.arch }} (${{ matrix.engine }} engine, no daemon)
+    needs: [version, package]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: debian:${{ matrix.codename }}
+    strategy:
+      fail-fast: false
+      matrix:
+        codename: [bookworm, trixie]
+        arch: [amd64, arm64]
+        include:
+          - codename: bookworm
+            engine: docker.com
+          - codename: trixie
+            engine: distro
+    env:
+      DEB_VERSION: ${{ needs.package.outputs.deb_version }}
+      ENGINE: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: smoking-pi-deb
+          path: dist
+      - name: What the check needs that a bare image lacks
+        run: |
+          set -e
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg systemd >/dev/null
+      - name: Docker's repository (Debian 12 has no Compose v2 of its own)
+        if: matrix.engine == 'docker.com'
+        run: |
+          set -e
+          . /etc/os-release
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $VERSION_CODENAME stable" \
+            > /etc/apt/sources.list.d/docker.list
+      - name: Install the package, check it, remove it
+        run: |
+          set -e
+          case "$ENGINE" in distro) expect=docker.io ;; *) expect=docker-ce ;; esac
+          packaging/tests/check-package.sh dist/smoking-pi_"$DEB_VERSION"_all.deb \
+            --version "$DEB_VERSION" --expect-engine "$expect"
+
+  # Not yet exercised by a real run: a test-* tag never takes this job (nor
+  # the version-equality check in `host`). The first vX.Y.Z tag after this
+  # lands proves both; watch that run.
+  attach:
+    name: Attach the .deb to the release the maintainer created
+    if: startsWith(github.ref_name, 'v')
+    needs: [package, host, debian]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only to attach the asset to an existing release
+    env:
+      DEB_VERSION: ${{ needs.package.outputs.deb_version }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: smoking-pi-deb
+          path: dist
+      - name: Upload (release tags only, after every host passed)
+        run: |
+          set -e
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/smoking-pi_"$DEB_VERSION"_all.deb --clobber --repo "$REPO"
+            gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name'
           else
             echo "::notice::no GitHub release for $TAG yet; the .deb is the smoking-pi-deb artifact of this run. Create the release, then re-run this job to attach it."
           fi

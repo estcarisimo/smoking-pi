@@ -380,17 +380,85 @@ and one workflow step and gives `apt upgrade`. Third-party channels
 (Homebrew tap, a Snap) are the same package with a different wrapper and
 can follow once the apt path is proven.
 
-### Target platforms
+### Supported hosts
 
-1. **Raspberry Pi OS (Debian 12/13, arm64)** — the reference; everything is
-   built and verified here. Pi 4 and 5.
-2. **Ubuntu 22.04/24.04, amd64 and arm64** — nothing in the repo is
-   architecture-conditional; all upstream images are multi-arch; #3 makes it
-   a first-class target by building for it.
-3. **macOS via Homebrew** — with the fidelity caveat above.
-4. **Podman**: not supported and not planned — config-manager needs the
-   Docker socket and the compose files use v2 semantics (`profiles`,
-   `depends_on.required`, `network_mode: host`).
+Measured 2026-09-21, not assumed: the package installed with each host's
+own `apt` in a container of that OS (arm64, on the Pi), so the host's own
+resolver chose the engine, CLI and Compose from what its repositories hold.
+The release workflow repeats it on every tag (`packaging/tests/check-package.sh`,
+below).
+
+| Host | Engine and Compose the host offers | `apt install ./smoking-pi.deb` | Proven by |
+| --- | --- | --- | --- |
+| **Raspberry Pi OS (Debian 12 bookworm), arm64** — the reference | Debian ships `docker.io` 20.10 and the Python `docker-compose` 1.29: **no Compose v2**. Docker's repository (what the Raspberry Pi docs install) adds `docker-ce` 29 + `docker-compose-plugin` 5 | with Docker's repository, yes (`docker-ce` chosen); **on a stock system apt refuses** — install Docker first | release CI: Debian 12 container, both architectures, package-level; **the stack itself only on the reference Pi** |
+| Debian 13 trixie (the next Raspberry Pi OS), arm64 and amd64 | `docker.io` 26.1, `docker-cli` split into its own package (the daemon only *Recommends* it), `docker-compose` **2.26** | yes, from Debian's own archive | release CI: Debian 13 container, both architectures, package-level |
+| Ubuntu 22.04, amd64 and arm64 | `docker.io` 29.1 + `docker-compose-v2` 2.40 (jammy-updates); Python 3.10 | yes | release CI: VM, both architectures, **Basic started with the release's images**, the unit enabled and stopped |
+| Ubuntu 24.04, amd64 and arm64 | `docker.io` 29.1 + `docker-compose-v2` 2.40; Python 3.12 | yes | release CI: VM, both architectures, as above; one entry with Docker's own engine instead |
+| Debian 11 bullseye (Raspberry Pi OS *Legacy*) | `docker.io` 20.10, `docker-compose` 1.25; no Compose v2 anywhere | **no** without Docker's repository; not tested further | — |
+| Raspberry Pi OS 32-bit (armhf) | — | **not supported**: the images are published for arm64 and amd64 only | — |
+
+What the measurement changed in the package (the first `Depends` line
+would have failed on three of the four supported hosts):
+
+- `docker-ce | docker.io` — apt takes the first *installable* alternative,
+  so Docker's engine wins wherever its repository is configured (bookworm
+  with the order reversed picked Debian's 20.10 daemon next to Docker's
+  Compose 5), Ubuntu's `docker.io` otherwise.
+- `docker-ce-cli | docker-cli | docker.io (<< 26.1.4)` — trixie's daemon
+  no longer contains the CLI; without this the package installed a daemon
+  and no `docker` command.
+- `docker-compose-plugin | docker-compose-v2 | docker-compose (>= 2)` —
+  trixie's Compose v2 is called `docker-compose`; the version bound keeps
+  bookworm's and jammy's Python 1.x out.
+- `install` now records `SMOKING_PI_EDITION` in `/etc/default/smoking-pi`:
+  the unit hard-codes `pro` as its default and the conffile overrides it,
+  so a packaged Basic install was going to be started as Pro by
+  `systemctl start smoking-pi`. (The bats suite covers it.)
+
+The packaged overlay's `!override` needs Compose >= 2.24: every Compose a
+supported host offers (2.26, 2.40, 5.5) renders all three editions.
+
+**What a container or an Ubuntu VM does not prove:** the Raspberry Pi
+kernel and its Wi-Fi driver ([Wi-Fi uplink stats](wifi.md)), the real
+first hop, boot ordering against `docker.service`, the arm64 image pulls
+on a Pi's link, and everything the *Raspberry Pi release acceptance*
+covers (the roadmap). A green matrix says the package installs and its
+editions render on that OS version, nothing about measurements from it.
+
+**Other platforms**, unchanged: macOS via Homebrew later, with the fidelity
+caveat above (Docker Desktop's host network is the VM); Podman not
+supported and not planned — config-manager needs the Docker socket and the
+compose files use v2 semantics (`profiles`, `depends_on.required`,
+`network_mode: host`).
+
+#### The check, and running it yourself
+
+`packaging/tests/check-package.sh <deb>` is the whole check, one script for
+CI and for a local run, as root on a host that may lose the package
+afterwards (it removes it at the end). Steps, in order: `apt-get install`
+of the file with `--no-install-recommends` (the worst case for a split
+package), which engine/CLI/Compose apt chose (`--expect-engine`), `docker
+compose version` (the CLI *and* the plugin present), `smoking-pi version`
+against the tag, `paths` in the packaged layout with the images pinned,
+the state directories and `/etc/smoking-pi` at 0750, `systemd-analyze
+verify`, the doctor's static checks, every edition rendered with that
+host's Compose and the packaged overlay (no state mount left under
+`/opt`), `install` refusing an existing env file, and — with `--start
+basic` on a host with a daemon — the real first install, the web UI
+answering, `systemctl enable --now smoking-pi`, a stop, then `apt-get
+remove` keeping the env file and the output directory.
+
+From the Pi, against any OS version, without touching the Pi's own stack:
+
+```bash
+packaging/deb/build.sh 0.0.0~local
+docker run --rm -v "$PWD:/repo:ro" debian:trixie bash -c \
+  'apt-get update -qq && apt-get install -y -qq systemd >/dev/null &&
+   /repo/packaging/tests/check-package.sh /repo/dist/smoking-pi_0.0.0~local_all.deb --expect-engine docker.io'
+```
+
+(For bookworm add Docker's repository first, as `release.yml` does, and
+expect `docker-ce`.)
 
 ### Lifecycle, end to end (target state)
 

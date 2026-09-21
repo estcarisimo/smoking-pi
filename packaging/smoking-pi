@@ -16,10 +16,14 @@ set -euo pipefail
 # state layout). Debian's convention is that every consumer sources it; the
 # unit does via EnvironmentFile, and so must a manual `sudo smoking-pi
 # install`, or it would write into /opt. The environment still wins.
-if [ -f /etc/default/smoking-pi ]; then
+# (SMOKING_PI_DEFAULTS points the tests at a stand-in file.)
+DEFAULTS_FILE="${SMOKING_PI_DEFAULTS:-/etc/default/smoking-pi}"
+if [ -f "$DEFAULTS_FILE" ]; then
     _env_before="$(export -p)"
-    # shellcheck disable=SC1091
-    set -a; . /etc/default/smoking-pi; set +a
+    set -a
+    # shellcheck disable=SC1090
+    . "$DEFAULTS_FILE"
+    set +a
     # Re-apply what the caller had exported, so it overrides the file.
     eval "$_env_before"; unset _env_before
 fi
@@ -258,6 +262,17 @@ cmd_install() {
         exit 1
     fi
     echo "Installing the $edition edition from $SMOKING_PI_HOME (env file: $ENV_FILE)"
+    # The unit and every later command take the edition from the defaults
+    # file (a clone has none: there the edition is an environment variable).
+    # Without this line a packaged Basic install was started as Pro by
+    # `systemctl start smoking-pi`, against Basic's env file.
+    if [ -w "$DEFAULTS_FILE" ]; then
+        if grep -q '^#\?SMOKING_PI_EDITION=' "$DEFAULTS_FILE"; then
+            sed -i "s/^#\?SMOKING_PI_EDITION=.*/SMOKING_PI_EDITION=$edition/" "$DEFAULTS_FILE"
+        else
+            printf 'SMOKING_PI_EDITION=%s\n' "$edition" >> "$DEFAULTS_FILE"
+        fi
+    fi
     if [ "$edition" = pro ]; then
         ( cd "$EDITION_DIR" && ./setup.sh --database "$database" --env-file "$ENV_FILE" )
         if [ -n "$profiles" ]; then
