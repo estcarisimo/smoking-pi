@@ -447,7 +447,10 @@ echo -e "${WHITE}🔍 Health Checks:${NC}"
 # and every port read "not accessible" for as long as this used it.
 check_port() {
     local port="$1" service="$2"
-    if timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+    # `timeout` is coreutils: absent on a stock macOS (Homebrew's wrapper
+    # supplies it), so fall back to a plain connect there.
+    local t=""; command -v timeout >/dev/null && t="timeout 2"
+    if $t bash -c "exec 3<>/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
         echo -e "  ${GREEN}✅ Port $port ($service) is accessible${NC}"
     else
         echo -e "  ${RED}❌ Port $port ($service) is not accessible${NC}"

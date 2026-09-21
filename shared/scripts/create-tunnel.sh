@@ -32,9 +32,16 @@ detect_edition() {
         if [ -n "$dir" ]; then
             EDITION_DIR="$dir"
             PROJECT=$(docker ps --filter "label=com.docker.compose.project.working_dir=$dir" --format '{{.Label "com.docker.compose.project"}}' | head -n1)
+            [ -n "$PROJECT" ] || { echo -e "${RED}❌ Containers under $dir carry no Compose project label; start the edition with docker compose or smoking-pi${NC}" >&2; exit 1; }
             local env_file="${SMOKING_PI_ENV_FILE:-$dir/.env}"
-            # shellcheck disable=SC1090
-            [ -r "$env_file" ] && set -a && . "$env_file" && set +a
+            # An if, not an && chain: a chain that fails at the source would
+            # skip `set +a` and leave auto-export on for the rest of the run.
+            if [ -r "$env_file" ]; then
+                set -a
+                # shellcheck disable=SC1090
+                . "$env_file"
+                set +a
+            fi
             EDITION="$e"
             return
         fi

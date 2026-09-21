@@ -431,6 +431,10 @@ main() {
     # in that edition's directory (the README's `./shared/scripts/...
     # --edition pro` form never worked from the root before this).
     if [ ! -f docker-compose.yml ]; then
+        # A relative env file is the caller's, not the edition directory's.
+        if [ -n "${SMOKING_PI_ENV_FILE:-}" ] && [ "${SMOKING_PI_ENV_FILE#/}" = "$SMOKING_PI_ENV_FILE" ]; then
+            SMOKING_PI_ENV_FILE="$PWD/$SMOKING_PI_ENV_FILE"; export SMOKING_PI_ENV_FILE
+        fi
         local root; root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
         case "$EDITION" in std) EDITION=standard ;; esac
         if [ -f "$root/editions/$EDITION/docker-compose.yml" ]; then
