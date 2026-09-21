@@ -386,12 +386,14 @@ Measured 2026-09-21, not assumed: the package installed with each host's
 own `apt` in a container of that OS (arm64, on the Pi), so the host's own
 resolver chose the engine, CLI and Compose from what its repositories hold.
 The release workflow repeats it on every tag (`packaging/tests/check-package.sh`,
-below).
+below); the "Proven by" column names what the throwaway runs
+`test-d0b5662` and `test-host-matrix` actually executed — read the run, not
+this table, for a given release.
 
 | Host | Engine and Compose the host offers | `apt install ./smoking-pi.deb` | Proven by |
 | --- | --- | --- | --- |
 | **Raspberry Pi OS (Debian 12 bookworm), arm64** — the reference | Debian ships `docker.io` 20.10 and the Python `docker-compose` 1.29: **no Compose v2**. Docker's repository (what the Raspberry Pi docs install) adds `docker-ce` 29 + `docker-compose-plugin` 5 | with Docker's repository, yes (`docker-ce` chosen); **on a stock system apt refuses** — install Docker first | release CI: Debian 12 container, both architectures, package-level; **the stack itself only on the reference Pi** |
-| Debian 13 trixie (the next Raspberry Pi OS), arm64 and amd64 | `docker.io` 26.1, `docker-cli` split into its own package (the daemon only *Recommends* it), `docker-compose` **2.26** | yes, from Debian's own archive | release CI: Debian 13 container, both architectures, package-level |
+| Debian 13 trixie (the next Raspberry Pi OS), arm64 and amd64 | `docker.io` 26.1.5+dfsg1-9+deb13u1 with `docker-cli` split into its own package (the daemon only *Recommends* it; the CLI left `docker.io` at 26.1.4+dfsg1-7, hence the package's version bound), `docker-compose` **2.26.1** | yes, from Debian's own archive | release CI: Debian 13 container, both architectures, package-level |
 | Ubuntu 22.04, amd64 and arm64 | `docker.io` 29.1 + `docker-compose-v2` 2.40 (jammy-updates); Python 3.10 | yes | release CI: VM, both architectures, **Basic started with the release's images**, the unit enabled and stopped |
 | Ubuntu 24.04, amd64 and arm64 | `docker.io` 29.1 + `docker-compose-v2` 2.40; Python 3.12 | yes | release CI: VM, both architectures, as above; one entry with Docker's own engine instead |
 | Debian 11 bullseye (Raspberry Pi OS *Legacy*) | `docker.io` 20.10, `docker-compose` 1.25; no Compose v2 anywhere | **no** without Docker's repository; not tested further | — |

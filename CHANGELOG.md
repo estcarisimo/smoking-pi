@@ -32,7 +32,9 @@ version gets a matching GitHub release and git tag.
   supported hosts, or paired Debian's 20.10 daemon with Docker's Compose 5.
   The corrected line (`docker-ce | docker.io`, the CLI named explicitly,
   `docker-compose (>= 2)`) resolves on all of them. `release.yml` now
-  proves it on every tag: Ubuntu 22.04 and 24.04 VMs, amd64 and arm64,
+  checks it on every tag (first exercised by the throwaway runs
+  `test-d0b5662` and `test-host-matrix`, before any release): Ubuntu 22.04
+  and 24.04 VMs, amd64 and arm64,
   install the package, start the Basic edition with the release's images,
   enable and stop the unit; Debian 12 and 13 containers on both
   architectures check the package without a daemon, every edition

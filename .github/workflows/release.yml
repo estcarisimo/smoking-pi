@@ -282,7 +282,10 @@ jobs:
         run: |
           set -e
           sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources
-          pkgs=$(dpkg-query -W -f '${Package}\n' 'docker*' 'containerd*' 'moby-*' 2>/dev/null || true)
+          # Only what is installed: dpkg's database also knows names that
+          # are not (ubuntu-22.04-arm lists a docker-engine apt cannot purge).
+          pkgs=$(dpkg-query -W -f '${db:Status-Status} ${Package}\n' 'docker*' 'containerd*' 'moby-*' 2>/dev/null \
+                 | awk '$1 == "installed" { print $2 }' || true)
           # shellcheck disable=SC2086
           [ -z "$pkgs" ] || sudo apt-get purge -y -qq $pkgs >/dev/null
           ! command -v docker || { echo "docker still present: $(command -v docker)"; exit 1; }
