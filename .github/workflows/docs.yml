@@ -1,16 +1,28 @@
 name: Docs
 
-# Builds the MkDocs site and publishes it to GitHub Pages on every release
-# tag, so the live site describes the released version, not main (the
-# release-only CI policy; the changelog page carries the release sections).
+# Publishes GitHub Pages: the MkDocs site and, under /apt, the apt
+# repository holding every release's .deb (docs/packaging.md, "The apt
+# repository"). One artifact, because Pages serves one; so this runs when
+# the Release workflow has finished for a vX.Y.Z tag -- after `attach` has
+# put that release's .deb on the GitHub release the repository is built
+# from -- and not on the tag push, which would race it. The site describes
+# the released version, not main (the release-only CI policy).
+#
+# The repository is signed with APT_SIGNING_KEY (an Actions secret, the
+# ASCII-armored private key). Without it the site is published with no
+# /apt at all: an unsigned repository is refused by apt, and publishing
+# one would only teach people to add [trusted=yes].
+#
 # The Pages source must be "GitHub Actions" in the repository settings.
 # Pull requests only build (CI job "Docs build (strict)"); the deployment
 # needs the pages permissions, which are granted here and nowhere else.
 # `workflow_dispatch` republishes from whatever ref it is run on, for a docs
-# fix that cannot wait for the next release.
+# fix that cannot wait for the next release; the apt repository is rebuilt
+# from the releases either way, so it never goes missing.
 on:
-  push:
-    tags: ['v*']
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -23,9 +35,22 @@ concurrency:
 jobs:
   build:
     name: build
+    # A finished Release run for a release tag, or a manual run. A test-*
+    # tag's run, or a failed one, publishes nothing.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-latest
+    env:
+      # Job-level so the steps' `if` can see whether it is set.
+      APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The tag the Release run was for; a manual run takes its own ref.
+          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
@@ -34,6 +59,30 @@ jobs:
           uv venv .docs-venv
           uv pip install --python .docs-venv/bin/python -r docs/requirements.txt
           .docs-venv/bin/mkdocs build --strict
+      - name: Every release's package, from the GitHub releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          mkdir -p debs
+          for tag in $(gh release list --repo "$REPO" --exclude-drafts --exclude-pre-releases --limit 100 --json tagName -q '.[].tagName'); do
+            case "$tag" in v*) ;; *) continue ;; esac
+            gh release download "$tag" --repo "$REPO" --pattern 'smoking-pi_*_all.deb' --dir debs 2>/dev/null \
+              && echo "$tag: $(find debs -name '*.deb' | wc -l) package(s) so far" \
+              || echo "$tag: no .deb attached (a release before packaging)"
+          done
+          ls -l debs
+      - name: The apt repository under /apt, signed
+        if: env.APT_SIGNING_KEY != ''
+        run: |
+          set -e
+          sudo apt-get install -y -qq --no-install-recommends dpkg-dev apt-utils gnupg >/dev/null
+          [ -n "$(find debs -name '*.deb')" ] || { echo "::warning::no release carries a .deb yet; /apt not published"; exit 0; }
+          packaging/apt/build-repo.sh site/apt debs/*.deb
+      - name: No signing key, no repository
+        if: env.APT_SIGNING_KEY == ''
+        run: echo "::warning::APT_SIGNING_KEY is not set; the site is published without /apt (docs/packaging.md, The apt repository)"
       - name: Upload the site
         uses: actions/upload-pages-artifact@v5
         with:

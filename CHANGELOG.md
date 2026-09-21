@@ -23,6 +23,20 @@ version gets a matching GitHub release and git tag.
   attaches it to the GitHub release the maintainer created for the tag.
   The workflow never creates a release. What remains of #5 is the signed
   apt repository on Pages.
+- **`sudo apt install smoking-pi` (packaging backlog #5, second half).**
+  GitHub Pages now serves a signed apt repository under `/apt` next to
+  the docs site: `docs.yml` runs when the Release workflow has finished
+  for a `vX.Y.Z` tag (not on the tag push, which raced the `attach` job),
+  downloads every release's `.deb`, builds a flat repository
+  (`packaging/apt/build-repo.sh`) signed with the `APT_SIGNING_KEY`
+  secret, and deploys it with the site as one artifact. Without the
+  secret the site is published with no `/apt` at all — an unsigned
+  repository would only teach people `[trusted=yes]`. CI builds and
+  signs a repository with a throwaway key on every PR and installs from
+  it with `apt`. The README has the three lines a user types; Raspberry
+  Pi OS and Debian 12 users install Docker from Docker's repository
+  first, because Debian 12 ships no Compose v2. Publishing waits for the
+  maintainer's key (`docs/packaging.md`, *The apt repository*).
 - **The release proves the upgrade, not just the install — and the
   upgrade test found two ways the package would have broken it.** Once a
   release carries a `.deb`, each `host` job first installs *that* one and

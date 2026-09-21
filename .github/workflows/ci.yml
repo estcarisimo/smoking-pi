@@ -186,6 +186,36 @@ jobs:
       - name: Run the suite
         run: bats packaging/tests/cli.bats
 
+  apt-repo:
+    name: apt repository (built, signed with a throwaway key, consumed by apt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build two package versions and the repository
+        run: |
+          set -e
+          sudo apt-get install -y -qq --no-install-recommends dpkg-dev apt-utils gnupg >/dev/null
+          packaging/deb/build.sh 0.0.0~ci1 && packaging/deb/build.sh 0.0.0~ci2
+          # A key for this run only; docs.yml uses the APT_SIGNING_KEY secret.
+          export GNUPGHOME; GNUPGHOME=$(mktemp -d)
+          gpg --batch --quiet --passphrase '' --quick-gen-key 'Smoking Pi CI <ci@invalid>' ed25519 sign never
+          APT_SIGNING_KEY=$(gpg --batch --armor --export-secret-keys) packaging/apt/build-repo.sh repo dist/*.deb
+          ls repo
+      - name: apt on this host accepts it and installs the newest version from it
+        run: |
+          set -e
+          sudo install -d -m 0755 /etc/apt/keyrings
+          sudo install -m 0644 repo/smoking-pi.gpg /etc/apt/keyrings/smoking-pi.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/smoking-pi.gpg] file:$PWD/repo ./" | sudo tee /etc/apt/sources.list.d/smoking-pi.list
+          sudo apt-get update -qq
+          apt-cache policy smoking-pi | tee policy.out
+          grep -q 'Candidate: 0.0.0~ci2' policy.out || { echo "apt does not see the newest version"; exit 1; }
+          # The runner's Docker satisfies the dependencies; the point here
+          # is that apt takes the package from the repository, verified.
+          sudo apt-get install -y -qq --no-install-recommends smoking-pi >/dev/null
+          smoking-pi version
+          sudo apt-get remove -y -qq smoking-pi >/dev/null
+
   module-tests:
     name: Module unit tests
     runs-on: ubuntu-latest

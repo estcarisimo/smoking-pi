@@ -52,7 +52,20 @@ cd editions/pro
 (cd editions/pro      && ./setup.sh --database clickhouse)  # Pro with ClickHouse instead of InfluxDB
 ```
 
-> **Note:** nothing is published to a package registry — install from a clone, as shown above. `.env` files hold real secrets and are gitignored; never commit them.
+**Or as a package** (Raspberry Pi OS, Debian 12/13, Ubuntu 22.04/24.04 — the hosts each release is checked on, [docs/packaging.md](docs/packaging.md#supported-hosts)). On Raspberry Pi OS and Debian 12 install Docker from [Docker's repository](https://docs.docker.com/engine/install/debian/) first — Debian 12 ships no Compose v2. Then:
+
+```bash
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://estcarisimo.github.io/smoking-pi/apt/smoking-pi.gpg | sudo tee /etc/apt/keyrings/smoking-pi.gpg >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/smoking-pi.gpg] https://estcarisimo.github.io/smoking-pi/apt ./" | sudo tee /etc/apt/sources.list.d/smoking-pi.list
+sudo apt update && sudo apt install smoking-pi
+sudo smoking-pi install            # edition, backend, optional services; then the stack
+sudo systemctl enable --now smoking-pi
+```
+
+`smoking-pi upgrade` after every `apt upgrade` pulls that release's images; `smoking-pi backup`, `restore`, `purge`, `passwords`, `doctor` are the rest of the lifecycle ([docs/packaging.md](docs/packaging.md#the-command)). The `.deb` is also attached to every [GitHub release](https://github.com/estcarisimo/smoking-pi/releases) for a one-off `apt install ./smoking-pi_<version>_all.deb`.
+
+> `.env` files (from a clone) and `/etc/smoking-pi/env` (packaged) hold real secrets; never commit or share them.
 
 ### System Requirements
 
