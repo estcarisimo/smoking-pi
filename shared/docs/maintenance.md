@@ -1,214 +1,123 @@
-# SmokePing Maintenance Guide
+# Maintenance: stuck containers, volumes, cleanup
 
-This guide provides commands and procedures for maintaining, cleaning up, and troubleshooting SmokePing deployments.
+The `smoking-pi` command does the lifecycle (`docs/packaging.md`, *The
+command*): `up`, `down`, `restart`, `status`, `logs`, `upgrade`, `backup`,
+`restore`, `purge`. From a clone it is `packaging/smoking-pi`; from the
+package, `/usr/bin/smoking-pi`. Everything below is what to do when the
+stack is in a state the command does not handle, and the raw Docker
+commands behind it. Names are never guessed here: Compose labels every
+container, volume and network with the project, and the project name is
+whatever `COMPOSE_PROJECT_NAME` in the env file says (default: the
+edition directory's name — `basic`, `standard`, `pro`).
 
-## 🛑 Container Management
-
-### Stop Containers
-
-**Stop all SmokePing containers at once:**
-```bash
-docker stop $(docker ps -a | grep smokeping | awk '{print $1}')
-```
-
-**Stop specific edition containers:**
-```bash
-# Basic Edition
-docker stop smokeping-basic
-
-# Standard Edition
-docker stop smokeping-standard
-
-# Pro Edition
-docker stop smokeping-pro
-```
-
-**Stop tunnel containers:**
-```bash
-docker stop $(docker ps -a | grep tunnel | awk '{print $1}')
-```
-
-### Remove Containers
-
-**Remove all SmokePing containers:**
-```bash
-docker rm $(docker ps -a | grep smokeping | awk '{print $1}')
-```
-
-**Remove tunnel containers:**
-```bash
-docker rm $(docker ps -a | grep tunnel | awk '{print $1}')
-```
-
-**Force remove stuck containers:**
-```bash
-# Force remove specific container
-docker rm -f tunnel-smokeping
-
-# Force remove all SmokePing-related containers
-docker rm -f $(docker ps -a | grep smokeping | awk '{print $1}')
-```
-
-## 🗑️ Clean Up Resources
-
-### Docker Volumes
-
-**Remove specific SmokePing volumes:**
-```bash
-# Basic Edition volumes
-docker volume rm smokeping-basic-config smokeping-basic-data
-
-# Standard Edition volumes
-docker volume rm smokeping-standard-config smokeping-standard-data
-
-# Pro Edition volumes
-docker volume rm smokeping-pro-config smokeping-pro-data
-```
-
-⚠️ **WARNING**: Removing volumes will delete all historical monitoring data!
-
-**Prune all unused volumes:**
-```bash
-docker volume prune -f
-```
-
-### Docker Networks
-
-**Remove specific networks:**
-```bash
-docker network rm basic_smokeping-net
-docker network rm standard_smokeping-net
-docker network rm pro_smokeping-net
-```
-
-**Prune unused networks:**
-```bash
-docker network prune -f
-```
-
-## 🧹 Complete Cleanup
-
-### Edition-Specific Cleanup
-
-Stop and remove all resources for a specific edition:
+## Where things are
 
 ```bash
-# Basic Edition
-docker-compose -f editions/basic/docker-compose.yml down -v
-
-# Standard Edition
-docker-compose -f editions/standard/docker-compose.yml down -v
-
-# Pro Edition
-docker-compose -f editions/pro/docker-compose.yml down -v
+smoking-pi paths            # home, edition, env file, config, output, images, data
+smoking-pi status           # docker compose ps for the edition
+docker volume ls --filter label=com.docker.compose.project=pro
+docker network ls --filter label=com.docker.compose.project=pro
 ```
 
-### Nuclear Option
+Basic and Standard declare fixed names for some resources
+(`smokeping-basic`, `smokeping-standard-*`, volumes `smokeping-basic-*`,
+`smokeping-standard-*`); Pro's are `<project>-<service>-1` and
+`<project>_<volume>`. `docker compose ps`/`config` from the edition
+directory shows the real ones — use those, not this page's examples.
 
-⚠️ **DANGER**: This removes ALL Docker resources system-wide, not just SmokePing!
+## Stop and start
 
 ```bash
-# Remove ALL containers, images, volumes, and networks
-docker system prune -a --volumes -f
+smoking-pi down             # stop and remove the containers; volumes stay
+smoking-pi up               # start again with the recorded profiles
+smoking-pi restart          # both (shared/scripts/manage-containers.sh --action restart also re-syncs the InfluxDB token on Pro)
 ```
 
-## 🔧 Troubleshooting
-
-### Network Still In Use Error
-
-If you get "network has active endpoints" error:
+From a clone without the command, from the edition directory:
 
 ```bash
-# 1. Find what's using the network
-docker network inspect basic_smokeping-net | grep -A 10 "Containers"
-
-# 2. Force remove the container using it
-docker rm -f tunnel-smokeping
-
-# 3. Now remove the network
-docker network rm basic_smokeping-net
+docker compose down
+docker compose up -d
 ```
 
-### Container Won't Stop
+Pro with ClickHouse adds `-f docker-compose.yml -f
+docker-compose.clickhouse.yml`; the packaged layout adds
+`docker-compose.packaged.yml` last. The command and
+`shared/scripts/manage-containers.sh` assemble that list from the env
+file; by hand it is easy to forget the overlay and silently render the
+InfluxDB stack.
 
-For stubborn containers:
+## A container that will not stop
 
 ```bash
-# Force kill by container ID
-docker kill $(docker ps -q --filter "name=smokeping")
-
-# Then remove
-docker rm $(docker ps -aq --filter "name=smokeping")
+docker compose ps                         # the name, from the edition directory
+docker kill <name> && docker rm -f <name> # last resort
+smoking-pi up                             # recreate it
 ```
 
-### Check Resource Usage
+"Network … has active endpoints" on `down`: something outside Compose
+(a tunnel from `create-tunnel.sh`, a one-off `docker run`) is attached.
+`docker network inspect <project>_default --format '{{range .Containers}}{{.Name}} {{end}}'`
+names it; stop that, then `down` again.
 
-Monitor Docker resource usage:
+## Data: what is where, and what deletes it
+
+- **Measurements** (RRD, InfluxDB/ClickHouse, PostgreSQL) live in Docker
+  volumes. `down`, `apt remove`, `apt purge` and a `git pull` never touch
+  them.
+- **Secrets** are the env file (`.env` beside the edition, or
+  `/etc/smoking-pi/env` packaged). The databases in the volumes were
+  initialized with those secrets: deleting the file without the volumes
+  makes the data unreadable, which is why `apt purge` keeps it
+  (`docs/upgrades.md`, *Uninstalling*).
+- **Config** (`config-manager/config`, or `/etc/smoking-pi/config`) is
+  seeded on first start and edited by you; **output** is regenerated.
 
 ```bash
-# Check disk usage
-docker system df
-
-# List all volumes with sizes
-docker volume ls -q | xargs docker volume inspect | grep -E "Name|Mountpoint" | paste - -
-
-# Check container logs size
-du -sh /var/lib/docker/containers/*/*-json.log | sort -h
+smoking-pi backup                # before anything below: pg_dumpall + every volume + env + config
+smoking-pi purge                 # the volumes, after typing the project name
+smoking-pi purge --config        # also the env file, config and output: a clean slate
 ```
 
-## 🔄 Restart Services
-
-### Quick Restart
+Raw equivalents, if the command is unavailable — from the edition directory:
 
 ```bash
-# Restart specific edition
-cd editions/basic && docker-compose restart
-cd editions/standard && docker-compose restart
-cd editions/pro && docker-compose restart
+docker compose down -v           # containers AND this project's volumes
 ```
 
-### Full Restart (Recreate Containers)
+`docker compose down -v` skips volumes declared with a fixed `name:`
+(Basic/Standard); `docker volume ls` shows what is left, `docker volume rm`
+takes it. `docker system prune -a --volumes` removes **every** unused
+image, network and volume on the host, not only this project's — never
+on a machine that runs anything else.
+
+## Disk
 
 ```bash
-# Basic Edition
-cd editions/basic
-docker-compose down
-docker-compose up -d
-
-# With fresh config
-docker-compose down -v
-./setup.sh
+docker system df -v              # images, containers, volumes with sizes
+docker compose logs --tail 0     # nothing; the log driver caps at LOG_MAX_SIZE x LOG_MAX_FILE per container (Pro)
+du -sh /var/lib/docker/volumes/<volume>/_data   # as root
 ```
 
-## 📋 Best Practices
+The RRD files grow to a fixed size per target and stop. InfluxDB and
+ClickHouse retain what their retention policy says (`docs/clickhouse.md`
+for the latter). PostgreSQL is small (targets and config).
 
-1. **Before cleanup**: Always backup important data using the migration scripts
-2. **Regular maintenance**: Prune unused resources weekly to save disk space
-3. **Log rotation**: Configure Docker log rotation to prevent disk fill
-4. **Monitor disk usage**: Keep an eye on volume sizes, especially for Pro edition
+## Emergency recovery
 
-## 🚨 Emergency Recovery
+1. `smoking-pi backup` if the volumes are readable at all (it stops the
+   stack for the tarballs; `--online` if it must keep running).
+2. `smoking-pi down`, then `smoking-pi up`. Most "stuck" states are a
+   container that Docker's restart policy is looping; `docker compose
+   logs <service> --tail 100` says why.
+3. `smoking-pi upgrade` re-pulls (packaged) or rebuilds (clone) the
+   images and recreates what changed; the doctor `--live` at the end
+   says whether the deployed code is the code in the tree.
+4. `smoking-pi restore <backup>` — after typing the project name it
+   replaces the volumes' contents from the tarballs.
 
-If SmokePing won't start after cleanup:
+## Related
 
-1. Check for port conflicts:
-   ```bash
-   netstat -tulpn | grep -E "8080|80|5432|8086|3000"
-   ```
-
-2. Reset Docker networking:
-   ```bash
-   docker network ls | grep smokeping | awk '{print $1}' | xargs docker network rm
-   systemctl restart docker
-   ```
-
-3. Restore from backup:
-   ```bash
-   ./shared/scripts/restore.sh <backup-directory>
-   ```
-
-## 🔗 Related Documentation
-
-- [Migration Guide](./migration.md) - Backup and restore procedures
-- [Quick Tunnels](./quick-tunnels.md) - Tunnel management
-- [Troubleshooting](../../README.md#-troubleshooting) - Common issues
+- `docs/packaging.md` — the command, the packaged layout, the images
+- `docs/upgrades.md` — PostgreSQL/InfluxDB/Grafana majors, uninstalling
+- `docs/doctor.md` — what the instrumentation doctor checks

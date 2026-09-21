@@ -18,8 +18,13 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Load environment variables
-if [ -f "$SCRIPT_DIR/.env" ]; then
-    source "$SCRIPT_DIR/.env"
+# The env file follows SMOKING_PI_ENV_FILE (docs/packaging.md, "Relocatable
+# state"); containers are found through Compose, never by a guessed name.
+ENV_FILE="${SMOKING_PI_ENV_FILE:-$SCRIPT_DIR/.env}"
+compose() { (cd "$SCRIPT_DIR" && docker compose --env-file "$ENV_FILE" "$@"); }
+container_of() { compose ps -q --status running "$1" 2>/dev/null | head -n1; }
+if [ -f "$ENV_FILE" ]; then
+    source "$ENV_FILE"
 else
     echo -e "${RED}❌ .env file not found. Run ./setup.sh first.${NC}"
     exit 1
@@ -38,16 +43,15 @@ echo ""
 
 # Function to check if container is running
 check_container_status() {
-    local container_name="pro-postgres-1"
-    
     echo -e "${BLUE}📦 Checking PostgreSQL container status...${NC}"
     
-    if docker ps --format "{{.Names}}" | grep -q "^${container_name}$"; then
-        local status=$(docker ps --format "table {{.Names}}\t{{.Status}}" | grep "$container_name" | awk '{print $2, $3, $4}')
+    POSTGRES=$(container_of postgres)
+    if [ -n "$POSTGRES" ]; then
+        local status=$(docker inspect "$POSTGRES" --format '{{.Name}} {{.State.Status}}' | sed 's|^/||')
         echo -e "   ${GREEN}✅ Container running: ${status}${NC}"
         
         # Check health status
-        local health=$(docker inspect "$container_name" --format='{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        local health=$(docker inspect "$POSTGRES" --format='{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
         if [ "$health" = "healthy" ]; then
             echo -e "   ${GREEN}✅ Health check: ${health}${NC}"
         elif [ "$health" = "unhealthy" ]; then
@@ -67,7 +71,7 @@ check_postgres_connection() {
     echo -e "${BLUE}🔗 Testing PostgreSQL connection...${NC}"
     
     # Test connection using docker exec
-    if docker exec pro-postgres-1 pg_isready -U "$DB_USER" -d "$DB_NAME" -h localhost -p 5432 >/dev/null 2>&1; then
+    if docker exec "$POSTGRES" pg_isready -U "$DB_USER" -d "$DB_NAME" -h localhost -p 5432 >/dev/null 2>&1; then
         echo -e "   ${GREEN}✅ PostgreSQL is accepting connections${NC}"
         return 0
     else
@@ -82,7 +86,7 @@ check_database_schema() {
     
     local query="SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;"
     
-    if tables=$(docker exec pro-postgres-1 psql -U "$DB_USER" -d "$DB_NAME" -t -c "$query" 2>/dev/null); then
+    if tables=$(docker exec "$POSTGRES" psql -U "$DB_USER" -d "$DB_NAME" -t -c "$query" 2>/dev/null); then
         echo -e "   ${GREEN}✅ Database schema accessible${NC}"
         echo -e "   ${CYAN}📋 Tables found:${NC}"
         echo "$tables" | while read -r table; do
@@ -102,15 +106,15 @@ check_initial_data() {
     echo -e "${BLUE}📊 Checking initial data population...${NC}"
     
     # Check target_categories
-    local categories_count=$(docker exec pro-postgres-1 psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM target_categories;" 2>/dev/null | xargs || echo "0")
+    local categories_count=$(docker exec "$POSTGRES" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM target_categories;" 2>/dev/null | xargs || echo "0")
     echo -e "   Target categories: ${categories_count}"
     
     # Check probes
-    local probes_count=$(docker exec pro-postgres-1 psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM probes;" 2>/dev/null | xargs || echo "0")
+    local probes_count=$(docker exec "$POSTGRES" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM probes;" 2>/dev/null | xargs || echo "0")
     echo -e "   Probes configured: ${probes_count}"
     
     # Check targets
-    local targets_count=$(docker exec pro-postgres-1 psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM targets;" 2>/dev/null | xargs || echo "0")
+    local targets_count=$(docker exec "$POSTGRES" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM targets;" 2>/dev/null | xargs || echo "0")
     echo -e "   Targets configured: ${targets_count}"
     
     if [ "$categories_count" -gt 0 ] && [ "$probes_count" -gt 0 ]; then
@@ -127,7 +131,7 @@ check_probe_configuration() {
     echo -e "${BLUE}🎯 Verifying probe configuration...${NC}"
     
     # Check FPing binary path
-    local fping_path=$(docker exec pro-postgres-1 psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT binary_path FROM probes WHERE name = 'FPing';" 2>/dev/null | xargs || echo "")
+    local fping_path=$(docker exec "$POSTGRES" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT binary_path FROM probes WHERE name = 'FPing';" 2>/dev/null | xargs || echo "")
     
     if [ "$fping_path" = "/usr/sbin/fping" ]; then
         echo -e "   ${GREEN}✅ FPing binary path correct: ${fping_path}${NC}"
@@ -148,9 +152,9 @@ check_application_connectivity() {
     echo -e "${BLUE}🔌 Testing application connectivity...${NC}"
     
     # Test config-manager connection
-    if docker logs pro-config-manager-1 2>&1 | grep -q "Connected to PostgreSQL"; then
+    if compose logs config-manager 2>&1 | grep -q "Connected to PostgreSQL"; then
         echo -e "   ${GREEN}✅ Config-manager connected to PostgreSQL${NC}"
-    elif docker logs pro-config-manager-1 2>&1 | grep -q "Using YAML fallback"; then
+    elif compose logs config-manager 2>&1 | grep -q "Using YAML fallback"; then
         echo -e "   ${YELLOW}⚠️  Config-manager using YAML fallback${NC}"
         return 1
     else
@@ -158,7 +162,7 @@ check_application_connectivity() {
     fi
     
     # Test web-admin connection
-    if docker logs pro-web-admin-1 2>&1 | grep -q "Connected to database"; then
+    if compose logs web-admin 2>&1 | grep -q "Connected to database"; then
         echo -e "   ${GREEN}✅ Web-admin connected to PostgreSQL${NC}"
     else
         echo -e "   ${YELLOW}⚠️  Web-admin connection status unclear${NC}"
@@ -180,7 +184,7 @@ show_diagnostics() {
     echo ""
     
     echo -e "${CYAN}Container Logs (last 10 lines):${NC}"
-    docker logs pro-postgres-1 --tail 10 2>&1 || echo "Cannot access container logs"
+    docker logs "$POSTGRES" --tail 10 2>&1 || echo "Cannot access container logs"
     echo ""
 }
 
@@ -191,21 +195,21 @@ show_troubleshooting() {
     echo ""
     echo -e "${CYAN}Quick Fixes:${NC}"
     echo -e "1. ${YELLOW}Reset PostgreSQL data:${NC}"
-    echo -e "   docker-compose down"
-    echo -e "   docker volume rm pro_postgres-data"
-    echo -e "   docker-compose up -d"
+    echo -e "   docker compose down"
+    echo -e "   docker volume rm ${COMPOSE_PROJECT_NAME:-pro}_postgres-data   # or: smoking-pi purge"
+    echo -e "   docker compose up -d"
     echo ""
     echo -e "2. ${YELLOW}Restart services in order:${NC}"
-    echo -e "   docker-compose restart postgres"
-    echo -e "   docker-compose restart config-manager"
-    echo -e "   docker-compose restart web-admin"
+    echo -e "   docker compose restart postgres"
+    echo -e "   docker compose restart config-manager"
+    echo -e "   docker compose restart web-admin"
     echo ""
     echo -e "3. ${YELLOW}Check container logs:${NC}"
-    echo -e "   docker-compose logs postgres"
-    echo -e "   docker-compose logs config-manager"
+    echo -e "   docker compose logs postgres"
+    echo -e "   docker compose logs config-manager"
     echo ""
     echo -e "4. ${YELLOW}Manual database connection test:${NC}"
-    echo -e "   docker exec -it pro-postgres-1 psql -U $DB_USER -d $DB_NAME"
+    echo -e "   docker exec -it \"$POSTGRES\" psql -U $DB_USER -d $DB_NAME"
     echo ""
 }
 

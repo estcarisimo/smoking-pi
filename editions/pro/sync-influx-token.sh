@@ -4,7 +4,12 @@
 
 set -e
 
-ENV_FILE="./.env"
+# The env file follows SMOKING_PI_ENV_FILE (docs/packaging.md, "Relocatable
+# state"); containers are found through Compose, never by a guessed name
+# (the project name is whatever COMPOSE_PROJECT_NAME says).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SMOKING_PI_ENV_FILE:-$SCRIPT_DIR/.env}"
+compose() { (cd "$SCRIPT_DIR" && docker compose --env-file "$ENV_FILE" "$@"); }
 
 echo "🔄 Synchronizing InfluxDB token..."
 
@@ -18,21 +23,22 @@ fi
 source "$ENV_FILE"
 
 # Check if InfluxDB is running
-if ! docker ps | grep -q "pro-influxdb-1"; then
+INFLUXDB=$(compose ps -q --status running influxdb 2>/dev/null | head -n1)
+if [ -z "$INFLUXDB" ]; then
     echo "❌ Error: InfluxDB container is not running"
     exit 1
 fi
 
 # Try to get the actual token from InfluxDB
 echo "📡 Retrieving active token from InfluxDB..."
-ACTIVE_TOKEN=$(docker exec pro-influxdb-1 influx auth list --hide-headers 2>/dev/null | grep "admin's Token" | awk '{print $4}' || true)
+ACTIVE_TOKEN=$(docker exec "$INFLUXDB" influx auth list --hide-headers 2>/dev/null | grep "admin's Token" | awk '{print $4}' || true)
 
 if [ -z "$ACTIVE_TOKEN" ]; then
     # If we can't get the token, try using the admin password to create one
     echo "⚠️  No active token found, attempting to create one..."
     
     # First, setup influx CLI config
-    docker exec pro-influxdb-1 influx setup \
+    docker exec "$INFLUXDB" influx setup \
         --force \
         --username admin \
         --password "${DOCKER_INFLUXDB_INIT_PASSWORD}" \
@@ -53,7 +59,7 @@ if [ -n "$ACTIVE_TOKEN" ] && [ "$ACTIVE_TOKEN" != "$INFLUX_TOKEN" ]; then
     sed -i "s|^INFLUX_TOKEN=.*|INFLUX_TOKEN=${ACTIVE_TOKEN}|" "$ENV_FILE"
     
     echo "🔄 Restarting Grafana to apply new token..."
-    docker-compose restart grafana
+    compose restart grafana
     
     echo "✅ Token synchronized successfully!"
 else

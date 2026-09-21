@@ -23,6 +23,27 @@ version gets a matching GitHub release and git tag.
   attaches it to the GitHub release the maintainer created for the tag.
   The workflow never creates a release. What remains of #5 is the signed
   apt repository on Pages.
+- **Script hygiene (packaging backlog #7): no script guesses a container
+  name, and the helper scripts tell the truth.** `sync-influx-token.sh`
+  and `verify-postgres.sh` ask Compose for the container
+  (`COMPOSE_PROJECT_NAME` decides the names) and honor the relocated env
+  file; `create-tunnel.sh` reads the edition and project from Compose's
+  labels and tunnels to **service** names on the project's network — its
+  Pro SmokePing target (`pro-smokeping-1` on `pro_default`) could never
+  have resolved, because that service runs on the host network; it now
+  goes through the host gateway. `show-passwords.sh` printed SmokePing on
+  8080/8081/8081 for Basic/Standard/Pro when the compose files map
+  80/8081/80, and its health checks used `nc`, which a stock Raspberry Pi
+  OS does not have, so every port read "not accessible" for as long as
+  the script existed — bash's `/dev/tcp` now, only this edition's ports,
+  service state from `compose ps`. Every `docker-compose` (v1) call and
+  hint became `docker compose` or the `smoking-pi` command;
+  `manage-containers.sh` is v2-only (v1 cannot parse these files), adds
+  the ClickHouse overlay when the profile is recorded (it never did: a
+  restart quietly rendered the InfluxDB stack), and `--edition` works
+  from the repository root as the README always claimed.
+  `shared/docs/maintenance.md` rewritten around the command and Compose
+  labels; the `your-repo` placeholder URLs are the real ones.
 - **`sudo apt install smoking-pi` (packaging backlog #5, second half).**
   GitHub Pages now serves a signed apt repository under `/apt` next to
   the docs site: `docs.yml` runs when the Release workflow has finished

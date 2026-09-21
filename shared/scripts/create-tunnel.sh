@@ -19,28 +19,27 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Function to detect running edition
+# The running edition and its Compose project, from the labels Compose puts
+# on every container -- never from guessed container names (Pro's are
+# <project>-<service>-1, and the project name is whatever
+# COMPOSE_PROJECT_NAME says). Sets EDITION_DIR, PROJECT and, for the
+# ports, sources the edition's env file (relocatable: SMOKING_PI_ENV_FILE).
+# Sets EDITION (not echoed: a $(...) call would lose the other variables).
 detect_edition() {
-    # Check for Basic edition
-    if docker ps --format "{{.Names}}" | grep -q "smokeping-basic"; then
-        echo "basic"
-        return
-    fi
-    
-    # Check for Standard edition
-    if docker ps --format "{{.Names}}" | grep -q "smokeping-standard"; then
-        echo "standard"
-        return
-    fi
-    
-    # Check for Pro edition (check for pro-specific containers or influxdb)
-    if docker ps --format "{{.Names}}" | grep -qE "(^pro-|influxdb)"; then
-        echo "pro"
-        return
-    fi
-    
-    # No edition detected
-    echo "none"
+    local dir
+    for e in pro standard basic; do
+        dir=$(docker ps --format '{{.Label "com.docker.compose.project.working_dir"}}' | grep "/editions/$e\$" | head -n1 || true)
+        if [ -n "$dir" ]; then
+            EDITION_DIR="$dir"
+            PROJECT=$(docker ps --filter "label=com.docker.compose.project.working_dir=$dir" --format '{{.Label "com.docker.compose.project"}}' | head -n1)
+            local env_file="${SMOKING_PI_ENV_FILE:-$dir/.env}"
+            # shellcheck disable=SC1090
+            [ -r "$env_file" ] && set -a && . "$env_file" && set +a
+            EDITION="$e"
+            return
+        fi
+    done
+    EDITION="none"
 }
 
 # Function to check if tunnel is already running
@@ -89,9 +88,10 @@ start_tunnel() {
     echo -e "${BLUE}🚇 Starting tunnel for ${description}...${NC}"
     
     # Start the tunnel container
+    # shellcheck disable=SC2086
     docker run -d \
         --name "$container_name" \
-        --network "$network" \
+        --network "$network" ${TUNNEL_EXTRA_ARGS:-} \
         --restart unless-stopped \
         cloudflare/cloudflared:latest \
         tunnel --no-autoupdate --url "$target_url" \
@@ -170,25 +170,25 @@ create_edition_tunnels() {
     echo -e "${GREEN}🚀 Creating Quick Tunnels for SmokePing ${edition^} Edition${NC}"
     echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
     
+    # Targets are Compose SERVICE names on the edition's network: Compose
+    # gives every service a DNS alias there, whatever the container is
+    # called. Pro's SmokePing runs on the host network, so its tunnel joins
+    # the bridge and reaches it through the host gateway on port 80.
     case $edition in
         "basic")
-            # Basic edition: Only SmokePing interface
-            start_tunnel "smokeping" "http://smokeping-basic:80" "SmokePing Interface" "basic_smokeping-net"
+            start_tunnel "smokeping" "http://smokeping:80" "SmokePing Interface" "${PROJECT}_smokeping-net"
             ;;
             
         "standard")
-            # Standard edition: SmokePing + Web Admin
-            # Note: Standard edition uses 'smokeping-net' network
-            start_tunnel "smokeping" "http://smokeping-standard:80" "SmokePing Interface" "standard_smokeping-net"
-            start_tunnel "webadmin" "http://smokeping-standard-web-admin:8080" "Web Administration" "standard_smokeping-net"
+            start_tunnel "smokeping" "http://smokeping:80" "SmokePing Interface" "${PROJECT}_smokeping-net"
+            start_tunnel "webadmin" "http://web-admin:8080" "Web Administration" "${PROJECT}_smokeping-net"
             ;;
             
         "pro")
-            # Pro edition: SmokePing + Web Admin + Grafana
-            # Pro edition uses default network for docker-compose
-            start_tunnel "smokeping" "http://pro-smokeping-1:80" "SmokePing Interface" "pro_default"
-            start_tunnel "webadmin" "http://pro-web-admin-1:8080" "Web Administration" "pro_default"
-            start_tunnel "grafana" "http://pro-grafana-1:3000" "Grafana Dashboard" "pro_default"
+            TUNNEL_EXTRA_ARGS="--add-host host.docker.internal:host-gateway" \
+                start_tunnel "smokeping" "http://host.docker.internal:80" "SmokePing Interface" "bridge"
+            start_tunnel "webadmin" "http://web-admin:8080" "Web Administration" "${PROJECT}_default"
+            start_tunnel "grafana" "http://grafana:3000" "Grafana Dashboard" "${PROJECT}_default"
             ;;
             
         *)
@@ -208,14 +208,14 @@ main() {
     case $action in
         "create"|"start")
             # Detect running edition
-            local edition=$(detect_edition)
+            detect_edition; local edition="$EDITION"
             
             if [ "$edition" == "none" ]; then
                 echo -e "${RED}❌ No SmokePing edition is currently running!${NC}"
                 echo -e "${YELLOW}Please start a SmokePing edition first:${NC}"
                 echo -e "  cd editions/basic && ./setup.sh"
-                echo -e "  cd editions/standard && docker-compose up -d"
-                echo -e "  cd editions/pro && ./init-passwords.sh && docker-compose up -d"
+                echo -e "  cd editions/standard && ./setup.sh"
+                echo -e "  cd editions/pro && ./setup.sh     (or: sudo smoking-pi install)"
                 exit 1
             fi
             
@@ -229,7 +229,7 @@ main() {
             
         "status"|"show")
             # Show current tunnel URLs
-            local edition=$(detect_edition)
+            detect_edition; local edition="$EDITION"
             if [ "$edition" == "none" ]; then
                 echo -e "${RED}❌ No SmokePing edition is running${NC}"
                 exit 1

@@ -187,30 +187,40 @@ execute_command() {
     fi
 }
 
-# Compose v2 (`docker compose`) is what the README requires; the legacy
-# `docker-compose` binary is accepted when that is all there is. COMPOSE is
-# used unquoted below on purpose, so the two-word form splits.
+# Compose v2 (`docker compose`) only: the compose files use v2 semantics
+# (`!override`, `depends_on.required`, profiles) that the legacy Python
+# `docker-compose` 1.x cannot parse -- accepting it only moved the failure
+# to a stranger place. COMPOSE is used unquoted below on purpose, so the
+# words split.
 COMPOSE=""
 
-# Check that some Compose is available
+# Check that Compose v2 is available, and assemble the same file list the
+# smoking-pi command uses: the ClickHouse overlay when that profile is
+# recorded in the env file, the packaged override last.
 check_docker_compose() {
-    if docker compose version &> /dev/null; then
-        COMPOSE="docker compose"
-    elif command -v docker-compose &> /dev/null; then
-        COMPOSE="docker-compose"
-    else
-        log_error "Docker Compose is not available (neither 'docker compose' nor 'docker-compose')"
+    if ! docker compose version &> /dev/null; then
+        log_error "Docker Compose v2 ('docker compose') is not available; the Python docker-compose 1.x cannot read these files"
         exit 1
     fi
+    COMPOSE="docker compose"
     # A relocated env file (docs/packaging.md, "Relocatable state") has to be
     # named on every call; Compose only finds ./.env on its own.
+    local env_file="${SMOKING_PI_ENV_FILE:-.env}"
     if [ -n "${SMOKING_PI_ENV_FILE:-}" ]; then
         COMPOSE="$COMPOSE --env-file $SMOKING_PI_ENV_FILE"
     fi
+    local files="-f docker-compose.yml" profiles=""
+    [ -f "$env_file" ] && profiles=$(sed -n 's/^COMPOSE_PROFILES=//p' "$env_file" | tail -n1)
+    # Pro with ClickHouse: the backend's overlay, which this script never
+    # added before (every restart quietly rendered the InfluxDB stack).
+    if [[ ",$profiles," == *,clickhouse,* ]] && [ -f docker-compose.clickhouse.yml ]; then
+        files="$files -f docker-compose.clickhouse.yml"
+    fi
     # Packaged mode: no source bind-mounts (docs/packaging.md, "Packaged mode").
     if [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] && [ -f docker-compose.packaged.yml ]; then
-        COMPOSE="$COMPOSE -f docker-compose.yml -f docker-compose.packaged.yml"
+        files="$files -f docker-compose.packaged.yml"
     fi
+    [ "$files" = "-f docker-compose.yml" ] || COMPOSE="$COMPOSE $files"
     
     if [ ! -f "docker-compose.yml" ]; then
         log_error "docker-compose.yml not found in current directory"
@@ -417,6 +427,16 @@ main() {
         EDITION="$DETECTED_EDITION"
     fi
     
+    # --edition names a directory too: from anywhere in the checkout, run
+    # in that edition's directory (the README's `./shared/scripts/...
+    # --edition pro` form never worked from the root before this).
+    if [ ! -f docker-compose.yml ]; then
+        local root; root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+        case "$EDITION" in std) EDITION=standard ;; esac
+        if [ -f "$root/editions/$EDITION/docker-compose.yml" ]; then
+            cd "$root/editions/$EDITION"
+        fi
+    fi
     log_info "Managing $EDITION edition"
     if [ -n "$SERVICE" ]; then
         log_info "Targeting service: $SERVICE"

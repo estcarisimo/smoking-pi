@@ -171,7 +171,7 @@ migrate_to_edition() {
     for compose_file in "$ROOT_DIR/grafana-influx/docker-compose.yml" "$ROOT_DIR/docker-compose.yml"; do
         if [ -f "$compose_file" ]; then
             echo -e "  • Stopping services in $(dirname "$compose_file")"
-            (cd "$(dirname "$compose_file")" && docker-compose down) 2>/dev/null || true
+            (cd "$(dirname "$compose_file")" && docker compose down) 2>/dev/null || true
         fi
     done
     
@@ -190,7 +190,7 @@ migrate_to_edition() {
     echo -e "${GREEN}✅ Migration completed successfully!${NC}"
     echo -e "\n${YELLOW}📋 Next Steps:${NC}"
     echo -e "  1. Review the configuration: $ROOT_DIR/editions/$target_edition/.env"
-    echo -e "  2. Start services: cd editions/$target_edition && docker-compose up -d"
+    echo -e "  2. Start services: cd editions/$target_edition && ./setup.sh   (or: sudo smoking-pi install)"
     echo -e "  3. Verify data migration worked correctly"
     echo -e "  4. Backup location: $backup_dir"
     echo -e "\n${PURPLE}🎯 Edition Features:${NC}"

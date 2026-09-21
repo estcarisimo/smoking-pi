@@ -32,6 +32,9 @@ detect_edition() {
 }
 
 EDITION=$(detect_edition)
+# The Compose command for this edition: the env file may be relocated
+# (--env-file), and Compose v1 (`docker-compose`) cannot read these files.
+compose() { docker compose --env-file "${SMOKING_PI_ENV_FILE:-.env}" "$@"; }
 
 echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║${WHITE}    🔑 SmokePing ${EDITION^} Edition Credentials    ${CYAN}║${NC}"
@@ -46,7 +49,7 @@ ENV_FILE="${SMOKING_PI_ENV_FILE:-.env}"
 if [ ! -f "$ENV_FILE" ]; then
     echo -e "${RED}❌ Error: $ENV_FILE not found!${NC}"
     echo -e "${YELLOW}The system will auto-generate passwords on first run.${NC}"
-    echo -e "${GREEN}Just run: docker-compose up -d${NC}"
+    echo -e "${GREEN}Just run: ./setup.sh (or: sudo smoking-pi install)${NC}"
     echo
     
     # Check if .passwords-generated exists from zero-touch deployment
@@ -61,6 +64,15 @@ fi
 
 # Load environment variables
 source "$ENV_FILE"
+# The ports as the compose files map them: SmokePing on SMOKEPING_PORT
+# (Basic's default 80; Standard's 8081; Pro's SmokePing runs on the host
+# network, port 80), the web admin on WEB_ADMIN_PORT (8080).
+case "$EDITION" in
+    basic) SMOKEPING_URL_PORT="${SMOKEPING_PORT:-80}" ;;
+    standard) SMOKEPING_URL_PORT="${SMOKEPING_PORT:-8081}" ;;
+    *) SMOKEPING_URL_PORT=80 ;;
+esac
+WEB_ADMIN_URL_PORT="${WEB_ADMIN_PORT:-8080}"
 
 # Detect time-series database type for pro edition
 TSDB_TYPE=${TSDB_TYPE:-influxdb}
@@ -77,15 +89,15 @@ echo -e "${GREEN}Local Access:${NC}"
 # Show services based on edition
 case "$EDITION" in
     "basic")
-        echo -e "  SmokePing:   http://localhost:8080"
+        echo -e "  SmokePing:   http://localhost:${SMOKEPING_URL_PORT}"
         ;;
     "standard")
-        echo -e "  SmokePing:   http://localhost:8081"
-        echo -e "  Web Admin:   http://localhost:8080"
+        echo -e "  SmokePing:   http://localhost:${SMOKEPING_URL_PORT}"
+        echo -e "  Web Admin:   http://localhost:${WEB_ADMIN_URL_PORT}"
         ;;
     "pro")
-        echo -e "  SmokePing:   http://localhost:8081"
-        echo -e "  Web Admin:   http://localhost:8080"
+        echo -e "  SmokePing:   http://localhost:${SMOKEPING_URL_PORT}"
+        echo -e "  Web Admin:   http://localhost:${WEB_ADMIN_URL_PORT}"
         echo -e "  Grafana:     http://localhost:3000"
         if [ "$TSDB_TYPE" = "clickhouse" ]; then
             echo -e "  ClickHouse:  http://localhost:8123"
@@ -103,15 +115,15 @@ echo -e "${GREEN}Network Access (from other devices):${NC}"
 
 case "$EDITION" in
     "basic")
-        echo -e "  SmokePing:   http://${SERVER_IP}:8080"
+        echo -e "  SmokePing:   http://${SERVER_IP}:${SMOKEPING_URL_PORT}"
         ;;
     "standard")
-        echo -e "  SmokePing:   http://${SERVER_IP}:8081"
-        echo -e "  Web Admin:   http://${SERVER_IP}:8080"
+        echo -e "  SmokePing:   http://${SERVER_IP}:${SMOKEPING_URL_PORT}"
+        echo -e "  Web Admin:   http://${SERVER_IP}:${WEB_ADMIN_URL_PORT}"
         ;;
     "pro")
-        echo -e "  SmokePing:   http://${SERVER_IP}:8081"
-        echo -e "  Web Admin:   http://${SERVER_IP}:8080"
+        echo -e "  SmokePing:   http://${SERVER_IP}:${SMOKEPING_URL_PORT}"
+        echo -e "  Web Admin:   http://${SERVER_IP}:${WEB_ADMIN_URL_PORT}"
         echo -e "  Grafana:     http://${SERVER_IP}:3000"
         if [ "$TSDB_TYPE" = "clickhouse" ]; then
             echo -e "  ClickHouse:  http://${SERVER_IP}:8123"
@@ -126,7 +138,7 @@ if [ "$EXTERNAL_IP" != "Unable to detect" ] && [ "$EDITION" != "basic" ]; then
     echo -e "${GREEN}External Access (if port forwarding enabled):${NC}"
     case "$EDITION" in
         "standard"|"pro")
-            echo -e "  Web Admin:   http://${EXTERNAL_IP}:8080"
+            echo -e "  Web Admin:   http://${EXTERNAL_IP}:${WEB_ADMIN_URL_PORT}"
             ;;
     esac
 fi
@@ -144,11 +156,11 @@ if [ -n "$GF_SECURITY_ADMIN_PASSWORD" ]; then
     echo -e "  ${PURPLE}Password:${NC}     ${YELLOW}${GF_SECURITY_ADMIN_PASSWORD}${NC}"
     
     # Check if Grafana container is running
-    if docker-compose ps 2>/dev/null | grep -q "grafana.*Up"; then
+    if compose ps --status running --services 2>/dev/null | grep -qx grafana; then
         echo -e "  ${GREEN}✅ Grafana is running${NC}"
     else
         echo -e "  ${RED}❌ Grafana is not running${NC}"
-        echo -e "     ${YELLOW}Run: docker-compose up -d grafana${NC}"
+        echo -e "     ${YELLOW}Run: docker compose up -d grafana${NC}"
     fi
 else
     echo -e "  ${PURPLE}Password:${NC}     admin ${YELLOW}(default - change on first login!)${NC}"
@@ -157,12 +169,12 @@ fi
 echo
 echo -e "  ${CYAN}Troubleshooting Grafana Login:${NC}"
 echo -e "  • If password doesn't work, restart Grafana:"
-echo -e "    ${YELLOW}docker-compose restart grafana${NC}"
+echo -e "    ${YELLOW}docker compose restart grafana${NC}"
 echo -e "  • Wait 30 seconds after restart for password reset"
 echo -e "  • For persistent issues, reset the volume:"
-echo -e "    ${YELLOW}docker-compose down grafana${NC}"
+echo -e "    ${YELLOW}docker compose down grafana${NC}"
 echo -e "    ${YELLOW}docker volume rm grafana-influx_grafana-data${NC}"
-echo -e "    ${YELLOW}docker-compose up -d grafana${NC}"
+echo -e "    ${YELLOW}docker compose up -d grafana${NC}"
 
 fi
 
@@ -223,7 +235,7 @@ if [ "$EDITION" = "pro" ]; then
             echo -e "  ${RED}❌ ClickHouse server is not responding${NC}"
             echo -e "     ${YELLOW}⚠️  Check if ClickHouse container is running${NC}"
             echo -e "     ${CYAN}🛠️  QUICK FIX:${NC}"
-            echo -e "     ${YELLOW}docker-compose -f docker-compose.yml -f docker-compose.clickhouse.yml up -d${NC}"
+            echo -e "     ${YELLOW}docker compose -f docker-compose.yml -f docker-compose.clickhouse.yml up -d${NC}"
         fi
     else
         echo -e "${WHITE}💾 InfluxDB Database${NC}"
@@ -248,9 +260,9 @@ if [ "$EDITION" = "pro" ]; then
                 echo -e "     ${YELLOW}⚠️  Grafana dashboards will show 'unauthorized access' errors${NC}"
                 echo ""
                 echo -e "     ${CYAN}🛠️  QUICK FIX:${NC}"
-                echo -e "     ${YELLOW}docker-compose down${NC}"
+                echo -e "     ${YELLOW}docker compose down${NC}"
                 echo -e "     ${YELLOW}docker volume rm grafana-influx_influxdb-data${NC}"
-                echo -e "     ${YELLOW}docker-compose up -d${NC}"
+                echo -e "     ${YELLOW}docker compose up -d${NC}"
                 echo ""
                 echo -e "     ${CYAN}🔍 For detailed diagnosis:${NC} ${YELLOW}./verify-influxdb.sh${NC}"
             fi
@@ -291,9 +303,9 @@ if [ -n "$POSTGRES_PASSWORD" ]; then
         echo -e "     ${YELLOW}⚠️  Grafana template variables will fail${NC}"
         echo ""
         echo -e "     ${CYAN}🛠️  QUICK FIX:${NC}"
-        echo -e "     ${YELLOW}docker-compose down${NC}"
+        echo -e "     ${YELLOW}docker compose down${NC}"
         echo -e "     ${YELLOW}docker volume rm grafana-influx_postgres-data${NC}"
-        echo -e "     ${YELLOW}docker-compose up -d${NC}"
+        echo -e "     ${YELLOW}docker compose up -d${NC}"
         echo ""
         echo -e "     ${CYAN}🔍 For detailed diagnosis:${NC} ${YELLOW}./verify-postgres.sh${NC}"
     fi
@@ -361,68 +373,55 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${WHITE}🚀 Service Status${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-if command -v docker-compose >/dev/null 2>&1; then
-    if [ -f "docker-compose.yml" ]; then
-        # Get container status
-        COMPOSE_OUTPUT=$(docker-compose ps 2>/dev/null)
-        
-        # Check each service
-        check_service() {
-            SERVICE=$1
-            if echo "$COMPOSE_OUTPUT" | grep -q "$SERVICE.*Up"; then
-                echo -e "  ${GREEN}✅ $SERVICE is running${NC}"
-            elif echo "$COMPOSE_OUTPUT" | grep -q "$SERVICE.*Exit"; then
-                EXIT_CODE=$(echo "$COMPOSE_OUTPUT" | grep "$SERVICE" | awk '{print $NF}')
-                echo -e "  ${RED}❌ $SERVICE exited (code: $EXIT_CODE)${NC}"
-            else
-                echo -e "  ${YELLOW}⚠️  $SERVICE not found${NC}"
-            fi
-        }
-        
-        # Check services based on edition
-        check_service "smokeping"
-        
-        case "$EDITION" in
-            "standard")
-                check_service "postgres"
-                check_service "config-manager"
-                check_service "web-admin"
-                ;;
-            "pro")
-                check_service "postgres"
-                check_service "config-manager"
-                check_service "web-admin"
-                if [ "$TSDB_TYPE" = "clickhouse" ]; then
-                    check_service "clickhouse"
-                else
-                    check_service "influxdb"
-                fi
-                check_service "grafana"
-                ;;
+if [ -f "docker-compose.yml" ]; then
+    # What Compose says about each service this edition runs: state and,
+    # for one that stopped, its exit code. Compose v2 only -- the compose
+    # files use v2 semantics, so v1 could not read them anyway.
+    check_service() {
+        local service="$1" state
+        state=$(compose ps -a --format '{{.Service}} {{.State}} {{.ExitCode}}' 2>/dev/null | awk -v s="$service" '$1 == s { print $2, $3; exit }')
+        case "$state" in
+            running*) echo -e "  ${GREEN}✅ $service is running${NC}" ;;
+            exited*) echo -e "  ${RED}❌ $service exited (code: ${state#exited })${NC}" ;;
+            "") echo -e "  ${YELLOW}⚠️  $service not found${NC}" ;;
+            *) echo -e "  ${YELLOW}⚠️  $service is ${state%% *}${NC}" ;;
         esac
-        
-        # Check init-passwords separately as it should exit
-        if echo "$COMPOSE_OUTPUT" | grep -q "init-passwords.*Exit 0"; then
-            echo -e "  ${GREEN}✅ init-passwords completed successfully${NC}"
-        fi
-        
-    else
-        echo -e "  ${RED}docker-compose.yml not found${NC}"
-    fi
+    }
+    check_service "smokeping"
+    case "$EDITION" in
+        "standard")
+            check_service "postgres"
+            check_service "config-manager"
+            check_service "web-admin"
+            ;;
+        "pro")
+            check_service "postgres"
+            check_service "config-manager"
+            check_service "web-admin"
+            if [ "$TSDB_TYPE" = "clickhouse" ]; then
+                check_service "clickhouse"
+            else
+                check_service "influxdb"
+            fi
+            check_service "grafana"
+            ;;
+    esac
 else
-    echo -e "  ${RED}docker-compose not found${NC}"
+    echo -e "  ${RED}docker-compose.yml not found: run this from an edition directory${NC}"
 fi
 
 echo
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${WHITE}📋 Quick Commands${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "  ${CYAN}View logs:${NC}        docker-compose logs -f [service]"
-echo -e "  ${CYAN}Check status:${NC}     docker-compose ps"
-echo -e "  ${CYAN}Restart service:${NC}  docker-compose restart [service]"
-echo -e "  ${CYAN}Stop all:${NC}         docker-compose down"
-echo -e "  ${CYAN}Update & restart:${NC} docker-compose pull && docker-compose up -d"
-echo -e "  ${CYAN}View real-time:${NC}   docker-compose logs -f --tail=50"
+# The smoking-pi command (packaging/smoking-pi from a clone, /usr/bin from
+# the package) is the documented way; the compose lines are what it runs.
+echo -e "  ${CYAN}View logs:${NC}        smoking-pi logs [service]      (docker compose logs -f [service])"
+echo -e "  ${CYAN}Check status:${NC}     smoking-pi status              (docker compose ps)"
+echo -e "  ${CYAN}Restart:${NC}          smoking-pi restart             (docker compose restart [service])"
+echo -e "  ${CYAN}Stop all:${NC}         smoking-pi down                (docker compose down)"
+echo -e "  ${CYAN}Upgrade:${NC}          smoking-pi upgrade             (pull or rebuild, up -d, doctor)"
+echo -e "  ${CYAN}Backup:${NC}           smoking-pi backup [DIR]"
 echo
 echo -e "${YELLOW}PostgreSQL Commands:${NC}"
 echo -e "  ${CYAN}Database status:${NC}  curl -s http://localhost:5000/status"
@@ -437,33 +436,37 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "  • ${YELLOW}Change Grafana admin password on first login${NC}"
 echo -e "  • ${YELLOW}Keep the InfluxDB API token secure${NC}"
 echo -e "  • ${YELLOW}Access web admin from any device on your network${NC}"
-echo -e "  • ${YELLOW}Check service health: curl http://localhost:8080/api/status${NC}"
+[ "$EDITION" = "basic" ] || echo -e "  • ${YELLOW}Check service health: curl http://localhost:${WEB_ADMIN_URL_PORT}/api/status${NC}"
 
 # Check for common issues
 echo
 echo -e "${WHITE}🔍 Health Checks:${NC}"
 
 # Check if ports are accessible
+# bash's own /dev/tcp: `nc` is not installed on a stock Raspberry Pi OS,
+# and every port read "not accessible" for as long as this used it.
 check_port() {
-    PORT=$1
-    SERVICE=$2
-    if nc -z localhost $PORT 2>/dev/null; then
-        echo -e "  ${GREEN}✅ Port $PORT ($SERVICE) is accessible${NC}"
+    local port="$1" service="$2"
+    if timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+        echo -e "  ${GREEN}✅ Port $port ($service) is accessible${NC}"
     else
-        echo -e "  ${RED}❌ Port $PORT ($SERVICE) is not accessible${NC}"
+        echo -e "  ${RED}❌ Port $port ($service) is not accessible${NC}"
     fi
 }
 
-check_port 8080 "Web Admin"
-check_port 3000 "Grafana"
+# Only the ports this edition has.
+check_port "$SMOKEPING_URL_PORT" "SmokePing"
+if [ "$EDITION" != "basic" ]; then
+    check_port "$WEB_ADMIN_URL_PORT" "Web Admin"
+fi
 if [ "$EDITION" = "pro" ]; then
+    check_port 3000 "Grafana"
     if [ "$TSDB_TYPE" = "clickhouse" ]; then
         check_port 8123 "ClickHouse"
     else
         check_port 8086 "InfluxDB"
     fi
 fi
-check_port 8081 "SmokePing"
 
 # Check if the env file has been modified from defaults
 if grep -q "supersecrettoken\|your-secret-key-here" "$ENV_FILE" 2>/dev/null; then
@@ -477,6 +480,6 @@ echo
 echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║${WHITE}        📘 Documentation & Support           ${CYAN}║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
-echo -e "  GitHub: ${BLUE}https://github.com/your-repo/smoking-pi${NC}"
-echo -e "  Issues: ${BLUE}https://github.com/your-repo/smoking-pi/issues${NC}"
+echo -e "  GitHub: ${BLUE}https://github.com/estcarisimo/smoking-pi${NC}"
+echo -e "  Issues: ${BLUE}https://github.com/estcarisimo/smoking-pi/issues${NC}"
 echo

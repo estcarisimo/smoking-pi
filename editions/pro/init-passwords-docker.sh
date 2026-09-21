@@ -1,6 +1,6 @@
 #!/bin/bash
 # Password initialization script for SmokePing stack
-# Run this script BEFORE starting docker-compose
+# Run this script BEFORE starting docker compose
 
 set -e
 
@@ -191,9 +191,9 @@ if [ "$GRAFANA_VOLUME_EXISTS" = "true" ] || [ "$INFLUXDB_VOLUME_EXISTS" = "true"
         echo "      Grafana dashboards will show 'unauthorized access' errors."
         echo ""
         echo "   🛠️  TO FIX: Reset InfluxDB volume with these commands:"
-        echo "      docker-compose down"
+        echo "      docker compose down"
         echo "      docker volume rm grafana-influx_influxdb-data"
-        echo "      docker-compose up -d"
+        echo "      docker compose up -d"
         echo ""
         echo "   ⚡ This will reset InfluxDB to use the current generated tokens."
         echo "      SmokePing will repopulate data automatically."
@@ -207,9 +207,9 @@ if [ "$GRAFANA_VOLUME_EXISTS" = "true" ] || [ "$INFLUXDB_VOLUME_EXISTS" = "true"
         echo "      Grafana template variables will show 'error executing SQL query'."
         echo ""
         echo "   🛠️  TO FIX: Reset PostgreSQL volume with these commands:"
-        echo "      docker-compose down"
+        echo "      docker compose down"
         echo "      docker volume rm grafana-influx_postgres-data"
-        echo "      docker-compose up -d"
+        echo "      docker compose up -d"
         echo ""
         echo "   ⚡ This will reset PostgreSQL to use the current generated password."
         echo "      Database will be populated automatically from YAML files."
