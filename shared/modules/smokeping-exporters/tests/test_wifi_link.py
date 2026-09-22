@@ -283,6 +283,33 @@ class TestInterfaceChoice:
                                         ("wlan0", "00000000", 600)])
         assert wifi_link.default_route_interface(route) == "wlan0"
 
+    def _routes_with_flags(self, tmp_path, rows):
+        """(iface, destination, flags, metric) — flags as /proc prints them."""
+        p = tmp_path / "route-flags"
+        p.write_text(
+            "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+            + "".join(
+                f"{i}\t{d}\t0156A8C0\t{f}\t0\t0\t{m}\t00000000\n"
+                for i, d, f, m in rows
+            )
+        )
+        return p
+
+    def test_an_unreachable_default_route_is_not_an_interface(self, tmp_path):
+        """`ip route add unreachable default` is listed here too, and its
+        interface name is literally "*" (observed: flags 0201, iface *).
+        Returning "*" as the uplink is worse than returning nothing."""
+        route = self._routes_with_flags(
+            tmp_path, [("*", "00000000", "0201", 100),
+                       ("wlan0", "00000000", "0003", 600)])
+        assert wifi_link.default_route_interface(route) == "wlan0"
+
+    def test_an_on_link_v4_default_route_counts(self, tmp_path):
+        """`ip route add default dev d0` — observed flags 0001, no gateway."""
+        route = self._routes_with_flags(
+            tmp_path, [("d0", "00000000", "0001", 100)])
+        assert wifi_link.default_route_interface(route) == "d0"
+
 
 class TestIPv6Uplink:
     """A v6-only host has no row in /proc/net/route at all."""
@@ -327,6 +354,15 @@ class TestIPv6Uplink:
 
     def test_a_missing_file_is_not_an_error(self, tmp_path):
         assert wifi_link.default_route_interface6(tmp_path / "nope") is None
+
+    def test_a_gateway_less_default_route_still_counts(self, tmp_path):
+        """wg-quick installs `default dev wg0` with no via. Observed on a real
+        kernel: flags 0x00000001 — RTF_UP and NOT RTF_GATEWAY. Requiring a
+        gateway dropped it, and every sample went out tagged uplink=0."""
+        route6 = self._route6(tmp_path, [
+            self._default("wg0", metric="00000064", flags="00000001"),
+        ])
+        assert wifi_link.default_route_interface6(route6) == "wg0"
 
     def test_v4_wins_when_both_exist(self, tmp_path):
         v4 = tmp_path / "route"

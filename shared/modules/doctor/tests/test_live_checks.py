@@ -558,6 +558,37 @@ def test_the_unreachable_lo_entries_are_not_an_uplink(tmp_path):
     assert "no default route" in res.findings[0].message
 
 
+def test_a_gateway_less_v6_default_route_still_names_the_uplink(tmp_path):
+    """wg-quick installs `default dev wg0` with no via. Observed on a real
+    kernel: flags 0x00000001 — RTF_UP and NOT RTF_GATEWAY. Requiring a
+    gateway turned "your uplink is a tunnel" into "no default route"."""
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, []),
+        _route6(tmp_path, [("wg0", "0" * 32, "00", "00000064", "00000001")]),
+        _sysnet(tmp_path, {"wg0": False, "wlan0": True}),
+    )
+    assert res.status is Status.WARN
+    assert "wg0" in res.findings[0].message
+    assert "tunnel" in res.findings[0].message
+
+
+def test_an_unreachable_v4_default_route_is_not_an_interface(tmp_path):
+    """`ip route add unreachable default` is listed with the interface name
+    literally "*" (observed: flags 0201). Reporting "*" as the interface
+    being measured would be worse than reporting nothing."""
+    p = tmp_path / "route"
+    p.write_text(
+        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+        "*\t00000000\t00000000\t0201\t0\t0\t100\t00000000\n"
+        "wlan0\t00000000\t0156A8C0\t0003\t0\t0\t600\t00000000\n"
+    )
+    res = live_checks.check_uplink_interface(
+        p, tmp_path / "no-ipv6", _sysnet(tmp_path, {"wlan0": True})
+    )
+    assert res.status is Status.OK
+    assert "wlan0" in res.summary
+
+
 def test_a_host_without_proc_net_is_skipped(tmp_path):
     res = live_checks.check_uplink_interface(
         tmp_path / "none", tmp_path / "none6", tmp_path / "sysnet"

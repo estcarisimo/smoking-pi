@@ -751,8 +751,14 @@ def mcp_tool_names(server_py: pathlib.Path) -> set[str]:
 # one direction or the other for thirty lines of parsing. The tests on both
 # sides use the same fixtures, which is what actually keeps them honest.
 
+# RTF_UP alone decides which rows are a real default route. A route
+# installed on-link with no gateway -- wg-quick's, a PPP peer's -- sets
+# RTF_UP and not RTF_GATEWAY (observed 0x00000001 on a real kernel), while
+# the rows that must be excluded do not set RTF_UP at all: ::/0 unreachable
+# on lo is 0x00200200, and an `unreachable default` is 0x0201 with the
+# interface name literally "*".
 RTF_UP = 0x0001
-RTF_GATEWAY = 0x0002
+RTF_REJECT = 0x0200
 
 # Interfaces that are never a real uplink even when they carry the default
 # route: Docker's bridges and veths, VPN tunnels, and Tailscale/WireGuard.
@@ -770,8 +776,15 @@ def default_route_iface(proc_route: pathlib.Path) -> str | None:
     best: tuple[int, str] | None = None
     for line in lines:
         parts = line.split()
-        if len(parts) < 2 or parts[1] != "00000000":
+        if len(parts) < 2 or parts[1] != "00000000" or parts[0] == "*":
             continue
+        if len(parts) >= 4:
+            try:
+                flags = int(parts[3], 16)
+            except ValueError:
+                flags = RTF_UP
+            if not flags & RTF_UP or flags & RTF_REJECT:
+                continue
         try:
             metric = int(parts[6]) if len(parts) >= 7 else 0
         except ValueError:
@@ -784,8 +797,9 @@ def default_route_iface(proc_route: pathlib.Path) -> str | None:
 def default_route_iface6(proc_route6: pathlib.Path) -> str | None:
     """The interface carrying the IPv6 default route.
 
-    ``::/0`` also appears as unreachable entries on ``lo``; a real default
-    route is up and has a gateway, so the flags decide, not the destination.
+    ``::/0`` also appears as unreachable entries on ``lo``, so the flags
+    decide, not the destination -- RTF_UP alone, because a gateway-less
+    default route is still a default route.
     """
     try:
         lines = proc_route6.read_text().splitlines()
@@ -800,7 +814,7 @@ def default_route_iface6(proc_route6: pathlib.Path) -> str | None:
             metric, flags = int(parts[5], 16), int(parts[8], 16)
         except ValueError:
             continue
-        if not (flags & RTF_UP and flags & RTF_GATEWAY):
+        if not flags & RTF_UP or flags & RTF_REJECT:
             continue
         if best is None or metric < best[0]:
             best = (metric, parts[9])

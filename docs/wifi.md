@@ -83,8 +83,8 @@ to be silent, which read as "no wireless hardware".
 
 ### Which interface is the uplink
 
-Every sample carries an `uplink` tag: whether *this* interface is the one the
-host's default route sits on. It decides whether the Wi-Fi verdict can fire
+Every sample carries an `uplink` field: whether *this* interface is the one
+the host's default route sits on. It decides whether the Wi-Fi verdict can fire
 at all — *"it's your Wi-Fi, not the ISP"* only makes sense about the link the
 measurements cross — so getting it wrong is silent and total.
 

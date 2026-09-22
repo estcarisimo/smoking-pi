@@ -77,7 +77,19 @@ version gets a matching GitHub release and git tag.
   interface selection silently fell back to "the first wireless one". It now
   falls back to `/proc/net/ipv6_route`, where `::/0` also appears twice on
   `lo` as an unreachable route, so the flags decide rather than the
-  destination.
+  destination — `RTF_UP` alone. A default route installed **on-link, with no
+  gateway** (what `wg-quick` writes; a PPP peer route has the same shape) is
+  a real default route: on a real kernel `ip -6 route add default dev wg0`
+  produces flags `0x00000001`, no `RTF_GATEWAY`. The first version of this
+  fix required a gateway and would have dropped exactly that route, turning
+  the most useful thing the check can say — *"your uplink is a tunnel"* —
+  into *"no default route on this host"*. The rows that must be excluded do
+  not set `RTF_UP` at all, so requiring it loses nothing.
+- **An unreachable IPv4 default route could be reported as the uplink.**
+  `ip route add unreachable default` is listed in `/proc/net/route` like any
+  other default route, with the interface name literally `*` and
+  `RTF_REJECT` set. With a lower metric than the real route it would have
+  been picked, and `*` reported as the interface being measured.
 - **Two default routes were resolved by file order, not by metric.** With
   Ethernet and Wi-Fi both up only the lowest metric carries traffic. The
   kernel does emit the prefix metric-ascending — verified by adding the

@@ -159,7 +159,18 @@ verified by adding the high-metric route first in a throwaway namespace and
 reading the file back — but nothing documents that, and naming the wrong one
 would report the wrong uplink on exactly the host this check exists for. In
 `/proc/net/ipv6_route`, `::/0` also appears twice on `lo` as an unreachable
-route, so the flags decide, not the destination.
+route, so the flags decide, not the destination — and `RTF_UP` alone, not
+`RTF_UP | RTF_GATEWAY`. A default route installed **on-link, with no
+gateway** — which is what `wg-quick` writes, and what a PPP peer route looks
+like — is a real default route: observed on a real kernel, `ip -6 route add
+default dev wg0` produces flags `0x00000001`. Requiring a gateway dropped it
+and turned *"your uplink is a tunnel"*, the most useful thing this check can
+say, into *"no default route on this host"*. The rows that must be excluded
+do not set `RTF_UP` at all (`lo`'s are `0x00200200`), so nothing is lost.
+IPv4 has the same shape: `ip route add unreachable default` is listed in
+`/proc/net/route` with the interface name literally `*` and `RTF_REJECT`
+set, and reporting `*` as the interface being measured would be worse than
+reporting nothing.
 
 The two Docker checks skip cleanly when Docker is absent, so `--live` is safe
 to run anywhere; `uplink-interface` asks the kernel rather than Docker and

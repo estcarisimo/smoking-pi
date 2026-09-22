@@ -1,14 +1,17 @@
-"""Live checks — the ones that need a running stack.
+"""Live checks — the ones that need the running host.
 
-The static checks compare one file against another and run in CI. These two
-compare what is *deployed* against what the repository says, and can only run
-on the machine actually running the stack.
+The static checks compare one file against another and run in CI. These
+three ask the machine itself: two compare what is *deployed* against what
+the repository says, and the third asks the kernel which interface the
+measurements leave by.
 
-Both exist because the corresponding failure happened here, and both share a
-shape that makes them worth automating: **the broken thing keeps looking
-healthy.** A container running three-week-old code starts, logs cleanly and
-answers requests. A container holding a dead resolver pings raw IPs happily
-and only fails on hostnames. Nothing goes red, so nobody looks.
+All three exist because the corresponding failure happened here, and they
+share a shape that makes them worth automating: **the broken thing keeps
+looking healthy.** A container running three-week-old code starts, logs
+cleanly and answers requests. A container holding a dead resolver pings raw
+IPs happily and only fails on hostnames. A Pi measuring through a Wi-Fi hop
+nobody knew about draws exactly the same graphs. Nothing goes red, so nobody
+looks.
 
 - ``deployed-code-current`` — the running container's Python matches the
   repository. This is commit ``dde5e36`` ("the flap fix never reached the
@@ -33,8 +36,11 @@ and only fails on hostnames. Nothing goes red, so nobody looks.
   and "100% loss" is indistinguishable from "the target is down".
 
 Docker is invoked through an injected runner so these are testable without a
-daemon, and every check SKIPS rather than fails when Docker is unavailable —
-running the doctor on a laptop must not report a broken deployment.
+daemon, and the two Docker checks SKIP rather than fail when Docker is
+unavailable — running the doctor on a laptop must not report a broken
+deployment. ``uplink-interface`` is not part of that guarantee: it asks the
+kernel, not Docker, so it answers on any Linux host and skips only where
+``/proc/net`` is absent.
 """
 
 from __future__ import annotations

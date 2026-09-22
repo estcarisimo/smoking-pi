@@ -71,9 +71,13 @@ PROC_ROUTE = Path("/proc/net/route")
 PROC_IPV6_ROUTE = Path("/proc/net/ipv6_route")
 PROC_WIRELESS = Path("/proc/net/wireless")
 
-# Route flags, as /proc/net/ipv6_route prints them (linux/route.h).
+# Route flags, as /proc/net/route and /proc/net/ipv6_route print them
+# (linux/route.h). RTF_UP alone decides: a default route installed on-link,
+# with no gateway -- wg-quick's, and a PPP peer's -- is a real default route
+# and does not set RTF_GATEWAY, while the entries that must be excluded
+# (::/0 unreachable on lo, an `unreachable default`) do not set RTF_UP.
 RTF_UP = 0x0001
-RTF_GATEWAY = 0x0002
+RTF_REJECT = 0x0200
 
 # Counters read from sysfs; their names are the field names.
 SYSFS_COUNTERS = ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets",
@@ -116,6 +120,18 @@ def default_route_interface(proc_route: Path = PROC_ROUTE) -> str | None:
         parts = line.split()
         if len(parts) < 2 or parts[1] != "00000000":
             continue
+        # `ip route add unreachable default` is listed here too, with the
+        # interface name literally "*" and RTF_REJECT set. Returning "*" as
+        # the uplink would be worse than returning nothing.
+        if parts[0] == "*":
+            continue
+        if len(parts) >= 4:
+            try:
+                flags = int(parts[3], 16)
+            except ValueError:
+                flags = RTF_UP
+            if not flags & RTF_UP or flags & RTF_REJECT:
+                continue
         try:
             metric = int(parts[6]) if len(parts) >= 7 else 0
         except ValueError:
@@ -149,7 +165,7 @@ def default_route_interface6(proc_route6: Path = PROC_IPV6_ROUTE) -> str | None:
             metric, flags = int(parts[5], 16), int(parts[8], 16)
         except ValueError:
             continue
-        if not (flags & RTF_UP and flags & RTF_GATEWAY):
+        if not flags & RTF_UP or flags & RTF_REJECT:
             continue
         if best is None or metric < best[0]:
             best = (metric, parts[9])
