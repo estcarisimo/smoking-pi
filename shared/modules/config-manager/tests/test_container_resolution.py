@@ -9,6 +9,8 @@ packaging backlog #7 ruled out everywhere else in the stack:
 - ``resolve_container_name`` matched the compose *service* label alone, so on
   a host running two editions the first container the daemon listed won -
   and ``POST /restart`` could restart the other edition's SmokePing.
+- ``_check_smokeping_status`` fell back to the name ``<project>-smokeping-1``
+  whenever resolution failed, which is the same guess wearing a default.
 
 The Docker SDK is never allowed to reach a daemon here: every test hands the
 API a fake client whose containers are plain objects.
@@ -240,3 +242,60 @@ def test_docker_failure_body_carries_nothing_from_the_exception(
     assert secret not in response.get_data(as_text=True)
     assert "hunter2" not in response.get_data(as_text=True)
     assert len(response.get_json()['error_id']) == 8
+
+
+# --- the status check, which used to guess when resolution failed -----------
+
+def test_status_check_does_not_fall_back_to_a_guessed_name(
+        monkeypatch, fake_docker):
+    """An unlabeled ``pro-smokeping-1`` is not ours, however well it is named."""
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "pro")
+    fake_docker([FakeContainer('pro-smokeping-1')])  # no compose labels
+    api_module.api._status_cache.clear()
+
+    status = api_module.api._check_smokeping_status()
+
+    assert status['running'] is False
+    assert status['status'] == 'not_found'
+    assert status['container_name'] is None
+
+
+def test_status_check_reports_the_labeled_container(monkeypatch, fake_docker):
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "pro")
+    fake_docker([FakeContainer('pro-smokeping-1', project='pro',
+                               service='smokeping')])
+    api_module.api._status_cache.clear()
+
+    status = api_module.api._check_smokeping_status()
+
+    assert status['running'] is True
+    assert status['container_name'] == 'pro-smokeping-1'
+    api_module.api._status_cache.clear()
+
+
+def test_status_check_says_nothing_an_exception_gave_it(monkeypatch):
+    secret = "/var/run/docker.sock: permission denied for user hunter2"
+
+    def boom(*args, **kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(api_module.docker, 'from_env', boom)
+    api_module.api._status_cache.clear()
+
+    status = api_module.api._check_smokeping_status()
+
+    assert "hunter2" not in repr(status)
+    assert status['running'] is False
+
+
+def test_the_list_is_what_is_running(client, fake_docker):
+    """``GET /api/containers`` answers "what is up", so a stopped member is
+    absent - deliberately unlike resolution, which includes stopped ones
+    because restarting one is the point of asking."""
+    fake_docker(
+        running=[FakeContainer('pro-grafana-1', project='pro', service='grafana')],
+        stopped=[FakeContainer('pro-smokeping-1', project='pro',
+                               service='smokeping', status='exited')],
+    )
+    body = client.get('/api/containers').get_json()
+    assert [c['name'] for c in body['containers']] == ['pro-grafana-1']

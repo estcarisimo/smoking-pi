@@ -560,15 +560,22 @@ class ConfigManagerAPI:
         # No valid cache, perform actual check
         logger.debug("Performing fresh SmokePing status check")
         try:
-            # Try to resolve container name dynamically first
+            # The labels are the only way in. There is deliberately no
+            # fallback to a guessed name: a container carrying no compose
+            # labels is not this project's SmokePing whatever it is called,
+            # and reporting on somebody else's container is worse than
+            # reporting that ours is missing.
             try:
                 container_name = resolve_container_name('smokeping')
                 logger.debug(f"Resolved SmokePing container name: {container_name}")
             except Exception as e:
-                # Fallback to known container name pattern
-                project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
-                container_name = f'{project_name}-smokeping-1'
-                logger.debug(f"Using fallback container name: {container_name}, resolve error: {e}")
+                logger.warning(f"Could not resolve the SmokePing container: {e}")
+                return {
+                    'running': False,
+                    'status': 'not_found',
+                    'container_name': None,
+                    'error': 'No SmokePing container in this Compose project'
+                }
             
             # Use Docker Python API for more reliable status checking
             client = docker.from_env()
@@ -1168,7 +1175,7 @@ def resolve_container_name(service_name: str) -> str:
     Both labels have to match. The service label on its own is not an
     identity: a host running two editions side by side has two containers
     labeled ``smokeping``, and whichever one the daemon listed first would
-    win - so ``POST /restart``, which the web admin's restart button calls,
+    win — so ``POST /restart``, which the web admin's restart button calls,
     could restart the other edition's SmokePing.
 
     Stopped containers are included, because resolving one is how a caller
@@ -1216,6 +1223,10 @@ def list_containers():
         project_name = compose_project_name()
         
         containers = []
+        # Running only, unlike resolve_container_name: this answers "what is
+        # up right now", and a stopped container has no status worth listing.
+        # Resolution includes stopped ones because restarting one is the
+        # point of asking.
         for container in client.containers.list():
             if belongs_to_project(container, project_name):
                 containers.append({

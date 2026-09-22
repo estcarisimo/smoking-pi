@@ -88,7 +88,7 @@ version gets a matching GitHub release and git tag.
 
 - **The config API identified containers by guessing at their names.**
   Packaging backlog #7 established that nothing in the stack guesses a
-  container name and fixed every shell script; the two places in
+  container name and fixed every shell script; the three places in
   `config-manager/api.py` that do the same were never touched. `GET
   /api/containers` accepted any container whose name merely *contained* the
   project name, and the default project is `pro` — so an unrelated
@@ -104,9 +104,14 @@ version gets a matching GitHub release and git tag.
   Compose labels every container it starts, including the ones that set an
   explicit `container_name` (`smokeping-mcp-server` carries
   `com.docker.compose.project=pro`), so there was nothing left for them to
-  find that the labels miss. Resolution now also sees stopped containers,
-  which the name patterns used to reach and the label loop would not have.
-  Neither bug had misfired on the reference Pi — its only labeled
+  find that the labels miss. The third place was the same guess wearing a
+  default: `_check_smokeping_status`, behind `GET /status`, fell back to the
+  name `<project>-smokeping-1` whenever resolution failed. It now says the
+  container is not there, which is both true and more useful than a report
+  on somebody else's. Resolution also sees stopped containers now, which the
+  name patterns used to reach and the label loop would not have — so
+  restarting or inspecting a stopped SmokePing, which used to 404, works.
+  None of the three had misfired on the reference Pi — its only labeled
   containers are the `pro` project's — so this is a fix for the second host,
   which is exactly the one nobody is watching.
 - **Two health checks put a credential on the command line.** The InfluxDB

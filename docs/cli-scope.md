@@ -95,7 +95,8 @@ which container is which — and the answer is the Compose labels, never the
 container's name. Backlog #7 settled that for the scripts; `config-manager`
 followed in the same place this page was written.
 
-The API asks two questions of the labels. *Is this container ours?* is
+The API asks two questions of the labels, and asks nothing else. *Is this
+container ours?* is
 `com.docker.compose.project` alone — a name test would have claimed an
 unrelated `prometheus` or `proxy`, since the default project is `pro`. *Which
 container is this service?* is the project label **and**
@@ -103,4 +104,7 @@ container is this service?* is the project label **and**
 containers that answer to `smokeping`, and `POST /restart` must not reach the
 other one. Compose labels every container it starts, including the ones that
 set an explicit `container_name`, so the labels never miss something a name
-pattern would have found.
+pattern would have found. Where the answer is *none*, that is the answer:
+the status check used to fall back to the name `<project>-smokeping-1`, and
+now reports the container as absent rather than describing whichever
+container happened to be wearing that name.
