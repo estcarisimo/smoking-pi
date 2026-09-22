@@ -1135,42 +1135,59 @@ def get_probes():
 
 
 # Container resolution endpoints
+COMPOSE_PROJECT_LABEL = 'com.docker.compose.project'
+COMPOSE_SERVICE_LABEL = 'com.docker.compose.service'
+
+
+def compose_project_name() -> str:
+    """The Compose project this config-manager belongs to.
+
+    Every edition's compose file passes ``COMPOSE_PROJECT_NAME`` in, defaulted
+    to the edition directory name, which is also what Compose itself would
+    derive. The literal below is only a last resort for a config-manager
+    started by hand without the variable.
+    """
+    return os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
+
+
+def belongs_to_project(container, project_name: str) -> bool:
+    """Whether a container was started by this stack's Compose project.
+
+    The label is the whole test. Container *names* are not evidence: the
+    project is called ``pro`` by default, so a name test also claims an
+    unrelated ``prometheus`` or ``proxy`` running on the same host. Compose
+    labels every container it starts, including the ones that set an explicit
+    ``container_name``, so nothing that belongs to us is missed by asking.
+    """
+    return container.labels.get(COMPOSE_PROJECT_LABEL) == project_name
+
+
 def resolve_container_name(service_name: str) -> str:
-    """Resolve actual container name for a compose service"""
+    """Resolve the container name for a service of *this* Compose project.
+
+    Both labels have to match. The service label on its own is not an
+    identity: a host running two editions side by side has two containers
+    labeled ``smokeping``, and whichever one the daemon listed first would
+    win - so ``POST /restart``, which the web admin's restart button calls,
+    could restart the other edition's SmokePing.
+
+    Stopped containers are included, because resolving one is how a caller
+    asks for its status or restarts it.
+    """
+    project_name = compose_project_name()
     try:
         client = docker.from_env()
-        
-        # First, try to find by service label
-        for container in client.containers.list():
-            if container.labels.get('com.docker.compose.service') == service_name:
+        for container in client.containers.list(all=True):
+            if (belongs_to_project(container, project_name)
+                    and container.labels.get(COMPOSE_SERVICE_LABEL) == service_name):
                 return container.name
-        
-        # Get project name from environment or use default
-        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
-        
-        # Try common naming patterns
-        patterns = [
-            f'{project_name}-{service_name}-1',  # Compose v2
-            f'{project_name}_{service_name}_1',   # Compose v1
-            service_name,                         # Custom container name
-        ]
-        
-        for pattern in patterns:
-            try:
-                client.containers.get(pattern)
-                return pattern
-            except docker.errors.NotFound:
-                continue
-                
-        # If still not found, look for any container with service name
-        for container in client.containers.list():
-            if service_name in container.name.lower():
-                return container.name
-                
     except Exception as e:
-        logger.error(f"Error resolving container name for {service_name}: {str(e)}")
+        logger.error(
+            f"Error resolving container for service '{service_name}' in "
+            f"project '{project_name}': {e}"
+        )
         raise Exception(f"Container for service '{service_name}' not found")
-    
+
     raise Exception(f"Container for service '{service_name}' not found")
 
 
@@ -1196,16 +1213,14 @@ def list_containers():
     """List all containers in the compose stack"""
     try:
         client = docker.from_env()
-        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
+        project_name = compose_project_name()
         
         containers = []
         for container in client.containers.list():
-            # Check if container belongs to our compose project
-            if container.labels.get('com.docker.compose.project') == project_name or \
-               project_name in container.name:
+            if belongs_to_project(container, project_name):
                 containers.append({
                     'name': container.name,
-                    'service': container.labels.get('com.docker.compose.service', 'unknown'),
+                    'service': container.labels.get(COMPOSE_SERVICE_LABEL, 'unknown'),
                     'status': container.status,
                     'id': container.short_id
                 })

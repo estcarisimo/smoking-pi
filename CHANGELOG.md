@@ -86,6 +86,29 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The config API identified containers by guessing at their names.**
+  Packaging backlog #7 established that nothing in the stack guesses a
+  container name and fixed every shell script; the two places in
+  `config-manager/api.py` that do the same were never touched. `GET
+  /api/containers` accepted any container whose name merely *contained* the
+  project name, and the default project is `pro` — so an unrelated
+  `prometheus` or `proxy` on the same host was reported as part of the
+  Smoking Pi stack. Worse, `resolve_container_name` matched the
+  `com.docker.compose.service` label **without** the project label: on a
+  host running two editions side by side, two containers answer to
+  `smokeping`, whichever the daemon listed first won, and that is the path
+  `POST /restart` takes — the web admin's restart button could have
+  restarted the other edition's SmokePing while reporting success. Both now
+  test `com.docker.compose.project`, and resolution requires project *and*
+  service. The name-pattern and substring fallbacks are gone with them:
+  Compose labels every container it starts, including the ones that set an
+  explicit `container_name` (`smokeping-mcp-server` carries
+  `com.docker.compose.project=pro`), so there was nothing left for them to
+  find that the labels miss. Resolution now also sees stopped containers,
+  which the name patterns used to reach and the label loop would not have.
+  Neither bug had misfired on the reference Pi — its only labeled
+  containers are the `pro` project's — so this is a fix for the second host,
+  which is exactly the one nobody is watching.
 - **Two health checks put a credential on the command line.** The InfluxDB
   and ClickHouse checks passed their token and password as `curl -H` and
   `curl -u` arguments, and a command line is readable by every account on

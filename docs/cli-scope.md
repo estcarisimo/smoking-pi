@@ -88,20 +88,19 @@ duplication is in the vocabulary, not in the code.
 talks to a gateway on the host, none of which an in-stack API can do, and it
 is about the installation rather than what is measured.
 
-## Known gaps, recorded here rather than left implicit
+## One rule both surfaces follow: no guessing at container names
 
-Backlog #7 established that nothing should guess a container name, and fixed
-every script. Two places inside the stack still guess:
+Because `restart` and `status` exist on both sides, both have to agree on
+which container is which — and the answer is the Compose labels, never the
+container's name. Backlog #7 settled that for the scripts; `config-manager`
+followed in the same place this page was written.
 
-- `config-manager`'s `list_containers` treats a container as part of the
-  project when the project name is a **substring** of the container name
-  (`api.py:1205`). With the project called `pro`, an unrelated `prometheus`
-  or `proxy` container on the same host is reported as part of the stack.
-- `resolve_container_name` matches on the `com.docker.compose.service` label
-  **without also matching the project** (`api.py:1145`). On a host running two
-  editions, the first match wins, and a restart could reach the other one.
-
-Neither misfires on the reference Pi today — its only labeled containers are
-the `pro` project's, and the three `tunnel-*` containers match neither test.
-Both are one-line fixes in code this page does not otherwise touch, so they
-are written down here rather than folded into a document.
+The API asks two questions of the labels. *Is this container ours?* is
+`com.docker.compose.project` alone — a name test would have claimed an
+unrelated `prometheus` or `proxy`, since the default project is `pro`. *Which
+container is this service?* is the project label **and**
+`com.docker.compose.service`, because a host running two editions has two
+containers that answer to `smokeping`, and `POST /restart` must not reach the
+other one. Compose labels every container it starts, including the ones that
+set an explicit `container_name`, so the labels never miss something a name
+pattern would have found.
