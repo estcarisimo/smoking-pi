@@ -129,7 +129,7 @@ docker-compose up -d
 docker-compose -f docker-compose.clickhouse.yml up -d
 
 # 3. View credentials
-./show-passwords.sh
+./show-passwords.sh --show-secrets
 ```
 
 ### Verify Services

@@ -52,6 +52,14 @@ if [ "$SHOW_SECRETS" = 1 ] && [ "$FORCE" = 0 ] && [ ! -t 1 ]; then
     exit 3
 fi
 
+# curl reads these options from stdin (-K -) instead of argv, because a
+# credential on a command line is readable by every account on the host
+# (ps, /proc/*/cmdline) however the output is gated. The value MUST be
+# quoted: curl's config parser treats an unquoted `header = A: B` as a
+# key/value line and drops the header silently, which looks exactly like an
+# authentication failure. Inside quotes it honours \\ and \", so escape both.
+curl_quote() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }
+
 # A secret's value, or the fact that it has one. An EMPTY secret is never
 # withheld: "unset" is a warning (an unauthenticated API, a database with no
 # password), not a credential.
@@ -301,7 +309,10 @@ if [ "$EDITION" = "pro" ]; then
             echo -e "  ${GREEN}✅ ClickHouse server is responding${NC}"
             
             # Test database connection with credentials
-            if curl -sf -u "${CLICKHOUSE_USER:-smokeping}:${CLICKHOUSE_PASSWORD}" "http://localhost:8123/" --data "SELECT 1" >/dev/null 2>&1; then
+            if printf 'user = "%s:%s"\n' \
+                   "$(curl_quote "${CLICKHOUSE_USER:-smokeping}")" \
+                   "$(curl_quote "$CLICKHOUSE_PASSWORD")" |
+               curl -sf -K - "http://localhost:8123/" --data "SELECT 1" >/dev/null 2>&1; then
                 echo -e "  ${GREEN}✅ ClickHouse authentication works${NC}"
             else
                 echo -e "  ${RED}❌ ClickHouse authentication failed${NC}"
@@ -326,7 +337,8 @@ if [ "$EDITION" = "pro" ]; then
             echo -e "  ${PURPLE}API Token:${NC}    $(secret "$INFLUX_TOKEN")"
             
             # Test InfluxDB connectivity
-            if curl -sf -H "Authorization: Token $INFLUX_TOKEN" "http://localhost:8086/api/v2/buckets?org=$INFLUX_ORG" >/dev/null 2>&1; then
+            if printf 'header = "Authorization: Token %s"\n' "$(curl_quote "$INFLUX_TOKEN")" |
+               curl -sf -K - "http://localhost:8086/api/v2/buckets?org=$INFLUX_ORG" >/dev/null 2>&1; then
                 echo -e "  ${GREEN}✅ InfluxDB token is valid${NC}"
             else
                 echo -e "  ${RED}❌ InfluxDB token authentication failed${NC}"
@@ -372,7 +384,10 @@ if [ -n "$POSTGRES_PASSWORD" ]; then
             echo -e "  ${YELLOW}⚠️  PostgreSQL works but database is empty (0 targets)${NC}"
             echo -e "     ${YELLOW}Config-manager may be in YAML fallback mode${NC}"
             echo ""
+            # verify-postgres.sh ships with Pro only; this block also runs for Standard.
+        if [ "$EDITION" = "pro" ]; then
             echo -e "     ${CYAN}🔍 For diagnosis:${NC} ${YELLOW}./verify-postgres.sh${NC}"
+        fi
         fi
     else
         echo -e "  ${RED}❌ PostgreSQL connection failed${NC}"
@@ -384,7 +399,9 @@ if [ -n "$POSTGRES_PASSWORD" ]; then
         echo -e "     ${RED}Do not reach for 'docker volume rm ${PROJECT}_postgres-data':${NC}"
         echo -e "     ${RED}that is your targets, categories and sources, not a cache.${NC}"
         echo ""
-        echo -e "     ${CYAN}🔍 For detailed diagnosis:${NC} ${YELLOW}./verify-postgres.sh${NC}"
+        if [ "$EDITION" = "pro" ]; then
+            echo -e "     ${CYAN}🔍 For detailed diagnosis:${NC} ${YELLOW}./verify-postgres.sh${NC}"
+        fi
     fi
     
     # DATABASE_URL embeds the password.

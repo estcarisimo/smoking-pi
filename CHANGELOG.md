@@ -69,6 +69,18 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Two health checks put a credential on the command line.** The InfluxDB
+  and ClickHouse checks passed their token and password as `curl -H` and
+  `curl -u` arguments, and a command line is readable by every account on
+  the host (`ps`, `/proc/*/cmdline`) no matter what the output does — so
+  these leaked on *every* run, including the hidden one, and including the
+  one at the end of `install`. Both now pass the credential to curl on
+  stdin (`-K -`). Note for anyone touching this again: curl's config
+  syntax **must** be quoted here. `header = A: B` unquoted parses as a
+  key/value line and the header is dropped in silence, which looks exactly
+  like an authentication failure; a quote or backslash inside the value
+  needs escaping in turn. Both are covered by tests that fail on the
+  unquoted form.
 - **The PostgreSQL health check had never once succeeded.** It ran
   `docker exec grafana-influx_postgres_1`, a container name that stopped
   existing when the editions split (and Compose v2 joins names with
@@ -83,6 +95,16 @@ version gets a matching GitHub release and git tag.
   thing the check exists to catch. Both now use `curl -sf`. (Verified: a
   deliberately wrong token against the reference Pi's InfluxDB returned
   401 and the check reported success.)
+- **`init-passwords-docker.sh` carried the same dead names, and worse
+  advice.** It looked for `grafana-influx_*` volumes, so its "existing
+  volumes detected" warning had never fired on a real install; and when it
+  did fire it said to delete the InfluxDB volume because "SmokePing will
+  repopulate data automatically", which is false — that history does not
+  come back. It now resolves the project the way Compose does, leads with
+  the non-destructive fix, and states the real consequence. It also
+  honours `SMOKING_PI_ENV_FILE`: it wrote `./.env` unconditionally, so on
+  a packaged install (env at `/etc/smoking-pi/env`) it generated a second
+  set of secrets that nothing reads.
 - **The troubleshooting advice named volumes that are not yours and one
   script that does not exist.** `grafana-influx_grafana-data`,
   `_influxdb-data` and `_postgres-data` belong to a Compose project this
@@ -95,7 +117,8 @@ version gets a matching GitHub release and git tag.
   the `verify-influxdb.sh` the script pointed at never did),
   `grafana cli admin reset-admin-password` for a Grafana login, logs and a
   restart for PostgreSQL, with the destructive option named as destructive
-  where it is genuinely the last resort.
+  where it is genuinely the last resort. `./verify-postgres.sh` is now
+  offered only for Pro, which is the only edition that ships it.
 - **The MCP tool table was four tools short.** `mute_alerts`,
   `unmute_alerts`, `ack_incident` and `list_alert_state` shipped with the
   alerting work and were explained in `docs/alerting.md`, but the MCP
