@@ -258,6 +258,7 @@ shared/modules/                # the images, shared by basic/standard/pro
 │     ├─ datasources/
 │     └─ dashboards/           # the shipped dashboard JSONs
 ├─ postgres/                   # target/category/source database + init SQL
+├─ clickhouse/                 # the alternative backend's config + init SQL
 ├─ config-manager/             # database → SmokePing config
 ├─ web-admin/                  # the admin UI
 ├─ mcp-server/                 # the assistant's interface

@@ -144,7 +144,7 @@ version gets a matching GitHub release and git tag.
   Alongside it, two recipes offered `docker compose down -v` as "fresh
   start" and "stop & delete everything" with no statement of what `-v`
   costs. They are now split: `down` (no `-v`) is the reset almost everyone
-  means and keeps the data, and the destructive one is labelled as such,
+  means and keeps the data, and the destructive one is labeled as such,
   preceded by a backup, and says what goes — `influxdb-data` is every sample
   ever recorded and `postgres-data` is every target, category and source,
   and neither comes back.
@@ -159,7 +159,7 @@ version gets a matching GitHub release and git tag.
 - **Pro's directory layout diagram described a repository that no longer
   exists.** It was rooted at `grafana-influx/` and showed `smokeping/`,
   `influxdb/` and `grafana/` as children of the edition; the images moved to
-  `shared/modules/` when the editions split, and nine services the diagram
+  `shared/modules/` when the editions split, and seven services the diagram
   never mentioned have shipped since. Redrawn as the two real trees, so it
   answers the question it is there for: what is in `editions/pro`, and where
   do the images come from. The "Comparison with Minimal" table beside it
