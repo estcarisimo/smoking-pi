@@ -111,7 +111,7 @@ else
 fi
 
 # Re-apply the admin password on an existing database. On first boot Grafana
-# itself honours GF_SECURITY_ADMIN_PASSWORD, so this only matters when the
+# itself honors GF_SECURITY_ADMIN_PASSWORD, so this only matters when the
 # password in .env changed after the grafana.db volume was created.
 # grafana-cli operates directly on the database, so it must run BEFORE the
 # server starts.

@@ -102,7 +102,7 @@ version gets a matching GitHub release and git tag.
   repopulate data automatically", which is false — that history does not
   come back. It now resolves the project the way Compose does, leads with
   the non-destructive fix, and states the real consequence. It also
-  honours `SMOKING_PI_ENV_FILE`: it wrote `./.env` unconditionally, so on
+  honors `SMOKING_PI_ENV_FILE`: it wrote `./.env` unconditionally, so on
   a packaged install (env at `/etc/smoking-pi/env`) it generated a second
   set of secrets that nothing reads.
 - **The troubleshooting advice named volumes that are not yours and one

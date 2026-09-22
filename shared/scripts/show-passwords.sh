@@ -57,7 +57,7 @@ fi
 # (ps, /proc/*/cmdline) however the output is gated. The value MUST be
 # quoted: curl's config parser treats an unquoted `header = A: B` as a
 # key/value line and drops the header silently, which looks exactly like an
-# authentication failure. Inside quotes it honours \\ and \", so escape both.
+# authentication failure. Inside quotes it honors \\ and \", so escape both.
 curl_quote() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }
 
 # A secret's value, or the fact that it has one. An EMPTY secret is never
@@ -255,7 +255,7 @@ fi
 echo
 echo -e "  ${CYAN}Troubleshooting Grafana Login:${NC}"
 echo -e "  • Grafana applies GF_SECURITY_ADMIN_PASSWORD only when it first"
-echo -e "    initialises its database. On a volume that already exists, the"
+echo -e "    initializes its database. On a volume that already exists, the"
 echo -e "    env file and the login can disagree -- reset the account itself:"
 echo -e "    ${YELLOW}docker compose exec -T grafana \\${NC}"
 echo -e "    ${YELLOW}  grafana cli admin reset-admin-password --password-from-stdin${NC}"
