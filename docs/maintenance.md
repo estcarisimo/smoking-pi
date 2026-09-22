@@ -31,8 +31,27 @@ directory shows the real ones — use those, not this page's examples.
 ```bash
 smoking-pi down             # stop and remove the containers; volumes stay
 smoking-pi up               # start again with the recorded profiles
-smoking-pi restart          # both (shared/scripts/manage-containers.sh --action restart also re-syncs the InfluxDB token on Pro)
+smoking-pi restart          # restart in place: docker compose restart
 ```
+
+`restart` is not `down` then `up`. It restarts the running containers
+without recreating them, so it does not pick up a changed compose file,
+image or env file — for those, `down` then `up`.
+
+**On Pro it does not re-sync the InfluxDB token.** That is
+`manage-containers.sh`, not the command:
+
+```bash
+# from the repository root
+shared/scripts/manage-containers.sh --action restart --edition pro
+```
+
+which restarts and then runs `sync-influx-token.sh`, so Grafana keeps
+reaching InfluxDB after the token in the env file and the token in the
+volume have diverged. If Grafana's InfluxDB panels are empty after a
+restart while the data is arriving, that divergence is the first thing to
+check — `editions/pro/sync-influx-token.sh` on its own fixes it without a
+restart.
 
 From a clone without the command, from the edition directory:
 

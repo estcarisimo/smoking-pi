@@ -21,7 +21,16 @@ version gets a matching GitHub release and git tag.
   *Operating*, with its plain-text `docs/*.md` references turned into real
   cross-links. It is the page for the states the command does not handle —
   a stuck container, an orphaned volume, emergency recovery — and it was
-  reachable only by browsing the repository.
+  reachable only by browsing the repository. Publishing it turned up one
+  thing worth fixing first: the page described `smoking-pi restart` as
+  doing `down` then `up` and implied it re-syncs Pro's InfluxDB token.
+  Neither is true — `restart` is `docker compose restart`, which restarts
+  containers in place and so picks up no changed compose file, image or
+  env file, and the token resync lives in
+  `manage-containers.sh --action restart`. A Pro user trusting the page
+  could restart, get empty Grafana panels while data was arriving, and
+  have no reason to suspect the token. Both corrected, with the symptom
+  named so the divergence is recognizable.
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
   stack that is measuring: what you need, Docker with Compose v2 (and why
