@@ -144,7 +144,7 @@ rough engineer-days for someone who knows the repo.
 | 2 | **No source mounts in packaged mode — done (2026-09-20).** The exporters are baked into the smokeping image (`COPY` from a `shared/` build context; the `:/exporters:ro` mount stays for development); `docker-compose.packaged.yml` (Pro, Standard) drops every bind mount of `shared/modules` — seven in Pro: exporters, three Grafana provisioning directories, the web-admin `app` package, the PostgreSQL and ClickHouse init SQL, all of which the images already carry. `SMOKING_PI_PACKAGED=1` (set by the package) makes the CLI, `setup.sh` and `manage-containers.sh` add it, last. `packaging/check-packaged-override.py` renders both and fails if the override drops anything else; the doctor's `deployed-code-current` now also hashes `/exporters`. Details: [Packaged mode](#packaged-mode). | 1 | #3, upgrades that restart what changed |
 | 3 | **Published multi-arch images — done (2026-09-20).** `release.yml` builds all nine images for `linux/arm64` and `linux/amd64` on a `vX.Y.Z` tag — each architecture natively on its own GitHub-hosted runner (`ubuntu-24.04-arm`, free for public repositories; QEMU would spend most of an hour on the matplotlib images), pushed by digest and merged into one manifest per service — to `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` and `:latest`. The compose files name that image next to `build:` with `pull_policy: missing`; `SMOKING_PI_VERSION` unset means `:dev`, never published, so a clone builds; the package sets its version and pulls. `packaging/check-images.py` (CI) keeps compose, Dockerfiles and the matrix in agreement. Closed the CI gap where five images were never built at all. Details: [Published images](#published-images). | 2–3 | a first start measured in seconds; Dependabot-driven rebuilds become releases |
 | 4 | **The `smoking-pi` command, for real — done (2026-09-20).** `upgrade` (pull the release's images, or `build --pull` from a clone; `up -d`; doctor), `backup`/`restore` (`pg_dumpall`, then every volume the active services mount as a tarball with the stack stopped, plus env file and config; restore refills the volumes under this project's name), `purge` (the volumes, after typing the project name; `--config` also the env file and directories). `install` chooses edition, backend and the optional profiles (`mcp`, `alerts`, `ai`) by whiptail or `--profiles`. `packaging/tests/cli.bats` (22 tests, CI) runs it against a stubbed docker. Details: [The command](#the-command). | 2 | the "instalador CLI/TUI" roadmap item |
-| 5 | **A release that produces the package — the `.deb` half done (2026-09-21).** `release.yml`'s `package` job builds the `.deb` from the tagged tree with the trial builder (`packaging/deb/build.sh`; `nfpm` was not needed), installs it on the runner and checks what a package can prove without Docker — `smoking-pi version` equals the tag, `paths` shows the packaged layout and the images pinned to the version, the unit verifies, the doctor's static checks pass from `/opt`, `install` refuses over an existing env file, removal keeps `/etc/smoking-pi` and `/var/lib/smoking-pi` — keeps it as a workflow artifact, and attaches it to the GitHub release the maintainer created for the tag. The workflow never creates a release: publishing stays a human act. Proven by three throwaway runs, except the two branches a `test-*` tag cannot take — the version-equality check and the attach step — which the first real `vX.Y.Z` tag after this proves; watch that run. **Still to do:** the apt repository on GitHub Pages (`reprepro`, signed with a key in Actions secrets, sharing the Pages artifact with the docs site) so `apt upgrade` sees new versions. | 1–2 | `apt install smoking-pi` |
+| 5 | **A release that produces the package — the `.deb` half done (2026-09-21).** `release.yml`'s `package` job builds the `.deb` from the tagged tree with the trial builder (`packaging/deb/build.sh`; `nfpm` was not needed), installs it on the runner and checks what a package can prove without Docker — `smoking-pi version` equals the tag, `paths` shows the packaged layout and the images pinned to the version, the unit verifies, the doctor's static checks pass from `/opt`, `install` refuses over an existing env file, removal keeps `/etc/smoking-pi` and `/var/lib/smoking-pi` — keeps it as a workflow artifact, and attaches it to the GitHub release the maintainer created for the tag. The workflow never creates a release: publishing stays a human act. Proven by three throwaway runs, except the two branches a `test-*` tag cannot take — the version-equality check and the attach step — which the first real `vX.Y.Z` tag after this proves; watch that run. **The apt repository — done (2026-09-22), waiting for the signing key.** `docs.yml` runs when the Release workflow finishes for a `vX.Y.Z` tag (not on the tag push, which would race the `attach` job), downloads every release's `.deb`, builds a flat repository under `site/apt` (`packaging/apt/build-repo.sh`: `dpkg-scanpackages`, `apt-ftparchive`, `InRelease`/`Release.gpg` signed with the `APT_SIGNING_KEY` secret, the public key exported beside it) and deploys it with the docs site as the one Pages artifact. Without the secret the site is published with no `/apt` at all — an unsigned repository would only teach people `[trusted=yes]`. CI builds and signs a repository with a throwaway key on every PR and installs from it with `apt`. Details: [The apt repository](#the-apt-repository). | 1–2 | `apt install smoking-pi` |
 | 6 | **Uninstall and data policy — done (2026-09-21).** `apt remove` keeps everything: volumes, `/etc/smoking-pi`, `/var/lib/smoking-pi`, the conffile. `apt purge` (`postrm`) removes what the stack regenerates — the seeded config directory, the output directory — and the conffile, but **never the Docker volumes nor `/etc/smoking-pi/env`**: the env file holds the credentials those volumes are locked with, so deleting it alone would turn kept data into unreadable data (the plan said "purge removes `/etc/smoking-pi`"; this is the refinement, and `postrm` prints it). `smoking-pi purge --config` is the explicit way to delete the measurements, before the package. `check-package.sh` asserts all of it after every install. Documented in [Upgrading](upgrades.md#uninstalling). | 0.5 | trust |
 | 7 | **Script hygiene.** Derive container/volume/network names from `COMPOSE_PROJECT_NAME` in `sync-influx-token.sh`, `verify-postgres.sh`, `create-tunnel.sh`, `migrate-to-edition.sh`, `show-passwords.sh`; drop the Compose v1 calls; refresh `shared/docs/maintenance.md`. | 1 | #4 without surprises |
 | 8 | **Homebrew tap**, only if there is a macOS audience. A formula installs the same tree under the Cellar and the CLI (which needs `bash` ≥ 4.4 and GNU `readlink` — both Homebrew dependencies, since macOS ships bash 3.2 and BSD readlink); `brew services` wraps `smoking-pi up`. Requires Docker Desktop, and **Pro's measurement fidelity is reduced on macOS**: `network_mode: host` is the Linux VM's network, not the Mac's — no real first hop, no nl80211 — so the CPE and Wi-Fi features report the VM. Basic and Standard are fine. Untested here (no `brew` on a Pi). | 1, after #5 | Mac users |
@@ -324,6 +324,71 @@ done
 
 (`pro-smokeping` and `pro-postgres` were the explicit names; the rest were
 Compose's `pro-<service>` default.) The containers still restart once.
+
+### The apt repository
+
+Done 2026-09-22 (the workflow; publishing waits for the maintainer's key).
+A **flat** repository — `deb [signed-by=...] <url> ./`, no suites, no
+components — served by GitHub Pages under
+`https://estcarisimo.github.io/smoking-pi/apt/`, next to this site. The
+README has the three lines a user types.
+
+How it is built, and why this shape:
+
+- **From the releases, every time.** `docs.yml` downloads the
+  `smoking-pi_*_all.deb` asset of every `vX.Y.Z` GitHub release and
+  builds the repository from all of them (`packaging/apt/build-repo.sh`;
+  `dpkg-scanpackages --multiversion`, `apt-ftparchive release`). The
+  releases are the source of truth: a manual `workflow_dispatch` of the
+  docs rebuilds the same repository, so a docs hotfix can never publish a
+  site without `/apt`. `reprepro`, the plan's tool, keeps a database of
+  its own and forbids re-adding a version; a stateless rebuild from the
+  release assets has neither problem.
+- **After the Release workflow, not beside it.** The docs used to deploy on
+  the tag push, in parallel with the release. The `.deb` of that tag is
+  attached by the release's `attach` job, after every host in the matrix
+  passed, so the docs now run on `workflow_run` of *Release* completing
+  successfully. Whether that run was a release is read from the commit it
+  built (`git tag --points-at HEAD` after checking out `head_sha`), not
+  from `workflow_run.head_branch`, whose value for a tag push is a known
+  source of surprises; a `test-*` tag's run ends in a visible "nothing
+  published" notice and a skipped deploy, never a silent no-op. **Not yet
+  exercised:** `workflow_run` only fires for a workflow on the default
+  branch, so the first `vX.Y.Z` release after this lands is the first real
+  run — watch it, and its "Is this a release?" line.
+- **Signed, or absent.** `APT_SIGNING_KEY` (an Actions secret, the
+  ASCII-armored private key without passphrase) signs `InRelease` and
+  `Release.gpg`; the public key is exported as `smoking-pi.gpg` (binary,
+  for `signed-by=`) and `smoking-pi.asc`. With the secret unset the site is
+  deployed without `/apt` and a warning says so. An unsigned repository is
+  refused by apt, and the workaround people find (`[trusted=yes]`) is
+  worse than no repository.
+- **Checked on every PR.** The CI job *apt repository* builds two package
+  versions and the repository with a throwaway key, adds it to the
+  runner's apt as a `file:` source with `signed-by=`, and `apt install
+  smoking-pi` takes the newest version from it, verified. Locally, the
+  same script against any distro container proved the consumer side
+  (Debian 13: `Candidate: 0.0.0~b`, installed).
+
+What the maintainer does once — generate a key that lives only in the
+secret, and publish it there:
+
+```bash
+export GNUPGHOME=$(mktemp -d)
+gpg --batch --passphrase '' --quick-gen-key 'Smoking Pi apt repository <you@example.org>' ed25519 sign never
+gpg --batch --armor --export-secret-keys | gh secret set APT_SIGNING_KEY --repo estcarisimo/smoking-pi
+gpg --batch --armor --export > smoking-pi-apt.asc   # keep a copy of the PUBLIC key; the private one is now the secret
+rm -rf "$GNUPGHOME"
+```
+
+`sign never` is deliberate: an expiring key breaks every user's
+`apt update` on the day it expires. Rotation is a new secret and a new
+`smoking-pi.gpg` on the site; users re-run the `curl` line. The user ID's
+address is what key tooling shows people; use a real one of yours.
+
+Then the next `vX.Y.Z` release (or a `workflow_dispatch` of *Docs*)
+publishes `/apt`. Until then `apt install ./smoking-pi_<version>_all.deb`
+from the release asset is the package path.
 
 ### The command
 
