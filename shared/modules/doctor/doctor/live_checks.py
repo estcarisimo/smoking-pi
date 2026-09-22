@@ -1,14 +1,17 @@
-"""Live checks — the ones that need a running stack.
+"""Live checks — the ones that need the running host.
 
-The static checks compare one file against another and run in CI. These two
-compare what is *deployed* against what the repository says, and can only run
-on the machine actually running the stack.
+The static checks compare one file against another and run in CI. These
+three ask the machine itself: two compare what is *deployed* against what
+the repository says, and the third asks the kernel which interface the
+measurements leave by.
 
-Both exist because the corresponding failure happened here, and both share a
-shape that makes them worth automating: **the broken thing keeps looking
-healthy.** A container running three-week-old code starts, logs cleanly and
-answers requests. A container holding a dead resolver pings raw IPs happily
-and only fails on hostnames. Nothing goes red, so nobody looks.
+All three exist because the corresponding failure happened here, and they
+share a shape that makes them worth automating: **the broken thing keeps
+looking healthy.** A container running three-week-old code starts, logs
+cleanly and answers requests. A container holding a dead resolver pings raw
+IPs happily and only fails on hostnames. A Pi measuring through a Wi-Fi hop
+nobody knew about draws exactly the same graphs. Nothing goes red, so nobody
+looks.
 
 - ``deployed-code-current`` — the running container's Python matches the
   repository. This is commit ``dde5e36`` ("the flap fix never reached the
@@ -16,6 +19,14 @@ and only fails on hostnames. Nothing goes red, so nobody looks.
   failure was masked by a shell pipeline's exit code, ``docker compose up -d``
   recreated the container from the stale image, and everything reported
   success while the fix sat only on disk.
+
+- ``uplink-interface`` — the interface the measurements actually leave by is
+  named, and is a real one. Every latency figure this stack records crosses
+  the host's uplink, and nothing said which it was: the reference Pi spent a
+  year measuring *through Wi-Fi* with `eth0` dark before anyone noticed. It
+  warns when the default route sits on a tunnel or a Docker bridge, because
+  then the numbers describe that tunnel and the Wi-Fi verdict — which needs
+  the wireless interface to *be* the uplink — goes quiet without saying so.
 
 - ``container-dns-fresh`` — a container's resolver still matches the host's.
   Docker writes ``/etc/resolv.conf`` **once, at container creation**. A
@@ -25,8 +36,11 @@ and only fails on hostnames. Nothing goes red, so nobody looks.
   and "100% loss" is indistinguishable from "the target is down".
 
 Docker is invoked through an injected runner so these are testable without a
-daemon, and every check SKIPS rather than fails when Docker is unavailable —
-running the doctor on a laptop must not report a broken deployment.
+daemon, and the two Docker checks SKIP rather than fail when Docker is
+unavailable — running the doctor on a laptop must not report a broken
+deployment. ``uplink-interface`` is not part of that guarantee: it asks the
+kernel, not Docker, so it answers on any Linux host and skips only where
+``/proc/net`` is absent.
 """
 
 from __future__ import annotations
@@ -417,4 +431,63 @@ def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
     return [
         check_deployed_code_current(repo, docker),
         check_container_dns_fresh(repo, docker),
+        check_uplink_interface(),
     ]
+
+
+PROC_ROUTE = pathlib.Path("/proc/net/route")
+PROC_IPV6_ROUTE = pathlib.Path("/proc/net/ipv6_route")
+SYS_NET = pathlib.Path("/sys/class/net")
+
+
+def check_uplink_interface(
+    proc_route: pathlib.Path = PROC_ROUTE,
+    proc_route6: pathlib.Path = PROC_IPV6_ROUTE,
+    sys_net: pathlib.Path = SYS_NET,
+) -> CheckResult:
+    """Name the interface every measurement crosses, and say what kind it is.
+
+    Three states are worth a word rather than silence:
+
+    * **wireless** — the Wi-Fi collector applies, its dashboards have data,
+      and the verdict can say "it's your Wi-Fi, not the ISP".
+    * **wired** — no Wi-Fi statistics, on purpose. Without this line an empty
+      Wi-Fi dashboard is indistinguishable from a broken collector.
+    * **virtual** — the default route is on a Docker bridge, a VPN tunnel or
+      Tailscale. The latency figures then describe that path, and the Wi-Fi
+      verdict is off (it requires the wireless interface to carry the default
+      route) with nothing anywhere saying why. That is the failure this check
+      exists for; the others are context.
+    """
+    if not proc_route.is_file() and not proc_route6.is_file():
+        return skipped("uplink-interface", "no /proc/net routing table (not Linux?)")
+
+    iface = sources.default_route_iface(proc_route)
+    family = "IPv4"
+    if iface is None:
+        iface, family = sources.default_route_iface6(proc_route6), "IPv6"
+    if iface is None:
+        return result(
+            "uplink-interface",
+            [Finding("no default route on this host — nothing can be measured")],
+            "",
+            status=Status.WARN,
+        )
+
+    if sources.is_virtual(iface):
+        return result(
+            "uplink-interface",
+            [
+                Finding(
+                    f"the {family} default route is on {iface}, a tunnel or "
+                    f"virtual bridge — every latency figure describes that "
+                    f"path, and the Wi-Fi verdict is disabled because no "
+                    f"wireless interface carries the default route"
+                )
+            ],
+            "",
+            status=Status.WARN,
+        )
+
+    kind = "wireless" if sources.is_wireless(iface, sys_net) else "wired"
+    return result("uplink-interface", [], f"measuring over {iface} ({kind}, {family})")

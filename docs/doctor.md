@@ -86,8 +86,8 @@ variable query, not a panel.
 python -m doctor --live
 ```
 
-Two checks need the running stack. Both exist because the failure happened
-here, and both share a shape worth naming: **the broken thing keeps looking
+Three checks need the running host. Each exists because the failure happened
+here, and they share a shape worth naming: **the broken thing keeps looking
 healthy**, so nothing goes red and nobody looks.
 
 ### `deployed-code-current`
@@ -126,8 +126,56 @@ forwards to whatever the daemon currently resolves with — so it is fresh by
 construction. The first real run of this check flagged all six healthy
 containers before that exclusion existed, which is how a check gets ignored.
 
-Both skip cleanly when Docker is absent, so `--live` is safe to run anywhere;
-without the flag the behavior is exactly as before, and CI is unaffected.
+### `uplink-interface`
+
+Names the interface every measurement actually crosses, and says what kind it
+is:
+
+```
+[ok  ] uplink-interface              measuring over wlan0 (wireless, IPv4)
+```
+
+Nothing said this before, and the omission cost a year: the reference Pi has
+`eth0` with no carrier and its default route on `wlan0`, so every latency
+figure recorded since the stack went up had crossed a Wi-Fi hop nobody was
+measuring. Three states are worth a line rather than silence:
+
+- **wireless** — the Wi-Fi collector applies, its dashboards have data, and
+  the verdict can say *"it's your Wi-Fi, not the ISP"* ([Wi-Fi uplink
+  stats](wifi.md)).
+- **wired** — there are no Wi-Fi statistics, deliberately. Without this line
+  an empty Wi-Fi dashboard is indistinguishable from a broken collector.
+- **virtual** — a warning. The default route is on a Docker bridge, a VPN
+  tunnel, Tailscale or WireGuard, so the latency figures describe *that* path,
+  and the Wi-Fi verdict is off (it requires the wireless interface to carry
+  the default route) with nothing anywhere saying why. This is the failure the
+  check is for; the other two are context.
+
+It reads `/proc/net/route`, falling back to `/proc/net/ipv6_route` on a
+v6-only host, and compares **metrics** rather than trusting the file's order:
+with Ethernet and Wi-Fi both up there are two default routes and only the
+lowest metric carries traffic. The kernel does emit them metric-ascending —
+verified by adding the high-metric route first in a throwaway namespace and
+reading the file back — but nothing documents that, and naming the wrong one
+would report the wrong uplink on exactly the host this check exists for. In
+`/proc/net/ipv6_route`, `::/0` also appears twice on `lo` as an unreachable
+route, so the flags decide, not the destination — and `RTF_UP` alone, not
+`RTF_UP | RTF_GATEWAY`. A default route installed **on-link, with no
+gateway** — which is what `wg-quick` writes, and what a PPP peer route looks
+like — is a real default route: observed on a real kernel, `ip -6 route add
+default dev wg0` produces flags `0x00000001`. Requiring a gateway dropped it
+and turned *"your uplink is a tunnel"*, the most useful thing this check can
+say, into *"no default route on this host"*. The rows that must be excluded
+do not set `RTF_UP` at all (`lo`'s are `0x00200200`), so nothing is lost.
+IPv4 has the same shape: `ip route add unreachable default` is listed in
+`/proc/net/route` with the interface name literally `*` and `RTF_REJECT`
+set, and reporting `*` as the interface being measured would be worse than
+reporting nothing.
+
+The two Docker checks skip cleanly when Docker is absent, so `--live` is safe
+to run anywhere; `uplink-interface` asks the kernel rather than Docker and
+answers on any Linux host, skipping only where `/proc/net` is not there.
+Without the flag the behavior is exactly as before, and CI is unaffected.
 
 ## What is not covered yet
 
