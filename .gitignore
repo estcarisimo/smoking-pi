@@ -77,6 +77,11 @@ smokemail
 influxdb/
 influxdb2/
 influx.bolt
+# ...but not the module that builds the image. Until 2026-09-20 this rule
+# swallowed shared/modules/influxdb/Dockerfile: every clone but the
+# reference Pi lacked it, no CI job built influxdb, and Dependabot could not
+# see the pin. The first release-workflow run found it.
+!shared/modules/influxdb/
 
 # InfluxDB backup files
 *.influx

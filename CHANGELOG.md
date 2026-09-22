@@ -9,6 +9,45 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Published multi-arch images and a release-only build (packaging
+  backlog #3).** Nothing built the nine images anywhere but on the target
+  host: CI built four of them, amd64 only, on every PR, and published
+  none, so a first start on a Pi was a 20-minute build and an `apt install`
+  would have been too. `.github/workflows/release.yml` now builds all nine
+  for `linux/arm64` and `linux/amd64` on every `vX.Y.Z` tag — natively,
+  each architecture on its own GitHub-hosted runner, pushed by digest and
+  merged into one manifest per service — to
+  `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` (and `:latest`),
+  refusing a tag that disagrees with `CITATION.cff` (a `test-*` tag runs the
+  same pipeline for a throwaway image tag). Every built service in
+  the compose files names that image next to its `build:` with
+  `pull_policy: missing`, which makes Compose pull first and build only if
+  the pull fails: `SMOKING_PI_VERSION` unset means `:dev`, a tag never
+  published, so a clone still builds what it checked out; the package sets
+  its version in `/etc/default/smoking-pi` and pulls. `smoking-pi paths`
+  prints which. `packaging/check-images.py` (CI) fails when the compose
+  files, the Dockerfiles and the workflow matrix stop agreeing. In line
+  with the release-only CI decision, PR CI no longer builds images and the
+  docs site deploys from the release tag rather than every push to `main`;
+  a Dockerfile change is proven by the deploy on the reference Pi before
+  merge. On a development host the next `up -d` recreates every container
+  under the new image names (`docs/upgrades.md`).
+
+### Fixed
+
+- **`shared/modules/influxdb/Dockerfile` was never in git.** A `.gitignore`
+  rule for InfluxDB *data* directories (`influxdb/`) matched the module
+  directory too, so every clone but the reference Pi lacked the file the
+  Pro compose file builds from — `docker compose up` failed on
+  `influxdb` — no CI job built that image, and Dependabot's docker
+  ecosystem (with its careful influxdb major-version guard) watched a file
+  it could not see. The first run of the release workflow found it. The
+  directory is un-ignored and the Dockerfile tracked; `check-images.py`
+  now fails CI when an edition builds from a directory without a
+  Dockerfile in the checkout.
+
 ### Changed
 
 - **Packaged mode runs no source bind-mounts (packaging backlog #2).**

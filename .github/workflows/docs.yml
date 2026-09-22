@@ -1,12 +1,16 @@
 name: Docs
 
-# Builds the MkDocs site and publishes it to GitHub Pages on every push to
-# main. The Pages source must be "GitHub Actions" in the repository settings.
+# Builds the MkDocs site and publishes it to GitHub Pages on every release
+# tag, so the live site describes the released version, not main (the
+# release-only CI policy; the changelog page carries the release sections).
+# The Pages source must be "GitHub Actions" in the repository settings.
 # Pull requests only build (CI job "Docs build (strict)"); the deployment
 # needs the pages permissions, which are granted here and nowhere else.
+# `workflow_dispatch` republishes from whatever ref it is run on, for a docs
+# fix that cannot wait for the next release.
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:

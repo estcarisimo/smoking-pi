@@ -96,8 +96,9 @@ What worked, on the Pi, with no Docker involved in the build:
   build contexts and mounts resolve under a fixed install prefix. The
   layout does not have to change for a package to work.
 - The unit verifies (`systemd-analyze verify`, once `/usr/bin/smoking-pi`
-  exists). Its start timeout is `infinity` on purpose: until images are
-  pulled rather than built (#3), a cold first `up` can outlast any timeout,
+  exists). Its start timeout is `infinity` on purpose: when images are
+  built rather than pulled (a clone, or a package whose registry is
+  unreachable), a cold first `up` can outlast any timeout,
   and systemd killing a build half-way is the worst outcome — so `install`
   is run interactively first and the unit handles every boot after.
 - `smoking-pi install` refuses to run over an existing `.env`: `setup.sh`
@@ -141,7 +142,7 @@ rough engineer-days for someone who knows the repo.
 | --- | --- | --- | --- |
 | 1 | **Relocatable state — done (2026-09-20).** `SMOKING_PI_CONFIG_DIR` (default `./config-manager/config`), `SMOKING_PI_OUTPUT_DIR`, `SMOKING_PI_ENV_FILE` honored by the compose files (`${VAR:-default}` in every bind mount), by `setup.sh`/`generate-passwords.sh`/`show-passwords.sh`/`manage-containers.sh` (`--env-file`) and by the CLI. `editions/pro/config-manager/{config,output}` are no longer tracked; the seed set is `config-manager/templates/`, which bootstrap copies into an empty config dir on first start (it always did — the plan's "seeds move to the module defaults" pointed at a stale third copy, now deleted). Packaged layout: `/etc/smoking-pi/{env,config}`, `/var/lib/smoking-pi/output`, set in `/etc/default/smoking-pi`. Also ended the "runtime churn in `git status`" nuisance on the reference Pi. Details: [Relocatable state](#relocatable-state). | 2 | everything below; in-place upgrades |
 | 2 | **No source mounts in packaged mode — done (2026-09-20).** The exporters are baked into the smokeping image (`COPY` from a `shared/` build context; the `:/exporters:ro` mount stays for development); `docker-compose.packaged.yml` (Pro, Standard) drops every bind mount of `shared/modules` — seven in Pro: exporters, three Grafana provisioning directories, the web-admin `app` package, the PostgreSQL and ClickHouse init SQL, all of which the images already carry. `SMOKING_PI_PACKAGED=1` (set by the package) makes the CLI, `setup.sh` and `manage-containers.sh` add it, last. `packaging/check-packaged-override.py` renders both and fails if the override drops anything else; the doctor's `deployed-code-current` now also hashes `/exporters`. Details: [Packaged mode](#packaged-mode). | 1 | #3, upgrades that restart what changed |
-| 3 | **Published multi-arch images.** A release workflow building all nine images for `linux/arm64` and `linux/amd64` on tag (`docker/build-push-action`, native arm64 runners rather than QEMU for the matplotlib images) to `ghcr.io/estcarisimo/smoking-pi/<service>:<version>`. Compose files gain `image:` next to `build:` with `SMOKING_PI_VERSION`; `pull_policy: missing` so a clone still builds. Closes the CI gap where five images are never built at all. | 2–3 | a first start measured in seconds; Dependabot-driven rebuilds become releases |
+| 3 | **Published multi-arch images — done (2026-09-20).** `release.yml` builds all nine images for `linux/arm64` and `linux/amd64` on a `vX.Y.Z` tag — each architecture natively on its own GitHub-hosted runner (`ubuntu-24.04-arm`, free for public repositories; QEMU would spend most of an hour on the matplotlib images), pushed by digest and merged into one manifest per service — to `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` and `:latest`. The compose files name that image next to `build:` with `pull_policy: missing`; `SMOKING_PI_VERSION` unset means `:dev`, never published, so a clone builds; the package sets its version and pulls. `packaging/check-images.py` (CI) keeps compose, Dockerfiles and the matrix in agreement. Closed the CI gap where five images were never built at all. Details: [Published images](#published-images). | 2–3 | a first start measured in seconds; Dependabot-driven rebuilds become releases |
 | 4 | **The `smoking-pi` command and unit, for real.** The prototype (`packaging/smoking-pi`) grows `upgrade` (pull images, `up -d`, doctor), `purge` (volumes, with a typed confirmation), `backup`/`restore` (the `pg_dumpall` + volume tar that `docs/upgrades.md` describes by hand). `install` is the installer the roadmap asks for: whiptail TUI on a terminal, flags for automation, edition/database/profile choice, an OpenClaw step that offers the skill install, passwords printed at the end. Shell-syntax CI covers it; add a `bats` smoke test. | 2 | the "instalador CLI/TUI" roadmap item |
 | 5 | **A release that produces the package.** `nfpm` (or the trial script) in the release workflow on tag: `.deb` attached to the GitHub release, plus an apt repository on GitHub Pages (`reprepro`, signed with a key in Actions secrets) so `apt upgrade` sees new versions. Version embedded in the package and in `smoking-pi version`. | 1–2 | `apt install smoking-pi` |
 | 6 | **Uninstall and data policy.** `apt remove` keeps volumes and `/etc/smoking-pi`; `apt purge` removes `/etc/smoking-pi` but never Docker volumes (dpkg must not delete a year of measurements); `smoking-pi purge` does, explicitly. Document in `docs/upgrades.md`. | 0.5 | trust |
@@ -242,6 +243,81 @@ alerter image is (from a clone the mount makes it trivially current). The
 edition's `custom-cont-init.d` scripts stay bind-mounted: they are
 edition configuration, not shared code, and are read once at container
 start.
+
+### Published images
+
+Done 2026-09-20. Every service an edition builds now also names its
+published image:
+
+```yaml
+    build: ../../shared/modules/config-manager
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/config-manager:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
+```
+
+With `image:`, `build:` and `pull_policy: missing` together, Compose (v2.38
+verified) **pulls the name first and builds only when the pull fails**. That
+one rule gives both modes without a second compose file:
+
+- **A clone** leaves `SMOKING_PI_VERSION` unset → `:dev`, a tag the release
+  workflow refuses to publish → the pull fails → Compose builds from the
+  checkout, as it always did. The built image is simply named
+  `ghcr.io/estcarisimo/smoking-pi/<service>:dev` instead of `pro-<service>`.
+  A `:latest` default would have done the opposite: a fresh clone would
+  silently run the last release's code with a newer checkout, and only the
+  doctor's `deployed-code-current` would notice.
+- **The package** sets `SMOKING_PI_VERSION=<its version>` in
+  `/etc/default/smoking-pi` → the pull succeeds → the first start is a
+  download, not a 20-minute build on a Pi. `smoking-pi paths` prints which.
+- A tester on any machine can do the same by hand:
+  `SMOKING_PI_VERSION=2.12.0 docker compose up -d`. `SMOKING_PI_REGISTRY`
+  points a fork at its own registry.
+
+The images are built by `.github/workflows/release.yml` on a `vX.Y.Z` tag:
+a `build` job per service × architecture — `linux/amd64` on `ubuntu-24.04`,
+`linux/arm64` on `ubuntu-24.04-arm`, GitHub-hosted and free for public
+repositories, chosen over QEMU emulation because the matplotlib/numpy
+images take most of an hour emulated — pushes by digest, and a `merge` job
+per service stitches the two digests into one manifest list carrying
+`:<version>` and `:latest` and checks both platforms are in it. The
+workflow refuses a tag whose version differs from `CITATION.cff` (the
+package and `smoking-pi version` report that file, so a mismatch would make
+a packaged install pull nothing). A `test-*` git tag on any branch runs the
+same pipeline for a throwaway image tag of that name (never `latest`, no
+version check) to exercise it before a release; delete the tag and the
+package versions afterwards.
+
+Three places name the images and drift independently — the compose files,
+`shared/modules/*/Dockerfile`, the workflow's matrix — so
+`packaging/check-images.py` renders the three editions with every profile
+on and fails CI when a built service's `image:` is not
+`<registry>/<its Dockerfile's module>:<version>` with `pull_policy:
+missing`, when a Dockerfile is built by no edition, or when the matrix does
+not list exactly the Dockerfiles.
+
+**Release-only CI.** This is the only place GitHub builds images. Before
+this change CI built four of the nine on every PR, amd64 only, and
+published none; now PR CI keeps the cheap checks (lint, shell syntax,
+module tests, the compose and packaging guards, the strict docs build) and
+the heavy work — nine images on two architectures, the docs deploy to
+Pages, later the `.deb` (#5) — happens once, from the release tag. What
+catches a broken Dockerfile between releases is the process rule that every
+change is built and deployed on the reference Pi before merge.
+
+**Moving a development host past this change.** The new image names are
+part of the service configuration, so the next `docker compose up -d`
+recreates every container — and, finding no image under the new name,
+rebuilds all nine first. To keep the images already built (they are the
+same code), tag them under the new names before `up`:
+
+```bash
+for s in smokeping influxdb grafana web-admin config-manager postgres mcp-server ai-insights alerter; do
+  docker tag "pro-$s" "ghcr.io/estcarisimo/smoking-pi/$s:dev" 2>/dev/null || true
+done
+```
+
+(`pro-smokeping` and `pro-postgres` were the explicit names; the rest were
+Compose's `pro-<service>` default.) The containers still restart once.
 
 ### Own repository or a distribution's?
 

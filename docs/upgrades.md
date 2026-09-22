@@ -137,6 +137,16 @@ import/export, and the database has had every target since Sprint 3
 From then on the directories are ignored by git and `git pull` leaves them
 alone.
 
+## Pulling past the published-images change
+
+After [Published images](packaging.md#published-images) (after v2.11.0),
+every built service names its image `ghcr.io/estcarisimo/smoking-pi/<service>:dev`
+instead of `pro-<service>`. On a development host the next
+`docker compose up -d` therefore recreates every container and, unless the
+old images are re-tagged first, rebuilds all nine — the loop in that
+section keeps the existing images. Either way the stack restarts once;
+nothing in the volumes changes.
+
 ## Verifying any upgrade
 
 `doctor --live` is the check that the thing you built is the thing that is

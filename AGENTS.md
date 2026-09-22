@@ -32,9 +32,14 @@ python -m doctor --repo-root . --live                           # ...against the
 docker compose build <service> && docker compose up -d <service>
 ```
 
-Python 3.14. CI: ruff, shell syntax, compose config ×3, Docker builds, doctor,
-every module's tests, CodeQL. All must be green; CodeQL on a PR is diff-only,
-so "0 results" on a PR means *no new alerts*, not "fixed".
+Python 3.14. PR CI is the cheap checks only: ruff, shell syntax, compose
+config ×3 with the packaging guards, doctor, every module's tests, the strict
+docs build, CodeQL. All must be green; CodeQL on a PR is diff-only, so
+"0 results" on a PR means *no new alerts*, not "fixed". **CI builds no
+images on a PR** — `release.yml` builds all nine for arm64+amd64 from the
+release tag and publishes them to GHCR, and `docs.yml` deploys the site from
+the same tag. A Dockerfile change is proven by the deploy on the reference
+Pi before merge, not by CI.
 
 ## Layout
 
@@ -147,7 +152,11 @@ Commits follow Conventional Commits; the subject is a sentence about the
 outcome. Releases: `release/vX.Y.Z` branch converts `[Unreleased]` to a dated
 section with an intro and updates `version`/`date-released` in
 `CITATION.cff` (CI checks they match), merge, `git tag -a`,
-`gh release create`.
+`gh release create`. The tag triggers `release.yml` (nine images ×
+two architectures to `ghcr.io/estcarisimo/smoking-pi/<service>:<version>`;
+it refuses a tag that disagrees with `CITATION.cff`) and `docs.yml` (the
+site). Watch both to green before announcing; the package (backlog #5)
+will attach itself to the same tag.
 
 ## Gotchas
 

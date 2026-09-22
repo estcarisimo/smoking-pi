@@ -50,9 +50,10 @@ updates:
   # Majors are split out for the same reason as the Python ecosystem above,
   # and the lesson arrived expensively. The first grouped run put a routine
   # python 3.11->3.14 bump in the SAME PR as postgres:15->18, and CI passed
-  # it: the Docker build matrix does not build the postgres image, and no CI
-  # job has an existing data volume. A stateful major cannot be validated by
-  # a green build, so it must never travel with bumps that can.
+  # it: PR CI built no postgres image (today it builds none at all -- the
+  # release workflow builds all nine from the tag), and no CI job has an
+  # existing data volume. A stateful major cannot be validated by a green
+  # build, so it must never travel with bumps that can.
   - package-ecosystem: docker
     directories:
       - "/shared/modules/*"
