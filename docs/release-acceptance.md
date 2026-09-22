@@ -1,0 +1,133 @@
+# Release acceptance on a Raspberry Pi
+
+What a release has to show on real Raspberry Pi hardware before it is
+tagged, and how the result is recorded. The release workflow proves the
+package on Ubuntu VMs and Debian containers ([Packaging → Supported
+hosts](packaging.md#supported-hosts)); none of that is a Pi. The kernel, the
+Wi-Fi driver, the first hop, boot ordering against `docker.service`, and
+whether the measurements are still right are only shown here.
+
+Until there is a second Pi registered as a self-hosted runner, this is a
+manual gate on the **reference Pi** — which is also the production monitor.
+That is a known compromise: the roadmap asks for the candidate to be
+isolated from the reference monitor's data, and this procedure gets there
+only through the backup and the rollback path below. Do not skip them.
+
+## Before
+
+- [ ] The candidate is a merged `main` (every PR reviewed, CI green), with
+  `[Unreleased]` converted into the dated section, `CITATION.cff` bumped.
+- [ ] `smoking-pi backup` completed (from a clone: `packaging/smoking-pi backup`) and
+  the directory is somewhere other than the Pi's SD card. Note its path in
+  the record.
+- [ ] `git describe --tags` and `uname -r` / `cat /etc/os-release` on the
+  Pi, for the record: the OS version, kernel, Pi model
+  (`cat /proc/device-tree/model`), architecture.
+- [ ] The rollback is one command away: the previous tag checked out and
+  `smoking-pi upgrade`, or the backup restored. Write down which.
+
+## Clean install and upgrade
+
+The reference Pi is always an **upgrade**; a clean install is proven by the
+release workflow's `host` jobs (Ubuntu VMs) and, on Raspberry Pi OS, by the
+`debian` containers at the package level only. Once a spare Pi exists, a
+clean install there is the missing half — until then the record says
+"clean install on Raspberry Pi OS: untested".
+
+- [ ] `git pull` to the candidate (or `apt install` of the candidate `.deb`
+  from the workflow artifact) and `smoking-pi upgrade` — from a clone that
+  is `compose build --pull` then `up -d --remove-orphans`, the doctor
+  `--live` at the end. Note the wall time and whether any container
+  restarted more than once (`docker compose ps`, `docker compose logs
+  --since 10m | grep -i error`).
+- [ ] Configuration and credentials survived: `smoking-pi passwords` shows
+  the same values as before, the target list in the web admin is intact,
+  Grafana's dashboards still show history older than the upgrade.
+
+## Startup and recovery
+
+- [ ] `sudo reboot`. Within five minutes: `systemctl status smoking-pi` (a
+  package) or `docker compose ps` — every service that was up before is up,
+  none restarting. `docker compose logs --since 10m` has no repeated
+  errors.
+- [ ] Docker's own start order held: the stack came up **after**
+  `docker.service` and the network (`journalctl -b -u smoking-pi`, or the
+  first lines of each container's log).
+
+## Service health and data
+
+- [ ] `doctor --live` reports `0 fail` (and says why for every warn):
+  every deployed `.py` matches the tree, the panels' measurements are being
+  written, the alerter's defaults match.
+- [ ] Data is arriving: in Grafana, the latency panels have points in the
+  last five minutes for every probe the edition enables (ICMP, DNS,
+  HTTP/1.1–3, TCP, the CPE hop, the Wi-Fi link — [Measuring](index.md)).
+- [ ] The web admin (Standard/Pro) lists the targets and can toggle one;
+  the change appears in `smokeping` within a probe cycle and is toggled
+  back.
+- [ ] Wi-Fi stats ([Wi-Fi uplink stats](wifi.md)): the panel shows
+  signal and rate for the uplink, and the radio has not hung since boot
+  ([When the radio hangs](wifi.md#when-the-radio-hangs)).
+
+## Detections and integrations
+
+- [ ] Downtime and microcut detection: `get_loss_events` and
+  `get_microcut_stats` over the last 24 h return without error and their
+  classifications agree with the alerter's rules
+  ([Detection reliability](detection-reliability.md)). If the day had no
+  event, say so — do not fabricate one.
+- [ ] Every profile the Pi runs answers: the MCP server (`get_chart`, one
+  question through OpenClaw), the alerter (`NOTIFY_MODE` as configured, a
+  dry-run notification if the mode allows), AI insights if enabled.
+
+## Editions and backends
+
+The reference Pi runs one combination (Pro, InfluxDB, `alerts,mcp`
+profiles). Everything else is **untested on a Pi** unless the record says
+otherwise: Basic and Standard, ClickHouse, the `ai` profile. The release
+workflow starts Basic on Ubuntu; Standard and Pro are rendered on every
+host but started only here. Write the combinations *not* exercised into
+the record — the reader should never infer coverage.
+
+## Stability
+
+- [ ] The candidate stays on the reference Pi for at least **24 hours**
+  before the tag, through at least one full day-night cycle of Wi-Fi
+  conditions. Acceptance: no container restarted on its own (`docker
+  inspect --format '{{.RestartCount}}'` is 0 for all), the doctor still
+  passes, the panels have no gaps that the loss events do not explain.
+- [ ] Anything found is fixed on a branch and the clock restarts; the
+  record lists what was found.
+
+## Rollback
+
+If any item fails and is not a documentation error: `git checkout
+<previous tag> && smoking-pi upgrade` (a clone), or `apt install` of the
+previous `.deb`, then `smoking-pi restore <backup>` only if the data was
+touched. Record what failed, and the release waits.
+
+## The record
+
+Every release gets a **Validation** section in its GitHub release notes
+(and a row in the roadmap's release table), filled from the checklist:
+
+```markdown
+## Validation
+
+- Tag / commit: vX.Y.Z / <sha>
+- Artifacts: images ghcr.io/estcarisimo/smoking-pi/*:X.Y.Z, smoking-pi_X.Y.Z_all.deb (release asset)
+- Release workflow: <run URL> — host 5/5, debian 4/4, upgrade from vX.Y.(Z-1): pass | none yet
+- Reference Pi: <model>, Raspberry Pi OS <version> (Debian N), kernel <uname -r>, arm64
+- Upgrade on the Pi from vX.Y.(Z-1): pass — <minutes>, restarts 0; credentials and targets intact
+- Reboot recovery: pass — up in <minutes>
+- doctor --live: <n> ok, <n> warn (why), 0 fail
+- Data: all enabled probes writing; Wi-Fi panel live; no radio hang since boot
+- Detections: get_loss_events / get_microcut_stats agree with the alerter; events that day: <what>
+- Stability: <hours> on the Pi, restarts 0
+- Untested this release: clean install on Raspberry Pi OS; Basic/Standard on a Pi; ClickHouse; ai profile
+- Known limitations: <anything found and deferred, with the issue link>
+- Backup used: <path>; rollback path: <which>
+```
+
+"Untested" is a valid entry. A release with an honest untested list is
+acceptable; one with an implied coverage is not.

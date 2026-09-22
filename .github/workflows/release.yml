@@ -236,7 +236,10 @@ jobs:
   #  - `host`: Ubuntu 22.04 and 24.04, amd64 and arm64, real VMs with
   #    systemd and a daemon. The check installs the package, then the Basic
   #    edition with the images this run published, waits for its web UI,
-  #    enables and starts the unit, stops it, removes the package. The
+  #    enables and starts the unit, stops it, removes the package. Once a
+  #    release carries a .deb, it first installs and starts THAT one and
+  #    arrives as an upgrade -- the secrets must survive and the containers
+  #    must run the new images. The
   #    runner comes with Docker's own engine; the `distro` entries purge it
   #    and drop its repository first, so apt installs Ubuntu's docker.io and
   #    docker-compose-v2 -- the stock path -- and one entry keeps Docker's.
@@ -289,12 +292,36 @@ jobs:
           # shellcheck disable=SC2086
           [ -z "$pkgs" ] || sudo apt-get purge -y -qq $pkgs >/dev/null
           ! command -v docker || { echo "docker still present: $(command -v docker)"; exit 1; }
+      - name: The previous release's package, to upgrade from
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          # The newest vX.Y.Z release with a .deb attached, other than this
+          # tag's own. None yet (before the first packaged release) is a
+          # notice: the check then covers a clean install only.
+          mkdir -p previous
+          for tag in $(gh release list --repo "$REPO" --exclude-drafts --exclude-pre-releases --limit 20 --json tagName -q '.[].tagName'); do
+            case "$tag" in v*) ;; *) continue ;; esac
+            [ "$tag" != "$GITHUB_REF_NAME" ] || continue
+            if gh release download "$tag" --repo "$REPO" --pattern 'smoking-pi_*_all.deb' --dir previous 2>/dev/null; then
+              echo "upgrading from $tag: $(ls previous)"; break
+            fi
+          done
+          [ -n "$(ls previous)" ] || echo "::notice::no previous release carries a .deb; clean install only"
       - name: Install the package, start Basic with this run's images, stop, remove
         run: |
           set -e
           case "$ENGINE" in distro) expect=docker.io ;; *) expect=docker-ce ;; esac
+          old=$(ls previous/*.deb 2>/dev/null | head -1)
+          # ${old:+--upgrade-from "$old"}: nothing when there is no previous
+          # package, two words when there is -- the inner quotes keep the
+          # path whole, the outer expansion must stay unquoted (SC2086).
+          # shellcheck disable=SC2086
           sudo packaging/tests/check-package.sh dist/smoking-pi_"$DEB_VERSION"_all.deb \
-            --version "$DEB_VERSION" --expect-engine "$expect" --start basic --image-tag "$VERSION"
+            --version "$DEB_VERSION" --expect-engine "$expect" --start basic --image-tag "$VERSION" \
+            ${old:+--upgrade-from "$old"}
 
   debian:
     name: Install on Debian ${{ matrix.codename }} ${{ matrix.arch }} (${{ matrix.engine }} engine, no daemon)

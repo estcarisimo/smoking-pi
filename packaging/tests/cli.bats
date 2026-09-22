@@ -118,6 +118,19 @@ fail_docker_on() {
     [[ "$output" == *"ghcr.io/estcarisimo/smoking-pi/<service>:2.12.0"* ]]
 }
 
+@test "packaged mode without a pin runs the installed tree's version, so a new package pulls its own release" {
+    SMOKING_PI_PACKAGED=1 run "$CLI" paths
+    [[ "$output" == *"/<service>:9.9.9"* ]]
+    SMOKING_PI_PACKAGED=1 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    run compose_calls
+    [[ "$output" == *" pull"* ]]
+    [[ "$output" != *" build"* ]]
+    # A clone (not packaged) still builds: dev is never published.
+    run "$CLI" paths
+    [[ "$output" == *"/<service>:dev"* ]]
+}
+
 @test "version comes from CITATION.cff" {
     run "$CLI" version
     [ "$output" = "9.9.9" ]
@@ -146,28 +159,27 @@ fail_docker_on() {
     ! grep -q ' up -d' "$DOCKER_LOG"
 }
 
-@test "install records the edition in the defaults file, so the unit and later commands run that one" {
+@test "packaged install records the edition beside the env file; the conffile is never edited" {
     rm -f "$SMOKING_PI_ENV_FILE"
     export SMOKING_PI_DEFAULTS="$BATS_TEST_TMPDIR/defaults"
-    printf '#SMOKING_PI_EDITION=pro\nSMOKING_PI_ENV_FILE=%s\n' "$SMOKING_PI_ENV_FILE" > "$SMOKING_PI_DEFAULTS"
+    printf '#SMOKING_PI_EDITION=pro\nSMOKING_PI_PACKAGED=1\n' > "$SMOKING_PI_DEFAULTS"
     run "$CLI" install --yes --edition basic
     [ "$status" -eq 0 ]
-    grep -qx 'SMOKING_PI_EDITION=basic' "$SMOKING_PI_DEFAULTS"
-    ! grep -q '^#SMOKING_PI_EDITION' "$SMOKING_PI_DEFAULTS"
+    [ "$(cat "$BATS_TEST_TMPDIR/edition")" = basic ]
+    [ "$(cat "$SMOKING_PI_DEFAULTS")" = $'#SMOKING_PI_EDITION=pro\nSMOKING_PI_PACKAGED=1' ]
     # The next command, with nothing in the environment, is Basic's.
     unset SMOKING_PI_EDITION
     run "$CLI" paths
     [[ "$output" == *"edition:  basic"* ]]
-    # A file without the line gets it appended; a clone (no file) gets none.
-    printf 'SMOKING_PI_ENV_FILE=%s\n' "$SMOKING_PI_ENV_FILE" > "$SMOKING_PI_DEFAULTS"
-    rm -f "$SMOKING_PI_ENV_FILE"
-    run "$CLI" install --yes --edition pro
-    grep -qx 'SMOKING_PI_EDITION=pro' "$SMOKING_PI_DEFAULTS"
-    export SMOKING_PI_DEFAULTS="$BATS_TEST_TMPDIR/absent"
-    rm -f "$SMOKING_PI_ENV_FILE"
+    # The environment (or the conffile) still overrides the record.
+    SMOKING_PI_EDITION=pro run "$CLI" paths
+    [[ "$output" == *"edition:  pro"* ]]
+    # A clone records nothing: its env file lives beside its edition.
+    rm -f "$SMOKING_PI_ENV_FILE" "$BATS_TEST_TMPDIR/edition"
+    printf '\n' > "$SMOKING_PI_DEFAULTS"
     run "$CLI" install --yes --edition basic
     [ "$status" -eq 0 ]
-    [ ! -e "$SMOKING_PI_DEFAULTS" ]
+    [ ! -e "$BATS_TEST_TMPDIR/edition" ]
 }
 
 @test "install --profiles appends the optional profiles to what setup.sh recorded and starts them" {

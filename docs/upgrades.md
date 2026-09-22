@@ -165,3 +165,26 @@ silently serving a three-week-old image:
 ```bash
 PYTHONPATH=shared/modules/doctor python -m doctor --repo-root . --live
 ```
+
+## Uninstalling
+
+From a package, two levels, and neither touches the measurements:
+
+- `sudo apt remove smoking-pi` stops the unit and removes the code
+  (`/opt/smoking-pi`) and the command. Everything else stays: the Docker
+  volumes, `/etc/smoking-pi` (env file, config), `/var/lib/smoking-pi`, the
+  conffile. Reinstalling the package puts you back where you were.
+- `sudo apt purge smoking-pi` also removes the conffile
+  (`/etc/default/smoking-pi`) and the two directories the stack
+  regenerates on the next start (`/etc/smoking-pi/config`,
+  `/var/lib/smoking-pi/output`). It keeps the Docker volumes **and**
+  `/etc/smoking-pi/env`, and says so: the env file holds the credentials
+  the volumes are locked with, so removing it alone would not free space,
+  it would make a year of data unreadable.
+
+To delete the measurements, decide it explicitly, with the command still
+installed: `sudo smoking-pi purge` (the volumes, after typing the project
+name) or `sudo smoking-pi purge --config` (the env file and directories
+too), then `apt purge`. From a clone the same commands apply
+(`packaging/smoking-pi purge`), and there is nothing to `apt remove`.
+

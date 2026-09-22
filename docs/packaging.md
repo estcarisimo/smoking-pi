@@ -145,7 +145,7 @@ rough engineer-days for someone who knows the repo.
 | 3 | **Published multi-arch images — done (2026-09-20).** `release.yml` builds all nine images for `linux/arm64` and `linux/amd64` on a `vX.Y.Z` tag — each architecture natively on its own GitHub-hosted runner (`ubuntu-24.04-arm`, free for public repositories; QEMU would spend most of an hour on the matplotlib images), pushed by digest and merged into one manifest per service — to `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` and `:latest`. The compose files name that image next to `build:` with `pull_policy: missing`; `SMOKING_PI_VERSION` unset means `:dev`, never published, so a clone builds; the package sets its version and pulls. `packaging/check-images.py` (CI) keeps compose, Dockerfiles and the matrix in agreement. Closed the CI gap where five images were never built at all. Details: [Published images](#published-images). | 2–3 | a first start measured in seconds; Dependabot-driven rebuilds become releases |
 | 4 | **The `smoking-pi` command, for real — done (2026-09-20).** `upgrade` (pull the release's images, or `build --pull` from a clone; `up -d`; doctor), `backup`/`restore` (`pg_dumpall`, then every volume the active services mount as a tarball with the stack stopped, plus env file and config; restore refills the volumes under this project's name), `purge` (the volumes, after typing the project name; `--config` also the env file and directories). `install` chooses edition, backend and the optional profiles (`mcp`, `alerts`, `ai`) by whiptail or `--profiles`. `packaging/tests/cli.bats` (22 tests, CI) runs it against a stubbed docker. Details: [The command](#the-command). | 2 | the "instalador CLI/TUI" roadmap item |
 | 5 | **A release that produces the package — the `.deb` half done (2026-09-21).** `release.yml`'s `package` job builds the `.deb` from the tagged tree with the trial builder (`packaging/deb/build.sh`; `nfpm` was not needed), installs it on the runner and checks what a package can prove without Docker — `smoking-pi version` equals the tag, `paths` shows the packaged layout and the images pinned to the version, the unit verifies, the doctor's static checks pass from `/opt`, `install` refuses over an existing env file, removal keeps `/etc/smoking-pi` and `/var/lib/smoking-pi` — keeps it as a workflow artifact, and attaches it to the GitHub release the maintainer created for the tag. The workflow never creates a release: publishing stays a human act. Proven by three throwaway runs, except the two branches a `test-*` tag cannot take — the version-equality check and the attach step — which the first real `vX.Y.Z` tag after this proves; watch that run. **Still to do:** the apt repository on GitHub Pages (`reprepro`, signed with a key in Actions secrets, sharing the Pages artifact with the docs site) so `apt upgrade` sees new versions. | 1–2 | `apt install smoking-pi` |
-| 6 | **Uninstall and data policy.** `apt remove` keeps volumes and `/etc/smoking-pi`; `apt purge` removes `/etc/smoking-pi` but never Docker volumes (dpkg must not delete a year of measurements); `smoking-pi purge` does, explicitly. Document in `docs/upgrades.md`. | 0.5 | trust |
+| 6 | **Uninstall and data policy — done (2026-09-21).** `apt remove` keeps everything: volumes, `/etc/smoking-pi`, `/var/lib/smoking-pi`, the conffile. `apt purge` (`postrm`) removes what the stack regenerates — the seeded config directory, the output directory — and the conffile, but **never the Docker volumes nor `/etc/smoking-pi/env`**: the env file holds the credentials those volumes are locked with, so deleting it alone would turn kept data into unreadable data (the plan said "purge removes `/etc/smoking-pi`"; this is the refinement, and `postrm` prints it). `smoking-pi purge --config` is the explicit way to delete the measurements, before the package. `check-package.sh` asserts all of it after every install. Documented in [Upgrading](upgrades.md#uninstalling). | 0.5 | trust |
 | 7 | **Script hygiene.** Derive container/volume/network names from `COMPOSE_PROJECT_NAME` in `sync-influx-token.sh`, `verify-postgres.sh`, `create-tunnel.sh`, `migrate-to-edition.sh`, `show-passwords.sh`; drop the Compose v1 calls; refresh `shared/docs/maintenance.md`. | 1 | #4 without surprises |
 | 8 | **Homebrew tap**, only if there is a macOS audience. A formula installs the same tree under the Cellar and the CLI (which needs `bash` ≥ 4.4 and GNU `readlink` — both Homebrew dependencies, since macOS ships bash 3.2 and BSD readlink); `brew services` wraps `smoking-pi up`. Requires Docker Desktop, and **Pro's measurement fidelity is reduced on macOS**: `network_mode: host` is the Linux VM's network, not the Mac's — no real first hop, no nl80211 — so the CPE and Wi-Fi features report the VM. Basic and Standard are fine. Untested here (no `brew` on a Pi). | 1, after #5 | Mac users |
 
@@ -266,9 +266,15 @@ one rule gives both modes without a second compose file:
   A `:latest` default would have done the opposite: a fresh clone would
   silently run the last release's code with a newer checkout, and only the
   doctor's `deployed-code-current` would notice.
-- **The package** sets `SMOKING_PI_VERSION=<its version>` in
-  `/etc/default/smoking-pi` → the pull succeeds → the first start is a
-  download, not a 20-minute build on a Pi. `smoking-pi paths` prints which.
+- **The package**: in packaged mode the command takes `SMOKING_PI_VERSION`
+  from the tree it installed (`/opt/smoking-pi/CITATION.cff`) → the pull
+  succeeds → the first start is a download, not a 20-minute build on a
+  Pi, and a new package pulls its own release. `smoking-pi paths` prints
+  which. It is deliberately **not** written into `/etc/default/smoking-pi`:
+  that file is a conffile, and a conffile edited on the host is kept as-is
+  by dpkg on upgrade — a version line there would have pinned every
+  upgrade to the first release installed. Setting it there yourself is a
+  pin (a fork's registry, a test build), and stays one.
 - A tester on any machine can do the same by hand:
   `SMOKING_PI_VERSION=2.12.0 docker compose up -d`. `SMOKING_PI_REGISTRY`
   points a fork at its own registry.
@@ -412,10 +418,19 @@ would have failed on three of the four supported hosts):
 - `docker-compose-plugin | docker-compose-v2 | docker-compose (>= 2)` —
   trixie's Compose v2 is called `docker-compose`; the version bound keeps
   bookworm's and jammy's Python 1.x out.
-- `install` now records `SMOKING_PI_EDITION` in `/etc/default/smoking-pi`:
-  the unit hard-codes `pro` as its default and the conffile overrides it,
-  so a packaged Basic install was going to be started as Pro by
-  `systemctl start smoking-pi`. (The bats suite covers it.)
+- `install` now records the edition it installed in
+  `/etc/smoking-pi/edition`, a state file beside the env file; the unit no
+  longer hard-codes `pro`. Without it a packaged Basic install was going to
+  be started as Pro by `systemctl start smoking-pi`. The first version of
+  this fix wrote the edition into `/etc/default/smoking-pi`; the upgrade
+  test (below) showed why that is wrong: a conffile edited by anyone plus
+  a shipped conffile that changed by a character stops the upgrade at
+  dpkg's conffile prompt — fatal under a non-interactive `apt`. Nothing
+  the package or the command does edits that file, and
+  `packaging/tests/check-package.sh` fails if its md5 ever differs from
+  the one dpkg recorded. (The bats suite covers the record; the
+  Docker-in-Docker upgrade run and the release's `host` jobs cover the
+  conffile.)
 
 The packaged overlay's `!override` needs Compose >= 2.24: every Compose a
 supported host offers (2.26, 2.40, 5.5) renders all three editions.
@@ -423,8 +438,8 @@ supported host offers (2.26, 2.40, 5.5) renders all three editions.
 **What a container or an Ubuntu VM does not prove:** the Raspberry Pi
 kernel and its Wi-Fi driver ([Wi-Fi uplink stats](wifi.md)), the real
 first hop, boot ordering against `docker.service`, the arm64 image pulls
-on a Pi's link, and everything the *Raspberry Pi release acceptance*
-covers (the roadmap). A green matrix says the package installs and its
+on a Pi's link, and everything [Release acceptance on a
+Pi](release-acceptance.md) covers. A green matrix says the package installs and its
 editions render on that OS version, nothing about measurements from it.
 
 **Other platforms**, unchanged: macOS via Homebrew later, with the fidelity

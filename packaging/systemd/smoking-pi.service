@@ -13,7 +13,8 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 Environment=SMOKING_PI_HOME=/opt/smoking-pi
-Environment=SMOKING_PI_EDITION=pro
+# The edition is what `smoking-pi install` recorded (/etc/smoking-pi/edition),
+# not fixed here: an Environment= line would win over that record.
 EnvironmentFile=-/etc/default/smoking-pi
 ExecStart=/usr/bin/smoking-pi up
 ExecStop=/usr/bin/smoking-pi down
