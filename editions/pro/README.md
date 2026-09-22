@@ -21,7 +21,7 @@ Complete network monitoring solution with **SmokePing**, **InfluxDB**, **Grafana
 ```bash
 cd editions/pro
 ./setup.sh                  # 1. Automated setup with secure credentials
-./show-passwords.sh         # 2. View all generated credentials
+./show-passwords.sh --show-secrets   # 2. View all generated credentials
 ```
 
 **Access Points:**
@@ -32,7 +32,9 @@ cd editions/pro
 
 > 💡 **Database Choice**: Use `./setup.sh --database clickhouse` to use ClickHouse instead of InfluxDB
 > 
-> 💡 **View all credentials**: Run `./show-passwords.sh` to display all auto-generated passwords
+> 💡 **View all credentials**: `./show-passwords.sh` shows the URLs, usernames and health
+> checks; add `--show-secrets` for the passwords and tokens themselves. It refuses to print
+> them into a pipe or a file unless you also pass `--force`.
 
 ## ✨ Latest Improvements
 
@@ -127,7 +129,7 @@ docker-compose up -d
 docker-compose -f docker-compose.clickhouse.yml up -d
 
 # 3. View credentials
-./show-passwords.sh
+./show-passwords.sh --show-secrets
 ```
 
 ### Verify Services

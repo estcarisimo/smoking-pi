@@ -9,7 +9,7 @@ This SmokePing deployment provides secure password generation combined with auto
 ./setup.sh
 
 # Step 3: View your credentials
-./show-passwords.sh
+./show-passwords.sh --show-secrets
 ```
 
 The system automatically:

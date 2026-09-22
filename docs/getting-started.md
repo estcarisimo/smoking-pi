@@ -184,9 +184,19 @@ need something from you before they are useful:
 You can turn any of them on afterwards by adding it to `COMPOSE_PROFILES`
 in the env file and running `sudo smoking-pi up`.
 
-Expected, at the end: a credentials banner with your URLs, the Grafana
-password and the API tokens. Keep that terminal, or get it back any time
-with `sudo smoking-pi passwords`.
+Expected, at the end: a banner with your URLs and service status. The
+secrets are set but **not printed** — an install transcript is the last
+place a password should live. Read them when you need them:
+
+```bash
+sudo smoking-pi passwords --show-secrets
+```
+
+Without `--show-secrets` the same banner shows every secret as
+`set (hidden)`, which is still the answer to "did the token get
+generated?". `--show-secrets` refuses to write into a pipe or a file
+unless you add `--force`, so a password does not end up in a log or a
+pasted issue by accident.
 
 !!! danger "install runs once, deliberately"
     Run over an existing env file, `install` refuses and tells you to use
@@ -262,7 +272,8 @@ sudo smoking-pi passwords
 It prints the addresses for this machine and for the rest of your network.
 For Pro: SmokePing on `http://<pi>/`, the web admin on `http://<pi>:8080`,
 Grafana on `http://<pi>:3000`, InfluxDB on `http://<pi>:8086`. Log in to
-Grafana with `admin` and the password it just printed.
+Grafana with `admin` and the password from `sudo smoking-pi passwords
+--show-secrets`.
 
 **3. Data arrives — after five minutes, not before.**
 
@@ -344,7 +355,7 @@ is the one with a ready-made skill.
 | `install` says the edition is already installed | An env file exists; re-running would rotate every secret | `sudo smoking-pi up` to start it, or `sudo smoking-pi purge --config` to start over — that deletes the measurements |
 | Graphs empty five minutes in | Nothing yet: the step is 300 s | Wait one step, then check `sudo smoking-pi logs smokeping` |
 | Every target at 100% loss | ICMP blocked upstream, or no route | `ping -c3 google.com` from the host; if that fails it is the network, not Smoking Pi |
-| Grafana rejects the password | Grafana keeps the first-boot password in its volume | `sudo smoking-pi restart grafana`, wait 30 s, try the password from `sudo smoking-pi passwords` again |
+| Grafana rejects the password | Grafana keeps the first-boot password in its volume | `sudo smoking-pi restart grafana`, wait 30 s, try the password from `sudo smoking-pi passwords --show-secrets` again. If it still refuses, Grafana's volume predates that password — reset the account: `sudo docker compose exec -T grafana grafana cli admin reset-admin-password --password-from-stdin` |
 | SmokePing's port is already taken | Pro's SmokePing is on the host network, port 80 | Free port 80, or use Basic/Standard, which map a port you can change |
 | An optional service runs but does nothing | Its profile is on and its key is not set | Add `NOTIFY_MODE` (`alerts`) or `ANTHROPIC_API_KEY` (`ai`) to the env file and restart it. Neither crash-loops on a missing key — they log it and stay up, so `status` looks healthy while nothing is delivered |
 | A container restarting in a loop | Its own logs say which | `sudo smoking-pi logs <service>` — read the last start, not the whole file |

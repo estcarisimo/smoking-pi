@@ -185,6 +185,10 @@ jobs:
       # The real-daemon proof is the deploy on the reference Pi.
       - name: Run the suite
         run: bats packaging/tests/cli.bats
+      # show-passwords.sh withholds every secret unless asked; that rule is
+      # only real if it is tested.
+      - name: Run the show-passwords suite
+        run: bats packaging/tests/show-passwords.bats
 
   homebrew:
     name: Homebrew formula (parses; sha256 is the tarball's)

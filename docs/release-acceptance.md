@@ -40,8 +40,9 @@ clean install there is the missing half — until then the record says
   `--live` at the end. Note the wall time and whether any container
   restarted more than once (`docker compose ps`, `docker compose logs
   --since 10m | grep -i error`).
-- [ ] Configuration and credentials survived: `smoking-pi passwords` shows
-  the same values as before, the target list in the web admin is intact,
+- [ ] Configuration and credentials survived: `smoking-pi passwords
+  --show-secrets` shows the same values as before, the target list in the
+  web admin is intact,
   Grafana's dashboards still show history older than the upgrade.
 
 ## Startup and recovery

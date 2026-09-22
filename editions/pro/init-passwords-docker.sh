@@ -4,9 +4,18 @@
 
 set -e
 
-ENV_FILE="./.env"
+# The env file may be relocated (docs/packaging.md, "Relocatable state");
+# the packaged install keeps it at /etc/smoking-pi/env, and writing ./.env
+# there instead would generate a second set of secrets nothing reads.
+ENV_FILE="${SMOKING_PI_ENV_FILE:-./.env}"
 ENV_TEMPLATE="./.env.template"
-ENV_BACKUP="./.env.backup"
+ENV_BACKUP="${ENV_FILE}.backup"
+
+# Compose names a volume "<project>_<key>": COMPOSE_PROJECT_NAME, or the
+# directory name. The "grafana-influx" this script used to look for has not
+# been the project since the editions split, so the volume check below
+# never once matched and its warnings never fired.
+PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
 
 # Function to generate secure random string
 generate_password() {
@@ -110,7 +119,7 @@ GF_SECURITY_SECRET_KEY=${GRAFANA_SECRET_KEY}
 # -------------------------------------------------------------------
 # IMPORTANT: This file contains sensitive information.
 # Do not commit to version control!
-# Run ./show-passwords.sh to display all credentials
+# Run ./show-passwords.sh --show-secrets to display all credentials
 # -------------------------------------------------------------------
 EOF
 
@@ -128,7 +137,7 @@ EOF
     echo "   Grafana Secret Key: ${GRAFANA_SECRET_KEY:0:8}..."
     echo "   Web Admin Secret Key: ${SECRET_KEY:0:8}..."
     echo ""
-    echo "💡 Run ./show-passwords.sh to see full credentials"
+    echo "💡 Run ./show-passwords.sh --show-secrets to see full credentials"
     echo ""
     
     # Also create a one-time display file for immediate viewing
@@ -163,15 +172,17 @@ GRAFANA_VOLUME_EXISTS=false
 INFLUXDB_VOLUME_EXISTS=false
 POSTGRES_VOLUME_EXISTS=false
 
-if docker volume ls | grep -q "grafana-influx_grafana-data"; then
+VOLUMES=$(docker volume ls --format '{{.Name}}' 2>/dev/null)
+
+if echo "$VOLUMES" | grep -qx "${PROJECT}_grafana-data"; then
     GRAFANA_VOLUME_EXISTS=true
 fi
 
-if docker volume ls | grep -q "grafana-influx_influxdb-data"; then
+if echo "$VOLUMES" | grep -qx "${PROJECT}_influxdb-data"; then
     INFLUXDB_VOLUME_EXISTS=true
 fi
 
-if docker volume ls | grep -q "grafana-influx_postgres-data"; then
+if echo "$VOLUMES" | grep -qx "${PROJECT}_postgres-data"; then
     POSTGRES_VOLUME_EXISTS=true
 fi
 
@@ -190,13 +201,15 @@ if [ "$GRAFANA_VOLUME_EXISTS" = "true" ] || [ "$INFLUXDB_VOLUME_EXISTS" = "true"
         echo "   🚨 CRITICAL: InfluxDB has existing data with different tokens."
         echo "      Grafana dashboards will show 'unauthorized access' errors."
         echo ""
-        echo "   🛠️  TO FIX: Reset InfluxDB volume with these commands:"
-        echo "      docker compose down"
-        echo "      docker volume rm grafana-influx_influxdb-data"
-        echo "      docker compose up -d"
+        echo "   🛠️  TO FIX, without losing anything:"
+        echo "      ./sync-influx-token.sh"
+        echo "      It reads the token from the InfluxDB that is already"
+        echo "      running and writes it back to $ENV_FILE."
         echo ""
-        echo "   ⚡ This will reset InfluxDB to use the current generated tokens."
-        echo "      SmokePing will repopulate data automatically."
+        echo "   🚨 Deleting ${PROJECT}_influxdb-data would also clear the error --"
+        echo "      by erasing every measurement ever recorded. They do NOT come"
+        echo "      back: SmokePing starts collecting again from zero. If you"
+        echo "      genuinely want that, run 'smoking-pi backup' first."
     fi
     
     if [ "$POSTGRES_VOLUME_EXISTS" = "true" ]; then
@@ -206,13 +219,15 @@ if [ "$GRAFANA_VOLUME_EXISTS" = "true" ] || [ "$INFLUXDB_VOLUME_EXISTS" = "true"
         echo "      Config-manager will fail to connect and fall back to YAML mode."
         echo "      Grafana template variables will show 'error executing SQL query'."
         echo ""
-        echo "   🛠️  TO FIX: Reset PostgreSQL volume with these commands:"
-        echo "      docker compose down"
-        echo "      docker volume rm grafana-influx_postgres-data"
-        echo "      docker compose up -d"
+        echo "   🛠️  TO FIX, without losing anything: put the password the"
+        echo "      volume already has back into $ENV_FILE (POSTGRES_PASSWORD"
+        echo "      and DATABASE_URL), or change the role's password:"
+        echo "      docker compose exec -T postgres \\"
+        echo "        psql -U smokeping -c \"ALTER ROLE smokeping PASSWORD '<new>';\""
         echo ""
-        echo "   ⚡ This will reset PostgreSQL to use the current generated password."
-        echo "      Database will be populated automatically from YAML files."
+        echo "   🚨 Deleting ${PROJECT}_postgres-data would also clear the error --"
+        echo "      by erasing your targets, categories and sources. Only the"
+        echo "      seed YAML comes back, not anything added since."
     fi
     
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
