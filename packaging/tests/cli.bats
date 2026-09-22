@@ -371,8 +371,13 @@ make_backup_dir() {
 stub_openclaw() {
     printf '#!/bin/sh\necho "openclaw $*" >> "%s"\nexit %s\n' "$DOCKER_LOG" "${1:-0}" \
         > "$BATS_TEST_TMPDIR/bin/openclaw"
-    printf '#!/bin/sh\necho "CURL $*" >> "%s"\ncase "$*" in *Authorization*) echo 200 ;; *) echo 401 ;; esac\n' \
-        "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/curl"
+    # Records argv AND the config curl reads on stdin, so a test can tell
+    # "the credential is not on the command line" from "the credential
+    # never arrived" -- which look identical if you only assert an absence.
+    # The config curl reads on stdin is multi-line; flatten it to one log
+    # line so a test can assert on it.
+    printf '#!/bin/sh\necho "CURL $*" >> "%s"\nif [ "$1" = "-K" ]; then cfg=$(cat | tr "\\n" " "); echo "CURLCFG $cfg" >> "%s"; case "$cfg" in *Authorization*) echo 200 ;; *) echo 401 ;; esac; else echo 401; fi\n' \
+        "$DOCKER_LOG" "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/curl"
     mkdir -p "$STUB_HOME/shared/scripts"
     printf '#!/bin/sh\necho "SKILL $*" >> "%s"\n' "$DOCKER_LOG" \
         > "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
@@ -465,4 +470,31 @@ STUB
     run "$CLI" install --edition pro --yes
     [ "$status" -eq 0 ]
     [[ "$output" == *"smoking-pi openclaw"* ]]
+}
+
+# PR #96's lesson, restated: a credential on a command line is readable by
+# every account on the host, and a test that only checks it is ABSENT
+# passes just as happily when the credential never arrived at all.
+@test "openclaw keeps the MCP token off curl's command line and still sends it" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=tok123deadbeef\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    # Not in argv...
+    ! grep -q '^CURL .*tok123deadbeef' "$DOCKER_LOG"
+    # ...and curl was driven from stdin, with the header actually present.
+    grep -q '^CURL -K -' "$DOCKER_LOG"
+    grep -q 'CURLCFG .*Authorization: Bearer tok123deadbeef' "$DOCKER_LOG"
+}
+
+# The token is interpolated into the JSON handed to `openclaw mcp set`. A
+# generated one is hex; a hand-written one is whatever someone typed.
+@test "openclaw refuses a token that would break the registration JSON" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=has"quote\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot be"* ]]
+    # It refused before touching the gateway.
+    ! grep -q 'openclaw mcp set' "$DOCKER_LOG"
 }

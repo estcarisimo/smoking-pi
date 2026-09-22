@@ -29,8 +29,16 @@ version gets a matching GitHub release and git tag.
   from `ping` while the server sits untouched, and that false positive is
   how four days of a dead integration went unnoticed. When there is no
   `tool=` line the command says so and lists the three causes in order.
+  The MCP token reaches curl on stdin (`-K -`), never in argv, for the
+  reason PR #96 established — a command line is readable by every account
+  on the host — and a test asserts both halves, because one that only
+  checks the credential is *absent* passes just as happily when it never
+  arrived. A token that is not generated (someone wrote it by hand) is
+  refused if it holds characters that would break the registration JSON,
+  rather than producing a malformed payload that reads like a connectivity
+  failure.
 - **The install now distinguishes "no OpenClaw" from "OpenClaw on my
-  laptop".** The old yes/no could not, and printed the same same-machine
+  laptop".** The old yes/no could not: it printed the same-machine
   document either way — which is the wrong advice for the remote case,
   where a tunnel between the two loopbacks has to exist first. The prompt
   is a three-way choice (here / another machine / not now); *here* runs

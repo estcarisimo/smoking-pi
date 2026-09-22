@@ -357,6 +357,11 @@ cmd_install() {
 
 env_get() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1 || true; }
 
+# Escape a value for curl's config-file syntax, which is what -K - reads.
+# Inside quotes curl honors \\ and \", so both have to be escaped; the same
+# helper lives in shared/scripts/show-passwords.sh for the same reason.
+curl_cfg_quote() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }
+
 env_set() {
     # Add or replace VAR=value, keeping the rest of the file and its mode:
     # this file holds every secret, so a widened mode here undoes what
@@ -369,9 +374,14 @@ env_set() {
         awk -v k="$k" -v v="$v" \
             'index($0, k "=") == 1 && !done { print k "=" v; done = 1; next } { print }' \
             "$ENV_FILE" > "$tmp"
-    else
-        cat "$ENV_FILE" > "$tmp" 2>/dev/null || true
+    elif [ -f "$ENV_FILE" ]; then
+        # Not `|| true`: swallowing a read error here would write a file
+        # holding only this one line and then rename it over every secret
+        # in the deployment.
+        cat "$ENV_FILE" > "$tmp"
         printf '%s=%s\n' "$k" "$v" >> "$tmp"
+    else
+        printf '%s=%s\n' "$k" "$v" > "$tmp"
     fi
     chmod --reference="$ENV_FILE" "$tmp" 2>/dev/null || chmod 600 "$tmp"
     mv "$tmp" "$ENV_FILE"
@@ -420,17 +430,21 @@ cmd_openclaw() {
                 echo "smoking-pi openclaw [--check]"
                 echo "  Connect this stack to an OpenClaw gateway on this machine, or say"
                 echo "  exactly why it is not connected. --check only runs the verification."
-                exit 0 ;;
-            *) echo "unknown option $1" >&2; exit 2 ;;
+                return 0 ;;
+            *) echo "unknown option $1" >&2; return 2 ;;
         esac
     done
     need_edition
+    # Every failure below returns; none exits. cmd_install calls this as a
+    # subroutine, and a bash `exit` from here would take the whole install
+    # down with it -- including the password summary that comes after --
+    # which is the opposite of "every branch ends with a working install".
     if [ "$SMOKING_PI_EDITION" != pro ]; then
         echo "The MCP server is a Pro service; the $SMOKING_PI_EDITION edition does not ship it." >&2
         echo "Smoking Pi measures and alerts without OpenClaw -- nothing here is missing." >&2
-        exit 1
+        return 1
     fi
-    [ -f "$ENV_FILE" ] || { echo "no env file at $ENV_FILE: run 'smoking-pi install' first" >&2; exit 1; }
+    [ -f "$ENV_FILE" ] || { echo "no env file at $ENV_FILE: run 'smoking-pi install' first" >&2; return 1; }
 
     [ "$check" = 1 ] && { openclaw_evidence; return $?; }
 
@@ -463,8 +477,19 @@ cmd_openclaw() {
         token="$(openssl rand -hex 32)"
         env_set MCP_API_TOKEN "$token"
         echo "1/5  Generated MCP_API_TOKEN in $ENV_FILE."
-    else
+    elif [[ "$token" =~ ^[A-Za-z0-9._~-]+$ ]]; then
         echo "1/5  MCP_API_TOKEN is already set; keeping it."
+    else
+        # The token is interpolated into the JSON handed to `openclaw mcp
+        # set`. A generated one is hex, but this one was written by hand or
+        # by another tool, and a `"` or `\` in it would produce malformed
+        # JSON -- which surfaces as a registration failure that reads like a
+        # connectivity problem. Refuse instead of guessing.
+        echo "MCP_API_TOKEN in $ENV_FILE contains characters that cannot be" >&2
+        echo "passed through safely (anything outside A-Z a-z 0-9 . _ ~ -)." >&2
+        echo "Replace it with 'openssl rand -hex 32', restart the server, and" >&2
+        echo "re-run: the value is only a bearer token, nothing derives from it." >&2
+        return 1
     fi
 
     # 2. The profile has to be recorded, or the next 'up' drops the server.
@@ -480,8 +505,15 @@ cmd_openclaw() {
     # 3. Prove the port is gated before handing its address to anything.
     local code_open code_auth
     code_open="$(curl -s -o /dev/null -w '%{http_code}' -XPOST http://127.0.0.1:8090/mcp 2>/dev/null || echo 000)"
-    code_auth="$(curl -s -o /dev/null -w '%{http_code}' -XPOST http://127.0.0.1:8090/mcp \
-        -H "Authorization: Bearer $token" 2>/dev/null || echo 000)"
+    # The token goes in on stdin (-K -), never in argv: a command line is
+    # readable by every account on this host (ps, /proc/*/cmdline). Same
+    # reason, and the same shape, as the health checks in
+    # shared/scripts/show-passwords.sh. The value MUST be quoted -- curl
+    # reads an unquoted `header = A: B` as a key/value line and drops the
+    # header in silence, which looks exactly like an auth failure.
+    code_auth="$(printf 'url = "%s"\nrequest = "POST"\nsilent\noutput = "/dev/null"\nwrite-out = "%%{http_code}"\nheader = "Authorization: Bearer %s"\n' \
+        "http://127.0.0.1:8090/mcp" "$(curl_cfg_quote "$token")" \
+        | curl -K - 2>/dev/null || echo 000)"
     if [ "$code_open" = 000 ]; then
         echo "3/5  WARNING: 127.0.0.1:8090 did not answer. Give it a moment and re-run;" >&2
         echo "     'smoking-pi logs mcp-server' says why if it does not come up." >&2
