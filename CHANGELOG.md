@@ -11,6 +11,18 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Every PR builds every image, for arm64 and amd64.** Until now no PR
+  built an image: all nine were built only when tagging a release, so a
+  broken Dockerfile (a new module without its `COPY` line, a base image
+  that stopped resolving) surfaced as a release blocker instead of in the
+  change that caused it. `ci.yml` now builds the nine on native runners
+  of both architectures, nothing pushed, with a per-image build cache;
+  `Images build (all)` is the one check the branch rules require. Where
+  each image builds from moved into `packaging/image-context.sh`, which
+  the PR build and the release both read, and `packaging/check-images.py`
+  now fails when the PR matrix and the Dockerfiles disagree, as it already
+  did for the release matrix.
+
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
   stack that is measuring: what you need, Docker with Compose v2 (and why

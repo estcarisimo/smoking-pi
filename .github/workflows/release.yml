@@ -101,18 +101,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build context for the service
         id: ctx
+        env:
+          SERVICE: ${{ matrix.service }}
         run: |
-          # Images that copy shared/modules/common or the exporters build
-          # from `shared/`; the rest from their own module directory. The
-          # compose files declare the same contexts.
-          case '${{ matrix.service }}' in
-            ai-insights|alerter|mcp-server|web-admin|smokeping)
-              echo "context=shared" >> "$GITHUB_OUTPUT"
-              echo "dockerfile=shared/modules/${{ matrix.service }}/Dockerfile" >> "$GITHUB_OUTPUT" ;;
-            *)
-              echo "context=shared/modules/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
-              echo "dockerfile=shared/modules/${{ matrix.service }}/Dockerfile" >> "$GITHUB_OUTPUT" ;;
-          esac
+          # The same script ci.yml's image builds read, so every PR has
+          # already built exactly what the tag builds.
+          read -r context dockerfile <<< "$(packaging/image-context.sh "$SERVICE")"
+          echo "context=$context" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7

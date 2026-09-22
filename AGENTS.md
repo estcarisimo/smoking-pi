@@ -32,14 +32,19 @@ python -m doctor --repo-root . --live                           # ...against the
 docker compose build <service> && docker compose up -d <service>
 ```
 
-Python 3.14. PR CI is the cheap checks only: ruff, shell syntax, compose
-config ×3 with the packaging guards, doctor, every module's tests, the strict
-docs build, CodeQL. All must be green; CodeQL on a PR is diff-only, so
-"0 results" on a PR means *no new alerts*, not "fixed". **CI builds no
-images on a PR** — `release.yml` builds all nine for arm64+amd64 from the
-release tag and publishes them to GHCR, and `docs.yml` deploys the site from
-the same tag. A Dockerfile change is proven by the deploy on the reference
-Pi before merge, not by CI.
+Python 3.14. **Every PR runs CI, and a check that can run on a PR runs on
+the PR** (decision of 2026-09-23, reversing "CI only for releases": what is
+deferred to the tag becomes a pile of release blockers). PR CI: ruff, shell
+syntax, compose config ×3 with the packaging guards, doctor, every module's
+tests, the strict docs build, CodeQL, and **every image built for arm64 and
+amd64** (not pushed; `Images build (all)` is the required check). All must be
+green; CodeQL on a PR is diff-only, so "0 results" on a PR means *no new
+alerts*, not "fixed". The release adds what only a release can prove:
+`release.yml` publishes the nine images to GHCR from the tag, builds the
+`.deb` and installs it across the OS matrix, and `docs.yml` deploys the site.
+Where each image builds from is `packaging/image-context.sh`, read by both
+workflows. A Dockerfile change is still deployed on the reference Pi before
+merge: CI proves it builds, the Pi proves it runs.
 
 ## Layout
 

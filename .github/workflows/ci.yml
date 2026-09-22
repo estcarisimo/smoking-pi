@@ -260,3 +260,73 @@ jobs:
           done
           [ "$found" = "1" ] || { echo "No module tests found — failing loudly rather than passing silently"; exit 1; }
 
+
+  # Every image, both architectures, on every PR -- built, never pushed.
+  # Decision of 2026-09-23: a check that can run on a PR runs on the PR,
+  # because what is deferred to the tag becomes a pile of release blockers.
+  # Until then no PR built an image, so a broken Dockerfile (a module added
+  # without its COPY line, a base image that stopped resolving) surfaced
+  # only when tagging. All nine, not only the changed ones: five images
+  # build from `shared/` and copy `common/`, so "which images did this
+  # change" is not a question a path filter answers, and a required check
+  # that a path filter skipped stays pending forever.
+  image-build:
+    name: Image build (${{ matrix.service }}, ${{ matrix.arch }})
+    # Native runners, as release.yml: an arm64 build under QEMU takes an
+    # hour for matplotlib alone, and the Pi is arm64.
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The list release.yml publishes; packaging/check-images.py fails
+        # when it and the Dockerfiles disagree.
+        service:
+          - ai-insights
+          - alerter
+          - config-manager
+          - grafana
+          - influxdb
+          - mcp-server
+          - postgres
+          - smokeping
+          - web-admin
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build context for the service
+        id: ctx
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          read -r context dockerfile <<< "$(packaging/image-context.sh "$SERVICE")"
+          echo "context=$context" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
+      - name: Build (not pushed)
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ steps.ctx.outputs.context }}
+          file: ${{ steps.ctx.outputs.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          push: false
+          # One cache scope per image and architecture, so an unchanged
+          # image rebuilds from cache in seconds rather than minutes.
+          cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ matrix.arch }}
+
+  # The one name the branch ruleset requires, instead of eighteen: it
+  # passes only when every image built. `if: always()` so a failed build
+  # fails this check rather than skipping it (a skipped required check
+  # counts as passing).
+  images:
+    name: Images build (all)
+    needs: image-build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every image built
+        env:
+          RESULT: ${{ needs.image-build.result }}
+        run: |
+          echo "image-build: $RESULT"
+          [ "$RESULT" = success ]

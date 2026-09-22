@@ -76,11 +76,13 @@ python -m doctor --repo-root . --live         # ...and against the running stack
 CI runs, on every PR: ruff (critical rules), shell syntax for every `.sh`,
 `docker compose config` for all three editions with the packaging guards,
 the doctor's static checks, every module's test suite on Python 3.14, the
-strict docs build, and CodeQL. All of it has to be green. It builds no
-images: those are release work — `release.yml` builds all nine for
-arm64 and amd64 on the `vX.Y.Z` tag and publishes them to
-`ghcr.io/estcarisimo/smoking-pi/<service>` — so build a changed Dockerfile
-locally (`docker compose build <service>`) before opening the PR.
+strict docs build, CodeQL, and every image built for arm64 and amd64
+(nothing pushed). All of it has to be green. The release adds on top of
+that, never instead: `release.yml` publishes the nine images to
+`ghcr.io/estcarisimo/smoking-pi/<service>` from the `vX.Y.Z` tag, builds the
+`.deb` and installs it on the supported systems. A check that can run on a
+PR belongs on the PR, so problems are fixed in the change that caused
+them, not collected into a release.
 
 ### Tests do not touch the network, the database, or Docker
 

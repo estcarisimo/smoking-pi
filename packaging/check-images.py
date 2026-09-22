@@ -10,7 +10,8 @@ Three things name the published images and must say the same:
   packaged install pulls, and a clone (``:dev``, never published) builds;
 * every ``shared/modules/*/Dockerfile`` is built by some edition;
 * the release workflow's build matrix lists exactly those modules, twice
-  (the merge job repeats it).
+  (the merge job repeats it), and so does the PR build in ci.yml -- every
+  PR builds what the tag will publish, so the two lists must not drift.
 
 Usage: check-images.py [--repo-root PATH] [--env-file PATH]
 Exit 0 when they agree; 1 with the differences listed otherwise.
@@ -28,7 +29,8 @@ from pathlib import Path
 
 EDITIONS = ("basic", "standard", "pro")
 ALL_PROFILES = "influxdb,mcp,alerts,ai,clickhouse"
-WORKFLOW = ".github/workflows/release.yml"
+# Workflow -> how many service matrices it must carry.
+WORKFLOWS = {".github/workflows/release.yml": 2, ".github/workflows/ci.yml": 1}
 REGISTRY_DEFAULT = "ghcr.io/estcarisimo/smoking-pi"
 
 
@@ -138,24 +140,27 @@ def main() -> int:
             f"{module} is built by an edition but has no shared/modules Dockerfile"
         )
 
-    lists = matrix_services((root / WORKFLOW).read_text())
-    if len(lists) < 2:
-        problems.append(
-            f"{WORKFLOW}: expected the service matrix in the build and merge jobs"
-        )
-    for i, services in enumerate(lists):
-        if set(services) != dockerfiles:
+    for workflow, expected in WORKFLOWS.items():
+        lists = matrix_services((root / workflow).read_text())
+        if len(lists) < expected:
             problems.append(
-                f"{WORKFLOW}: service list #{i + 1} is {sorted(services)}, "
-                f"Dockerfiles are {sorted(dockerfiles)}"
+                f"{workflow}: expected {expected} service matri"
+                f"{'ces' if expected > 1 else 'x'}, found {len(lists)}"
             )
+        for i, services in enumerate(lists):
+            if set(services) != dockerfiles:
+                problems.append(
+                    f"{workflow}: service list #{i + 1} is {sorted(services)}, "
+                    f"Dockerfiles are {sorted(dockerfiles)}"
+                )
 
     if problems:
         print("\n".join(problems))
         return 1
     print(
         f"images OK: {checked} built services across {len(EDITIONS)} editions name "
-        f"{len(dockerfiles)} modules; the release matrix builds the same {len(dockerfiles)}"
+        f"{len(dockerfiles)} modules; the release and PR matrices build the same "
+        f"{len(dockerfiles)}"
     )
     return 0
 
