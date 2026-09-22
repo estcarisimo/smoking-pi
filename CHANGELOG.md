@@ -9,6 +9,42 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.12.0] — 2026-09-22
+
+Smoking Pi is a package: `sudo apt install smoking-pi`.
+
+Until now the only way to run it was a clone and an edition's `setup.sh`,
+with the state the stack rewrites living inside the source tree. This
+release is the packaging backlog of `docs/packaging.md`, all eight items:
+the state is relocatable, the containers run the code baked into their
+images, every service's image is built for arm64 and amd64 on the release
+tag and pulled by version, a `smoking-pi` command does the lifecycle
+(`install`, `upgrade`, `backup`, `restore`, `purge`), a `.deb` is built
+from the tagged tree, and a signed apt repository on GitHub Pages
+publishes it. Homebrew has a formula, untested on a Mac.
+
+What makes it a release rather than a build: before deciding anything,
+the package was installed with each supported host's own `apt` — Debian
+12 (today's Raspberry Pi OS) ships no Compose v2 at all, Debian 13 split
+the Docker CLI out of `docker.io`, and the first `Depends` line failed on
+three of the four hosts. The release workflow now installs the `.deb` on
+Ubuntu 22.04 and 24.04 VMs (both architectures — starting Basic with the
+release's own images, the unit enabled and stopped) and on Debian 12 and
+13 containers, then installs the previous release first and upgrades over
+it; the `.deb` is attached only when all of them pass. Writing that
+upgrade test found two ways the package would have broken every user's
+`apt upgrade` and fixed them before any `.deb` had shipped. `apt remove`
+and `apt purge` never delete a measurement, and say so. A Raspberry Pi is
+still the only proof of a Raspberry Pi: `docs/release-acceptance.md` is
+the checklist every release goes through on the reference Pi, and the
+Validation section in these notes is its record.
+
+Also in this release: the helper scripts told the truth for the first
+time in a while (SmokePing's port, health checks that never worked on a
+stock Raspberry Pi OS because `nc` is not there, a tunnel target that
+could never resolve), and `manage-containers.sh` applies the ClickHouse
+overlay.
+
 ### Added
 
 - **The release builds, checks and attaches the `.deb` (packaging backlog
