@@ -11,6 +11,23 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **A decision about what belongs in the command and what belongs in the
+  API** (`docs/cli-scope.md`, in the site nav under *Operating*). The
+  roadmap asked for this before the CLI grew any further, and it grew
+  again this week. The rule it settles on follows from one fact that was
+  never written down: the API *is* a container in the stack it would
+  manage, so it is available exactly when it is not needed. The command
+  therefore owns everything that must work with the stack down — install,
+  upgrade, backup, restore, purge, up/down, passwords, doctor, logs,
+  status — and the API and web admin own everything about what is
+  measured, because those are PostgreSQL rows with validation and a UI
+  already built for them. Hence no `smoking-pi add-target`: it would be a
+  second writer to that database. `restart` and `status` are the only
+  deliberate overlap, and the page shows they are two different
+  operations sharing a word — Compose-level for the command, SmokePing
+  specifically for the API, right after a config change. It ends with
+  four questions to answer before adding a command.
+
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
   stack that is measuring: what you need, Docker with Compose v2 (and why
