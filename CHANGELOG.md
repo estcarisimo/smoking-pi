@@ -11,6 +11,15 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **CodeQL runs on every PR, stacked ones included, as a workflow.** It was
+  GitHub's default setup, which analyzes only PRs that target the default
+  branch: a PR based on another PR's branch got every other check green and
+  no CodeQL at all, and nothing said so (#102). `.github/workflows/codeql.yml`
+  analyzes the same four languages (actions, JavaScript/TypeScript, Python,
+  Ruby) under the same categories, so existing alerts keep their numbers, on
+  every PR whatever its base, on pushes to `main` and weekly.
+  `CodeQL analysis (all)` is the check the branch rules can require.
+
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
   stack that is measuring: what you need, Docker with Compose v2 (and why
