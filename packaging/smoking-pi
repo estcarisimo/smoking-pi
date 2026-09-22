@@ -274,6 +274,10 @@ host_address() {
         a="$(echo "$SSH_CONNECTION" | awk '{print $3}')"
     else
         client="$(ssh_client)"
+        # utmp can hold a resolved hostname rather than an address (sshd's
+        # UseDNS); `ip route get` takes only addresses, so a name falls
+        # through to the default route below, which is usually the same
+        # interface anyway.
         [ -n "$client" ] && a="$(ip route get "$client" 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -1)"
     fi
     # Loopback is no answer, and a link-local v6 address needs a zone id
@@ -306,10 +310,11 @@ cmd_url() {
     local wait=0
     while [ $# -gt 0 ]; do
         case "$1" in
-            --wait) wait="$2"; shift 2 ;;
+            --wait) wait="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
             *) echo "unknown option $1" >&2; exit 2 ;;
         esac
     done
+    case "$wait" in ""|*[!0-9]*) echo "usage: smoking-pi url [--wait SECONDS]" >&2; exit 2 ;; esac
     local host client port url label login
     host="$(host_address)"; client="$(ssh_client)"
     # The first URL is the one a person customizes Smoking Pi from; Basic

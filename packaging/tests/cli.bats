@@ -64,6 +64,7 @@ STUB
 #!/bin/sh
 case "$*" in
     "-4 route get 1.1.1.1") [ -z "$STUB_V4" ] || echo "1.1.1.1 via 192.0.2.1 dev wlan0 src $STUB_V4 uid 1000" ;;
+    "route get "*[a-z]*) echo "Error: any valid prefix is expected rather than \"$3\"." >&2; exit 1 ;;
     "route get "*) echo "$3 dev eth0 src 198.51.100.7 uid 0" ;;
 esac
 STUB
@@ -416,6 +417,10 @@ make_backup_dir() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"http://198.51.100.7:8080/"* ]]
     [[ "$output" == *"connected from (203.0.113.5)"* ]]
+    # A resolved hostname in utmp (UseDNS): not routable by name, so the
+    # default route's address -- never localhost.
+    STUB_WHO=laptop.lan run "$CLI" url
+    [[ "$output" == *"http://192.0.2.10:8080/"* ]]
     # A desktop session reports its display, not a host: not an SSH client.
     STUB_WHO=:0 run "$CLI" url
     [[ "$output" == *"http://192.0.2.10:8080/"* ]]
@@ -439,6 +444,11 @@ make_backup_dir() {
     [[ "$output" == *"Nothing answers at http://192.0.2.10:8080/"* ]]
     [[ "$output" == *"smoking-pi logs"* ]]
     [ "$(grep -c '^sleep 3' "$DOCKER_LOG")" -eq 3 ]
+    run "$CLI" url --wait
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"usage: smoking-pi url"* ]]
+    run "$CLI" url --wait soon
+    [ "$status" -eq 2 ]
 }
 
 @test "url on Basic: SmokePing on the env file's port, :80 left out, no login and no passwords line" {
