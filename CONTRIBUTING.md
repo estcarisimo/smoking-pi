@@ -199,7 +199,12 @@ release create` with notes. Minor bump per batch of features, patch for a
 hotfix. Every release is deployed on the reference Pi and smoke-tested before
 the tag. The release branch also updates `version` and `date-released` in
 [CITATION.cff](CITATION.cff) — CI fails if they lag the newest CHANGELOG
-section.
+section. The tag is what publishes: `release.yml` builds the nine images
+for arm64 and amd64 (refusing a tag that disagrees with `CITATION.cff`),
+then builds the `.deb`, installs and checks it on a runner, and attaches
+it to the release you created; `docs.yml` deploys the site from the same
+tag. If the job runs before the release exists, the `.deb` is the run's
+`smoking-pi-deb` artifact — create the release and re-run the job.
 
 ## Reporting bugs
 

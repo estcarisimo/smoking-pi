@@ -24,6 +24,11 @@ install -m 0644 "$ROOT/packaging/systemd/smoking-pi.service" "$PKG/lib/systemd/s
 cat > "$PKG/etc/default/smoking-pi" <<'ENV'
 # Settings for the smoking-pi command and the systemd unit (a conffile:
 # dpkg keeps your edits across upgrades).
+# The command finds the tree itself (the checkout it sits in, else
+# /opt/smoking-pi); set only to run the packaged command against another
+# tree. Setting it here would also capture a checkout's own
+# packaging/smoking-pi on this host, which sources this file.
+#SMOKING_PI_HOME=/opt/smoking-pi
 #SMOKING_PI_EDITION=pro
 # The packaged layout: nothing the stack rewrites lives under /opt, so a
 # package upgrade replaces code only (docs/packaging.md, "Relocatable state").

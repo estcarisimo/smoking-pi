@@ -23,7 +23,15 @@ if [ -f /etc/default/smoking-pi ]; then
     # Re-apply what the caller had exported, so it overrides the file.
     eval "$_env_before"; unset _env_before
 fi
-SMOKING_PI_HOME="${SMOKING_PI_HOME:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)}"
+# Home: the checkout this file sits in (packaging/smoking-pi next to
+# editions/), else the package's /opt/smoking-pi -- installed at
+# /usr/bin/smoking-pi, "one directory up" is /, which is where the first
+# packaged run went looking for editions/.
+if [ -z "${SMOKING_PI_HOME:-}" ]; then
+    _self_home="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+    if [ -d "$_self_home/editions" ]; then SMOKING_PI_HOME="$_self_home"; else SMOKING_PI_HOME=/opt/smoking-pi; fi
+    unset _self_home
+fi
 SMOKING_PI_EDITION="${SMOKING_PI_EDITION:-pro}"
 EDITION_DIR="$SMOKING_PI_HOME/editions/$SMOKING_PI_EDITION"
 VERSION_FILE="$SMOKING_PI_HOME/CITATION.cff"

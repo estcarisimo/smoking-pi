@@ -152,11 +152,14 @@ Commits follow Conventional Commits; the subject is a sentence about the
 outcome. Releases: `release/vX.Y.Z` branch converts `[Unreleased]` to a dated
 section with an intro and updates `version`/`date-released` in
 `CITATION.cff` (CI checks they match), merge, `git tag -a`,
-`gh release create`. The tag triggers `release.yml` (nine images ×
-two architectures to `ghcr.io/estcarisimo/smoking-pi/<service>:<version>`;
-it refuses a tag that disagrees with `CITATION.cff`) and `docs.yml` (the
-site). Watch both to green before announcing; the package (backlog #5)
-will attach itself to the same tag.
+`gh release create` (notes = the changelog section). The tag triggers
+`release.yml` — nine images × two architectures to
+`ghcr.io/estcarisimo/smoking-pi/<service>:<version>` (it refuses a tag that
+disagrees with `CITATION.cff`), then the `.deb` built from the tagged tree,
+installed and checked on the runner, and attached to the release you
+created (if the release does not exist yet when the job runs, the `.deb`
+is the run's `smoking-pi-deb` artifact: create the release and re-run the
+job) — and `docs.yml` (the site). Watch both to green before announcing.
 
 ## Gotchas
 

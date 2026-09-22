@@ -11,6 +11,19 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The release builds, checks and attaches the `.deb` (packaging backlog
+  #5, first half).** The package existed as a trial builder nobody ran;
+  now `release.yml` builds it from the tagged tree, installs it on the
+  runner and checks what a package can prove without Docker — the version
+  it reports is the tag's, `smoking-pi paths` shows the packaged layout
+  with the images pinned to that version, the systemd unit verifies, the
+  doctor's static checks pass from `/opt`, `install` refuses over an
+  existing env file, and removal keeps `/etc/smoking-pi` and
+  `/var/lib/smoking-pi` — then keeps it as a workflow artifact and
+  attaches it to the GitHub release the maintainer created for the tag.
+  The workflow never creates a release. What remains of #5 is the signed
+  apt repository on Pages.
+
 - **The `smoking-pi` command does the lifecycle (packaging backlog #4).**
   The prototype could start, stop and install; a backup was a `pg_dumpall`
   and a `docker run … tar` typed from `docs/upgrades.md`, a restore was
@@ -55,6 +68,17 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Installed by the package, `smoking-pi` looked for the tree in `/`.**
+  The command took its home as one directory above itself — right from a
+  checkout (`packaging/smoking-pi`), and `/` from `/usr/bin/smoking-pi`;
+  the `/opt/smoking-pi` fallback the usage text promised was never
+  written, so a packaged `smoking-pi version` said `unknown` and `doctor`
+  found nothing to check. The first run of the release's package job
+  caught it. Now: the checkout when there is an `editions/` beside it,
+  `/opt/smoking-pi` otherwise (the package's defaults file documents the
+  knob, commented out — set there it would also capture a checkout's own
+  script on the same host); the job checks `paths` reports
+  `/opt/smoking-pi`.
 - **`smoking-pi help` printed `dev: command not found`** — the usage text
   is a heredoc, and the previous change put a backticked word in it. Quoted.
 
