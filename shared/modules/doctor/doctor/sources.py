@@ -743,3 +743,73 @@ def mcp_tool_names(server_py: pathlib.Path) -> set[str]:
             names.add(override or node.name)
             break
     return names
+# ── the host's uplink ──────────────────────────────────────────────────
+# Deliberately a second, small copy of what wifi_link.py does from /proc.
+# The doctor is a standalone package run on the host with pyyaml as its only
+# dependency; the exporter's copy has to work inside the smokeping container,
+# which cannot import the doctor. Sharing would mean a package dependency in
+# one direction or the other for thirty lines of parsing. The tests on both
+# sides use the same fixtures, which is what actually keeps them honest.
+
+RTF_UP = 0x0001
+RTF_GATEWAY = 0x0002
+
+# Interfaces that are never a real uplink even when they carry the default
+# route: Docker's bridges and veths, VPN tunnels, and Tailscale/WireGuard.
+VIRTUAL_IFACE_PREFIXES = (
+    "docker", "br-", "veth", "virbr", "tun", "tap", "tailscale", "wg", "zt",
+)
+
+
+def default_route_iface(proc_route: pathlib.Path) -> str | None:
+    """The interface carrying the IPv4 default route, lowest metric first."""
+    try:
+        lines = proc_route.read_text().splitlines()[1:]
+    except OSError:
+        return None
+    best: tuple[int, str] | None = None
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 2 or parts[1] != "00000000":
+            continue
+        try:
+            metric = int(parts[6]) if len(parts) >= 7 else 0
+        except ValueError:
+            metric = 0
+        if best is None or metric < best[0]:
+            best = (metric, parts[0])
+    return best[1] if best else None
+
+
+def default_route_iface6(proc_route6: pathlib.Path) -> str | None:
+    """The interface carrying the IPv6 default route.
+
+    ``::/0`` also appears as unreachable entries on ``lo``; a real default
+    route is up and has a gateway, so the flags decide, not the destination.
+    """
+    try:
+        lines = proc_route6.read_text().splitlines()
+    except OSError:
+        return None
+    best: tuple[int, str] | None = None
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 10 or parts[0] != "0" * 32 or parts[1] != "00":
+            continue
+        try:
+            metric, flags = int(parts[5], 16), int(parts[8], 16)
+        except ValueError:
+            continue
+        if not (flags & RTF_UP and flags & RTF_GATEWAY):
+            continue
+        if best is None or metric < best[0]:
+            best = (metric, parts[9])
+    return best[1] if best else None
+
+
+def is_wireless(iface: str, sys_net: pathlib.Path) -> bool:
+    return (sys_net / iface / "phy80211").exists()
+
+
+def is_virtual(iface: str) -> bool:
+    return iface.startswith(VIRTUAL_IFACE_PREFIXES)

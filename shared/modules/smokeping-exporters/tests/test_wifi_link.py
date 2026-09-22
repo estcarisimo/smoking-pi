@@ -252,6 +252,92 @@ class TestInterfaceChoice:
         (tmp_path / "eth0").mkdir()
         assert wifi_link.choose_interface(None, tmp_path, tmp_path / "route") is None
 
+    def _routes(self, tmp_path, rows):
+        """A /proc/net/route with the full column set: (iface, dest, metric)."""
+        p = tmp_path / "route-full"
+        p.write_text(
+            "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+            + "".join(
+                f"{iface}\t{dest}\t0156A8C0\t0003\t0\t0\t{metric}\t00000000\n"
+                for iface, dest, metric in rows
+            )
+        )
+        return p
+
+    def test_the_lowest_metric_wins_not_the_first_row(self, tmp_path):
+        """Ethernet and Wi-Fi both up: only the lowest metric carries traffic.
+
+        The kernel emits this prefix metric-ascending, so reading the first row
+        happens to work — but nothing documents that, and getting it wrong tags
+        a Wi-Fi sample uplink=False on a Pi that measures over Wi-Fi.
+        """
+        route = self._routes(tmp_path, [("wlan0", "00000000", 600),
+                                        ("eth0", "00000000", 100)])
+        assert wifi_link.default_route_interface(route) == "eth0"
+
+    def test_rows_without_a_metric_column_still_parse(self, tmp_path):
+        assert wifi_link.default_route_interface(self._route(tmp_path, "wlan0")) == "wlan0"
+
+    def test_non_default_destinations_are_ignored(self, tmp_path):
+        route = self._routes(tmp_path, [("docker0", "000011AC", 0),
+                                        ("wlan0", "00000000", 600)])
+        assert wifi_link.default_route_interface(route) == "wlan0"
+
+
+class TestIPv6Uplink:
+    """A v6-only host has no row in /proc/net/route at all."""
+
+    # dest prefixlen src srclen nexthop metric refcnt use flags iface
+    ROW = ("{dest} {plen} " + "0" * 32 + " 00 " + "0" * 32
+           + " {metric} 00000001 00000000 {flags}    {iface}")
+
+    def _route6(self, tmp_path, rows):
+        p = tmp_path / "ipv6_route"
+        p.write_text("\n".join(self.ROW.format(**r) for r in rows) + "\n")
+        return p
+
+    def _default(self, iface, metric="00000400", flags="00000003"):
+        return {"dest": "0" * 32, "plen": "00", "metric": metric,
+                "flags": flags, "iface": iface}
+
+    def test_finds_the_v6_default_route(self, tmp_path):
+        route6 = self._route6(tmp_path, [self._default("wlan0")])
+        assert wifi_link.default_route_interface6(route6) == "wlan0"
+
+    def test_the_unreachable_lo_entries_are_not_a_default_route(self, tmp_path):
+        """::/0 also appears twice on lo as a reject route with metric ffffffff;
+        matching on the destination alone would name lo as the uplink."""
+        route6 = self._route6(tmp_path, [
+            self._default("lo", metric="ffffffff", flags="00200200"),
+            self._default("lo", metric="ffffffff", flags="00200200"),
+        ])
+        assert wifi_link.default_route_interface6(route6) is None
+
+    def test_the_lowest_metric_wins_here_too(self, tmp_path):
+        route6 = self._route6(tmp_path, [self._default("wlan0", metric="00000600"),
+                                         self._default("eth0", metric="00000100")])
+        assert wifi_link.default_route_interface6(route6) == "eth0"
+
+    def test_a_prefix_route_is_not_a_default_route(self, tmp_path):
+        route6 = self._route6(tmp_path, [
+            {"dest": "fd4cc5a212327e6b" + "0" * 16, "plen": "40",
+             "metric": "00000100", "flags": "00000001", "iface": "wlan0"},
+        ])
+        assert wifi_link.default_route_interface6(route6) is None
+
+    def test_a_missing_file_is_not_an_error(self, tmp_path):
+        assert wifi_link.default_route_interface6(tmp_path / "nope") is None
+
+    def test_v4_wins_when_both_exist(self, tmp_path):
+        v4 = tmp_path / "route"
+        v4.write_text("Iface\tDestination\tGateway\n" "eth0\t00000000\t0156A8C0\n")
+        v6 = self._route6(tmp_path, [self._default("wlan0")])
+        assert wifi_link.uplink_interface(v4, v6) == "eth0"
+
+    def test_v6_is_the_fallback_on_a_v6_only_host(self, tmp_path):
+        v6 = self._route6(tmp_path, [self._default("wlan0")])
+        assert wifi_link.uplink_interface(tmp_path / "missing", v6) == "wlan0"
+
 
 class TestSample:
     """sample() glues the sources; iw is faked via run_iw."""

@@ -68,13 +68,38 @@ roam does not leave the channel a minute behind the access point.
 
 | variable | default | |
 | --- | --- | --- |
-| `WIFI_INTERFACE` | auto | the wireless interface to sample; auto = the one carrying the default route, else the first wireless one |
+| `WIFI_INTERFACE` | auto | the wireless interface to sample; auto = the one carrying the default route (IPv4, else IPv6; lowest metric), else the first wireless one. A non-wireless value disables the collector and logs why |
 | `WIFI_SAMPLE_INTERVAL` | `10` | seconds between station samples |
 | `WIFI_SLOW_INTERVAL` | `60` | seconds between channel/survey reads |
 
 Set in `editions/pro/.env` (the template lists them); the compose file
 passes them to the `smokeping` service. `iw` is baked into the image; the
 init script installs it if a custom image lacks it.
+
+Setting `WIFI_INTERFACE` to something that is not wireless — a typo, or a
+wired interface asked to report Wi-Fi statistics — disables the collector,
+and now says so in the log with the wireless interfaces it did find. It used
+to be silent, which read as "no wireless hardware".
+
+### Which interface is the uplink
+
+Every sample carries an `uplink` tag: whether *this* interface is the one the
+host's default route sits on. It decides whether the Wi-Fi verdict can fire
+at all — *"it's your Wi-Fi, not the ISP"* only makes sense about the link the
+measurements cross — so getting it wrong is silent and total.
+
+It is read from `/proc/net/route`, and from `/proc/net/ipv6_route` when there
+is no IPv4 default route, so a v6-only host is not mistaken for a host with no
+uplink (before that fallback existed, every sample on such a host was tagged
+`uplink=0` and the Wi-Fi verdict could never fire). Where both Ethernet and
+Wi-Fi are up there are two default routes, and the **lowest metric** wins
+rather than whichever the file lists first.
+
+`smoking-pi doctor --live` prints the result as a line of its own —
+`measuring over wlan0 (wireless, IPv4)` — and warns when the default route
+has moved onto a tunnel or a Docker bridge, which is the case where these
+statistics keep being collected while describing a link nobody is asking
+about ([Instrumentation doctor](doctor.md)).
 
 ## The dashboard
 

@@ -307,13 +307,20 @@ def test_unreadable_host_resolv_skips(repo, tmp_path):
     assert res.status is Status.SKIP
 
 
-def test_run_all_returns_both_checks(repo, host_resolv):
+def test_run_all_returns_every_check(repo, host_resolv):
     results = live_checks.run_all(repo, FakeDocker({}, present=False))
     assert [r.name for r in results] == [
         "deployed-code-current",
         "container-dns-fresh",
+        "uplink-interface",
     ]
-    assert all(r.status is Status.SKIP for r in results)
+    # Without a daemon the two Docker checks skip rather than report a broken
+    # deployment. uplink-interface asks the kernel, not Docker, so it answers
+    # on any Linux host and is not part of that guarantee.
+    by_name = {r.name: r for r in results}
+    assert by_name["deployed-code-current"].status is Status.SKIP
+    assert by_name["container-dns-fresh"].status is Status.SKIP
+    assert by_name["uplink-interface"].status is not Status.FAIL
 
 
 def test_a_custom_compose_project_name_is_still_found(repo):
@@ -423,3 +430,136 @@ def test_a_pin_on_one_service_does_not_cover_another(repo, host_resolv):
     docker = _dns_docker({"pro-grafana-1": "nameserver 1.1.1.1\n"})
     res = live_checks.check_container_dns_fresh(repo, docker, host_resolv)
     assert res.status is Status.WARN
+
+
+# ---------------------------------------------------------------------------
+# uplink-interface
+# ---------------------------------------------------------------------------
+
+
+def _route(tmp_path, rows):
+    """A /proc/net/route: rows of (iface, destination, metric)."""
+    p = tmp_path / "route"
+    p.write_text(
+        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+        + "".join(
+            f"{i}\t{d}\t0156A8C0\t0003\t0\t0\t{m}\t00000000\n" for i, d, m in rows
+        )
+    )
+    return p
+
+
+def _route6(tmp_path, rows):
+    """A /proc/net/ipv6_route: rows of (iface, dest, prefixlen, metric, flags)."""
+    zeros = "0" * 32
+    p = tmp_path / "ipv6_route"
+    p.write_text(
+        "".join(
+            f"{d} {plen} {zeros} 00 {zeros} {m} 00000001 00000000 {f}    {i}\n"
+            for i, d, plen, m, f in rows
+        )
+    )
+    return p
+
+
+def _sysnet(tmp_path, interfaces):
+    """/sys/class/net: {name: is_wireless}."""
+    root = tmp_path / "sysnet"
+    for name, wireless in interfaces.items():
+        d = root / name
+        d.mkdir(parents=True)
+        if wireless:
+            (d / "phy80211").mkdir()
+    return root
+
+
+def test_a_wireless_uplink_is_named(tmp_path):
+    """The reference Pi: eth0 dark, everything measured through wlan0."""
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, [("wlan0", "00000000", 600)]),
+        tmp_path / "no-ipv6",
+        _sysnet(tmp_path, {"eth0": False, "wlan0": True}),
+    )
+    assert res.status is Status.OK
+    assert "wlan0" in res.summary and "wireless" in res.summary
+
+
+def test_a_wired_uplink_says_so(tmp_path):
+    """Otherwise an empty Wi-Fi dashboard looks like a broken collector."""
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, [("eth0", "00000000", 100)]),
+        tmp_path / "no-ipv6",
+        _sysnet(tmp_path, {"eth0": False, "wlan0": True}),
+    )
+    assert res.status is Status.OK
+    assert "eth0" in res.summary and "wired" in res.summary
+
+
+def test_both_up_names_the_one_the_kernel_uses(tmp_path):
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, [("wlan0", "00000000", 600), ("eth0", "00000000", 100)]),
+        tmp_path / "no-ipv6",
+        _sysnet(tmp_path, {"eth0": False, "wlan0": True}),
+    )
+    assert "eth0" in res.summary
+
+
+def test_a_tunnel_carrying_the_default_route_warns(tmp_path):
+    """THE failure: the numbers describe the tunnel, and the Wi-Fi verdict is
+    off because no wireless interface carries the default route."""
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, [("tailscale0", "00000000", 50)]),
+        tmp_path / "no-ipv6",
+        _sysnet(tmp_path, {"tailscale0": False, "wlan0": True}),
+    )
+    assert res.status is Status.WARN
+    assert "tailscale0" in res.findings[0].message
+
+
+def test_a_docker_bridge_warns_too(tmp_path):
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, [("docker0", "00000000", 0)]),
+        tmp_path / "no-ipv6",
+        _sysnet(tmp_path, {"docker0": False}),
+    )
+    assert res.status is Status.WARN
+
+
+def test_no_default_route_at_all_warns(tmp_path):
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, [("wlan0", "0056A8C0", 600)]),
+        _route6(tmp_path, []),
+        _sysnet(tmp_path, {"wlan0": True}),
+    )
+    assert res.status is Status.WARN
+    assert "no default route" in res.findings[0].message
+
+
+def test_a_v6_only_host_falls_back_to_the_v6_route(tmp_path):
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, []),
+        _route6(tmp_path, [("wlan0", "0" * 32, "00", "00000400", "00000003")]),
+        _sysnet(tmp_path, {"wlan0": True}),
+    )
+    assert res.status is Status.OK
+    assert "wlan0" in res.summary and "IPv6" in res.summary
+
+
+def test_the_unreachable_lo_entries_are_not_an_uplink(tmp_path):
+    """::/0 appears twice on lo as a reject route; matching the destination
+    alone would report lo as the interface being measured."""
+    zeros = "0" * 32
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, []),
+        _route6(tmp_path, [("lo", zeros, "00", "ffffffff", "00200200")] * 2),
+        _sysnet(tmp_path, {"lo": False}),
+    )
+    assert res.status is Status.WARN
+    assert "no default route" in res.findings[0].message
+
+
+def test_a_host_without_proc_net_is_skipped(tmp_path):
+    res = live_checks.check_uplink_interface(
+        tmp_path / "none", tmp_path / "none6", tmp_path / "sysnet"
+    )
+    assert res.status is Status.SKIP

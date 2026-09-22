@@ -29,6 +29,18 @@ version gets a matching GitHub release and git tag.
   both directions: an undocumented tool is one nobody knows to ask for, and
   a documented tool that no longer exists reads as a promise. Static, so it
   runs in CI.
+- **The doctor names the interface every measurement crosses**
+  (`uplink-interface`, a live check). Nothing said this before, and the
+  omission cost a year: the reference Pi has `eth0` with no carrier and its
+  default route on `wlan0`, so every latency figure recorded since the stack
+  went up had crossed a Wi-Fi hop nobody was measuring. It now prints
+  `measuring over wlan0 (wireless, IPv4)`, says **wired** explicitly — so an
+  empty Wi-Fi dashboard is distinguishable from a broken collector — and
+  **warns** when the default route has moved onto a Docker bridge, a VPN
+  tunnel, Tailscale or WireGuard. That last case is the one it exists for:
+  the latency figures then describe that path, and the Wi-Fi verdict is off,
+  because it requires the wireless interface to carry the default route.
+  Nothing anywhere said so.
 
 ### Fixed
 
@@ -58,6 +70,24 @@ version gets a matching GitHub release and git tag.
   repository the same day. It now leads with the package and links the new
   guide; the README's Quick Start puts `apt` first and the clone second,
   where it belongs as the development path.
+- **A v6-only host could never say "it's your Wi-Fi".** The uplink was read
+  from `/proc/net/route`, which has no IPv6 at all. With no IPv4 default
+  route there was no row to find, so every Wi-Fi sample was tagged
+  `uplink=0` — and the Wi-Fi verdict requires the uplink — while the
+  interface selection silently fell back to "the first wireless one". It now
+  falls back to `/proc/net/ipv6_route`, where `::/0` also appears twice on
+  `lo` as an unreachable route, so the flags decide rather than the
+  destination.
+- **Two default routes were resolved by file order, not by metric.** With
+  Ethernet and Wi-Fi both up only the lowest metric carries traffic. The
+  kernel does emit the prefix metric-ascending — verified by adding the
+  high-metric route first in a throwaway namespace and reading the file back
+  — so the old code was right by accident, on undocumented behavior nothing
+  pinned. The metric is now compared, with a test.
+- **`WIFI_INTERFACE` pointing at a non-wireless interface failed silently.**
+  A typo, or a wired interface asked to report Wi-Fi statistics, disabled the
+  collector with no message — indistinguishable from "no wireless hardware".
+  It now logs which it is, and the wireless interfaces it did find.
 
 ## [2.12.0] — 2026-09-22
 

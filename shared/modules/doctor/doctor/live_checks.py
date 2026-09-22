@@ -17,6 +17,14 @@ and only fails on hostnames. Nothing goes red, so nobody looks.
   recreated the container from the stale image, and everything reported
   success while the fix sat only on disk.
 
+- ``uplink-interface`` — the interface the measurements actually leave by is
+  named, and is a real one. Every latency figure this stack records crosses
+  the host's uplink, and nothing said which it was: the reference Pi spent a
+  year measuring *through Wi-Fi* with `eth0` dark before anyone noticed. It
+  warns when the default route sits on a tunnel or a Docker bridge, because
+  then the numbers describe that tunnel and the Wi-Fi verdict — which needs
+  the wireless interface to *be* the uplink — goes quiet without saying so.
+
 - ``container-dns-fresh`` — a container's resolver still matches the host's.
   Docker writes ``/etc/resolv.conf`` **once, at container creation**. A
   container created while a VPN was up freezes that VPN's resolver, which dies
@@ -417,4 +425,63 @@ def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
     return [
         check_deployed_code_current(repo, docker),
         check_container_dns_fresh(repo, docker),
+        check_uplink_interface(),
     ]
+
+
+PROC_ROUTE = pathlib.Path("/proc/net/route")
+PROC_IPV6_ROUTE = pathlib.Path("/proc/net/ipv6_route")
+SYS_NET = pathlib.Path("/sys/class/net")
+
+
+def check_uplink_interface(
+    proc_route: pathlib.Path = PROC_ROUTE,
+    proc_route6: pathlib.Path = PROC_IPV6_ROUTE,
+    sys_net: pathlib.Path = SYS_NET,
+) -> CheckResult:
+    """Name the interface every measurement crosses, and say what kind it is.
+
+    Three states are worth a word rather than silence:
+
+    * **wireless** — the Wi-Fi collector applies, its dashboards have data,
+      and the verdict can say "it's your Wi-Fi, not the ISP".
+    * **wired** — no Wi-Fi statistics, on purpose. Without this line an empty
+      Wi-Fi dashboard is indistinguishable from a broken collector.
+    * **virtual** — the default route is on a Docker bridge, a VPN tunnel or
+      Tailscale. The latency figures then describe that path, and the Wi-Fi
+      verdict is off (it requires the wireless interface to carry the default
+      route) with nothing anywhere saying why. That is the failure this check
+      exists for; the others are context.
+    """
+    if not proc_route.is_file() and not proc_route6.is_file():
+        return skipped("uplink-interface", "no /proc/net routing table (not Linux?)")
+
+    iface = sources.default_route_iface(proc_route)
+    family = "IPv4"
+    if iface is None:
+        iface, family = sources.default_route_iface6(proc_route6), "IPv6"
+    if iface is None:
+        return result(
+            "uplink-interface",
+            [Finding("no default route on this host — nothing can be measured")],
+            "",
+            status=Status.WARN,
+        )
+
+    if sources.is_virtual(iface):
+        return result(
+            "uplink-interface",
+            [
+                Finding(
+                    f"the {family} default route is on {iface}, a tunnel or "
+                    f"virtual bridge — every latency figure describes that "
+                    f"path, and the Wi-Fi verdict is disabled because no "
+                    f"wireless interface carries the default route"
+                )
+            ],
+            "",
+            status=Status.WARN,
+        )
+
+    kind = "wireless" if sources.is_wireless(iface, sys_net) else "wired"
+    return result("uplink-interface", [], f"measuring over {iface} ({kind}, {family})")

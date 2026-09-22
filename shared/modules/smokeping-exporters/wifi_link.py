@@ -68,7 +68,12 @@ WRITE_RETRIES = 3
 
 SYS_NET = Path("/sys/class/net")
 PROC_ROUTE = Path("/proc/net/route")
+PROC_IPV6_ROUTE = Path("/proc/net/ipv6_route")
 PROC_WIRELESS = Path("/proc/net/wireless")
+
+# Route flags, as /proc/net/ipv6_route prints them (linux/route.h).
+RTF_UP = 0x0001
+RTF_GATEWAY = 0x0002
 
 # Counters read from sysfs; their names are the field names.
 SYSFS_COUNTERS = ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets",
@@ -89,29 +94,94 @@ def find_interfaces(sys_net: Path = SYS_NET) -> list[str]:
 
 
 def default_route_interface(proc_route: Path = PROC_ROUTE) -> str | None:
-    """The interface carrying the default route, from /proc/net/route
-    (destination 00000000), so there is no dependency on iproute2."""
+    """The interface carrying the IPv4 default route, from /proc/net/route
+    (destination 00000000), so there is no dependency on iproute2.
+
+    With Ethernet and Wi-Fi both up there are two default routes and only the
+    lowest metric is used, so the metric is compared rather than the file's
+    order. The kernel happens to emit the prefix's routes metric-ascending —
+    verified by adding the high-metric route first in a throwaway namespace
+    and reading the file back — but that ordering is not documented anywhere,
+    and picking the wrong one would tag a Wi-Fi sample `uplink=False` on a Pi
+    that is measuring over Wi-Fi, which is exactly the case the Wi-Fi verdict
+    exists for. Rows without a metric column (older kernels, and the test
+    fixtures) count as metric 0.
+    """
     try:
         lines = proc_route.read_text().splitlines()[1:]
     except OSError:
         return None
+    best: tuple[int, str] | None = None
     for line in lines:
         parts = line.split()
-        if len(parts) >= 2 and parts[1] == "00000000":
-            return parts[0]
-    return None
+        if len(parts) < 2 or parts[1] != "00000000":
+            continue
+        try:
+            metric = int(parts[6]) if len(parts) >= 7 else 0
+        except ValueError:
+            metric = 0
+        if best is None or metric < best[0]:
+            best = (metric, parts[0])
+    return best[1] if best else None
+
+
+def default_route_interface6(proc_route6: Path = PROC_IPV6_ROUTE) -> str | None:
+    """The interface carrying the IPv6 default route, from /proc/net/ipv6_route.
+
+    A v6-only host has no row in /proc/net/route at all, so without this the
+    uplink reads as unknown and every Wi-Fi sample is tagged `uplink=False` —
+    the verdict requires the uplink, so it would never say "it's your Wi-Fi"
+    on such a host. ::/0 also appears as two unreachable entries on `lo` with
+    metric ffffffff, which is why the flags are checked rather than just the
+    destination: a real default route is up and has a gateway.
+    """
+    try:
+        lines = proc_route6.read_text().splitlines()
+    except OSError:
+        return None
+    best: tuple[int, str] | None = None
+    for line in lines:
+        parts = line.split()
+        # dest, prefixlen, src, srclen, nexthop, metric, refcnt, use, flags, iface
+        if len(parts) < 10 or parts[0] != "0" * 32 or parts[1] != "00":
+            continue
+        try:
+            metric, flags = int(parts[5], 16), int(parts[8], 16)
+        except ValueError:
+            continue
+        if not (flags & RTF_UP and flags & RTF_GATEWAY):
+            continue
+        if best is None or metric < best[0]:
+            best = (metric, parts[9])
+    return best[1] if best else None
+
+
+def uplink_interface(proc_route: Path = PROC_ROUTE,
+                     proc_route6: Path = PROC_IPV6_ROUTE) -> str | None:
+    """The interface the host's traffic actually leaves by, v4 first then v6."""
+    return default_route_interface(proc_route) or default_route_interface6(proc_route6)
 
 
 def choose_interface(override: str | None, sys_net: Path = SYS_NET,
-                     proc_route: Path = PROC_ROUTE) -> str | None:
+                     proc_route: Path = PROC_ROUTE,
+                     proc_route6: Path = PROC_IPV6_ROUTE) -> str | None:
     """WIFI_INTERFACE if set and wireless; else the wireless interface that
     carries the default route; else the first wireless interface; else None."""
     wireless = find_interfaces(sys_net)
     if override:
-        return override if override in wireless else None
+        if override in wireless:
+            return override
+        # Silence here used to look like "no wireless hardware". Say which it
+        # is: a typo, or a wired interface asked to report Wi-Fi statistics.
+        log.warning(
+            "WIFI_INTERFACE=%s is not a wireless interface (wireless here: %s) "
+            "— no Wi-Fi statistics will be collected",
+            override, ", ".join(wireless) or "none",
+        )
+        return None
     if not wireless:
         return None
-    uplink = default_route_interface(proc_route)
+    uplink = uplink_interface(proc_route, proc_route6)
     if uplink in wireless:
         return uplink
     return wireless[0]
@@ -471,7 +541,7 @@ def main() -> int:
                 idle_logged = False
                 log.info("collecting from %s", iface)
 
-            uplink = default_route_interface() == iface
+            uplink = uplink_interface() == iface
             s = sample_fast(iface, have_iw, uplink)
             # Channel, width and SSID change only on a roam -- so a new BSSID
             # re-reads them at once instead of lagging a slow interval behind.
