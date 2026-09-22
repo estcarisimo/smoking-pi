@@ -97,7 +97,8 @@ Upgrade path is `Basic → Standard → Pro`; `shared/scripts/migrate-to-edition
 
 ```bash
 # Where is everything, and what are the passwords?
-./show-passwords.sh                      # from any edition directory
+./show-passwords.sh                      # from any edition directory (URLs, status)
+./show-passwords.sh --show-secrets       # ...and the secret values themselves
 
 # Container lifecycle
 ../../shared/scripts/manage-containers.sh --action status --verbose
@@ -129,7 +130,7 @@ Pro ships an MCP server and a ready-made agent skill, so *"how was the week?"* i
 # Opt in by adding the profile to .env, so a later bare `docker compose up -d` keeps it
 sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=influxdb,mcp/' editions/pro/.env
 (cd editions/pro && docker compose up -d mcp-server)
-claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp   # token: ./show-passwords.sh
+claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp   # token: ./show-passwords.sh --show-secrets
 
 # Install the OpenClaw skill so a Telegram chat can ask; re-run after any change (from the checkout root)
 ./shared/scripts/install-openclaw-skill.sh --reload

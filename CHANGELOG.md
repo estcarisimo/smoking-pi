@@ -42,8 +42,60 @@ version gets a matching GitHub release and git tag.
   because it requires the wireless interface to carry the default route.
   Nothing anywhere said so.
 
+### Changed
+
+- **`show-passwords.sh` no longer prints your secrets unless you ask.** It
+  ran at the end of every install and on every `smoking-pi passwords`, and
+  it printed all nine of them — the Grafana password, the config-manager
+  and MCP tokens, the InfluxDB admin password and API token, the PostgreSQL
+  password and the `DATABASE_URL` that embeds it, the web-admin password
+  and the Flask `SECRET_KEY` — with no way to ask for anything less. The
+  default view now shows each one as `set (hidden)`; `--show-secrets`
+  prints the values. Two things deliberately did *not* move behind the
+  flag: whether a secret is **set at all**, because `unset` means an
+  unauthenticated endpoint and that is a warning, not a credential; and
+  everything that was never secret — URLs, usernames, container state,
+  port checks. `smoking-pi passwords` forwards its flags, so
+  `smoking-pi passwords --show-secrets` is the whole interface.
+- **`--show-secrets` refuses a pipe, a file or a capture unless forced.**
+  When stdout is not a terminal it exits 3 with an explanation instead of
+  printing, because a redirect outlives the screen — a log, a transcript,
+  an assistant reading the run. `--force` says you meant it. The install
+  tail is unaffected: it ends on the hidden view and one line saying where
+  the values are.
+- **The env file's permissions are checked.** Hiding secrets on screen
+  means little if any account on the host can read the file they all live
+  in, so a mode looser than `x00` is called out with the `chmod` to fix it.
+
 ### Fixed
 
+- **The PostgreSQL health check had never once succeeded.** It ran
+  `docker exec grafana-influx_postgres_1`, a container name that stopped
+  existing when the editions split (and Compose v2 joins names with
+  dashes, not underscores). Every healthy Pro stack was told
+  `PostgreSQL connection failed`, `Config-manager will use YAML fallback
+  mode`, and to delete a volume. It now goes through Compose
+  (`compose exec -T postgres`), which resolves the container whatever the
+  project is called.
+- **The InfluxDB and ClickHouse credential checks passed with the wrong
+  credentials.** Both used `curl -s`, which exits 0 on an HTTP 401, so
+  `InfluxDB token is valid` was printed for any token at all — the single
+  thing the check exists to catch. Both now use `curl -sf`. (Verified: a
+  deliberately wrong token against the reference Pi's InfluxDB returned
+  401 and the check reported success.)
+- **The troubleshooting advice named volumes that are not yours and one
+  script that does not exist.** `grafana-influx_grafana-data`,
+  `_influxdb-data` and `_postgres-data` belong to a Compose project this
+  repository has not used in a long time; on a current install the names
+  are `<project>_*`, which the script now computes the way Compose does.
+  Fixing the names alone would have turned dead advice into destructive
+  advice — "delete `influxdb-data`" is a year of measurements and
+  "delete `postgres-data`" is every target — so the remediation changed
+  too: `sync-influx-token.sh` for a token mismatch (it existed all along;
+  the `verify-influxdb.sh` the script pointed at never did),
+  `grafana cli admin reset-admin-password` for a Grafana login, logs and a
+  restart for PostgreSQL, with the destructive option named as destructive
+  where it is genuinely the last resort.
 - **The MCP tool table was four tools short.** `mute_alerts`,
   `unmute_alerts`, `ack_incident` and `list_alert_state` shipped with the
   alerting work and were explained in `docs/alerting.md`, but the MCP

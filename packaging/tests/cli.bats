@@ -17,7 +17,7 @@ setup() {
     cp "$REPO/editions/pro/docker-compose.yml" "$REPO/editions/pro/docker-compose.clickhouse.yml" \
        "$REPO/editions/pro/docker-compose.packaged.yml" "$STUB_HOME/editions/pro/"
     printf '#!/bin/sh\necho SETUP "$@" >> "%s"\nprintf "COMPOSE_PROFILES=%%s\\n" "${2:-influxdb}" > "$SMOKING_PI_ENV_FILE"\n' "$DOCKER_LOG" > "$STUB_HOME/editions/pro/setup.sh"
-    printf '#!/bin/sh\necho PASSWORDS >> "%s"\n' "$DOCKER_LOG" > "$STUB_HOME/editions/pro/show-passwords.sh"
+    printf '#!/bin/sh\necho PASSWORDS "$@" >> "%s"\n' "$DOCKER_LOG" > "$STUB_HOME/editions/pro/show-passwords.sh"
     cp "$STUB_HOME/editions/pro/setup.sh" "$STUB_HOME/editions/pro/show-passwords.sh" "$STUB_HOME/editions/basic/"
     chmod +x "$STUB_HOME/editions/"*/*.sh
     printf 'version: 9.9.9\n' > "$STUB_HOME/CITATION.cff"
@@ -343,4 +343,21 @@ make_backup_dir() {
     [ ! -f "$SMOKING_PI_ENV_FILE" ]
     [ -d "$SMOKING_PI_CONFIG_DIR" ] && [ ! -e "$SMOKING_PI_CONFIG_DIR/targets.yaml" ]
     [ -d "$SMOKING_PI_OUTPUT_DIR" ]
+}
+
+@test "passwords forwards its flags, so --show-secrets reaches the script" {
+    run "$CLI" passwords --show-secrets --force
+    [ "$status" -eq 0 ]
+    grep -qx 'PASSWORDS --show-secrets --force' "$DOCKER_LOG"
+}
+
+# An install transcript is pasted into issues and photographed. It ends on
+# the hidden view, and says in one line where the values are.
+@test "install ends on the masked view and points at --show-secrets without passing it" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    run "$CLI" install --edition pro --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'PASSWORDS' "$DOCKER_LOG"
+    ! grep -q 'PASSWORDS .*--show-secrets' "$DOCKER_LOG"
+    [[ "$output" == *"smoking-pi passwords --show-secrets"* ]]
 }
