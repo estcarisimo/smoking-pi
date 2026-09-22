@@ -201,10 +201,16 @@ the tag. The release branch also updates `version` and `date-released` in
 [CITATION.cff](CITATION.cff) — CI fails if they lag the newest CHANGELOG
 section. The tag is what publishes: `release.yml` builds the nine images
 for arm64 and amd64 (refusing a tag that disagrees with `CITATION.cff`),
-then builds the `.deb`, installs and checks it on a runner, and attaches
-it to the release you created; `docs.yml` deploys the site from the same
-tag. If the job runs before the release exists, the `.deb` is the run's
-`smoking-pi-deb` artifact — create the release and re-run the job.
+then builds the `.deb` and installs it with each supported host's own
+`apt` — Ubuntu 22.04/24.04 VMs on both architectures, where the Basic
+edition is also started with the release's images, and Debian 12/13
+containers (what Raspberry Pi OS is built on) without a daemon — and only
+when every host passed attaches it to the release you created
+([docs/packaging.md](docs/packaging.md), *Supported hosts*); `docs.yml`
+deploys the site from the same tag. If the `attach` job runs before the
+release exists, the `.deb` is the run's `smoking-pi-deb` artifact —
+create the release and re-run that job. A container is not a Raspberry
+Pi: the release is still deployed and smoke-tested on the reference Pi.
 
 ## Reporting bugs
 

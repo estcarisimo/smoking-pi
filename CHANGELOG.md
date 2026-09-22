@@ -23,6 +23,29 @@ version gets a matching GitHub release and git tag.
   attaches it to the GitHub release the maintainer created for the tag.
   The workflow never creates a release. What remains of #5 is the signed
   apt repository on Pages.
+- **The release installs the `.deb` on every supported host, with that
+  host's own `apt`.** Measured first, in containers of each OS: Debian 12
+  (today's Raspberry Pi OS) ships no Compose v2 at all, Debian 13 split
+  the Docker CLI out of `docker.io` and calls its Compose v2
+  `docker-compose`, and apt takes the first installable alternative — so
+  the original `Depends` line would have failed on three of the four
+  supported hosts, or paired Debian's 20.10 daemon with Docker's Compose 5.
+  The corrected line (`docker-ce | docker.io`, the CLI named explicitly,
+  `docker-compose (>= 2)`) resolves on all of them. `release.yml` now
+  checks it on every tag (first exercised by the throwaway runs
+  `test-d0b5662` and `test-host-matrix`, before any release): Ubuntu 22.04
+  and 24.04 VMs, amd64 and arm64,
+  install the package, start the Basic edition with the release's images,
+  enable and stop the unit; Debian 12 and 13 containers on both
+  architectures check the package without a daemon, every edition
+  rendered with that Debian's Compose. The `.deb` is attached to the
+  release only after all of them pass. One script does the whole check
+  (`packaging/tests/check-package.sh`), locally too. Also found by the
+  new check: `install` never recorded the chosen edition, so a packaged
+  Basic install would have been started as Pro by the systemd unit — it
+  is written to `/etc/default/smoking-pi` now. `docs/packaging.md`,
+  *Supported hosts*, has the measured matrix and what a container does
+  not prove about a Raspberry Pi.
 
 - **The `smoking-pi` command does the lifecycle (packaging backlog #4).**
   The prototype could start, stop and install; a backup was a `pg_dumpall`

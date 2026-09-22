@@ -146,6 +146,30 @@ fail_docker_on() {
     ! grep -q ' up -d' "$DOCKER_LOG"
 }
 
+@test "install records the edition in the defaults file, so the unit and later commands run that one" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    export SMOKING_PI_DEFAULTS="$BATS_TEST_TMPDIR/defaults"
+    printf '#SMOKING_PI_EDITION=pro\nSMOKING_PI_ENV_FILE=%s\n' "$SMOKING_PI_ENV_FILE" > "$SMOKING_PI_DEFAULTS"
+    run "$CLI" install --yes --edition basic
+    [ "$status" -eq 0 ]
+    grep -qx 'SMOKING_PI_EDITION=basic' "$SMOKING_PI_DEFAULTS"
+    ! grep -q '^#SMOKING_PI_EDITION' "$SMOKING_PI_DEFAULTS"
+    # The next command, with nothing in the environment, is Basic's.
+    unset SMOKING_PI_EDITION
+    run "$CLI" paths
+    [[ "$output" == *"edition:  basic"* ]]
+    # A file without the line gets it appended; a clone (no file) gets none.
+    printf 'SMOKING_PI_ENV_FILE=%s\n' "$SMOKING_PI_ENV_FILE" > "$SMOKING_PI_DEFAULTS"
+    rm -f "$SMOKING_PI_ENV_FILE"
+    run "$CLI" install --yes --edition pro
+    grep -qx 'SMOKING_PI_EDITION=pro' "$SMOKING_PI_DEFAULTS"
+    export SMOKING_PI_DEFAULTS="$BATS_TEST_TMPDIR/absent"
+    rm -f "$SMOKING_PI_ENV_FILE"
+    run "$CLI" install --yes --edition basic
+    [ "$status" -eq 0 ]
+    [ ! -e "$SMOKING_PI_DEFAULTS" ]
+}
+
 @test "install --profiles appends the optional profiles to what setup.sh recorded and starts them" {
     rm -f "$SMOKING_PI_ENV_FILE"
     run "$CLI" install --yes --database influxdb --profiles mcp,alerts

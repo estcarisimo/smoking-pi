@@ -155,11 +155,14 @@ section with an intro and updates `version`/`date-released` in
 `gh release create` (notes = the changelog section). The tag triggers
 `release.yml` — nine images × two architectures to
 `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` (it refuses a tag that
-disagrees with `CITATION.cff`), then the `.deb` built from the tagged tree,
-installed and checked on the runner, and attached to the release you
-created (if the release does not exist yet when the job runs, the `.deb`
-is the run's `smoking-pi-deb` artifact: create the release and re-run the
-job) — and `docs.yml` (the site). Watch both to green before announcing.
+disagrees with `CITATION.cff`), then the `.deb` built from the tagged tree
+and installed with each supported host's own `apt` (Ubuntu 22.04/24.04
+VMs, both architectures, Basic started with the release's images; Debian
+12/13 containers, package-level — `docs/packaging.md`, *Supported hosts*),
+and, only after every host passed, attached to the release you created (if
+the release does not exist yet when `attach` runs, the `.deb` is the run's
+`smoking-pi-deb` artifact: create the release and re-run that job) — and
+`docs.yml` (the site). Watch both to green before announcing.
 
 ## Gotchas
 
