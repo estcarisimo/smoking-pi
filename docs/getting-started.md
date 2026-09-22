@@ -184,7 +184,25 @@ need something from you before they are useful:
 You can turn any of them on afterwards by adding it to `COMPOSE_PROFILES`
 in the env file and running `sudo smoking-pi up`.
 
-Expected, at the end: a banner with your URLs and service status. The
+Expected, at the end: what to open, as the last thing on the screen.
+
+```text
+Open Smoking Pi:
+  Web admin  http://192.168.1.27:8080/   (user admin)
+  Grafana    http://192.168.1.27:3000/   (user admin)
+  Passwords: smoking-pi passwords --show-secrets (on this machine)
+Open it on the computer you are connected from (192.168.1.30), not in this terminal.
+Also, from most computers on this network: http://raspberrypi.local:8080/
+```
+
+If you installed over SSH, the address is the one your computer reached
+the Pi at, not `localhost` — which, typed on your laptop, is your laptop.
+`install` waits up to two minutes for the page to answer before printing it,
+and says so if it still doesn't: the first start can take longer while
+images download. `sudo smoking-pi url` prints the same block, and checks
+again, whenever you need it.
+
+Above it is a banner with every service's status. The
 secrets are set but **not printed** — an install transcript is the last
 place a password should live. Read them when you need them:
 
@@ -266,10 +284,11 @@ A container that is `Restarting` is the one to look at:
 **2. The URLs answer.**
 
 ```bash
-sudo smoking-pi passwords
+sudo smoking-pi url
 ```
 
-It prints the addresses for this machine and for the rest of your network.
+It prints the address to open and exits non-zero if nothing answers there.
+`sudo smoking-pi passwords` lists every service's address.
 For Pro: SmokePing on `http://<pi>/`, the web admin on `http://<pi>:8080`,
 Grafana on `http://<pi>:3000`, InfluxDB on `http://<pi>:8086`. Log in to
 Grafana with `admin` and the password from `sudo smoking-pi passwords
@@ -359,6 +378,7 @@ is the one with a ready-made skill.
 | SmokePing's port is already taken | Pro's SmokePing is on the host network, port 80 | Free port 80, or use Basic/Standard, which map a port you can change |
 | An optional service runs but does nothing | Its profile is on and its key is not set | Add `NOTIFY_MODE` (`alerts`) or `ANTHROPIC_API_KEY` (`ai`) to the env file and restart it. Neither crash-loops on a missing key — they log it and stay up, so `status` looks healthy while nothing is delivered |
 | A container restarting in a loop | Its own logs say which | `sudo smoking-pi logs <service>` — read the last start, not the whole file |
+| The page loads on the Pi but not from your laptop | A firewall between the two, or the laptop is on another network (a guest Wi-Fi) | Tunnel through SSH, which already works: `ssh -L 8080:localhost:8080 <user>@<pi>`, then open `http://localhost:8080/` on the laptop. `sudo smoking-pi url` prints this line with your addresses filled in |
 | `smoking-pi` not found after `apt install` | A shell that cached its `PATH` | `hash -r`, or open a new shell |
 
 Still stuck? `sudo smoking-pi doctor --live` is written for exactly this and

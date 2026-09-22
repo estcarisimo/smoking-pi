@@ -53,6 +53,34 @@ esac
 exit 0
 STUB
     chmod +x "$BATS_TEST_TMPDIR/bin/docker"
+    # `url` (and the end of `install`) asks the routing table where this
+    # host is and whether HTTP answers there. Stubbed so no test depends on
+    # the machine's network, and `install`'s --wait never really sleeps.
+    # STUB_V4: the default route's source ("" = no v4 route); STUB_HTTP:
+    # the status curl reports (000 = nothing listening); STUB_WHO: `who -m`.
+    export STUB_V4=192.0.2.10 STUB_HTTP=302 STUB_WHO=""
+    unset SSH_CONNECTION SSH_CLIENT
+    cat > "$BATS_TEST_TMPDIR/bin/ip" <<'STUB'
+#!/bin/sh
+case "$*" in
+    "-4 route get 1.1.1.1") [ -z "$STUB_V4" ] || echo "1.1.1.1 via 192.0.2.1 dev wlan0 src $STUB_V4 uid 1000" ;;
+    "route get "*) echo "$3 dev eth0 src 198.51.100.7 uid 0" ;;
+esac
+STUB
+    printf '#!/bin/sh
+echo "curl $*" >> "$DOCKER_LOG"
+printf %%s "$STUB_HTTP"
+' > "$BATS_TEST_TMPDIR/bin/curl"
+    printf '#!/bin/sh
+[ -z "$STUB_WHO" ] || echo "pi       pts/0        2026-09-22 10:00 ($STUB_WHO)"
+' > "$BATS_TEST_TMPDIR/bin/who"
+    printf '#!/bin/sh
+exit 1
+' > "$BATS_TEST_TMPDIR/bin/systemctl"
+    printf '#!/bin/sh
+echo "sleep $*" >> "$DOCKER_LOG"
+' > "$BATS_TEST_TMPDIR/bin/sleep"
+    chmod +x "$BATS_TEST_TMPDIR/bin/"*
     export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
 }
 
@@ -360,4 +388,74 @@ make_backup_dir() {
     grep -qx 'PASSWORDS' "$DOCKER_LOG"
     ! grep -q 'PASSWORDS .*--show-secrets' "$DOCKER_LOG"
     [[ "$output" == *"smoking-pi passwords --show-secrets"* ]]
+}
+
+# The URL an install ends on. It used to be http://localhost:8080 -- which,
+# to someone who installed over SSH from a laptop, is the laptop.
+@test "url, at the machine: the default route's address, both Pro URLs, the usernames" {
+    run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Web admin  http://192.0.2.10:8080/   (user admin)"* ]]
+    [[ "$output" == *"Grafana    http://192.0.2.10:3000/   (user admin)"* ]]
+    [[ "$output" == *"any computer on the same network"* ]]
+    [[ "$output" != *localhost* ]]
+    # Asked the address it prints, not loopback: proves the bind is reachable.
+    grep -q '^curl .*http://192.0.2.10:8080/' "$DOCKER_LOG"
+}
+
+@test "url over SSH: the address the client connected to, named as theirs, with a tunnel fallback" {
+    SSH_CONNECTION="203.0.113.5 50000 192.0.2.44 22" run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"http://192.0.2.44:8080/"* ]]
+    [[ "$output" == *"connected from (203.0.113.5)"* ]]
+    [[ "$output" == *"ssh -L 8080:localhost:8080 "*"@192.0.2.44"* ]]
+}
+
+@test "url under sudo, where SSH_CONNECTION is gone: the source address toward the who -m client" {
+    STUB_WHO=203.0.113.5 run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"http://198.51.100.7:8080/"* ]]
+    [[ "$output" == *"connected from (203.0.113.5)"* ]]
+    # A desktop session reports its display, not a host: not an SSH client.
+    STUB_WHO=:0 run "$CLI" url
+    [[ "$output" == *"http://192.0.2.10:8080/"* ]]
+    [[ "$output" != *"connected from"* ]]
+}
+
+# Pro publishes the web admin as 0.0.0.0:8080, v4 only: a v6 URL there got
+# no answer on the reference Pi.
+@test "url over SSH on IPv6 prints the v4 address; bracketed v6 only when there is no v4 route" {
+    SSH_CONNECTION="2001:db8::5 50000 2001:db8::44 22" run "$CLI" url
+    [[ "$output" == *"http://192.0.2.10:8080/"* ]]
+    STUB_V4="" SSH_CONNECTION="2001:db8::5 50000 2001:db8::44 22" run "$CLI" url
+    [[ "$output" == *"http://[2001:db8::44]:8080/"* ]]
+    # ssh wants the bare address after the @.
+    [[ "$output" == *"@2001:db8::44 "* ]]
+}
+
+@test "url exits 1 and says where to look when nothing answers; --wait retries first" {
+    STUB_HTTP=000 run "$CLI" url --wait 9
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Nothing answers at http://192.0.2.10:8080/"* ]]
+    [[ "$output" == *"smoking-pi logs"* ]]
+    [ "$(grep -c '^sleep 3' "$DOCKER_LOG")" -eq 3 ]
+}
+
+@test "url on Basic: SmokePing on the env file's port, :80 left out, no login and no passwords line" {
+    printf 'SMOKEPING_PORT=80\n' > "$SMOKING_PI_ENV_FILE"
+    SMOKING_PI_EDITION=basic run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"SmokePing  http://192.0.2.10/   (no login)"* ]]
+    [[ "$output" != *Grafana* ]]
+    [[ "$output" != *"passwords"* ]]
+}
+
+@test "install ends on the URL, and a page still starting is not a failed install" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    STUB_HTTP=000 run "$CLI" install --edition pro --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Open Smoking Pi:"* ]]
+    [[ "${lines[-1]}" == *"smoking-pi logs"* ]]
+    # It waited before giving up: 120 s in steps of 3.
+    [ "$(grep -c '^sleep 3' "$DOCKER_LOG")" -eq 40 ]
 }

@@ -11,6 +11,21 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`smoking-pi install` ends on the address to open, and `smoking-pi url`
+  prints it again.** The install used to end on `http://localhost:8080`,
+  which, to someone who installed over SSH from a laptop, is the laptop.
+  Now it prints the address that computer can actually reach: over SSH,
+  the address the SSH client connected to (under `sudo`, which drops
+  `SSH_CONNECTION`, the source address this machine uses toward the
+  `who -m` client); otherwise the default route's source address; never
+  `hostname -I`'s first entry, which on a Pi with Docker and Tailscale can
+  be a bridge or the tailnet. IPv4 even over an IPv6 session: Pro publishes
+  the web admin as `0.0.0.0:8080`, which Docker binds on v4 only, and the
+  v6 URL got no answer on the reference Pi. It gives the username for each
+  page, the `.local` name when avahi runs, waits up to two minutes for the
+  page to answer rather than printing a URL that fails on the first try,
+  and over SSH adds the `ssh -L` line for when a firewall is in the way.
+  `smoking-pi url` exits 1 if nothing answers.
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
   stack that is measuring: what you need, Docker with Compose v2 (and why
