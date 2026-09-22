@@ -186,6 +186,14 @@ jobs:
       - name: Run the suite
         run: bats packaging/tests/cli.bats
 
+  homebrew:
+    name: Homebrew formula (parses; sha256 is the tarball's)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # No Mac in CI: this proves what can be proven without one.
+      - run: packaging/homebrew/check.sh
+
   apt-repo:
     name: apt repository (built, signed with a throwaway key, consumed by apt)
     runs-on: ubuntu-latest

@@ -63,6 +63,14 @@ sudo smoking-pi install            # edition, backend, optional services; then t
 sudo systemctl enable --now smoking-pi
 ```
 
+**macOS, untested** (no Mac has run it yet — the formula exists, `Formula/smoking-pi.rb`; Docker Desktop required, and Pro's host-network measurements see Docker's Linux VM, not the Mac):
+
+```bash
+brew tap estcarisimo/smoking-pi https://github.com/estcarisimo/smoking-pi
+brew install smoking-pi
+smoking-pi install
+```
+
 `smoking-pi upgrade` after every `apt upgrade` pulls that release's images; `smoking-pi backup`, `restore`, `purge`, `passwords`, `doctor` are the rest of the lifecycle ([docs/packaging.md](docs/packaging.md#the-command)). The `.deb` is also attached to every [GitHub release](https://github.com/estcarisimo/smoking-pi/releases) for a one-off `apt install ./smoking-pi_<version>_all.deb`.
 
 > `.env` files (from a clone) and `/etc/smoking-pi/env` (packaged) hold real secrets; never commit or share them.
