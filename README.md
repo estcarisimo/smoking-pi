@@ -71,7 +71,7 @@ brew install smoking-pi
 smoking-pi install
 ```
 
-`smoking-pi upgrade` after every `apt upgrade` pulls that release's images; `smoking-pi backup`, `restore`, `purge`, `passwords`, `doctor` are the rest of the lifecycle ([docs/packaging.md](docs/packaging.md#the-command)). The `.deb` is also attached to every [GitHub release](https://github.com/estcarisimo/smoking-pi/releases) for a one-off `apt install ./smoking-pi_<version>_all.deb`.
+`sudo smoking-pi upgrade` after every `apt upgrade` pulls that release's images; `backup`, `restore`, `purge`, `passwords`, `doctor` are the rest of the lifecycle (all under `sudo` when packaged — `/etc/smoking-pi` is root-only, which is where the secrets are) ([docs/packaging.md](docs/packaging.md#the-command)). The `.deb` is also attached to every [GitHub release](https://github.com/estcarisimo/smoking-pi/releases) for a one-off `apt install ./smoking-pi_<version>_all.deb`.
 
 > `.env` files (from a clone) and `/etc/smoking-pi/env` (packaged) hold real secrets; never commit or share them.
 

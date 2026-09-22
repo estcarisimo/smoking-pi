@@ -8,7 +8,8 @@ Docker to pull images.
 
 At the end you will have:
 
-- SmokePing measuring 21 targets every 300 seconds, 20 pings each,
+- SmokePing measuring 21 targets every 300 seconds — 10 pings per cycle
+  for ICMP, 5 for DNS, HTTP and TCP,
 - Grafana dashboards on `:3000` and a web admin on `:8080`,
 - a `smoking-pi` command for everything afterwards — start, stop, upgrade,
   backup, passwords, doctor,
@@ -181,11 +182,11 @@ need something from you before they are useful:
 | `ai` | Written health reports | `ANTHROPIC_API_KEY` ([AI reports](ai-insights.md)) |
 
 You can turn any of them on afterwards by adding it to `COMPOSE_PROFILES`
-in the env file and running `smoking-pi up`.
+in the env file and running `sudo smoking-pi up`.
 
 Expected, at the end: a credentials banner with your URLs, the Grafana
 password and the API tokens. Keep that terminal, or get it back any time
-with `smoking-pi passwords`.
+with `sudo smoking-pi passwords`.
 
 !!! danger "install runs once, deliberately"
     Run over an existing env file, `install` refuses and tells you to use
@@ -220,10 +221,18 @@ install one from `packaging/systemd/`.
 
 Four checks, in the order that finds problems fastest.
 
+!!! note "Packaged: these commands need `sudo`"
+    The package keeps your secrets in `/etc/smoking-pi/env`, inside a
+    directory that is `0750` and owned by root — which is the point of
+    putting them there. Every `smoking-pi` command that reads it (`status`,
+    `passwords`, `up`, `logs`, `doctor --live`, …) therefore runs under
+    `sudo`; without it Compose stops at `permission denied` on the env file.
+    From a clone the env file is yours and no `sudo` is needed anywhere.
+
 **1. Every container is up.**
 
 ```bash
-smoking-pi status
+sudo smoking-pi status
 ```
 
 Expected, for Pro on InfluxDB with no optional profiles — **six**
@@ -242,12 +251,12 @@ pro-web-admin-1        web-admin        Up 2 minutes (healthy)
 ```
 
 A container that is `Restarting` is the one to look at:
-`smoking-pi logs <service>`.
+`sudo smoking-pi logs <service>`.
 
 **2. The URLs answer.**
 
 ```bash
-smoking-pi passwords
+sudo smoking-pi passwords
 ```
 
 It prints the addresses for this machine and for the rest of your network.
@@ -332,12 +341,13 @@ is the one with a ready-made skill.
 |---|---|---|
 | `docker: 'compose' is not a docker command` | Debian 12 / Raspberry Pi OS ships no Compose v2 | Step 1 — install from Docker's repository |
 | `permission denied ... /var/run/docker.sock` | Your user is not in the `docker` group | `sudo usermod -aG docker "$USER"`, then log out and in |
-| `install` says the edition is already installed | An env file exists; re-running would rotate every secret | `smoking-pi up` to start it, or `smoking-pi purge --config` to start over — that deletes the measurements |
-| Graphs empty five minutes in | Nothing yet: the step is 300 s | Wait one step, then check `smoking-pi logs smokeping` |
+| `install` says the edition is already installed | An env file exists; re-running would rotate every secret | `sudo smoking-pi up` to start it, or `sudo smoking-pi purge --config` to start over — that deletes the measurements |
+| Graphs empty five minutes in | Nothing yet: the step is 300 s | Wait one step, then check `sudo smoking-pi logs smokeping` |
 | Every target at 100% loss | ICMP blocked upstream, or no route | `ping -c3 google.com` from the host; if that fails it is the network, not Smoking Pi |
-| Grafana rejects the password | Grafana keeps the first-boot password in its volume | `smoking-pi restart grafana`, wait 30 s, try the password from `smoking-pi passwords` again |
+| Grafana rejects the password | Grafana keeps the first-boot password in its volume | `sudo smoking-pi restart grafana`, wait 30 s, try the password from `sudo smoking-pi passwords` again |
 | SmokePing's port is already taken | Pro's SmokePing is on the host network, port 80 | Free port 80, or use Basic/Standard, which map a port you can change |
-| A container restarting in a loop | Usually a profile enabled without its key | `smoking-pi logs <service>`; `alerts` needs `NOTIFY_MODE`, `ai` needs `ANTHROPIC_API_KEY` |
+| An optional service runs but does nothing | Its profile is on and its key is not set | Add `NOTIFY_MODE` (`alerts`) or `ANTHROPIC_API_KEY` (`ai`) to the env file and restart it. Neither crash-loops on a missing key — they log it and stay up, so `status` looks healthy while nothing is delivered |
+| A container restarting in a loop | Its own logs say which | `sudo smoking-pi logs <service>` — read the last start, not the whole file |
 | `smoking-pi` not found after `apt install` | A shell that cached its `PATH` | `hash -r`, or open a new shell |
 
 Still stuck? `sudo smoking-pi doctor --live` is written for exactly this and

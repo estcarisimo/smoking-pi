@@ -711,8 +711,47 @@ def test_a_table_row_for_a_tool_that_no_longer_exists_fails(repo):
 
 
 def test_plain_functions_are_not_treated_as_tools(repo):
-    """Only @mcp.tool counts; the module's helpers are not a documentation gap."""
-    assert "not_a_tool" not in run(repo)["mcp-tools-documented"].summary
+    """Only @mcp.tool counts; the module's helpers are not a documentation gap.
+
+    Asserted on the count, not on the summary text: the summary never names a
+    tool, so `"not_a_tool" not in summary` would hold however the AST walk
+    behaved. If the undecorated helper counted, the summary would say three.
+    """
+    check = run(repo)["mcp-tools-documented"]
+    assert check.status is Status.OK
+    assert check.summary.startswith("2 MCP tools")
+
+
+def test_an_explicit_decorator_name_is_the_one_documented(repo):
+    """@mcp.tool(name="x") advertises x; the table must match what a client
+    sees, not what the function happens to be called."""
+    (repo.root / "shared/modules/mcp-server/server.py").write_text(
+        MCP_SERVER_SOURCE.replace(
+            "@mcp.tool()\ndef list_targets",
+            '@mcp.tool(name="list_monitored")\ndef list_targets',
+        )
+    )
+    check = run(repo)["mcp-tools-documented"]
+    assert check.status is Status.FAIL
+    rendered = " ".join(f.render() for f in check.findings)
+    assert "list_monitored" in rendered   # registered, undocumented
+    assert "list_targets" in rendered     # documented, no longer registered
+
+
+def test_a_table_that_yields_no_rows_fails_rather_than_skips(repo):
+    """The worst case, and the one a skip would hide: a table deleted or
+    reformatted past recognition leaves every tool undocumented, and a skip
+    keeps the exit code at zero."""
+    (repo.root / "docs/mcp-server.md").write_text("## Tools\n\nSee the code.\n")
+    check = run(repo)["mcp-tools-documented"]
+    assert check.status is Status.FAIL
+    rendered = " ".join(f.render() for f in check.findings)
+    assert "list_targets" in rendered and "mute_alerts" in rendered
+
+
+def test_a_repo_without_the_doc_at_all_is_skipped(repo):
+    (repo.root / "docs/mcp-server.md").unlink()
+    assert run(repo)["mcp-tools-documented"].status is Status.SKIP
 
 
 def test_a_repo_without_an_mcp_server_is_skipped(repo):

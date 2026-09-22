@@ -482,8 +482,12 @@ def check_mcp_tools_documented(repo: Repo) -> CheckResult:
             "mcp-tools-documented", f"no @mcp.tool functions under {repo.mcp_server}"
         )
     documented = sources.doc_tool_names(repo.mcp_doc)
-    if not documented:
-        return skipped("mcp-tools-documented", f"no tool table in {repo.mcp_doc}")
+    if not documented and not repo.mcp_doc.is_file():
+        return skipped("mcp-tools-documented", f"no {repo.mcp_doc}")
+    # A doc that exists but yields no rows is the worst case, not a reason to
+    # skip: a table deleted or reformatted past recognition leaves every tool
+    # undocumented, and skipping says "nothing to check here" while the exit
+    # code stays zero. Fall through and report all of them.
 
     findings = [
         Finding(

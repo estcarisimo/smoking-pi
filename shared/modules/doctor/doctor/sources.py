@@ -712,7 +712,12 @@ def doc_tool_names(path: pathlib.Path) -> set[str]:
 
 
 def mcp_tool_names(server_py: pathlib.Path) -> set[str]:
-    """Function names registered with ``@mcp.tool()`` in the MCP server."""
+    """Tool names registered with ``@mcp.tool()`` in the MCP server.
+
+    The name a client sees is the function's, unless the decorator overrides
+    it with ``@mcp.tool(name="...")`` — no tool does that today, but the
+    table has to match what is advertised, not what the function is called.
+    """
     try:
         tree = ast.parse(server_py.read_text())
     except (OSError, SyntaxError):
@@ -722,13 +727,19 @@ def mcp_tool_names(server_py: pathlib.Path) -> set[str]:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for decorator in node.decorator_list:
-            target = decorator.func if isinstance(decorator, ast.Call) else decorator
-            if (
+            call = decorator if isinstance(decorator, ast.Call) else None
+            target = call.func if call else decorator
+            if not (
                 isinstance(target, ast.Attribute)
                 and target.attr == "tool"
                 and isinstance(target.value, ast.Name)
                 and target.value.id == "mcp"
             ):
-                names.add(node.name)
-                break
+                continue
+            override = None
+            for kw in call.keywords if call else []:
+                if kw.arg == "name":
+                    override = _literal(kw.value)
+            names.add(override or node.name)
+            break
     return names

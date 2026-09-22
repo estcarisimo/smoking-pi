@@ -38,6 +38,19 @@ version gets a matching GitHub release and git tag.
   server's own page — the one someone reads to find out what the server can
   do — still listed eleven of the fifteen. Added, with their real
   signatures, and the check above makes the drift impossible to repeat.
+- **The packaged commands were written without `sudo`, and would have failed
+  on the first try.** `/etc/smoking-pi` is `0750` and root-owned — which is
+  the point of keeping the secrets there — so `smoking-pi status` as an
+  ordinary user stops at `permission denied` on the env file rather than
+  degrading. Corrected in the new guide, in `docs/packaging.md`'s lifecycle
+  table and in the README's lifecycle line, with the reason stated once
+  rather than a bare `sudo` everywhere.
+- **The install said an optional profile without its key would crash-loop.**
+  Neither does: `ai-insights` logs the missing `ANTHROPIC_API_KEY` and exits
+  0, and the alerter's `NOTIFY_MODE` defaults to `off`. The truth is worse
+  and worth saying — the container stays up and healthy while nothing is
+  ever delivered — so the note in `smoking-pi install` and the guide's
+  troubleshooting row now say that instead.
 - **The site's front door still described a pre-package project.**
   `docs/index.md` said "Nothing is published to a package registry: install
   from a clone" and that whether this stack could be an `apt install` was
