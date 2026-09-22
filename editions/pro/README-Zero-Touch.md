@@ -104,18 +104,21 @@ The container entrypoint automatically:
 ## 🐛 Troubleshooting
 
 ### Check Container IPv6 Status
+
+From `editions/pro`, so Compose resolves the container itself:
+
 ```bash
 # View detection logs
-docker logs grafana-influx-smokeping-1 | grep IPv6
+docker compose logs smokeping | grep IPv6
 
 # Test IPv6 from inside container
-docker exec grafana-influx-smokeping-1 ping6 -c 1 2001:4860:4860::8888
+docker compose exec -T smokeping ping6 -c 1 2001:4860:4860::8888
 ```
 
 ### Force IPv6 Re-detection
 ```bash
 # Restart container to re-run detection
-docker-compose restart smokeping
+docker compose restart smokeping
 ```
 
 ### Verify Host IPv6
