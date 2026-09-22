@@ -24,6 +24,19 @@ Source: `shared/modules/mcp-server/`.
 | `get_microcut_stats(hours)` | CPE microcuts as **cuts**: runs of 10 s windows above `MICROCUT_LOSS_PCT` folded into one each with duration, `confirmed` (two or more windows, or 100%) or possible; per target+protocol the floor (`p50_loss_pct` / `p90_loss_pct`), `cut_windows`, confirmed and possible counts; the five worst cut windows; a `note` stating the floor when there were no cuts — see [detection-reliability.md](detection-reliability.md) |
 | `get_wifi_stats(hours, interface)` | The host's own Wi-Fi uplink: current association and signal/bitrate, the window's signal range, weak share, disconnects, roams, failures and peak throughput, worst 5 samples with zoomed links; `present: false` on a wired host — see [wifi.md](wifi.md) |
 | `get_chart(target, hours, with_peers, deliver)` | **On request only:** a PNG of one target's latency (median + spread of individual pings) over its loss — see [On-request charts](#on-request-charts) |
+| `mute_alerts(target, rule, hours, reason)` | Stop *sending* alerts for a target and/or rule for a while (default 2 h, capped at 24; `target="*"` mutes everything). Incidents are still tracked, counted and shown in the digest |
+| `unmute_alerts(target, rule, all)` | Lift a mute early. Nothing is replayed, so unmuting never produces a burst of catch-up messages |
+| `ack_incident(key, hours)` | Silence exactly one active incident until it recovers — narrower than a mute, and the recovery notice still arrives. The key comes from `list_alert_state()` |
+| `list_alert_state()` | Active incidents and active mutes: what is wrong, what is quiet, and how many alerts each mute has actually swallowed |
+
+The last four are the alert-control surface, and they exist for one reason:
+muting a noisy target should be something you say in the chat where the
+alert arrived, not a file you edit on the Pi. They are registered
+regardless of the `alerts` profile — they read and write the alerter's
+state files, so with the alerter stopped a mute is recorded and takes
+effect the moment it starts. The semantics, and the ways muting can cost
+you an outage, are in
+[Muting alerts without losing them](alerting.md#muting-alerts-without-losing-them).
 
 ## Environment variables
 

@@ -296,7 +296,10 @@ cmd_install() {
         if [ -n "$profiles" ]; then
             # setup.sh records the backend profile; append the optional ones
             # and start them. `ai` and `alerts` need keys the env file does
-            # not have yet -- say so rather than let a container crash-loop.
+            # not have yet. Neither crash-loops without one -- ai-insights
+            # logs and exits 0, the alerter's NOTIFY_MODE defaults to `off`
+            # -- which is worse to leave unsaid, not better: the container
+            # stays up and healthy while nothing is ever delivered.
             sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$database,$profiles/" "$ENV_FILE"
             if [[ ",$profiles," == *,ai,* ]]; then echo "note: the ai profile needs ANTHROPIC_API_KEY in $ENV_FILE"; fi
             if [[ ",$profiles," == *,alerts,* ]]; then echo "note: the alerts profile needs NOTIFY_MODE (and its keys) in $ENV_FILE"; fi

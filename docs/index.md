@@ -14,9 +14,9 @@ Raspberry Pi (ARM64); runs anywhere Docker does.
 
 The code, issues and releases live at
 [github.com/estcarisimo/smoking-pi](https://github.com/estcarisimo/smoking-pi).
-This site is the reference for what the stack does and why it is built the way
-it is; the [README](https://github.com/estcarisimo/smoking-pi#readme) is the
-quick start.
+New here? **[Getting started](getting-started.md)** takes a bare Raspberry Pi
+to a stack that is measuring, in seven numbered steps. This site is the
+reference for what the stack does and why it is built the way it is.
 
 ## Three editions
 
@@ -26,16 +26,20 @@ quick start.
 | **Standard** | A small team | + web admin with login, PostgreSQL as the source of truth, a REST API, bulk target management |
 | **Pro** | Everything | + Grafana dashboards, InfluxDB or ClickHouse, IPv6 and DNS probes, HTTP and TCP probes, Wi-Fi uplink stats, alerting, MCP server, AI reports, the doctor |
 
-Each edition is a directory under `editions/` with its own `setup.sh`, which
-generates every password and API token, detects the timezone, starts the
-containers and prints the URLs and credentials. Nothing is published to a
-package registry: install from a clone.
+Since v2.12.0 Smoking Pi is a package: a signed apt repository, a `.deb`
+that manages the Compose deployment, a systemd unit, and one `smoking-pi`
+command for the whole lifecycle — install, upgrade, backup, restore,
+passwords, doctor, purge.
 
 ```bash
-git clone https://github.com/estcarisimo/smoking-pi.git
-cd smoking-pi/editions/pro
-./setup.sh
+sudo apt install smoking-pi     # after adding the repository
+sudo smoking-pi install         # edition, backend, optional services
+sudo systemctl enable --now smoking-pi
 ```
+
+The repository lines, the requirements and what to check afterwards are in
+[Getting started](getting-started.md); a clone still works exactly as it
+did, and is the way to run an unreleased branch.
 
 ## What is measured
 
@@ -78,8 +82,10 @@ Remote access goes through Cloudflare tunnels, temporary ones with no account
 ([Permanent Cloudflare tunnels](cloudflare-tunnel-setup.md)); put
 authentication in front of anything you expose. Upgrades between versions are
 in [Upgrading](upgrades.md), the alternative time-series backend and its traps
-in [ClickHouse backend](clickhouse.md), and the question of whether this stack
-can be an `apt install` — answered, and parked — in [Packaging](packaging.md).
+in [ClickHouse backend](clickhouse.md), and how the package, the images, the
+apt repository and the supported hosts fit together in
+[Packaging](packaging.md). Every release is accepted on a real Raspberry Pi
+before it ships ([Release acceptance](release-acceptance.md)).
 
 The [Changelog](changelog.md) says, release by release, what was wrong, what
 it cost, and what changed.

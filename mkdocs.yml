@@ -13,6 +13,7 @@ copyright: MIT license.
 
 nav:
   - Home: index.md
+  - Getting started: getting-started.md
   - Measuring:
       - HTTP/1.1, HTTP/2, HTTP/3 and TCP probes: http-probes.md
       - Wi-Fi uplink stats: wifi.md

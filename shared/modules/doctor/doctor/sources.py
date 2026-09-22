@@ -693,3 +693,53 @@ def doc_env_keys(path: pathlib.Path) -> set[str]:
         for match in (_DOC_ENV_ROW_RE.match(line) for line in text.splitlines())
         if match
     }
+
+
+_DOC_TOOL_ROW_RE = re.compile(r"^\|\s*`([a-z_][a-z0-9_]*)\(")
+
+
+def doc_tool_names(path: pathlib.Path) -> set[str]:
+    """Tool names documented as rows of a Markdown tool table."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return set()
+    return {
+        match.group(1)
+        for match in (_DOC_TOOL_ROW_RE.match(line) for line in text.splitlines())
+        if match
+    }
+
+
+def mcp_tool_names(server_py: pathlib.Path) -> set[str]:
+    """Tool names registered with ``@mcp.tool()`` in the MCP server.
+
+    The name a client sees is the function's, unless the decorator overrides
+    it with ``@mcp.tool(name="...")`` — no tool does that today, but the
+    table has to match what is advertised, not what the function is called.
+    """
+    try:
+        tree = ast.parse(server_py.read_text())
+    except (OSError, SyntaxError):
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            call = decorator if isinstance(decorator, ast.Call) else None
+            target = call.func if call else decorator
+            if not (
+                isinstance(target, ast.Attribute)
+                and target.attr == "tool"
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "mcp"
+            ):
+                continue
+            override = None
+            for kw in call.keywords if call else []:
+                if kw.arg == "name":
+                    override = _literal(kw.value)
+            names.add(override or node.name)
+            break
+    return names

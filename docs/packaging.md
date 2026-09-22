@@ -554,6 +554,13 @@ expect `docker-ce`.)
 | Failure | `smoking-pi logs <service>` | And the doctor's `deployed-code-current` says whether the container matches the package |
 | Remove | `apt remove` / `apt purge` / `smoking-pi purge` | Code; +config; +volumes, in that order, the last one only on explicit confirmation |
 
+Every command in that table that reads the env file runs as root on a
+packaged install: `/etc/smoking-pi` is `0750` and root-owned, which is the
+point of keeping the secrets there, so `smoking-pi status` as an ordinary
+user stops at `permission denied` on the env file rather than degrading.
+`sudo` throughout, and none of it from a clone, where the env file is the
+user's own.
+
 ## What this does not change
 
 The architecture. Nothing above splits or merges a service, and the

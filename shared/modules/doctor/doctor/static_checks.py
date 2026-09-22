@@ -39,6 +39,8 @@ class Repo:
         self.compose = self.pro / "docker-compose.yml"
         self.env_template = self.pro / ".env.template"
         self.alerting_doc = root / "docs/alerting.md"
+        self.mcp_server = root / "shared/modules/mcp-server/server.py"
+        self.mcp_doc = root / "docs/mcp-server.md"
 
     def exists(self) -> bool:
         return self.provisioning.is_dir()
@@ -73,6 +75,7 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_panel_tags_are_written(repo, influx),
         check_alerter_env_defaults_match(repo),
         check_alerter_env_declared(repo),
+        check_mcp_tools_documented(repo),
     ]
 
 
@@ -459,4 +462,51 @@ def check_alerter_env_declared(repo: Repo) -> CheckResult:
         findings,
         f"{len(env.names())} alerter env vars are documented",
         status=Status.WARN,
+    )
+
+
+def check_mcp_tools_documented(repo: Repo) -> CheckResult:
+    """The MCP tool table must list every tool the server registers, and no others.
+
+    An assistant only calls what its client advertises, so an undocumented
+    tool is one nobody knows to ask for, and a documented tool that no longer
+    exists is worse: it reads as a promise. This check exists because the four
+    alert-control tools (``mute_alerts``, ``unmute_alerts``, ``ack_incident``,
+    ``list_alert_state``) shipped with the alerting work and were described in
+    docs/alerting.md, while the MCP server's own table — the page someone
+    reads to find out what the server can do — kept listing eleven.
+    """
+    tools = sources.mcp_tool_names(repo.mcp_server)
+    if not tools:
+        return skipped(
+            "mcp-tools-documented", f"no @mcp.tool functions under {repo.mcp_server}"
+        )
+    documented = sources.doc_tool_names(repo.mcp_doc)
+    if not documented and not repo.mcp_doc.is_file():
+        return skipped("mcp-tools-documented", f"no {repo.mcp_doc}")
+    # A doc that exists but yields no rows is the worst case, not a reason to
+    # skip: a table deleted or reformatted past recognition leaves every tool
+    # undocumented, and skipping says "nothing to check here" while the exit
+    # code stays zero. Fall through and report all of them.
+
+    findings = [
+        Finding(
+            f"{name}() is registered with @mcp.tool but is not a row of the "
+            f"tool table — clients will offer it, the docs will not explain it",
+            where="docs/mcp-server.md",
+        )
+        for name in sorted(tools - documented)
+    ]
+    findings += [
+        Finding(
+            f"{name}() is a row of the tool table but no longer exists in the "
+            f"server — the docs promise a tool nothing registers",
+            where="docs/mcp-server.md",
+        )
+        for name in sorted(documented - tools)
+    ]
+    return result(
+        "mcp-tools-documented",
+        findings,
+        f"{len(tools)} MCP tools, all in the tool table",
     )
