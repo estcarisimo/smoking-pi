@@ -333,8 +333,12 @@ It is two pieces: the **MCP server** (the `mcp` profile from step 3), which
 exposes your measurements as tools, and an **MCP client** — [OpenClaw](https://github.com/openclaw/openclaw)
 is the one with a ready-made skill.
 
-- Both on this Pi: [OpenClaw integration](openclaw-integration.md) — secure
-  the port, register the server, install the skill, verify with evidence.
+- Both on this Pi: `smoking-pi openclaw` does it — the token, the profile,
+  registration and the skill — and `smoking-pi openclaw --check` proves the
+  agent is really using your history. `smoking-pi install` offers it at the
+  end, and it is the same command afterwards.
+  [OpenClaw integration](openclaw-integration.md) explains each step for
+  when one of them does not work.
 - OpenClaw on another machine: [OpenClaw on another machine](remote-openclaw.md).
 - Any other MCP client: [MCP server](mcp-server.md) lists the 15 tools.
 

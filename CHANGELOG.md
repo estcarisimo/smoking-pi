@@ -11,6 +11,35 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`smoking-pi openclaw` — the assistant connection as a command, ending
+  in proof.** `smoking-pi install` used to ask "Connect a chat assistant?"
+  and, on yes, print the path to a document. That was the whole feature.
+  Meanwhile `docs/openclaw-integration.md` is six steps, and the
+  interesting thing about them is that four have a failure mode that looks
+  like success: registering the MCP server without installing the skill
+  leaves the agent answering from its own shell; a running gateway keeps
+  its cached tool set, so a correct registration reaches nothing until it
+  is reloaded and a new session started; and `openclaw mcp probe` reports
+  healthy in both cases. The command now does the mechanical part — the
+  token, the `mcp` profile, starting the server, checking the port refuses
+  an unauthenticated request, registering, installing the skill — and
+  `smoking-pi openclaw --check` asks the agent a question and then greps
+  the MCP server's own log for `tool=` lines. **The answer is never the
+  test**: a well-primed agent produces a fluent, accurate-sounding reply
+  from `ping` while the server sits untouched, and that false positive is
+  how four days of a dead integration went unnoticed. When there is no
+  `tool=` line the command says so and lists the three causes in order.
+- **The install now distinguishes "no OpenClaw" from "OpenClaw on my
+  laptop".** The old yes/no could not, and printed the same same-machine
+  document either way — which is the wrong advice for the remote case,
+  where a tunnel between the two loopbacks has to exist first. The prompt
+  is a three-way choice (here / another machine / not now); *here* runs
+  the connector, *another machine* points at `docs/remote-openclaw.md`,
+  *not now* names the command. Every branch ends with a working install:
+  the stack is already measuring by the time the question is asked, and
+  nothing about the assistant is required. `--yes` never prompts and still
+  names the command.
+
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
   stack that is measuring: what you need, Docker with Compose v2 (and why
