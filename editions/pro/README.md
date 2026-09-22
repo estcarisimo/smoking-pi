@@ -72,7 +72,7 @@ cd editions/pro
 7. [Data Management](#7-data-management)
 8. [Environment Setup](#8-environment-setup)
 9. [Troubleshooting](#9-troubleshooting)
-10. [Comparison with Minimal](#10-comparison-with-minimal)
+10. [Comparison with Basic](#9-comparison-with-basic)
 
 ---
 
@@ -166,12 +166,20 @@ The Pro edition supports two time-series databases:
 
 To switch databases after initial setup:
 ```bash
-# Stop current setup
-docker-compose down -v
+# Stop the stack — no -v, the volumes stay
+docker compose down
 
 # Run setup with different database
 ./setup.sh --database clickhouse
 ```
+
+Do **not** add `-v` here. Nothing about switching backends requires deleting a
+volume, and `-v` would take `postgres-data` with it — every target, category
+and source you have configured, none of which is backend-specific. The
+measurements themselves do not migrate between backends either way: each
+backend keeps its own history, and the one you switch away from still has
+its, in its own volume, if you switch back. See
+[ClickHouse backend](../../docs/clickhouse.md).
 
 **Note**: Both databases support the same monitoring capabilities and dashboard features.
 
@@ -226,31 +234,37 @@ docker-compose down -v
 
 ## <a id="layout"></a>📁 Directory layout
 
+The images live in `shared/modules/`, one directory per service, and every
+edition builds from there; only the compose files and the edition's own state
+live here.
+
 ```text
-grafana-influx/
-├─ smokeping/            # SmokePing image (+ exporter)
-│  ├─ Dockerfile
-│  ├─ config/            # Targets, Probes, etc.
-│  ├─ exporter/          # RRD → Influx script
-│  │  └─ rrd2influx.py
-│  └─ docker-entrypoint.sh
-├─ influxdb/             # InfluxDB image (thin wrapper around official)
-│  └─ Dockerfile
-├─ grafana/              # Grafana image with zero‑touch provisioning
-│  ├─ Dockerfile
+editions/pro/                  # this edition — the Compose project root
+├─ docker-compose.yml          # the stack; `pro` is also the project name
+├─ docker-compose.clickhouse.yml   # optional ClickHouse backend overlay
+├─ docker-compose.packaged.yml     # drops the dev bind mounts (apt/brew installs)
+├─ setup.sh                    # first start: generates the secrets, brings it up
+├─ manage-containers.sh        # start/stop/restart wrappers
+├─ show-passwords.sh           # `smoking-pi passwords` — add --show-secrets
+├─ config-manager/             # targets.yaml and the generated SmokePing config
+└─ README.md                   # you‑are‑here
+
+shared/modules/                # the images, shared by basic/standard/pro
+├─ smokeping/                  # SmokePing + probes; Dockerfile, config, entrypoint
+├─ smokeping-exporters/        # RRD → InfluxDB/ClickHouse, HTTP, Wi-Fi, CPE probes
+├─ influxdb/                   # thin wrapper around the official image
+├─ grafana/                    # zero-touch provisioning
 │  └─ provisioning/
 │     ├─ datasources/
-│     │   └─ influxdb.yaml
-│     └─ dashboards/
-│         ├─ dashboard.yaml
-│         ├─ smokeping_latency.json
-│         ├─ smokeping_latency_compare.json
-│         └─ smokeping_resolvers.json
-├─ docker-compose.yml
-├─ setup.sh                     # Automated setup script with password generation
-├─ .env.template         # Environment template
-├─ .gitignore           # Prevents committing secrets
-└─ README.md            # you‑are‑here
+│     └─ dashboards/           # the shipped dashboard JSONs
+├─ postgres/                   # target/category/source database + init SQL
+├─ clickhouse/                 # the alternative backend's config + init SQL
+├─ config-manager/             # database → SmokePing config
+├─ web-admin/                  # the admin UI
+├─ mcp-server/                 # the assistant's interface
+├─ alerter/                    # detection and notification
+├─ ai-insights/                # scheduled health reports
+└─ common/                     # shared Python (microcuts, detection)
 ```
 
 ---
@@ -281,11 +295,15 @@ $ docker compose logs -f
 
 The first run initializes InfluxDB (organization *smokingpi*, bucket *latency*) and Grafana (datasource + example dashboard auto‑provisioned).
 
-Stop & delete everything:
+Stop the stack (the volumes, and so the data, stay):
 
 ```bash
-$ docker compose down -v   # -v wipes the volumes ➜ fresh start
+$ docker compose down
 ```
+
+Adding `-v` deletes the volumes with it — the whole measurement history and
+every configured target, neither of which is recoverable. See
+[Maintenance](#maintenance) before reaching for it.
 
 ---
 
@@ -633,7 +651,7 @@ The shipped JSONs are seeds – duplicate & extend them via Grafana's UI: add lo
 
 **Dashboard shows no data?**
 - Ensure SmokePing is running: `docker compose ps`
-- Check RRD files exist: `docker exec -it grafana-influx-smokeping-1 ls -la /var/lib/smokeping/`
+- Check RRD files exist: `docker compose exec -T smokeping ls -la /var/lib/smokeping/`
 - Verify exporter is working: `docker compose logs smokeping | grep "exporter"`
 
 **InfluxDB errors?**
@@ -658,35 +676,68 @@ The shipped JSONs are seeds – duplicate & extend them via Grafana's UI: add lo
 ### Maintenance
 
 **Long‑term storage backup:**
+
 ```bash
+smoking-pi backup
+```
+
+That dumps PostgreSQL and tars every volume the running services mount, plus
+the env file and config, with the stack stopped. Prefer it: it needs no
+volume names and cannot miss one.
+
+By hand, the names are prefixed with the Compose project — `COMPOSE_PROJECT_NAME`
+from the env file, or, unset, the directory the compose file is in (`pro` here),
+which is the same rule the scripts use:
+
+```bash
+PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
+
 # Backup InfluxDB data
-docker run --rm -v influxdb-data:/data -v $(pwd):/backup \
+docker run --rm -v "${PROJECT}_influxdb-data":/data -v "$(pwd)":/backup \
   busybox tar czf /backup/influxdb-backup.tgz /data
 
 # Backup Grafana configuration
-docker run --rm -v grafana-data:/data -v $(pwd):/backup \
+docker run --rm -v "${PROJECT}_grafana-data":/data -v "$(pwd)":/backup \
   busybox tar czf /backup/grafana-backup.tgz /data
 ```
 
-**Reset everything:**
+Check the tarball is not empty before you trust it. `docker run -v` **creates**
+a volume that does not exist rather than failing, so a mistyped or unprefixed
+name silently produces a backup of an empty directory — which looks like a
+successful backup right up to the restore.
+
+**Start over, without losing the data:**
+
 ```bash
-# Stop and remove all containers, networks, and volumes
-docker compose down -v
-# Remove all images
+docker compose down          # no -v: the volumes stay
 docker compose build --no-cache
-# Fresh start
 ./setup.sh
 ```
 
+This is what almost every "reset" actually wants: fresh containers and images,
+the measurements untouched.
+
+**Start over, deleting the data too:**
+
+```bash
+smoking-pi backup            # first, if there is anything you want back
+docker compose down -v       # -v deletes the volumes
+```
+
+`-v` takes `influxdb-data` — every latency, DNS, HTTP and Wi-Fi sample ever
+recorded — and `postgres-data` — every target, category and source you have
+configured. Neither comes back on its own; SmokePing starts measuring from
+zero and the target list is empty. Do this only when you want that.
+
 ---
 
-## 9. Comparison with Minimal
+## 9. Comparison with Basic
 
-| Feature | Minimal | grafana-influx |
-|---------|---------|----------------|
+| Feature | Basic | Pro |
+|---------|-------|-----|
 | SmokePing | ✅ | ✅ |
-| Web Admin | Optional | ✅ |
-| Config Manager | Optional | ✅ |
+| Web Admin | ❌ | ✅ |
+| Config Manager | ❌ | ✅ |
 | InfluxDB | ❌ | ✅ |
 | Grafana | ❌ | ✅ |
 | Professional Dashboards | ❌ | ✅ |
@@ -702,7 +753,7 @@ docker compose build --no-cache
 - **Integration Requirements**: Need to integrate with other monitoring tools
 - **Advanced Visualization**: Custom dashboards and complex queries
 
-### When to Use Minimal
+### When to Use Basic
 - **Resource Constraints**: Limited hardware (basic Raspberry Pi)
 - **Simple Requirements**: Basic latency monitoring only
 - **Traditional Setup**: Prefer classic SmokePing RRD interface

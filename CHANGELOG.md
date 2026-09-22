@@ -119,6 +119,53 @@ version gets a matching GitHub release and git tag.
   restart for PostgreSQL, with the destructive option named as destructive
   where it is genuinely the last resort. `./verify-postgres.sh` is now
   offered only for Pro, which is the only edition that ships it.
+- **Pro's documentation still named a Compose project that has not existed
+  in years.** Eleven references to `grafana-influx-<service>-1` containers
+  and `grafana-influx_*` volumes survived in `editions/pro/README.md`,
+  `DNS_MONITORING.md` and `README-Zero-Touch.md` — the scripts were cleaned
+  out separately, the prose was not. Every diagnostic command in the DNS and
+  IPv6 troubleshooting sections therefore ended in `No such container`,
+  which is the least useful possible answer to "why is there no data". They
+  now go through Compose (`docker compose logs smokeping`,
+  `docker compose exec -T influxdb ...`), which resolves the service
+  whatever the project is called, with a line saying to run them from
+  `editions/pro` and pointing at the `smoking-pi` command as the equivalent
+  that works from anywhere. The stale Compose v1 `docker-compose` calls in
+  the same blocks went with them.
+- **The backup recipe backed up nothing, and correcting it alone would have
+  been worse.** `docker run --rm -v influxdb-data:/data ... tar czf` names an
+  unprefixed volume; the real one is `<project>_influxdb-data`, and
+  `docker run -v` **creates** a missing volume instead of failing — so the
+  command has always produced a valid-looking tarball of an empty directory,
+  a backup that only reveals itself at the restore. The section now leads
+  with `smoking-pi backup`, which needs no volume names at all, keeps the
+  by-hand form with the `PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"`
+  idiom the scripts use, and says to check the tarball is not empty.
+  Alongside it, two recipes offered `docker compose down -v` as "fresh
+  start" and "stop & delete everything" with no statement of what `-v`
+  costs. They are now split: `down` (no `-v`) is the reset almost everyone
+  means and keeps the data, and the destructive one is labeled as such,
+  preceded by a backup, and says what goes — `influxdb-data` is every sample
+  ever recorded and `postgres-data` is every target, category and source,
+  and neither comes back.
+- **"Switching databases" told you to delete every target you had.** Pro's
+  README opened the backend switch with `docker-compose down -v`, and `-v`
+  takes `postgres-data` — the target, category and source list, which is not
+  backend-specific and has nothing to do with the switch. Nothing about
+  changing backends requires deleting a volume (`docs/clickhouse.md` has
+  said so all along: each backend keeps its own history and the provisioning
+  tree rebuilds itself). It is now `docker compose down`, with the reason
+  `-v` does not belong there stated next to it.
+- **Pro's directory layout diagram described a repository that no longer
+  exists.** It was rooted at `grafana-influx/` and showed `smokeping/`,
+  `influxdb/` and `grafana/` as children of the edition; the images moved to
+  `shared/modules/` when the editions split, and seven services the diagram
+  never mentioned have shipped since. Redrawn as the two real trees, so it
+  answers the question it is there for: what is in `editions/pro`, and where
+  do the images come from. The "Comparison with Minimal" table beside it
+  compared against an edition name retired at the same time — it is Basic,
+  and Basic has neither the Web Admin nor the Config Manager the table
+  listed as "Optional".
 - **The MCP tool table was four tools short.** `mute_alerts`,
   `unmute_alerts`, `ack_incident` and `list_alert_state` shipped with the
   alerting work and were explained in `docs/alerting.md`, but the MCP

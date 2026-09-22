@@ -131,7 +131,12 @@ What the trial shows cannot work yet — each is a backlog item below:
    package owns; upgrades would tread on it. It belongs in `/var/lib`.
 5. **Helper scripts hard-code `pro-influxdb-1`, `pro_default`,
    `grafana-influx_*`** and Compose v1 invocations; harmless while the
-   project name stays `pro`, but a package should not depend on it.
+   project name stays `pro`, but a package should not depend on it. The
+   `grafana-influx_*` names were worse than that — they were already dead
+   when the trial was written, so the checks that used them had never once
+   fired. **Closed by backlog #7 (2026-09-22): no script guesses a
+   container or volume name any more.** Pro's documentation followed on
+   2026-09-22.
 
 ## What has to change — the backlog
 

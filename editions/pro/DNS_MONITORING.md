@@ -75,6 +75,12 @@ from(bucket: "latency")
 
 ## 🚦 Troubleshooting DNS Monitoring
 
+Run everything below from `editions/pro`, so Compose resolves the containers
+itself rather than anyone having to know what they are called — the container
+names depend on the Compose project, which is `COMPOSE_PROJECT_NAME` from the
+env file or, unset, this directory. `smoking-pi status` and
+`smoking-pi restart` do the same from anywhere.
+
 ### **No Data in DNS Dashboards**
 
 **Symptom**: DNS Resolution Times dashboards show no data or empty panels.
@@ -83,25 +89,25 @@ from(bucket: "latency")
 
 1. **Verify DNS Probe Status**
    ```bash
-   docker logs grafana-influx-smokeping-1 | grep DNS
+   docker compose logs smokeping | grep DNS
    # Should show: "DNS: probing 3 targets with step 300 s"
    ```
 
 2. **Check RRD Files**
    ```bash
-   docker exec grafana-influx-smokeping-1 ls -la /var/lib/smokeping/DNS_Resolvers/
+   docker compose exec -T smokeping ls -la /var/lib/smokeping/DNS_Resolvers/
    # Should show: CloudflareDNS.rrd, GoogleDNS.rrd, Quad9DNS.rrd
    ```
 
 3. **Verify Export Process**
    ```bash
-   docker exec grafana-influx-smokeping-1 ps aux | grep rrd2influx
+   docker compose exec -T smokeping ps aux | grep rrd2influx
    # Should show running Python process
    ```
 
 4. **Check InfluxDB Data**
    ```bash
-   docker exec grafana-influx-influxdb-1 influx query \
+   docker compose exec -T influxdb influx query \
      'from(bucket: "latency") |> range(start: -1h) |> filter(fn: (r) => r._measurement == "dns_latency") |> limit(n: 5)' \
      --org smokingpi
    ```
@@ -129,12 +135,12 @@ from(bucket: "latency")
 **Fixes**:
 1. **Check Configuration**:
    ```bash
-   docker exec grafana-influx-smokeping-1 cat /etc/smokeping/config.d/targets | grep -A5 "DNS"
+   docker compose exec -T smokeping cat /etc/smokeping/config.d/targets | grep -A5 "DNS"
    ```
 
 2. **Restart Services**:
    ```bash
-   docker-compose restart smokeping grafana
+   docker compose restart smokeping grafana
    ```
 
 3. **Verify Template Variable Query**:
