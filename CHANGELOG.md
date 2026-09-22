@@ -11,6 +11,17 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The maintenance page is on the documentation site.**
+  `shared/docs/maintenance.md` was deliberately kept off the site when it
+  went up (PR #73), because it still described pre-editions container
+  names and scripts that no longer existed — publishing it would have been
+  publishing wrong instructions. Packaging backlog #7 rewrote it around
+  the `smoking-pi` command and Compose's labels, which removed the reason,
+  and nothing moved it. It is now `docs/maintenance.md`, in the nav under
+  *Operating*, with its plain-text `docs/*.md` references turned into real
+  cross-links. It is the page for the states the command does not handle —
+  a stuck container, an orphaned volume, emergency recovery — and it was
+  reachable only by browsing the repository.
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
   stack that is measuring: what you need, Docker with Compose v2 (and why
