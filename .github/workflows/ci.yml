@@ -299,7 +299,11 @@ jobs:
         env:
           SERVICE: ${{ matrix.service }}
         run: |
-          read -r context dockerfile <<< "$(packaging/image-context.sh "$SERVICE")"
+          # Its own statement, so set -e stops here with the script's
+          # message: inside `read <<< "$(...)"` a failure is swallowed and
+          # the build fails later on an empty context.
+          ctx="$(packaging/image-context.sh "$SERVICE")"
+          read -r context dockerfile <<< "$ctx"
           echo "context=$context" >> "$GITHUB_OUTPUT"
           echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
       - name: Build (not pushed)
