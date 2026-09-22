@@ -11,6 +11,20 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Is it measuring? A Measurements card on the web admin's dashboard,
+  and `GET /measurements` on the config API.** "SmokePing: Running" meant
+  the container was up, nothing more: a target added a minute ago, or one
+  that stopped updating last week, looked exactly like a healthy one. Now
+  every configured target is checked against the modification time of its
+  RRD, which SmokePing rewrites at every step: *fresh* within two steps,
+  *stale* after that, *missing* if it never wrote one, *pending* if the
+  configuration is younger than two steps (a target just added). The
+  expected set is the generated `Targets` file plus the router targets
+  `cpe_discovery.py` includes, never the RRDs on disk: the reference Pi
+  holds 180 RRDs for 30 targets, the rest left by targets deleted long ago.
+  Per-probe steps come from the generated `Probes` file. Read through the
+  Docker socket config-manager already uses, so no compose file changed.
+
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
   stack that is measuring: what you need, Docker with Compose v2 (and why
@@ -68,6 +82,18 @@ version gets a matching GitHub release and git tag.
   in, so a mode looser than `x00` is called out with the `chmod` to fix it.
 
 ### Fixed
+
+- **A SmokePing reload that failed was reported as done.** After every
+  target change config-manager sends `killall -HUP smokeping` into the
+  SmokePing container, and it ignored the exit code: with no smokeping
+  process to signal it still logged "Sent reload signal", and the web admin
+  said "config regenerated automatically" whether or not anything had
+  happened (in YAML mode, even when generating the configuration had
+  failed). Now the create, update, delete, toggle, `PUT /config` and
+  `/generate` responses carry `reloaded`, and the web admin and the chat
+  assistant say "saved, but SmokePing did not confirm the reload: restart
+  SmokePing" when it is false. An older config-manager that sends no
+  `reloaded` field is not treated as a failure.
 
 - **Two health checks put a credential on the command line.** The InfluxDB
   and ClickHouse checks passed their token and password as `curl -H` and

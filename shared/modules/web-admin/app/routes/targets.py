@@ -353,17 +353,21 @@ def add_target():
                 
                 # Create target in database (config-manager regenerates the
                 # SmokePing config automatically in database mode)
-                config_api.create_target_in_db(target_data)
-                success_message = (
-                    f"Target '{name}' added — config regenerated automatically"
+                result = config_api.create_target_in_db(target_data)
+                warning = reload_warning(result)
+                success_message = warning or (
+                    f"Target '{name}' added. SmokePing picked it up; its "
+                    f"first measurement arrives within one step (usually "
+                    f"5 minutes)."
                 )
                 if _wants_json():
                     return jsonify({
                         'success': True,
+                        'reloaded': warning is None,
                         'message': success_message,
                         'redirect': url_for('targets.list_targets'),
                     })
-                flash(success_message, 'success')
+                flash(success_message, 'warning' if warning else 'success')
                 return redirect(url_for('targets.list_targets'))
 
             except Exception:
@@ -436,22 +440,26 @@ def add_target():
 
             # Regenerate the SmokePing config so the new target is picked up
             # without a separate Apply step
-            try:
-                config_api.generate_config()
-            except Exception as config_error:
-                current_app.logger.error(
-                    f"Failed to regenerate config after add: {config_error}")
-
-            success_message = (
-                f"Target '{name}' added — config regenerated automatically"
+            # The gateway never raises; it reports. The message used to say
+            # "config regenerated automatically" whatever it reported.
+            generated = config_api.generate_config()
+            if not generated.get('success'):
+                warning = (f"Target '{name}' saved, but the SmokePing "
+                           f"configuration was not regenerated; use Apply.")
+            else:
+                warning = reload_warning(generated)
+            success_message = warning or (
+                f"Target '{name}' added. SmokePing picked it up; its first "
+                f"measurement arrives within one step (usually 5 minutes)."
             )
             if _wants_json():
                 return jsonify({
                     'success': True,
+                    'reloaded': warning is None,
                     'message': success_message,
                     'redirect': url_for('targets.list_targets'),
                 })
-            flash(success_message, 'success')
+            flash(success_message, 'warning' if warning else 'success')
             return redirect(url_for('targets.list_targets'))
     
     # Get available categories and probes for form
@@ -528,6 +536,19 @@ def delete_target(name):
         return error_response(500, 'Error deleting target', e, success=False)
 
 
+def reload_warning(result):
+    """The sentence to add when config-manager saved a change but SmokePing
+    did not confirm the reload; None otherwise.
+
+    Only an explicit ``reloaded: false`` counts: an older config-manager
+    does not send the field, and silence is not a failure.
+    """
+    if isinstance(result, dict) and result.get('reloaded') is False:
+        return ("Saved, but SmokePing did not confirm the reload: "
+                "restart SmokePing to start measuring the change.")
+    return None
+
+
 @targets_bp.route('/<int:target_id>/toggle', methods=['POST'])
 def toggle_target(target_id):
     """Toggle a target's active state (database mode only)."""
@@ -540,10 +561,12 @@ def toggle_target(target_id):
     try:
         result = config_api.toggle_target_in_db(target_id)
         target = result.get('target', {})
+        warning = reload_warning(result)
         return jsonify({
             'success': True,
             'is_active': target.get('is_active'),
-            'message': result.get('message', 'Target toggled'),
+            'reloaded': warning is None,
+            'message': warning or result.get('message', 'Target toggled'),
         })
     except ValueError:
         return jsonify({'success': False, 'error': 'Target not found'}), 404
@@ -598,8 +621,10 @@ def edit_target(target_id):
         return jsonify({'success': False, 'error': 'Nothing to update'}), 400
 
     try:
-        config_api.update_target_in_db(target_id, update)
-        return jsonify({'success': True, 'message': 'Target updated'})
+        result = config_api.update_target_in_db(target_id, update)
+        warning = reload_warning(result)
+        return jsonify({'success': True, 'reloaded': warning is None,
+                        'message': warning or 'Target updated'})
     except ValueError:
         return jsonify({'success': False, 'error': 'Target not found'}), 404
     except Exception as e:

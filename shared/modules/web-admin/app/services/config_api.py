@@ -262,6 +262,13 @@ class ConfigManagerClient:
             logger.error(f"Failed to toggle target {target_id}: {e}")
             raise
     
+    def get_measurements(self) -> Dict[str, Any]:
+        """Per-target measurement freshness (config-manager /measurements)"""
+        response = self._make_request('GET', '/measurements')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get measurements: {response.status_code}")
+
     def get_categories(self) -> Dict[str, Any]:
         """Get all target categories"""
         try:
@@ -359,10 +366,15 @@ class ConfigAPIGateway:
         """Generate SmokePing configuration"""
         try:
             result = self.client.generate_config()
-            return {
+            body = {
                 'success': result.get('success', False),
                 'message': result.get('message', 'Configuration generation attempted')
             }
+            # Passed through only when sent: absent is an older
+            # config-manager, not a failed reload.
+            if 'reloaded' in result:
+                body['reloaded'] = result['reloaded']
+            return body
         except Exception:
             logger.error("Failed to generate config via API", exc_info=True)
             # Return error - no fallback for config generation
@@ -400,6 +412,18 @@ class ConfigAPIGateway:
                 'config_manager_available': False
             }
     
+    def get_measurements(self) -> Dict[str, Any]:
+        """Is SmokePing writing data for every target? Never raises: the
+        dashboard renders without it."""
+        try:
+            return self.client.get_measurements()
+        except Exception:
+            logger.error("Failed to get measurement freshness", exc_info=True)
+            return {
+                'available': False,
+                'reason': 'config-manager unreachable; see web-admin log',
+            }
+
     # Database-aware methods for target management
     def is_database_available(self) -> bool:
         """Check if database is available"""
