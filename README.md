@@ -331,7 +331,7 @@ Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](ht
 | [docs/upgrades.md](docs/upgrades.md) | Upgrading between versions |
 | [docs/packaging.md](docs/packaging.md) | Could this be an apt/Homebrew package? The evaluation, the `.deb` trial, and the backlog |
 | [docs/quick-tunnels.md](docs/quick-tunnels.md) · [docs/cloudflare-tunnel-setup.md](docs/cloudflare-tunnel-setup.md) | Remote access: temporary tunnels without an account, permanent ones with yours |
-| [shared/docs/maintenance.md](shared/docs/maintenance.md) | Stuck containers, volumes, cleanup (pre-edition names; not on the site until refreshed) |
+| [shared/docs/maintenance.md](shared/docs/maintenance.md) | Stuck containers, volumes, cleanup — what the `smoking-pi` command does not handle, and the raw Docker behind it |
 | [editions/basic](editions/basic/README.md) · [standard](editions/standard/README.md) · [pro](editions/pro/README.md) | Per-edition guides |
 
 ### Getting Help
