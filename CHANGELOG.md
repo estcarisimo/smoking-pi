@@ -17,8 +17,11 @@ version gets a matching GitHub release and git tag.
   that stopped updating last week, looked exactly like a healthy one. Now
   every configured target is checked against the modification time of its
   RRD, which SmokePing rewrites at every step: *fresh* within two steps,
-  *stale* after that, *missing* if it never wrote one, *pending* if the
-  configuration is younger than two steps (a target just added). The
+  *stale* after that, *missing* if it never wrote one, *pending* if it has
+  no data since the target itself last changed (added, renamed, re-enabled)
+  or since SmokePing started, less than two steps ago. Not the `Targets`
+  file's age: every regeneration rewrites that file, and a target broken
+  for weeks read as "just added" after each unrelated edit. The
   expected set is the generated `Targets` file plus the router targets
   `cpe_discovery.py` includes, never the RRDs on disk: the reference Pi
   holds 180 RRDs for 30 targets, the rest left by targets deleted long ago.

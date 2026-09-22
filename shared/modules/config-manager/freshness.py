@@ -131,29 +131,44 @@ def classify(
     steps: Dict[str, int],
     mtimes: Dict[str, float],
     now: float,
-    targets_generated_at: Optional[float],
+    changed_at: Optional[Dict[str, float]] = None,
+    started_at: Optional[float] = None,
 ) -> Tuple[List[TargetFreshness], Dict[str, int]]:
     """Each expected target's state, and a count per state.
 
     * fresh   -- updated within GRACE_STEPS steps (+ a minute of slack)
-    * stale   -- has data, but none for longer than that
-    * pending -- no RRD yet, and the Targets file is younger than that:
-                 a target added a moment ago, waiting for its first step
-    * missing -- no RRD, and SmokePing has had time to write one
+    * pending -- no data since the target last changed (``changed_at``,
+                 per target: added, renamed, re-enabled) or since SmokePing
+                 started (``started_at``), and that was less than the same
+                 window ago: it has not had its first step yet
+    * stale   -- has data, but none for longer than the window
+    * missing -- never had data, and SmokePing has had time to write some
+
+    Deliberately NOT the Targets file's mtime: every regeneration rewrites
+    that file -- any other target's edit, the IPv6 recheck -- and keying
+    "pending" to it made a target broken for weeks read as "just added"
+    after each unrelated change. The same goes for CPE_Targets, which
+    cpe_discovery.py rewrites every hour whether or not the router changed.
     """
+    changed_at = changed_at or {}
     rows: List[TargetFreshness] = []
     counts = {"fresh": 0, "stale": 0, "pending": 0, "missing": 0}
     for e in expected:
         step = steps.get(e.probe, DEFAULT_STEP)
         limit = GRACE_STEPS * step + GRACE_SECONDS
         mtime = mtimes.get(e.rrd)
-        if mtime is not None:
-            age: Optional[int] = max(0, int(now - mtime))
-            state = "fresh" if age <= limit else "stale"
+        age: Optional[int] = None if mtime is None else max(0, int(now - mtime))
+        since = max((t for t in (changed_at.get(e.name), started_at) if t is not None),
+                    default=None)
+        if age is not None and age <= limit:
+            state = "fresh"
+        elif (since is not None and now - since <= limit
+              and (mtime is None or mtime < since)):
+            state = "pending"
+        elif age is None:
+            state = "missing"
         else:
-            age = None
-            young = targets_generated_at is not None and now - targets_generated_at <= limit
-            state = "pending" if young else "missing"
+            state = "stale"
         counts[state] += 1
         rows.append(TargetFreshness(e.section, e.name, e.probe, step, age, state))
     return rows, counts
@@ -165,13 +180,14 @@ def report(
     probes_text: str,
     find_output: str,
     now: float,
-    targets_generated_at: Optional[float],
+    changed_at: Optional[Dict[str, float]] = None,
+    started_at: Optional[float] = None,
 ) -> dict:
     """The JSON body of GET /measurements."""
     expected = parse_targets(targets_text, cpe_text)
     rows, counts = classify(
         expected, parse_probe_steps(probes_text), parse_mtimes(find_output),
-        now, targets_generated_at,
+        now, changed_at, started_at,
     )
     # Worst first: what a person should look at is at the top.
     order = {"missing": 0, "stale": 1, "pending": 2, "fresh": 3}

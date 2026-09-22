@@ -411,15 +411,45 @@ class ConfigManagerAPI:
             return {'available': False,
                     'reason': f'could not list RRD files (find exit {found.exit_code})'}
         cpe = container.exec_run(['cat', '/config/CPE_Targets'])
+        # time.time() and the RRD mtimes share a clock: containers read the
+        # host kernel's. The target ages come from PostgreSQL as durations,
+        # so its session time zone never enters the arithmetic.
+        now = time.time()
         body = freshness.report(
             targets_text=targets_file.read_text(),
             cpe_text=cpe.output.decode(errors='replace') if cpe.exit_code == 0 else '',
             probes_text=probes_file.read_text() if probes_file.exists() else '',
             find_output=found.output.decode(errors='replace'),
-            now=time.time(),
-            targets_generated_at=targets_file.stat().st_mtime,
+            now=now,
+            changed_at={name: now - age for name, age in self._target_change_ages().items()},
+            started_at=_container_started_at(container),
         )
         return {'available': True, 'checked_at': datetime.now().isoformat(), **body}
+
+    def _target_change_ages(self) -> Dict[str, float]:
+        """Seconds since each target last changed (added, edited, toggled).
+
+        ``updated_at`` is a naive timestamp in the session's time zone, so
+        the subtraction happens in PostgreSQL against ``localtimestamp``,
+        the same clock and zone that wrote it. Empty in YAML mode, which
+        has no per-target history: there, only SmokePing's start marks a
+        target as pending.
+        """
+        if not self.use_database:
+            return {}
+        from sqlalchemy import func
+        session = get_db_session()
+        try:
+            rows = session.query(
+                Target.name,
+                func.extract('epoch', func.localtimestamp() - Target.updated_at),
+            ).all()
+            return {name: float(age) for name, age in rows if age is not None}
+        except Exception as e:
+            logger.warning(f"Could not read target change times: {e}")
+            return {}
+        finally:
+            session.close()
 
     def get_status(self) -> Dict[str, Any]:
         """Get service status"""
@@ -897,6 +927,23 @@ def update_config(config_type):
         return error_response(400, "Invalid configuration", e)
     except Exception as e:
         return error_response(500, "Failed to update config", e)
+
+
+def _container_started_at(container) -> Any:
+    """Epoch seconds of the container's last start, or None.
+
+    Docker reports RFC 3339 with nanoseconds ("2026-09-22T02:10:05.123456789Z");
+    fromisoformat takes at most microseconds.
+    """
+    raw = ((getattr(container, 'attrs', None) or {}).get('State') or {}).get('StartedAt')
+    if not raw or raw.startswith('0001-'):
+        return None
+    try:
+        main, _, frac = raw.rstrip('Z').partition('.')
+        stamp = main + ('.' + frac[:6] if frac else '') + '+00:00'
+        return datetime.fromisoformat(stamp).timestamp()
+    except ValueError:
+        return None
 
 
 @app.route('/measurements', methods=['GET'])

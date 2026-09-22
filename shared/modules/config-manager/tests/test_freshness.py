@@ -119,24 +119,69 @@ def test_classify_fresh_stale_pending_missing():
         "DNS_Resolvers/GoogleDNS.rrd": 170,  # DNS step is 60: 2*60+60=180
         "CPE/CPE_IPv4.rrd": 10,
     }))
+    # Example was added 30 s ago; everything else long ago.
     rows, counts = freshness.classify(expected, steps, mtimes, NOW,
-                                      targets_generated_at=NOW - 30)
+                                      changed_at={"Example": NOW - 30})
     state = {r.name: r.state for r in rows}
     assert state == {"Google": "fresh", "NYT": "stale", "GoogleDNS": "fresh",
                      "Example": "pending", "CPE_IPv4": "fresh"}
     assert counts == {"fresh": 3, "stale": 1, "pending": 1, "missing": 0}
 
-    # The same absent RRD, long after the Targets file was written: missing.
+    # The same absent RRD, long after the target was added: missing.
     rows, counts = freshness.classify(expected, steps, mtimes, NOW,
-                                      targets_generated_at=NOW - 3 * 600)
+                                      changed_at={"Example": NOW - 3 * 600})
     assert {r.name: r.state for r in rows}["Example"] == "missing"
+
+
+def test_an_unrelated_regeneration_does_not_make_a_broken_target_pending():
+    # The review of #104: "pending" was keyed to the Targets file's mtime,
+    # which every regeneration bumps -- another target's edit, the IPv6
+    # recheck -- so a target with no data for weeks read as "just added"
+    # for ten minutes after each. Only its own change, or SmokePing's start,
+    # counts now; another target changing a moment ago does not.
+    expected = freshness.parse_targets(TARGETS, CPE)
+    rows, _ = freshness.classify(
+        expected, freshness.parse_probe_steps(PROBES), {}, NOW,
+        changed_at={"Google": NOW - 10, "Example": NOW - 30 * 86400},
+        started_at=NOW - 30 * 86400)
+    state = {r.name: r.state for r in rows}
+    assert state["Example"] == "missing"
+    assert state["Google"] == "pending"
+
+
+def test_a_re_enabled_target_waits_for_new_data_rather_than_reading_stale():
+    # Its RRD is from before it was switched off; it changed 20 s ago.
+    rows, _ = freshness.classify(
+        [freshness.Expected("websites", "NYT", "FPing")], {"FPing": 300},
+        {"websites/NYT.rrd": NOW - 5 * 86400}, NOW,
+        changed_at={"NYT": NOW - 20})
+    assert rows[0].state == "pending"
+    assert rows[0].age_seconds == 5 * 86400
+
+
+def test_right_after_smokeping_starts_nothing_is_missing_yet():
+    # A fresh install, and the router target, which has no database row.
+    expected = freshness.parse_targets(TARGETS, CPE)
+    rows, counts = freshness.classify(
+        expected, freshness.parse_probe_steps(PROBES), {}, NOW,
+        started_at=NOW - 60)
+    assert counts["missing"] == 0
+    assert {r.name: r.state for r in rows}["CPE_IPv4"] == "pending"
+
+
+def test_fresh_data_wins_over_a_recent_change():
+    rows, _ = freshness.classify(
+        [freshness.Expected("websites", "Google", "FPing")], {"FPing": 300},
+        {"websites/Google.rrd": NOW - 5}, NOW,
+        changed_at={"Google": NOW - 60}, started_at=NOW - 30)
+    assert rows[0].state == "fresh"
 
 
 def test_orphan_rrds_of_deleted_targets_are_not_reported():
     # The reference Pi: 180 RRDs on disk for 30 targets.
     body = freshness.report(TARGETS, CPE, PROBES,
                             _find(**{"websites/Google.rrd": 1, "old/Gone.rrd": 1}),
-                            NOW, NOW - 10_000)
+                            NOW)
     names = {t["name"] for t in body["targets"]}
     assert "Gone" not in names
     assert body["total"] == 5
@@ -147,7 +192,7 @@ def test_report_worst_first_and_measuring_flag():
                             _find(**{"websites/Google.rrd": 1, "websites/NYT.rrd": 5000,
                                      "DNS_Resolvers/GoogleDNS.rrd": 1,
                                      "HTTP/Example.rrd": 1, "CPE/CPE_IPv4.rrd": 1}),
-                            NOW, NOW - 10_000)
+                            NOW)
     assert body["measuring"] is False
     assert body["targets"][0]["name"] == "NYT"
     assert body["targets"][0]["state"] == "stale"
@@ -156,7 +201,7 @@ def test_report_worst_first_and_measuring_flag():
                             _find(**{"websites/Google.rrd": 1, "websites/NYT.rrd": 1,
                                      "DNS_Resolvers/GoogleDNS.rrd": 1,
                                      "CPE/CPE_IPv4.rrd": 1}),
-                            NOW, NOW - 30)
+                            NOW, changed_at={"Example": NOW - 30})
     assert body["counts"]["pending"] == 1
     assert body["measuring"] is True
 
@@ -230,8 +275,11 @@ def test_measurements_endpoint(client, fake_docker, monkeypatch, tmp_path):
         "find": (0, _find(**{"websites/Google.rrd": 5}).encode()),
         "cat": (0, CPE.encode()),
     })
+    monkeypatch.setattr(api_module.api, "_target_change_ages", lambda: {"NYT": 20.0})
     body = client.get("/measurements").get_json()
     assert body["available"] is True
+    # The per-target change age from PostgreSQL reached the classifier.
+    assert {t["name"]: t["state"] for t in body["targets"]}["NYT"] == "pending"
     assert body["total"] == 5
     assert body["counts"]["fresh"] == 1
     # It read the CPE file from inside the SmokePing container, and listed
@@ -239,6 +287,14 @@ def test_measurements_endpoint(client, fake_docker, monkeypatch, tmp_path):
     assert ["cat", "/config/CPE_Targets"] in container.calls
     find_cmd = next(c for c in container.calls if c[0] == "find")
     assert find_cmd[-1] == "%T@ %P\\n"
+
+
+def test_container_started_at_parses_docker_nanoseconds():
+    c = SimpleNamespace(attrs={"State": {"StartedAt": "2026-09-22T01:10:05.486419656Z"}})
+    assert api_module._container_started_at(c) == pytest.approx(1790039405.486419)
+    never = SimpleNamespace(attrs={"State": {"StartedAt": "0001-01-01T00:00:00Z"}})
+    assert api_module._container_started_at(never) is None
+    assert api_module._container_started_at(SimpleNamespace()) is None
 
 
 def test_measurements_without_generated_targets(client, monkeypatch, tmp_path):
