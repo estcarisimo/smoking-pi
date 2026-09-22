@@ -9,6 +9,43 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **A getting-started guide** (`docs/getting-started.md`, in the site nav
+  right after Home). Seven numbered steps from a bare Raspberry Pi to a
+  stack that is measuring: what you need, Docker with Compose v2 (and why
+  Raspberry Pi OS needs Docker's own repository), `apt install` or a clone,
+  `smoking-pi install` with what each answer means, the systemd unit, and
+  then the part no install guide had: **how to tell it is actually
+  working** — the six containers and which five report healthy, the URLs,
+  the fact that every graph is empty until the first 300-second step
+  completes, and `doctor --live`. It ends with a symptom → cause → fix
+  table of the nine things that actually go wrong, from
+  `docker: 'compose' is not a docker command` to a Grafana password that
+  looks wrong because it lives in the volume.
+- **A doctor check that the MCP tool table is the tool list**
+  (`mcp-tools-documented`). It compares the functions registered with
+  `@mcp.tool()` against the rows of the table in `docs/mcp-server.md`, in
+  both directions: an undocumented tool is one nobody knows to ask for, and
+  a documented tool that no longer exists reads as a promise. Static, so it
+  runs in CI.
+
+### Fixed
+
+- **The MCP tool table was four tools short.** `mute_alerts`,
+  `unmute_alerts`, `ack_incident` and `list_alert_state` shipped with the
+  alerting work and were explained in `docs/alerting.md`, but the MCP
+  server's own page — the one someone reads to find out what the server can
+  do — still listed eleven of the fifteen. Added, with their real
+  signatures, and the check above makes the drift impossible to repeat.
+- **The site's front door still described a pre-package project.**
+  `docs/index.md` said "Nothing is published to a package registry: install
+  from a clone" and that whether this stack could be an `apt install` was
+  "answered, and parked" — both true until v2.12.0 shipped the apt
+  repository the same day. It now leads with the package and links the new
+  guide; the README's Quick Start puts `apt` first and the clone second,
+  where it belongs as the development path.
+
 ## [2.12.0] — 2026-09-22
 
 Smoking Pi is a package: `sudo apt install smoking-pi`.

@@ -118,6 +118,34 @@ ALERTING_DOC = """
 | `ALERT_STATE_FILE` | `/var/lib/alerter/state.json` | incident state |
 """
 
+MCP_SERVER_SOURCE = '''
+mcp = FastMCP("smokeping")
+
+
+@mcp.tool()
+def list_targets() -> dict:
+    return {}
+
+
+@mcp.tool()
+@logged_tool
+def mute_alerts(target=None, rule=None, hours=2.0) -> dict:
+    return {}
+
+
+def not_a_tool() -> None:
+    return None
+'''
+
+MCP_DOC = """
+## Tools
+
+| Tool | What it does |
+|---|---|
+| `list_targets()` | All monitoring targets |
+| `mute_alerts(target, rule, hours)` | Stop sending alerts for a while |
+"""
+
 
 def _dashboard(uid, title, query, datasource_uid="influxdb"):
     return {
@@ -163,6 +191,10 @@ def repo(tmp_path):
     (pro / ".env.template").write_text(ALERTER_ENV_TEMPLATE)
     (tmp_path / "docs").mkdir(parents=True)
     (tmp_path / "docs/alerting.md").write_text(ALERTING_DOC)
+    mcp = tmp_path / "shared/modules/mcp-server"
+    mcp.mkdir(parents=True)
+    (mcp / "server.py").write_text(MCP_SERVER_SOURCE)
+    (tmp_path / "docs/mcp-server.md").write_text(MCP_DOC)
 
     (provisioning / "dashboards/overview/latency.json").write_text(
         json.dumps(_dashboard("lat-v1", "Latency", GOOD_QUERY))
@@ -642,3 +674,47 @@ def test_this_repository_is_clean():
         pytest.skip("not inside a smoking-pi checkout")
     report = Report(static_checks.run_all(static_checks.Repo(root)))
     assert report.exit_code == 0, textwrap.indent(report.render_text(), "  ")
+
+
+# ---------------------------------------------------------------------------
+# The MCP tool table
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_tools_documented_on_a_healthy_repo(repo):
+    check = run(repo)["mcp-tools-documented"]
+    assert check.status is Status.OK
+    assert "2 MCP tools" in check.summary
+
+
+def test_a_tool_missing_from_the_table_fails(repo):
+    """THE drift: the four alert-control tools existed for releases while the
+    MCP server's own table still listed eleven."""
+    (repo.root / "docs/mcp-server.md").write_text(
+        MCP_DOC.replace(
+            "| `mute_alerts(target, rule, hours)` | Stop sending alerts for a while |\n",
+            "",
+        )
+    )
+    check = run(repo)["mcp-tools-documented"]
+    assert check.status is Status.FAIL
+    assert "mute_alerts" in " ".join(f.render() for f in check.findings)
+
+
+def test_a_table_row_for_a_tool_that_no_longer_exists_fails(repo):
+    (repo.root / "docs/mcp-server.md").write_text(
+        MCP_DOC + "| `get_chart(target, hours)` | A chart |\n"
+    )
+    check = run(repo)["mcp-tools-documented"]
+    assert check.status is Status.FAIL
+    assert "get_chart" in " ".join(f.render() for f in check.findings)
+
+
+def test_plain_functions_are_not_treated_as_tools(repo):
+    """Only @mcp.tool counts; the module's helpers are not a documentation gap."""
+    assert "not_a_tool" not in run(repo)["mcp-tools-documented"].summary
+
+
+def test_a_repo_without_an_mcp_server_is_skipped(repo):
+    (repo.root / "shared/modules/mcp-server/server.py").unlink()
+    assert run(repo)["mcp-tools-documented"].status is Status.SKIP

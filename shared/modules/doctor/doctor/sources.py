@@ -693,3 +693,42 @@ def doc_env_keys(path: pathlib.Path) -> set[str]:
         for match in (_DOC_ENV_ROW_RE.match(line) for line in text.splitlines())
         if match
     }
+
+
+_DOC_TOOL_ROW_RE = re.compile(r"^\|\s*`([a-z_][a-z0-9_]*)\(")
+
+
+def doc_tool_names(path: pathlib.Path) -> set[str]:
+    """Tool names documented as rows of a Markdown tool table."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return set()
+    return {
+        match.group(1)
+        for match in (_DOC_TOOL_ROW_RE.match(line) for line in text.splitlines())
+        if match
+    }
+
+
+def mcp_tool_names(server_py: pathlib.Path) -> set[str]:
+    """Function names registered with ``@mcp.tool()`` in the MCP server."""
+    try:
+        tree = ast.parse(server_py.read_text())
+    except (OSError, SyntaxError):
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if (
+                isinstance(target, ast.Attribute)
+                and target.attr == "tool"
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "mcp"
+            ):
+                names.add(node.name)
+                break
+    return names

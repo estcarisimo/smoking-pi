@@ -54,8 +54,8 @@ Pi before merge, not by CI.
 | `shared/modules/doctor/` | Static + live checks that the pieces agree |
 | `shared/modules/common/` | The only code shared between images: Flux, charts, links, mutes, OpenClaw client |
 | `shared/modules/grafana/provisioning/` | Dashboards as JSON; separate trees for InfluxDB and ClickHouse |
-| `docs/` | alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, doctor, clickhouse, ipv6-gating, upgrades, packaging |
-| `packaging/` | Prototype `smoking-pi` CLI, systemd unit, `.deb` builder — the trial behind `docs/packaging.md`, not a supported install path yet |
+| `docs/` | getting-started, alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, http-probes, doctor, clickhouse, ipv6-gating, upgrades, packaging, release-acceptance |
+| `packaging/` | The shipped install path since v2.12.0: the `smoking-pi` CLI, the systemd unit, the `.deb` builder, the apt repository builder, the Homebrew formula and their tests — see `docs/packaging.md` |
 
 ## Constraints
 

@@ -31,28 +31,9 @@ Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [
 
 ### Installation
 
-You need Docker with the Compose plugin (`docker compose version`). Clone, pick an edition, run its setup:
+You need Docker with the Compose plugin (`docker compose version`). On Raspberry Pi OS and Debian 12 install Docker from [Docker's repository](https://docs.docker.com/engine/install/debian/) first — Debian 12 ships no Compose v2.
 
-```bash
-# Clone
-git clone https://github.com/estcarisimo/smoking-pi.git
-cd smoking-pi
-
-# Pro edition (full stack, InfluxDB)
-cd editions/pro
-./setup.sh
-```
-
-`setup.sh` generates a `.env` with strong random passwords and API tokens, detects your timezone, starts the containers, and prints the URLs and credentials (Pro also waits for the databases to come up; the other editions print `docker compose ps` for you to check).
-
-```bash
-# Or start smaller (each line from the checkout root)
-(cd editions/basic    && ./setup.sh)                        # SmokePing + YAML config
-(cd editions/standard && ./setup.sh)                        # + web admin, PostgreSQL, REST API
-(cd editions/pro      && ./setup.sh --database clickhouse)  # Pro with ClickHouse instead of InfluxDB
-```
-
-**Or as a package** (Raspberry Pi OS, Debian 12/13, Ubuntu 22.04/24.04 — the hosts each release is checked on, [docs/packaging.md](docs/packaging.md#supported-hosts)). On Raspberry Pi OS and Debian 12 install Docker from [Docker's repository](https://docs.docker.com/engine/install/debian/) first — Debian 12 ships no Compose v2. Then:
+**As a package** (Raspberry Pi OS, Debian 12/13, Ubuntu 22.04/24.04 — the hosts each release is checked on, [docs/packaging.md](docs/packaging.md#supported-hosts)):
 
 ```bash
 sudo install -d -m 0755 /etc/apt/keyrings
@@ -62,6 +43,25 @@ sudo apt update && sudo apt install smoking-pi
 sudo smoking-pi install            # edition, backend, optional services; then the stack
 sudo systemctl enable --now smoking-pi
 ```
+
+`smoking-pi install` generates every password and API token, detects your timezone, starts the containers, and prints the URLs and credentials. The step-by-step version of all of this — requirements, what each answer means, how to check it is really measuring, and what to do when it is not — is **[Getting started](https://estcarisimo.github.io/smoking-pi/getting-started/)**.
+
+**Or from a clone** (the development path, and the way to run an unreleased branch):
+
+```bash
+git clone https://github.com/estcarisimo/smoking-pi.git
+cd smoking-pi
+
+# Pro edition (full stack, InfluxDB)
+(cd editions/pro && ./setup.sh)
+
+# Or start smaller (each line from the checkout root)
+(cd editions/basic    && ./setup.sh)                        # SmokePing + YAML config
+(cd editions/standard && ./setup.sh)                        # + web admin, PostgreSQL, REST API
+(cd editions/pro      && ./setup.sh --database clickhouse)  # Pro with ClickHouse instead of InfluxDB
+```
+
+From a clone the images are built locally rather than pulled, and `./packaging/smoking-pi` is the same command without the package.
 
 **macOS, untested** (no Mac has run it yet — the formula exists, `Formula/smoking-pi.rb`; Docker Desktop required, and Pro's host-network measurements see Docker's Linux VM, not the Mac):
 
@@ -320,6 +320,7 @@ Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](ht
 
 | Document | Contents |
 | --- | --- |
+| [docs/getting-started.md](docs/getting-started.md) | Bare Pi to a measuring stack in seven steps: requirements, install, verification, troubleshooting |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, workflow, PR expectations, the load-bearing oddities |
 | [CHANGELOG.md](CHANGELOG.md) | Release history, with the reasoning behind each change |
 | [AGENTS.md](AGENTS.md) | Guidance for AI coding agents working in this repo |
@@ -337,7 +338,8 @@ Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](ht
 | [docs/ipv6-gating.md](docs/ipv6-gating.md) | Why IPv6 targets disappear when there is no global IPv6 |
 | [docs/ai-insights.md](docs/ai-insights.md) | AI health reports |
 | [docs/upgrades.md](docs/upgrades.md) | Upgrading between versions |
-| [docs/packaging.md](docs/packaging.md) | Could this be an apt/Homebrew package? The evaluation, the `.deb` trial, and the backlog |
+| [docs/packaging.md](docs/packaging.md) | The package: the layout, the published images, the apt repository, the supported hosts, the lifecycle |
+| [docs/release-acceptance.md](docs/release-acceptance.md) | The checklist every release goes through on the reference Raspberry Pi |
 | [docs/quick-tunnels.md](docs/quick-tunnels.md) · [docs/cloudflare-tunnel-setup.md](docs/cloudflare-tunnel-setup.md) | Remote access: temporary tunnels without an account, permanent ones with yours |
 | [shared/docs/maintenance.md](shared/docs/maintenance.md) | Stuck containers, volumes, cleanup — what the `smoking-pi` command does not handle, and the raw Docker behind it |
 | [editions/basic](editions/basic/README.md) · [standard](editions/standard/README.md) · [pro](editions/pro/README.md) | Per-edition guides |
