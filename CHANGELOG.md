@@ -60,7 +60,13 @@ release cut that way.
   `/apt` are deployed for a release only. Which tags are accepted is
   `packaging/release-version.sh`, tested in CI; anything else starting
   with `v` is refused before anything is pushed. The checklist is one
-  page: `docs/release-acceptance.md`, *Releasing, step by step*.
+  page: `docs/release-acceptance.md`, *Releasing, step by step*. The
+  first candidate, `v2.13.0-rc.1`, failed its own install tests on all
+  nine hosts, and correctly so. Its package reported `2.13.0`, because
+  `CITATION.cff` already says so. A packaged install would have pulled
+  `:2.13.0` images, which do not exist until the release. The candidate
+  package now carries a `VERSION` file (`2.13.0-rc.2`), which the
+  command reads first. `latest` never moved.
 - **Every PR builds every image, for arm64 and amd64.** Until now no PR
   built an image: all nine were built only when tagging a release, so a
   broken Dockerfile (a new module without its `COPY` line, a base image

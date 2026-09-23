@@ -142,13 +142,16 @@ python3 -c 'import yaml' || fail "python3-yaml not importable by $(command -v py
 # images must follow the installed tree's version on their own.
 pin_images ""
 v=$(smoking-pi version); echo "smoking-pi version: $v"
+# The command reports the images' tag: X.Y.Z for a release, X.Y.Z-rc.N for
+# a candidate, whose package is X.Y.Z~rc.N (release-version.sh). A
+# candidate that reported X.Y.Z would pull images that do not exist yet.
 if [ -n "$VERSION" ]; then
-    case "$VERSION" in 0.0.0~*) ;; *) [ "$v" = "$VERSION" ] || fail "package reports $v, expected $VERSION" ;; esac
+    case "$VERSION" in 0.0.0~*) ;; *) [ "$v" = "${VERSION/\~rc./-rc.}" ] || fail "package reports $v, expected ${VERSION/\~rc./-rc.}" ;; esac
 fi
 deb_version=$(dpkg-query -W -f '${Version}' smoking-pi)
-# The command reports the tree's CITATION.cff; dpkg the package's version.
-# Equal on a release; a throwaway (0.0.0~*) carries the tree's last release.
-case "$deb_version" in 0.0.0~*) ;; *) [ "$v" = "$deb_version" ] || fail "smoking-pi version says $v, dpkg says $deb_version" ;; esac
+# Equal on a release (and a candidate, once ~rc. reads -rc.); a throwaway
+# (0.0.0~*) carries the tree's last release.
+case "$deb_version" in 0.0.0~*) ;; *) [ "$v" = "${deb_version/\~rc./-rc.}" ] || fail "smoking-pi version says $v, dpkg says $deb_version" ;; esac
 # The conffile carries no version: the installed tree's is what the
 # images follow, so an upgrade never stays pinned to the first release.
 ! grep -q '^SMOKING_PI_VERSION=' /etc/default/smoking-pi || fail "the conffile pins a version"

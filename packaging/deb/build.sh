@@ -19,6 +19,12 @@ mkdir -p "$PKG/DEBIAN" "$PKG/opt/smoking-pi" "$PKG/usr/bin" "$PKG/lib/systemd/sy
 # deployment's target list; a fresh install is seeded by config-manager.
 ( cd "$ROOT" && git archive --format=tar HEAD -- editions shared docs examples README.md LICENSE CHANGELOG.md CITATION.cff SECURITY.md ) \
     | tar -C "$PKG/opt/smoking-pi" -xf -
+# A release candidate (X.Y.Z~rc.N, packaging/release-version.sh) runs the
+# :X.Y.Z-rc.N images, but its CITATION.cff already says X.Y.Z, whose images
+# do not exist until the release. The command reads this file first.
+case "$VERSION" in
+    *~rc.*) printf '%s\n' "${VERSION/\~rc./-rc.}" > "$PKG/opt/smoking-pi/VERSION" ;;
+esac
 install -m 0755 "$ROOT/packaging/smoking-pi" "$PKG/usr/bin/smoking-pi"
 install -m 0644 "$ROOT/packaging/systemd/smoking-pi.service" "$PKG/lib/systemd/system/smoking-pi.service"
 cat > "$PKG/etc/default/smoking-pi" <<'ENV'
