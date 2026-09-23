@@ -11,6 +11,14 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **CodeQL runs on every PR, stacked ones included, as a workflow.** It was
+  GitHub's default setup, which analyzes only PRs that target the default
+  branch: a PR based on another PR's branch got every other check green and
+  no CodeQL at all, and nothing said so (#102). `.github/workflows/codeql.yml`
+  analyzes the same four languages (actions, JavaScript/TypeScript, Python,
+  Ruby) under the same categories, so existing alerts keep their numbers, on
+  every PR whatever its base, on pushes to `main` and weekly.
+  `CodeQL analysis (all)` is the check the branch rules can require.
 - **A decision about what belongs in the command and what belongs in the
   API** (`docs/cli-scope.md`, in the site nav under *Operating*). The
   roadmap asked for this before the CLI grew any further, and it grew
