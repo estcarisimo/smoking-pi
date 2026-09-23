@@ -19,6 +19,22 @@ version gets a matching GitHub release and git tag.
   Ruby) under the same categories, so existing alerts keep their numbers, on
   every PR whatever its base, on pushes to `main` and weekly.
   `CodeQL analysis (all)` is the check the branch rules can require.
+- **A decision about what belongs in the command and what belongs in the
+  API** (`docs/cli-scope.md`, in the site nav under *Operating*). The
+  roadmap asked for this before the CLI grew any further, and it grew
+  again this week. The rule it settles on follows from one fact that was
+  never written down: the API *is* a container in the stack it would
+  manage, so it is available exactly when it is not needed. The command
+  therefore owns everything that must work with the stack down — install,
+  upgrade, backup, restore, purge, up/down, passwords, doctor, logs,
+  status — and the API and web admin own everything about what is
+  measured, because those are PostgreSQL rows with validation and a UI
+  already built for them. Hence no `smoking-pi add-target`: it would be a
+  second writer to that database. `restart` and `status` are the only
+  deliberate overlap, and the page shows they are two different
+  operations sharing a word — Compose-level for the command, SmokePing
+  specifically for the API, right after a config change. It ends with
+  four questions to answer before adding a command.
 
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
@@ -90,6 +106,34 @@ version gets a matching GitHub release and git tag.
   only the step that signs the apt repository and a step that reports
   whether it is set (a yes or no, never the value).
 
+- **The config API identified containers by guessing at their names.**
+  Packaging backlog #7 established that nothing in the stack guesses a
+  container name and fixed every shell script; the three places in
+  `config-manager/api.py` that do the same were never touched. `GET
+  /api/containers` accepted any container whose name merely *contained* the
+  project name, and the default project is `pro` — so an unrelated
+  `prometheus` or `proxy` on the same host was reported as part of the
+  Smoking Pi stack. Worse, `resolve_container_name` matched the
+  `com.docker.compose.service` label **without** the project label: on a
+  host running two editions side by side, two containers answer to
+  `smokeping`, whichever the daemon listed first won, and that is the path
+  `POST /restart` takes — the web admin's restart button could have
+  restarted the other edition's SmokePing while reporting success. Both now
+  test `com.docker.compose.project`, and resolution requires project *and*
+  service. The name-pattern and substring fallbacks are gone with them:
+  Compose labels every container it starts, including the ones that set an
+  explicit `container_name` (`smokeping-mcp-server` carries
+  `com.docker.compose.project=pro`), so there was nothing left for them to
+  find that the labels miss. The third place was the same guess wearing a
+  default: `_check_smokeping_status`, behind `GET /status`, fell back to the
+  name `<project>-smokeping-1` whenever resolution failed. It now says the
+  container is not there, which is both true and more useful than a report
+  on somebody else's. Resolution also sees stopped containers now, which the
+  name patterns used to reach and the label loop would not have — so
+  restarting or inspecting a stopped SmokePing, which used to 404, works.
+  None of the three had misfired on the reference Pi — its only labeled
+  containers are the `pro` project's — so this is a fix for the second host,
+  which is exactly the one nobody is watching.
 - **Two health checks put a credential on the command line.** The InfluxDB
   and ClickHouse checks passed their token and password as `curl -H` and
   `curl -u` arguments, and a command line is readable by every account on
