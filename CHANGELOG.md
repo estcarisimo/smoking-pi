@@ -78,6 +78,17 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The docs workflow's safety was implied, and its signing key was
+  everywhere.** `docs.yml` runs on `workflow_run` (with this repository's
+  secrets) and checks out and executes the triggering Release run's
+  commit. That is safe only because Release runs on tag pushes, which only
+  maintainers can make; code scanning alert #75 flagged it, correctly, as
+  resting on nothing written down. The job now publishes only when the
+  Release run was a `push` from this repository. And `APT_SIGNING_KEY`,
+  which sat in the job's environment where every step could read it --
+  `mkdocs`, its plugins and whatever the checkout installs -- now reaches
+  the one step that signs the apt repository and nothing else.
+
 - **Two health checks put a credential on the command line.** The InfluxDB
   and ClickHouse checks passed their token and password as `curl -H` and
   `curl -u` arguments, and a command line is readable by every account on
