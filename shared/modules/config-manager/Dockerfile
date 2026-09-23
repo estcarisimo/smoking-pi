@@ -65,6 +65,7 @@ COPY api.py ./
 COPY wsgi.py ./
 COPY models.py ./
 COPY file_ops.py ./
+COPY freshness.py ./
 COPY pydantic_models.py ./
 
 # Make scripts executable

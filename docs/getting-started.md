@@ -302,6 +302,15 @@ then. That is the single most common "it's broken" that isn't. Wait, then
 open SmokePing and look at *top\_sites → Google*, or, in Grafana, the
 **SmokePing Latency & Loss – Percentiles / Mean** dashboard.
 
+Standard and Pro answer this for you: the web admin's dashboard has a
+**Measurements** card that checks, for every configured target, when
+SmokePing last wrote its data. *Measuring* means every target updated in
+the last two steps. Anything else is listed by name: *stopped updating*
+(it had data, and has not for a while), *no data* (SmokePing never wrote
+any), or *waiting* (added a moment ago, before its first step). The same
+check is `GET /measurements` on the config API. "SmokePing: Running" above
+it only means the container is up.
+
 **4. The instrumentation agrees with itself.**
 
 ```bash

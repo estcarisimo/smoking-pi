@@ -63,6 +63,51 @@
     </div>
 </div>
 
+<!-- Measurements: is SmokePing writing data for each target? -->
+<div class="card mb-4" id="measurements-card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-activity"></i> Measurements</h5>
+    </div>
+    <div class="card-body">
+        {% if not measurements.available %}
+        <p class="mb-0 text-muted">Could not check: {{ measurements.reason }}</p>
+        {% else %}
+        <p class="mb-2">
+            {% if measurements.measuring %}
+            <span class="badge bg-success">Measuring</span>
+            {{ measurements.fresh }} of {{ measurements.total }} targets updated in the last two measurement steps.
+            {% else %}
+            <span class="badge bg-danger">Not measuring everything</span>
+            {% if measurements.stale %}{{ measurements.stale }} stopped updating. {% endif %}
+            {% if measurements.missing %}{{ measurements.missing }} never produced data. {% endif %}
+            {% endif %}
+            {% if measurements.pending %}
+            <span class="text-muted">{{ measurements.pending }} just added, waiting for the first measurement (up to one step, usually 5 minutes).</span>
+            {% endif %}
+        </p>
+        {% if measurements.problems %}
+        <table class="table table-sm mb-0">
+            <thead><tr><th>Target</th><th>Probe</th><th>State</th><th>Last data</th></tr></thead>
+            <tbody>
+            {% for t in measurements.problems %}
+            <tr>
+                <td>{{ t.section }} / {{ t.name }}</td>
+                <td>{{ t.probe }}</td>
+                <td>
+                    {% if t.state == 'stale' %}<span class="badge bg-warning text-dark">stopped updating</span>
+                    {% elif t.state == 'missing' %}<span class="badge bg-danger">no data</span>
+                    {% else %}<span class="badge bg-secondary">waiting</span>{% endif %}
+                </td>
+                <td>{{ t.age }}{% if t.age_seconds is not none %} ago{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+
 <!-- OCA Management -->
 <div class="card mb-4">
     <div class="card-header">

@@ -693,8 +693,10 @@ document.getElementById('targetForm').addEventListener('submit', async function 
         const data = await response.json();
 
         if (response.ok && data.success) {
-            showToast('Success', data.message || 'Target added — config regenerated automatically', 'success');
-            setTimeout(() => { window.location.href = data.redirect || '/targets/'; }, 1200);
+            // reloaded === false: saved, but SmokePing did not take it yet.
+            const saved = data.reloaded === false;
+            showToast(saved ? 'Warning' : 'Success', data.message || 'Target added', saved ? 'warning' : 'success');
+            setTimeout(() => { window.location.href = data.redirect || '/targets/'; }, saved ? 4000 : 1200);
             return;
         }
 
