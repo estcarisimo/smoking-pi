@@ -114,6 +114,13 @@ Usage: smoking-pi <command> [args]
                      The address to open in a browser -- over SSH, the one your
                      computer reaches -- the username, and whether it answers
                      (--wait: keep trying that long first). Exits 1 if not.
+  openclaw [--check]
+                     Connect this stack to an OpenClaw gateway on this machine:
+                     the MCP token, the mcp profile, registration and the skill.
+                     --check asks the agent a question and reads the MCP
+                     server's log, which is the only thing that proves the
+                     agent is using your history instead of its own shell.
+                     Pro only; OpenClaw elsewhere: docs/remote-openclaw.md.
   doctor [--live]    Instrumentation doctor (needs the doctor package).
   paths              Where things are (home, edition, env file, config, output, images, data).
   version            Installed version.
@@ -452,12 +459,29 @@ cmd_install() {
     else
         ( cd "$EDITION_DIR" && ./setup.sh )
     fi
+    # The assistant is optional and stays optional: the stack is already
+    # measuring by this point, so every branch here ends with a working
+    # install. Three answers, because "not installed" and "installed on my
+    # laptop" need opposite advice and the old yes/no could not tell them
+    # apart -- it printed a doc path either way.
     if [ "$edition" = pro ] && [ "$yes" = 0 ] && command -v whiptail >/dev/null; then
-        if whiptail --title "Smoking Pi" --yesno \
-            "Connect a chat assistant?\n\nOpenClaw can answer 'how is my internet?' from this Pi's history (docs/openclaw-integration.md). Show the steps now?" 12 70; then
-            echo; echo "Next: enable the mcp profile and register the server —"
-            echo "  see $SMOKING_PI_HOME/docs/openclaw-integration.md"
-        fi
+        local answer
+        answer=$(whiptail --title "Smoking Pi" --menu \
+            "Connect a chat assistant? (optional)\n\nOpenClaw can answer \"how is my internet?\" from this Pi's recorded history instead of a fresh speed test. Smoking Pi is fully working without it." 16 74 3 \
+            here   "OpenClaw runs on this Pi - set it up now" \
+            remote "OpenClaw runs on another machine" \
+            later  "Not now" 3>&1 1>&2 2>&3) || answer=later
+        echo
+        case "$answer" in
+            here)   cmd_openclaw || true ;;
+            remote) echo "OpenClaw on another machine needs a tunnel between the two loopbacks"
+                    echo "before anything else works:"
+                    echo "  $SMOKING_PI_HOME/docs/remote-openclaw.md"
+                    echo "Then run 'smoking-pi openclaw' on the machine the gateway is on." ;;
+            *)      echo "Skipping the assistant. When you want it: 'smoking-pi openclaw'." ;;
+        esac
+    elif [ "$edition" = pro ] && [ "$yes" = 1 ]; then
+        echo; echo "To connect a chat assistant later: 'smoking-pi openclaw'."
     fi
     echo; ( cd "$EDITION_DIR" && ./show-passwords.sh 2>/dev/null || true )
     echo
@@ -468,6 +492,210 @@ cmd_install() {
     # Last, so it is what is on screen when the install finishes. An install
     # whose web page is still starting is not a failed install.
     cmd_url --wait 120 || true
+}
+
+# --- OpenClaw ------------------------------------------------------------
+# docs/openclaw-integration.md is six steps, each with a trap that makes a
+# broken integration look like a working one. This runs the mechanical
+# ones and ends on the only check that tells the two apart.
+
+env_get() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1 || true; }
+
+# Escape a value for curl's config-file syntax, which is what -K - reads.
+# Inside quotes curl honors \\ and \", so both have to be escaped; the same
+# helper lives in shared/scripts/show-passwords.sh for the same reason.
+curl_cfg_quote() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }
+
+env_set() {
+    # Add or replace VAR=value, keeping the rest of the file and its mode:
+    # this file holds every secret, so a widened mode here undoes what
+    # `passwords` checks for.
+    local k="$1" v="$2" tmp
+    tmp="$(mktemp "$(dirname "$ENV_FILE")/.env.XXXXXX")"
+    if grep -q "^$k=" "$ENV_FILE" 2>/dev/null; then
+        # awk, not sed: the value is substituted literally, so a `&` or a
+        # `/` in it cannot turn into a regex replacement.
+        awk -v k="$k" -v v="$v" \
+            'index($0, k "=") == 1 && !done { print k "=" v; done = 1; next } { print }' \
+            "$ENV_FILE" > "$tmp"
+    elif [ -f "$ENV_FILE" ]; then
+        # Not `|| true`: swallowing a read error here would write a file
+        # holding only this one line and then rename it over every secret
+        # in the deployment.
+        cat "$ENV_FILE" > "$tmp"
+        printf '%s=%s\n' "$k" "$v" >> "$tmp"
+    else
+        printf '%s=%s\n' "$k" "$v" > "$tmp"
+    fi
+    chmod --reference="$ENV_FILE" "$tmp" 2>/dev/null || chmod 600 "$tmp"
+    mv "$tmp" "$ENV_FILE"
+}
+
+openclaw_evidence() {
+    # docs/openclaw-integration.md, "Verify with evidence, not with the
+    # answer". A well-primed agent answers fluently from its own shell
+    # while the MCP server sits untouched, so the reply proves nothing;
+    # the server's own tool= lines are the only thing that does.
+    if ! command -v openclaw >/dev/null; then
+        echo "openclaw is not on PATH here, so there is nothing to ask." >&2
+        return 2
+    fi
+    echo "Asking the agent one question, then reading the MCP server's log."
+    echo "(The answer is not the test -- the log is.)"
+    openclaw agent --agent main --session-key smoking-pi-check \
+        -m "how has my connection been in the last 6 hours?" >/dev/null 2>&1 || true
+    local seen
+    seen="$(compose logs mcp-server --since 3m 2>/dev/null | grep 'tool=' || true)"
+    if [ -n "$seen" ]; then
+        echo
+        echo "Connected. The agent called the server:"
+        printf '%s\n' "$seen" | tail -6 | sed 's/^/  /'
+        return 0
+    fi
+    echo >&2
+    echo "NOT connected: the agent answered without calling the MCP server." >&2
+    echo "It was answering from its own shell, which sounds right and is not" >&2
+    echo "your recorded history. The usual causes, in order:" >&2
+    echo "  1. The gateway still has its cached tool set. 'openclaw mcp reload'," >&2
+    echo "     restart the gateway, and start a NEW chat session." >&2
+    echo "  2. The skill is missing, so nothing redirects the agent:" >&2
+    echo "     shared/scripts/install-openclaw-skill.sh --check" >&2
+    echo "  3. The server is not registered: 'openclaw mcp probe smokeping'." >&2
+    echo "docs/openclaw-integration.md, 'Verify with evidence', has the detail." >&2
+    return 1
+}
+
+cmd_openclaw() {
+    local check=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --check) check=1; shift ;;
+            -h|--help)
+                echo "smoking-pi openclaw [--check]"
+                echo "  Connect this stack to an OpenClaw gateway on this machine, or say"
+                echo "  exactly why it is not connected. --check only runs the verification."
+                return 0 ;;
+            *) echo "unknown option $1" >&2; return 2 ;;
+        esac
+    done
+    need_edition
+    # Every failure below returns; none exits. cmd_install calls this as a
+    # subroutine, and a bash `exit` from here would take the whole install
+    # down with it -- including the password summary that comes after --
+    # which is the opposite of "every branch ends with a working install".
+    if [ "$SMOKING_PI_EDITION" != pro ]; then
+        echo "The MCP server is a Pro service; the $SMOKING_PI_EDITION edition does not ship it." >&2
+        echo "Smoking Pi measures and alerts without OpenClaw -- nothing here is missing." >&2
+        return 1
+    fi
+    [ -f "$ENV_FILE" ] || { echo "no env file at $ENV_FILE: run 'smoking-pi install' first" >&2; return 1; }
+
+    [ "$check" = 1 ] && { openclaw_evidence; return $?; }
+
+    if ! command -v openclaw >/dev/null; then
+        # Not an error, and not a reason to stop: the stack is already
+        # measuring. Two different situations, and the remote one has its
+        # own guide -- saying "install OpenClaw" to someone whose gateway
+        # is on their laptop sends them the wrong way.
+        echo "No 'openclaw' command on this machine."
+        echo
+        echo "If OpenClaw runs on ANOTHER machine, that is the supported case and it"
+        echo "needs a tunnel between the two loopbacks first:"
+        echo "  $SMOKING_PI_HOME/docs/remote-openclaw.md"
+        echo "Then run this command there, against the tunnelled port."
+        echo
+        echo "If you do not have OpenClaw at all, nothing is broken: Smoking Pi"
+        echo "measures, alerts and draws its dashboards on its own. Install it when"
+        echo "you want to ask questions in chat, then run 'smoking-pi openclaw'."
+        return 0
+    fi
+
+    echo "Connecting this stack to the OpenClaw gateway on this machine."
+    echo
+
+    # 1. The credential. The MCP server exposes mutations (add/remove
+    #    targets, restart SmokePing); Compose binds it to loopback, but
+    #    every process on this host is inside that boundary.
+    local token; token="$(env_get MCP_API_TOKEN)"
+    if [ -z "$token" ]; then
+        token="$(openssl rand -hex 32)"
+        env_set MCP_API_TOKEN "$token"
+        echo "1/5  Generated MCP_API_TOKEN in $ENV_FILE."
+    elif [[ "$token" =~ ^[A-Za-z0-9._~-]+$ ]]; then
+        echo "1/5  MCP_API_TOKEN is already set; keeping it."
+    else
+        # The token is interpolated into the JSON handed to `openclaw mcp
+        # set`. A generated one is hex, but this one was written by hand or
+        # by another tool, and a `"` or `\` in it would produce malformed
+        # JSON -- which surfaces as a registration failure that reads like a
+        # connectivity problem. Refuse instead of guessing.
+        echo "MCP_API_TOKEN in $ENV_FILE contains characters that cannot be" >&2
+        echo "passed through safely (anything outside A-Z a-z 0-9 . _ ~ -)." >&2
+        echo "Replace it with 'openssl rand -hex 32', restart the server, and" >&2
+        echo "re-run: the value is only a bearer token, nothing derives from it." >&2
+        return 1
+    fi
+
+    # 2. The profile has to be recorded, or the next 'up' drops the server.
+    local p; p="$(profiles)"
+    case ",$p," in
+        *,mcp,*) echo "2/5  The mcp profile is already recorded." ;;
+        *) env_set COMPOSE_PROFILES "${p:+$p,}mcp"
+           echo "2/5  Added the mcp profile to $ENV_FILE." ;;
+    esac
+    compose up -d mcp-server >/dev/null 2>&1 || true
+    echo "     mcp-server is up."
+
+    # 3. Prove the port is gated before handing its address to anything.
+    local code_open code_auth
+    code_open="$(curl -s -o /dev/null -w '%{http_code}' -XPOST http://127.0.0.1:8090/mcp 2>/dev/null || echo 000)"
+    # The token goes in on stdin (-K -), never in argv: a command line is
+    # readable by every account on this host (ps, /proc/*/cmdline). Same
+    # reason, and the same shape, as the health checks in
+    # shared/scripts/show-passwords.sh. The value MUST be quoted -- curl
+    # reads an unquoted `header = A: B` as a key/value line and drops the
+    # header in silence, which looks exactly like an auth failure.
+    code_auth="$(printf 'url = "%s"\nrequest = "POST"\nsilent\noutput = "/dev/null"\nwrite-out = "%%{http_code}"\nheader = "Authorization: Bearer %s"\n' \
+        "http://127.0.0.1:8090/mcp" "$(curl_cfg_quote "$token")" \
+        | curl -K - 2>/dev/null || echo 000)"
+    if [ "$code_open" = 000 ]; then
+        echo "3/5  WARNING: 127.0.0.1:8090 did not answer. Give it a moment and re-run;" >&2
+        echo "     'smoking-pi logs mcp-server' says why if it does not come up." >&2
+    elif [ "$code_open" = 401 ] && [ "$code_auth" != 401 ]; then
+        echo "3/5  The port refuses an unauthenticated request (401) and accepts the token."
+    else
+        echo "3/5  WARNING: expected 401 without the token and not-401 with it;" >&2
+        echo "     got $code_open and $code_auth. The token may not have reached the" >&2
+        echo "     container -- 'smoking-pi restart' does not recreate it, try" >&2
+        echo "     'smoking-pi down && smoking-pi up'." >&2
+    fi
+
+    # 4. Register, then the skill. Registering alone is the documented
+    #    half-install: the agent keeps answering from its shell.
+    openclaw mcp set smokeping "{
+  \"url\": \"http://127.0.0.1:8090/mcp\",
+  \"transport\": \"streamable-http\",
+  \"headers\": {\"Authorization\": \"Bearer $token\"},
+  \"connectTimeout\": 5,
+  \"timeout\": 30
+}" >/dev/null && echo "4/5  Registered as 'smokeping' with OpenClaw." \
+        || { echo "4/5  'openclaw mcp set' failed. Run it by hand from" >&2
+             echo "     docs/openclaw-integration.md and re-run this." >&2; return 1; }
+
+    if [ -x "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" ]; then
+        "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" --reload >/dev/null 2>&1 \
+            && echo "5/5  Installed the smokeping-monitoring skill and reloaded the gateway." \
+            || echo "5/5  WARNING: the skill did not install; run shared/scripts/install-openclaw-skill.sh --reload" >&2
+    else
+        echo "5/5  WARNING: install-openclaw-skill.sh not found; the agent will answer" >&2
+        echo "     from its own shell until the skill is installed." >&2
+    fi
+
+    echo
+    echo "A running gateway keeps its cached tool set, so start a NEW chat session"
+    echo "before asking anything. Then:"
+    echo "  smoking-pi openclaw --check"
+    echo "which asks a question and checks the server's log, not the answer."
 }
 
 cmd_upgrade() {
@@ -683,6 +911,7 @@ case "${1:-}" in
     backup) shift; cmd_backup "$@" ;;
     restore) shift; cmd_restore "$@" ;;
     purge) shift; cmd_purge "$@" ;;
+    openclaw) shift; cmd_openclaw "$@" ;;
     up) shift; compose up -d "$@" ;;
     down) shift; compose down "$@" ;;
     restart) shift; compose restart "$@" ;;

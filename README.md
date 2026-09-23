@@ -342,7 +342,7 @@ Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](ht
 | [docs/packaging.md](docs/packaging.md) | The package: the layout, the published images, the apt repository, the supported hosts, the lifecycle |
 | [docs/release-acceptance.md](docs/release-acceptance.md) | The checklist every release goes through on the reference Raspberry Pi |
 | [docs/quick-tunnels.md](docs/quick-tunnels.md) · [docs/cloudflare-tunnel-setup.md](docs/cloudflare-tunnel-setup.md) | Remote access: temporary tunnels without an account, permanent ones with yours |
-| [shared/docs/maintenance.md](shared/docs/maintenance.md) | Stuck containers, volumes, cleanup — what the `smoking-pi` command does not handle, and the raw Docker behind it |
+| [docs/maintenance.md](docs/maintenance.md) | Stuck containers, volumes, cleanup — what the `smoking-pi` command does not handle, and the raw Docker behind it |
 | [editions/basic](editions/basic/README.md) · [standard](editions/standard/README.md) · [pro](editions/pro/README.md) | Per-edition guides |
 
 ### Getting Help
