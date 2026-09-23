@@ -22,6 +22,117 @@ version gets a matching GitHub release and git tag.
   the PR build and the release both read, and `packaging/check-images.py`
   now fails when the PR matrix and the Dockerfiles disagree, as it already
   did for the release matrix.
+- **Is it measuring? A Measurements card on the web admin's dashboard,
+  and `GET /measurements` on the config API.** "SmokePing: Running" meant
+  the container was up, nothing more: a target added a minute ago, or one
+  that stopped updating last week, looked exactly like a healthy one. Now
+  every configured target is checked against the modification time of its
+  RRD, which SmokePing rewrites at every step: *fresh* within two steps,
+  *stale* after that, *missing* if it never wrote one, *pending* if it has
+  no data since the target itself last changed (added, renamed, re-enabled)
+  or since SmokePing started, less than two steps ago. Not the `Targets`
+  file's age: every regeneration rewrites that file, and a target broken
+  for weeks read as "just added" after each unrelated edit. The
+  expected set is the generated `Targets` file plus the router targets
+  `cpe_discovery.py` includes, never the RRDs on disk: the reference Pi
+  holds 180 RRDs for 30 targets, the rest left by targets deleted long ago.
+  Per-probe steps come from the generated `Probes` file. Read through the
+  Docker socket config-manager already uses, so no compose file changed.
+- **`smoking-pi install` ends on the address to open, and `smoking-pi url`
+  prints it again.** The install used to end on `http://localhost:8080`,
+  which, to someone who installed over SSH from a laptop, is the laptop.
+  Now it prints the address that computer can actually reach: over SSH,
+  the address the SSH client connected to (under `sudo`, which drops
+  `SSH_CONNECTION`, the source address this machine uses toward the
+  `who -m` client); otherwise the default route's source address; never
+  `hostname -I`'s first entry, which on a Pi with Docker and Tailscale can
+  be a bridge or the tailnet. IPv4 even over an IPv6 session: Pro publishes
+  the web admin as `0.0.0.0:8080`, which Docker binds on v4 only, and the
+  v6 URL got no answer on the reference Pi. It gives the username for each
+  page, the `.local` name when avahi runs, waits up to two minutes for the
+  page to answer rather than printing a URL that fails on the first try,
+  and over SSH adds the `ssh -L` line for when a firewall is in the way.
+  `smoking-pi url` exits 1 if nothing answers.
+- **`smoking-pi openclaw` — the assistant connection as a command, ending
+  in proof.** `smoking-pi install` used to ask "Connect a chat assistant?"
+  and, on yes, print the path to a document. That was the whole feature.
+  Meanwhile `docs/openclaw-integration.md` is six steps, and the
+  interesting thing about them is that four have a failure mode that looks
+  like success: registering the MCP server without installing the skill
+  leaves the agent answering from its own shell; a running gateway keeps
+  its cached tool set, so a correct registration reaches nothing until it
+  is reloaded and a new session started; and `openclaw mcp probe` reports
+  healthy in both cases. The command now does the mechanical part — the
+  token, the `mcp` profile, starting the server, checking the port refuses
+  an unauthenticated request, registering, installing the skill — and
+  `smoking-pi openclaw --check` asks the agent a question and then greps
+  the MCP server's own log for `tool=` lines. **The answer is never the
+  test**: a well-primed agent produces a fluent, accurate-sounding reply
+  from `ping` while the server sits untouched, and that false positive is
+  how four days of a dead integration went unnoticed. When there is no
+  `tool=` line the command says so and lists the three causes in order.
+  The MCP token reaches curl on stdin (`-K -`), never in argv, for the
+  reason PR #96 established — a command line is readable by every account
+  on the host — and a test asserts both halves, because one that only
+  checks the credential is *absent* passes just as happily when it never
+  arrived. A token that is not generated (someone wrote it by hand) is
+  refused if it holds characters that would break the registration JSON,
+  rather than producing a malformed payload that reads like a connectivity
+  failure.
+- **The install now distinguishes "no OpenClaw" from "OpenClaw on my
+  laptop".** The old yes/no could not: it printed the same-machine
+  document either way — which is the wrong advice for the remote case,
+  where a tunnel between the two loopbacks has to exist first. The prompt
+  is a three-way choice (here / another machine / not now); *here* runs
+  the connector, *another machine* points at `docs/remote-openclaw.md`,
+  *not now* names the command. Every branch ends with a working install:
+  the stack is already measuring by the time the question is asked, and
+  nothing about the assistant is required. `--yes` never prompts and still
+  names the command.
+- **The maintenance page is on the documentation site.**
+  `shared/docs/maintenance.md` was deliberately kept off the site when it
+  went up (PR #73), because it still described pre-editions container
+  names and scripts that no longer existed — publishing it would have been
+  publishing wrong instructions. Packaging backlog #7 rewrote it around
+  the `smoking-pi` command and Compose's labels, which removed the reason,
+  and nothing moved it. It is now `docs/maintenance.md`, in the nav under
+  *Operating*, with its plain-text `docs/*.md` references turned into real
+  cross-links. It is the page for the states the command does not handle —
+  a stuck container, an orphaned volume, emergency recovery — and it was
+  reachable only by browsing the repository. Publishing it turned up one
+  thing worth fixing first: the page described `smoking-pi restart` as
+  doing `down` then `up` and implied it re-syncs Pro's InfluxDB token.
+  Neither is true — `restart` is `docker compose restart`, which restarts
+  containers in place and so picks up no changed compose file, image or
+  env file, and the token resync lives in
+  `manage-containers.sh --action restart`. A Pro user trusting the page
+  could restart, get empty Grafana panels while data was arriving, and
+  have no reason to suspect the token. Both corrected, with the symptom
+  named so the divergence is recognizable.
+- **CodeQL runs on every PR, stacked ones included, as a workflow.** It was
+  GitHub's default setup, which analyzes only PRs that target the default
+  branch: a PR based on another PR's branch got every other check green and
+  no CodeQL at all, and nothing said so (#102). `.github/workflows/codeql.yml`
+  analyzes the same four languages (actions, JavaScript/TypeScript, Python,
+  Ruby) under the same categories, so existing alerts keep their numbers, on
+  every PR whatever its base, on pushes to `main` and weekly.
+  `CodeQL analysis (all)` is the check the branch rules can require.
+- **A decision about what belongs in the command and what belongs in the
+  API** (`docs/cli-scope.md`, in the site nav under *Operating*). The
+  roadmap asked for this before the CLI grew any further, and it grew
+  again this week. The rule it settles on follows from one fact that was
+  never written down: the API *is* a container in the stack it would
+  manage, so it is available exactly when it is not needed. The command
+  therefore owns everything that must work with the stack down — install,
+  upgrade, backup, restore, purge, up/down, passwords, doctor, logs,
+  status — and the API and web admin own everything about what is
+  measured, because those are PostgreSQL rows with validation and a UI
+  already built for them. Hence no `smoking-pi add-target`: it would be a
+  second writer to that database. `restart` and `status` are the only
+  deliberate overlap, and the page shows they are two different
+  operations sharing a word — Compose-level for the command, SmokePing
+  specifically for the API, right after a config change. It ends with
+  four questions to answer before adding a command.
 
 - **A getting-started guide** (`docs/getting-started.md`, in the site nav
   right after Home). Seven numbered steps from a bare Raspberry Pi to a
@@ -81,6 +192,58 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **A SmokePing reload that failed was reported as done.** After every
+  target change config-manager sends `killall -HUP smokeping` into the
+  SmokePing container, and it ignored the exit code: with no smokeping
+  process to signal it still logged "Sent reload signal", and the web admin
+  said "config regenerated automatically" whether or not anything had
+  happened (in YAML mode, even when generating the configuration had
+  failed). Now the create, update, delete, toggle, `PUT /config` and
+  `/generate` responses carry `reloaded`, and the web admin and the chat
+  assistant say "saved, but SmokePing did not confirm the reload: restart
+  SmokePing" when it is false. An older config-manager that sends no
+  `reloaded` field is not treated as a failure.
+
+- **The docs workflow's safety was implied, and its signing key was
+  everywhere.** `docs.yml` runs on `workflow_run` (with this repository's
+  secrets) and checks out and executes the triggering Release run's
+  commit. That is safe only because Release runs on tag pushes, which only
+  maintainers can make; code scanning alert #75 flagged it, correctly, as
+  resting on nothing written down. The job now publishes only when the
+  Release run was a `push` from this repository. And `APT_SIGNING_KEY`,
+  which sat in the job's environment where every step could read it --
+  `mkdocs`, its plugins and whatever the checkout installs -- now reaches
+  only the step that signs the apt repository and a step that reports
+  whether it is set (a yes or no, never the value).
+
+- **The config API identified containers by guessing at their names.**
+  Packaging backlog #7 established that nothing in the stack guesses a
+  container name and fixed every shell script; the three places in
+  `config-manager/api.py` that do the same were never touched. `GET
+  /api/containers` accepted any container whose name merely *contained* the
+  project name, and the default project is `pro` — so an unrelated
+  `prometheus` or `proxy` on the same host was reported as part of the
+  Smoking Pi stack. Worse, `resolve_container_name` matched the
+  `com.docker.compose.service` label **without** the project label: on a
+  host running two editions side by side, two containers answer to
+  `smokeping`, whichever the daemon listed first won, and that is the path
+  `POST /restart` takes — the web admin's restart button could have
+  restarted the other edition's SmokePing while reporting success. Both now
+  test `com.docker.compose.project`, and resolution requires project *and*
+  service. The name-pattern and substring fallbacks are gone with them:
+  Compose labels every container it starts, including the ones that set an
+  explicit `container_name` (`smokeping-mcp-server` carries
+  `com.docker.compose.project=pro`), so there was nothing left for them to
+  find that the labels miss. The third place was the same guess wearing a
+  default: `_check_smokeping_status`, behind `GET /status`, fell back to the
+  name `<project>-smokeping-1` whenever resolution failed. It now says the
+  container is not there, which is both true and more useful than a report
+  on somebody else's. Resolution also sees stopped containers now, which the
+  name patterns used to reach and the label loop would not have — so
+  restarting or inspecting a stopped SmokePing, which used to 404, works.
+  None of the three had misfired on the reference Pi — its only labeled
+  containers are the `pro` project's — so this is a fix for the second host,
+  which is exactly the one nobody is watching.
 - **Two health checks put a credential on the command line.** The InfluxDB
   and ClickHouse checks passed their token and password as `curl -H` and
   `curl -u` arguments, and a command line is readable by every account on
@@ -114,7 +277,7 @@ version gets a matching GitHub release and git tag.
   repopulate data automatically", which is false — that history does not
   come back. It now resolves the project the way Compose does, leads with
   the non-destructive fix, and states the real consequence. It also
-  honours `SMOKING_PI_ENV_FILE`: it wrote `./.env` unconditionally, so on
+  honors `SMOKING_PI_ENV_FILE`: it wrote `./.env` unconditionally, so on
   a packaged install (env at `/etc/smoking-pi/env`) it generated a second
   set of secrets that nothing reads.
 - **The troubleshooting advice named volumes that are not yours and one

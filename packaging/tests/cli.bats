@@ -53,6 +53,35 @@ esac
 exit 0
 STUB
     chmod +x "$BATS_TEST_TMPDIR/bin/docker"
+    # `url` (and the end of `install`) asks the routing table where this
+    # host is and whether HTTP answers there. Stubbed so no test depends on
+    # the machine's network, and `install`'s --wait never really sleeps.
+    # STUB_V4: the default route's source ("" = no v4 route); STUB_HTTP:
+    # the status curl reports (000 = nothing listening); STUB_WHO: `who -m`.
+    export STUB_V4=192.0.2.10 STUB_HTTP=302 STUB_WHO=""
+    unset SSH_CONNECTION SSH_CLIENT
+    cat > "$BATS_TEST_TMPDIR/bin/ip" <<'STUB'
+#!/bin/sh
+case "$*" in
+    "-4 route get 1.1.1.1") [ -z "$STUB_V4" ] || echo "1.1.1.1 via 192.0.2.1 dev wlan0 src $STUB_V4 uid 1000" ;;
+    "route get "*[a-z]*) echo "Error: any valid prefix is expected rather than \"$3\"." >&2; exit 1 ;;
+    "route get "*) echo "$3 dev eth0 src 198.51.100.7 uid 0" ;;
+esac
+STUB
+    printf '#!/bin/sh
+echo "curl $*" >> "$DOCKER_LOG"
+printf %%s "$STUB_HTTP"
+' > "$BATS_TEST_TMPDIR/bin/curl"
+    printf '#!/bin/sh
+[ -z "$STUB_WHO" ] || echo "pi       pts/0        2026-09-22 10:00 ($STUB_WHO)"
+' > "$BATS_TEST_TMPDIR/bin/who"
+    printf '#!/bin/sh
+exit 1
+' > "$BATS_TEST_TMPDIR/bin/systemctl"
+    printf '#!/bin/sh
+echo "sleep $*" >> "$DOCKER_LOG"
+' > "$BATS_TEST_TMPDIR/bin/sleep"
+    chmod +x "$BATS_TEST_TMPDIR/bin/"*
     export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
 }
 
@@ -360,4 +389,220 @@ make_backup_dir() {
     grep -qx 'PASSWORDS' "$DOCKER_LOG"
     ! grep -q 'PASSWORDS .*--show-secrets' "$DOCKER_LOG"
     [[ "$output" == *"smoking-pi passwords --show-secrets"* ]]
+}
+
+# The URL an install ends on. It used to be http://localhost:8080 -- which,
+# to someone who installed over SSH from a laptop, is the laptop.
+@test "url, at the machine: the default route's address, both Pro URLs, the usernames" {
+    run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Web admin  http://192.0.2.10:8080/   (user admin)"* ]]
+    [[ "$output" == *"Grafana    http://192.0.2.10:3000/   (user admin)"* ]]
+    [[ "$output" == *"any computer on the same network"* ]]
+    [[ "$output" != *localhost* ]]
+    # Asked the address it prints, not loopback: proves the bind is reachable.
+    grep -q '^curl .*http://192.0.2.10:8080/' "$DOCKER_LOG"
+}
+
+@test "url over SSH: the address the client connected to, named as theirs, with a tunnel fallback" {
+    SSH_CONNECTION="203.0.113.5 50000 192.0.2.44 22" run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"http://192.0.2.44:8080/"* ]]
+    [[ "$output" == *"connected from (203.0.113.5)"* ]]
+    [[ "$output" == *"ssh -L 8080:localhost:8080 "*"@192.0.2.44"* ]]
+}
+
+@test "url under sudo, where SSH_CONNECTION is gone: the source address toward the who -m client" {
+    STUB_WHO=203.0.113.5 run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"http://198.51.100.7:8080/"* ]]
+    [[ "$output" == *"connected from (203.0.113.5)"* ]]
+    # A resolved hostname in utmp (UseDNS): not routable by name, so the
+    # default route's address -- never localhost.
+    STUB_WHO=laptop.lan run "$CLI" url
+    [[ "$output" == *"http://192.0.2.10:8080/"* ]]
+    # A desktop session reports its display, not a host: not an SSH client.
+    STUB_WHO=:0 run "$CLI" url
+    [[ "$output" == *"http://192.0.2.10:8080/"* ]]
+    [[ "$output" != *"connected from"* ]]
+}
+
+# Pro publishes the web admin as 0.0.0.0:8080, v4 only: a v6 URL there got
+# no answer on the reference Pi.
+@test "url over SSH on IPv6 prints the v4 address; bracketed v6 only when there is no v4 route" {
+    SSH_CONNECTION="2001:db8::5 50000 2001:db8::44 22" run "$CLI" url
+    [[ "$output" == *"http://192.0.2.10:8080/"* ]]
+    STUB_V4="" SSH_CONNECTION="2001:db8::5 50000 2001:db8::44 22" run "$CLI" url
+    [[ "$output" == *"http://[2001:db8::44]:8080/"* ]]
+    # ssh wants the bare address after the @.
+    [[ "$output" == *"@2001:db8::44 "* ]]
+}
+
+@test "url exits 1 and says where to look when nothing answers; --wait retries first" {
+    STUB_HTTP=000 run "$CLI" url --wait 9
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Nothing answers at http://192.0.2.10:8080/"* ]]
+    [[ "$output" == *"smoking-pi logs"* ]]
+    [ "$(grep -c '^sleep 3' "$DOCKER_LOG")" -eq 3 ]
+    run "$CLI" url --wait
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"usage: smoking-pi url"* ]]
+    run "$CLI" url --wait soon
+    [ "$status" -eq 2 ]
+}
+
+@test "url on Basic: SmokePing on the env file's port, :80 left out, no login and no passwords line" {
+    printf 'SMOKEPING_PORT=80\n' > "$SMOKING_PI_ENV_FILE"
+    SMOKING_PI_EDITION=basic run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"SmokePing  http://192.0.2.10/   (no login)"* ]]
+    [[ "$output" != *Grafana* ]]
+    [[ "$output" != *"passwords"* ]]
+}
+
+@test "install ends on the URL, and a page still starting is not a failed install" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    STUB_HTTP=000 run "$CLI" install --edition pro --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Open Smoking Pi:"* ]]
+    [[ "${lines[-1]}" == *"smoking-pi logs"* ]]
+    # It waited before giving up: 120 s in steps of 3.
+    [ "$(grep -c '^sleep 3' "$DOCKER_LOG")" -eq 40 ]
+}
+
+# --- openclaw ------------------------------------------------------------
+# The connector must never leave the stack worse than it found it, and must
+# never claim a connection it has not seen evidence of.
+
+# A stubbed gateway plus a stubbed skill installer: the real one writes into
+# ~/.openclaw, which a test must not touch.
+stub_openclaw() {
+    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\nexit %s\n' "$DOCKER_LOG" "${1:-0}" \
+        > "$BATS_TEST_TMPDIR/bin/openclaw"
+    # Records argv AND the config curl reads on stdin, so a test can tell
+    # "the credential is not on the command line" from "the credential
+    # never arrived" -- which look identical if you only assert an absence.
+    # The config curl reads on stdin is multi-line; flatten it to one log
+    # line so a test can assert on it.
+    printf '#!/bin/sh\necho "CURL $*" >> "%s"\nif [ "$1" = "-K" ]; then cfg=$(cat | tr "\\n" " "); echo "CURLCFG $cfg" >> "%s"; case "$cfg" in *Authorization*) echo 200 ;; *) echo 401 ;; esac; else echo 401; fi\n' \
+        "$DOCKER_LOG" "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/curl"
+    mkdir -p "$STUB_HOME/shared/scripts"
+    printf '#!/bin/sh\necho "SKILL $*" >> "%s"\n' "$DOCKER_LOG" \
+        > "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
+    chmod +x "$BATS_TEST_TMPDIR/bin/openclaw" "$BATS_TEST_TMPDIR/bin/curl" \
+             "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
+}
+
+@test "openclaw without a gateway explains both cases and changes nothing" {
+    printf 'COMPOSE_PROFILES=influxdb\n' > "$SMOKING_PI_ENV_FILE"
+    # A PATH with no openclaw on it at all. Deleting the stub is not enough:
+    # the developer's own machine may have the real one installed, and then
+    # this test would take the opposite branch and pass only on CI.
+    rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    run "$CLI" openclaw
+    # Not an error: the stack measures without an assistant.
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"ANOTHER machine"* ]]
+    [[ "$output" == *"remote-openclaw.md"* ]]
+    [[ "$output" == *"nothing is broken"* ]]
+    # No token, no profile change: it did not half-configure anything.
+    ! grep -q 'MCP_API_TOKEN' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "openclaw generates the token, records the mcp profile and registers" {
+    printf 'COMPOSE_PROFILES=influxdb\nPOSTGRES_USER=smokeping\n' > "$SMOKING_PI_ENV_FILE"
+    chmod 600 "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^MCP_API_TOKEN=[0-9a-f]\{64\}$' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    # Everything else in the file survived the rewrite, and so did the mode.
+    grep -qx 'POSTGRES_USER=smokeping' "$SMOKING_PI_ENV_FILE"
+    [ "$(stat -c '%a' "$SMOKING_PI_ENV_FILE")" = 600 ]
+    grep -q 'openclaw mcp set smokeping' "$DOCKER_LOG"
+    grep -q 'SKILL --reload' "$DOCKER_LOG"
+}
+
+@test "openclaw keeps an existing token and does not duplicate the mcp profile" {
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nMCP_API_TOKEN=keepme\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -qx 'MCP_API_TOKEN=keepme' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"already set"* ]]
+}
+
+# The trap the whole verification exists for: the agent answers fluently
+# from its own shell while the MCP server is never called.
+@test "openclaw --check fails when the server logged no tool call" {
+    stub_openclaw
+    run "$CLI" openclaw --check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"NOT connected"* ]]
+    [[ "$output" == *"its own shell"* ]]
+}
+
+@test "openclaw --check passes only on a tool= line from the server" {
+    stub_openclaw
+    cat > "$BATS_TEST_TMPDIR/bin/docker" <<'STUB'
+#!/bin/sh
+echo "docker $*" >> "$DOCKER_LOG"
+case "$*" in
+    *"logs mcp-server"*) echo "tool=get_latency_stats args=hours=6 -> 19 stats in 40ms" ;;
+esac
+exit 0
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/docker"
+    run "$CLI" openclaw --check
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Connected"* ]]
+    [[ "$output" == *"tool=get_latency_stats"* ]]
+}
+
+@test "openclaw refuses on an edition that has no MCP server" {
+    export SMOKING_PI_EDITION=basic
+    run "$CLI" openclaw
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Pro service"* ]]
+    [[ "$output" == *"without OpenClaw"* ]]
+}
+
+# --yes is the scripted path: it must not prompt, and must still say the
+# assistant exists.
+@test "install --yes names the openclaw command instead of prompting" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    run "$CLI" install --edition pro --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"smoking-pi openclaw"* ]]
+}
+
+# PR #96's lesson, restated: a credential on a command line is readable by
+# every account on the host, and a test that only checks it is ABSENT
+# passes just as happily when the credential never arrived at all.
+@test "openclaw keeps the MCP token off curl's command line and still sends it" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=tok123deadbeef\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    # Not in argv...
+    ! grep -q '^CURL .*tok123deadbeef' "$DOCKER_LOG"
+    # ...and curl was driven from stdin, with the header actually present.
+    grep -q '^CURL -K -' "$DOCKER_LOG"
+    grep -q 'CURLCFG .*Authorization: Bearer tok123deadbeef' "$DOCKER_LOG"
+}
+
+# The token is interpolated into the JSON handed to `openclaw mcp set`. A
+# generated one is hex; a hand-written one is whatever someone typed.
+@test "openclaw refuses a token that would break the registration JSON" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=has"quote\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot be"* ]]
+    # It refused before touching the gateway.
+    ! grep -q 'openclaw mcp set' "$DOCKER_LOG"
 }

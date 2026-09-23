@@ -102,6 +102,14 @@ literal strings, not exception text.
 through the `CONFIG_FILES` literal table. A regex allow-list alone is not a
 sanitizer to CodeQL and should not be one to you.
 
+**CodeQL is `.github/workflows/codeql.yml`, not GitHub's default setup**
+(since 2026-09-23). Default setup analyzed only PRs targeting `main`, so a
+stacked PR showed every check green and had no CodeQL at all. The workflow
+runs on every PR whatever its base; `CodeQL analysis (all)` says it ran, and
+GitHub's own `CodeQL` check says whether it found something new. Keep its
+languages and `/language:<lang>` categories as they are: they are what
+default setup used, and changing a category orphans every existing alert.
+
 **Do not "unify" the two category vocabularies.** Database:
 `top_sites`/`netflix_oca`/`dns_resolvers`; InfluxDB tag:
 `topsites`/`netflix`/`dns`. `common/links.py` maps between them; both sides

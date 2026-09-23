@@ -20,6 +20,45 @@ def get_smokeping_status():
         current_app.logger.warning(f"Failed to get SmokePing status via API: {e}")
     return False
 
+def humanize_age(seconds):
+    """'4 min', '3 h', '2 d' -- for the age of a target's last measurement."""
+    if seconds is None:
+        return 'never'
+    if seconds < 90:
+        return f'{seconds} s'
+    if seconds < 90 * 60:
+        return f'{round(seconds / 60)} min'
+    if seconds < 36 * 3600:
+        return f'{round(seconds / 3600)} h'
+    return f'{round(seconds / 86400)} d'
+
+
+def summarize_measurements(body):
+    """What the dashboard's Measurements card needs from /measurements.
+
+    "SmokePing: Running" above it means the container is up. This is the
+    other half: whether each target's RRD is still being written.
+    """
+    if not body.get('available'):
+        return {'available': False, 'reason': body.get('reason', 'unknown')}
+    counts = body.get('counts', {})
+    problems = [
+        {**t, 'age': humanize_age(t.get('age_seconds'))}
+        for t in body.get('targets', [])
+        if t.get('state') != 'fresh'
+    ]
+    return {
+        'available': True,
+        'measuring': body.get('measuring', False),
+        'total': body.get('total', 0),
+        'fresh': counts.get('fresh', 0),
+        'stale': counts.get('stale', 0),
+        'missing': counts.get('missing', 0),
+        'pending': counts.get('pending', 0),
+        'problems': problems,
+    }
+
+
 def calculate_bandwidth(targets_data):
     """Calculate estimated bandwidth usage"""
     total_targets = sum(
@@ -70,6 +109,7 @@ def index():
         using_database = False
 
     context = {
+        'measurements': summarize_measurements(config_api.get_measurements()),
         'using_database': using_database,
         'smokeping_running': smokeping_running,
         'target_counts': target_counts,

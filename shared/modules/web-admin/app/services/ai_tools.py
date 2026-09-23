@@ -371,13 +371,19 @@ def _add_target(tool_input: dict) -> dict:
             "probe_id": probe_row["id"],
         }
     )
+    # The assistant repeats the note to the person, so it must not claim a
+    # reload config-manager did not confirm (an absent field is an older
+    # config-manager, not a failure).
+    if result.get("reloaded") is False:
+        note = ("The target is saved, but SmokePing did not confirm the "
+                "reload: it will not be measured until SmokePing is restarted.")
+    else:
+        note = ("SmokePing configuration was regenerated automatically; data "
+                "for the new target appears within a few minutes.")
     return {
         "success": True,
         "target": _slim_target(result.get("target", {})),
-        "note": (
-            "SmokePing configuration was regenerated automatically; data "
-            "for the new target appears within a few minutes."
-        ),
+        "note": note,
     }
 
 

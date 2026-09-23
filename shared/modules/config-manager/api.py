@@ -29,6 +29,7 @@ from scripts import ipv6_check
 
 # Shared file lock / atomic write helpers
 from file_ops import get_config_lock, atomic_write_yaml
+import freshness
 
 # Import database models and repositories
 from models import (
@@ -43,6 +44,11 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# What a mutation says when the configuration was written but SmokePing did
+# not confirm the reload: the change is saved, not yet measured.
+RELOAD_UNCONFIRMED = ('Configuration saved, but SmokePing did not confirm the '
+                      'reload -- restart SmokePing to apply it')
 
 
 def error_response(status: int, message: str, exc: BaseException | None = None,
@@ -272,10 +278,11 @@ class ConfigManagerAPI:
             logger.info(f"Updated {config_type} configuration")
             
             # Generate and deploy new SmokePing configuration
-            self._regenerate_smokeping_config()
-            
+            reloaded = self._regenerate_smokeping_config()
+
             return {
                 'success': True,
+                'reloaded': reloaded,
                 'message': f'{config_type} configuration updated successfully',
                 'updated_at': datetime.now().isoformat(),
                 'backup_file': str(backup_file)
@@ -291,10 +298,12 @@ class ConfigManagerAPI:
             success = self.generator.run()
 
             if success:
-                self._signal_smokeping_reload()
+                reloaded = self._signal_smokeping_reload()
                 return {
                     'success': True,
-                    'message': 'SmokePing configuration generated and deployed',
+                    'reloaded': reloaded,
+                    'message': ('SmokePing configuration generated and deployed'
+                                if reloaded else RELOAD_UNCONFIRMED),
                     'generated_at': datetime.now().isoformat()
                 }
             else:
@@ -334,20 +343,32 @@ class ConfigManagerAPI:
         ipv6_check.set_status(status)
         return status
 
-    def _signal_smokeping_reload(self) -> None:
-        """Ask SmokePing to reload its config (best effort).
+    def _signal_smokeping_reload(self) -> bool:
+        """Ask SmokePing to reload its config; True only if the signal landed.
 
         The generated files are bind-mounted into the SmokePing container,
-        so a SIGHUP is enough - no file copying is needed.
+        so a SIGHUP is enough - no file copying is needed. Best effort in
+        that a failure does not fail the request (the configuration is
+        saved either way), but it is reported: this used to ignore
+        exec_run's exit code and log "Sent reload signal" when killall had
+        found no smokeping process to signal.
         """
         try:
             container_name = resolve_container_name('smokeping')
             client = docker.from_env()
             container = client.containers.get(container_name)
-            container.exec_run(['killall', '-HUP', 'smokeping'])
+            result = container.exec_run(['killall', '-HUP', 'smokeping'])
+            if result.exit_code != 0:
+                output = (result.output or b'').decode(errors='replace').strip()
+                logger.warning(
+                    f"SmokePing reload failed in '{container_name}' "
+                    f"(killall exit {result.exit_code}): {output}")
+                return False
             logger.info(f"Sent reload signal to SmokePing container '{container_name}'")
+            return True
         except Exception as e:
             logger.warning(f"Could not signal SmokePing reload: {e}")
+            return False
 
     def restart_smokeping(self) -> Dict[str, Any]:
         """Restart SmokePing service"""
@@ -368,6 +389,68 @@ class ConfigManagerAPI:
             logger.error(f"Failed to restart SmokePing: {e}")
             raise
     
+    def measurement_freshness(self) -> Dict[str, Any]:
+        """Per-target freshness: is SmokePing actually writing data?
+
+        The expected targets come from the generated Targets file here,
+        plus CPE_Targets, which cpe_discovery.py writes inside the SmokePing
+        container and Targets @includes. The mtimes come from the same
+        container, through the Docker socket this service already uses
+        for the reload -- the RRDs live in a volume only SmokePing mounts.
+        """
+        targets_file = OUTPUT_DIR / "Targets"
+        probes_file = OUTPUT_DIR / "Probes"
+        if not targets_file.exists():
+            return {'available': False,
+                    'reason': 'no generated Targets file yet'}
+        container_name = resolve_container_name('smokeping')
+        container = docker.from_env().containers.get(container_name)
+        found = container.exec_run(
+            ['find', '/data', '-name', '*.rrd', '-printf', '%T@ %P\\n'])
+        if found.exit_code != 0:
+            return {'available': False,
+                    'reason': f'could not list RRD files (find exit {found.exit_code})'}
+        cpe = container.exec_run(['cat', '/config/CPE_Targets'])
+        # time.time() and the RRD mtimes share a clock: containers read the
+        # host kernel's. The target ages come from PostgreSQL as durations,
+        # so its session time zone never enters the arithmetic.
+        now = time.time()
+        body = freshness.report(
+            targets_text=targets_file.read_text(),
+            cpe_text=cpe.output.decode(errors='replace') if cpe.exit_code == 0 else '',
+            probes_text=probes_file.read_text() if probes_file.exists() else '',
+            find_output=found.output.decode(errors='replace'),
+            now=now,
+            changed_at={name: now - age for name, age in self._target_change_ages().items()},
+            started_at=_container_started_at(container),
+        )
+        return {'available': True, 'checked_at': datetime.now().isoformat(), **body}
+
+    def _target_change_ages(self) -> Dict[str, float]:
+        """Seconds since each target last changed (added, edited, toggled).
+
+        ``updated_at`` is a naive timestamp in the session's time zone, so
+        the subtraction happens in PostgreSQL against ``localtimestamp``,
+        the same clock and zone that wrote it. Empty in YAML mode, which
+        has no per-target history: there, only SmokePing's start marks a
+        target as pending.
+        """
+        if not self.use_database:
+            return {}
+        from sqlalchemy import func
+        session = get_db_session()
+        try:
+            rows = session.query(
+                Target.name,
+                func.extract('epoch', func.localtimestamp() - Target.updated_at),
+            ).all()
+            return {name: float(age) for name, age in rows if age is not None}
+        except Exception as e:
+            logger.warning(f"Could not read target change times: {e}")
+            return {}
+        finally:
+            session.close()
+
     def get_status(self) -> Dict[str, Any]:
         """Get service status"""
         try:
@@ -516,13 +599,19 @@ class ConfigManagerAPI:
             return ["Sources configuration must be a dictionary"]
         return []
     
-    def _regenerate_smokeping_config(self) -> None:
-        """Regenerate SmokePing configuration in-process"""
+    def _regenerate_smokeping_config(self) -> bool:
+        """Regenerate SmokePing configuration in-process.
+
+        Raises if the files could not be written. Returns whether SmokePing
+        confirmed the reload, which callers pass on as ``reloaded``: saved
+        and picked up are different claims.
+        """
         try:
             if not self.generator.run():
                 raise RuntimeError("Configuration generation failed")
-            self._signal_smokeping_reload()
+            reloaded = self._signal_smokeping_reload()
             logger.info("SmokePing configuration regenerated")
+            return reloaded
         except Exception as e:
             logger.error(f"Failed to regenerate SmokePing config: {e}")
             raise
@@ -560,15 +649,22 @@ class ConfigManagerAPI:
         # No valid cache, perform actual check
         logger.debug("Performing fresh SmokePing status check")
         try:
-            # Try to resolve container name dynamically first
+            # The labels are the only way in. There is deliberately no
+            # fallback to a guessed name: a container carrying no compose
+            # labels is not this project's SmokePing whatever it is called,
+            # and reporting on somebody else's container is worse than
+            # reporting that ours is missing.
             try:
                 container_name = resolve_container_name('smokeping')
                 logger.debug(f"Resolved SmokePing container name: {container_name}")
             except Exception as e:
-                # Fallback to known container name pattern
-                project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
-                container_name = f'{project_name}-smokeping-1'
-                logger.debug(f"Using fallback container name: {container_name}, resolve error: {e}")
+                logger.warning(f"Could not resolve the SmokePing container: {e}")
+                return {
+                    'running': False,
+                    'status': 'not_found',
+                    'container_name': None,
+                    'error': 'No SmokePing container in this Compose project'
+                }
             
             # Use Docker Python API for more reliable status checking
             client = docker.from_env()
@@ -840,6 +936,33 @@ def update_config(config_type):
         return error_response(500, "Failed to update config", e)
 
 
+def _container_started_at(container) -> Any:
+    """Epoch seconds of the container's last start, or None.
+
+    Docker reports RFC 3339 with nanoseconds ("2026-09-22T02:10:05.123456789Z");
+    fromisoformat takes at most microseconds.
+    """
+    raw = ((getattr(container, 'attrs', None) or {}).get('State') or {}).get('StartedAt')
+    if not raw or raw.startswith('0001-'):
+        return None
+    try:
+        main, _, frac = raw.rstrip('Z').partition('.')
+        stamp = main + ('.' + frac[:6] if frac else '') + '+00:00'
+        return datetime.fromisoformat(stamp).timestamp()
+    except ValueError:
+        return None
+
+
+@app.route('/measurements', methods=['GET'])
+@require_api_token
+def measurements():
+    """Is SmokePing measuring each configured target? See freshness.py."""
+    try:
+        return jsonify(api.measurement_freshness())
+    except Exception as e:
+        return error_response(500, "Failed to check measurement freshness", e)
+
+
 @app.route('/generate', methods=['POST'])
 @require_api_token
 def generate_config():
@@ -950,10 +1073,11 @@ def create_target():
             target = target_repo.create(target_data)
             
             # Regenerate configuration after adding target
-            api._regenerate_smokeping_config()
-            
+            reloaded = api._regenerate_smokeping_config()
+
             return jsonify({
                 'success': True,
+                'reloaded': reloaded,
                 'target': target.to_dict(),
                 'message': 'Target created successfully'
             }), 201
@@ -991,10 +1115,11 @@ def update_target(target_id):
                 return jsonify({'error': 'Target not found'}), 404
             
             # Regenerate configuration after updating target
-            api._regenerate_smokeping_config()
-            
+            reloaded = api._regenerate_smokeping_config()
+
             return jsonify({
                 'success': True,
+                'reloaded': reloaded,
                 'target': target.to_dict(),
                 'message': 'Target updated successfully'
             })
@@ -1025,10 +1150,11 @@ def delete_target(target_id):
                 return jsonify({'error': 'Target not found'}), 404
             
             # Regenerate configuration after deleting target
-            api._regenerate_smokeping_config()
-            
+            reloaded = api._regenerate_smokeping_config()
+
             return jsonify({
                 'success': True,
+                'reloaded': reloaded,
                 'message': 'Target deleted successfully'
             })
             
@@ -1056,10 +1182,11 @@ def toggle_target(target_id):
                 return jsonify({'error': 'Target not found'}), 404
             
             # Regenerate configuration after toggling target
-            api._regenerate_smokeping_config()
-            
+            reloaded = api._regenerate_smokeping_config()
+
             return jsonify({
                 'success': True,
+                'reloaded': reloaded,
                 'target': target.to_dict(),
                 'message': f"Target {'activated' if target.is_active else 'deactivated'} successfully"
             })
@@ -1135,42 +1262,59 @@ def get_probes():
 
 
 # Container resolution endpoints
+COMPOSE_PROJECT_LABEL = 'com.docker.compose.project'
+COMPOSE_SERVICE_LABEL = 'com.docker.compose.service'
+
+
+def compose_project_name() -> str:
+    """The Compose project this config-manager belongs to.
+
+    Every edition's compose file passes ``COMPOSE_PROJECT_NAME`` in, defaulted
+    to the edition directory name, which is also what Compose itself would
+    derive. The literal below is only a last resort for a config-manager
+    started by hand without the variable.
+    """
+    return os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
+
+
+def belongs_to_project(container, project_name: str) -> bool:
+    """Whether a container was started by this stack's Compose project.
+
+    The label is the whole test. Container *names* are not evidence: the
+    project is called ``pro`` by default, so a name test also claims an
+    unrelated ``prometheus`` or ``proxy`` running on the same host. Compose
+    labels every container it starts, including the ones that set an explicit
+    ``container_name``, so nothing that belongs to us is missed by asking.
+    """
+    return container.labels.get(COMPOSE_PROJECT_LABEL) == project_name
+
+
 def resolve_container_name(service_name: str) -> str:
-    """Resolve actual container name for a compose service"""
+    """Resolve the container name for a service of *this* Compose project.
+
+    Both labels have to match. The service label on its own is not an
+    identity: a host running two editions side by side has two containers
+    labeled ``smokeping``, and whichever one the daemon listed first would
+    win — so ``POST /restart``, which the web admin's restart button calls,
+    could restart the other edition's SmokePing.
+
+    Stopped containers are included, because resolving one is how a caller
+    asks for its status or restarts it.
+    """
+    project_name = compose_project_name()
     try:
         client = docker.from_env()
-        
-        # First, try to find by service label
-        for container in client.containers.list():
-            if container.labels.get('com.docker.compose.service') == service_name:
+        for container in client.containers.list(all=True):
+            if (belongs_to_project(container, project_name)
+                    and container.labels.get(COMPOSE_SERVICE_LABEL) == service_name):
                 return container.name
-        
-        # Get project name from environment or use default
-        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
-        
-        # Try common naming patterns
-        patterns = [
-            f'{project_name}-{service_name}-1',  # Compose v2
-            f'{project_name}_{service_name}_1',   # Compose v1
-            service_name,                         # Custom container name
-        ]
-        
-        for pattern in patterns:
-            try:
-                client.containers.get(pattern)
-                return pattern
-            except docker.errors.NotFound:
-                continue
-                
-        # If still not found, look for any container with service name
-        for container in client.containers.list():
-            if service_name in container.name.lower():
-                return container.name
-                
     except Exception as e:
-        logger.error(f"Error resolving container name for {service_name}: {str(e)}")
+        logger.error(
+            f"Error resolving container for service '{service_name}' in "
+            f"project '{project_name}': {e}"
+        )
         raise Exception(f"Container for service '{service_name}' not found")
-    
+
     raise Exception(f"Container for service '{service_name}' not found")
 
 
@@ -1196,16 +1340,18 @@ def list_containers():
     """List all containers in the compose stack"""
     try:
         client = docker.from_env()
-        project_name = os.environ.get('COMPOSE_PROJECT_NAME', 'pro')
+        project_name = compose_project_name()
         
         containers = []
+        # Running only, unlike resolve_container_name: this answers "what is
+        # up right now", and a stopped container has no status worth listing.
+        # Resolution includes stopped ones because restarting one is the
+        # point of asking.
         for container in client.containers.list():
-            # Check if container belongs to our compose project
-            if container.labels.get('com.docker.compose.project') == project_name or \
-               project_name in container.name:
+            if belongs_to_project(container, project_name):
                 containers.append({
                     'name': container.name,
-                    'service': container.labels.get('com.docker.compose.service', 'unknown'),
+                    'service': container.labels.get(COMPOSE_SERVICE_LABEL, 'unknown'),
                     'status': container.status,
                     'id': container.short_id
                 })

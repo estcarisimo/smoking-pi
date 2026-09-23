@@ -346,9 +346,13 @@
             checkbox.checked = isActive;
             row.dataset.active = String(isActive);
             row.classList.toggle('table-secondary', !isActive);
-            showToast('Success',
-                `Target "${row.dataset.name}" ${isActive ? 'activated' : 'deactivated'}`,
-                'success');
+            if (data.reloaded === false) {
+                showToast('Warning', data.message, 'warning');
+            } else {
+                showToast('Success',
+                    `Target "${row.dataset.name}" ${isActive ? 'activated' : 'deactivated'}`,
+                    'success');
+            }
             applyFilters();
         } catch (error) {
             checkbox.checked = !checkbox.checked; // revert
@@ -388,13 +392,17 @@
         };
         btn.disabled = true;
         try {
-            await fetchJSON(`/targets/${editingRow.dataset.id}`, {
+            const data = await fetchJSON(`/targets/${editingRow.dataset.id}`, {
                 method: 'PUT',
                 body: payload,
             });
-            showToast('Success', `Target "${editingRow.dataset.name}" updated`, 'success');
+            if (data && data.reloaded === false) {
+                showToast('Warning', data.message, 'warning');
+            } else {
+                showToast('Success', `Target "${editingRow.dataset.name}" updated`, 'success');
+            }
             editModal.hide();
-            setTimeout(() => location.reload(), 800);
+            setTimeout(() => location.reload(), data && data.reloaded === false ? 4000 : 800);
         } catch (error) {
             const hostError = error.data && error.data.errors && error.data.errors.host;
             if (hostError) {
