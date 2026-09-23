@@ -35,6 +35,7 @@ nav:
       - ClickHouse backend: clickhouse.md
       - Packaging: packaging.md
       - Maintenance and cleanup: maintenance.md
+      - Command vs API scope: cli-scope.md
       - Release acceptance on a Pi: release-acceptance.md
   - Changelog: changelog.md
 
