@@ -43,7 +43,9 @@ the same commit.
 
 1. **Prepare.** A `release/vX.Y.Z` branch converts `[Unreleased]` into
    the dated section (with its intro), bumps `version` and `date-released`
-   in `CITATION.cff`. PR, CI green, review, merge.
+   in `CITATION.cff`. PR, CI green, review, merge. The date is the day
+   the candidate is cut: the release is that same commit, so it cannot
+   change later.
 2. **Tag the candidate** on that merge commit: `git tag -a vX.Y.Z-rc.1 -m
    "vX.Y.Z candidate 1" && git push origin vX.Y.Z-rc.1`, then `gh release
    create vX.Y.Z-rc.1 --prerelease --verify-tag --title "vX.Y.Z-rc.1" --notes

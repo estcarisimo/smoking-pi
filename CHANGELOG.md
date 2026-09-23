@@ -9,6 +9,37 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.0] — 2026-09-24
+
+Is it measuring, and can you tell? Plus a release process that proves
+itself.
+
+The web admin's dashboard now answers the first question a new install
+raises. It shows how many targets were written in the last two
+measurement steps, judged from each target's own RRD rather than a file
+count (the reference Pi has 180 RRDs for 30 targets). A SmokePing reload
+that failed is no longer reported as done. `smoking-pi install` ends on
+the address to open, `smoking-pi openclaw` connects the assistant, and a
+getting-started guide walks through the rest. The doctor names the
+interface every measurement crosses. It now resolves the uplink by route
+metric, and IPv6-only hosts are covered.
+
+Secrets stay off the screen unless you ask: `show-passwords.sh` withholds
+them, `--show-secrets` refuses a pipe unless forced, and the env file's
+permissions are checked. Three health checks that had never worked now
+do, and none of them puts a credential on a command line. The config API
+finds containers by their Compose labels instead of guessing their names.
+
+The documentation was held to the code. The backup recipe backed up
+nothing. "Switching databases" told you to delete every target. The MCP
+tool table was four tools short. All of these are fixed.
+
+Every PR now builds all nine images for both architectures and runs
+CodeQL. Releases are cut from a candidate tag, `latest` moves only after
+every install test has passed, and each release carries an evidence file
+tying it to its commit, digests and package checksum. This is the first
+release cut that way.
+
 ### Added
 
 - **Releases are cut from a candidate, and `latest` waits for the install
