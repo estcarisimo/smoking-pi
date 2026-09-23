@@ -89,7 +89,7 @@ run_sp() { cd "$EDITION_DIR" || return 1; run bash "$SCRIPT" "$@"; }
 # a key/value line and the header is dropped silently -- the check then
 # reports an auth failure forever. So assert the credential actually
 # ARRIVES, not merely that it is absent from the command line.
-@test "the credential reaches curl on stdin, correctly quoted, and is honoured" {
+@test "the credential reaches curl on stdin, correctly quoted, and is honored" {
     cat > "$BATS_TEST_TMPDIR/bin/curl" <<'STUB'
 #!/bin/sh
 # Answer only if the config on stdin really carries our token.
