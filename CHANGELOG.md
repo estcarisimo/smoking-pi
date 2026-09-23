@@ -87,7 +87,8 @@ version gets a matching GitHub release and git tag.
   Release run was a `push` from this repository. And `APT_SIGNING_KEY`,
   which sat in the job's environment where every step could read it --
   `mkdocs`, its plugins and whatever the checkout installs -- now reaches
-  the one step that signs the apt repository and nothing else.
+  only the step that signs the apt repository and a step that reports
+  whether it is set (a yes or no, never the value).
 
 - **Two health checks put a credential on the command line.** The InfluxDB
   and ClickHouse checks passed their token and password as `curl -H` and

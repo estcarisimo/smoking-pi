@@ -104,10 +104,10 @@ jobs:
               || echo "$tag: no .deb attached (a release before packaging)"
           done
           ls -l debs
-      # The signing key reaches this step and no other: it used to be in
-      # the job's env, readable by every step, mkdocs and its plugins
-      # included. Whether it is set is asked once, by a step that sees it
-      # and passes on only a yes or no.
+      # The signing key reaches two steps, this one and the one that signs,
+      # and no other: it used to be in the job's env, readable by every
+      # step, mkdocs and its plugins included. This step passes on only a
+      # yes or no, for the `if:`s that branch on it.
       - name: Is there a signing key?
         id: key
         if: steps.tag.outputs.publish == 'true'
