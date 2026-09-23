@@ -6,7 +6,7 @@ name: Docs
 # the Release workflow has finished for a vX.Y.Z tag -- after `attach` has
 # put that release's .deb on the GitHub release the repository is built
 # from -- and not on the tag push, which would race it. The site describes
-# the released version, not main (the release-only CI policy).
+# the released version, not main.
 #
 # The repository is signed with APT_SIGNING_KEY (an Actions secret, the
 # ASCII-armored private key). Without it the site is published with no
@@ -39,15 +39,22 @@ jobs:
     # run was for a release tag is decided from the commit itself below --
     # `workflow_run.head_branch` is not relied on for a tag push -- and a
     # test-* tag's run ends with a visible skip, never a silent one.
+    #
+    # workflow_run runs with this repository's secrets whatever triggered
+    # the run before it, and this job checks out and executes that run's
+    # commit (mkdocs, its plugins, build-repo.sh). That is safe only
+    # because Release runs on tag pushes, which only maintainers can make
+    # -- so it is stated here rather than left implied (code scanning
+    # alert #75): a Release run that was not a push, or that came from
+    # another repository, is never built or published.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.tag.outputs.publish }}
-    env:
-      # Job-level so the steps' `if` can see whether it is set.
-      APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -97,15 +104,27 @@ jobs:
               || echo "$tag: no .deb attached (a release before packaging)"
           done
           ls -l debs
+      # The signing key reaches two steps, this one and the one that signs,
+      # and no other: it used to be in the job's env, readable by every
+      # step, mkdocs and its plugins included. This step passes on only a
+      # yes or no, for the `if:`s that branch on it.
+      - name: Is there a signing key?
+        id: key
+        if: steps.tag.outputs.publish == 'true'
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: echo "present=$([ -n "$APT_SIGNING_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - name: The apt repository under /apt, signed
-        if: steps.tag.outputs.publish == 'true' && env.APT_SIGNING_KEY != ''
+        if: steps.tag.outputs.publish == 'true' && steps.key.outputs.present == 'true'
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
         run: |
           set -e
           sudo apt-get install -y -qq --no-install-recommends dpkg-dev apt-utils gnupg >/dev/null
           [ -n "$(find debs -name '*.deb')" ] || { echo "::warning::no release carries a .deb yet; /apt not published"; exit 0; }
           packaging/apt/build-repo.sh site/apt debs/*.deb
       - name: No signing key, no repository
-        if: steps.tag.outputs.publish == 'true' && env.APT_SIGNING_KEY == ''
+        if: steps.tag.outputs.publish == 'true' && steps.key.outputs.present != 'true'
         run: echo "::warning::APT_SIGNING_KEY is not set; the site is published without /apt (docs/packaging.md, The apt repository)"
       - name: Upload the site
         if: steps.tag.outputs.publish == 'true'
