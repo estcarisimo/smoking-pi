@@ -110,6 +110,10 @@ Usage: smoking-pi <command> [args]
                      Show URLs, usernames and health checks. Secret VALUES
                      are hidden unless --show-secrets; that refuses a pipe
                      or a file unless --force, so they stay out of logs.
+  url [--wait SECONDS]
+                     The address to open in a browser -- over SSH, the one your
+                     computer reaches -- the username, and whether it answers
+                     (--wait: keep trying that long first). Exits 1 if not.
   openclaw [--check]
                      Connect this stack to an OpenClaw gateway on this machine:
                      the MCP token, the mcp profile, registration and the skill.
@@ -238,6 +242,143 @@ run_doctor() {
     fi
 }
 
+env_value() {
+    # One key from the env file, quotes stripped; empty when absent.
+    [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1 | tr -d "\"'" || true
+}
+
+ssh_client() {
+    # The address of the computer this session is typed from, when it is
+    # an SSH session. SSH_CONNECTION is the direct answer, but `sudo`
+    # drops it (env_reset), and `sudo smoking-pi install` is the packaged
+    # way in; `who -m` reads the terminal's utmp entry, which sudo keeps.
+    local c=""
+    if [ -n "${SSH_CONNECTION:-}" ]; then
+        c="${SSH_CONNECTION%% *}"
+    else
+        c="$(who -m 2>/dev/null | sed -n 's/.*(\(.*\)).*/\1/p' | head -1)"
+        # A local X/Wayland session reports its display (":0"), not a host.
+        case "$c" in :*|"") c="" ;; esac
+    fi
+    echo "$c"
+}
+
+host_address() {
+    # The address to print in a URL, in order of how sure we are that it
+    # reaches this machine from where the person is sitting:
+    #  1. Over SSH: the address their client connected to, proven to work
+    #     from that computer a moment ago -- or, under sudo, the source
+    #     address this machine uses to reach that client, which is the
+    #     same interface seen from the other side.
+    #  2. The source address of the default route: what the LAN sees.
+    #  3. localhost: nothing better is known.
+    # Not `hostname -I | awk '{print $1}'` (show-passwords.sh's choice):
+    # that is whichever interface the kernel listed first, and on a Pi
+    # running Docker and Tailscale it can be a bridge or the tailnet.
+    # `ip route get` is a lookup in the routing table; it sends nothing.
+    local a="" client
+    if [ -n "${SSH_CONNECTION:-}" ]; then
+        a="$(echo "$SSH_CONNECTION" | awk '{print $3}')"
+    else
+        client="$(ssh_client)"
+        # utmp can hold a resolved hostname rather than an address (sshd's
+        # UseDNS); `ip route get` takes only addresses, so a name falls
+        # through to the default route below, which is usually the same
+        # interface anyway.
+        [ -n "$client" ] && a="$(ip route get "$client" 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -1)"
+    fi
+    # Loopback is no answer, and a link-local v6 address needs a zone id
+    # that browsers do not accept in a URL.
+    case "$a" in 127.*|::1|fe80:*|FE80:*) a="" ;; esac
+    # IPv4 first, even when the SSH session came in over v6: Pro publishes
+    # the web admin as 0.0.0.0:8080, which Docker binds on v4 only, so a v6
+    # URL there gets no answer (seen on the reference Pi). v6 is the answer
+    # only on a host with no v4 route at all.
+    case "$a" in
+        ""|*:*) a="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1 | grep . || echo "$a")" ;;
+    esac
+    case "$a" in "") echo localhost ;; *:*) echo "[$a]" ;; *) echo "$a" ;; esac
+}
+
+http_answers() {
+    # Whether anything answers HTTP at $1: any status at all counts (the
+    # web admin answers 302 to its login page). curl prints 000 when
+    # nothing is listening or the connection times out.
+    local code
+    code="$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$1" 2>/dev/null || true)"
+    [ -n "$code" ] && [ "$code" != 000 ]
+}
+
+cmd_url() {
+    # What to open, where, and with which username. Printed at the end of
+    # `install` and on demand: the single most useful thing an install can
+    # say, and the one it used to say as "http://localhost:8080" -- which,
+    # to someone who installed over SSH from a laptop, is the laptop.
+    local wait=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --wait) wait="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+            *) echo "unknown option $1" >&2; exit 2 ;;
+        esac
+    done
+    case "$wait" in ""|*[!0-9]*) echo "usage: smoking-pi url [--wait SECONDS]" >&2; exit 2 ;; esac
+    local host client port url label login
+    host="$(host_address)"; client="$(ssh_client)"
+    # The first URL is the one a person customizes Smoking Pi from; Basic
+    # has no web admin, so it is SmokePing's own page. Ports as each
+    # edition's compose file maps them: Pro's web admin and Grafana are
+    # fixed there, the others read the env file.
+    case "$SMOKING_PI_EDITION" in
+        basic)
+            port="$(env_value SMOKEPING_PORT)"; port="${port:-8080}"
+            label="SmokePing"; login="no login" ;;
+        standard)
+            port="$(env_value WEB_ADMIN_PORT)"; port="${port:-8080}"
+            label="Web admin"; login="user $(env_value WEB_ADMIN_USERNAME | grep . || echo admin)" ;;
+        *)
+            port=8080; label="Web admin"
+            login="user $(env_value WEB_ADMIN_USERNAME | grep . || echo admin)" ;;
+    esac
+    url="http://$host$([ "$port" = 80 ] || echo ":$port")/"
+    if [ "$wait" -gt 0 ]; then
+        # The first `up` builds or pulls images and the web admin waits for
+        # PostgreSQL; a URL printed before it answers is a URL that fails
+        # the first time it is tried.
+        local i=0
+        until http_answers "$url" || [ "$i" -ge "$wait" ]; do sleep 3; i=$((i + 3)); done
+    fi
+    echo "Open Smoking Pi:"
+    printf '  %-10s %s   (%s)\n' "$label" "$url" "$login"
+    if [ "$SMOKING_PI_EDITION" = pro ]; then
+        printf '  %-10s %s   (user %s)\n' "Grafana" "http://$host:3000/" "$(env_value GF_SECURITY_ADMIN_USER | grep . || echo admin)"
+    fi
+    if [ "$SMOKING_PI_EDITION" != basic ]; then
+        echo "  Passwords: smoking-pi passwords --show-secrets (on this machine)"
+    fi
+    if [ -n "$client" ]; then
+        echo "Open it on the computer you are connected from ($client), not in this terminal."
+    elif [ "$host" != localhost ]; then
+        echo "Open it on this machine or any computer on the same network."
+    fi
+    # Raspberry Pi OS runs avahi by default: the name survives a DHCP
+    # lease changing the address, which the IP above does not.
+    if command -v systemctl >/dev/null && systemctl is-active --quiet avahi-daemon 2>/dev/null; then
+        echo "Also, from most computers on this network: http://$(hostname -s).local$([ "$port" = 80 ] || echo ":$port")/"
+    fi
+    if ! http_answers "$url"; then
+        echo
+        echo "Nothing answers at $url yet. The first start can take minutes;"
+        echo "'smoking-pi status' shows what is up, 'smoking-pi logs' why not."
+        return 1
+    fi
+    if [ -n "$client" ]; then
+        echo "Not loading there? A firewall between you and this machine; tunnel through SSH:"
+        # ssh takes a bare v6 address after the @, not the URL's brackets.
+        local h="${host#[}"; h="${h%]}"
+        echo "  ssh -L $port:localhost:$port ${SUDO_USER:-$USER}@$h   then open http://localhost:$port/"
+    fi
+}
+
 cmd_install() {
     local edition="$SMOKING_PI_EDITION" database=influxdb profiles="" yes=0
     while [ $# -gt 0 ]; do
@@ -347,7 +488,10 @@ cmd_install() {
     echo "Your passwords are set but not printed above -- an install transcript"
     echo "is the last place they should live. To read them, on this machine:"
     echo "  smoking-pi passwords --show-secrets"
-    echo "You will need the Grafana one for your first login on port 3000."
+    echo
+    # Last, so it is what is on screen when the install finishes. An install
+    # whose web page is still starting is not a failed install.
+    cmd_url --wait 120 || true
 }
 
 # --- OpenClaw ------------------------------------------------------------
@@ -775,6 +919,7 @@ case "${1:-}" in
     logs) shift; compose logs --tail=200 -f "$@" ;;
     passwords) shift; need_edition; ( cd "$EDITION_DIR" && ./show-passwords.sh "$@" ) ;;
     doctor) shift; run_doctor "$@" ;;
+    url) shift; need_edition; cmd_url "$@" ;;
     paths)
         echo "home:     $SMOKING_PI_HOME"; echo "edition:  $SMOKING_PI_EDITION ($EDITION_DIR)"
         echo "env:      $ENV_FILE"; echo "profiles: $(profiles)"

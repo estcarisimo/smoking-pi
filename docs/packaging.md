@@ -552,9 +552,9 @@ expect `docker-ce`.)
 | Step | Command | What happens |
 | --- | --- | --- |
 | Install | `apt install smoking-pi` | Code under `/opt/smoking-pi`, CLI, unit; nothing runs yet — today `dpkg -i` of the `.deb` on the GitHub release; `apt` once the repository exists (#5) |
-| Configure | `smoking-pi install` | Edition, backend, profiles (TUI or flags); secrets into `/etc/smoking-pi/env`; images pulled; first start; passwords shown; OpenClaw offered — **done** |
+| Configure | `smoking-pi install` | Edition, backend, profiles (TUI or flags); secrets into `/etc/smoking-pi/env`; images pulled; first start; OpenClaw offered; secrets set but not printed; ends on the address to open, checked to answer (`smoking-pi url`) — **done** |
 | Boot | `systemctl enable smoking-pi` | `up` after Docker; `down` at shutdown |
-| Status | `smoking-pi status`, `smoking-pi doctor --live` | Compose state; the doctor's checks |
+| Status | `smoking-pi status`, `smoking-pi url`, `smoking-pi doctor --live` | Compose state; where to open it and whether it answers; the doctor's checks |
 | Upgrade | `apt upgrade && smoking-pi upgrade` | New tree and CLI; new images pulled; `up -d` restarts what changed; doctor after. Stateful majors (PostgreSQL, InfluxDB) are excluded from routine upgrades exactly as they are excluded from Dependabot today; `smoking-pi backup` before a major — **done** (the command; the `.deb` in the release is #5) |
 | Failure | `smoking-pi logs <service>` | And the doctor's `deployed-code-current` says whether the container matches the package |
 | Remove | `apt remove` / `apt purge` / `smoking-pi purge` | Code; +config; +volumes, in that order, the last one only on explicit confirmation |
