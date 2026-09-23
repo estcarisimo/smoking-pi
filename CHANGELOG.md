@@ -11,6 +11,26 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The maintenance page is on the documentation site.**
+  `shared/docs/maintenance.md` was deliberately kept off the site when it
+  went up (PR #73), because it still described pre-editions container
+  names and scripts that no longer existed — publishing it would have been
+  publishing wrong instructions. Packaging backlog #7 rewrote it around
+  the `smoking-pi` command and Compose's labels, which removed the reason,
+  and nothing moved it. It is now `docs/maintenance.md`, in the nav under
+  *Operating*, with its plain-text `docs/*.md` references turned into real
+  cross-links. It is the page for the states the command does not handle —
+  a stuck container, an orphaned volume, emergency recovery — and it was
+  reachable only by browsing the repository. Publishing it turned up one
+  thing worth fixing first: the page described `smoking-pi restart` as
+  doing `down` then `up` and implied it re-syncs Pro's InfluxDB token.
+  Neither is true — `restart` is `docker compose restart`, which restarts
+  containers in place and so picks up no changed compose file, image or
+  env file, and the token resync lives in
+  `manage-containers.sh --action restart`. A Pro user trusting the page
+  could restart, get empty Grafana panels while data was arriving, and
+  have no reason to suspect the token. Both corrected, with the symptom
+  named so the divergence is recognizable.
 - **CodeQL runs on every PR, stacked ones included, as a workflow.** It was
   GitHub's default setup, which analyzes only PRs that target the default
   branch: a PR based on another PR's branch got every other check green and

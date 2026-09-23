@@ -1,14 +1,15 @@
 # Maintenance: stuck containers, volumes, cleanup
 
-The `smoking-pi` command does the lifecycle (`docs/packaging.md`, *The
-command*): `up`, `down`, `restart`, `status`, `logs`, `upgrade`, `backup`,
-`restore`, `purge`. From a clone it is `packaging/smoking-pi`; from the
-package, `/usr/bin/smoking-pi`. Everything below is what to do when the
-stack is in a state the command does not handle, and the raw Docker
-commands behind it. Names are never guessed here: Compose labels every
-container, volume and network with the project, and the project name is
-whatever `COMPOSE_PROJECT_NAME` in the env file says (default: the
-edition directory's name — `basic`, `standard`, `pro`).
+The `smoking-pi` command does the lifecycle
+([Packaging](packaging.md#the-command)): `up`, `down`, `restart`, `status`,
+`logs`, `upgrade`, `backup`, `restore`, `purge`. From a clone it is
+`packaging/smoking-pi`; from the package, `/usr/bin/smoking-pi`.
+Everything below is what to do when the stack is in a state the command
+does not handle, and the raw Docker commands behind it. Names are never
+guessed here: Compose labels every container, volume and network with the
+project, and the project name is whatever `COMPOSE_PROJECT_NAME` in the
+env file says (default: the edition directory's name — `basic`,
+`standard`, `pro`).
 
 ## Where things are
 
@@ -30,8 +31,27 @@ directory shows the real ones — use those, not this page's examples.
 ```bash
 smoking-pi down             # stop and remove the containers; volumes stay
 smoking-pi up               # start again with the recorded profiles
-smoking-pi restart          # both (shared/scripts/manage-containers.sh --action restart also re-syncs the InfluxDB token on Pro)
+smoking-pi restart          # restart in place: docker compose restart
 ```
+
+`restart` is not `down` then `up`. It restarts the running containers
+without recreating them, so it does not pick up a changed compose file,
+image or env file — for those, `down` then `up`.
+
+**On Pro it does not re-sync the InfluxDB token.** That is
+`manage-containers.sh`, not the command:
+
+```bash
+# from the repository root
+shared/scripts/manage-containers.sh --action restart --edition pro
+```
+
+which restarts and then runs `sync-influx-token.sh`, so Grafana keeps
+reaching InfluxDB after the token in the env file and the token in the
+volume have diverged. If Grafana's InfluxDB panels are empty after a
+restart while the data is arriving, that divergence is the first thing to
+check — `editions/pro/sync-influx-token.sh` on its own fixes it without a
+restart.
 
 From a clone without the command, from the edition directory:
 
@@ -69,7 +89,7 @@ names it; stop that, then `down` again.
   `/etc/smoking-pi/env` packaged). The databases in the volumes were
   initialized with those secrets: deleting the file without the volumes
   makes the data unreadable, which is why `apt purge` keeps it
-  (`docs/upgrades.md`, *Uninstalling*).
+  ([Upgrading](upgrades.md#uninstalling)).
 - **Config** (`config-manager/config`, or `/etc/smoking-pi/config`) is
   seeded on first start and edited by you; **output** is regenerated.
 
@@ -100,8 +120,9 @@ du -sh /var/lib/docker/volumes/<volume>/_data   # as root
 ```
 
 The RRD files grow to a fixed size per target and stop. InfluxDB and
-ClickHouse retain what their retention policy says (`docs/clickhouse.md`
-for the latter). PostgreSQL is small (targets and config).
+ClickHouse retain what their retention policy says ([ClickHouse
+backend](clickhouse.md) for the latter). PostgreSQL is small (targets
+and config).
 
 ## Emergency recovery
 
@@ -118,6 +139,6 @@ for the latter). PostgreSQL is small (targets and config).
 
 ## Related
 
-- `docs/packaging.md` — the command, the packaged layout, the images
-- `docs/upgrades.md` — PostgreSQL/InfluxDB/Grafana majors, uninstalling
-- `docs/doctor.md` — what the instrumentation doctor checks
+- [Packaging](packaging.md) — the command, the packaged layout, the images
+- [Upgrading](upgrades.md) — PostgreSQL/InfluxDB/Grafana majors, uninstalling
+- [Instrumentation doctor](doctor.md) — what the doctor checks
