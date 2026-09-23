@@ -195,29 +195,38 @@ why. The history before mid-2026 predates this convention.
 
 ### Releases
 
-Maintainer's job: a `release/vX.Y.Z` branch converts `[Unreleased]` into a
-dated section with an intro paragraph, merges, then `git tag -a` and `gh
-release create` with notes. Minor bump per batch of features, patch for a
-hotfix. Every release is deployed on the reference Pi and taken through
-[docs/release-acceptance.md](docs/release-acceptance.md) before the tag;
-the release notes end with the **Validation** section that checklist
-produces, untested combinations named. The release branch also updates `version` and `date-released` in
-[CITATION.cff](CITATION.cff) — CI fails if they lag the newest CHANGELOG
-section. The tag is what publishes: `release.yml` builds the nine images
-for arm64 and amd64 (refusing a tag that disagrees with `CITATION.cff`),
-then builds the `.deb` and installs it with each supported host's own
-`apt` — Ubuntu 22.04/24.04 VMs on both architectures, where the Basic
-edition is also started with the release's images, and Debian 12/13
-containers (what Raspberry Pi OS is built on) without a daemon — and only
-when every host passed attaches it to the release you created
-([docs/packaging.md](docs/packaging.md), *Supported hosts*); `docs.yml`
-deploys the site from the same tag. If the `attach` job runs before the
-release exists, the `.deb` is the run's `smoking-pi-deb` artifact —
-create the release and re-run that job. A container is not a Raspberry
-Pi: the release is still deployed and smoke-tested on the reference Pi.
-After the release: `packaging/homebrew/bump.sh vX.Y.Z` and a PR with the
-bumped `Formula/smoking-pi.rb` (`brew tap` reads `main`; the tarball's
-checksum cannot exist before the tag).
+Maintainer's job, and one checklist:
+[docs/release-acceptance.md](docs/release-acceptance.md), *Releasing, step
+by step*. In short: a `release/vX.Y.Z` branch converts `[Unreleased]` into a
+dated section with an intro paragraph and bumps `version` and
+`date-released` in [CITATION.cff](CITATION.cff) (CI fails if they lag the
+newest CHANGELOG section); after the merge, a **candidate** tag
+`vX.Y.Z-rc.N` and a GitHub *pre-release* for it; the Pi acceptance on that
+candidate's artifacts; then `vX.Y.Z` on the same commit and `gh release
+create` with notes that end with the **Validation** section, untested
+combinations named. Minor bump per batch of features, patch for a hotfix.
+
+The tag is what publishes, and `packaging/release-version.sh` says which
+tags are accepted. `release.yml` builds the nine images for arm64 and amd64
+(refusing a tag that disagrees with `CITATION.cff`) and publishes them
+under the version, then builds the `.deb` and installs it with each
+supported host's own `apt` — Ubuntu 22.04/24.04 VMs on both architectures,
+where the Basic edition is also started with the release's images and
+upgraded from the previous release, and Debian 12/13 containers (what
+Raspberry Pi OS is built on) without a daemon
+([docs/packaging.md](docs/packaging.md), *Supported hosts*). Only when every
+host passed: a release moves `latest` to its images, and a release or
+candidate gets the `.deb` and an evidence file (commit, run, every image
+digest, the package's sha256) attached to the release you created. A
+candidate must be a pre-release and a release must not; `attach` refuses
+the other way round. If `attach` runs before the release exists, the `.deb`
+is the run's `smoking-pi-deb` artifact — create the release and re-run that
+job. `docs.yml` deploys the site and `/apt` for a release, never for a
+candidate. A container is not a Raspberry Pi: the release is still
+deployed and accepted on the reference Pi. After the release:
+`packaging/homebrew/bump.sh vX.Y.Z` and a PR with the bumped
+`Formula/smoking-pi.rb` (`brew tap` reads `main`; the tarball's checksum
+cannot exist before the tag).
 
 ## Reporting bugs
 

@@ -9,8 +9,8 @@ Three things name the published images and must say the same:
   release workflow's ``ghcr.io/estcarisimo/smoking-pi/<module>`` is what a
   packaged install pulls, and a clone (``:dev``, never published) builds;
 * every ``shared/modules/*/Dockerfile`` is built by some edition;
-* the release workflow's build matrix lists exactly those modules, twice
-  (the merge job repeats it), and so does the PR build in ci.yml -- every
+* the release workflow's build matrix lists exactly those modules, three
+  times (the merge and promote jobs repeat it), and so does the PR build in ci.yml -- every
   PR builds what the tag will publish, so the two lists must not drift.
 
 Usage: check-images.py [--repo-root PATH] [--env-file PATH]
@@ -30,7 +30,7 @@ from pathlib import Path
 EDITIONS = ("basic", "standard", "pro")
 ALL_PROFILES = "influxdb,mcp,alerts,ai,clickhouse"
 # Workflow -> how many service matrices it must carry.
-WORKFLOWS = {".github/workflows/release.yml": 2, ".github/workflows/ci.yml": 1}
+WORKFLOWS = {".github/workflows/release.yml": 3, ".github/workflows/ci.yml": 1}
 REGISTRY_DEFAULT = "ghcr.io/estcarisimo/smoking-pi"
 
 

@@ -18,16 +18,29 @@ name: Release
 # After the images, `package` builds the .deb from the tagged tree and
 # keeps it as a workflow artifact; `host` and `debian` install it with
 # each supported host's own apt (the comment above them says what each
-# tier proves); and on a release tag, once every host passed, `attach`
-# uploads it to the GitHub release the maintainer created for that tag
-# (`gh release create`, AGENTS.md). The workflow never creates a release
-# itself: publishing stays a human act.
+# tier proves). Only once every host passed: `promote` moves `latest` to a
+# release (never to a candidate or a test), and `attach` uploads the .deb
+# and an evidence file -- the commit, the run, every image digest, the
+# package's sha256 -- to the GitHub release the maintainer created for that
+# tag (`gh release create`, AGENTS.md). The workflow never creates a
+# release itself: publishing stays a human act.
 #
-# A `test-*` git tag (e.g. test-1a2b3c4, on any branch) exercises the same
-# pipeline against a throwaway image tag of that name -- no `latest`, no
-# version check, no release asset -- before a real release; delete the tag
-# and the package versions afterwards. (workflow_dispatch would only work
-# once the file is on the default branch, so it is not offered.)
+# Which tags run, and what each publishes, is packaging/release-version.sh
+# (tested by packaging/tests/release-version.bats):
+#
+#   vX.Y.Z       a release: images X.Y.Z, then `latest`; the .deb attached.
+#   vX.Y.Z-rc.N  a release candidate: the same pipeline and the same checks,
+#                images X.Y.Z-rc.N, the .deb X.Y.Z~rc.N attached to a GitHub
+#                *pre-release* (attach refuses anything else, because the
+#                apt repository and the upgrade test skip pre-releases and
+#                nothing else). The Raspberry Pi acceptance runs on those
+#                artifacts; vX.Y.Z is then tagged on the same commit.
+#                docs/release-acceptance.md, "Releasing".
+#   test-*       a throwaway, on any branch: images under that name, no
+#                `latest`, no version check, no release asset; delete the
+#                tag and the package versions afterwards. (workflow_dispatch
+#                would only work once the file is on the default branch, so
+#                it is not offered.)
 
 on:
   push:
@@ -44,31 +57,22 @@ jobs:
     name: Resolve the image tags
     runs-on: ubuntu-latest
     outputs:
-      tags: ${{ steps.resolve.outputs.tags }}
+      kind: ${{ steps.resolve.outputs.kind }}
       version: ${{ steps.resolve.outputs.version }}
+      deb_version: ${{ steps.resolve.outputs.deb_version }}
     steps:
       - uses: actions/checkout@v7
-      - name: Version from the git tag (vX.Y.Z is a release, test-* a throwaway)
+        with:
+          persist-credentials: false
+      - name: Version from the git tag (release, candidate or throwaway)
         id: resolve
         run: |
           set -e
-          case "$GITHUB_REF_NAME" in
-            test-*)
-              case "$GITHUB_REF_NAME" in
-                *[!A-Za-z0-9._-]*) echo "refusing '$GITHUB_REF_NAME': not a valid image tag"; exit 1 ;;
-              esac
-              echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
-              echo "tags=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
-              exit 0 ;;
-          esac
-          version="${GITHUB_REF_NAME#v}"
-          # The package and `smoking-pi version` report CITATION.cff; the
-          # images must carry the same number or `SMOKING_PI_VERSION` set
-          # from the package would pull nothing.
-          cff=$(sed -nE 's/^version: *"?([0-9.]+)"?.*/\1/p' CITATION.cff)
-          [ "$cff" = "$version" ] || { echo "tag v$version but CITATION.cff says $cff"; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tags=$version latest" >> "$GITHUB_OUTPUT"
+          # Its own statement, so a refused tag stops the run here, with
+          # the script's reason, before anything is built or pushed.
+          out="$(packaging/release-version.sh "$GITHUB_REF_NAME")"
+          echo "$out"
+          echo "$out" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.service }} (${{ matrix.arch }})
@@ -178,16 +182,16 @@ jobs:
         working-directory: /tmp/digests
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ matrix.service }}
-          TAGS: ${{ needs.version.outputs.tags }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -e
           [ "$(ls | wc -l)" = 2 ] || { echo "expected two digests (amd64, arm64), found: $(ls)"; exit 1; }
-          tag_args=""
-          for t in $TAGS; do tag_args="$tag_args -t $IMAGE:$t"; done
           refs=""
           for f in *; do refs="$refs $IMAGE@sha256:$f"; done
+          # The version only. `latest` waits for `promote`, after every
+          # host has installed and started this very tag.
           # shellcheck disable=SC2086
-          docker buildx imagetools create $tag_args $refs
+          docker buildx imagetools create -t "$IMAGE:$VERSION" $refs
       - name: Both platforms are in the published manifest
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ matrix.service }}:${{ needs.version.outputs.version }}
@@ -203,24 +207,19 @@ jobs:
     needs: version
     runs-on: ubuntu-24.04
     outputs:
-      deb_version: ${{ steps.build.outputs.deb_version }}
+      deb_version: ${{ needs.version.outputs.deb_version }}
     env:
-      VERSION: ${{ needs.version.outputs.version }}
+      DEB_VERSION: ${{ needs.version.outputs.deb_version }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Build the package
-        id: build
         run: |
           set -e
-          # A Debian version must start with a digit; a throwaway tag gets
-          # a 0.0.0~ prefix so the builder and dpkg accept it.
-          case "$VERSION" in
-            [0-9]*) deb_version="$VERSION" ;;
-            *) deb_version="0.0.0~$VERSION" ;;
-          esac
-          echo "deb_version=$deb_version" >> "$GITHUB_OUTPUT"
+          # release-version.sh chose it: X.Y.Z, X.Y.Z~rc.N (below X.Y.Z for
+          # dpkg), or 0.0.0~test-* (a Debian version starts with a digit).
+          deb_version="$DEB_VERSION"
           packaging/deb/build.sh "$deb_version"
           ls -l dist/
           dpkg-deb --info dist/smoking-pi_"$deb_version"_all.deb
@@ -372,32 +371,133 @@ jobs:
           packaging/tests/check-package.sh dist/smoking-pi_"$DEB_VERSION"_all.deb \
             --version "$DEB_VERSION" --expect-engine "$expect"
 
-  # Not yet exercised by a real run: a test-* tag never takes this job (nor
-  # the version-equality check in `host`). The first vX.Y.Z tag after this
-  # lands proves both; watch that run.
-  attach:
-    name: Attach the .deb to the release the maintainer created
-    if: startsWith(github.ref_name, 'v')
-    needs: [package, host, debian]
+  # `latest` is the last thing a release publishes: the version tag went
+  # out in `merge` (the hosts pull it), but `latest` moves only after every
+  # host installed and started it. A failed release leaves `latest` on the
+  # previous one. Candidates and throwaways never take it.
+  promote:
+    name: Point latest at ${{ matrix.service }} ${{ needs.version.outputs.version }}
+    if: needs.version.outputs.kind == 'release'
+    needs: [version, merge, host, debian]
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # only to attach the asset to an existing release
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - ai-insights
+          - alerter
+          - config-manager
+          - grafana
+          - influxdb
+          - mcp-server
+          - postgres
+          - smokeping
+          - web-admin
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the published manifest latest (no rebuild, same digest)
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ matrix.service }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -e
+          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$VERSION"
+          want=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest.Digest}}')
+          got=$(docker buildx imagetools inspect "$IMAGE:latest" --format '{{json .Manifest.Digest}}')
+          echo "$IMAGE:latest -> $got"
+          [ "$want" = "$got" ] || { echo "latest is $got, expected $want"; exit 1; }
+
+  # A release or a candidate, once every host passed: the .deb and the
+  # evidence tying it to this commit go on the GitHub release the
+  # maintainer created for the tag. The evidence file is the machine half
+  # of the release notes' Validation section (docs/release-acceptance.md):
+  # what was built, from what, by which run -- the Pi half is written by
+  # hand. The first vX.Y.Z tag after this lands is the first real run of
+  # the candidate branch; watch it. It does not wait for `promote` on
+  # purpose: a candidate skips `promote`, and a skipped need would skip
+  # this job too. The evidence says nothing about `latest`.
+  attach:
+    name: Attach the .deb and the evidence to the release the maintainer created
+    if: needs.version.outputs.kind != 'test'
+    needs: [version, merge, package, host, debian]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only to attach assets to an existing release
+      packages: read    # to read the published digests back
     env:
+      KIND: ${{ needs.version.outputs.kind }}
+      VERSION: ${{ needs.version.outputs.version }}
       DEB_VERSION: ${{ needs.package.outputs.deb_version }}
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.ref_name }}
       REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           name: smoking-pi-deb
           path: dist
-      - name: Upload (release tags only, after every host passed)
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Write the evidence
         run: |
           set -e
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/smoking-pi_"$DEB_VERSION"_all.deb --clobber --repo "$REPO"
-            gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name'
-          else
-            echo "::notice::no GitHub release for $TAG yet; the .deb is the smoking-pi-deb artifact of this run. Create the release, then re-run this job to attach it."
+          deb="dist/smoking-pi_${DEB_VERSION}_all.deb"
+          out="dist/smoking-pi_${VERSION}_evidence.md"
+          {
+            echo "# Smoking Pi $TAG -- release evidence"
+            echo
+            echo "Written by the release workflow after every install test passed."
+            echo "The Raspberry Pi half of the Validation section is written by hand"
+            echo "(docs/release-acceptance.md); this is what was built, and from what."
+            echo
+            echo "- Tag: \`$TAG\` ($KIND)"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Release workflow: $RUN_URL"
+            echo "- Install tests: every \`host\` job (Ubuntu VMs, Basic started) and every \`debian\` job (Debian 12/13 containers) passed -- this job runs only then"
+            echo "- Package: \`$(basename "$deb")\` sha256 \`$(sha256sum "$deb" | cut -d' ' -f1)\`"
+            echo
+            echo "| Image | Digest (multi-arch manifest) |"
+            echo "|---|---|"
+            for dockerfile in shared/modules/*/Dockerfile; do
+              service=$(basename "$(dirname "$dockerfile")")
+              image="$REGISTRY/$service:$VERSION"
+              digest=$(docker buildx imagetools inspect "$image" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              echo "| \`$image\` | \`$digest\` |"
+            done
+          } > "$out"
+          cat "$out"
+      - name: Upload (after every host passed)
+        run: |
+          set -e
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::no GitHub release for $TAG yet; the .deb is the smoking-pi-deb artifact of this run. Create the release (a candidate: --prerelease), then re-run this job."
+            exit 0
           fi
+          # The apt repository and the host job's upgrade test skip
+          # pre-releases and nothing else: a candidate on a full release
+          # would be served by apt and upgraded from, and a release marked
+          # pre-release would never be.
+          pre=$(gh release view "$TAG" --repo "$REPO" --json isPrerelease -q .isPrerelease)
+          case "$KIND:$pre" in
+            candidate:true|release:false) ;;
+            candidate:*) echo "::error::$TAG is a candidate but its GitHub release is not a pre-release: gh release edit $TAG --prerelease, then re-run this job"; exit 1 ;;
+            *) echo "::error::$TAG is a release but its GitHub release is a pre-release: gh release edit $TAG --prerelease=false, then re-run this job"; exit 1 ;;
+          esac
+          gh release upload "$TAG" dist/smoking-pi_"$DEB_VERSION"_all.deb dist/smoking-pi_"$VERSION"_evidence.md --clobber --repo "$REPO"
+          gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name'
