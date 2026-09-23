@@ -6,7 +6,7 @@ name: Docs
 # the Release workflow has finished for a vX.Y.Z tag -- after `attach` has
 # put that release's .deb on the GitHub release the repository is built
 # from -- and not on the tag push, which would race it. The site describes
-# the released version, not main (the release-only CI policy).
+# the released version, not main.
 #
 # The repository is signed with APT_SIGNING_KEY (an Actions secret, the
 # ASCII-armored private key). Without it the site is published with no
