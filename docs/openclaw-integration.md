@@ -10,6 +10,33 @@ Two independent integrations, useful separately:
    endpoint; it needs the Gateway token and the `message` tool permitted by
    tool policy. See [Alert delivery](#2-alert-delivery).
 
+## The short way
+
+If OpenClaw runs on the same machine as the stack, the mechanical part of
+section 1 is one command:
+
+```bash
+smoking-pi openclaw
+```
+
+It generates `MCP_API_TOKEN` if there is none, records the `mcp` profile in
+the env file, starts the server, checks that the port refuses an
+unauthenticated request, registers `smokeping` with OpenClaw and installs the
+skill. Then, after you start a **new** chat session:
+
+```bash
+smoking-pi openclaw --check
+```
+
+which asks the agent a question and reads the MCP server's log — not the
+answer. See [Verify with evidence](#verify-with-evidence-not-with-the-answer)
+for why that distinction is the whole point.
+
+The rest of this page is what those steps do, which is worth reading when
+something does not work, and is the only path if OpenClaw is on another
+machine ([remote-openclaw.md](remote-openclaw.md) first, then section 1 by
+hand against the tunnelled port).
+
 All commands below use placeholders. Nothing machine-specific is committed to
 this repository — generate your own tokens and substitute your own ids.
 

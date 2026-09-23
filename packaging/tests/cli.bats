@@ -361,3 +361,140 @@ make_backup_dir() {
     ! grep -q 'PASSWORDS .*--show-secrets' "$DOCKER_LOG"
     [[ "$output" == *"smoking-pi passwords --show-secrets"* ]]
 }
+
+# --- openclaw ------------------------------------------------------------
+# The connector must never leave the stack worse than it found it, and must
+# never claim a connection it has not seen evidence of.
+
+# A stubbed gateway plus a stubbed skill installer: the real one writes into
+# ~/.openclaw, which a test must not touch.
+stub_openclaw() {
+    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\nexit %s\n' "$DOCKER_LOG" "${1:-0}" \
+        > "$BATS_TEST_TMPDIR/bin/openclaw"
+    # Records argv AND the config curl reads on stdin, so a test can tell
+    # "the credential is not on the command line" from "the credential
+    # never arrived" -- which look identical if you only assert an absence.
+    # The config curl reads on stdin is multi-line; flatten it to one log
+    # line so a test can assert on it.
+    printf '#!/bin/sh\necho "CURL $*" >> "%s"\nif [ "$1" = "-K" ]; then cfg=$(cat | tr "\\n" " "); echo "CURLCFG $cfg" >> "%s"; case "$cfg" in *Authorization*) echo 200 ;; *) echo 401 ;; esac; else echo 401; fi\n' \
+        "$DOCKER_LOG" "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/curl"
+    mkdir -p "$STUB_HOME/shared/scripts"
+    printf '#!/bin/sh\necho "SKILL $*" >> "%s"\n' "$DOCKER_LOG" \
+        > "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
+    chmod +x "$BATS_TEST_TMPDIR/bin/openclaw" "$BATS_TEST_TMPDIR/bin/curl" \
+             "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
+}
+
+@test "openclaw without a gateway explains both cases and changes nothing" {
+    printf 'COMPOSE_PROFILES=influxdb\n' > "$SMOKING_PI_ENV_FILE"
+    # A PATH with no openclaw on it at all. Deleting the stub is not enough:
+    # the developer's own machine may have the real one installed, and then
+    # this test would take the opposite branch and pass only on CI.
+    rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    run "$CLI" openclaw
+    # Not an error: the stack measures without an assistant.
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"ANOTHER machine"* ]]
+    [[ "$output" == *"remote-openclaw.md"* ]]
+    [[ "$output" == *"nothing is broken"* ]]
+    # No token, no profile change: it did not half-configure anything.
+    ! grep -q 'MCP_API_TOKEN' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "openclaw generates the token, records the mcp profile and registers" {
+    printf 'COMPOSE_PROFILES=influxdb\nPOSTGRES_USER=smokeping\n' > "$SMOKING_PI_ENV_FILE"
+    chmod 600 "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^MCP_API_TOKEN=[0-9a-f]\{64\}$' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    # Everything else in the file survived the rewrite, and so did the mode.
+    grep -qx 'POSTGRES_USER=smokeping' "$SMOKING_PI_ENV_FILE"
+    [ "$(stat -c '%a' "$SMOKING_PI_ENV_FILE")" = 600 ]
+    grep -q 'openclaw mcp set smokeping' "$DOCKER_LOG"
+    grep -q 'SKILL --reload' "$DOCKER_LOG"
+}
+
+@test "openclaw keeps an existing token and does not duplicate the mcp profile" {
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nMCP_API_TOKEN=keepme\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -qx 'MCP_API_TOKEN=keepme' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"already set"* ]]
+}
+
+# The trap the whole verification exists for: the agent answers fluently
+# from its own shell while the MCP server is never called.
+@test "openclaw --check fails when the server logged no tool call" {
+    stub_openclaw
+    run "$CLI" openclaw --check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"NOT connected"* ]]
+    [[ "$output" == *"its own shell"* ]]
+}
+
+@test "openclaw --check passes only on a tool= line from the server" {
+    stub_openclaw
+    cat > "$BATS_TEST_TMPDIR/bin/docker" <<'STUB'
+#!/bin/sh
+echo "docker $*" >> "$DOCKER_LOG"
+case "$*" in
+    *"logs mcp-server"*) echo "tool=get_latency_stats args=hours=6 -> 19 stats in 40ms" ;;
+esac
+exit 0
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/docker"
+    run "$CLI" openclaw --check
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Connected"* ]]
+    [[ "$output" == *"tool=get_latency_stats"* ]]
+}
+
+@test "openclaw refuses on an edition that has no MCP server" {
+    export SMOKING_PI_EDITION=basic
+    run "$CLI" openclaw
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Pro service"* ]]
+    [[ "$output" == *"without OpenClaw"* ]]
+}
+
+# --yes is the scripted path: it must not prompt, and must still say the
+# assistant exists.
+@test "install --yes names the openclaw command instead of prompting" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    run "$CLI" install --edition pro --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"smoking-pi openclaw"* ]]
+}
+
+# PR #96's lesson, restated: a credential on a command line is readable by
+# every account on the host, and a test that only checks it is ABSENT
+# passes just as happily when the credential never arrived at all.
+@test "openclaw keeps the MCP token off curl's command line and still sends it" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=tok123deadbeef\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    # Not in argv...
+    ! grep -q '^CURL .*tok123deadbeef' "$DOCKER_LOG"
+    # ...and curl was driven from stdin, with the header actually present.
+    grep -q '^CURL -K -' "$DOCKER_LOG"
+    grep -q 'CURLCFG .*Authorization: Bearer tok123deadbeef' "$DOCKER_LOG"
+}
+
+# The token is interpolated into the JSON handed to `openclaw mcp set`. A
+# generated one is hex; a hand-written one is whatever someone typed.
+@test "openclaw refuses a token that would break the registration JSON" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=has"quote\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot be"* ]]
+    # It refused before touching the gateway.
+    ! grep -q 'openclaw mcp set' "$DOCKER_LOG"
+}
