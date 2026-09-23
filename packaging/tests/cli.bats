@@ -165,6 +165,17 @@ fail_docker_on() {
     [ "$output" = "9.9.9" ]
 }
 
+@test "a candidate's VERSION file wins over CITATION.cff, so it pulls the candidate's images" {
+    # build.sh writes it for X.Y.Z~rc.N; CITATION.cff already says X.Y.Z,
+    # whose images do not exist until the release.
+    printf '9.9.9-rc.2\n' > "$STUB_HOME/VERSION"
+    run "$CLI" version
+    [ "$output" = "9.9.9-rc.2" ]
+    SMOKING_PI_PACKAGED=1 run "$CLI" paths
+    [[ "$output" == *"/<service>:9.9.9-rc.2"* ]]
+    rm "$STUB_HOME/VERSION"
+}
+
 @test "install refuses to run over an existing env file (setup.sh would rotate the secrets)" {
     run "$CLI" install --yes
     [ "$status" -eq 1 ]

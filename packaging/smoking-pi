@@ -48,7 +48,18 @@ if [ -z "${SMOKING_PI_EDITION:-}" ] && [ -n "$EDITION_FILE" ] && [ -f "$EDITION_
 fi
 SMOKING_PI_EDITION="${SMOKING_PI_EDITION:-pro}"
 EDITION_DIR="$SMOKING_PI_HOME/editions/$SMOKING_PI_EDITION"
-VERSION_FILE="$SMOKING_PI_HOME/CITATION.cff"
+# The version of the installed tree, which is also its images' tag. A
+# release candidate's package carries a VERSION file (X.Y.Z-rc.N, written
+# by packaging/deb/build.sh), because its CITATION.cff already says X.Y.Z
+# and :X.Y.Z does not exist until the release. Everything else reads
+# CITATION.cff.
+installed_version() {
+    if [ -f "$SMOKING_PI_HOME/VERSION" ]; then
+        head -n1 "$SMOKING_PI_HOME/VERSION"
+    else
+        sed -n 's/^version: *//p' "$SMOKING_PI_HOME/CITATION.cff" 2>/dev/null || true
+    fi
+}
 # The images a packaged install runs: the version of the tree the package
 # put in /opt, so a new package pulls its own release. Not written into
 # the conffile: `install` edits that file (the edition), and an edited
@@ -56,7 +67,7 @@ VERSION_FILE="$SMOKING_PI_HOME/CITATION.cff"
 # have pinned every upgrade to the first release installed. An explicit
 # SMOKING_PI_VERSION (environment or conffile) still wins: a pin.
 if [ "${SMOKING_PI_PACKAGED:-}" = 1 ] && [ -z "${SMOKING_PI_VERSION:-}" ]; then
-    SMOKING_PI_VERSION="$(sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || true)"
+    SMOKING_PI_VERSION="$(installed_version)"
     export SMOKING_PI_VERSION
 fi
 # Where the state the stack rewrites lives (docs/packaging.md, "Relocatable
@@ -201,7 +212,6 @@ for key, name in seen.items():
 
 volume_names() { volumes | cut -d" " -f2; }
 
-installed_version() { sed -n 's/^version: *//p' "$VERSION_FILE" 2>/dev/null || true; }
 
 volume_sizes() {
     # One `docker system df -v` for all of them: a person deciding whether
