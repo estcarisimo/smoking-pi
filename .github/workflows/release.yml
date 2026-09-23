@@ -421,7 +421,9 @@ jobs:
   # of the release notes' Validation section (docs/release-acceptance.md):
   # what was built, from what, by which run -- the Pi half is written by
   # hand. The first vX.Y.Z tag after this lands is the first real run of
-  # the candidate branch; watch it.
+  # the candidate branch; watch it. It does not wait for `promote` on
+  # purpose: a candidate skips `promote`, and a skipped need would skip
+  # this job too. The evidence says nothing about `latest`.
   attach:
     name: Attach the .deb and the evidence to the release the maintainer created
     if: needs.version.outputs.kind != 'test'
