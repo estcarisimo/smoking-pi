@@ -2,9 +2,11 @@ name: Release
 
 # Builds every image the editions declare, for linux/arm64 and linux/amd64,
 # and publishes them to ghcr.io/estcarisimo/smoking-pi/<service>:<version>
-# on a `vX.Y.Z` tag. This is the only place images are built by GitHub: PR
-# CI keeps the cheap checks (lint, tests, compose guards) and every change is
-# built and deployed on the reference Pi before merge (AGENTS.md, Process).
+# on a `vX.Y.Z` tag. This is the only place images are *published*: every
+# PR already builds all nine for both architectures (ci.yml, image-build;
+# the same packaging/image-context.sh), so a tag publishes what PRs have
+# built, and every change is also deployed on the reference Pi before merge
+# (AGENTS.md, Process).
 #
 # Each architecture builds natively on its own runner -- ubuntu-24.04-arm is
 # GitHub-hosted and free for public repositories -- because emulating the
@@ -101,18 +103,18 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build context for the service
         id: ctx
+        env:
+          SERVICE: ${{ matrix.service }}
         run: |
-          # Images that copy shared/modules/common or the exporters build
-          # from `shared/`; the rest from their own module directory. The
-          # compose files declare the same contexts.
-          case '${{ matrix.service }}' in
-            ai-insights|alerter|mcp-server|web-admin|smokeping)
-              echo "context=shared" >> "$GITHUB_OUTPUT"
-              echo "dockerfile=shared/modules/${{ matrix.service }}/Dockerfile" >> "$GITHUB_OUTPUT" ;;
-            *)
-              echo "context=shared/modules/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
-              echo "dockerfile=shared/modules/${{ matrix.service }}/Dockerfile" >> "$GITHUB_OUTPUT" ;;
-          esac
+          # The same script ci.yml's image builds read, so every PR has
+          # already built exactly what the tag builds.
+          # Its own statement, so set -e stops here with the script's
+          # message: inside `read <<< "$(...)"` a failure is swallowed and
+          # the build fails later on an empty context.
+          ctx="$(packaging/image-context.sh "$SERVICE")"
+          read -r context dockerfile <<< "$ctx"
+          echo "context=$context" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7

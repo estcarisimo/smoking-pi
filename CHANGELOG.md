@@ -11,6 +11,17 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Every PR builds every image, for arm64 and amd64.** Until now no PR
+  built an image: all nine were built only when tagging a release, so a
+  broken Dockerfile (a new module without its `COPY` line, a base image
+  that stopped resolving) surfaced as a release blocker instead of in the
+  change that caused it. `ci.yml` now builds the nine on native runners
+  of both architectures, nothing pushed, with a per-image build cache;
+  `Images build (all)` is the one check the branch rules require. Where
+  each image builds from moved into `packaging/image-context.sh`, which
+  the PR build and the release both read, and `packaging/check-images.py`
+  now fails when the PR matrix and the Dockerfiles disagree, as it already
+  did for the release matrix.
 - **Is it measuring? A Measurements card on the web admin's dashboard,
   and `GET /measurements` on the config API.** "SmokePing: Running" meant
   the container was up, nothing more: a target added a minute ago, or one
