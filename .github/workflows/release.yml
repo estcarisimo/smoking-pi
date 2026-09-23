@@ -2,9 +2,11 @@ name: Release
 
 # Builds every image the editions declare, for linux/arm64 and linux/amd64,
 # and publishes them to ghcr.io/estcarisimo/smoking-pi/<service>:<version>
-# on a `vX.Y.Z` tag. This is the only place images are built by GitHub: PR
-# CI keeps the cheap checks (lint, tests, compose guards) and every change is
-# built and deployed on the reference Pi before merge (AGENTS.md, Process).
+# on a `vX.Y.Z` tag. This is the only place images are *published*: every
+# PR already builds all nine for both architectures (ci.yml, image-build;
+# the same packaging/image-context.sh), so a tag publishes what PRs have
+# built, and every change is also deployed on the reference Pi before merge
+# (AGENTS.md, Process).
 #
 # Each architecture builds natively on its own runner -- ubuntu-24.04-arm is
 # GitHub-hosted and free for public repositories -- because emulating the
