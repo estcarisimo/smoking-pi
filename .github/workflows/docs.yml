@@ -71,11 +71,13 @@ jobs:
           set -e
           tags=$(git tag --points-at HEAD)
           echo "event: $EVENT; workflow_run.head_branch: ${HEAD_BRANCH:-n/a}; tags at HEAD: ${tags:-none}"
-          if [ "$EVENT" = workflow_dispatch ] || echo "$tags" | grep -q '^v'; then
+          # A release, exactly: a candidate (vX.Y.Z-rc.N) is not released,
+          # and the site describes what is.
+          if [ "$EVENT" = workflow_dispatch ] || echo "$tags" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::not a vX.Y.Z release (tags at HEAD: ${tags:-none}); nothing published"
+            echo "::notice::not a vX.Y.Z release -- a candidate or a test (tags at HEAD: ${tags:-none}); nothing published"
           fi
       - uses: astral-sh/setup-uv@v7
         if: steps.tag.outputs.publish == 'true'

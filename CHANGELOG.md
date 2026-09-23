@@ -11,6 +11,25 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Releases are cut from a candidate, and `latest` waits for the install
+  tests.** Until now `latest` moved to a new release's images in the same
+  job that published them, before a single host had installed it. A
+  release that failed its install tests was already what a `:latest` pull
+  fetched. Also, the Raspberry Pi acceptance ran on a clone built locally,
+  not on the artifacts the release shipped, and nothing on the release said
+  which digests or which package checksum it had shipped. Now:
+  `vX.Y.Z-rc.N` tags run the whole release pipeline on a GitHub
+  pre-release. The Pi is accepted on those exact images and `.deb`, and
+  the release is tagged on the same commit. `latest` moves in a `promote`
+  job only after every host passed, and never for a candidate. Every
+  release and candidate carries `smoking-pi_<version>_evidence.md`, with
+  the commit, the run, each image's digest and the package's sha256.
+  `attach` refuses a candidate that is not a pre-release (apt would serve
+  it) and a release that is one (apt would skip it). The docs site and
+  `/apt` are deployed for a release only. Which tags are accepted is
+  `packaging/release-version.sh`, tested in CI; anything else starting
+  with `v` is refused before anything is pushed. The checklist is one
+  page: `docs/release-acceptance.md`, *Releasing, step by step*.
 - **Every PR builds every image, for arm64 and amd64.** Until now no PR
   built an image: all nine were built only when tagging a release, so a
   broken Dockerfile (a new module without its `COPY` line, a base image

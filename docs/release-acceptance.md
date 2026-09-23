@@ -1,7 +1,8 @@
 # Release acceptance on a Raspberry Pi
 
-What a release has to show on real Raspberry Pi hardware before it is
-tagged, and how the result is recorded. The release workflow proves the
+The release checklist: what a release has to show beyond the checks every
+PR already passes, the order it is cut in, what it has to show on real
+Raspberry Pi hardware before it is tagged, and how the result is recorded. The release workflow proves the
 package on Ubuntu VMs and Debian containers ([Packaging → Supported
 hosts](packaging.md#supported-hosts)); none of that is a Pi. The kernel, the
 Wi-Fi driver, the first hop, boot ordering against `docker.service`, and
@@ -13,10 +14,70 @@ That is a known compromise: the roadmap asks for the candidate to be
 isolated from the reference monitor's data, and this procedure gets there
 only through the backup and the rollback path below. Do not skip them.
 
+## What a release proves that a PR does not
+
+Every PR already runs every check that *can* run on a PR, and they are
+required: lint, shell syntax, the module and CLI tests, the three editions'
+Compose, Grafana provisioning, the docs build, the apt repository and the
+Homebrew formula, all nine images built for arm64 and amd64, and CodeQL
+([CONTRIBUTING](https://github.com/estcarisimo/smoking-pi/blob/main/CONTRIBUTING.md)).
+Nothing is moved from a PR to the release to save time. A release adds
+only what a release alone can show:
+
+| Only a release shows | Where |
+|---|---|
+| The nine images **published** to GHCR as one multi-arch manifest each, from the tagged commit | `release.yml`: `build`, `merge` |
+| The `.deb` built from the tagged tree installs with each supported host's own `apt` | `release.yml`: `package`, `debian` (Debian 12/13 containers) |
+| It installs, starts Basic with those images, and upgrades from the previous release keeping its secrets | `release.yml`: `host` (Ubuntu VMs) |
+| It works on a Raspberry Pi: the kernel, the Wi-Fi driver, the first hop, boot order, the measurements | this checklist, on the reference Pi |
+| It stays up: 24 hours with no restart and no unexplained gap | this checklist, *Stability* |
+| `latest` points at it — only after every install test passed | `release.yml`: `promote` |
+| What was shipped, tied to the commit: digests, package checksum, the run | the evidence file `attach` puts on the release |
+
+## Releasing, step by step
+
+A release is cut from a **candidate**: a `vX.Y.Z-rc.N` tag runs the
+whole release workflow and produces exactly the artifacts the release will
+ship, so the Pi is tested on those, not on a clone. The final tag goes on
+the same commit.
+
+1. **Prepare.** A `release/vX.Y.Z` branch converts `[Unreleased]` into
+   the dated section (with its intro), bumps `version` and `date-released`
+   in `CITATION.cff`. PR, CI green, review, merge.
+2. **Tag the candidate** on that merge commit: `git tag -a vX.Y.Z-rc.1 -m
+   "vX.Y.Z candidate 1" && git push origin vX.Y.Z-rc.1`, then `gh release
+   create vX.Y.Z-rc.1 --prerelease --verify-tag --title "vX.Y.Z-rc.1" --notes
+   "Candidate for vX.Y.Z."`. It **must** be a pre-release: the apt repository
+   and the upgrade test skip pre-releases, and `attach` refuses a candidate
+   on anything else.
+3. **Watch the Release run.** Every `host` and `debian` job green; `attach`
+   puts `smoking-pi_X.Y.Z~rc.1_all.deb` and `smoking-pi_X.Y.Z-rc.1_evidence.md`
+   on the pre-release. `latest` does not move and the site is not
+   redeployed for a candidate.
+4. **Accept it on the Pi**, below, on the candidate's own artifacts. A
+   package install: `sudo apt install ./smoking-pi_X.Y.Z~rc.1_all.deb`,
+   then `sudo smoking-pi upgrade`. A clone (the reference Pi): `git checkout
+   vX.Y.Z-rc.1`, then `SMOKING_PI_VERSION=X.Y.Z-rc.1 packaging/smoking-pi
+   upgrade`, which pulls the published images instead of building. Keep
+   that variable set for every command until the release: without it a
+   clone means `dev` and builds. Start the 24-hour stability clock.
+5. **Anything found** is fixed through a normal PR; tag `vX.Y.Z-rc.2` on
+   the new merge and start again from step 3. Candidates are never deleted:
+   they are the record of what was tried.
+6. **Tag the release on the accepted candidate's commit**: `git tag -a
+   vX.Y.Z <sha of vX.Y.Z-rc.N> -m "vX.Y.Z"`, push, `gh release create vX.Y.Z
+   --verify-tag` with the notes and the **Validation** section below. The run
+   rebuilds from the same commit, runs every install test again, moves
+   `latest`, and attaches the `.deb` and the evidence; the docs site and
+   `/apt` follow (`docs.yml`).
+7. **After:** the Homebrew bump (`packaging/homebrew/bump.sh vX.Y.Z`, a
+   PR), the roadmap's release row, the posts.
+
 ## Before
 
-- [ ] The candidate is a merged `main` (every PR reviewed, CI green), with
-  `[Unreleased]` converted into the dated section, `CITATION.cff` bumped.
+- [ ] The candidate is a `vX.Y.Z-rc.N` tag on a merged `main` (every PR
+  reviewed, CI green) whose Release run is green, with `[Unreleased]`
+  converted into the dated section and `CITATION.cff` bumped.
 - [ ] `smoking-pi backup` completed (from a clone: `packaging/smoking-pi backup`) and
   the directory is somewhere other than the Pi's SD card. Note its path in
   the record.
@@ -34,10 +95,11 @@ release workflow's `host` jobs (Ubuntu VMs) and, on Raspberry Pi OS, by the
 clean install there is the missing half — until then the record says
 "clean install on Raspberry Pi OS: untested".
 
-- [ ] `git pull` to the candidate (or `apt install` of the candidate `.deb`
-  from the workflow artifact) and `smoking-pi upgrade` — from a clone that
-  is `compose build --pull` then `up -d --remove-orphans`, the doctor
-  `--live` at the end. Note the wall time and whether any container
+- [ ] The candidate's own artifacts (*Releasing*, step 4) and `smoking-pi
+  upgrade` — with a version set, that is `compose pull` then `up -d
+  --remove-orphans`, the doctor `--live` at the end. Check every container
+  runs a `:X.Y.Z-rc.N` image (`docker compose images`): a `:dev` one was
+  built, not the candidate. Note the wall time and whether any container
   restarted more than once (`docker compose ps`, `docker compose logs
   --since 10m | grep -i error`).
 - [ ] Configuration and credentials survived: `smoking-pi passwords
@@ -115,9 +177,9 @@ Every release gets a **Validation** section in its GitHub release notes
 ```markdown
 ## Validation
 
-- Tag / commit: vX.Y.Z / <sha>
-- Artifacts: images ghcr.io/estcarisimo/smoking-pi/*:X.Y.Z, smoking-pi_X.Y.Z_all.deb (release asset)
-- Release workflow: <run URL> — host 5/5, debian 4/4, upgrade from vX.Y.(Z-1): pass | none yet
+- Tag / commit: vX.Y.Z / <sha> — accepted as vX.Y.Z-rc.N (same commit)
+- Artifacts: images ghcr.io/estcarisimo/smoking-pi/*:X.Y.Z, smoking-pi_X.Y.Z_all.deb; digests and checksum in smoking-pi_X.Y.Z_evidence.md (release assets)
+- Release workflow: <run URL> — host 5/5, debian 4/4, upgrade from vX.Y.(Z-1): pass | none yet; candidate run: <run URL>
 - Reference Pi: <model>, Raspberry Pi OS <version> (Debian N), kernel <uname -r>, arm64
 - Upgrade on the Pi from vX.Y.(Z-1): pass — <minutes>, restarts 0; credentials and targets intact
 - Reboot recovery: pass — up in <minutes>

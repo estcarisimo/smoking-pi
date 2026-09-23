@@ -189,6 +189,10 @@ jobs:
       # only real if it is tested.
       - name: Run the show-passwords suite
         run: bats packaging/tests/show-passwords.bats
+      # Which tags release.yml accepts and what each publishes: a pushed
+      # tag publishes images at once, so the shapes are proven here.
+      - name: Run the release-version suite
+        run: bats packaging/tests/release-version.bats
 
   homebrew:
     name: Homebrew formula (parses; sha256 is the tarball's)

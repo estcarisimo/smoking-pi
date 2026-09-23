@@ -162,20 +162,29 @@ repository. Nobody can formally approve a sole-maintainer PR, so a green
 review is the CI checks plus an answered review, not an "Approved" badge.
 
 Commits follow Conventional Commits; the subject is a sentence about the
-outcome. Releases: `release/vX.Y.Z` branch converts `[Unreleased]` to a dated
-section with an intro and updates `version`/`date-released` in
-`CITATION.cff` (CI checks they match), merge, `git tag -a`,
-`gh release create` (notes = the changelog section). The tag triggers
-`release.yml` — nine images × two architectures to
+outcome. Releases follow `docs/release-acceptance.md`, *Releasing, step by
+step*: a `release/vX.Y.Z` branch converts `[Unreleased]` to a dated section
+with an intro and updates `version`/`date-released` in `CITATION.cff` (CI
+checks they match); merge; a candidate tag `vX.Y.Z-rc.N` with a GitHub
+**pre-release**; the Pi acceptance on that candidate's artifacts; then
+`vX.Y.Z` on the same commit and `gh release create` (notes = the changelog
+section + the Validation section). Tags other than `vX.Y.Z`,
+`vX.Y.Z-rc.N` (N from 1) and `test-*` are refused
+(`packaging/release-version.sh`, tested in `release-version.bats`). The tag
+triggers `release.yml` — nine images × two architectures to
 `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` (it refuses a tag that
 disagrees with `CITATION.cff`), then the `.deb` built from the tagged tree
 and installed with each supported host's own `apt` (Ubuntu 22.04/24.04
 VMs, both architectures, Basic started with the release's images; Debian
-12/13 containers, package-level — `docs/packaging.md`, *Supported hosts*),
-and, only after every host passed, attached to the release you created (if
-the release does not exist yet when `attach` runs, the `.deb` is the run's
-`smoking-pi-deb` artifact: create the release and re-run that job) — and
-`docs.yml` (the site). Watch both to green before announcing.
+12/13 containers, package-level — `docs/packaging.md`, *Supported hosts*).
+Only after every host passed: `promote` moves `:latest` (releases only),
+and `attach` puts the `.deb` and `smoking-pi_<version>_evidence.md`
+(commit, run, digests, sha256) on the release you created. A candidate's
+release must be a pre-release and a release's must not, or `attach` fails
+(if the release does not exist yet, the `.deb` is the run's
+`smoking-pi-deb` artifact: create the release and re-run that job). For a
+release, `docs.yml` then deploys the site and `/apt`; for a candidate it
+does not. Watch both to green before announcing.
 
 ## Gotchas
 
