@@ -198,6 +198,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run a single evaluate/notify iteration and exit",
     )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="send one labeled test message through the configured delivery and exit",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -214,7 +219,15 @@ def main(argv: list[str] | None = None) -> int:
         os.environ.get("INFLUX_URL", flux.DEFAULT_INFLUX_URL),
         state.state_file(),
     )
-    notifier.preflight()
+    delivery_ok = notifier.preflight()
+
+    if args.test:
+        if not delivery_ok:
+            log.error("Not sending a test: the delivery preflight failed")
+            return 1
+        sent = notifier.send_test()
+        log.info("Test message %s", "delivered" if sent else "NOT delivered")
+        return 0 if sent else 1
 
     if args.once:
         try:

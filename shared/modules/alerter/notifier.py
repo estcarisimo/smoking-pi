@@ -107,6 +107,28 @@ def notify(event: dict, image: bytes | None = None) -> bool:
     return True
 
 
+TEST_MESSAGE = (
+    "🧪 Smoking Pi test: alert delivery works. Sent on request by "
+    "`smoking-pi alerts`; nothing is wrong with the network."
+)
+
+
+def send_test() -> bool:
+    """Send one labeled test message through the configured path.
+
+    The only proof that alerts arrive is one arriving: the preflight shows
+    the gateway accepts the token and permits the tool, not that the
+    recipient is right. With NOTIFY_MODE=off there is nothing to send.
+    """
+    mode = notify_mode()
+    if mode == "openclaw":
+        return _notify_openclaw(TEST_MESSAGE)
+    if mode == "webhook":
+        return _notify_webhook({"type": "test", "message": TEST_MESSAGE}, TEST_MESSAGE)
+    log.error("NOTIFY_MODE=%s: there is no delivery to test", mode)
+    return False
+
+
 def openclaw_hook_url() -> str:
     base = (os.environ.get("OPENCLAW_URL") or DEFAULT_OPENCLAW_URL).rstrip("/")
     path = os.environ.get("OPENCLAW_HOOK_PATH") or DEFAULT_OPENCLAW_HOOK_PATH

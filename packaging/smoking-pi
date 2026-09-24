@@ -138,6 +138,11 @@ Usage: smoking-pi <command> [args]
                      (Pro). No option: show it. --lan auto: this machine's
                      address on the local network. --tunnel: the address that
                      works from anywhere (a Cloudflare tunnel), scheme included.
+  alerts [--openclaw [--to RECIPIENT] | --webhook | --off] [--test] [--yes]
+                     Where alerts go (Pro): set NOTIFY_MODE and its keys, turn
+                     on the alerts profile, recreate the alerter and print its
+                     own delivery preflight. --test (or answering yes) sends
+                     one labeled test message: the only proof one arrives.
   openclaw [--check]
                      Connect this stack to an OpenClaw gateway on this machine:
                      the MCP token, the mcp profile, registration and the skill.
@@ -850,6 +855,161 @@ cmd_config() {
     esac
 }
 
+# --- alerts: where they go ---------------------------------------------------
+
+# The gateway token of the OpenClaw on this machine, from the invoking
+# user's openclaw.json (under sudo, the one who ran sudo). Empty if none.
+openclaw_config_token() {
+    local user="${SUDO_USER:-${USER:-}}" home f
+    home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6)"
+    f="${home:-$HOME}/.openclaw/openclaw.json"
+    [ -r "$f" ] && command -v python3 >/dev/null || return 0
+    python3 -c 'import json,sys; print(((json.load(open(sys.argv[1])).get("gateway") or {}).get("auth") or {}).get("token") or "")' "$f" 2>/dev/null || true
+}
+
+profiles_with() {
+    # COMPOSE_PROFILES with $1 added once.
+    local current
+    current="$(env_get COMPOSE_PROFILES)"
+    case ",$current," in *",$1,"*) echo "$current" ;; *) echo "${current:+$current,}$1" ;; esac
+}
+
+alerter_preflight_line() {
+    # The alerter checks delivery once at start and logs one line: INFO when
+    # it looks usable, ERROR otherwise (notifier.preflight). Only lines since
+    # $1, the moment before the recreate: an older container's verdict is
+    # about the old settings. Two of the errors do not say "preflight".
+    local since="$1" i line
+    for i in $(seq 1 30); do
+        line="$(compose logs alerter --since "$since" 2>/dev/null \
+            | grep -E 'Delivery preflight|NOTIFY_MODE=(openclaw|webhook) but' | tail -1 || true)"
+        [ -z "$line" ] || { echo "$line"; return 0; }
+        sleep 2
+    done
+}
+
+cmd_alerts() {
+    local mode="" to="" url="" test_msg="" yes=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --openclaw) mode=openclaw; shift ;;
+            --webhook) mode=webhook; shift ;;
+            --off) mode=off; shift ;;
+            --to) to="${2:-}"; shift 2 || { echo "--to needs a recipient" >&2; return 2; } ;;
+            --test) test_msg=1; shift ;;
+            --yes|-y) yes=1; shift ;;
+            -h|--help) usage; return 0 ;;
+            *) echo "unknown option $1" >&2; return 2 ;;
+        esac
+    done
+    need_edition
+    # Defined by the edition, whatever the profiles: has_service asks
+    # Compose, which lists only enabled services, and a Pro install with
+    # the alerts profile off is exactly who this command is for.
+    if ! grep -q '^  alerter:' "$EDITION_DIR/docker-compose.yml"; then
+        echo "Alerts are a Pro service; the $SMOKING_PI_EDITION edition does not ship the alerter." >&2
+        return 1
+    fi
+    if [ -z "$mode" ]; then
+        [ "$yes" = 0 ] && [ -t 0 ] || { echo "Say where: --openclaw, --webhook or --off." >&2; return 2; }
+        echo "Where should alerts go?"
+        echo "  1) OpenClaw (Telegram, or whatever channel your gateway has)"
+        echo "  2) A webhook"
+        echo "  3) Nowhere: evaluate and log only"
+        local choice; read -r -p "Choice [1]: " choice
+        case "${choice:-1}" in 1) mode=openclaw ;; 2) mode=webhook ;; 3) mode=off ;; *) echo "no such choice" >&2; return 2 ;; esac
+    fi
+
+    case "$mode" in
+        openclaw)
+            if [ -z "$(env_get OPENCLAW_GATEWAY_TOKEN)" ]; then
+                local token; token="$(openclaw_config_token)"
+                if [ -n "$token" ] && { [ "$yes" = 1 ] || { read -r -p "Use the gateway token from your openclaw.json? [Y/n] " a; [ "${a:-y}" != n ] && [ "${a:-y}" != N ]; }; }; then
+                    env_set OPENCLAW_GATEWAY_TOKEN "$token"
+                    echo "Gateway token: taken from openclaw.json."
+                elif [ "$yes" = 0 ] && [ -t 0 ]; then
+                    read -r -s -p "Gateway token (gateway.auth.token in ~/.openclaw/openclaw.json): " token; echo
+                    [ -n "$token" ] || { echo "no token; nothing changed" >&2; return 1; }
+                    env_set OPENCLAW_GATEWAY_TOKEN "$token"
+                else
+                    echo "No gateway token found. Set it first: smoking-pi config set OPENCLAW_GATEWAY_TOKEN" >&2
+                    return 1
+                fi
+            fi
+            [ -n "$to" ] || to="$(env_get OPENCLAW_TO)"
+            if [ -z "$to" ]; then
+                if [ "$yes" = 0 ] && [ -t 0 ]; then
+                    echo "The recipient, in OpenClaw's form (telegram:123456789)."
+                    echo "Find it with: openclaw gateway call sessions-list  (deliveryContext.to)"
+                    read -r -p "Recipient: " to
+                fi
+                [ -n "$to" ] || { echo "No recipient: --to telegram:<chat id>" >&2; return 2; }
+            fi
+            case "$to" in
+                *:*) ;;
+                *) echo "$to is not in OpenClaw's channel:id form (a bare chat id is not delivered)." >&2; return 2 ;;
+            esac
+            env_set OPENCLAW_TO "$to"
+            env_set OPENCLAW_CHANNEL "${to%%:*}"
+            env_set NOTIFY_MODE openclaw
+            echo "Alerts go to $to through OpenClaw."
+            ;;
+        webhook)
+            # The URL is often the credential itself (Slack, Discord, ntfy):
+            # asked for, or read from stdin, never taken from argv or printed.
+            if [ -t 0 ]; then
+                read -r -s -p "Webhook URL: " url; echo
+            else
+                IFS= read -r url || true
+            fi
+            case "$url" in
+                http://*|https://*) ;;
+                *) echo "The webhook needs an http(s) URL (typed at the prompt, or on stdin)." >&2; return 2 ;;
+            esac
+            case "$url" in
+                *"'"*) echo "a URL cannot contain ' in the env file" >&2; return 2 ;;
+            esac
+            env_set ALERT_WEBHOOK_URL "$url"
+            env_set NOTIFY_MODE webhook
+            echo "Alerts go to the webhook. A bearer token, if it needs one: smoking-pi config set ALERT_WEBHOOK_TOKEN"
+            ;;
+        off)
+            env_set NOTIFY_MODE off
+            echo "Alerts are evaluated and logged, not delivered."
+            ;;
+    esac
+
+    env_set COMPOSE_PROFILES "$(profiles_with alerts)"
+    # The mcp-server delivers get_chart through the same OpenClaw keys.
+    local services="alerter"
+    has_service mcp-server && services="alerter mcp-server"
+    local started
+    started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    # shellcheck disable=SC2086  # one word per service
+    compose up -d $services
+    [ "$mode" = off ] && return 0
+
+    local line; line="$(alerter_preflight_line "$started")"
+    echo "${line:-The alerter logged no delivery preflight; see: smoking-pi logs alerter}"
+    case "$line" in
+        *" INFO "*"Delivery preflight"*) ;;
+        *) echo "Delivery is not working yet; the line above says why (docs/alerting.md)." >&2; return 1 ;;
+    esac
+    if [ -z "$test_msg" ] && [ "$yes" = 0 ] && [ -t 0 ]; then
+        read -r -p "Send a test message now? [y/N] " a
+        case "$a" in y|Y|yes) test_msg=1 ;; esac
+    fi
+    if [ -n "$test_msg" ]; then
+        if compose exec -T alerter python main.py --test >/dev/null 2>&1; then
+            if [ "$mode" = webhook ]; then echo "Test message sent to the webhook."
+            else echo "Test message sent: it should be on its way to $to."; fi
+        else
+            echo "The test message was NOT delivered: smoking-pi logs alerter" >&2
+            return 1
+        fi
+    fi
+}
+
 openclaw_evidence() {
     # docs/openclaw-integration.md, "Verify with evidence, not with the
     # answer". A well-primed agent answers fluently from its own shell
@@ -1233,6 +1393,7 @@ case "${1:-}" in
     openclaw) shift; cmd_openclaw "$@" ;;
     config) shift; cmd_config "$@" ;;
     links) shift; cmd_links "$@" ;;
+    alerts) shift; cmd_alerts "$@" ;;
     up) shift; compose up -d "$@" ;;
     down) shift; compose down "$@" ;;
     restart) shift; compose restart "$@" ;;
