@@ -46,8 +46,8 @@ loss events and Grafana's "unreachable" overlay count pings lost instead
 of a fixed percent, and a guard keeps SmokePing running when an RRD no
 longer matches its probe. The first login is a welcome tour: whether it
 is measuring, what your own network suggests (the router, the
-resolvers), and the seeded targets you may want to pause. Settings that meant editing the env file
-now have commands: `smoking-pi config`, `alerts` (with the daily digest)
+resolvers), and the seeded targets you may want to pause. Settings that
+meant editing the env file now have commands: `smoking-pi config`, `alerts` (with the daily digest)
 and `links`. The InfluxDB dashboards mark the moment the uplink changes,
 from Wi-Fi to Ethernet or back.
 
