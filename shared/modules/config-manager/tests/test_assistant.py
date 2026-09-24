@@ -89,3 +89,12 @@ def test_endpoint_when_docker_fails(client, monkeypatch):
     monkeypatch.setattr(api_module.docker, "from_env", boom)
     r = client.get("/assistant")
     assert r.status_code == 503 and r.get_json()["available"] is False
+
+
+def test_a_request_that_merely_contains_tool_is_not_a_call():
+    """Uvicorn's access log shares the stream: a probe of /mcp?tool=x must
+    not read as an assistant calling a tool."""
+    probe = ('2026-09-24T10:00:00.000000000Z INFO:     127.0.0.1:50999 - '
+             '"GET /mcp?tool=get_loss_events HTTP/1.1" 401 Unauthorized')
+    got = assistant.summarize("running", "2026-09-24T00:36:51Z", probe)
+    assert got["connected"] is False and got["calls"] == 0

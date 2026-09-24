@@ -19,8 +19,11 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional
 
-# `docker logs --timestamps` prefixes each line with an RFC 3339 time.
-_CALL = re.compile(r"^(\S+)\s.*?\btool=([A-Za-z_][A-Za-z0-9_]*)\b")
+# `docker logs --timestamps` prefixes each line with an RFC 3339 time; the
+# server's own line is "<asctime> <LEVEL> mcp.tools: tool=<name> ...". The
+# logger name is required: uvicorn's access log shares the stream, and a
+# request for /mcp?tool=x would otherwise read as a call.
+_CALL = re.compile(r"^(\S+)\s.*?\bmcp\.tools: tool=([A-Za-z_][A-Za-z0-9_]*)\b")
 
 
 def summarize(state: Optional[str], started_at: Optional[str], logs: str) -> Dict[str, Any]:
