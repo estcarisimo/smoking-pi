@@ -181,8 +181,20 @@ need something from you before they are useful:
 | `alerts` | Downtime, microcut and Wi-Fi alerts | `NOTIFY_MODE` and its keys ([Alerting](alerting.md)) |
 | `ai` | Written health reports | `ANTHROPIC_API_KEY` ([AI reports](ai-insights.md)) |
 
-You can turn any of them on afterwards by adding it to `COMPOSE_PROFILES`
-in the env file and running `sudo smoking-pi up`.
+You can turn any of them on afterwards:
+
+```bash
+sudo smoking-pi config set COMPOSE_PROFILES influxdb,mcp,alerts
+```
+
+The same command changes any setting in the env file by name, and it
+recreates just the services that read it. `sudo smoking-pi config list`
+shows them all, with secrets hidden. A secret such as `ANTHROPIC_API_KEY`
+is typed at a prompt, never on the command line:
+
+```bash
+sudo smoking-pi config set ANTHROPIC_API_KEY
+```
 
 Expected, at the end: what to open, as the last thing on the screen.
 
@@ -423,7 +435,7 @@ is the one with a ready-made skill.
 | Every target at 100% loss | ICMP blocked upstream, or no route | `ping -c3 google.com` from the host; if that fails it is the network, not Smoking Pi |
 | Grafana rejects the password | Grafana keeps the first-boot password in its volume | `sudo smoking-pi restart grafana`, wait 30 s, try the password from `sudo smoking-pi passwords --show-secrets` again. If it still refuses, Grafana's volume predates that password — reset the account: `sudo docker compose exec -T grafana grafana cli admin reset-admin-password --password-from-stdin` |
 | SmokePing's port is already taken | Pro's SmokePing is on the host network, port 80 | Free port 80, or use Basic/Standard, which map a port you can change |
-| An optional service runs but does nothing | Its profile is on and its key is not set | Add `NOTIFY_MODE` (`alerts`) or `ANTHROPIC_API_KEY` (`ai`) to the env file and restart it. Neither crash-loops on a missing key — they log it and stay up, so `status` looks healthy while nothing is delivered |
+| An optional service runs but does nothing | Its profile is on and its key is not set | `sudo smoking-pi config set NOTIFY_MODE openclaw` (`alerts`, with its keys: [Alerting](alerting.md)) or `sudo smoking-pi config set ANTHROPIC_API_KEY` (`ai`). Neither crash-loops on a missing key — they log it and stay up, so `status` looks healthy while nothing is delivered |
 | A container restarting in a loop | Its own logs say which | `sudo smoking-pi logs <service>` — read the last start, not the whole file |
 | The page loads on the Pi but not from your laptop | A firewall between the two, or the laptop is on another network (a guest Wi-Fi) | Tunnel through SSH, which already works: `ssh -L 8080:localhost:8080 <user>@<pi>`, then open `http://localhost:8080/` on the laptop. `sudo smoking-pi url` prints this line with your addresses filled in |
 | `smoking-pi` not found after `apt install` | A shell that cached its `PATH` | `hash -r`, or open a new shell |

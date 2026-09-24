@@ -617,3 +617,99 @@ STUB
     # It refused before touching the gateway.
     ! grep -q 'openclaw mcp set' "$DOCKER_LOG"
 }
+
+# --- config: env-file settings by name ---------------------------------------
+
+config_setup() {
+    cp "$REPO/editions/pro/.env.template" "$STUB_HOME/editions/pro/"
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nPOSTGRES_PASSWORD=pg-secret\nOPENCLAW_GATEWAY_TOKEN=gw-secret\nWIFI_INTERFACE=\n' > "$SMOKING_PI_ENV_FILE"
+}
+
+@test "config list shows declared keys, hides secrets, marks unset ones" {
+    config_setup
+    run "$CLI" config list
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"OPENCLAW_GATEWAY_TOKEN"*"(set, hidden)"* ]]
+    [[ "$output" == *"WIFI_INTERFACE"*"(unset: the default applies)"* ]]
+    [[ "$output" != *"gw-secret"* ]]
+    [[ "$output" != *"pg-secret"* ]]
+}
+
+@test "config set writes the key and recreates only the enabled services that read it" {
+    config_setup
+    run "$CLI" config set WIFI_INTERFACE wlan0
+    [ "$status" -eq 0 ]
+    grep -qx 'WIFI_INTERFACE=wlan0' "$SMOKING_PI_ENV_FILE"
+    grep -q 'up -d smokeping$' "$DOCKER_LOG"
+    # The other secrets are untouched.
+    grep -qx 'POSTGRES_PASSWORD=pg-secret' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "config set never starts a service whose profile is off" {
+    config_setup
+    run "$CLI" config set NOTIFY_MODE openclaw
+    [ "$status" -eq 0 ]
+    grep -qx 'NOTIFY_MODE=openclaw' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"alerter"*"which no enabled profile runs"* ]]
+    ! grep -q ' up -d' "$DOCKER_LOG"
+}
+
+@test "config set refuses a secret on the command line and writes nothing" {
+    config_setup
+    run "$CLI" config set ANTHROPIC_API_KEY sk-on-argv
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not taken from the command line"* ]]
+    ! grep -q 'sk-on-argv' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "config set reads a secret from stdin, stores it, and never prints or passes it" {
+    config_setup
+    run bash -c "printf %s 'sk-from-stdin' | '$CLI' config set ANTHROPIC_API_KEY --no-apply"
+    [ "$status" -eq 0 ]
+    grep -qx 'ANTHROPIC_API_KEY=sk-from-stdin' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"set (hidden)"* ]]
+    [[ "$output" != *"sk-from-stdin"* ]]
+    ! grep -q 'sk-from-stdin' "$DOCKER_LOG" 2>/dev/null
+}
+
+@test "config set refuses what install generated: the data volumes hold it" {
+    config_setup
+    run bash -c "printf %s new | '$CLI' config set POSTGRES_PASSWORD"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"generated or fixed at install"* ]]
+    grep -qx 'POSTGRES_PASSWORD=pg-secret' "$SMOKING_PI_ENV_FILE"
+    run bash -c "printf %s new | '$CLI' config set MCP_API_TOKEN"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"smoking-pi openclaw"* ]]
+}
+
+@test "config refuses a key the template does not declare, and suggests the near one" {
+    config_setup
+    run "$CLI" config set NOTIFY_MOD openclaw
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Did you mean NOTIFY_MODE?"* ]]
+    ! grep -q 'NOTIFY_MOD=' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "config set COMPOSE_PROFILES applies to the whole stack" {
+    config_setup
+    run "$CLI" config set COMPOSE_PROFILES influxdb,mcp,alerts
+    [ "$status" -eq 0 ]
+    grep -q 'up -d --remove-orphans' "$DOCKER_LOG"
+}
+
+@test "config get hides a secret unless --show-secrets; unset clears; the same value is a no-op" {
+    config_setup
+    run "$CLI" config get OPENCLAW_GATEWAY_TOKEN
+    [[ "$output" == *"(set, hidden"* ]]
+    [[ "$output" != *"gw-secret"* ]]
+    run "$CLI" config get OPENCLAW_GATEWAY_TOKEN --show-secrets
+    [ "$output" = "gw-secret" ]
+    run "$CLI" config unset OPENCLAW_GATEWAY_TOKEN --no-apply
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_GATEWAY_TOKEN=' "$SMOKING_PI_ENV_FILE"
+    : > "$DOCKER_LOG"
+    run "$CLI" config set WIFI_INTERFACE ""
+    [[ "$output" == *"already that; nothing changed"* ]]
+    [ ! -s "$DOCKER_LOG" ]
+}

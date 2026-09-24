@@ -11,6 +11,20 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`smoking-pi config`: settings by name, not by editing the env
+  file.** `list` shows every key the edition's `.env.template` declares,
+  with secrets hidden. `get` prints one, and a secret only with
+  `--show-secrets`. `set` and `unset` write it, then recreate only the
+  services whose compose entry reads it, and only those the recorded
+  profiles enable: naming a service on `compose up` would start one
+  nobody enabled. `COMPOSE_PROFILES` applies to the whole stack. Guards:
+  - a key the template doesn't declare is refused, with the nearest one
+    suggested (`NOTIFY_MOD` → `NOTIFY_MODE`);
+  - a secret (TOKEN, PASSWORD, SECRET, `*_KEY`) is never taken from the
+    command line, where `ps` and the shell history would keep it. It's
+    typed at a prompt or piped on stdin;
+  - credentials that install generated are refused, because the data
+    volumes hold them (the same reason `install` won't run twice).
 - **The first login is a welcome tour.** The install seeded 21 targets
   in silence, and a new user met a dashboard of numbers with no idea what
   was being measured or why. The web admin (Standard, Pro) now opens once
