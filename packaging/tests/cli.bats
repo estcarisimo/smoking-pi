@@ -746,4 +746,99 @@ config_setup() {
     [[ "$output" == *"not taken from the command line"* ]]
     run "$CLI" config set CLICKHOUSE_HTTP_PORT 8124 --no-apply
     [ "$status" -eq 0 ]
+# --- alerts: where they go ------------------------------------------------------
+
+alerts_setup() {
+    cp "$REPO/editions/pro/.env.template" "$STUB_HOME/editions/pro/"
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nNOTIFY_MODE=off\nOPENCLAW_GATEWAY_TOKEN=gw-secret\n' > "$SMOKING_PI_ENV_FILE"
+    # In front of the suite's stub: the alerter's preflight line and the
+    # test send. Everything else falls through to it.
+    mkdir -p "$BATS_TEST_TMPDIR/bin2"
+    cat > "$BATS_TEST_TMPDIR/bin2/docker" <<STUB
+#!/bin/sh
+case "\$*" in
+    *"logs alerter"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "alerter-1 | 2026-09-24 12:00:00 INFO alerter.notifier: \${STUB_PREFLIGHT}"; exit 0 ;;
+    *"exec -T alerter python main.py --test"*) echo "docker \$*" >> "\$DOCKER_LOG"; exit \${STUB_TEST_EXIT:-0} ;;
+esac
+exec "$BATS_TEST_TMPDIR/bin/docker" "\$@"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin2/docker"
+    export PATH="$BATS_TEST_TMPDIR/bin2:$PATH"
+    export STUB_PREFLIGHT="Delivery preflight: http://127.0.0.1:18789/tools/invoke reachable, 'message' tool permitted (HTTP 200)"
+}
+
+@test "alerts --openclaw sets the mode, recipient and channel, turns on the profile, prints the preflight" {
+    alerts_setup
+    run "$CLI" alerts --openclaw --to telegram:123 --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'NOTIFY_MODE=openclaw' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'OPENCLAW_TO=telegram:123' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'OPENCLAW_CHANNEL=telegram' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,alerts' "$SMOKING_PI_ENV_FILE"
+    grep -q 'up -d alerter' "$DOCKER_LOG"
+    [[ "$output" == *"'message' tool permitted"* ]]
+    # No test message unless asked.
+    ! grep -q 'main.py --test' "$DOCKER_LOG"
+    # The token is never printed.
+    [[ "$output" != *"gw-secret"* ]]
+}
+
+@test "alerts refuses a bare chat id: OpenClaw does not deliver to one" {
+    alerts_setup
+    run "$CLI" alerts --openclaw --to 123456 --yes
+    [ "$status" -eq 2 ]
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "alerts takes the gateway token from the user's openclaw.json" {
+    alerts_setup
+    printf 'COMPOSE_PROFILES=influxdb\n' > "$SMOKING_PI_ENV_FILE"
+    mkdir -p "$BATS_TEST_TMPDIR/u/.openclaw"
+    printf '{"gateway": {"auth": {"token": "from-json"}}}' > "$BATS_TEST_TMPDIR/u/.openclaw/openclaw.json"
+    run env -u SUDO_USER USER=nobody-here HOME="$BATS_TEST_TMPDIR/u" "$CLI" alerts --openclaw --to telegram:1 --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_GATEWAY_TOKEN=from-json' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" != *"from-json"* ]]
+}
+
+@test "alerts says delivery is not working when the preflight is not green" {
+    alerts_setup
+    export STUB_PREFLIGHT="Delivery preflight: http://127.0.0.1:18789/tools/invoke rejected the Gateway token (401)."
+    run "$CLI" alerts --openclaw --to telegram:1 --test --yes
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"rejected the Gateway token"* ]]
+    [[ "$output" == *"not working yet"* ]]
+    ! grep -q 'main.py --test' "$DOCKER_LOG"
+}
+
+@test "alerts --test sends one through the alerter and reports a failed send" {
+    alerts_setup
+    run "$CLI" alerts --openclaw --to telegram:1 --test --yes
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T alerter python main.py --test' "$DOCKER_LOG"
+    [[ "$output" == *"Test message sent"* ]]
+    export STUB_TEST_EXIT=1
+    run "$CLI" alerts --openclaw --to telegram:1 --test --yes
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"NOT delivered"* ]]
+}
+
+@test "alerts --webhook needs an http(s) URL; --off logs only and waits for nothing" {
+    alerts_setup
+    run "$CLI" alerts --webhook ftp://x --yes
+    [ "$status" -eq 2 ]
+    run "$CLI" alerts --off --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    ! grep -q 'logs alerter' "$DOCKER_LOG"
+}
+
+@test "alerts on an edition without the alerter says so and changes nothing" {
+    alerts_setup
+    export SMOKING_PI_EDITION=basic
+    cp "$REPO/editions/basic/docker-compose.yml" "$STUB_HOME/editions/basic/"
+    run "$CLI" alerts --off --yes
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Pro service"* ]]
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
 }

@@ -520,3 +520,35 @@ def test_a_loud_alert_stays_loud_on_the_text_path(monkeypatch):
     notifier.notify({"type": "alert", "severity": "critical", "target": "x",
                      "message": "down", "verdict": {}, "links": {}})
     assert "silent" not in sent["args"]
+
+
+# --- the test message (`smoking-pi alerts` offers it) -------------------------
+
+def test_send_test_goes_through_openclaw_labeled(posts, openclaw):
+    assert notifier.send_test() is True
+    body = posts["calls"][0]["json"]
+    assert body["name"] == "message" and body["args"]["to"] == "telegram:12345"
+    assert body["args"]["message"].startswith("🧪 Smoking Pi test")
+    assert "nothing is wrong" in body["args"]["message"]
+
+
+def test_send_test_reports_a_refused_send(posts, openclaw):
+    posts["responses"].extend([FakeResponse(200, {"ok": False})] * 3)
+    assert notifier.send_test() is False
+
+
+def test_send_test_with_delivery_off_sends_nothing(posts, monkeypatch):
+    monkeypatch.setenv("NOTIFY_MODE", "off")
+    assert notifier.send_test() is False
+    assert posts["calls"] == []
+
+
+def test_main_test_flag_refuses_after_a_failed_preflight(monkeypatch):
+    import main
+    sent = []
+    monkeypatch.setattr(main.notifier, "preflight", lambda: False)
+    monkeypatch.setattr(main.notifier, "send_test", lambda: sent.append(1) or True)
+    assert main.main(["--test"]) == 1
+    assert sent == []
+    monkeypatch.setattr(main.notifier, "preflight", lambda: True)
+    assert main.main(["--test"]) == 0 and sent == [1]
