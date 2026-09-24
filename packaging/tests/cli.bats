@@ -40,6 +40,9 @@ case "$*" in
         # service (clickhouse-data), which must never be touched.
         echo '{"name":"pro","services":{"postgres":{"volumes":[{"type":"volume","source":"postgres-data"}]},"grafana":{"volumes":[{"type":"volume","source":"grafana-data"},{"type":"bind","source":"/etc/localtime"}]},"smokeping":{"volumes":[{"type":"volume","source":"smokeping-config"}]},"web-admin":{"volumes":null}},"volumes":{"postgres-data":{},"grafana-data":{},"smokeping-config":{"name":"smokeping-pro-config"},"clickhouse-data":{"name":"smokeping-pro-clickhouse-data"}}}' ;;
     *"config --services"*) printf 'postgres\ngrafana\nsmokeping\n' ;;
+    # The project's containers, "service name" per line (STUB_CONTAINERS,
+    # \n-separated; unset = none).
+    *"ps -a --filter label=com.docker.compose.project=pro "*) printf '%b' "${STUB_CONTAINERS:-}" ;;
     *"ps --status running --services"*) printf 'postgres\n' ;;
     *"exec -T postgres pg_dumpall"*) echo "-- dump" ;;
     *"system df -v"*) printf 'VOLUME NAME LINKS SIZE\npro_postgres-data 1 48MB\npro_grafana-data 1 240MB\n' ;;
@@ -1031,4 +1034,56 @@ STUB
     grep -qx 'DIGEST_AT=08:30' "$SMOKING_PI_ENV_FILE"
     [[ "$output" == *"logged, not delivered"* ]]
     [[ "$output" == *"logged, not sent"* ]]
+}
+
+@test "upgrade stops and removes the containers of a service whose profile is off, after the up, and keeps the rest" {
+    # The rc.3 acceptance: ai-insights (profile `ai` off) is defined, so not
+    # an orphan to --remove-orphans, and kept running on its old image.
+    export STUB_CONTAINERS='postgres pro-postgres-1\nai-insights pro-ai-insights-1\ngrafana pro-grafana-1\nalerter pro-alerter-1\n'
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Removing containers of services no enabled profile runs: pro-ai-insights-1 pro-alerter-1"* ]]
+    grep -q 'ps -a --filter label=com.docker.compose.project=pro ' "$DOCKER_LOG"
+    grep -qx 'docker stop pro-ai-insights-1 pro-alerter-1' "$DOCKER_LOG"
+    grep -qx 'docker rm pro-ai-insights-1 pro-alerter-1' "$DOCKER_LOG"
+    # Never a volume, never an enabled service's container.
+    ! grep -q 'rm -v\|volume rm\|pro-postgres-1\|pro-grafana-1' "$DOCKER_LOG"
+    # The up comes first; stop, then rm.
+    up=$(grep -n 'up -d --remove-orphans' "$DOCKER_LOG" | cut -d: -f1)
+    stop=$(grep -n '^docker stop' "$DOCKER_LOG" | cut -d: -f1)
+    rm=$(grep -n '^docker rm' "$DOCKER_LOG" | cut -d: -f1)
+    [ "$up" -lt "$stop" ] && [ "$stop" -lt "$rm" ]
+}
+
+@test "upgrade with every container enabled stops nothing and says nothing about it" {
+    export STUB_CONTAINERS='postgres pro-postgres-1\nsmokeping pro-smokeping-1\n'
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Removing containers"* ]]
+    ! grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"
+}
+
+@test "when Compose cannot list the enabled services, nothing is removed: an empty list is not 'all disabled'" {
+    export STUB_CONTAINERS='postgres pro-postgres-1\n'
+    fail_docker_on "config --services"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"containers of disabled profiles were not checked"* ]]
+    ! grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"
+}
+
+@test "up also removes a disabled profile's container" {
+    export STUB_CONTAINERS='smokeping pro-smokeping-1\nai-insights pro-ai-insights-1\n'
+    run "$CLI" up
+    [ "$status" -eq 0 ]
+    grep -qx 'docker rm pro-ai-insights-1' "$DOCKER_LOG"
+    ! grep -q 'pro-smokeping-1$' <(grep '^docker \(stop\|rm\)' "$DOCKER_LOG")
+}
+
+@test "config set COMPOSE_PROFILES turning a profile off removes its container" {
+    config_setup
+    export STUB_CONTAINERS='postgres pro-postgres-1\nalerter pro-alerter-1\n'
+    run "$CLI" config set COMPOSE_PROFILES influxdb
+    [ "$status" -eq 0 ]
+    grep -qx 'docker rm pro-alerter-1' "$DOCKER_LOG"
 }

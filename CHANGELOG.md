@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`smoking-pi upgrade` left a disabled profile's container running on
+  its old image.** `up -d --remove-orphans` removes only containers of
+  services the compose files no longer define; a service that is defined
+  but whose profile is off is not an orphan to Compose. During the
+  v2.13.0-rc.3 acceptance, `pro-ai-insights-1` (the `ai` profile off)
+  stayed on `ai-insights:dev` for days while everything else moved to
+  `2.13.0-rc.3` — an unversioned, unwanted service quietly running beside
+  a release. `upgrade`, `up` and `config set COMPOSE_PROFILES` now stop and
+  remove the project's containers (by the `com.docker.compose.project`
+  label) whose service `compose config --services` does not list, and say
+  which. Volumes are kept. When Compose cannot list the enabled services
+  nothing is removed, since an empty list would otherwise mean the whole
+  stack.
+- **The release guide named a candidate asset that does not exist.**
+  `docs/release-acceptance.md` said to download
+  `smoking-pi_X.Y.Z~rc.N_all.deb`; GitHub replaces `~` in asset names
+  with `.`, so the file is `smoking-pi_X.Y.Z.rc.N_all.deb` and the
+  documented `apt install` named a file that is not there. The
+  guide and `docs/packaging.md` now name the real file and say that apt
+  still installs version `X.Y.Z~rc.N` from it.
+
 ## [2.13.0] — 2026-09-24
 
 Is it measuring, and can you tell? Plus a release process that proves
