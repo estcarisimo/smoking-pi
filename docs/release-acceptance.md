@@ -53,14 +53,18 @@ the same commit.
    and the upgrade test skip pre-releases, and `attach` refuses a candidate
    on anything else.
 3. **Watch the Release run.** Every `host` and `debian` job green; `attach`
-   puts `smoking-pi_X.Y.Z~rc.1_all.deb` and `smoking-pi_X.Y.Z-rc.1_evidence.md`
-   on the pre-release. `latest` does not move and the site is not
-   redeployed for a candidate.
+   puts the package and `smoking-pi_X.Y.Z-rc.1_evidence.md` on the
+   pre-release. The package's version is `X.Y.Z~rc.1` (so apt sorts it
+   before `X.Y.Z`), but GitHub replaces `~` in an asset name with `.`: the
+   file to download is `smoking-pi_X.Y.Z.rc.1_all.deb`. `latest` does not
+   move and the site is not redeployed for a candidate.
 4. **Accept it on the Pi**, below, on the candidate's own artifacts. A
-   package install: `sudo apt install ./smoking-pi_X.Y.Z~rc.1_all.deb`,
-   then `sudo smoking-pi upgrade`. A clone (the reference Pi): `git checkout
-   vX.Y.Z-rc.1`, then `SMOKING_PI_VERSION=X.Y.Z-rc.1 packaging/smoking-pi
-   upgrade`, which pulls the published images instead of building. Keep
+   package install: `sudo apt install ./smoking-pi_X.Y.Z.rc.1_all.deb`
+   (apt reads the version from inside the file, not its name, so it still
+   installs `X.Y.Z~rc.1`), then `sudo smoking-pi upgrade`. A clone (the
+   reference Pi): `git checkout vX.Y.Z-rc.1`, then
+   `SMOKING_PI_VERSION=X.Y.Z-rc.1 packaging/smoking-pi upgrade`, which
+   pulls the published images instead of building. Keep
    that variable set for every command until the release: without it a
    clone means `dev` and builds. Start the 24-hour stability clock.
 5. **Anything found** is fixed through a normal PR; tag `vX.Y.Z-rc.2` on

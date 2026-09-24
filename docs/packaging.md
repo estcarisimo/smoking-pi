@@ -298,7 +298,8 @@ workflow refuses a tag whose version differs from `CITATION.cff` (the
 package and `smoking-pi version` report that file, so a mismatch would make
 a packaged install pull nothing). A candidate tag `vX.Y.Z-rc.N` runs the
 whole pipeline and publishes `:X.Y.Z-rc.N` images and a `X.Y.Z~rc.N`
-package on a GitHub pre-release — never `latest`, never `/apt` — so the
+package (the asset is `smoking-pi_X.Y.Z.rc.N_all.deb`: GitHub turns `~`
+into `.`) on a GitHub pre-release — never `latest`, never `/apt` — so the
 Raspberry Pi acceptance runs on the exact artifacts
 ([Release acceptance](release-acceptance.md#releasing-step-by-step)). A
 `test-*` git tag on any branch runs the same pipeline for a throwaway image

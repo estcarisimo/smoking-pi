@@ -253,6 +253,40 @@ has_service() {
     compose config --services 2>/dev/null | grep -qx "$1"
 }
 
+remove_disabled() {
+    # `up --remove-orphans` removes containers of services the compose files
+    # no longer define. A service that IS defined but whose profile is off
+    # is not an orphan to Compose, so its container keeps running on
+    # whatever image it had: on the reference Pi, ai-insights stayed on :dev
+    # for days after an upgrade moved everything else to 2.13.0-rc.3,
+    # because the `ai` profile was off. Stop and remove the project's
+    # containers whose service is not enabled now. Volumes are kept.
+    local proj enabled
+    proj="$(project)" || proj=""
+    # Nothing to compare against is not "nothing is enabled": an empty list
+    # here would remove the whole stack.
+    enabled="$(compose config --services 2>/dev/null)" || enabled=""
+    if [ -z "$proj" ] || [ -z "$enabled" ]; then
+        echo "warning: Compose could not list the enabled services; containers of disabled profiles were not checked" >&2
+        return 0
+    fi
+    local listed svc name stale=()
+    if ! listed="$(docker ps -a --filter "label=com.docker.compose.project=$proj" \
+                       --format '{{.Label "com.docker.compose.service"}} {{.Names}}' 2>/dev/null)"; then
+        echo "warning: docker could not list the $proj containers; containers of disabled profiles were not checked" >&2
+        return 0
+    fi
+    while read -r svc name; do
+        [ -n "$name" ] || continue
+        # A `compose run` one-off of an enabled service carries its label: kept.
+        grep -Fqx "$svc" <<<"$enabled" || stale+=("$name")
+    done <<<"$listed"
+    [ "${#stale[@]}" -gt 0 ] || return 0
+    echo "Removing containers of services no enabled profile runs: ${stale[*]}"
+    docker stop "${stale[@]}" >/dev/null || true
+    docker rm "${stale[@]}" >/dev/null || echo "warning: could not remove ${stale[*]} (docker ps -a)" >&2
+}
+
 confirm_typed() {
     # A destructive step asks for the project name, not y/n: typing "pro"
     # is a decision, Enter on a default is a reflex.
@@ -655,6 +689,7 @@ config_apply() {
     if [ "$key" = COMPOSE_PROFILES ]; then
         echo "Applying: the profiles decide which services run, so the whole stack."
         compose up -d --remove-orphans
+        remove_disabled
         return
     fi
     # Only services the recorded profiles enable: naming a service on
@@ -1285,6 +1320,7 @@ cmd_upgrade() {
     fi
     # Only the services whose image or config changed are recreated.
     compose up -d --remove-orphans
+    remove_disabled
     # An `if`, not `[ ] &&`: as the function's last statement a false test
     # would become its exit status, and --skip-doctor would "fail".
     if [ "$doctor" = 1 ]; then run_doctor --live; fi
@@ -1479,7 +1515,7 @@ case "${1:-}" in
     config) shift; cmd_config "$@" ;;
     links) shift; cmd_links "$@" ;;
     alerts) shift; cmd_alerts "$@" ;;
-    up) shift; compose up -d "$@" ;;
+    up) shift; compose up -d "$@"; remove_disabled ;;
     down) shift; compose down "$@" ;;
     restart) shift; compose restart "$@" ;;
     status) shift; compose ps "$@" ;;
