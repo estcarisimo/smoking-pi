@@ -131,6 +131,21 @@ Every InfluxDB dashboard has an **Uplink changed** annotation built from
 the `previous` points: a vertical marker reading *Uplink wlan0 → eth0
 (wired)*. It can be switched off from the dashboard's annotation toggles.
 
+The same change is said everywhere else, in the same words:
+
+- **The alert's verdict**, when the change was in the hour before it: *"Also:
+  this host's uplink moved from wlan0 to eth0 (wired) at 14:02, so the
+  measurements before and after crossed different links."*
+  ([The verdict](alerting.md#the-verdict-is-it-me-or-the-internet))
+- **The daily digest**, under *Local link*, and the AI report's prompt.
+- **The MCP server:** `system_status` has an `uplink` block with the last
+  change within a week, and `get_loss_events` has `uplink_changes` when one
+  falls in its window.
+
+All of them read the change points through
+`common/aggregates.uplink_changes_flux`. A quiet uplink adds nothing to any of
+them.
+
 `smoking-pi doctor --live` names the standby too, when there is one:
 `measuring over eth0 (wired, IPv4); wlan0 also has a default route, at a
 higher metric, and takes over if eth0 goes down`. Only IPv4 standbys are

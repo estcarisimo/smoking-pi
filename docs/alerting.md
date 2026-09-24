@@ -244,10 +244,12 @@ raises. `amazon: mean loss 22.4% over 15m` tells you something happened;
 `🌐 Not you — 12 of 16 destinations affected but your local link is clean`
 tells you what to do about it.
 
-It is deterministic, and it costs **no extra queries**. Everything it needs is
-already fetched by the rules and was previously thrown away: the mean-loss row
-for every target (breadth), the CPE microcut counts (the local link), and
-exporter liveness. That matters on a Pi that has already hit its thermal limit.
+It is deterministic and cheap. Most of what it needs is already fetched by
+the rules: the mean-loss row for every target (breadth), the CPE microcut
+counts (the local link), and exporter liveness. On top of those come four
+small aggregates over `wifi_link` and one query for the last hour's uplink
+changes (`host_uplink`), which returns nothing on a quiet day. That matters on
+a Pi that has already hit its thermal limit.
 
 Scopes, in precedence order — the first match wins:
 
@@ -262,6 +264,15 @@ Scopes, in precedence order — the first match wins:
 | `dns` | Every impaired target is a resolver |
 | `remote_target` | One or two impaired, peers in the same category fine |
 | `unclear` | States the numbers and claims nothing |
+
+**An uplink change in the last hour is named, whatever the scope.** When
+the host's default route moved in the hour before the alert (a cable
+plugged in, Wi-Fi back after a drop, the route lost), the line gets one more
+sentence, e.g. *"Also: this host's uplink moved from wlan0 to eth0 (wired) at
+14:02, so the measurements before and after crossed different links."* With
+several changes it names the newest and counts the rest. The scope itself
+does not change: the change explains a step, not whether the network is
+broken. See [When the uplink changes](wifi.md#when-the-uplink-changes).
 
 Three deliberate properties:
 
@@ -366,6 +377,11 @@ On a host whose uplink is Wi-Fi, a *Local link* section carries one line —
 disconnect.` — green, yellow (any drop, or a minimum below −75 dBm) or red
 (three or more drops). A wired host has no such section. The AI report's
 prompt carries the same block.
+
+On a day the uplink changed, the *Local link* section also lists the
+changes (the newest three), e.g. `🟡 This host's uplink moved from wlan0 to
+eth0 (wired) at 14:02.`, on a wired host too. The AI report's prompt lists
+every change in the window.
 
 With the `ai` profile enabled, `reports_watcher` also delivers LLM-written
 reports. Both paths then run; they are independent.

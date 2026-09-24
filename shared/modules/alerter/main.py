@@ -149,6 +149,7 @@ def run_iteration() -> None:
         context["micro_rows"],
         records=current.get("incidents", {}),
         wifi_rows=context.get("wifi_rows"),
+        uplink_changes=context.get("uplink_changes"),
         mean_window=evaluator._format_window(context["windows"]["mean"]),
     )
     actions = state.reconcile(

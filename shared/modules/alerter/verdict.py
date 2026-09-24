@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 
+from common import aggregates
 from evaluator import DEFAULT_MICROCUT_BURST_N, _is_ipv6_target
 
 log = logging.getLogger("alerter.verdict")
@@ -172,12 +173,16 @@ def classify(
     now: float | None = None,
     wifi_rows: dict | None = None,
     mean_window: str = "15m",
+    uplink_changes: list[dict] | None = None,
 ) -> dict:
     """Return ``{scope, line, affected, total, cpe_cutting, wifi, evidence}``.
 
     Pure: rows in, verdict out, no network and no clock unless one is given.
     ``mean_window`` names the span ``mean_rows`` cover: 15m on the default
     300 s step, longer when a slower probe stretched it.
+    ``uplink_changes`` (aggregates.parse_uplink_changes, the last hour): the
+    newest is added to the line whatever the scope, because every
+    measurement on either side of it crossed a different link.
     """
     import time
 
@@ -221,7 +226,15 @@ def classify(
         "share_pct": round(share, 1),
         "cpe_cutting": cutting,
         "wifi": wifi,
+        "uplink_changes": list(uplink_changes or []),
     }
+    note = ""
+    if uplink_changes:
+        latest = uplink_changes[-1]
+        more = len(uplink_changes) - 1
+        note = (" Also: " + aggregates.describe_uplink_change(latest)
+                + (f" ({more} more change{'s' if more != 1 else ''} this hour)" if more else "")
+                + ", so the measurements before and after crossed different links.")
     # Logged every iteration: a wrong verdict must be diagnosable from
     # `docker logs` alone, without reproducing the moment it was made.
     log.info(
@@ -235,7 +248,7 @@ def classify(
     def _out(scope: str, line: str) -> dict:
         return {
             "scope": scope,
-            "line": line,
+            "line": line + note,
             "affected": affected,
             "total": total,
             "cpe_cutting": cutting,

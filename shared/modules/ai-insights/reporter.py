@@ -95,6 +95,12 @@ max={{ data.wifi.max_dbm }}dBm over {{ data.wifi.samples }} samples; \
 bitrate={{ data.wifi.tx_bitrate_mbps|default('n/a') }}Mbit/s; \
 disconnects={{ data.wifi.disconnects }}; roams={{ data.wifi.roams }}
 {% endif %}
+{% if data.uplink and data.uplink.changes -%}
+Uplink changes (every measurement before and after a change crossed a different link; a latency or loss step at one of these times is the path changing, not the ISP):
+{% for c in data.uplink.changes -%}
+- {{ c.time }}: {{ c.previous }} -> {{ c.interface or 'no default route' }}{% if c.interface %} ({{ c.kind }}){% endif %}
+{% endfor %}
+{%- endif %}
 """
 )
 

@@ -149,3 +149,21 @@ def test_cap_resets_on_new_day(monkeypatch, reports_dir):
         json.dumps({"date": "2000-01-01", "count": 99})
     )
     assert reporter._daily_cap_reached() is False
+
+
+def test_render_summary_lists_uplink_changes():
+    data = {**SAMPLE_DATA, "uplink": {"current": None, "changes": [
+        {"time": "2026-09-24T13:02:00+00:00", "previous": "wlan0",
+         "interface": "eth0", "kind": "wired"},
+        {"time": "2026-09-24T15:00:00+00:00", "previous": "eth0",
+         "interface": "", "kind": "none"},
+    ]}}
+    text = reporter.render_summary(data)
+    assert "Uplink changes" in text
+    assert "- 2026-09-24T13:02:00+00:00: wlan0 -> eth0 (wired)" in text
+    assert "- 2026-09-24T15:00:00+00:00: eth0 -> no default route" in text
+
+
+def test_render_summary_omits_a_quiet_uplink():
+    for uplink in ({}, {"current": {"interface": "wlan0"}, "changes": []}):
+        assert "Uplink changes" not in reporter.render_summary({**SAMPLE_DATA, "uplink": uplink})
