@@ -1267,13 +1267,14 @@ def test_latency_stats_unknown_target_names_the_real_ones(monkeypatch, api):
     assert result["error"] == "No monitoring target named 'Google_DNS' was found."
     assert result["available_targets"] == ["cloudflare_dns", "google_dns"]
     assert result["did_you_mean"] == ["google_dns"]
-    assert "get_microcut_stats" in result["hint"]
+    assert "hint" not in result
 
 
 def test_latency_stats_unknown_target_without_a_close_match(monkeypatch, api):
     _patch_influx(monkeypatch, lambda flux: [])
     result = server.get_latency_stats(target="CPE_Gateway", hours=6)
     assert "error" in result and "did_you_mean" not in result
+    assert "get_microcut_stats" in result["hint"]
 
 
 def test_latency_stats_known_target_without_data_keeps_the_note(

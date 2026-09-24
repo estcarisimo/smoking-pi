@@ -708,9 +708,10 @@ def _unknown_target_error(name: str) -> dict | None:
     result: dict[str, Any] = {
         "error": f"No monitoring target named '{name}' was found.",
         "available_targets": names,
-        "hint": "The CPE gateway is not a target: its latency and microcuts "
-                "come from get_microcut_stats.",
     }
+    if any(w in name.lower() for w in ("cpe", "gateway", "router")):
+        result["hint"] = ("The CPE gateway is not a target: its latency and "
+                          "microcuts come from get_microcut_stats.")
     close = [n for n in names if n.lower() == name.lower()] or (
         difflib.get_close_matches(name, names, n=3, cutoff=0.6)
     )
