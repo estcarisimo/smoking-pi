@@ -790,7 +790,7 @@ links_setup() {
     links_setup
     run "$CLI" links --lan 127.0.0.1
     [ "$status" -eq 2 ]
-    run "$CLI" links --lan http://x
+    run "$CLI" links --lan ftp://x
     [ "$status" -eq 2 ]
     printf 'PUBLIC_BASE_HOST=10.0.0.2\nTUNNEL_BASE_HOST=https://t.example\n' > "$SMOKING_PI_ENV_FILE"
     run "$CLI" links --off
@@ -806,4 +806,24 @@ links_setup() {
     run "$CLI" links --lan auto
     [ "$status" -eq 1 ]
     [[ "$output" == *"Pro services"* ]]
+}
+
+
+@test "links refuses a forgotten value, an IPv6 literal and a path; takes a LAN proxy's https://host" {
+    links_setup
+    run "$CLI" links --lan --off
+    [ "$status" -eq 2 ]
+    grep -qx 'PUBLIC_BASE_HOST=' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" links --tunnel --off
+    [ "$status" -eq 2 ]
+    run "$CLI" links --lan fe80::1
+    [ "$status" -eq 2 ]
+    run "$CLI" links --lan https://pi.lan/grafana
+    [ "$status" -eq 2 ]
+    run "$CLI" links --lan https://pi.lan
+    [ "$status" -eq 0 ]
+    grep -qx 'PUBLIC_BASE_HOST=https://pi.lan' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"at home:       https://pi.lan"* ]]
+    run "$CLI" links --lan http://localhost
+    [ "$status" -eq 2 ]
 }

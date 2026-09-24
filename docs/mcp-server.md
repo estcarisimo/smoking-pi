@@ -177,8 +177,9 @@ sudo smoking-pi links                                         # show where links
 
 `--lan auto` takes the address the local network sees: the source of the
 default route, not the address an SSH session came in on, which can be a
-tailnet address that a phone on the Wi-Fi can't open. `--tunnel` refuses
-an address without its scheme. The alerter and the MCP server are
+tailnet address that a phone on the Wi-Fi can't open. `--lan https://host` suits
+a reverse proxy on the LAN, where no port is added. `--tunnel` refuses an
+address without its scheme. The alerter and the MCP server are
 recreated to pick it up. By hand, set one variable for the common case:
 
 ```bash

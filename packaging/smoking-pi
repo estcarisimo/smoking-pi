@@ -681,11 +681,15 @@ lan_address() {
 }
 
 cmd_links() {
-    local lan="" tunnel="" off=0 changed=0
+    local lan="" tunnel="" off=0 changed_lan=0 changed_tunnel=0
     while [ $# -gt 0 ]; do
         case "$1" in
-            --lan) lan="${2:-}"; shift 2 || { echo "--lan needs auto or an address" >&2; return 2; } ;;
-            --tunnel) tunnel="${2:-}"; shift 2 || { echo "--tunnel needs a URL" >&2; return 2; } ;;
+            # A value that looks like an option is a forgotten value:
+            # `--lan --off` would otherwise store "--off" as the address.
+            --lan) case "${2:-}" in ""|-*) echo "--lan needs auto or an address" >&2; return 2 ;; esac
+                   lan="$2"; shift 2 ;;
+            --tunnel) case "${2:-}" in ""|-*) echo "--tunnel needs a URL" >&2; return 2 ;; esac
+                      tunnel="$2"; shift 2 ;;
             --off) off=1; shift ;;
             -h|--help) usage; return 0 ;;
             *) echo "unknown option $1" >&2; return 2 ;;
@@ -697,7 +701,8 @@ cmd_links() {
         return 1
     fi
     if [ "$off" = 1 ]; then
-        env_set PUBLIC_BASE_HOST ""; env_set TUNNEL_BASE_HOST ""; changed=1
+        env_set PUBLIC_BASE_HOST ""; env_set TUNNEL_BASE_HOST ""
+        changed_lan=1; changed_tunnel=1
         echo "Links off: alerts and answers carry no links (none beats a broken one)."
     fi
     if [ -n "$lan" ]; then
@@ -706,10 +711,17 @@ cmd_links() {
             [ -n "$lan" ] || { echo "No IPv4 default route here; give the address: --lan 192.168.1.20" >&2; return 1; }
         fi
         case "$lan" in
-            *://*|*/*) echo "--lan takes a bare host or address; the ports (:3000, :8080) are added." >&2; return 2 ;;
-            127.*|localhost) echo "$lan only opens on this machine; a link in an alert is read on a phone." >&2; return 2 ;;
+            # scheme://host is what a reverse proxy on the LAN needs: no
+            # port is added then (common/links.py). A path is not a base.
+            http://*/*|https://*/*) echo "--lan takes a host or scheme://host, without a path." >&2; return 2 ;;
+            http://*|https://*) ;;
+            *://*|*/*) echo "--lan takes a host, an address, or http(s)://host." >&2; return 2 ;;
+            *:*:*|\[*) echo "Give a hostname or an IPv4 address: an IPv6 literal would lose its port in the link." >&2; return 2 ;;
         esac
-        env_set PUBLIC_BASE_HOST "$lan"; changed=1
+        case "${lan#*://}" in
+            127.*|localhost|localhost:*) echo "$lan only opens on this machine; a link in an alert is read on a phone." >&2; return 2 ;;
+        esac
+        env_set PUBLIC_BASE_HOST "$lan"; changed_lan=1
     fi
     if [ -n "$tunnel" ]; then
         # A bare host gets http:// and the service port appended: right for a
@@ -719,7 +731,7 @@ cmd_links() {
             https://*|http://*) ;;
             *) echo "Include the scheme: --tunnel https://$tunnel (a bare host becomes http://$tunnel:3000, a dead link)." >&2; return 2 ;;
         esac
-        env_set TUNNEL_BASE_HOST "${tunnel%/}"; changed=1
+        env_set TUNNEL_BASE_HOST "${tunnel%/}"; changed_tunnel=1
     fi
     local pub tun
     pub="$(env_get PUBLIC_BASE_HOST)"; tun="$(env_get TUNNEL_BASE_HOST)"
@@ -740,7 +752,10 @@ cmd_links() {
     if [ -n "$(env_get GRAFANA_PUBLIC_URL)$(env_get WEB_ADMIN_PUBLIC_URL)$(env_get GRAFANA_TUNNEL_URL)$(env_get WEB_ADMIN_TUNNEL_URL)" ]; then
         echo "  (per-service URLs are set too, and win over these: smoking-pi config list)"
     fi
-    if [ "$changed" = 1 ]; then config_apply PUBLIC_BASE_HOST; fi
+    # Each changed key applies its own readers (the same two services today,
+    # which is the compose file's business, not this function's).
+    if [ "$changed_lan" = 1 ]; then config_apply PUBLIC_BASE_HOST; fi
+    if [ "$changed_tunnel" = 1 ] && [ "$changed_lan" = 0 ]; then config_apply TUNNEL_BASE_HOST; fi
 }
 
 cmd_config() {
