@@ -757,3 +757,20 @@ def test_a_repo_without_the_doc_at_all_is_skipped(repo):
 def test_a_repo_without_an_mcp_server_is_skipped(repo):
     (repo.root / "shared/modules/mcp-server/server.py").unlink()
     assert run(repo)["mcp-tools-documented"].status is Status.SKIP
+
+
+def test_pivoted_fields_are_columns_not_tag_filters():
+    """After pivot(columnKey: ["_field"]), r.loss reads the loss field --
+    the dashboards' pings-aware "unreachable" overlay does exactly that."""
+    from doctor import sources
+
+    pivoted = (
+        'from(bucket:"smokeping") |> filter(fn:(r)=> r.target == "x" and '
+        '(r._field == "loss" or r._field == "pings")) '
+        '|> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value") '
+        '|> map(fn:(r)=> ({ r with _value: r.loss * float(v: r.pings) }))'
+    )
+    assert sources.tag_refs_in(pivoted) == {"target"}
+    # Without the pivot, r.loss is a tag filter that can never match.
+    plain = 'from(bucket:"s") |> filter(fn:(r)=> r._field == "loss" and r.loss > 0)'
+    assert sources.tag_refs_in(plain) == {"loss"}

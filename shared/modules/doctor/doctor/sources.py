@@ -416,11 +416,24 @@ def measurements_in(query: str) -> set[str]:
     return set(_MEASUREMENT_RE.findall(query))
 
 
+_FIELD_EQ_RE = re.compile(r'r\._field\s*==\s*"([^"]+)"')
+_PIVOT_FIELDS_RE = re.compile(r'pivot\([^)]*columnKey:\s*\[\s*"_field"\s*\]')
+
+
 def tag_refs_in(query: str) -> set[str]:
+    """``r.<name>`` references that must be tags.
+
+    After ``pivot(columnKey: ["_field"])`` the fields the query selected
+    (``r._field == "loss"``) are columns too, and ``r.loss`` reads one of
+    them -- a field, not a tag filter that can never match.
+    """
+    pivoted = (
+        set(_FIELD_EQ_RE.findall(query)) if _PIVOT_FIELDS_RE.search(query) else set()
+    )
     return {
         name
         for name in _TAG_REF_RE.findall(query)
-        if name not in FLUX_BUILTIN_COLUMNS
+        if name not in FLUX_BUILTIN_COLUMNS and name not in pivoted
     }
 
 

@@ -48,6 +48,16 @@ version gets a matching GitHub release and git tag.
 
 ### Changed
 
+- **Grafana's "unreachable" overlay counts pings lost, too.** Five
+  dashboards marked a 15-minute window when its mean loss reached 5%. On
+  the shipped step that is 1.5 lost pings of 30, and on any other step it
+  means something else. A window is now marked when its points lost 1.5
+  pings' worth between them (loss × `pings`, with 10 or 5 when a point
+  predates the field). On the reference Pi over seven days, ICMP went
+  from 387 marked windows to 383 and DNS from 46 to 45. HTTP (194 → 142)
+  and TCP (78 → 62) lose their single-lost-fetch marks, the same rule as
+  the loss events. The doctor now reads a pivoted field (`r.loss` after
+  `pivot`) as a column, not a tag filter.
 - **The analysis reads each target's real probe cycle.** The alerter and
   the MCP server assumed every target is measured every 300 s with 10
   pings. That holds for the shipped probes, but on a probe with a

@@ -509,6 +509,14 @@ What follows from a target's cadence:
   target's several points in one bucket are averaged, so one lost point of
   five does not make it "lost" for that cycle.
 
+The Grafana panels' red **unreachable** overlay follows the same idea:
+a 15-minute window is marked when it lost 1.5 pings' worth in total
+(the sum of loss × pings over the window). On the shipped 300 s step
+that is exactly the old "15-minute mean at 5% or more" (5% of 3 × 10
+pings), and it stays one lost ping short of a mark whatever the step.
+Points written before the exporter recorded `pings` count as 10 for
+`latency` and 5 for DNS, HTTP and TCP.
+
 On the shipped probes, all of this is exactly what it was.
 
 ## Flap damping, and why the cooldown alone is not enough
