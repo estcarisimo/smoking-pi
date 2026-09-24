@@ -40,6 +40,7 @@ has no wireless interface.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import re
@@ -97,9 +98,10 @@ def find_interfaces(sys_net: Path = SYS_NET) -> list[str]:
     return sorted(p.name for p in sys_net.iterdir() if (p / "phy80211").exists())
 
 
-def default_route_interface(proc_route: Path = PROC_ROUTE) -> str | None:
-    """The interface carrying the IPv4 default route, from /proc/net/route
-    (destination 00000000), so there is no dependency on iproute2.
+def default_route4(proc_route: Path = PROC_ROUTE) -> tuple[str, str | None] | None:
+    """The IPv4 default route as (interface, gateway), from /proc/net/route
+    (destination 00000000), so there is no dependency on iproute2. The
+    gateway is None for a route installed on-link (wg-quick's, a PPP peer's).
 
     With Ethernet and Wi-Fi both up there are two default routes and only the
     lowest metric is used, so the metric is compared rather than the file's
@@ -115,7 +117,7 @@ def default_route_interface(proc_route: Path = PROC_ROUTE) -> str | None:
         lines = proc_route.read_text().splitlines()[1:]
     except OSError:
         return None
-    best: tuple[int, str] | None = None
+    best: tuple[int, str, str | None] | None = None
     for line in lines:
         parts = line.split()
         if len(parts) < 2 or parts[1] != "00000000":
@@ -137,25 +139,41 @@ def default_route_interface(proc_route: Path = PROC_ROUTE) -> str | None:
         except ValueError:
             metric = 0
         if best is None or metric < best[0]:
-            best = (metric, parts[0])
-    return best[1] if best else None
+            best = (metric, parts[0], _gateway4(parts[2]) if len(parts) >= 3 else None)
+    return (best[1], best[2]) if best else None
 
 
-def default_route_interface6(proc_route6: Path = PROC_IPV6_ROUTE) -> str | None:
-    """The interface carrying the IPv6 default route, from /proc/net/ipv6_route.
+def _gateway4(field: str) -> str | None:
+    """/proc/net/route prints the gateway as host-order (little-endian) hex."""
+    try:
+        value = int(field, 16)
+    except ValueError:
+        return None
+    return str(ipaddress.IPv4Address(value.to_bytes(4, "little"))) if value else None
+
+
+def default_route_interface(proc_route: Path = PROC_ROUTE) -> str | None:
+    """The interface carrying the IPv4 default route (default_route4)."""
+    route = default_route4(proc_route)
+    return route[0] if route else None
+
+
+def default_route6(proc_route6: Path = PROC_IPV6_ROUTE) -> tuple[str, str | None] | None:
+    """The IPv6 default route as (interface, next hop), from /proc/net/ipv6_route.
 
     A v6-only host has no row in /proc/net/route at all, so without this the
     uplink reads as unknown and every Wi-Fi sample is tagged `uplink=False` —
     the verdict requires the uplink, so it would never say "it's your Wi-Fi"
     on such a host. ::/0 also appears as two unreachable entries on `lo` with
     metric ffffffff, which is why the flags are checked rather than just the
-    destination: a real default route is up and has a gateway.
+    destination: a real default route is up and has a gateway. The next hop
+    is normally link-local (fe80::/10), learned from router advertisements.
     """
     try:
         lines = proc_route6.read_text().splitlines()
     except OSError:
         return None
-    best: tuple[int, str] | None = None
+    best: tuple[int, str, str | None] | None = None
     for line in lines:
         parts = line.split()
         # dest, prefixlen, src, srclen, nexthop, metric, refcnt, use, flags, iface
@@ -168,8 +186,24 @@ def default_route_interface6(proc_route6: Path = PROC_IPV6_ROUTE) -> str | None:
         if not flags & RTF_UP or flags & RTF_REJECT:
             continue
         if best is None or metric < best[0]:
-            best = (metric, parts[9])
-    return best[1] if best else None
+            best = (metric, parts[9], _gateway6(parts[4]))
+    return (best[1], best[2]) if best else None
+
+
+def _gateway6(field: str) -> str | None:
+    try:
+        raw = bytes.fromhex(field)
+    except ValueError:
+        return None
+    if len(raw) != 16 or not any(raw):
+        return None
+    return str(ipaddress.IPv6Address(raw))
+
+
+def default_route_interface6(proc_route6: Path = PROC_IPV6_ROUTE) -> str | None:
+    """The interface carrying the IPv6 default route (default_route6)."""
+    route = default_route6(proc_route6)
+    return route[0] if route else None
 
 
 def uplink_interface(proc_route: Path = PROC_ROUTE,

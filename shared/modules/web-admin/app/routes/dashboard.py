@@ -2,7 +2,7 @@
 Dashboard route - Main overview page
 """
 
-from flask import Blueprint, render_template, current_app
+from flask import Blueprint, render_template, current_app, url_for
 from app.services.config_api import ConfigAPIGateway
 
 dashboard_bp = Blueprint('dashboard', __name__)
@@ -59,6 +59,31 @@ def summarize_measurements(body):
     }
 
 
+def summarize_connection(body):
+    """What the dashboard's "Your connection" card needs from /recommendations.
+
+    Each suggestion becomes a link to the add form, pre-filled: accepting
+    one goes through the same form and validation as any other target.
+    """
+    if not body.get('available'):
+        return {'available': False, 'reason': body.get('reason', 'unknown')}
+    items = []
+    for item in body.get('items', []):
+        suggest = item.get('suggest')
+        items.append({
+            **item,
+            'add_url': url_for('targets.add_target', **suggest) if suggest else None,
+        })
+    uplink = body.get('uplink') or {}
+    return {
+        'available': True,
+        'interface': uplink.get('interface'),
+        'wireless': bool(uplink.get('wireless')),
+        'entries': items,
+        'suggested': body.get('suggested', 0),
+    }
+
+
 def calculate_bandwidth(targets_data):
     """Calculate estimated bandwidth usage"""
     total_targets = sum(
@@ -110,6 +135,7 @@ def index():
 
     context = {
         'measurements': summarize_measurements(config_api.get_measurements()),
+        'connection': summarize_connection(config_api.get_recommendations()),
         'using_database': using_database,
         'smokeping_running': smokeping_running,
         'target_counts': target_counts,

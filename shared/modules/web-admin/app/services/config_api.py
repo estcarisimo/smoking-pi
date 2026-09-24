@@ -269,6 +269,13 @@ class ConfigManagerClient:
             return response.json()
         raise RuntimeError(f"Failed to get measurements: {response.status_code}")
 
+    def get_recommendations(self) -> Dict[str, Any]:
+        """The host's uplink, router, resolvers and CPE (config-manager /recommendations)"""
+        response = self._make_request('GET', '/recommendations')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get recommendations: {response.status_code}")
+
     def get_categories(self) -> Dict[str, Any]:
         """Get all target categories"""
         try:
@@ -419,6 +426,18 @@ class ConfigAPIGateway:
             return self.client.get_measurements()
         except Exception:
             logger.error("Failed to get measurement freshness", exc_info=True)
+            return {
+                'available': False,
+                'reason': 'config-manager unreachable; see web-admin log',
+            }
+
+    def get_recommendations(self) -> Dict[str, Any]:
+        """What this host's connection suggests measuring. Never raises: the
+        dashboard renders without it."""
+        try:
+            return self.client.get_recommendations()
+        except Exception:
+            logger.error("Failed to get connection recommendations", exc_info=True)
             return {
                 'available': False,
                 'reason': 'config-manager unreachable; see web-admin log',

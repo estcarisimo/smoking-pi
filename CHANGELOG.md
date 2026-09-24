@@ -9,6 +9,34 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The dashboard suggests what your own network should be measured
+  against.** Every install seeded the same targets, and the one address
+  that separates "my Wi-Fi" from "my ISP", your router, was never among
+  them: it differs in every home. On the reference Pi, the router was not
+  measured at all. On Pro, a **Your connection** card now reads the host's network
+  from inside SmokePing's namespace: the uplink interface and whether it
+  is Wi-Fi (stage A had left this out), the default gateway, the
+  resolvers the host was given, and the CPE that discovery found. For
+  each one it says whether it is measured and under which name. What is
+  not measured has an **Add…** button that opens the normal add form,
+  pre-filled, so a suggestion goes through the same validation as
+  anything typed, and nothing is added without you. Local resolvers
+  (`127.0.0.53`, Tailscale) and link-local IPv6 routers are explained,
+  not suggested. On Standard, whose SmokePing is on a Docker network, the
+  card says it cannot see the host, instead of calling Docker's gateway
+  your router. The gateway comes from the same route parsing that picks
+  the Wi-Fi verdict's uplink (`wifi_link.default_route4/6`), so the two
+  cannot disagree. `GET /recommendations` on the config API.
+
+### Removed
+
+- **The `static:` block of `sources.yaml`.** It listed websites, IPv6
+  sites and DNS resolvers that nothing read: the seeded targets come from
+  `targets.yaml`, and what depends on the host is now suggested by the
+  card above. Existing installs keep their copy; it stays unread.
+
 ## [2.13.0] — 2026-09-24
 
 Is it measuring, and can you tell? Plus a release process that proves
