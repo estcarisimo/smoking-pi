@@ -3,7 +3,13 @@
 {% block title %}Dashboard - Smoking Pi{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Smoking Pi Dashboard</h1>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Smoking Pi Dashboard</h1>
+    <form method="post" action="{{ url_for('welcome.again') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-signpost"></i> Welcome tour</button>
+    </form>
+</div>
 
 <!-- Status Cards -->
 <div class="row mb-4">

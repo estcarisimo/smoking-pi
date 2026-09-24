@@ -1011,6 +1011,57 @@ def connection_recommendations():
         return error_response(500, "Failed to read the host's connection", e)
 
 
+# The web admin's welcome tour (first-run stage C) shows itself until it is
+# finished or skipped once. A file beside the generated config, like the
+# IPv6 status: it is state of this install, and it must survive a restart
+# of either service. Deleting it brings the tour back.
+FIRST_RUN_OUTCOMES = ('done', 'skipped')
+
+
+def _first_run_file() -> Path:
+    return OUTPUT_DIR / '.first-run.json'
+
+
+@app.route('/first-run', methods=['GET'])
+@require_api_token
+def get_first_run():
+    """Has the welcome tour been finished or skipped on this install?"""
+    try:
+        state = json.loads(_first_run_file().read_text())
+    except FileNotFoundError:
+        return jsonify({'completed': False, 'outcome': None, 'at': None})
+    except (OSError, ValueError) as e:
+        # Unreadable is not "never seen": a corrupt file must not trap
+        # every login in the tour.
+        logger.warning(f"Unreadable first-run marker: {e}")
+        return jsonify({'completed': True, 'outcome': 'unknown', 'at': None})
+    outcome = state.get('outcome') if isinstance(state, dict) else None
+    return jsonify({'completed': True,
+                    'outcome': outcome if outcome in FIRST_RUN_OUTCOMES else 'unknown',
+                    'at': state.get('at') if isinstance(state, dict) else None})
+
+
+@app.route('/first-run', methods=['POST'])
+@require_api_token
+def set_first_run():
+    """Record the tour's outcome ('done' or 'skipped'), or 'reset' to show it again."""
+    body = request.get_json(silent=True) or {}
+    outcome = body.get('outcome')
+    try:
+        if outcome == 'reset':
+            _first_run_file().unlink(missing_ok=True)
+            return jsonify({'completed': False, 'outcome': None, 'at': None})
+        if outcome not in FIRST_RUN_OUTCOMES:
+            return jsonify({'error': "outcome must be 'done', 'skipped' or 'reset'"}), 400
+        state = {'outcome': outcome, 'at': datetime.now().isoformat(timespec='seconds')}
+        # Finished before the first config generation made the directory.
+        _first_run_file().parent.mkdir(parents=True, exist_ok=True)
+        _first_run_file().write_text(json.dumps(state))
+        return jsonify({'completed': True, **state})
+    except OSError as e:
+        return error_response(500, "Failed to record the welcome tour", e)
+
+
 @app.route('/generate', methods=['POST'])
 @require_api_token
 def generate_config():

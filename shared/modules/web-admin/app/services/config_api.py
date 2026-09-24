@@ -269,6 +269,20 @@ class ConfigManagerClient:
             return response.json()
         raise RuntimeError(f"Failed to get measurements: {response.status_code}")
 
+    def get_first_run(self) -> Dict[str, Any]:
+        """Has the welcome tour been finished or skipped (config-manager /first-run)"""
+        response = self._make_request('GET', '/first-run')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get first-run state: {response.status_code}")
+
+    def set_first_run(self, outcome: str) -> Dict[str, Any]:
+        """Record 'done', 'skipped' or 'reset' for the welcome tour"""
+        response = self._make_request('POST', '/first-run', json={'outcome': outcome})
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to record first-run state: {response.status_code}")
+
     def get_recommendations(self) -> Dict[str, Any]:
         """The host's uplink, router, resolvers and CPE (config-manager /recommendations)"""
         response = self._make_request('GET', '/recommendations')
@@ -430,6 +444,19 @@ class ConfigAPIGateway:
                 'available': False,
                 'reason': 'config-manager unreachable; see web-admin log',
             }
+
+    def tour_pending(self) -> bool:
+        """Should the dashboard send this login to the welcome tour? Only when
+        config-manager says so: if it cannot be asked, the answer is no, so
+        an outage never traps every login in a tour."""
+        try:
+            return not self.client.get_first_run().get('completed', True)
+        except Exception:
+            logger.warning("Could not read the first-run state", exc_info=True)
+            return False
+
+    def set_first_run(self, outcome: str) -> Dict[str, Any]:
+        return self.client.set_first_run(outcome)
 
     def get_recommendations(self) -> Dict[str, Any]:
         """What this host's connection suggests measuring. Never raises: the

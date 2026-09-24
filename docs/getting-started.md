@@ -335,6 +335,16 @@ config and reloads it. The first hop is not in that list because nobody
 has to add it: CPE discovery traceroutes out every hour, finds the first
 responsive hop and injects it as a target of its own.
 
+**The first login is a short tour.** On Standard and Pro, the web admin
+opens on a three-step welcome the first time: whether it is measuring,
+what your own network suggests adding (below), and the targets the
+install set up, each with a switch to pause the ones you do not care
+about. The install still seeds its targets, so it measures from the first
+minute; the tour shows them rather than replacing them, and nothing is
+added or paused unless you choose it. *Finish* or *Skip for now* and it
+stays out of the way; the dashboard's **Welcome tour** button brings it
+back.
+
 **Start with what your own network suggests.** The seeded targets are the
 same on every install; your router and the resolvers your network hands
 out are not. On Pro, where SmokePing shares the host's network, the web
