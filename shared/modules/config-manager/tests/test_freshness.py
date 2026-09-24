@@ -1,6 +1,7 @@
 """Is SmokePing measuring? freshness.py, the reload that must tell the truth,
 and GET /measurements against a fake Docker client."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -213,10 +214,12 @@ class FakeContainer:
         self.replies = replies  # {argv[0]: (exit_code, bytes)}
         self.calls = []
 
-    def exec_run(self, cmd):
+    def exec_run(self, cmd, demux=False):
         self.calls.append(cmd)
         code, out = self.replies.get(cmd[0], (0, b""))
-        return SimpleNamespace(exit_code=code, output=out)
+        if callable(out):
+            out = out(cmd)
+        return SimpleNamespace(exit_code=code, output=(out, b"") if demux else out)
 
 
 @pytest.fixture()
@@ -306,3 +309,71 @@ def test_measurements_without_generated_targets(client, monkeypatch, tmp_path):
 def test_measurements_requires_the_token(client, monkeypatch):
     monkeypatch.setenv("CONFIG_API_TOKEN", "sekrit")
     assert client.get("/measurements").status_code == 401
+
+
+# --- the RRD guard: what SmokePing will require of each RRD -----------------
+
+DATABASE = """*** Database ***
+
+step     = 300
+pings    = 20
+"""
+
+
+def test_expected_cadence_follows_probe_inheritance_and_database_defaults():
+    got = freshness.expected_cadence(TARGETS, CPE, PROBES, DATABASE)
+    assert got == {
+        "websites/Google.rrd": {"step": 300, "pings": 10},
+        "websites/NYT.rrd": {"step": 300, "pings": 10},
+        # DNS sets no pings: the Database section's 20.
+        "DNS_Resolvers/GoogleDNS.rrd": {"step": 60, "pings": 20},
+        # CurlHTTP2 sets its step; its pings come from the Database.
+        "HTTP/Example.rrd": {"step": 600, "pings": 20},
+        # The CPE targets are not in the database, and SmokePing loads them.
+        "CPE/CPE_IPv4.rrd": {"step": 300, "pings": 10},
+    }
+
+
+def test_database_defaults_fall_back_to_smokepings_own():
+    assert freshness.parse_database_defaults("") == (300, 20)
+    assert freshness.parse_database_defaults("step = 60\npings = 5\n") == (60, 5)
+
+
+def _generated(monkeypatch, tmp_path):
+    (tmp_path / "Targets").write_text(TARGETS)
+    (tmp_path / "Probes").write_text(PROBES)
+    monkeypatch.setattr(api_module, "OUTPUT_DIR", tmp_path)
+
+
+def test_the_guard_runs_before_every_reload_with_the_new_cadence(
+        fake_docker, monkeypatch, tmp_path):
+    _generated(monkeypatch, tmp_path)
+    report = {"checked": 5, "errors": [], "archived": [{
+        "rrd": "websites/Google.rrd", "had": {"step": 300, "pings": 20},
+        "wants": {"step": 300, "pings": 10},
+        "to": ".archive/S/websites/Google.rrd"}]}
+    replies = {
+        "cat": (0, lambda cmd: CPE.encode() if cmd[1].endswith("CPE_Targets")
+                else DATABASE.encode()),
+        "python3": (0, json.dumps(report).encode()),
+        "killall": (0, b""),
+    }
+    container = fake_docker(replies)
+    assert api_module.api._signal_smokeping_reload() is True
+    argv = [c for c in container.calls if c[0] == "python3"][0]
+    assert argv[1] == "/exporters/rrd_guard.py"
+    assert json.loads(argv[2])["expected"]["CPE/CPE_IPv4.rrd"] == {"step": 300, "pings": 10}
+    # Before the signal, never after it.
+    order = [c[0] for c in container.calls]
+    assert order.index("python3") < order.index("killall")
+    assert api_module.api.last_rrd_guard["ran"] is True
+    assert api_module.api.last_rrd_guard["archived"][0]["rrd"] == "websites/Google.rrd"
+
+
+def test_a_guard_that_cannot_run_does_not_stop_the_reload(
+        fake_docker, monkeypatch, tmp_path):
+    _generated(monkeypatch, tmp_path)
+    # An image without rrd_guard.py: python3 exits 2.
+    fake_docker({"python3": (2, b"can't open file"), "killall": (0, b"")})
+    assert api_module.api._signal_smokeping_reload() is True
+    assert api_module.api.last_rrd_guard == {"ran": False, "reason": "rrd_guard exit 2"}

@@ -22,6 +22,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 # SmokePing's own default, and the Database section's step on every edition.
 DEFAULT_STEP = 300
+# The Database section's pings: what a probe without its own `pings` sends.
+DEFAULT_PINGS = 20
 # One missed step is a slow fping round, not a problem; two is.
 GRACE_STEPS = 2
 GRACE_SECONDS = 60
@@ -92,9 +94,10 @@ def parse_targets(*texts: str) -> List[Expected]:
     return out
 
 
-def parse_probe_steps(probes_text: str, default: int = DEFAULT_STEP) -> Dict[str, int]:
-    """``step`` per probe name; a ``++`` sub-probe inherits its parent's."""
-    steps: Dict[str, int] = {}
+def parse_probe_var(probes_text: str, var: str, default: int) -> Dict[str, int]:
+    """An integer variable (``step``, ``pings``) per probe name; a ``++``
+    sub-probe inherits its parent's, and a parent the ``default``."""
+    values: Dict[str, int] = {}
     parent: Optional[str] = None
     current: Optional[str] = None
     for raw in probes_text.splitlines():
@@ -104,14 +107,44 @@ def parse_probe_steps(probes_text: str, default: int = DEFAULT_STEP) -> Dict[str
             current = m.group(2)
             if len(m.group(1)) == 1:
                 parent = current
-                steps[current] = default
+                values[current] = default
             else:
-                steps[current] = steps.get(parent or "", default)
+                values[current] = values.get(parent or "", default)
             continue
         k = _KEY.match(line)
-        if k and k.group(1) == "step" and current is not None and k.group(2).isdigit():
-            steps[current] = int(k.group(2))
-    return steps
+        if k and k.group(1) == var and current is not None and k.group(2).isdigit():
+            values[current] = int(k.group(2))
+    return values
+
+
+def parse_probe_steps(probes_text: str, default: int = DEFAULT_STEP) -> Dict[str, int]:
+    """``step`` per probe name; a ``++`` sub-probe inherits its parent's."""
+    return parse_probe_var(probes_text, "step", default)
+
+
+def parse_database_defaults(database_text: str) -> Tuple[int, int]:
+    """``(step, pings)`` of the Database section, SmokePing's defaults for
+    every probe that does not set its own."""
+    found = {"step": DEFAULT_STEP, "pings": DEFAULT_PINGS}
+    for raw in database_text.splitlines():
+        k = _KEY.match(raw.strip())
+        if k and k.group(1) in found and k.group(2).isdigit():
+            found[k.group(1)] = int(k.group(2))
+    return found["step"], found["pings"]
+
+
+def expected_cadence(
+    targets_text: str, cpe_text: str, probes_text: str, database_text: str = ""
+) -> Dict[str, Dict[str, int]]:
+    """What SmokePing will require of each RRD it loads: ``{rrd: {step,
+    pings}}`` -- the map rrd_guard.py archives mismatches against."""
+    step, pings = parse_database_defaults(database_text)
+    steps = parse_probe_var(probes_text, "step", step)
+    counts = parse_probe_var(probes_text, "pings", pings)
+    return {
+        e.rrd: {"step": steps.get(e.probe, step), "pings": counts.get(e.probe, pings)}
+        for e in parse_targets(targets_text, cpe_text)
+    }
 
 
 def parse_mtimes(find_output: str) -> Dict[str, float]:

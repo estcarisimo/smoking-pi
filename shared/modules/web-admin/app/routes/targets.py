@@ -236,7 +236,18 @@ def _add_target_error_response(errors, name, hostname, title, target_type,
 # What the shipped probes.yaml sets; the form says this when config-manager
 # cannot be asked. DNS sends 5 queries, not 10 -- the form used to say 10.
 SHIPPED_CADENCE = {'FPing': (10, 300), 'FPing6': (10, 300), 'DNS': (5, 300)}
-CADENCE_UNITS = {'DNS': 'queries'}
+
+
+def probe_unit(name, module=None):
+    """What one "ping" of a probe is, in words: the add form and the Probes
+    page say the same thing about the same probe."""
+    if name == 'DNS':
+        return 'queries'
+    if module == 'Curl' or (name or '').startswith('Curl'):
+        return 'fetches'
+    if name == 'TCPPing':
+        return 'connections'
+    return 'pings'
 
 
 def describe_cadence(pings, step_seconds, unit='pings'):
@@ -261,7 +272,7 @@ def probe_cadence_text():
                 cadence[name] = (int(pings), int(step))
     except Exception as e:
         current_app.logger.warning(f"Failed to get probes: {e}")
-    return {name: describe_cadence(pings, step, CADENCE_UNITS.get(name, 'pings'))
+    return {name: describe_cadence(pings, step, probe_unit(name))
             for name, (pings, step) in cadence.items()}
 
 

@@ -31,6 +31,7 @@ from scripts import ipv6_check
 # Shared file lock / atomic write helpers
 from file_ops import get_config_lock, atomic_write_yaml
 import freshness
+import assistant
 import recommendations
 
 # Import database models and repositories
@@ -121,6 +122,9 @@ class ConfigManagerAPI:
         # process lifetime.
         self._db_mode_cache = None  # tuple(bool, checked_at)
         self._db_mode_ttl = 30  # seconds
+
+        # What the RRD guard did before the latest reload (see _guard_rrds).
+        self.last_rrd_guard: Dict[str, Any] = {}
 
         # Initialize status cache
         self._status_cache = {}
@@ -345,6 +349,51 @@ class ConfigManagerAPI:
         ipv6_check.set_status(status)
         return status
 
+    def _guard_rrds(self, container) -> Dict[str, Any]:
+        """Archive every RRD the new configuration would make SmokePing die on.
+
+        SmokePing refuses to load when an RRD's step or ping count differs
+        from its probe's, and the refusal kills the daemon -- every target
+        stops, not only that one. rrd_guard.py (in the SmokePing image)
+        moves such files to /data/.archive/ before the reload. The expected
+        cadence comes from the generated Targets and Probes, plus the CPE
+        targets and the Database defaults inside the container. Never
+        raises: a guard that cannot run leaves the reload as it was before.
+        """
+        try:
+            targets_file = OUTPUT_DIR / "Targets"
+            probes_file = OUTPUT_DIR / "Probes"
+            if not targets_file.exists():
+                return {'ran': False, 'reason': 'no generated Targets file yet'}
+            cpe = container.exec_run(['cat', '/config/CPE_Targets'])
+            database = container.exec_run(['cat', '/config/Database'])
+            expected = freshness.expected_cadence(
+                targets_file.read_text(),
+                cpe.output.decode(errors='replace') if cpe.exit_code == 0 else '',
+                probes_file.read_text() if probes_file.exists() else '',
+                database.output.decode(errors='replace') if database.exit_code == 0 else '',
+            )
+            ran = container.exec_run(
+                ['python3', '/exporters/rrd_guard.py', json.dumps({'expected': expected})],
+                demux=True)
+            stdout = (ran.output[0] or b'').decode(errors='replace')
+            if ran.exit_code != 0:
+                logger.warning(f"RRD guard failed (exit {ran.exit_code}): {stdout.strip()}")
+                return {'ran': False, 'reason': f'rrd_guard exit {ran.exit_code}'}
+            report = json.loads(stdout)
+            for moved in report.get('archived', []):
+                logger.warning(
+                    "Archived %s (step %s, %s pings) -> %s: the probe now wants "
+                    "step %s, %s pings", moved['rrd'], moved['had']['step'],
+                    moved['had']['pings'], moved['to'], moved['wants']['step'],
+                    moved['wants']['pings'])
+            for error in report.get('errors', []):
+                logger.warning("RRD guard: %s: %s", error.get('rrd'), error.get('error'))
+            return {'ran': True, **report}
+        except Exception as e:
+            logger.warning(f"RRD guard could not run: {e}")
+            return {'ran': False, 'reason': 'rrd_guard could not run'}
+
     def _signal_smokeping_reload(self) -> bool:
         """Ask SmokePing to reload its config; True only if the signal landed.
 
@@ -355,10 +404,12 @@ class ConfigManagerAPI:
         exec_run's exit code and log "Sent reload signal" when killall had
         found no smokeping process to signal.
         """
+        self.last_rrd_guard = {}
         try:
             container_name = resolve_container_name('smokeping')
             client = docker.from_env()
             container = client.containers.get(container_name)
+            self.last_rrd_guard = self._guard_rrds(container)
             result = container.exec_run(['killall', '-HUP', 'smokeping'])
             if result.exit_code != 0:
                 output = (result.output or b'').decode(errors='replace').strip()
@@ -427,6 +478,27 @@ class ConfigManagerAPI:
             started_at=_container_started_at(container),
         )
         return {'available': True, 'checked_at': datetime.now().isoformat(), **body}
+
+    def assistant_status(self) -> Dict[str, Any]:
+        """Whether an assistant is calling the MCP server; see assistant.py.
+
+        Reads the mcp-server container's own tool= log lines through the
+        Docker socket, as `smoking-pi openclaw --check` does from the host.
+        A project without that container (not Pro, or the mcp profile off)
+        answers "absent", which is a state, not an error.
+        """
+        try:
+            container_name = resolve_container_name('mcp-server')
+        except Exception:
+            return {'available': True, **assistant.summarize(None, None, '')}
+        container = docker.from_env().containers.get(container_name)
+        state = container.attrs.get('State', {})
+        logs = ''
+        if container.status == 'running':
+            # tail bounds the read on a server that has run for months.
+            logs = container.logs(timestamps=True, tail=20000).decode(errors='replace')
+        return {'available': True, **assistant.summarize(
+            container.status, state.get('StartedAt'), logs)}
 
     def connection_recommendations(self) -> Dict[str, Any]:
         """The host's uplink, router, resolvers and CPE, and which of them
@@ -1354,6 +1426,146 @@ def get_categories():
         return error_response(500, "Failed to get categories", e)
 
 
+@app.route('/assistant', methods=['GET'])
+@require_api_token
+def get_assistant():
+    """Is a chat assistant calling the MCP server? (assistant.py)"""
+    try:
+        return jsonify(api.assistant_status())
+    except Exception as e:
+        return error_response(503, "Could not read the MCP server's state", e,
+                              available=False)
+
+
+# What a probe's cycle may be set to (PUT /probes/<name>). Steps from one
+# minute to one hour; SmokePing's shipped step is 300. At least 3 pings, so
+# "more than 1.5 pings' worth lost" (common.cadence.EVENT_LOST_PINGS) is
+# not every single loss; at most 20, what the Database section defaults to.
+PROBE_STEPS = (60, 120, 300, 600, 900, 1800, 3600)
+PROBE_MIN_PINGS = 3
+PROBE_MAX_PINGS = 20
+PROBE_EDITABLE = ('step_seconds', 'pings')
+
+
+# SmokePing's own defaults (Smokeping/probes/*.pm): fping waits 1 s between
+# packets to one target and runs every target at once; the basefork probes
+# (DNS, TCPPing, Curl) give each ping up to `timeout` seconds -- 5, and 10
+# for Curl -- one after another, `forks` targets at a time (default 5).
+FPING_PACKET_GAP_S = 1.0
+BASEFORK_TIMEOUT_S = 5.0
+CURL_TIMEOUT_S = 10.0
+BASEFORK_FORKS = 5
+
+
+def probe_worst_seconds(probe, pings: int, active_targets: int) -> float:
+    """How long one cycle of ``probe`` can take, every ping timing out."""
+    options = probe.options or {}
+    kind = probe.module or probe.name
+    try:
+        if kind.startswith('FPing'):
+            return pings * float(options.get('hostinterval') or FPING_PACKET_GAP_S)
+        default = CURL_TIMEOUT_S if kind == 'Curl' else BASEFORK_TIMEOUT_S
+        per_ping = float(options.get('timeout') or default)
+    except (TypeError, ValueError):
+        return 0.0
+    forks = probe.forks or BASEFORK_FORKS
+    batches = max(1, -(-int(active_targets) // forks))
+    return batches * pings * per_ping
+
+
+def probe_cadence_problem(step: Any, pings: Any, worst=None):
+    """Why ``step``/``pings`` cannot be a probe's cycle, or None.
+
+    ``worst`` is a callable giving how long a cycle of ``pings`` can take
+    (probe_worst_seconds): a cycle longer than the step would overlap the
+    next, and SmokePing would fall behind on every target of the probe.
+    """
+    if not isinstance(step, int) or isinstance(step, bool) or step not in PROBE_STEPS:
+        allowed = ', '.join(str(s) for s in PROBE_STEPS)
+        return f"step_seconds must be one of {allowed}"
+    if (not isinstance(pings, int) or isinstance(pings, bool)
+            or not PROBE_MIN_PINGS <= pings <= PROBE_MAX_PINGS):
+        return f"pings must be between {PROBE_MIN_PINGS} and {PROBE_MAX_PINGS}"
+    seconds = worst(pings) if worst is not None else 0.0
+    if seconds > step:
+        return (f"{pings} pings can take up to {seconds:g} s when they time out, "
+                f"longer than a {step} s step")
+    return None
+
+
+@app.route('/probes/<name>', methods=['PUT'])
+@require_api_token
+def update_probe(name):
+    """Change a probe's step and/or pings, then regenerate and reload.
+
+    Every target of the probe starts a new RRD: the reload's RRD guard
+    moves the old files to /data/.archive/ (see _guard_rrds), because
+    SmokePing refuses, fatally, to load an RRD made for another cycle. The
+    response says how many targets that concerns and what the guard did.
+    """
+    if not api.use_database:
+        return jsonify({'error': 'Database not available'}), 400
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not any(k in body for k in PROBE_EDITABLE):
+        return error_response(400, "Send step_seconds and/or pings")
+    unknown = sorted(k for k in body if k not in PROBE_EDITABLE)
+    if unknown:
+        return error_response(
+            400, "Only step_seconds and pings can be changed here", fields=unknown)
+    try:
+        session = get_db_session()
+        try:
+            probe = ProbeRepository(session).get_by_name(name)
+            if probe is None:
+                return jsonify({'error': 'Probe not found'}), 404
+            previous = {'step_seconds': probe.step_seconds, 'pings': probe.pings}
+            wanted = {**previous, **{k: body[k] for k in PROBE_EDITABLE if k in body}}
+            targets = session.query(Target).filter(Target.probe_id == probe.id)
+            counts = {'targets': targets.count(),
+                      'active_targets': targets.filter(Target.is_active.is_(True)).count()}
+            problem = probe_cadence_problem(
+                wanted['step_seconds'], wanted['pings'],
+                lambda n: probe_worst_seconds(probe, n, counts['active_targets']))
+            if problem:
+                return error_response(400, problem)
+            if wanted == previous:
+                return jsonify({'success': True, 'changed': False, 'probe': name,
+                                'previous': previous, **counts})
+            probe.step_seconds = wanted['step_seconds']
+            probe.pings = wanted['pings']
+            session.commit()
+        finally:
+            session.close()
+        try:
+            reloaded = api._regenerate_smokeping_config()
+        except Exception as e:
+            # Put the row back: otherwise the database says the new cycle
+            # while SmokePing still runs the old one, a retry answers
+            # "nothing changed", and the next unrelated regeneration applies
+            # it by surprise.
+            session = get_db_session()
+            try:
+                probe = ProbeRepository(session).get_by_name(name)
+                probe.step_seconds = previous['step_seconds']
+                probe.pings = previous['pings']
+                session.commit()
+            finally:
+                session.close()
+            return error_response(
+                500, "The configuration could not be regenerated; "
+                     "the probe keeps its previous cycle", e)
+        logger.info("Probe %s: step %s -> %s, pings %s -> %s", name,
+                    previous['step_seconds'], wanted['step_seconds'],
+                    previous['pings'], wanted['pings'])
+        return jsonify({
+            'success': True, 'changed': True, 'probe': name,
+            'previous': previous, 'current': wanted, **counts,
+            'reloaded': reloaded, 'rrd_guard': api.last_rrd_guard,
+        })
+    except Exception as e:
+        return error_response(500, "Failed to update probe", e)
+
+
 @app.route('/probes', methods=['GET'])
 @require_api_token
 def get_probes():
@@ -1378,6 +1590,8 @@ def get_probes():
                     'is_default': probe.is_default,
                     'module': probe.module,
                     'options': probe.options or {},
+                    'targets': len(probe.targets),
+                    'active_targets': sum(1 for t in probe.targets if t.is_active),
                 } for probe in probes]
             })
             

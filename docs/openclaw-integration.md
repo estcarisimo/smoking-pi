@@ -210,6 +210,14 @@ tool=get_microcut_stats args=hours=6 -> 1 stats in 42ms
 **No `tool=` line means it is not wired**, no matter how good the answer reads.
 That is the only check that distinguishes the two cases.
 
+The web admin shows the same evidence without a terminal. Step 4 of the
+welcome tour (the dashboard's **Welcome tour** button reopens it) reads the
+MCP server's `tool=` lines through config-manager's `GET /assistant`. It
+says *Not set up*, *Stopped*, *Not used yet*, or *Connected* with the last
+tool called and when. Container logs start over when the container is
+recreated, so *Not used yet* means no call since the server last started,
+and the step shows that time.
+
 ---
 
 ## 2. Alert delivery
