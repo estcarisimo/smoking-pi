@@ -148,3 +148,36 @@ def test_import_needs_no_env(monkeypatch):
     monkeypatch.delenv("INFLUX_URL", raising=False)
     monkeypatch.delenv("INFLUX_TOKEN", raising=False)
     assert "from(bucket:" in aggregates._base_flux(["latency"], 6)
+
+
+def test_loss_events_are_counted_in_pings_lost_per_target(monkeypatch):
+    """One lost DNS query of five (20%) is not an event; the bar comes from
+    each target's own ping count, 15% on the default ten."""
+    seen = []
+
+    def handler(flux):
+        seen.append(flux)
+        if '"step"' in flux and "last()" in flux:
+            return [{"target": "GoogleDNS", "_field": "pings", "_value": 5}]
+        return []
+
+    monkeypatch.setattr(aggregates, "query_influx", handler)
+    aggregates._collect_target_stats(24)
+    events = next(f for f in seen if "|> count()" in f and "r._value >=" in f)
+    assert events.startswith('import "dict"\n')
+    assert '{key: "GoogleDNS", value: 0.3}' in events
+    assert "default: 0.15)" in events
+
+
+def test_a_failed_cadence_query_still_counts_on_ten_pings(monkeypatch):
+    seen = []
+
+    def handler(flux):
+        if '"step"' in flux and "last()" in flux:
+            raise RuntimeError("influx hiccup")
+        seen.append(flux)
+        return []
+
+    monkeypatch.setattr(aggregates, "query_influx", handler)
+    aggregates._collect_target_stats(24)
+    assert any("r._value >= 0.15)" in f for f in seen)

@@ -380,9 +380,14 @@ def test_widespread_needs_enough_targets_to_mean_anything():
 
 
 def test_widespread_thresholds_env_tunable(monkeypatch):
-    monkeypatch.setenv("WIDESPREAD_LOSS_PCT", "10")
-    rows = _everyone([0.0, 0.1, 0.0, 0.0])
+    rows = _everyone([0.0, 0.2, 0.0, 0.0])
+    assert evaluator.rule_widespread(rows) == []
+    monkeypatch.setenv("WIDESPREAD_LOSS_PCT", "15")
     assert [i["rule"] for i in evaluator.rule_widespread(rows)] == ["outage"]
+    # Never below one ping's worth: one lost ping of ten stays background
+    # however low the percent is set.
+    monkeypatch.setenv("WIDESPREAD_LOSS_PCT", "5")
+    assert evaluator.rule_widespread(_everyone([0.0, 0.1, 0.0, 0.0])) == []
     monkeypatch.setenv("WIDESPREAD_PCT", "95")
     per_target = {t: [1.0, 1.0, 1.0, 1.0] for t in TARGETS}
     per_target["Google"] = [0.0, 0.0, 0.0, 0.0]
@@ -693,9 +698,9 @@ def test_persistence_counts_a_fast_probes_own_cycles():
     lossy points ten minutes ago are not persistence now."""
     fast = cadence.by_target(_cadence_rows(fast=(60, 10)))
     old_then_clean = _spaced("fast", [0.3, 0.3] + [0.0] * 10, 60)
-    assert evaluator._lossy_points_by_target(old_then_clean, 15.0, cadences=fast) == {}
+    assert evaluator._lossy_points_by_target(old_then_clean, cadences=fast) == {}
     recent = _spaced("fast", [0.0] * 10 + [0.3, 0.3], 60)
-    assert evaluator._lossy_points_by_target(recent, 15.0, cadences=fast) == {"fast": 2}
+    assert evaluator._lossy_points_by_target(recent, cadences=fast) == {"fast": 2}
 
 
 def test_widespread_buckets_to_the_slowest_step_and_averages_the_rest():
@@ -737,3 +742,53 @@ def test_a_failed_cadence_query_falls_back_to_the_default_windows(monkeypatch):
     incidents, context = evaluator.evaluate_with_context()
     assert [i["key"] for i in incidents] == ["target_down:dead"]
     assert context["windows"]["step"] == 300
+
+
+# ---------------------------------------------------------------------------
+# Loss counted in pings lost, not in a percent
+# ---------------------------------------------------------------------------
+
+def test_persistence_counts_pings_lost_on_any_probe():
+    """Two lost pings is persistence on a 20-ping probe (10%), where the
+    old fixed 15% needed three; one lost DNS query of five (20%) is not."""
+    cad = cadence.by_target(_cadence_rows(big=(300, 20), dns=(300, 5)))
+    rows = _timed_points({"big": [0.0, 0.1, 0.1], "dns": [0.0, 0.2, 0.2]})
+    assert evaluator._lossy_points_by_target(rows, cadences=cad) == {"big": 2}
+    # Unknown cadence: ten pings, the old 15%.
+    rows = _timed_points({"x": [0.0, 0.15, 0.14]})
+    assert evaluator._lossy_points_by_target(rows) == {"x": 1}
+
+
+def test_high_loss_on_a_20_ping_probe_needs_pings_not_percent(monkeypatch):
+    monkeypatch.delenv("HIGH_LOSS_PCT", raising=False)
+    cad = cadence.by_target(_cadence_rows(big=(300, 20)))
+    mean = [{"target": "big", "category": "ping", "_value": 0.25}]
+    # Two cycles of 2 lost of 20 (10% each): persistence, where a fixed 15%
+    # saw none.
+    points = _timed_points({"big": [0.0, 0.1, 0.1]})
+    got = evaluator.rule_high_loss(mean, points=points, cadences=cad)
+    assert [i["key"] for i in got] == ["high_loss:big"]
+    assert evaluator.rule_high_loss(mean, points=points) == []
+
+
+def test_widespread_needs_more_than_one_ping_on_a_three_ping_probe():
+    """One lost ping of three is 33%: over WIDESPREAD_LOSS_PCT, and still
+    one ping."""
+    cad = cadence.by_target(_cadence_rows(**{t: (300, 3) for t in TARGETS}))
+    rows = _everyone([0.0, 1 / 3, 0.0, 0.0])
+    assert evaluator.rule_widespread(rows, cadences=cad) == []
+    rows = _everyone([0.0, 2 / 3, 0.0, 0.0])
+    assert [i["rule"] for i in evaluator.rule_widespread(rows, cadences=cad)] == ["outage"]
+
+
+def test_event_threshold_flux_maps_only_non_default_probes():
+    cad = cadence.by_target(_cadence_rows(big=(300, 20), dns=(300, 5), g=(300, 10)))
+    prelude, expr = cadence.event_threshold_flux(cad)
+    assert prelude.startswith('import "dict"\n')
+    assert '{key: "big", value: 0.075}' in prelude
+    assert '{key: "dns", value: 0.3}' in prelude
+    assert '"g"' not in prelude
+    assert expr == "dict.get(dict: event_ratio, key: r.target, default: 0.15)"
+    assert cadence.event_threshold_flux({}) == ("", "0.15")
+    unsafe = {'x"y': cadence.Cadence(300, 5)}
+    assert cadence.event_threshold_flux(unsafe) == ("", "0.15")
