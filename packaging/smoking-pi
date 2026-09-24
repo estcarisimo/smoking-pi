@@ -517,7 +517,24 @@ cmd_install() {
 # broken integration look like a working one. This runs the mechanical
 # ones and ends on the only check that tells the two apart.
 
-env_get() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1 || true; }
+env_get() {
+    # A value env_set had to quote comes back without its single quotes.
+    [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1 | sed "s/^'\\(.*\\)'\$/\\1/" || true
+}
+
+# How a value is written into the env file. Two readers interpolate `$` in
+# it -- Compose (.env files, since 2.24) and bash (show-passwords.sh and
+# create-tunnel.sh source the file) -- and both leave a single-quoted value
+# alone: an unquoted `pbkdf2:sha256:260000$salt$hash` reached the container
+# as `pbkdf2:sha256:260000` (seen with Compose 2.38). Plain values are
+# written as they always were. A value holding `'` cannot be quoted for
+# either reader and is refused by the caller.
+env_quote() {
+    case "$1" in
+        *[!A-Za-z0-9_.,:/@%+=~-]*) printf "'%s'" "$1" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
 
 # Escape a value for curl's config-file syntax, which is what -K - reads.
 # Inside quotes curl honors \\ and \", so both have to be escaped; the same
@@ -528,7 +545,8 @@ env_set() {
     # Add or replace VAR=value, keeping the rest of the file and its mode:
     # this file holds every secret, so a widened mode here undoes what
     # `passwords` checks for.
-    local k="$1" v="$2" tmp
+    local k="$1" v tmp
+    v="$(env_quote "$2")"
     tmp="$(mktemp "$(dirname "$ENV_FILE")/.env.XXXXXX")"
     if grep -q "^$k=" "$ENV_FILE" 2>/dev/null; then
         # awk, not sed: the value is substituted literally, so a `&` or a
@@ -559,7 +577,8 @@ template_keys() { sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' "$(template_file)" | a
 
 is_secret_key() {
     case "$1" in
-        *TOKEN*|*PASSWORD*|*SECRET*|*_KEY) return 0 ;;
+        # A webhook URL is often the credential itself (Slack, Discord, ntfy).
+        *TOKEN*|*PASSWORD*|*SECRET*|*_KEY|ALERT_WEBHOOK_URL) return 0 ;;
     esac
     return 1
 }
@@ -570,6 +589,7 @@ is_secret_key() {
 # Same reason `install` refuses to run over an existing env file.
 is_install_key() {
     case "$1" in
+        *_PORT) return 1 ;;  # a port mapping, not a credential
         POSTGRES_*|INFLUX_*|DOCKER_INFLUXDB_*|CLICKHOUSE_*|GF_SECURITY_*|\
         WEB_ADMIN_PASSWORD|SECRET_KEY|CONFIG_API_TOKEN|MCP_API_TOKEN|TSDB_TYPE) return 0 ;;
     esac
@@ -587,7 +607,7 @@ services_reading() {
             /^services:/ { in_services = 1; next }
             /^[^ #]/ { in_services = 0 }
             in_services && /^  [A-Za-z0-9_.-]+:[ ]*$/ { svc = $1; sub(":", "", svc); next }
-            in_services && svc != "" && match($0, "[$][{]" key "[:}?-]") { print svc }
+            in_services && svc != "" && (match($0, "[$][{]" key "[:}?-]") || match($0, "[$]" key "([^A-Za-z0-9_]|$)")) { print svc }
         ' "$f"
     done | sort -u
 }
@@ -607,7 +627,9 @@ closest_key() {
 
 check_known_key() {
     local key="$1" hint
-    if ! template_keys | grep -qx "$key"; then
+    # Not `template_keys | grep -q`: under pipefail, grep closing the pipe
+    # early can fail the writer and make a declared key look unknown.
+    if ! grep -qx "$key" <(template_keys); then
         echo "$key is not a setting of the $SMOKING_PI_EDITION edition (.env.template does not declare it)." >&2
         hint="$(closest_key "$key")"
         [ -z "$hint" ] || echo "Did you mean $hint?" >&2
@@ -626,7 +648,10 @@ config_apply() {
     # `compose up` starts it even when its profile is off, and setting an
     # alerter key must not quietly start an alerter nobody enabled.
     local enabled
-    enabled="$(compose config --services 2>/dev/null)"
+    if ! enabled="$(compose config --services 2>/dev/null)"; then
+        echo "Written, but Compose could not read the stack ('smoking-pi up' shows why); nothing recreated." >&2
+        return 1
+    fi
     services="$(services_reading "$key" | { grep -Fxf <(printf '%s\n' "$enabled") || true; } | tr '\n' ' ')"
     if [ -z "${services// /}" ]; then
         if [ -n "$(services_reading "$key")" ]; then
@@ -678,7 +703,9 @@ cmd_config() {
             for arg in "$@"; do
                 case "$arg" in
                     --no-apply) apply=0 ;;
-                    *) value="$arg"; have_value=1 ;;
+                    *)
+                        [ "$have_value" = 0 ] || { echo "one value only (quote it if it has spaces)" >&2; return 2; }
+                        value="$arg"; have_value=1 ;;
                 esac
             done
             check_known_key "$key" || return 2
@@ -705,12 +732,14 @@ cmd_config() {
                 else
                     IFS= read -r value || true
                 fi
+                [ -n "$value" ] || { echo "nothing read for $key; to clear it: smoking-pi config unset $key" >&2; return 2; }
             elif [ "$have_value" = 0 ]; then
                 echo "usage: smoking-pi config set $key VALUE" >&2
                 return 2
             fi
             case "$value" in
                 *$'\n'*|*$'\r'*) echo "a value cannot span lines" >&2; return 2 ;;
+                *"'"*) echo "a value cannot contain ' : neither Compose nor the shell reading the env file could keep it" >&2; return 2 ;;
             esac
             if [ "$(env_get "$key")" = "$value" ]; then
                 echo "$key is already that; nothing changed."

@@ -713,3 +713,35 @@ config_setup() {
     [[ "$output" == *"already that; nothing changed"* ]]
     [ ! -s "$DOCKER_LOG" ]
 }
+
+@test "config keeps a value with \$ literal: single-quoted in the file, raw when read back" {
+    config_setup
+    run bash -c "printf %s 'pbkdf2:sha256:260000\$salt\$hash' | '$CLI' config set WEB_ADMIN_PASSWORD_HASH --no-apply"
+    [ "$status" -eq 0 ]
+    grep -qx "WEB_ADMIN_PASSWORD_HASH='pbkdf2:sha256:260000\$salt\$hash'" "$SMOKING_PI_ENV_FILE"
+    run "$CLI" config get WEB_ADMIN_PASSWORD_HASH --show-secrets
+    [ "$output" = 'pbkdf2:sha256:260000$salt$hash' ]
+    # Plain values are written as they always were.
+    run "$CLI" config set WIFI_INTERFACE wlan0 --no-apply
+    grep -qx 'WIFI_INTERFACE=wlan0' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "config refuses a value with a single quote, two values, and an empty secret on stdin" {
+    config_setup
+    run "$CLI" config set DIGEST_AT "it's" --no-apply
+    [ "$status" -eq 2 ]
+    run "$CLI" config set WIFI_INTERFACE wlan0 wlan1
+    [ "$status" -eq 2 ]
+    run bash -c "printf '' | '$CLI' config set ANTHROPIC_API_KEY"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"nothing read"* ]]
+}
+
+@test "config treats a webhook URL as a secret and a port as an ordinary setting" {
+    config_setup
+    run "$CLI" config set ALERT_WEBHOOK_URL https://hooks.example/T0/abc --no-apply
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not taken from the command line"* ]]
+    run "$CLI" config set CLICKHOUSE_HTTP_PORT 8124 --no-apply
+    [ "$status" -eq 0 ]
+}

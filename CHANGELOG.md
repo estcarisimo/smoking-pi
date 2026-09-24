@@ -25,6 +25,11 @@ version gets a matching GitHub release and git tag.
     typed at a prompt or piped on stdin;
   - credentials that install generated are refused, because the data
     volumes hold them (the same reason `install` won't run twice).
+  - a value with `$` (a pbkdf2 or bcrypt hash, many generated secrets)
+    is single-quoted in the env file. Compose interpolates `$` in `.env`
+    files and bash in the scripts that source it, and an unquoted
+    `pbkdf2:sha256:260000$salt$hash` reached the container as
+    `pbkdf2:sha256:260000`. Plain values are written as before.
 - **The first login is a welcome tour.** The install seeded 21 targets
   in silence, and a new user met a dashboard of numbers with no idea what
   was being measured or why. The web admin (Standard, Pro) now opens once
