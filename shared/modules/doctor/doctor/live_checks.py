@@ -490,4 +490,19 @@ def check_uplink_interface(
         )
 
     kind = "wireless" if sources.is_wireless(iface, sys_net) else "wired"
-    return result("uplink-interface", [], f"measuring over {iface} ({kind}, {family})")
+    detail = f"measuring over {iface} ({kind}, {family})"
+    if family == "IPv4":
+        standby = [
+            other
+            for other in sources.default_route_ifaces(proc_route)[1:]
+            if other != iface and not sources.is_virtual(other)
+        ]
+        if standby:
+            # Both links up is normal, not a warning. It is worth a word
+            # because the day the first one drops, every series moves to
+            # the standby, and the dashboards mark it ("Uplink changed").
+            detail += (
+                f"; {', '.join(standby)} also has a default route, at a higher "
+                f"metric, and takes over if {iface} goes down"
+            )
+    return result("uplink-interface", [], detail)

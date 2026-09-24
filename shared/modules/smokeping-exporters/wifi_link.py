@@ -34,8 +34,13 @@ Rates (bytes/s, failures/s) are left to Flux ``derivative()``; the only value
 computed here is ``chan_busy_pct``, because Flux arithmetic across two fields
 needs a pivot and the doctor's dashboard checks cannot follow one.
 
+It also writes measurement "host_uplink": which interface the default route
+is on (and so every measurement crosses), whether wireless, wired or
+virtual, and on the point where it changed, the one before. That part runs
+on every host; see "uplink history" below.
+
 Pro edition only (requires InfluxDB). Idles, without exiting, on a host that
-has no wireless interface.
+has no wireless interface -- still recording the uplink, once a minute.
 """
 
 from __future__ import annotations
@@ -213,6 +218,108 @@ def uplink_interface(proc_route: Path = PROC_ROUTE,
                      proc_route6: Path = PROC_IPV6_ROUTE) -> str | None:
     """The interface the host's traffic actually leaves by, v4 first then v6."""
     return default_route_interface(proc_route) or default_route_interface6(proc_route6)
+
+
+# ───────────────────────── uplink history ─────────────────────────
+# Which interface the measurements leave by, recorded over time. Every
+# latency figure in the stack crossed this interface, so a Pi that moves from
+# Wi-Fi to Ethernet (a cable plugged in: NetworkManager gives Ethernet the
+# lower metric) changes path in the middle of every series, and before this
+# nothing said so. Written on every host, wireless or not: an Ethernet-only
+# Pi is exactly the one with no wifi_link points to infer it from.
+
+UPLINK_HEARTBEAT = 60  # seconds between host_uplink points while nothing changes
+UPLINK_LOOKBACK = "-30d"  # how far back a restart looks for the last uplink
+
+# Kept equal to the doctor's sources.VIRTUAL_IFACE_PREFIXES (the doctor
+# cannot be imported here; see the comment there).
+VIRTUAL_IFACE_PREFIXES = (
+    "docker", "br-", "veth", "virbr", "tun", "tap", "tailscale", "wg", "zt",
+)
+
+
+@dataclass(frozen=True)
+class Uplink:
+    interface: str  # "" when there is no default route
+    kind: str       # wireless | wired | virtual | none
+    family: int     # 4, 6, or 0 with no default route
+
+
+def current_uplink(proc_route: Path = PROC_ROUTE,
+                   proc_route6: Path = PROC_IPV6_ROUTE,
+                   sys_net: Path = SYS_NET) -> Uplink:
+    """The uplink as uplink_interface picks it (v4 first, then v6), classified
+    the way the doctor's uplink-interface check classifies it."""
+    iface, family = default_route_interface(proc_route), 4
+    if iface is None:
+        iface, family = default_route_interface6(proc_route6), 6
+    if iface is None:
+        return Uplink("", "none", 0)
+    if iface.startswith(VIRTUAL_IFACE_PREFIXES):
+        kind = "virtual"
+    elif (sys_net / iface / "phy80211").exists():
+        kind = "wireless"
+    else:
+        kind = "wired"
+    return Uplink(iface, kind, family)
+
+
+def build_uplink_point(u: Uplink, previous: str | None, ts: int) -> Point:
+    """A host_uplink point. No tags: one series, so a change is two
+    consecutive values of one field rather than one series ending and
+    another starting. ``previous`` is written only on the point where the
+    interface changed, which is what the dashboards' annotation selects."""
+    pt = (Point("host_uplink")
+          .field("interface", u.interface)
+          .field("kind", u.kind)
+          .field("family", int(u.family)))
+    if previous is not None:
+        pt.field("previous", previous)
+    return pt.time(ts, WritePrecision.S)
+
+
+def last_uplink(query_api, bucket: str) -> str | None:
+    """The interface of the newest host_uplink point, so the first point
+    after a restart can still mark a change (a reboot is when a cable is
+    most likely to have been plugged or pulled). None when there is no
+    history or the query fails: then nothing is marked, rather than a change
+    that did not happen."""
+    query = (f'from(bucket: "{bucket}") |> range(start: {UPLINK_LOOKBACK}) '
+             '|> filter(fn: (r) => r._measurement == "host_uplink" and r._field == "interface") '
+             '|> last()')
+    try:
+        for table in query_api.query(query):
+            for record in table.records:
+                value = record.get_value()
+                return value if isinstance(value, str) else None
+    except Exception as exc:
+        log.warning("could not read the last uplink (%s); a change across this restart "
+                    "will not be marked", exc)
+    return None
+
+
+class UplinkTracker:
+    """Decides when a host_uplink point is due: at once on a change, else
+    every UPLINK_HEARTBEAT seconds. State moves only after a successful
+    write, so a failed write is retried next cycle instead of losing the
+    change mark."""
+
+    def __init__(self, last_interface: str | None) -> None:
+        self.last = last_interface
+        self.written_at: float | None = None
+
+    def due(self, u: Uplink, now: float) -> Point | None:
+        changed = self.last is not None and u.interface != self.last
+        if (not changed and self.written_at is not None
+                and now - self.written_at < UPLINK_HEARTBEAT):
+            return None
+        return build_uplink_point(u, (self.last or "none") if changed else None, int(now))
+
+    def written(self, u: Uplink, now: float) -> None:
+        if self.last is not None and u.interface != self.last:
+            log.info("uplink changed: %s -> %s (%s)",
+                     self.last or "none", u.interface or "none", u.kind)
+        self.last, self.written_at = u.interface, now
 
 
 def choose_interface(override: str | None, sys_net: Path = SYS_NET,
@@ -565,6 +672,7 @@ def main() -> int:
     client = InfluxDBClient(url=os.environ["INFLUX_URL"], token=os.environ["INFLUX_TOKEN"],
                             org=os.environ["INFLUX_ORG"], timeout=10_000)
     write_api = client.write_api(write_options=SYNCHRONOUS)
+    tracker = UplinkTracker(last_uplink(client.query_api(), bucket))
 
     have_iw = shutil.which("iw") is not None
     if not have_iw:
@@ -580,6 +688,14 @@ def main() -> int:
 
     while True:
         started = time.time()
+        up = Uplink("", "none", 0)
+        try:
+            up = current_uplink()
+            point = tracker.due(up, started)
+            if point is not None and write_with_retry(write_api, bucket, point):
+                tracker.written(up, started)
+        except Exception as exc:  # the uplink record must not stop the Wi-Fi samples
+            log.error("uplink record failed: %s", exc)
         try:
             if iface is None or not (SYS_NET / iface / "phy80211").exists():
                 iface = choose_interface(override)
@@ -594,7 +710,7 @@ def main() -> int:
                 idle_logged = False
                 log.info("collecting from %s", iface)
 
-            uplink = uplink_interface() == iface
+            uplink = up.interface == iface
             s = sample_fast(iface, have_iw, uplink)
             # Channel, width and SSID change only on a roam -- so a new BSSID
             # re-reads them at once instead of lagging a slow interval behind.

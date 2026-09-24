@@ -412,6 +412,130 @@ class TestIPv6Uplink:
         assert wifi_link.uplink_interface(tmp_path / "missing", v6) == "wlan0"
 
 
+class TestUplinkHistory:
+    """host_uplink: which interface every measurement crossed, over time."""
+
+    @pytest.fixture
+    def sysnet(self, tmp_path):
+        net = tmp_path / "net"
+        for name, wireless in (("eth0", False), ("wlan0", True), ("tailscale0", False)):
+            (net / name).mkdir(parents=True)
+            if wireless:
+                (net / name / "phy80211").mkdir()
+        return net
+
+    def _route(self, tmp_path, *ifaces):
+        p = tmp_path / "route"
+        p.write_text("Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+                     + "".join(f"{i}\t00000000\t0156A8C0\t0003\t0\t0\t{m}\t00000000\n"
+                               for i, m in ifaces))
+        return p
+
+    def _route6(self, tmp_path, iface=None):
+        p = tmp_path / "ipv6_route"
+        rows = TestIPv6Uplink.ROW.format(dest="0" * 32, plen="00", metric="00000400",
+                                         flags="00000003", iface=iface) if iface else ""
+        p.write_text(rows + "\n")
+        return p
+
+    def test_classifies_the_uplink(self, sysnet, tmp_path):
+        up = lambda *r: wifi_link.current_uplink(self._route(tmp_path, *r),  # noqa: E731
+                                                 self._route6(tmp_path), sysnet)
+        assert up(("wlan0", 600)) == wifi_link.Uplink("wlan0", "wireless", 4)
+        assert up(("eth0", 100)) == wifi_link.Uplink("eth0", "wired", 4)
+        assert up(("tailscale0", 5)) == wifi_link.Uplink("tailscale0", "virtual", 4)
+        # A cable plugged in: both routes exist, Ethernet's metric is lower.
+        assert up(("wlan0", 600), ("eth0", 100)).interface == "eth0"
+        assert up() == wifi_link.Uplink("", "none", 0)
+
+    def test_falls_back_to_the_v6_default_route(self, sysnet, tmp_path):
+        got = wifi_link.current_uplink(self._route(tmp_path), self._route6(tmp_path, "wlan0"),
+                                       sysnet)
+        assert got == wifi_link.Uplink("wlan0", "wireless", 6)
+
+    def test_virtual_prefixes_match_the_doctor(self):
+        """Two copies by design (see the doctor's sources.py); they must agree,
+        or the doctor and the dashboards disagree about the same route."""
+        doctor = MODULE_DIR.parent / "doctor" / "doctor" / "sources.py"
+        text = doctor.read_text()
+        start = text.index("VIRTUAL_IFACE_PREFIXES = (")
+        body = text[text.index("(", start):text.index(")", start) + 1]
+        import ast
+        assert tuple(ast.literal_eval(body)) == wifi_link.VIRTUAL_IFACE_PREFIXES
+
+    def _line(self, u, previous=None, ts=1_790_000_000):
+        return wifi_link.build_uplink_point(u, previous, ts).to_line_protocol()
+
+    def test_point_shape(self):
+        line = self._line(wifi_link.Uplink("wlan0", "wireless", 4))
+        assert line == 'host_uplink family=4i,interface="wlan0",kind="wireless" 1790000000'
+        assert 'previous="wlan0"' in self._line(wifi_link.Uplink("eth0", "wired", 4), "wlan0")
+
+    def test_no_route_is_an_empty_string_not_a_missing_field(self):
+        """The field must exist on every point, or the no-route state is a gap
+        in the series instead of a value."""
+        assert 'interface=""' in self._line(wifi_link.Uplink("", "none", 0))
+
+    def test_tracker_heartbeat_and_change(self):
+        wlan = wifi_link.Uplink("wlan0", "wireless", 4)
+        eth = wifi_link.Uplink("eth0", "wired", 4)
+        t = wifi_link.UplinkTracker(last_interface=None)
+        first = t.due(wlan, 1000.0)
+        assert first is not None and "previous" not in first.to_line_protocol()
+        t.written(wlan, 1000.0)
+        assert t.due(wlan, 1010.0) is None                       # nothing new
+        assert t.due(wlan, 1000.0 + wifi_link.UPLINK_HEARTBEAT) is not None
+        change = t.due(eth, 1010.0)                              # at once, not a minute later
+        assert change is not None and 'previous="wlan0"' in change.to_line_protocol()
+
+    def test_a_failed_write_keeps_the_change_for_the_next_cycle(self):
+        wlan = wifi_link.Uplink("wlan0", "wireless", 4)
+        eth = wifi_link.Uplink("eth0", "wired", 4)
+        t = wifi_link.UplinkTracker(last_interface="wlan0")
+        t.written_at = 1000.0
+        assert t.due(eth, 1010.0) is not None                     # write fails: no written()
+        again = t.due(eth, 1020.0)
+        assert again is not None and 'previous="wlan0"' in again.to_line_protocol()
+
+    def test_a_change_across_a_restart_is_marked(self):
+        t = wifi_link.UplinkTracker(last_interface="wlan0")        # from Influx
+        pt = t.due(wifi_link.Uplink("eth0", "wired", 4), 1000.0)
+        assert 'previous="wlan0"' in pt.to_line_protocol()
+
+    def test_losing_the_route_and_getting_it_back(self):
+        t = wifi_link.UplinkTracker(last_interface="wlan0")
+        none = wifi_link.Uplink("", "none", 0)
+        assert 'previous="wlan0"' in t.due(none, 1000.0).to_line_protocol()
+        t.written(none, 1000.0)
+        back = t.due(wifi_link.Uplink("wlan0", "wireless", 4), 1010.0)
+        assert 'previous="none"' in back.to_line_protocol()
+
+    def test_last_uplink(self):
+        class Record:
+            def get_value(self):
+                return "wlan0"
+
+        class Table:
+            records = [Record()]
+
+        class Api:
+            def __init__(self, result):
+                self.result = result
+                self.query_text = None
+
+            def query(self, q):
+                self.query_text = q
+                if isinstance(self.result, Exception):
+                    raise self.result
+                return self.result
+
+        api = Api([Table()])
+        assert wifi_link.last_uplink(api, "smokeping") == "wlan0"
+        assert 'r._measurement == "host_uplink"' in api.query_text
+        assert wifi_link.last_uplink(Api([]), "smokeping") is None
+        assert wifi_link.last_uplink(Api(RuntimeError("down")), "smokeping") is None
+
+
 class TestSample:
     """sample() glues the sources; iw is faked via run_iw."""
 

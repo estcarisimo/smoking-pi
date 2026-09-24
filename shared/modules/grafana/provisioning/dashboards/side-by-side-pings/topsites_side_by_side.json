@@ -1,4 +1,34 @@
 {
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "purple",
+        "name": "Uplink changed",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"host_uplink\" and (r._field == \"previous\" or r._field == \"interface\" or r._field == \"kind\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => exists r.previous) |> map(fn: (r) => ({_time: r._time, text: \"Uplink \" + r.previous + \" → \" + (if r.interface == \"\" then \"none\" else r.interface + \" (\" + r.kind + \")\"), tags: \"uplink\"}))"
+        }
+      }
+    ]
+  },
   "uid": "top_sites-side-by-side-v1",
   "id": null,
   "title": "Top Sites – Side-by-Side",

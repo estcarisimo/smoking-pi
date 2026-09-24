@@ -101,6 +101,75 @@ has moved onto a tunnel or a Docker bridge, which is the case where these
 statistics keep being collected while describing a link nobody is asking
 about ([Instrumentation doctor](doctor.md)).
 
+### When the uplink changes
+
+Every latency figure in the stack crossed the uplink, so a change of uplink
+changes the path in the middle of every series. The usual cause is a cable:
+on Raspberry Pi OS, NetworkManager gives Ethernet route metric 100 and Wi-Fi
+600, so plugging a cable into a Pi that measured over Wi-Fi moves every
+measurement onto Ethernet at once, and unplugging it moves them back.
+Latency steps down, the Wi-Fi dashboard stops describing the measured path,
+and before `host_uplink` existed nothing recorded why.
+
+The collector writes a `host_uplink` point on **every** Pro host, wireless
+or not. It writes one at once when the uplink changes and one a minute
+otherwise:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `interface` | string | the interface carrying the default route; `""` with none |
+| `kind` | string | `wireless`, `wired`, `virtual` (tunnel, bridge, Tailscale) or `none` |
+| `family` | int | 4, or 6 on a v6-only host; 0 with no default route |
+| `previous` | string | only on the point where the interface changed: the one before, `none` if there was no route |
+
+On a host with no wireless interface the collector checks once a minute, so
+a change shows up within a minute. On a Wi-Fi host it shows up within one
+sample (10 s). After a restart, the collector reads the last `interface` from
+InfluxDB, so a cable plugged in while the Pi was off is still marked.
+
+Every InfluxDB dashboard has an **Uplink changed** annotation built from
+the `previous` points: a vertical marker reading *Uplink wlan0 → eth0
+(wired)*. It can be switched off from the dashboard's annotation toggles.
+
+`smoking-pi doctor --live` names the standby too, when there is one:
+`measuring over eth0 (wired, IPv4); wlan0 also has a default route, at a
+higher metric, and takes over if eth0 goes down`.
+
+### Choosing the interface
+
+SmokePing follows the host's routing table: the probes send from whichever
+interface carries the default route. The choice is made where the host makes
+it, with the route metric, and it applies to all of the Pi's traffic, not
+only the measurements. With NetworkManager (Raspberry Pi OS):
+
+```bash
+nmcli -t -f NAME,DEVICE,TYPE connection show
+```
+
+To keep measuring over Wi-Fi with a cable plugged in, give Ethernet a higher
+metric than Wi-Fi's 600:
+
+```bash
+sudo nmcli connection modify "Wired connection 1" ipv4.route-metric 700 ipv6.route-metric 700
+```
+
+```bash
+sudo nmcli connection up "Wired connection 1"
+```
+
+To never use Wi-Fi for traffic, even as a standby, stop it from installing a
+default route. Replace `MyWiFi` with the connection name from the first
+command:
+
+```bash
+sudo nmcli connection modify MyWiFi ipv4.never-default yes ipv6.never-default yes
+```
+
+Then check with `smoking-pi doctor --live`. The `uplink-interface` line names
+the interface in use and any standby. There is no per-probe interface
+setting: binding the probes to an interface the host does not route through
+would measure a path none of the Pi's real traffic takes.
+
 ## The dashboard
 
 *Wi-Fi Link* (uid `wifi-link-v1`, folder *wifi*, variable `interface`), six
