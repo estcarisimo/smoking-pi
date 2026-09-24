@@ -11,6 +11,16 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The welcome tour's optional fourth step: a chat assistant.** It
+  says what an assistant such as OpenClaw adds, and whether one is using
+  this install. The answer comes from the MCP server's own `tool=` log
+  lines, the evidence `smoking-pi openclaw --check` reads, never from an
+  assistant's reply. It shows *Not set up* (run `sudo smoking-pi
+  openclaw`), *Stopped*, *Not used yet* since the server started (run
+  `--check`), or *Connected* with the last tool and time. config-manager
+  serves it as `GET /assistant` through the Docker socket it already
+  uses. Nothing is registered from the web: connecting stays the host
+  command's job (`docs/cli-scope.md`).
 - **The first login is a welcome tour.** The install seeded 21 targets
   in silence, and a new user met a dashboard of numbers with no idea what
   was being measured or why. The web admin (Standard, Pro) now opens once

@@ -290,6 +290,13 @@ class ConfigManagerClient:
             return response.json()
         raise RuntimeError(f"Failed to get recommendations: {response.status_code}")
 
+    def get_assistant(self) -> Dict[str, Any]:
+        """Is a chat assistant calling the MCP server? (config-manager /assistant)"""
+        response = self._make_request('GET', '/assistant')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get assistant state: {response.status_code}")
+
     def get_categories(self) -> Dict[str, Any]:
         """Get all target categories"""
         try:
@@ -469,6 +476,15 @@ class ConfigAPIGateway:
                 'available': False,
                 'reason': 'config-manager unreachable; see web-admin log',
             }
+
+    def get_assistant(self) -> Dict[str, Any]:
+        """Whether an assistant uses this install. Never raises: the tour
+        renders without it."""
+        try:
+            return self.client.get_assistant()
+        except Exception:
+            logger.error("Failed to get the assistant state", exc_info=True)
+            return {'available': False}
 
     # Database-aware methods for target management
     def is_database_available(self) -> bool:
