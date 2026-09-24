@@ -411,6 +411,9 @@ def test_many_uplink_changes_keep_the_newest_three(collected):
     text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
     assert text.count("uplink moved") == 3
     assert "…and 2 earlier changes." in text
+    # Newest first: 14:00 is listed before 13:00 and 12:00.
+    moved = [line for line in text.splitlines() if "uplink moved" in line]
+    assert moved == sorted(moved, reverse=True)
 
 
 def test_wifi_line_lights(collected):
@@ -436,3 +439,19 @@ def test_wifi_line_weak_light_follows_the_configured_threshold(collected, monkey
     monkeypatch.setenv("WIFI_WEAK_DBM", "-75")
     text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
     assert "🟢 Wi-Fi N ch1" in text
+
+
+def test_a_malformed_uplink_row_does_not_cost_the_digest(monkeypatch):
+    """collect() must still return: the digest sends nothing when it raises."""
+    from common import aggregates
+
+    def fake(flux):
+        if "exists r.previous" in flux:
+            return []
+        if "host_uplink" in flux:
+            return [{"_field": "interface", "_value": "eth0"},
+                    {"_field": "family", "_value": "four"}]
+        return []
+
+    monkeypatch.setattr(aggregates, "query_influx", fake)
+    assert aggregates._collect_uplink(24) == {}

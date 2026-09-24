@@ -556,17 +556,19 @@ def _uplink_now() -> dict:
             '(r._field == "interface" or r._field == "kind" or r._field == "family")) '
             "|> last()"
         )
+        fields = {r.get("_field"): r.get("_value") for r in rows if r.get("_field")}
+        if "interface" not in fields:
+            return {}
+        out: dict = {
+            "interface": str(fields.get("interface") or ""),
+            "kind": str(fields.get("kind") or ""),
+            "family": int(fields.get("family") or 0),
+        }
+    # The casts are inside too, as in _wifi_now: one malformed row must not
+    # fail system_status, which reports the whole stack's health.
     except Exception as exc:  # noqa: BLE001
         log.warning("host_uplink status lookup failed: %s", type(exc).__name__)
         return {}
-    fields = {r.get("_field"): r.get("_value") for r in rows if r.get("_field")}
-    if "interface" not in fields:
-        return {}
-    out: dict = {
-        "interface": str(fields.get("interface") or ""),
-        "kind": str(fields.get("kind") or ""),
-        "family": int(fields.get("family") or 0),
-    }
     changes = _uplink_changes(UPLINK_STATUS_HOURS)
     out["last_change"] = changes[-1] if changes else None
     out["changes_7d"] = len(changes)

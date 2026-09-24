@@ -333,6 +333,18 @@ def test_system_status_without_host_uplink_says_nothing(api, monkeypatch, caplog
     assert "hunter2" not in caplog.text
 
 
+def test_system_status_survives_a_malformed_uplink_row(api, monkeypatch):
+    def fake(flux):
+        if "host_uplink" in flux and "exists r.previous" not in flux:
+            return [{"_field": "interface", "_value": "eth0"},
+                    {"_field": "family", "_value": "four"}]
+        return []
+    _patch_influx(monkeypatch, fake)
+    result = server.system_status()
+    assert "uplink" not in result
+    assert "overall status: healthy" in result["summary"]
+
+
 def test_system_status_survives_malformed_wifi_rows(api, monkeypatch):
     """Not just a failing query: a row shape the post-processing chokes on
     (a missing _time makes max() compare datetime with int) is swallowed too."""

@@ -297,7 +297,7 @@ def render(
         if not (wifi and wifi.get("min_dbm") is not None):
             lines.append("")
             lines.append(b("Local link"))
-        for change in changes[-3:]:
+        for change in reversed(changes[-3:]):  # newest first, then the count of older ones
             text = aggregates.describe_uplink_change(change)
             lines.append(f"{watch} {esc(text[0].upper() + text[1:])}.")
         if len(changes) > 3:

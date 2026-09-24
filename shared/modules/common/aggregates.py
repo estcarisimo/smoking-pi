@@ -315,7 +315,7 @@ def parse_uplink_changes(rows: list[dict]) -> list[dict]:
             "time": _iso(r.get("_time")),
             "previous": str(r.get("previous")),
             "interface": str(r.get("interface") or ""),
-            "kind": str(r.get("kind") or ("none" if not r.get("interface") else "")),
+            "kind": str(r.get("kind") or ""),
         })
     return out
 
@@ -353,17 +353,19 @@ def _collect_uplink(hours: int) -> dict:
             + '|> filter(fn: (r) => r._field == "interface" or r._field == "kind" '
             'or r._field == "family") |> last()'
         )
+        fields = {r.get("_field"): r.get("_value") for r in last_rows if r.get("_field")}
+        current = None
+        if "interface" in fields:
+            current = {
+                "interface": str(fields.get("interface") or ""),
+                "kind": str(fields.get("kind") or ""),
+                "family": int(fields.get("family") or 0),
+            }
+    # The casts are inside too: a malformed row must cost this block, not
+    # the digest or the report it sits in.
     except Exception:  # noqa: BLE001 - optional measurement, never fatal
         log.warning("host_uplink aggregate failed; going out without it", exc_info=True)
         return {}
-    fields = {r.get("_field"): r.get("_value") for r in last_rows if r.get("_field")}
-    current = None
-    if "interface" in fields:
-        current = {
-            "interface": str(fields.get("interface") or ""),
-            "kind": str(fields.get("kind") or ""),
-            "family": int(fields.get("family") or 0),
-        }
     if current is None and not changes:
         return {}
     return {"current": current, "changes": changes}
