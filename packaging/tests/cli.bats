@@ -955,7 +955,7 @@ STUB
     [ "$status" -eq 0 ]
     grep -qxF "PUBLIC_BASE_HOST='[2001:db8::5]:9999'" "$SMOKING_PI_ENV_FILE"
     [[ "$output" == *"at home:       http://[2001:db8::5]:9999/"* ]]
-    for bad in '::1' '[fe80::1]' 'fd00::1%eth0' '[2001:db8::5' '[2001:db8::5]:x' '2001:zz::1' '2001:::1'; do
+    for bad in '::' '::1' '[fe80::1]' 'fd00::1%eth0' '[2001:db8::5' '[2001:db8::5]:x' '2001:zz::1' '2001:::1'; do
         run "$CLI" links --lan "$bad"
         [ "$status" -eq 2 ]
     done

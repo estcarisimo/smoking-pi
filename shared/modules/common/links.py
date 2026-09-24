@@ -144,6 +144,9 @@ def _split_authority(value: str, authority: str) -> tuple[str, bool] | None:
     if ip.is_link_local or ip.scope_id:
         _refuse_base(value, "link-local IPv6 needs a zone id, which browsers reject")
         return None
+    if ip.is_unspecified:
+        _refuse_base(value, ":: is no host's address")
+        return None
     return f"[{address}]{after if has_port else ''}", has_port
 
 

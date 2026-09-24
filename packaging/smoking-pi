@@ -703,6 +703,7 @@ ipv6_base() {
         # browsers refuse zone ids in a URL: every link would be dead.
         *%*|fe[89ab][0-9a-f]:*)
             echo "$v is link-local or names a zone (%...): a browser cannot open it. Give a global or ULA address, a hostname, or an IPv4 address." >&2; return 1 ;;
+        ::|0:0:0:0:0:0:0:0) echo "$v is no host's address; give this machine's own." >&2; return 1 ;;
         ::1|0:0:0:0:0:0:0:1) echo "$v only opens on this machine; a link in an alert is read on a phone." >&2; return 1 ;;
         *[!0-9a-f:.]*|*:::*|*[!:]:|:[!:]*) echo "$v is not an IPv6 address." >&2; return 1 ;;
         *:*:*) ;;

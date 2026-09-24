@@ -154,7 +154,8 @@ def test_link_local_primary_falls_back_to_the_tunnel(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "value", ["[2001:db8::5", "[2001:db8::5]x", "[2001:db8::5]:", "[pi.lan]", "2001:zz::1"]
+    "value",
+    ["[2001:db8::5", "[2001:db8::5]x", "[2001:db8::5]:", "[pi.lan]", "2001:zz::1", "::", "[]"],
 )
 def test_malformed_ipv6_makes_no_links(monkeypatch, caplog, value):
     monkeypatch.setenv("PUBLIC_BASE_HOST", value)
