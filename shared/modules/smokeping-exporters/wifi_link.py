@@ -144,12 +144,15 @@ def default_route4(proc_route: Path = PROC_ROUTE) -> tuple[str, str | None] | No
 
 
 def _gateway4(field: str) -> str | None:
-    """/proc/net/route prints the gateway as host-order (little-endian) hex."""
+    """/proc/net/route prints the gateway as a host-order 32-bit word: the
+    network-order address read as a native integer, so 0156A8C0 is
+    192.168.86.1 on a little-endian Pi and would read the other way round
+    on a big-endian host."""
     try:
         value = int(field, 16)
     except ValueError:
         return None
-    return str(ipaddress.IPv4Address(value.to_bytes(4, "little"))) if value else None
+    return str(ipaddress.IPv4Address(value.to_bytes(4, sys.byteorder))) if value else None
 
 
 def default_route_interface(proc_route: Path = PROC_ROUTE) -> str | None:

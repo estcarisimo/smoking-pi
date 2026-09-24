@@ -132,7 +132,7 @@
             <tbody>
             {% for i in connection.entries %}
             <tr>
-                <td>{{ {'gateway': 'Router', 'gateway6': 'Router (IPv6)', 'cpe': "ISP's first hop", 'resolver': 'DNS resolver'}[i.kind] }}</td>
+                <td>{{ {'gateway': 'Router', 'gateway6': 'Router (IPv6)', 'cpe': "ISP's first hop", 'resolver': 'DNS resolver'}.get(i.kind, i.kind) }}</td>
                 <td><code>{{ i.host }}</code></td>
                 <td>
                     {% if i.status == 'measured' %}<span class="badge bg-success">yes</span> as {{ i.measured_as }}

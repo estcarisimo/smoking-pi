@@ -446,15 +446,17 @@ class ConfigManagerAPI:
             return recommendations.unavailable(
                 "SmokePing runs on a Docker network in this edition, so it "
                 "cannot see this host's router or resolvers")
-        ran = container.exec_run(['python3', '/exporters/host_facts.py'])
+        # demux: stdout is the JSON, stderr (a log line, a traceback) is not.
+        ran = container.exec_run(['python3', '/exporters/host_facts.py'], demux=True)
+        stdout, stderr = ran.output if isinstance(ran.output, tuple) else (ran.output, b'')
         if ran.exit_code != 0:
             logger.warning("host_facts.py exited %s: %s", ran.exit_code,
-                           ran.output.decode(errors='replace')[-500:])
+                           (stderr or b'').decode(errors='replace')[-500:])
             return recommendations.unavailable(
                 f"could not read the host's network (host_facts exit {ran.exit_code})")
         try:
-            facts = json.loads(ran.output.decode(errors='replace').strip().splitlines()[-1])
-        except (ValueError, IndexError):
+            facts = json.loads((stdout or b'').decode(errors='replace'))
+        except ValueError:
             return recommendations.unavailable("the host's network facts were unreadable")
         cpe = container.exec_run(['cat', '/config/CPE_Targets'])
         measured = recommendations.measured_hosts(

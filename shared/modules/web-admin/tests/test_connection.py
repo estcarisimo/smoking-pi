@@ -80,11 +80,23 @@ def test_the_form_shows_the_suggestion(client, monkeypatch):
     assert '<option value="dns" selected' in html
 
 
-def test_the_form_ignores_parameters_it_does_not_have(client, monkeypatch):
+def test_the_form_takes_only_its_own_fields_from_the_query(client, monkeypatch):
+    """`using_database` is the template's own switch: a query parameter of
+    that name must not reach it, or a link could hide the form's DB path."""
     monkeypatch.setattr(targets_module.config_api, "is_database_available", lambda: True)
+    captured = {}
+    real_render = targets_module.render_template
+
+    def spy(template, **context):
+        captured.update(context)
+        return real_render(template, **context)
+    monkeypatch.setattr(targets_module, "render_template", spy)
     login(client)
-    response = client.get("/targets/add?using_database=0&probes=x")
+    response = client.get("/targets/add?using_database=0&probes=x&hostname=h")
     assert response.status_code == 200
+    assert captured["using_database"] is True
+    assert captured["probes"] == ["FPing", "FPing6", "DNS"]
+    assert captured["hostname"] == "h"
 
 
 def test_a_suggestion_is_escaped_like_any_other_value(client, monkeypatch):

@@ -140,9 +140,12 @@ class FakeContainer:
         self.replies = replies  # {argv[0]: (exit_code, bytes)}
         self.calls = []
 
-    def exec_run(self, cmd):
+    def exec_run(self, cmd, demux=False):
         self.calls.append(cmd)
         code, out = self.replies.get(cmd[0], (0, b""))
+        # docker-py: with demux=True, output is (stdout, stderr).
+        if demux and not isinstance(out, tuple):
+            out = (out, None)
         return SimpleNamespace(exit_code=code, output=out)
 
 
@@ -170,8 +173,8 @@ def test_the_endpoint_reads_the_host_from_smokepings_namespace(
     (tmp_path / "Targets").write_text(TARGETS)
     monkeypatch.setattr(api_module, "OUTPUT_DIR", tmp_path)
     container = fake_smokeping(replies={
-        # A log line before the JSON must not break the parse.
-        "python3": (0, b"INFO something\n" + json.dumps(FACTS).encode() + b"\n"),
+        # A log line on stderr must not break the parse of stdout.
+        "python3": (0, (json.dumps(FACTS).encode() + b"\n", b"INFO something\n")),
         "cat": (0, CPE.encode()),
     })
     body = client.get("/recommendations").get_json()
