@@ -73,6 +73,19 @@ version gets a matching GitHub release and git tag.
   window, message and result is what it was. This is the first of three
   parts of editable measurement frequency (first-run stage D). See
   *Probe cadence* in `docs/alerting.md`.
+- **Loss events are counted in pings lost, not in a fixed percent.** The
+  15% bar meant "2 of 10" on FPing, "3 of 20" on a 20-ping probe, and a
+  single lost DNS query of five cleared it. An event is now more than 1.5
+  pings' worth lost, of however many the target's probe sends. The RRD
+  spreads a cycle's lost pings over two aligned steps, so loss values are
+  not whole pings, and 1.5 keeps one lost ping out whole. The same rule
+  applies to `high_loss` persistence, the floor for `outage` (with
+  `WIDESPREAD_LOSS_PCT`), `get_loss_events` in the MCP server and the web
+  assistant, and the digest's and AI report's `loss_events`. Each builds
+  the per-target bar into its Flux query as a `dict`. `min_loss_pct`
+  still sets a fixed percent when given. On the shipped probes, only one
+  lost DNS query stops counting: seven days on the reference Pi gave 843
+  events under both rules. This is part 2 of stage D.
 
 ### Fixed
 

@@ -27,7 +27,7 @@ from typing import Any
 
 log = logging.getLogger("aggregates")
 
-from . import microcuts
+from . import cadence, microcuts
 from .tsdb import (
     CLAMP_LOSS_RATIO as _CLAMP_LOSS_RATIO,
 )
@@ -38,13 +38,12 @@ from .tsdb import (
     query_influx,
 )
 
-# Loss threshold (percent) above which a data point counts as a "loss event".
-# 15, not 5: a single lost ping of ten is 10%, and on a host that measures
-# across Wi-Fi that happens 60-300 times a day spread over every target --
-# background, not events. 15 keeps anything that lost two pings or more, and
-# any lost DNS query (five per cycle, so one is 20%). Same bar as the MCP
-# tool get_loss_events' default.
-LOSS_EVENT_PCT = 15.0
+# A data point is a "loss event" when it lost more than one ping's worth, of
+# however many its probe sends (15% of ten, 7.5% of twenty, 30% of five). A
+# single lost ping happens 60-300 times a day across every target on a host
+# that measures through Wi-Fi -- background, not events. Same bar as the
+# MCP tool get_loss_events' default; see common.cadence.EVENT_LOST_PINGS.
+EVENT_LOST_PINGS = cadence.EVENT_LOST_PINGS
 
 # Keep the payload small: only the worst N targets (by mean loss, then p95
 # latency) are included.
@@ -53,7 +52,7 @@ MAX_TARGETS = 30
 MAX_WORST_WINDOWS = 5
 
 __all__ = [
-    "LOSS_EVENT_PCT",
+    "EVENT_LOST_PINGS",
     "MAX_TARGETS",
     "MAX_WORST_WINDOWS",
     "collect",
@@ -89,9 +88,15 @@ def _collect_target_stats(hours: int) -> list[dict]:
     p95_flux = base + median_filter + group + "|> quantile(q: 0.95)"
     mean_loss_flux = base + loss_filter + _CLAMP_LOSS_RATIO + group + "|> mean()"
     max_loss_flux = base + loss_filter + _CLAMP_LOSS_RATIO + group + "|> max()"
+    try:
+        cadences = cadence.by_target(query_influx(cadence.cadence_flux()))
+    except Exception:  # a missing cadence means the default, not no report
+        log.warning("cadence query failed; counting loss events on 10 pings")
+        cadences = {}
+    prelude, bar = cadence.event_threshold_flux(cadences)
     loss_events_flux = (
-        base + loss_filter + _CLAMP_LOSS_RATIO
-        + f"|> filter(fn: (r) => r._value >= {LOSS_EVENT_PCT / 100.0}) "
+        prelude + base + loss_filter + _CLAMP_LOSS_RATIO
+        + f"|> filter(fn: (r) => r._value >= {bar}) "
         + group + "|> count()"
     )
 

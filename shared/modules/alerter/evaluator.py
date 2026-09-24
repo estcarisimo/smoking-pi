@@ -63,11 +63,12 @@ HEALTHY_LOSS_RATIO = 0.5  # < this mean ratio counts as "healthy" (ipv6 rule)
 # a mean hides how the loss arrived: one probe cycle losing 8 of 10 pings and
 # two clean ones average 27%, which cleared 20% and paged as "high loss" --
 # eighteen times over, once per target, for a link that blinked for three
-# minutes on 2026-09-19. A point only counts toward persistence above
-# HIGH_LOSS_POINT_PCT (more than one lost ping of ten), and the rule needs
+# minutes on 2026-09-19. A point only counts toward persistence when it
+# lost HIGH_LOSS_POINT_LOST pings' worth (more than one ping, of however many
+# its probe sends; see common.cadence.EVENT_LOST_PINGS), and the rule needs
 # HIGH_LOSS_MIN_POINTS of them: loss that lasted, not loss that happened.
 DEFAULT_HIGH_LOSS_MIN_POINTS = 2  # HIGH_LOSS_MIN_POINTS
-HIGH_LOSS_POINT_PCT = 15.0  # percent; a single lost ping of ten is 10%
+HIGH_LOSS_POINT_LOST = cadence.EVENT_LOST_PINGS  # 15% of 10, 7.5% of 20
 # The mean is over 15 min = three steps; persistence is counted over the SAME
 # three steps, not the wider down window the raw points come from. Otherwise
 # a lossy cycle that has aged out of the mean could still corroborate a
@@ -80,7 +81,9 @@ MEAN_STEPS = 3
 # warnings, re-sent every cooldown, for the night the Pi's Wi-Fi radio hung
 # (2026-09-20: associated at -49 dBm, zero packets received for 3 h 20 min).
 # A step counts as widespread when WIDESPREAD_PCT of the targets reporting
-# in it lost at least WIDESPREAD_LOSS_PCT; see rule_widespread for what each
+# in it lost at least WIDESPREAD_LOSS_PCT -- and more than one ping's worth,
+# so a probe sending few pings cannot reach it on a single lost one; see
+# rule_widespread for what each
 # shape becomes.
 DEFAULT_WIDESPREAD_PCT = 80.0  # percent of reporting targets; WIDESPREAD_PCT
 DEFAULT_WIDESPREAD_LOSS_PCT = 30.0  # percent loss per point; WIDESPREAD_LOSS_PCT
@@ -282,11 +285,11 @@ def _step_of(value: object, step_s: int = STEP_S) -> int | None:
 
 def _lossy_points_by_target(
     points: list[dict],
-    min_pct: float,
+    min_lost: float = HIGH_LOSS_POINT_LOST,
     steps: int = MEAN_STEPS,
     cadences: dict[str, cadence.Cadence] | None = None,
 ) -> dict[str, int]:
-    """How many raw points per target lost more than ``min_pct``, within the
+    """How many raw points per target lost ``min_lost`` pings' worth, within the
     latest ``steps`` probe cycles present in ``points`` -- each target's own
     cycles, counted back from the newest point of any target.
 
@@ -310,7 +313,7 @@ def _lossy_points_by_target(
             newest - (steps - 1) * cadence.of(cadences, target).step
         ):
             continue
-        if flux.clamp_loss_ratio(value) * 100.0 >= min_pct:
+        if cadence.is_event(value, cadence.of(cadences, target).pings, min_lost):
             counts[target] = counts.get(target, 0) + 1
     return counts
 
@@ -328,7 +331,8 @@ def rule_high_loss(
     HIGH_LOSS_PCT (excl. down targets).
 
     With ``points`` (the raw down-window rows) the loss must also have
-    PERSISTED: at least ``min_points`` points above HIGH_LOSS_POINT_PCT in
+    PERSISTED: at least ``min_points`` points that lost HIGH_LOSS_POINT_LOST
+    pings' worth in
     the latest MEAN_STEPS cycles -- the same span as the mean. A single bad
     probe cycle can push a 15 min mean over the threshold on its own, and
     one cycle is a blink, not high loss. Without ``points`` the rule is the
@@ -340,7 +344,7 @@ def rule_high_loss(
         min_points = _env_int("HIGH_LOSS_MIN_POINTS", DEFAULT_HIGH_LOSS_MIN_POINTS)
     exclude = exclude or set()
     persisted = (
-        _lossy_points_by_target(points, HIGH_LOSS_POINT_PCT, cadences=cadences)
+        _lossy_points_by_target(points, cadences=cadences)
         if points is not None
         else None
     )
@@ -479,6 +483,7 @@ def rule_widespread(
     loss_pct: float | None = None,
     min_targets: int = WIDESPREAD_MIN_TARGETS,
     step_s: int = STEP_S,
+    cadences: dict[str, cadence.Cadence] | None = None,
 ) -> list[dict]:
     """One incident for a loss that hit most targets in the same probe cycle.
 
@@ -524,7 +529,9 @@ def rule_widespread(
     for (step, target), values in ratios.items():
         ratio = sum(values) / len(values)
         reporting.setdefault(step, set()).add(target)
-        if ratio * 100.0 >= loss_pct:
+        if ratio * 100.0 >= loss_pct and cadence.is_event(
+            ratio, cadence.of(cadences or {}, target).pings
+        ):
             lossy.setdefault(step, set()).add(target)
         if ratio >= DOWN_LOSS_RATIO:
             lost.setdefault(step, set()).add(target)
@@ -758,7 +765,9 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
     incidents += rule_microcut_burst(micro_rows)
     # The verdict reads the folded shape, not the raw windows.
     micro_rows = microcut_rows(microcuts.fold_cuts(micro_rows), micro_rows)
-    widespread = rule_widespread(down_rows, step_s=windows["step"])
+    widespread = rule_widespread(
+        down_rows, step_s=windows["step"], cadences=cadences
+    )
     incidents = widespread + suppress_widespread(incidents, widespread)
     incidents += rule_exporter_stale(stale_rows, windows["stale"])
     incidents += rule_ipv6_down(mean_rows, windows["mean"])

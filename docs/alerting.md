@@ -24,7 +24,7 @@ The service runs with `network_mode: host`, so it reaches InfluxDB on
 | `uplink_down` | critical | Most targets (`WIDESPREAD_PCT` of those reporting) at 100% loss in each of the latest 3 probe cycles, consecutive in time (one absent cycle tolerated) — every destination including the first hop is unreachable from this host, so the monitor's own uplink is gone. ONE incident; the per-target ones it would fan out into are not sent | `WIDESPREAD_PCT` (80 %), `DOWN_WINDOW` |
 | `outage` | warning | A run of probe cycles in which most targets lost at least `WIDESPREAD_LOSS_PCT` at once — a brief cut of the link that had ended by the time it was seen. ONE incident per run, keyed by its first cycle; *transient*: it leaves the window on its own and no recovery notice follows | `WIDESPREAD_PCT` (80 %), `WIDESPREAD_LOSS_PCT` (30 %) |
 | `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points. Not sent while anything widespread is active | `DOWN_WINDOW` (1200 s) |
-| `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold **and** the loss persisted: at least `HIGH_LOSS_MIN_POINTS` probe cycles above 15% (more than one lost ping) within the same 15 minutes the mean covers. Targets already down are excluded; not sent while anything widespread is active | `HIGH_LOSS_PCT` (20 %), `HIGH_LOSS_MIN_POINTS` (2) |
+| `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold **and** the loss persisted: at least `HIGH_LOSS_MIN_POINTS` probe cycles that lost two or more pings (see [Probe cadence](#probe-cadence)) within the same 15 minutes the mean covers. Targets already down are excluded; not sent while anything widespread is active | `HIGH_LOSS_PCT` (20 %), `HIGH_LOSS_MIN_POINTS` (2) |
 | `microcut_burst` | warning | Per target+protocol in `cpe_latency`, over the last 60 min: a **confirmed cut** — a run of two or more consecutive 10 s windows above `MICROCUT_LOSS_PCT`, or one window at 100% — or `MICROCUT_BURST_N` **possible cuts** (isolated single windows at 51–99%). The message names the cut and its duration (*"1 cut of 2 min 40 s (6 windows, all at 100%)"*). Definitions in `common/microcuts.py`, shared with the MCP tool, the digest and the AI report | `MICROCUT_BURST_N` (3), `MICROCUT_LOSS_PCT` (50 %) |
 | `exporter_stale` | critical | Zero `latency` points written in the last window (global — the RRD exporter is probably stalled) | `STALE_WINDOW` (1200 s) |
 | `ipv6_down` | warning | Every IPv6 target (name ends in `6`, or an `fping6`-ish category) at 100% loss for 15 min while at least one IPv4 target is healthy; emits ONE aggregate incident | — |
@@ -193,9 +193,9 @@ missing reports directory is skipped quietly.
 | `DOWN_WINDOW` | `1200` | `target_down` window (seconds). SmokePing probes on a 300 s step by default and `DOWN_MIN_POINTS` is 3, so this must span **strictly more** than 3 steps — at exactly 3 the rule stops matching whenever jitter costs it one point, and the incident flaps. See [Flap damping](#flap-damping-and-why-the-cooldown-alone-is-not-enough). A probe on a slower step raises it to four of that probe's steps by itself (see [Probe cadence](#probe-cadence)) |
 | `STALE_WINDOW` | `1200` | `exporter_stale` window (seconds); same step arithmetic as `DOWN_WINDOW`, raised the same way |
 | `HIGH_LOSS_PCT` | `20` | `high_loss` threshold (percent) |
-| `HIGH_LOSS_MIN_POINTS` | `2` | Probe cycles above 15% loss that `high_loss` needs within the mean's own 15 minutes (the latest three cycles of the down window, so a cycle that aged out of the mean cannot corroborate a new one). One bad cycle can average over `HIGH_LOSS_PCT` on its own, and one cycle is a blink |
+| `HIGH_LOSS_MIN_POINTS` | `2` | Probe cycles with two or more lost pings (15% on a 10-ping probe) that `high_loss` needs within the mean's own 15 minutes (the latest three cycles of the down window, so a cycle that aged out of the mean cannot corroborate a new one). One bad cycle can average over `HIGH_LOSS_PCT` on its own, and one cycle is a blink |
 | `WIDESPREAD_PCT` | `80` | Share of the reporting targets that must be lossy in the same probe cycle for `outage`, or at 100% for `uplink_down` |
-| `WIDESPREAD_LOSS_PCT` | `30` | Loss percent a point needs to count toward `outage` — above the single-lost-ping background |
+| `WIDESPREAD_LOSS_PCT` | `30` | Loss percent a point needs to count toward `outage` — above the single-lost-ping background. A point must also have lost two or more pings, so a probe sending few pings cannot reach it on one lost ping, however low this is set |
 | `MICROCUT_BURST_N` | `3` | Possible cuts (isolated single windows above the threshold) per 60 min to flag a burst when there is no confirmed cut. Windows are ~30 s apart (`CPE_PROBE_WINDOW + CPE_PROBE_IDLE`); "consecutive" tolerates one missing window (`common/microcuts.py` `GAP_S`), rescale it if you change `CPE_PROBE_IDLE` |
 | `MICROCUT_LOSS_PCT` | `50` | Loss percent above which a 10 s CPE window counts as a microcut. CPE gateways rate-limit ICMP, giving a constant single-digit loss floor, so counting any loss at all would flag that floor permanently |
 | `REPORTS_DIR` | `/reports` | Where ai-insights reports are read from |
@@ -509,6 +509,18 @@ What follows from a target's cadence:
   target's several points in one bucket are averaged, so one lost point of
   five does not make it "lost" for that cycle.
 
+Loss is counted in **pings lost**, not in a fixed percent. A point is a
+loss event when it lost more than 1.5 pings' worth, of however many its
+probe sends: 15% on FPing's 10, 7.5% on a 20-ping probe, and 30% on DNS,
+HTTP and TCP's 5. A fixed 15% meant "2 of 10" on FPing but "3 of 20", and
+one lost DNS query of five cleared it. It is 1.5 and not 2 because the RRD
+spreads each cycle's lost pings over two aligned steps, so loss values are
+not whole pings: on the reference Pi, seven days held values at every
+percent from 1 to 13. Persistence for `high_loss`, the `outage` floor and
+the loss events that `get_loss_events`, the digest and the AI report count
+all use this rule (`common.cadence.EVENT_LOST_PINGS`). The `high_loss` mean
+threshold (`HIGH_LOSS_PCT`) stays a percent: it is an average, not a count.
+
 The Grafana panels' red **unreachable** overlay follows the same idea:
 a 15-minute window is marked when it lost 1.5 pings' worth in total
 (the sum of loss × pings over the window). On the shipped 300 s step
@@ -521,7 +533,11 @@ target's latest `pings` from the last 6 hours, and the alerter ships in
 the same release as the exporter that writes it, so every target has a
 real count within one exporter cycle (60 s).
 
-On the shipped probes, all of this is exactly what it was.
+On the shipped probes, all of this is exactly what it was. The only
+difference is that one lost DNS query (20%) is no longer an event. On the
+reference Pi, seven days of loss events came to 843 under both rules. The
+overlay's only difference is the same one: a single lost fetch or query
+out of 5 no longer marks a window.
 
 ## Flap damping, and why the cooldown alone is not enough
 

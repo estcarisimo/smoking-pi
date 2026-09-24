@@ -30,8 +30,7 @@ from datetime import datetime
 from typing import Any
 
 from app.services.config_api import ConfigAPIGateway
-from common import microcuts
-from common.aggregates import LOSS_EVENT_PCT
+from common import cadence, microcuts
 
 logger = logging.getLogger(__name__)
 
@@ -232,10 +231,10 @@ TOOLS = [
     {
         "name": "get_loss_events",
         "description": (
-            "Find data points where packet loss met or exceeded a threshold "
-            "percentage, newest first. The default threshold means two or "
-            "more lost pings in a cycle; a single lost ping out of ten is "
-            "background on a healthy link, not an event."
+            "Find data points that lost two or more pings in a cycle (more "
+            "than 1.5 pings' worth, of however many the target's probe "
+            "sends), newest first. A single lost ping is background on a "
+            "healthy link, not an event."
         ),
         "input_schema": {
             "type": "object",
@@ -244,7 +243,8 @@ TOOLS = [
                 "min_loss_pct": {
                     "type": "number",
                     "description": (
-                        f"Loss threshold percentage 0-100 (default {LOSS_EVENT_PCT:g})."
+                        "Optional fixed loss percentage 0-100 for every target, "
+                        "instead of the default: two or more lost pings."
                     ),
                 },
             },
@@ -489,19 +489,31 @@ def _get_loss_events(tool_input: dict) -> dict:
     hours, err = _validate_hours(tool_input.get("hours"))
     if err:
         return {"error": err}
-    raw = tool_input.get("min_loss_pct", LOSS_EVENT_PCT)
-    try:
-        threshold = float(raw)
-    except (TypeError, ValueError):
-        return {"error": f"Invalid min_loss_pct value {raw!r}."}
-    if not 0 <= threshold <= 100:
-        return {"error": "min_loss_pct must be between 0 and 100."}
+    raw = tool_input.get("min_loss_pct")
+    threshold = None
+    if raw is not None:
+        try:
+            threshold = float(raw)
+        except (TypeError, ValueError):
+            return {"error": f"Invalid min_loss_pct value {raw!r}."}
+        if not 0 <= threshold <= 100:
+            return {"error": "min_loss_pct must be between 0 and 100."}
+
+    if threshold is None:
+        try:
+            cadences = cadence.by_target(query_influx(cadence.cadence_flux()))
+        except Exception:  # the cadence refines the answer; never refuse one
+            cadences = {}
+        prelude, bar = cadence.event_threshold_flux(cadences)
+    else:
+        prelude, bar = "", cadence.flux_float(threshold / 100.0)
 
     flux = (
-        _base_flux(["latency", "dns_latency"], hours)
+        prelude
+        + _base_flux(["latency", "dns_latency"], hours)
         + '|> filter(fn: (r) => r._field == "loss") '
         + _CLAMP_LOSS_RATIO
-        + f"|> filter(fn: (r) => r._value >= {threshold / 100.0}) "
+        + f"|> filter(fn: (r) => r._value >= {bar}) "
         + "|> group() "
         + '|> sort(columns: ["_time"], desc: true) '
         + f"|> limit(n: {MAX_EVENT_ROWS})"
@@ -519,6 +531,7 @@ def _get_loss_events(tool_input: dict) -> dict:
     return {
         "window_hours": hours,
         "min_loss_pct": threshold,
+        "min_lost_pings": cadence.EVENT_LOST_PINGS if threshold is None else None,
         "event_count": len(events),
         "truncated": len(events) >= MAX_EVENT_ROWS,
         "events": events,
