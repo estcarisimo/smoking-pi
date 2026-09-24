@@ -30,6 +30,28 @@ version gets a matching GitHub release and git tag.
     files and bash in the scripts that source it, and an unquoted
     `pbkdf2:sha256:260000$salt$hash` reached the container as
     `pbkdf2:sha256:260000`. Plain values are written as before.
+- **The welcome tour's optional fourth step: a chat assistant.** It
+  says what an assistant such as OpenClaw adds, and whether one is using
+  this install. The answer comes from the MCP server's own `tool=` log
+  lines, the evidence `smoking-pi openclaw --check` reads, never from an
+  assistant's reply. It shows *Not set up* (run `sudo smoking-pi
+  openclaw`), *Stopped*, *Not used yet* since the server started (run
+  `--check`), or *Connected* with the last tool and time. config-manager
+  serves it as `GET /assistant` through the Docker socket it already
+  uses. Nothing is registered from the web: connecting stays the host
+  command's job (`docs/cli-scope.md`).
+- **A probe's step and pings can be changed in the web admin.** A new
+  **Probes** page lists each probe's cycle, its targets and its traffic.
+  **Change** sets how often (every minute to every hour) and how many
+  pings (3 to 20). Before saving, it says that every target of the probe
+  starts a new SmokePing history, with the old files archived and not
+  deleted, and that Grafana keeps everything. It needs a confirmation.
+  Behind it, `PUT /probes/<name>` on the config API accepts only those
+  two values. It refuses a cycle that could outrun its step (pings ×
+  per-ping timeout), then saves, regenerates and reloads, and the RRD
+  guard archives the old files. The welcome tour no longer promises
+  "every five minutes". This is part 3 of stage D; see
+  `docs/measurement-frequency.md`.
 - **The first login is a welcome tour.** The install seeded 21 targets
   in silence, and a new user met a dashboard of numbers with no idea what
   was being measured or why. The web admin (Standard, Pro) now opens once
@@ -96,8 +118,31 @@ version gets a matching GitHub release and git tag.
   lost DNS query stops counting: seven days on the reference Pi gave 843
   events under both rules. This is part 2 of stage D.
 
+- **Grafana's "unreachable" overlay counts pings lost, too.** Five
+  dashboards marked a 15-minute window when its mean loss reached 5%. On
+  the shipped step that is 1.5 lost pings of 30, and on any other step it
+  means something else. A window is now marked when its points lost 1.5
+  pings' worth between them (loss × `pings`, with 10 or 5 when a point
+  predates the field). On the reference Pi over seven days, ICMP went
+  from 387 marked windows to 383 and DNS from 46 to 45. HTTP (194 → 142)
+  and TCP (78 → 62) lose their single-lost-fetch marks, the same rule as
+  the loss events. The doctor now reads a pivoted field (`r.loss` after
+  `pivot`) as a column, not a tag filter.
 ### Fixed
 
+- **SmokePing no longer dies on an RRD it cannot load.** An RRD is made
+  for one step and one ping count. When a target's file disagrees with its
+  probe, SmokePing stops at reload ("RRD parameter mismatch ... You must
+  delete ...rrd") and every target stops being measured. That happens when
+  a probe's step or pings change, when a paused target is resumed after
+  such a change, or when a deleted target is added again under the same
+  name. Before every reload, config-manager now runs `rrd_guard.py` in the
+  SmokePing container with what the new configuration expects of each
+  RRD, CPE targets included. Mismatches are moved, not deleted, to
+  `/data/.archive/<time>/`; SmokePing creates fresh files, and Grafana
+  keeps the full history from InfluxDB. On the reference Pi, a dry run
+  checked all 30 RRDs and found nothing to move. The ClickHouse exporter
+  skips the archive. See `docs/measurement-frequency.md`.
 - **`step_seconds` and `pings` on a target are refused, not dropped.**
   `POST`/`PUT /targets` accepted both and discarded them without a word:
   they belong to the probe, and SmokePing measures every target of a probe

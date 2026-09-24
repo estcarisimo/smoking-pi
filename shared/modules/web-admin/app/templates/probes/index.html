@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Probes - Smoking Pi{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Probes</h1>
+</div>
+
+<p class="text-muted">
+    Each probe measures all of its targets on one cycle: how often
+    (the step) and how many pings per measurement. Changing either starts a
+    new SmokePing history for every target of that probe; Grafana keeps the
+    full history.
+</p>
+
+{% if probes %}
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+            <thead>
+                <tr>
+                    <th>Probe</th>
+                    <th>Measures</th>
+                    <th class="text-end">Targets</th>
+                    <th class="text-end">Traffic</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for probe in probes %}
+                <tr>
+                    <td><span class="badge bg-secondary">{{ probe.name }}</span></td>
+                    <td>{{ probe.cadence }}</td>
+                    <td class="text-end">{{ probe.active_targets|default(0) }}
+                        {% if probe.targets|default(0) != probe.active_targets|default(0) %}
+                        <small class="text-muted">({{ probe.targets }} with paused)</small>
+                        {% endif %}
+                    </td>
+                    <td class="text-end"><small>{{ probe.kbps }} kbit/s</small></td>
+                    <td class="text-end">
+                        <a href="{{ url_for('probes.edit', name=probe.name) }}"
+                           class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-pencil"></i> Change
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-warning">
+    No probes to show. Probes can be changed only in database mode.
+</div>
+{% endif %}
+{% endblock %}

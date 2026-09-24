@@ -15,6 +15,7 @@ dashboard at any time.
 """
 
 from collections import OrderedDict
+from datetime import datetime
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
@@ -43,6 +44,26 @@ def group_targets(targets):
             for name, items in groups.items() if items]
 
 
+def when(stamp):
+    """Docker's RFC 3339 time (nanoseconds and all) as '2026-09-24 09:12 UTC'."""
+    if not stamp:
+        return None
+    try:
+        head = stamp.replace('Z', '').split('.')[0]
+        return datetime.fromisoformat(head).strftime('%Y-%m-%d %H:%M UTC')
+    except ValueError:
+        return stamp
+
+
+def summarize_assistant(body):
+    """The tour's optional fourth step: config-manager's /assistant, with its
+    times made readable. Its state is the MCP server's own evidence."""
+    if not body.get('available'):
+        return {'available': False}
+    return {**body, 'since': when(body.get('since')),
+            'last_call': when(body.get('last_call'))}
+
+
 @welcome_bp.route('/')
 def index():
     using_database = config_api.is_database_available()
@@ -58,6 +79,7 @@ def index():
         connection=summarize_connection(config_api.get_recommendations()),
         groups=group_targets(targets),
         using_database=using_database,
+        assistant=summarize_assistant(config_api.get_assistant()),
     )
 
 

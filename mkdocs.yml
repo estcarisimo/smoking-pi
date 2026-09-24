@@ -15,6 +15,7 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Measuring:
+      - Measurement frequency: measurement-frequency.md
       - HTTP/1.1, HTTP/2, HTTP/3 and TCP probes: http-probes.md
       - Wi-Fi uplink stats: wifi.md
       - The last mile from the CPE: cpe-last-mile.md
