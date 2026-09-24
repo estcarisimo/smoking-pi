@@ -133,7 +133,7 @@ Usage: smoking-pi <command> [args]
                      from the command line: it is asked for, or read from stdin.
                      Credentials install generated are refused: the data
                      volumes hold them.
-  alerts [--openclaw [--to RECIPIENT] | --webhook URL | --off] [--test] [--yes]
+  alerts [--openclaw [--to RECIPIENT] | --webhook | --off] [--test] [--yes]
                      Where alerts go (Pro): set NOTIFY_MODE and its keys, turn
                      on the alerts profile, recreate the alerter and print its
                      own delivery preflight. --test (or answering yes) sends
@@ -801,7 +801,7 @@ cmd_alerts() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --openclaw) mode=openclaw; shift ;;
-            --webhook) mode=webhook; url="${2:-}"; shift 2 || { echo "--webhook needs a URL" >&2; return 2; } ;;
+            --webhook) mode=webhook; shift ;;
             --off) mode=off; shift ;;
             --to) to="${2:-}"; shift 2 || { echo "--to needs a recipient" >&2; return 2; } ;;
             --test) test_msg=1; shift ;;
@@ -819,7 +819,7 @@ cmd_alerts() {
         return 1
     fi
     if [ -z "$mode" ]; then
-        [ "$yes" = 0 ] && [ -t 0 ] || { echo "Say where: --openclaw, --webhook URL or --off." >&2; return 2; }
+        [ "$yes" = 0 ] && [ -t 0 ] || { echo "Say where: --openclaw, --webhook or --off." >&2; return 2; }
         echo "Where should alerts go?"
         echo "  1) OpenClaw (Telegram, or whatever channel your gateway has)"
         echo "  2) A webhook"
@@ -863,14 +863,23 @@ cmd_alerts() {
             echo "Alerts go to $to through OpenClaw."
             ;;
         webhook)
-            if [ -z "$url" ] && [ "$yes" = 0 ] && [ -t 0 ]; then read -r -p "Webhook URL: " url; fi
+            # The URL is often the credential itself (Slack, Discord, ntfy):
+            # asked for, or read from stdin, never taken from argv or printed.
+            if [ -t 0 ]; then
+                read -r -s -p "Webhook URL: " url; echo
+            else
+                IFS= read -r url || true
+            fi
             case "$url" in
                 http://*|https://*) ;;
-                *) echo "--webhook needs an http(s) URL" >&2; return 2 ;;
+                *) echo "The webhook needs an http(s) URL (typed at the prompt, or on stdin)." >&2; return 2 ;;
+            esac
+            case "$url" in
+                *"'"*) echo "a URL cannot contain ' in the env file" >&2; return 2 ;;
             esac
             env_set ALERT_WEBHOOK_URL "$url"
             env_set NOTIFY_MODE webhook
-            echo "Alerts go to $url. A bearer token, if it needs one: smoking-pi config set ALERT_WEBHOOK_TOKEN"
+            echo "Alerts go to the webhook. A bearer token, if it needs one: smoking-pi config set ALERT_WEBHOOK_TOKEN"
             ;;
         off)
             env_set NOTIFY_MODE off
@@ -900,7 +909,8 @@ cmd_alerts() {
     fi
     if [ -n "$test_msg" ]; then
         if compose exec -T alerter python main.py --test >/dev/null 2>&1; then
-            echo "Test message sent: it should be on its way to ${to:-the webhook}."
+            if [ "$mode" = webhook ]; then echo "Test message sent to the webhook."
+            else echo "Test message sent: it should be on its way to $to."; fi
         else
             echo "The test message was NOT delivered: smoking-pi logs alerter" >&2
             return 1

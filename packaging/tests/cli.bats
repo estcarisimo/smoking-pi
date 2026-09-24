@@ -746,6 +746,8 @@ config_setup() {
     [[ "$output" == *"not taken from the command line"* ]]
     run "$CLI" config set CLICKHOUSE_HTTP_PORT 8124 --no-apply
     [ "$status" -eq 0 ]
+}
+
 # --- alerts: where they go ------------------------------------------------------
 
 alerts_setup() {
@@ -830,10 +832,17 @@ STUB
     [[ "$output" == *"NOT delivered"* ]]
 }
 
-@test "alerts --webhook needs an http(s) URL; --off logs only and waits for nothing" {
+@test "alerts --webhook reads the URL from stdin, never argv, never prints it; --off waits for nothing" {
     alerts_setup
-    run "$CLI" alerts --webhook ftp://x --yes
+    run bash -c "printf %s ftp://x | '$CLI' alerts --webhook --yes"
     [ "$status" -eq 2 ]
+    run bash -c "printf %s 'https://hooks.example/T0/s3cret' | '$CLI' alerts --webhook --yes"
+    [ "$status" -eq 0 ]
+    grep -qx 'ALERT_WEBHOOK_URL=https://hooks.example/T0/s3cret' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'NOTIFY_MODE=webhook' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" != *"s3cret"* ]]
+    ! grep -q 's3cret' "$DOCKER_LOG"
+    : > "$DOCKER_LOG"
     run "$CLI" alerts --off --yes
     [ "$status" -eq 0 ]
     grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"

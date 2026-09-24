@@ -76,7 +76,8 @@ profile, recreates the alerter, and prints the alerter's own delivery
 preflight: reachable, a rejected token, or the `message` tool filtered out
 by policy. Add `--test` to send one labeled message. The preflight shows the
 gateway would accept a send, not that the recipient is right; a message
-arriving is the only proof. `--webhook URL` and `--off` work the same way.
+arriving is the only proof. `--webhook` (the URL typed at a prompt or piped on stdin: it is often
+the credential itself) and `--off` work the same way.
 Run it with no options to be asked.
 
 Messages carry a severity headline (🔴 critical, 🟡 warning, ✅ recovery), the

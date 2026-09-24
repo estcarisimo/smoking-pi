@@ -14,8 +14,8 @@ version gets a matching GitHub release and git tag.
 - **`smoking-pi alerts`: where alerts go, in one command.** With the
   `alerts` profile on and `NOTIFY_MODE` unset, alerts were evaluated,
   logged and delivered nowhere, with no error. The command:
-  - sets the mode (`--openclaw --to telegram:<id>`, `--webhook URL`,
-    `--off`, or asks) and its keys;
+  - sets the mode (`--openclaw --to telegram:<id>`, `--webhook` with the
+    URL on stdin or at a prompt, `--off`, or asks) and its keys;
   - takes the gateway token from the user's `openclaw.json` when there is
     one, never printing it;
   - refuses a bare chat id, which OpenClaw does not deliver to;
