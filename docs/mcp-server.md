@@ -167,7 +167,20 @@ links would resolve to a Grafana 404 while looking perfectly valid in the
 answer. Same doctrine as the unset base URL: no link beats a broken one.
 `system_status()` says which of the two reasons applies.
 
-Set one variable for the common case:
+The short way (Pro):
+
+```bash
+sudo smoking-pi links --lan auto                              # this machine's LAN address
+sudo smoking-pi links --tunnel https://smokingpi.example.com  # from anywhere
+sudo smoking-pi links                                         # show where links point
+```
+
+`--lan auto` takes the address the local network sees: the source of the
+default route, not the address an SSH session came in on, which can be a
+tailnet address that a phone on the Wi-Fi can't open. `--lan https://host` suits
+a reverse proxy on the LAN, where no port is added. `--tunnel` refuses an
+address without its scheme. The alerter and the MCP server are
+recreated to pick it up. By hand, set one variable for the common case:
 
 ```bash
 # editions/pro/.env — standard ports (:3000, :8080) are appended

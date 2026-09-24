@@ -11,6 +11,13 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`smoking-pi links`: where the links in alerts and assistant answers
+  point.** With no option, it shows the at-home and from-anywhere
+  addresses. `--lan auto` sets `PUBLIC_BASE_HOST` to the address the local
+  network sees (the default route's source, not an SSH session's address,
+  which can be a tailnet one). `--tunnel` sets `TUNNEL_BASE_HOST` and
+  refuses a bare host, which would become a dead `http://host:3000` link.
+  `--off` clears both. The alerter and the MCP server are recreated.
 - **`smoking-pi alerts`: where alerts go, in one command.** With the
   `alerts` profile on and `NOTIFY_MODE` unset, alerts were evaluated,
   logged and delivered nowhere, with no error. The command:
