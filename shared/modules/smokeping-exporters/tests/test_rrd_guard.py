@@ -106,3 +106,11 @@ def test_dry_run_reports_and_moves_nothing(tmp_path):
     assert got["archived"][0]["dry_run"] is True
     assert (tmp_path / "websites/Google.rrd").exists()
     assert not (tmp_path / ".archive").exists()
+
+
+def test_a_malformed_entry_is_an_error_not_a_traceback(tmp_path):
+    info = _rrds(tmp_path, {"websites/Google.rrd": (300, 10)})
+    got = rrd_guard.guard({"websites/Google.rrd": {"step": "x"},
+                           "websites/NYT.rrd": None}, tmp_path, info, stamp="S")
+    assert [e["rrd"] for e in got["errors"]] == ["websites/Google.rrd", "websites/NYT.rrd"]
+    assert (tmp_path / "websites/Google.rrd").exists()

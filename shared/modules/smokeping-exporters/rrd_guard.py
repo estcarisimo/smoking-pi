@@ -28,6 +28,11 @@ target. Prints one JSON object:
 A file it cannot read is reported in ``errors`` and left in place: moving
 history away on a guess is worse than a reload that fails loudly. With
 ``"dry_run": true`` nothing moves, and ``archived`` lists what would.
+
+It runs while SmokePing is still up (before the reload signal). A probe
+round that writes to a file at the moment it is renamed writes into the
+archived copy -- a rename keeps open files valid -- so at worst one point
+lands in the archive instead of the fresh file. Nothing is lost or torn.
 """
 
 from __future__ import annotations
@@ -86,6 +91,11 @@ def guard(
     stamp = stamp or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     report: dict[str, Any] = {"checked": 0, "archived": [], "errors": []}
     for rel, wants in sorted(expected.items()):
+        try:
+            want = {"step": int(wants["step"]), "pings": int(wants["pings"])}
+        except (KeyError, TypeError, ValueError):
+            report["errors"].append({"rrd": rel, "error": "expected needs integer step and pings"})
+            continue
         path = _confined(datadir, rel)
         if path is None:
             report["errors"].append({"rrd": rel, "error": "not a path under the datadir"})
@@ -101,7 +111,6 @@ def guard(
         if had is None:
             report["errors"].append({"rrd": rel, "error": "no step in rrdtool info"})
             continue
-        want = {"step": int(wants["step"]), "pings": int(wants["pings"])}
         if had == want:
             continue
         dest = datadir / ARCHIVE / stamp / rel
