@@ -705,6 +705,8 @@ config_setup() {
     [[ "$output" != *"gw-secret"* ]]
     run "$CLI" config get OPENCLAW_GATEWAY_TOKEN --show-secrets
     [ "$output" = "gw-secret" ]
+    run "$CLI" config get WIFI_INTERFACE
+    [ "$output" = "(unset: the default applies)" ]
     run "$CLI" config unset OPENCLAW_GATEWAY_TOKEN --no-apply
     [ "$status" -eq 0 ]
     grep -qx 'OPENCLAW_GATEWAY_TOKEN=' "$SMOKING_PI_ENV_FILE"

@@ -693,7 +693,9 @@ cmd_config() {
                 if [ -n "$(env_get "$key")" ]; then echo "(set, hidden: --show-secrets prints it)"; else echo "(unset)"; fi
                 return 0
             fi
-            env_get "$key"
+            local got
+            got="$(env_get "$key")"
+            if [ -n "$got" ]; then echo "$got"; else echo "(unset: the default applies)"; fi
             ;;
         set|unset)
             local key="${1:-}" value="" apply=1 arg
