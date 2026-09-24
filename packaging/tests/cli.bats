@@ -1072,6 +1072,15 @@ STUB
     ! grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"
 }
 
+@test "when docker cannot list the project's containers, nothing is removed and it says so" {
+    export STUB_CONTAINERS='ai-insights pro-ai-insights-1\n'
+    fail_docker_on "ps -a --filter"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"docker could not list the pro containers"* ]]
+    ! grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"
+}
+
 @test "up also removes a disabled profile's container" {
     export STUB_CONTAINERS='smokeping pro-smokeping-1\nai-insights pro-ai-insights-1\n'
     run "$CLI" up

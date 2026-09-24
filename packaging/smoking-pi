@@ -270,13 +270,17 @@ remove_disabled() {
         echo "warning: Compose could not list the enabled services; containers of disabled profiles were not checked" >&2
         return 0
     fi
-    local svc name stale=()
+    local listed svc name stale=()
+    if ! listed="$(docker ps -a --filter "label=com.docker.compose.project=$proj" \
+                       --format '{{.Label "com.docker.compose.service"}} {{.Names}}' 2>/dev/null)"; then
+        echo "warning: docker could not list the $proj containers; containers of disabled profiles were not checked" >&2
+        return 0
+    fi
     while read -r svc name; do
         [ -n "$name" ] || continue
         # A `compose run` one-off of an enabled service carries its label: kept.
         grep -Fqx "$svc" <<<"$enabled" || stale+=("$name")
-    done < <(docker ps -a --filter "label=com.docker.compose.project=$proj" \
-                 --format '{{.Label "com.docker.compose.service"}} {{.Names}}' 2>/dev/null || true)
+    done <<<"$listed"
     [ "${#stale[@]}" -gt 0 ] || return 0
     echo "Removing containers of services no enabled profile runs: ${stale[*]}"
     docker stop "${stale[@]}" >/dev/null || true
