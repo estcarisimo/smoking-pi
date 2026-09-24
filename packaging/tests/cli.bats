@@ -972,3 +972,63 @@ STUB
     run "$CLI" links
     [[ "$output" == *"at home:       http://[2001:db8::5]:3000/ (Grafana)"* ]]
 }
+
+# --- alerts --digest ---------------------------------------------------------------
+
+@test "alerts --digest alone sets the time and zone, touches nothing about delivery, and says it is not sent while off" {
+    alerts_setup
+    run "$CLI" alerts --digest 07:45 --digest-tz Europe/London
+    [ "$status" -eq 0 ]
+    grep -qx 'DIGEST_ENABLED=true' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'DIGEST_AT=07:45' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'DIGEST_TZ=Europe/London' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"07:45 Europe/London"* ]]
+    [[ "$output" == *"logged, not sent"* ]]
+    # The alerts profile is not in the stub's enabled services: nothing started.
+    ! grep -q ' up -d' "$DOCKER_LOG"
+}
+
+@test "alerts --digest refuses a time or zone it cannot read, before writing anything" {
+    alerts_setup
+    for bad in 24:00 12:60 noon 7:5; do
+        run "$CLI" alerts --digest "$bad"
+        [ "$status" -eq 2 ]
+    done
+    run "$CLI" alerts --digest 07:45 --digest-tz Mars/Olympus
+    [ "$status" -eq 2 ]
+    run "$CLI" alerts --digest 07:45 --digest-tz ../../etc/hostname
+    [ "$status" -eq 2 ]
+    run "$CLI" alerts --digest-tz Europe/London
+    [ "$status" -eq 2 ]
+    run "$CLI" alerts --digest --openclaw
+    [ "$status" -eq 2 ]
+    ! grep -q '^DIGEST_' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "alerts --digest off turns it off; with a mode, both are set in one go" {
+    alerts_setup
+    run "$CLI" alerts --digest off
+    [ "$status" -eq 0 ]
+    grep -qx 'DIGEST_ENABLED=false' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts --openclaw --to telegram:1 --digest 08:30 --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'NOTIFY_MODE=openclaw' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'DIGEST_ENABLED=true' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'DIGEST_AT=08:30' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" != *"logged, not sent"* ]]
+}
+
+
+@test "alerts --digest takes 7:45 as 07:45; with --off both are said once each" {
+    alerts_setup
+    run "$CLI" alerts --digest 7:45
+    [ "$status" -eq 0 ]
+    grep -qx 'DIGEST_AT=07:45' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts --off --digest 08:30 --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'DIGEST_AT=08:30' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"logged, not delivered"* ]]
+    [[ "$output" == *"logged, not sent"* ]]
+}

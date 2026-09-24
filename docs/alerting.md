@@ -298,7 +298,19 @@ Alerts only fire when something breaks, so on a good day the channel is
 silent — and silence has two meanings: nothing happened, or the monitoring
 stopped. The digest resolves that on a schedule.
 
-Off by default. It needs `NOTIFY_MODE` set to deliver anywhere.
+Off by default. It needs `NOTIFY_MODE` set to deliver anywhere. The short
+way (Pro):
+
+```bash
+sudo smoking-pi alerts --digest 08:30 --digest-tz Europe/London
+sudo smoking-pi alerts --digest off
+```
+
+It checks the time and the zone before writing anything (a value the
+alerter can't read would disable the digest), recreates the alerter, and
+says so when `NOTIFY_MODE` is off and the digest would only be logged. It
+also works together with a delivery mode, for example `--openclaw --to
+telegram:<id> --digest 08:30`.
 
 | Variable | Default | Meaning |
 |---|---|---|
