@@ -56,7 +56,7 @@ Window: last {{ data.window_hours }}h (generated {{ data.generated_at }})
 Targets with data: {{ data.target_total }}\
 {% if data.targets_truncated %} (showing worst {{ data.targets|length }} by loss){% endif %}
 
-Per-target stats (latency in ms; loss in %; loss_events = samples with >=15% loss, i.e. more than one lost ping):
+Per-target stats (latency in ms; loss in %; loss_events = samples that lost two or more pings (more than 1.5 pings' worth, of however many the probe sends)):
 {% for t in data.targets -%}
 - {{ t.target }} [{{ t.measurement }}]: median={{ t.median_ms|default('n/a') }}ms \
 p95={{ t.p95_ms|default('n/a') }}ms avg_loss={{ t.avg_loss_pct }}% \

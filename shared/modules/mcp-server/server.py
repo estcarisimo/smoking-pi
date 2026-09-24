@@ -188,11 +188,11 @@ MAX_EVENT_ROWS = 500
 # points, and a roll-up built from the newest 500 of them gets its start wrong.
 MAX_ROLLUP_ROWS = 5000
 
-# get_loss_events defaults. A single lost ping of ten is 10% and is the
-# Wi-Fi hop's background on this host (60-300 such points a day, spread over
-# every target); 15 keeps anything that lost two or more, and any DNS point
-# (5 queries, so one lost is 20%).
-DEFAULT_MIN_LOSS_PCT = 15.0
+# get_loss_events: by default a point is an event when it lost more than one
+# ping's worth, of however many its probe sends (common.cadence
+# .EVENT_LOST_PINGS): one lost ping is the Wi-Fi hop's background on this
+# host, 60-300 such points a day spread over every target. That is the old
+# 15% on a 10-ping probe; a fixed percent meant 3 of 20 and 1 of 5 elsewhere.
 # A run of loss points on one target with gaps no longer than this many of
 # its probe steps is one episode: one missing point does not split a cut in
 # two. Each target's own step (common.cadence), 300 s when unknown.
@@ -861,11 +861,12 @@ def _widespread_runs(
 
 @mcp.tool()
 @logged_tool
-def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT) -> dict:
+def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
     """Find packet loss in the window and say what shape it had.
 
-    Scans the `latency` and `dns_latency` measurements for data points whose
-    packet loss was at or above min_loss_pct and returns them three ways:
+    Scans the `latency` and `dns_latency` measurements for loss EVENTS --
+    points that lost two or more pings (more than 1.5 pings' worth, of
+    however many that target's probe sends) -- and returns them three ways:
 
       - `widespread`: runs of probe steps in which most targets (80%) had
         loss at once, with a `cause` line. `all_lost: true` for three or
@@ -881,20 +882,20 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
       - `by_target` and `events`: the counts and the raw points (newest
         first, `events` capped at 500 with `truncated` set when it was).
 
-    `background_points` counts the points BELOW min_loss_pct but above zero
-    that were left out: on a host measuring across Wi-Fi that is one lost
-    ping of ten, a few dozen to a few hundred a day, and not an event.
+    `background_points` counts the points with some loss that were left
+    out: on a host measuring across Wi-Fi that is one lost ping, a few dozen
+    to a few hundred a day, and not an event.
 
     Each `by_target` entry carries `step_s` and `pings`: that target's cycle
     and pings per point, so a loss percentage can be read as pings lost (10%
-    of 10 pings is one; 20% of 5 DNS queries is one).
+    of 10 pings is one; 20% of 5 DNS queries is one). Loss values are not
+    whole pings: the RRD spreads each cycle over two aligned steps.
 
     Args:
         hours: Lookback window in hours (default 24).
-        min_loss_pct: Minimum loss percentage (0-100) for a point to count
-            as an event. Default 15: two or more lost pings of ten, or any
-            lost DNS query of five. Lower it to see the single-ping
-            background; it is noise, not events.
+        min_loss_pct: Optional. A fixed loss percentage (0-100) instead of
+            the pings-lost rule, applied to every target alike. Lower it to
+            see the single-ping background; it is noise, not events.
 
     Because the measurement is continuous, this answers questions about
     moments nobody was watching: "did we drop packets last night?", "when did
@@ -908,12 +909,21 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
     hours, err = _validate_hours(hours)
     if err:
         return {"error": err}
-    try:
-        threshold = float(min_loss_pct)
-    except (TypeError, ValueError):
-        return {"error": f"Invalid min_loss_pct value {min_loss_pct!r}."}
-    if not 0 <= threshold <= 100:
-        return {"error": "min_loss_pct must be between 0 and 100."}
+    threshold: float | None = None
+    if min_loss_pct is not None:
+        try:
+            threshold = float(min_loss_pct)
+        except (TypeError, ValueError):
+            return {"error": f"Invalid min_loss_pct value {min_loss_pct!r}."}
+        if not 0 <= threshold <= 100:
+            return {"error": "min_loss_pct must be between 0 and 100."}
+
+    cadences = _cadences()
+    step_s = cadence.longest_step(cadences)
+    if threshold is None:
+        prelude, bar = cadence.event_threshold_flux(cadences)
+    else:
+        prelude, bar = "", cadence.flux_float(threshold / 100.0)
 
     base = (
         _base_flux(["latency", "dns_latency"], hours)
@@ -921,15 +931,17 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
         + _CLAMP_LOSS_RATIO
     )
     flux = (
-        base
-        + f"|> filter(fn: (r) => r._value >= {threshold / 100.0}) "
+        prelude
+        + base
+        + f"|> filter(fn: (r) => r._value >= {bar}) "
         + "|> group() "
         + '|> sort(columns: ["_time"], desc: true) '
         + f"|> limit(n: {MAX_ROLLUP_ROWS})"
     )
     background_flux = (
-        base
-        + f"|> filter(fn: (r) => r._value > 0.0 and r._value < {threshold / 100.0}) "
+        prelude
+        + base
+        + f"|> filter(fn: (r) => r._value > 0.0 and r._value < {bar}) "
         + "|> group() |> count()"
     )
     # How many targets reported in EACH probe step, so "most targets" has the
@@ -948,8 +960,6 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
         targets_rows = query_influx(targets_flux)
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
-    cadences = _cadences()
-    step_s = cadence.longest_step(cadences)
 
     events = [
         {
@@ -1026,6 +1036,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
     return {
         "window_hours": hours,
         "min_loss_pct": threshold,
+        "min_lost_pings": cadence.EVENT_LOST_PINGS if threshold is None else None,
         "event_count": len(events),
         "truncated": len(events) >= MAX_EVENT_ROWS,
         "targets_reporting": max(reporting.values(), default=0),
