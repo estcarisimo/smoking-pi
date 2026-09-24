@@ -521,9 +521,23 @@ the loss events that `get_loss_events`, the digest and the AI report count
 all use this rule (`common.cadence.EVENT_LOST_PINGS`). The `high_loss` mean
 threshold (`HIGH_LOSS_PCT`) stays a percent: it is an average, not a count.
 
+The Grafana panels' red **unreachable** overlay follows the same idea:
+a 15-minute window is marked when it lost 1.5 pings' worth in total
+(the sum of loss × pings over the window). On the shipped 300 s step
+that is exactly the old "15-minute mean at 5% or more" (5% of 3 × 10
+pings), and it stays one lost ping short of a mark whatever the step.
+Points written before the exporter recorded `pings` count as 10 for
+`latency` and 5 for DNS, HTTP and TCP: what those probes always sent.
+The alerter's flat default of 10 is a different case. It reads each
+target's latest `pings` from the last 6 hours, and the alerter ships in
+the same release as the exporter that writes it, so every target has a
+real count within one exporter cycle (60 s).
+
 On the shipped probes, all of this is exactly what it was. The only
 difference is that one lost DNS query (20%) is no longer an event. On the
-reference Pi, seven days of loss events came to 843 under both rules.
+reference Pi, seven days of loss events came to 843 under both rules. The
+overlay's only difference is the same one: a single lost fetch or query
+out of 5 no longer marks a window.
 
 ## Flap damping, and why the cooldown alone is not enough
 
