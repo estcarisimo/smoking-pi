@@ -19,9 +19,17 @@ an estimate of its traffic. **Change** opens a form:
   more lost) is not every single loss.
 
 The form says what the change does and needs a confirmation. It refuses a
-cycle that could outrun its step: a Curl probe's fetches run one after
-another with a 10 s timeout each, so 10 fetches cannot fit in a 60 s
-step. The same rules apply to the API:
+cycle that could outrun its step when every ping times out, using
+SmokePing's own defaults:
+
+- FPing sends to every target at once, with 1 s between packets to the
+  same target, so 20 pings take up to 20 s.
+- DNS, TCP and HTTP (Curl) give each ping up to its `timeout` (5 s, or
+  10 s for Curl), one after another, and run 5 targets at a time
+  (`forks`). Five DNS queries to 12 resolvers can take 3 batches × 5 × 5 s
+  = 75 s, which doesn't fit a 60 s step.
+
+The same rules apply to the API:
 
 ```bash
 curl -X PUT -H "Authorization: Bearer $CONFIG_API_TOKEN" \

@@ -12,7 +12,7 @@ so before anything is saved, and asks for a confirmation.
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
 from app.routes.dashboard import PACKET_BYTES, config_api
-from app.routes.targets import describe_cadence
+from app.routes.targets import describe_cadence, probe_unit
 
 probes_bp = Blueprint('probes', __name__)
 
@@ -20,17 +20,6 @@ probes_bp = Blueprint('probes', __name__)
 # which are what is enforced; these only build the form.
 STEP_CHOICES = (60, 120, 300, 600, 900, 1800, 3600)
 MIN_PINGS, MAX_PINGS = 3, 20
-
-
-def unit_for(probe):
-    """What one "ping" of this probe is, in words."""
-    if probe.get('name') == 'DNS':
-        return 'queries'
-    if probe.get('module') == 'Curl':
-        return 'fetches'
-    if probe.get('name') == 'TCPPing':
-        return 'connections'
-    return 'pings'
 
 
 def step_label(step):
@@ -45,7 +34,7 @@ def kbps(pings, step, targets):
 def _probes():
     probes = config_api.get_probes_from_db().get('probes', [])
     for probe in probes:
-        probe['unit'] = unit_for(probe)
+        probe['unit'] = probe_unit(probe.get('name'), probe.get('module'))
         probe['cadence'] = describe_cadence(
             probe['pings'], probe['step_seconds'], probe['unit'])
         probe['kbps'] = kbps(probe['pings'], probe['step_seconds'],

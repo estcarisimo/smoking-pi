@@ -101,3 +101,22 @@ def test_an_unknown_probe_goes_back_to_the_list(client, monkeypatch):
     login(client)
     r = client.get("/probes/Nope/edit")
     assert r.status_code == 302 and r.headers["Location"].endswith("/probes/")
+
+
+def test_the_page_opens_when_config_manager_is_down(client, monkeypatch):
+    def down():
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(probes_module.config_api, "get_probes_from_db", down)
+    login(client)
+    r = client.get("/probes/")
+    assert r.status_code == 200
+    assert "Could not load the probes" in r.get_data(as_text=True)
+
+
+def test_the_add_form_and_the_probes_page_name_units_alike():
+    from app.routes.targets import probe_unit
+    assert probe_unit("DNS") == "queries"
+    assert probe_unit("CurlHTTP3") == probe_unit("CurlHTTP3", "Curl") == "fetches"
+    assert probe_unit("TCPPing") == "connections"
+    assert probe_unit("FPing6") == "pings"

@@ -101,7 +101,36 @@ def test_a_cycle_that_could_outrun_the_step_is_refused(client):
     assert client.put("/probes/CurlHTTP2", json={"step_seconds": 60}).status_code == 200
     r = client.put("/probes/CurlHTTP2", json={"pings": 10})
     assert r.status_code == 400
-    assert "can take 100 s, longer than a 60 s step" in r.get_json()["error"]
+    assert "can take up to 100 s when they time out, longer than a 60 s step" in (
+        r.get_json()["error"])
+
+
+def test_the_outrun_rule_uses_smokepings_defaults_and_batches():
+    from types import SimpleNamespace as P
+    fping = P(name="FPing", module=None, options=None, forks=None)
+    dns = P(name="DNS", module=None, options=None, forks=5)
+    curl = P(name="CurlHTTP1", module="Curl", options={"timeout": 10}, forks=5)
+    # fping: every target at once, 1 s between packets.
+    assert api_module.probe_worst_seconds(fping, 20, 30) == 20
+    # dig: 5 s per query, 5 targets at a time -- 12 resolvers are 3 batches.
+    assert api_module.probe_worst_seconds(dns, 5, 3) == 25
+    assert api_module.probe_worst_seconds(dns, 5, 12) == 75
+    assert api_module.probe_worst_seconds(curl, 5, 4) == 50
+    assert api_module.probe_cadence_problem(60, 5, lambda n: 75.0) is not None
+    assert api_module.probe_cadence_problem(120, 5, lambda n: 75.0) is None
+
+
+def test_a_failed_regeneration_keeps_the_previous_cycle(client, monkeypatch):
+    def boom():
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(api_module.api, "_regenerate_smokeping_config", boom)
+    r = client.put("/probes/FPing", json={"step_seconds": 60})
+    assert r.status_code == 500
+    assert "keeps its previous cycle" in r.get_json()["error"]
+    session = client.session()
+    assert session.query(Probe).filter_by(name="FPing").one().step_seconds == 300
+    session.close()
 
 
 def test_an_unknown_probe_is_404(client):

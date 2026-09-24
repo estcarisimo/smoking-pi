@@ -1414,12 +1414,38 @@ PROBE_MAX_PINGS = 20
 PROBE_EDITABLE = ('step_seconds', 'pings')
 
 
-def probe_cadence_problem(step: Any, pings: Any, timeout: Any = None):
+# SmokePing's own defaults (Smokeping/probes/*.pm): fping waits 1 s between
+# packets to one target and runs every target at once; the basefork probes
+# (DNS, TCPPing, Curl) give each ping up to `timeout` seconds -- 5, and 10
+# for Curl -- one after another, `forks` targets at a time (default 5).
+FPING_PACKET_GAP_S = 1.0
+BASEFORK_TIMEOUT_S = 5.0
+CURL_TIMEOUT_S = 10.0
+BASEFORK_FORKS = 5
+
+
+def probe_worst_seconds(probe, pings: int, active_targets: int) -> float:
+    """How long one cycle of ``probe`` can take, every ping timing out."""
+    options = probe.options or {}
+    kind = probe.module or probe.name
+    try:
+        if kind.startswith('FPing'):
+            return pings * float(options.get('hostinterval') or FPING_PACKET_GAP_S)
+        default = CURL_TIMEOUT_S if kind == 'Curl' else BASEFORK_TIMEOUT_S
+        per_ping = float(options.get('timeout') or default)
+    except (TypeError, ValueError):
+        return 0.0
+    forks = probe.forks or BASEFORK_FORKS
+    batches = max(1, -(-int(active_targets) // forks))
+    return batches * pings * per_ping
+
+
+def probe_cadence_problem(step: Any, pings: Any, worst=None):
     """Why ``step``/``pings`` cannot be a probe's cycle, or None.
 
-    ``timeout`` is the probe's per-ping timeout in seconds when it has one
-    (the Curl probes: 10). Its pings run one after another per target, so
-    a cycle that could take longer than the step would overlap the next.
+    ``worst`` is a callable giving how long a cycle of ``pings`` can take
+    (probe_worst_seconds): a cycle longer than the step would overlap the
+    next, and SmokePing would fall behind on every target of the probe.
     """
     if not isinstance(step, int) or isinstance(step, bool) or step not in PROBE_STEPS:
         allowed = ', '.join(str(s) for s in PROBE_STEPS)
@@ -1427,13 +1453,10 @@ def probe_cadence_problem(step: Any, pings: Any, timeout: Any = None):
     if (not isinstance(pings, int) or isinstance(pings, bool)
             or not PROBE_MIN_PINGS <= pings <= PROBE_MAX_PINGS):
         return f"pings must be between {PROBE_MIN_PINGS} and {PROBE_MAX_PINGS}"
-    try:
-        worst = pings * float(timeout) if timeout is not None else 0.0
-    except (TypeError, ValueError):
-        worst = 0.0
-    if worst > step:
-        return (f"{pings} pings with a {float(timeout):g} s timeout can take "
-                f"{worst:g} s, longer than a {step} s step")
+    seconds = worst(pings) if worst is not None else 0.0
+    if seconds > step:
+        return (f"{pings} pings can take up to {seconds:g} s when they time out, "
+                f"longer than a {step} s step")
     return None
 
 
@@ -1464,14 +1487,14 @@ def update_probe(name):
                 return jsonify({'error': 'Probe not found'}), 404
             previous = {'step_seconds': probe.step_seconds, 'pings': probe.pings}
             wanted = {**previous, **{k: body[k] for k in PROBE_EDITABLE if k in body}}
-            problem = probe_cadence_problem(
-                wanted['step_seconds'], wanted['pings'],
-                (probe.options or {}).get('timeout'))
-            if problem:
-                return error_response(400, problem)
             targets = session.query(Target).filter(Target.probe_id == probe.id)
             counts = {'targets': targets.count(),
                       'active_targets': targets.filter(Target.is_active.is_(True)).count()}
+            problem = probe_cadence_problem(
+                wanted['step_seconds'], wanted['pings'],
+                lambda n: probe_worst_seconds(probe, n, counts['active_targets']))
+            if problem:
+                return error_response(400, problem)
             if wanted == previous:
                 return jsonify({'success': True, 'changed': False, 'probe': name,
                                 'previous': previous, **counts})
@@ -1480,7 +1503,24 @@ def update_probe(name):
             session.commit()
         finally:
             session.close()
-        reloaded = api._regenerate_smokeping_config()
+        try:
+            reloaded = api._regenerate_smokeping_config()
+        except Exception as e:
+            # Put the row back: otherwise the database says the new cycle
+            # while SmokePing still runs the old one, a retry answers
+            # "nothing changed", and the next unrelated regeneration applies
+            # it by surprise.
+            session = get_db_session()
+            try:
+                probe = ProbeRepository(session).get_by_name(name)
+                probe.step_seconds = previous['step_seconds']
+                probe.pings = previous['pings']
+                session.commit()
+            finally:
+                session.close()
+            return error_response(
+                500, "The configuration could not be regenerated; "
+                     "the probe keeps its previous cycle", e)
         logger.info("Probe %s: step %s -> %s, pings %s -> %s", name,
                     previous['step_seconds'], wanted['step_seconds'],
                     previous['pings'], wanted['pings'])
