@@ -302,6 +302,49 @@ def test_system_status_survives_a_wifi_lookup_failure(api, monkeypatch, caplog):
     assert "overall status: healthy" in result["summary"]
 
 
+def _uplink_rows(flux):
+    from datetime import datetime, timezone
+    if "exists r.previous" in flux:
+        return [{"_time": datetime(2026, 9, 24, 13, 2, tzinfo=timezone.utc),
+                 "previous": "wlan0", "interface": "eth0", "kind": "wired"}]
+    if "host_uplink" in flux:
+        return [{"_field": "interface", "_value": "eth0"},
+                {"_field": "kind", "_value": "wired"},
+                {"_field": "family", "_value": 4}]
+    return []
+
+
+def test_system_status_names_the_uplink_and_its_last_change(api, monkeypatch):
+    _patch_influx(monkeypatch, _uplink_rows)
+    uplink = server.system_status()["uplink"]
+    assert uplink["interface"] == "eth0" and uplink["kind"] == "wired"
+    assert uplink["family"] == 4 and uplink["changes_7d"] == 1
+    assert uplink["last_change"]["previous"] == "wlan0"
+    assert uplink["last_change"]["said"].startswith(
+        "this host's uplink moved from wlan0 to eth0 (wired) at ")
+
+
+def test_system_status_without_host_uplink_says_nothing(api, monkeypatch, caplog):
+    def boom(flux):
+        raise RuntimeError("Token hunter2 leaked")
+    _patch_influx(monkeypatch, boom)
+    result = server.system_status()
+    assert "uplink" not in result
+    assert "hunter2" not in caplog.text
+
+
+def test_system_status_survives_a_malformed_uplink_row(api, monkeypatch):
+    def fake(flux):
+        if "host_uplink" in flux and "exists r.previous" not in flux:
+            return [{"_field": "interface", "_value": "eth0"},
+                    {"_field": "family", "_value": "four"}]
+        return []
+    _patch_influx(monkeypatch, fake)
+    result = server.system_status()
+    assert "uplink" not in result
+    assert "overall status: healthy" in result["summary"]
+
+
 def test_system_status_survives_malformed_wifi_rows(api, monkeypatch):
     """Not just a failing query: a row shape the post-processing chokes on
     (a missing _time makes max() compare datetime with int) is swallowed too."""
@@ -488,6 +531,30 @@ def test_loss_events_shaping(monkeypatch, no_api):
     # threshold converted from percent to ratio; clamping applied
     assert "r._value >= 0.1" in captured[1]
     assert "if r._value > 1.0 then 1.0" in captured[1]
+
+
+def test_loss_events_carry_an_uplink_change_in_the_window(monkeypatch, no_api):
+    ts = datetime(2026, 7, 28, 3, 15, tzinfo=timezone.utc)
+
+    def fake(flux):
+        if "host_uplink" in flux:
+            assert "range(start: -8h)" in flux
+            return [{"_time": ts, "previous": "wlan0", "interface": "", "kind": "none"}]
+        return [{"_time": ts, "target": "google_dns", "_measurement": "latency",
+                 "_value": 0.25}]
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_loss_events(hours=8, min_loss_pct=10)
+    assert result["uplink_changes"][0]["said"].startswith(
+        "this host lost its default route (it was on wlan0) at ")
+
+
+def test_loss_events_without_a_change_have_no_uplink_key(monkeypatch, no_api):
+    """Only when it changed: an empty list on every answer is noise."""
+    ts = datetime(2026, 7, 28, 3, 15, tzinfo=timezone.utc)
+    _patch_influx(monkeypatch, lambda flux: [] if "host_uplink" in flux else [
+        {"_time": ts, "target": "google_dns", "_measurement": "latency", "_value": 0.25}])
+    assert "uplink_changes" not in server.get_loss_events(hours=8, min_loss_pct=10)
 
 
 def test_loss_events_threshold_validation(no_api):

@@ -29,7 +29,7 @@ except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
 import backends
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
-from common import cadence, charts, microcuts, mutes, openclaw
+from common import aggregates, cadence, charts, microcuts, mutes, openclaw
 
 # Framing for the connecting client. Without it an agent that also has shell
 # access will answer "how is my internet?" by running ping/curl itself, which
@@ -530,6 +530,51 @@ def apply_config() -> dict:
     return outcome
 
 
+def _uplink_changes(hours: float) -> list[dict]:
+    """host_uplink change points in the window, oldest first, each with a
+    ``said`` sentence (the alerter's and the digest's wording); [] on failure."""
+    try:
+        rows = query_influx(aggregates.uplink_changes_flux(f"-{int(hours)}h"))
+    except Exception as exc:  # noqa: BLE001 - optional measurement, never fatal
+        # The type only: an influx error message can carry the token.
+        log.warning("host_uplink change lookup failed: %s", type(exc).__name__)
+        return []
+    return [{**c, "said": aggregates.describe_uplink_change(c)}
+            for c in aggregates.parse_uplink_changes(rows)]
+
+
+UPLINK_STATUS_HOURS = 24 * 7
+
+
+def _uplink_now() -> dict:
+    """The current uplink and its last change within a week; {} without
+    host_uplink data or on failure."""
+    try:
+        rows = query_influx(
+            f'from(bucket: {flux_str(influx_bucket())}) |> range(start: -10m) '
+            '|> filter(fn: (r) => r._measurement == "host_uplink" and '
+            '(r._field == "interface" or r._field == "kind" or r._field == "family")) '
+            "|> last()"
+        )
+        fields = {r.get("_field"): r.get("_value") for r in rows if r.get("_field")}
+        if "interface" not in fields:
+            return {}
+        out: dict = {
+            "interface": str(fields.get("interface") or ""),
+            "kind": str(fields.get("kind") or ""),
+            "family": int(fields.get("family") or 0),
+        }
+    # The casts are inside too, as in _wifi_now: one malformed row must not
+    # fail system_status, which reports the whole stack's health.
+    except Exception as exc:  # noqa: BLE001
+        log.warning("host_uplink status lookup failed: %s", type(exc).__name__)
+        return {}
+    changes = _uplink_changes(UPLINK_STATUS_HOURS)
+    out["last_change"] = changes[-1] if changes else None
+    out["changes_7d"] = len(changes)
+    return out
+
+
 @mcp.tool()
 @logged_tool
 def system_status() -> dict:
@@ -544,6 +589,10 @@ def system_status() -> dict:
     measures. For "how is my internet?" use get_latency_stats. Use this one
     when the monitoring itself looks wrong — no recent data, a target that
     never appears, graphs that stopped updating.
+
+    `uplink` names the interface every measurement crosses (`kind`:
+    wireless, wired, virtual or none) and its `last_change` within a week:
+    numbers from before a change crossed a different link.
     """
     api = backends.get_config_api()
     result: dict = {}
@@ -583,6 +632,13 @@ def system_status() -> dict:
     wifi = _wifi_now()
     if wifi:
         result["wifi"] = wifi
+
+    # Which interface every measurement crosses, and when that last changed:
+    # a latency step at a cable being plugged in is a path change, not the
+    # ISP. Absent without host_uplink data (older exporter) or on failure.
+    uplink = _uplink_now()
+    if uplink:
+        result["uplink"] = uplink
 
     # The one place that reports on deep-link configuration. Repeating the
     # hint on every measurement response would be noise; saying it nowhere
@@ -882,6 +938,10 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
       - `by_target` and `events`: the counts and the raw points (newest
         first, `events` capped at 500 with `truncated` set when it was).
 
+    `uplink_changes`, only when this host's uplink changed in the window
+    (Wi-Fi to Ethernet, a lost route): points on either side of a change
+    crossed different links, so a step there is the path, not the network.
+
     `background_points` counts the points with some loss that were left
     out: on a host measuring across Wi-Fi that is one lost ping, a few dozen
     to a few hundred a day, and not an event.
@@ -1033,7 +1093,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
     for event in events:
         del event["_epoch"]
 
-    return {
+    result = {
         "window_hours": hours,
         "min_loss_pct": threshold,
         "min_lost_pings": cadence.EVENT_LOST_PINGS if threshold is None else None,
@@ -1046,6 +1106,12 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
         "by_target": by_target,
         "events": events[:MAX_EVENT_ROWS],
     }
+    # Only when the uplink changed in the window: loss or latency on either
+    # side of a change crossed different links, so compare them with care.
+    changes = _uplink_changes(hours)
+    if changes:
+        result["uplink_changes"] = changes
+    return result
 
 
 @mcp.tool()

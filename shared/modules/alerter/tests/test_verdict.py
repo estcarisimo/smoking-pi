@@ -414,3 +414,78 @@ def test_enough_possible_cuts_count_and_the_bar_is_env_tunable(monkeypatch):
     monkeypatch.setenv("MICROCUT_BURST_N", "5")
     call = verdict.classify([], rows, [_micro("CPE", "ipv4", 3, cuts=0, possible=3)])
     assert call["scope"] == "isp_upstream"
+
+
+# ---------------------------------------------------------------------------
+# An uplink change in the last hour (host_uplink)
+# ---------------------------------------------------------------------------
+
+from common import aggregates  # noqa: E402
+
+_T = "2026-09-24T13:02:00+00:00"
+
+
+@pytest.fixture
+def utc(monkeypatch):
+    """Clock times in UTC; the zone is restored afterwards, since tzset()
+    outlives monkeypatch's env undo."""
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def _change(previous="wlan0", interface="eth0", kind="wired", when=_T):
+    return {"time": when, "previous": previous, "interface": interface, "kind": kind}
+
+
+def test_an_uplink_change_is_named_whatever_the_scope(utc):
+    """Latency stepped because the path changed: the line says so, on top of
+    whatever the scope is, so nobody calls the ISP about a plugged cable."""
+    call = verdict.classify([], _healthy(20), [], uplink_changes=[_change()])
+    assert call["line"].endswith(
+        "Also: this host's uplink moved from wlan0 to eth0 (wired) at 13:02, "
+        "so the measurements before and after crossed different links.")
+    assert call["evidence"]["uplink_changes"] == [_change()]
+
+
+def test_no_change_leaves_the_line_alone():
+    plain = verdict.classify([], _healthy(20), [])
+    assert "Also:" not in plain["line"]
+    assert verdict.classify([], _healthy(20), [], uplink_changes=[])["line"] == plain["line"]
+
+
+def test_several_changes_name_the_newest_and_count_the_rest(utc):
+    changes = [_change(), _change("eth0", "wlan0", "wireless", "2026-09-24T13:40:00+00:00")]
+    line = verdict.classify([], _healthy(20), [], uplink_changes=changes)["line"]
+    assert "moved from eth0 to wlan0 (wireless) at 13:40 (1 more change this hour)" in line
+
+
+def test_a_lost_route_sharpens_uplink_down(utc):
+    call = verdict.classify([UPLINK_DOWN], [], [],
+                            uplink_changes=[_change("wlan0", "", "none")])
+    assert call["scope"] == "monitor_uplink"
+    assert "this host lost its default route (it was on wlan0) at 13:02" in call["line"]
+
+
+def test_describe_and_parse_uplink_changes(utc):
+    back = _change("none", "wlan0", "wireless")
+    assert aggregates.describe_uplink_change(back) == (
+        "this host got a default route back, on wlan0 (wireless) at 13:02")
+    assert aggregates.describe_uplink_change(_change(), with_time=False) == (
+        "this host's uplink moved from wlan0 to eth0 (wired)")
+    from datetime import datetime, timezone
+    rows = [
+        {"_time": datetime(2026, 9, 24, 13, 2, tzinfo=timezone.utc),
+         "previous": "wlan0", "interface": "eth0", "kind": "wired"},
+        {"_time": datetime(2026, 9, 24, 13, 3, tzinfo=timezone.utc),
+         "previous": "eth0", "interface": "", "kind": "none"},
+        {"_time": datetime(2026, 9, 24, 13, 4, tzinfo=timezone.utc)},  # heartbeat
+    ]
+    assert aggregates.parse_uplink_changes(rows) == [
+        _change(),
+        _change("eth0", "", "none", "2026-09-24T13:03:00+00:00"),
+    ]
+    flux = aggregates.uplink_changes_flux("-60m")
+    assert 'r._measurement == "host_uplink"' in flux and "exists r.previous" in flux

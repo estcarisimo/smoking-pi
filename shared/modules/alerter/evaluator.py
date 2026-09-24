@@ -17,7 +17,7 @@ import os
 from datetime import datetime, timezone
 
 import flux
-from common import cadence, microcuts
+from common import aggregates, cadence, microcuts
 
 # Thresholds (env-tunable).
 # Windows below are written for SmokePing's default 300 s step. A probe on a
@@ -717,6 +717,11 @@ def _windows(cadences: dict[str, cadence.Cadence]) -> dict[str, int]:
     }
 
 
+# How far back an uplink change still explains what an incident shows: an
+# hour, the same span as the Wi-Fi aggregates the verdict reads.
+UPLINK_CHANGE_WINDOW_S = 3600
+
+
 def evaluate_with_context() -> tuple[list[dict], dict]:
     """Run all rules and ALSO return the rows they were derived from.
 
@@ -753,6 +758,16 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
         "rx": _query(_wifi_rx_flux(down_window)),
     }
 
+    # A change of uplink in the last hour: the verdict says so, because the
+    # measurements on either side of it crossed different links. Optional:
+    # host_uplink is absent on older exporters, and a failed query must not
+    # cost the cycle.
+    try:
+        uplink_changes = aggregates.parse_uplink_changes(
+            _query(aggregates.uplink_changes_flux(f"-{UPLINK_CHANGE_WINDOW_S}s")))
+    except Exception:  # influx client raises many exception types
+        uplink_changes = []
+
     incidents = rule_target_down(down_rows)
     down_targets = {i["target"] for i in incidents}
     incidents += rule_high_loss(
@@ -777,6 +792,7 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
         "micro_rows": micro_rows,
         "stale_rows": stale_rows,
         "wifi_rows": wifi_rows,
+        "uplink_changes": uplink_changes,
         "windows": windows,
     }
     return incidents, context

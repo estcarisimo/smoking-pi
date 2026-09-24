@@ -56,9 +56,12 @@ __all__ = [
     "MAX_TARGETS",
     "MAX_WORST_WINDOWS",
     "collect",
+    "describe_uplink_change",
     "flux_str",
     "influx_bucket",
     "query_influx",
+    "uplink_changes_flux",
+    "parse_uplink_changes",
 ]
 
 
@@ -279,6 +282,95 @@ def _collect_wifi_stats(hours: int) -> dict:
     return out
 
 
+# ── the uplink ───────────────────────────────────────────────────────────
+# host_uplink (written by smokeping-exporters/wifi_link.py): which interface
+# the default route is on, and -- only on the point where it changed --
+# `previous`. A change is a change of path for every series, so the
+# verdict, the digest, the AI report and the MCP server all say so, in the
+# same words (describe_uplink_change).
+
+
+def uplink_changes_flux(range_start: str) -> str:
+    """The change points since ``range_start`` (e.g. ``-60m``), oldest first,
+    one row each with previous / interface / kind."""
+    return (
+        base_flux(["host_uplink"], range_start)
+        + '|> filter(fn: (r) => r._field == "previous" or r._field == "interface" '
+        'or r._field == "kind") '
+        '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '
+        "|> filter(fn: (r) => exists r.previous) "
+        '|> group() |> sort(columns: ["_time"])'
+    )
+
+
+def parse_uplink_changes(rows: list[dict]) -> list[dict]:
+    """Rows of uplink_changes_flux as ``[{time, previous, interface, kind}]``.
+    ``interface`` is ``""`` when the change was losing the default route;
+    ``previous`` is ``"none"`` when it was getting one back."""
+    out = []
+    for r in rows:
+        if r.get("previous") is None:
+            continue
+        out.append({
+            "time": _iso(r.get("_time")),
+            "previous": str(r.get("previous")),
+            "interface": str(r.get("interface") or ""),
+            "kind": str(r.get("kind") or ""),
+        })
+    return out
+
+
+def _clock(iso: str | None) -> str:
+    """HH:MM in the host's local time (the containers mount /etc/localtime)."""
+    if not iso:
+        return "?"
+    try:
+        return datetime.fromisoformat(iso).astimezone().strftime("%H:%M")
+    except ValueError:
+        return iso
+
+
+def describe_uplink_change(change: dict, with_time: bool = True) -> str:
+    """One change in words, e.g. "this host's uplink moved from wlan0 to
+    eth0 (wired) at 14:02". Shared so every surface says it the same way."""
+    at = f" at {_clock(change.get('time'))}" if with_time else ""
+    prev, new, kind = change.get("previous"), change.get("interface"), change.get("kind")
+    if not new:
+        return f"this host lost its default route (it was on {prev}){at}"
+    if prev in (None, "", "none"):
+        return f"this host got a default route back, on {new} ({kind}){at}"
+    return f"this host's uplink moved from {prev} to {new} ({kind}){at}"
+
+
+def _collect_uplink(hours: int) -> dict:
+    """``{current: {interface, kind, family} | None, changes: [...]}`` over the
+    window; ``{}`` when host_uplink has nothing (Standard, an older
+    exporter) or the query fails -- optional, like the Wi-Fi block."""
+    try:
+        changes = parse_uplink_changes(query_influx(uplink_changes_flux(f"-{int(hours)}h")))
+        last_rows = query_influx(
+            base_flux(["host_uplink"], "-10m")
+            + '|> filter(fn: (r) => r._field == "interface" or r._field == "kind" '
+            'or r._field == "family") |> last()'
+        )
+        fields = {r.get("_field"): r.get("_value") for r in last_rows if r.get("_field")}
+        current = None
+        if "interface" in fields:
+            current = {
+                "interface": str(fields.get("interface") or ""),
+                "kind": str(fields.get("kind") or ""),
+                "family": int(fields.get("family") or 0),
+            }
+    # The casts are inside too: a malformed row must cost this block, not
+    # the digest or the report it sits in.
+    except Exception:  # noqa: BLE001 - optional measurement, never fatal
+        log.warning("host_uplink aggregate failed; going out without it", exc_info=True)
+        return {}
+    if current is None and not changes:
+        return {}
+    return {"current": current, "changes": changes}
+
+
 def collect(hours: int = 24) -> dict:
     """Return the compact aggregate dict handed to the reporter.
 
@@ -290,6 +382,7 @@ def collect(hours: int = 24) -> dict:
     truncated = total > MAX_TARGETS
     cpe = _collect_cpe_stats(hours)
     wifi = _collect_wifi_stats(hours)
+    uplink = _collect_uplink(hours)
     return {
         "window_hours": hours,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -298,4 +391,5 @@ def collect(hours: int = 24) -> dict:
         "targets": targets[:MAX_TARGETS],
         "cpe": cpe,
         "wifi": wifi,
+        "uplink": uplink,
     }
