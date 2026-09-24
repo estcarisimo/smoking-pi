@@ -504,6 +504,29 @@ def test_both_up_names_the_one_the_kernel_uses(tmp_path):
     assert "eth0" in res.summary
 
 
+def test_both_up_names_the_standby(tmp_path):
+    """A cable plugged into a Wi-Fi Pi: normal, so OK, but the day the cable
+    goes every series moves to wlan0, and the line says so beforehand."""
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, [("wlan0", "00000000", 600), ("eth0", "00000000", 100)]),
+        tmp_path / "no-ipv6",
+        _sysnet(tmp_path, {"eth0": False, "wlan0": True}),
+    )
+    assert res.status is Status.OK
+    assert res.summary.startswith("measuring over eth0 (wired, IPv4)")
+    assert "wlan0 also has a default route" in res.summary
+
+
+def test_a_virtual_standby_is_not_named(tmp_path):
+    """Tailscale's own default route (exit node off) is not an uplink."""
+    res = live_checks.check_uplink_interface(
+        _route(tmp_path, [("wlan0", "00000000", 600), ("tailscale0", "00000000", 5000)]),
+        tmp_path / "no-ipv6",
+        _sysnet(tmp_path, {"wlan0": True}),
+    )
+    assert res.summary == "measuring over wlan0 (wireless, IPv4)"
+
+
 def test_a_tunnel_carrying_the_default_route_warns(tmp_path):
     """THE failure: the numbers describe the tunnel, and the Wi-Fi verdict is
     off because no wireless interface carries the default route."""

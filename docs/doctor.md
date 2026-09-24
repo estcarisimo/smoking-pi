@@ -151,6 +151,18 @@ measuring. Three states are worth a line rather than silence:
   the default route) with nothing anywhere saying why. This is the failure the
   check is for; the other two are context.
 
+With Ethernet and Wi-Fi both connected the line also names the standby, still
+`ok`, because both up is normal:
+
+```
+[ok  ] uplink-interface              measuring over eth0 (wired, IPv4); wlan0 also has a default route, at a higher metric, and takes over if eth0 goes down
+```
+
+The day the first one drops, every series moves to the standby. The dashboards
+mark that moment ("Uplink changed", from `host_uplink`), and [Choosing the
+interface](wifi.md#choosing-the-interface) says how to pick which one carries
+the measurements.
+
 It reads `/proc/net/route`, falling back to `/proc/net/ipv6_route` on a
 v6-only host, and compares **metrics** rather than trusting the file's order:
 with Ethernet and Wi-Fi both up there are two default routes and only the

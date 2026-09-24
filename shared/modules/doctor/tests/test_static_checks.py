@@ -417,6 +417,21 @@ def test_catches_a_tag_nothing_writes(repo):
     assert "measurement_type" in check.findings[0].render()
 
 
+def test_annotation_queries_are_checked_too(repo):
+    """The "Uplink changed" annotation is a Flux query like any panel's; a
+    typo in its measurement would show no annotation, silently."""
+    data = _dashboard("anno-v1", "Anno", GOOD_QUERY)
+    data["annotations"] = {"list": [{
+        "name": "Uplink changed",
+        "datasource": {"type": "influxdb", "uid": "influxdb"},
+        "target": {"refId": "Anno", "query": 'filter(fn:(r)=> r._measurement == "host_uplnk")'},
+    }]}
+    _write_dashboard(repo, "anno.json", data)
+    check = run(repo)["panel-measurements-written"]
+    assert check.status is Status.FAIL
+    assert "host_uplnk" in check.findings[0].render()
+
+
 def test_template_variable_queries_are_checked_too(repo):
     """The DNS_Resolvers mistake lived in a variable query, not a panel."""
     data = _dashboard("tv-v1", "Template", GOOD_QUERY)
