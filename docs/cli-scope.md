@@ -32,6 +32,7 @@ be an HTTP endpoint without the endpoint becoming the thing that breaks.
 | `backup`, `restore` | Stop the stack for consistent volume tarballs. `restore` overwrites the env file. |
 | `purge` | Deletes the volumes the API's database lives in. |
 | `up`, `down` | `down` would kill the process serving the request. |
+| `config` | Writes the env file and recreates the services that read the key, the API's own included. A settings page would have to restart the process serving it. |
 | `passwords` | Reads the env file directly. Putting the secrets behind an HTTP endpoint would mean a second way to leak them. |
 | `doctor` | Its static checks must run with the stack down; that is when they are wanted. |
 | `paths`, `version` | Answer questions about the installation, not about the measurements. |

@@ -11,6 +11,25 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`smoking-pi config`: settings by name, not by editing the env
+  file.** `list` shows every key the edition's `.env.template` declares,
+  with secrets hidden. `get` prints one, and a secret only with
+  `--show-secrets`. `set` and `unset` write it, then recreate only the
+  services whose compose entry reads it, and only those the recorded
+  profiles enable: naming a service on `compose up` would start one
+  nobody enabled. `COMPOSE_PROFILES` applies to the whole stack. Guards:
+  - a key the template doesn't declare is refused, with the nearest one
+    suggested (`NOTIFY_MOD` → `NOTIFY_MODE`);
+  - a secret (TOKEN, PASSWORD, SECRET, `*_KEY`) is never taken from the
+    command line, where `ps` and the shell history would keep it. It's
+    typed at a prompt or piped on stdin;
+  - credentials that install generated are refused, because the data
+    volumes hold them (the same reason `install` won't run twice).
+  - a value with `$` (a pbkdf2 or bcrypt hash, many generated secrets)
+    is single-quoted in the env file. Compose interpolates `$` in `.env`
+    files and bash in the scripts that source it, and an unquoted
+    `pbkdf2:sha256:260000$salt$hash` reached the container as
+    `pbkdf2:sha256:260000`. Plain values are written as before.
 - **The welcome tour's optional fourth step: a chat assistant.** It
   says what an assistant such as OpenClaw adds, and whether one is using
   this install. The answer comes from the MCP server's own `tool=` log
