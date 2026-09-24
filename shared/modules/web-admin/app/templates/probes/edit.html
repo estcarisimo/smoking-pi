@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Change {{ probe.name }} - Smoking Pi{% endblock %}
+
+{% block content %}
+<h1 class="mb-3">Change {{ probe.name }}</h1>
+<p>Now: <strong>{{ probe.cadence }}</strong>, for
+    {{ probe.active_targets|default(0) }} active target{{ '' if probe.active_targets == 1 else 's' }}.</p>
+
+<form method="post" class="card">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label for="step_seconds" class="form-label">How often</label>
+                <select class="form-select" id="step_seconds" name="step_seconds">
+                    {% for value, label in steps %}
+                    <option value="{{ value }}" {% if value == step %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label for="pings" class="form-label">{{ probe.unit|capitalize }} per measurement</label>
+                <input type="number" class="form-control" id="pings" name="pings"
+                       min="{{ min_pings }}" max="{{ max_pings }}" value="{{ pings }}" required>
+                <div class="form-text">Between {{ min_pings }} and {{ max_pings }}. A loss event is two or more lost.</div>
+            </div>
+        </div>
+
+        <div class="alert alert-warning mt-4 mb-3">
+            <h6 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> What a change does</h6>
+            <ul class="mb-0">
+                <li>SmokePing's files are made for one cycle. The
+                    {{ probe.targets|default(0) }} target{{ '' if probe.targets == 1 else 's' }} of
+                    {{ probe.name }} (paused ones included) start a <strong>new SmokePing history</strong>:
+                    the old files are moved to <code>/data/.archive/</code>, not deleted.</li>
+                <li><strong>Grafana keeps everything</strong>: it reads InfluxDB, where every point
+                    records the cycle it was measured with. Alerts and the assistant use each
+                    target's own cycle.</li>
+                <li>A faster step sends more traffic and keeps less in SmokePing's own graphs
+                    (on a one-minute step, about 17 hours at full detail instead of 3.5 days).</li>
+            </ul>
+        </div>
+
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" value="yes" id="confirm" name="confirm" required>
+            <label class="form-check-label" for="confirm">
+                I understand that {{ probe.name }}'s targets start a new SmokePing history.
+            </label>
+        </div>
+        <button type="submit" class="btn btn-primary">Save and reload SmokePing</button>
+        <a href="{{ url_for('probes.index') }}" class="btn btn-link">Cancel</a>
+    </div>
+</form>
+{% endblock %}
