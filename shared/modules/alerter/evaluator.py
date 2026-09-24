@@ -17,11 +17,14 @@ import os
 from datetime import datetime, timezone
 
 import flux
-from common import microcuts
+from common import cadence, microcuts
 
 # Thresholds (env-tunable).
-# SmokePing probes on a 300 s step, so a 300 s window holds a single point —
-# too few for DOWN_MIN_POINTS.
+# Windows below are written for SmokePing's default 300 s step. A probe on a
+# slower step gets them stretched to hold the same number of its points
+# (see _windows); a faster one simply has more points in them.
+#
+# A 300 s window holds a single point — too few for DOWN_MIN_POINTS.
 #
 # This was 900 s, which is the SHORTEST window that can hold DOWN_MIN_POINTS,
 # and that is exactly the problem: 900/300 = 3 points only when the window
@@ -82,7 +85,11 @@ MEAN_STEPS = 3
 DEFAULT_WIDESPREAD_PCT = 80.0  # percent of reporting targets; WIDESPREAD_PCT
 DEFAULT_WIDESPREAD_LOSS_PCT = 30.0  # percent loss per point; WIDESPREAD_LOSS_PCT
 WIDESPREAD_MIN_TARGETS = 3  # below this, breadth means nothing
-STEP_S = 300  # SmokePing's probe step; points are bucketed to it
+STEP_S = cadence.DEFAULT_STEP  # the default step; real ones come from cadence
+# Points a window must be able to hold for its rule: DOWN_MIN_POINTS plus one
+# of slack (see DEFAULT_DOWN_WINDOW), and the four steps of STALE_WINDOW.
+DOWN_WINDOW_STEPS = DOWN_MIN_POINTS + 1
+STALE_WINDOW_STEPS = 4
 
 
 def _env_int(name: str, default: int) -> int:
@@ -129,10 +136,11 @@ def _down_points_flux(window_s: int) -> str:
     )
 
 
-def _mean_loss_flux() -> str:
-    """Mean clamped loss ratio per target+category over the last 15m."""
+def _mean_loss_flux(window_s: int = MEAN_STEPS * STEP_S) -> str:
+    """Mean clamped loss ratio per target+category over ``window_s``:
+    MEAN_STEPS of the slowest target's steps, 15 min on the default one."""
     return (
-        flux.base_flux(["latency", "dns_latency"], "-15m")
+        flux.base_flux(["latency", "dns_latency"], f"-{int(window_s)}s")
         + '|> filter(fn: (r) => r._field == "loss") '
         + flux.CLAMP_LOSS_RATIO
         + '|> group(columns: ["target", "category"]) '
@@ -206,7 +214,7 @@ def _wifi_uplink_flux() -> str:
     )
 
 
-def _stale_flux() -> str:
+def _stale_flux(window: int | None = None) -> str:
     """Total latency points written recently (exporter liveness).
 
     Was 10m, which on a 300 s step is two points at best — and the RRD row
@@ -215,7 +223,8 @@ def _stale_flux() -> str:
     then the incident reappears. Same defect as the old DOWN_WINDOW, so the
     same rule applies: give the window several steps of slack.
     """
-    window = _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
+    if window is None:
+        window = _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
     return (
         flux.base_flux(["latency"], f"-{window}s")
         + '|> filter(fn: (r) => r._field == "loss") '
@@ -257,47 +266,49 @@ def rule_target_down(rows: list[dict], min_points: int = DOWN_MIN_POINTS) -> lis
     return incidents
 
 
-def _step_of(value: object) -> int | None:
+def _step_of(value: object, step_s: int = STEP_S) -> int | None:
     """A point's probe step as epoch seconds, or None when unparseable.
 
     The Influx client hands back datetimes; a test or a CSV hands back ISO
     strings. Every target's point for one cycle shares the same RRD-aligned
-    timestamp, but bucketing to STEP_S costs nothing and holds if it ever
+    timestamp, but bucketing to ``step_s`` costs nothing and holds if it ever
     does not.
     """
-    if isinstance(value, datetime):
-        ts = value.timestamp()
-    elif isinstance(value, (int, float)):
-        ts = float(value)
-    elif isinstance(value, str):
-        try:
-            ts = datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
-        except ValueError:
-            return None
-    else:
+    ts = cadence.epoch(value)
+    if ts is None:
         return None
-    return int(ts // STEP_S) * STEP_S
+    return int(ts // step_s) * step_s
 
 
 def _lossy_points_by_target(
-    points: list[dict], min_pct: float, steps: int = MEAN_STEPS
+    points: list[dict],
+    min_pct: float,
+    steps: int = MEAN_STEPS,
+    cadences: dict[str, cadence.Cadence] | None = None,
 ) -> dict[str, int]:
     """How many raw points per target lost more than ``min_pct``, within the
-    latest ``steps`` probe cycles present in ``points``.
+    latest ``steps`` probe cycles present in ``points`` -- each target's own
+    cycles, counted back from the newest point of any target.
 
     Rows without a usable ``_time`` are counted regardless: a caller with
     untimed rows gets the plain count rather than nothing.
     """
-    timed = [(_step_of(r.get("_time")), r) for r in points]
+    cadences = cadences or {}
+    timed = [
+        (_step_of(r.get("_time"), cadence.of(cadences, r.get("target")).step), r)
+        for r in points
+    ]
     known = [step for step, _ in timed if step is not None]
-    cutoff = (max(known) - (steps - 1) * STEP_S) if known else None
+    newest = max(known) if known else None
     counts: dict[str, int] = {}
     for step, row in timed:
         target = row.get("target")
         value = row.get("_value")
         if target is None or value is None:
             continue
-        if step is not None and cutoff is not None and step < cutoff:
+        if step is not None and newest is not None and step < (
+            newest - (steps - 1) * cadence.of(cadences, target).step
+        ):
             continue
         if flux.clamp_loss_ratio(value) * 100.0 >= min_pct:
             counts[target] = counts.get(target, 0) + 1
@@ -310,8 +321,11 @@ def rule_high_loss(
     threshold_pct: float | None = None,
     points: list[dict] | None = None,
     min_points: int | None = None,
+    cadences: dict[str, cadence.Cadence] | None = None,
+    window_s: int = MEAN_STEPS * STEP_S,
 ) -> list[dict]:
-    """warning: mean loss over 15m above HIGH_LOSS_PCT (excl. down targets).
+    """warning: mean loss over ``window_s`` (15m on the default step) above
+    HIGH_LOSS_PCT (excl. down targets).
 
     With ``points`` (the raw down-window rows) the loss must also have
     PERSISTED: at least ``min_points`` points above HIGH_LOSS_POINT_PCT in
@@ -326,7 +340,7 @@ def rule_high_loss(
         min_points = _env_int("HIGH_LOSS_MIN_POINTS", DEFAULT_HIGH_LOSS_MIN_POINTS)
     exclude = exclude or set()
     persisted = (
-        _lossy_points_by_target(points, HIGH_LOSS_POINT_PCT)
+        _lossy_points_by_target(points, HIGH_LOSS_POINT_PCT, cadences=cadences)
         if points is not None
         else None
     )
@@ -352,7 +366,10 @@ def rule_high_loss(
                     "severity": "warning",
                     "key": f"high_loss:{target}",
                     "target": target,
-                    "message": f"{target}: mean loss {pct:.1f}% over 15m",
+                    "message": (
+                        f"{target}: mean loss {pct:.1f}% over "
+                        f"{_format_window(window_s)}"
+                    ),
                     "value": round(pct, 2),
                 }
             )
@@ -461,8 +478,14 @@ def rule_widespread(
     share_pct: float | None = None,
     loss_pct: float | None = None,
     min_targets: int = WIDESPREAD_MIN_TARGETS,
+    step_s: int = STEP_S,
 ) -> list[dict]:
     """One incident for a loss that hit most targets in the same probe cycle.
+
+    Points are bucketed to ``step_s`` -- the slowest target's step, so every
+    target has a point in every bucket. A faster target's points in one
+    bucket are averaged: it counts as lossy, or as lost, for that cycle when
+    its mean is, never on one point of several.
 
     Per step in the down window, the share of reporting targets that lost
     at least WIDESPREAD_LOSS_PCT, and the share that lost everything. Then:
@@ -486,16 +509,20 @@ def rule_widespread(
     if loss_pct is None:
         loss_pct = _env_float("WIDESPREAD_LOSS_PCT", DEFAULT_WIDESPREAD_LOSS_PCT)
 
-    reporting: dict[int, set[str]] = {}
-    lossy: dict[int, set[str]] = {}
-    lost: dict[int, set[str]] = {}
+    ratios: dict[tuple[int, str], list[float]] = {}
     for row in rows:
         target = row.get("target")
         value = row.get("_value")
-        step = _step_of(row.get("_time"))
+        step = _step_of(row.get("_time"), step_s)
         if target is None or value is None or step is None:
             continue
-        ratio = flux.clamp_loss_ratio(value)
+        ratios.setdefault((step, target), []).append(flux.clamp_loss_ratio(value))
+
+    reporting: dict[int, set[str]] = {}
+    lossy: dict[int, set[str]] = {}
+    lost: dict[int, set[str]] = {}
+    for (step, target), values in ratios.items():
+        ratio = sum(values) / len(values)
         reporting.setdefault(step, set()).add(target)
         if ratio * 100.0 >= loss_pct:
             lossy.setdefault(step, set()).add(target)
@@ -513,7 +540,7 @@ def rule_widespread(
     # targets reported is simply absent from ``steps``. "Consecutive" and
     # "the same span" mean gaps of at most one missing cycle.
     def contiguous(run: list[int]) -> bool:
-        return all(b - a <= 2 * STEP_S for a, b in zip(run, run[1:]))
+        return all(b - a <= 2 * step_s for a, b in zip(run, run[1:]))
 
     latest = steps[-min_points:]
     if (
@@ -544,7 +571,7 @@ def rule_widespread(
         if (
             step is not None
             and share(lossy, step) >= share_pct
-            and (not run or step - run[-1] <= 2 * STEP_S)
+            and (not run or step - run[-1] <= 2 * step_s)
         ):
             run.append(step)
             continue
@@ -558,7 +585,7 @@ def rule_widespread(
             all_lost = (
                 lost_steps >= len(run) - 2 if len(run) > 2 else lost_steps == len(run)
             )
-            minutes = (last - first) // 60 + STEP_S // 60
+            minutes = (last - first) // 60 + step_s // 60
             incidents.append(
                 {
                     "rule": "outage",
@@ -607,8 +634,11 @@ def _is_ipv6_target(target: str, category: str | None) -> bool:
     return target.endswith("6") or "fping6" in cat or "ipv6" in cat
 
 
-def rule_ipv6_down(mean_rows: list[dict]) -> list[dict]:
-    """warning: all IPv6 targets at 100% loss (15m) while IPv4 is healthy.
+def rule_ipv6_down(
+    mean_rows: list[dict], window_s: int = MEAN_STEPS * STEP_S
+) -> list[dict]:
+    """warning: all IPv6 targets at 100% loss over the mean window (15m on
+    the default step) while IPv4 is healthy.
 
     Emits a single aggregate incident so a broken v6 path does not page
     once per target.
@@ -644,7 +674,8 @@ def rule_ipv6_down(mean_rows: list[dict]) -> list[dict]:
                 "target": "ipv6",
                 "message": (
                     "IPv6 connectivity appears down: "
-                    f"{len(v6_down)} IPv6 target(s) at 100% loss for 15m "
+                    f"{len(v6_down)} IPv6 target(s) at 100% loss for "
+                    f"{_format_window(window_s)} "
                     "while IPv4 targets are healthy"
                 ),
                 "value": len(v6_down),
@@ -656,6 +687,28 @@ def rule_ipv6_down(mean_rows: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+def _windows(cadences: dict[str, cadence.Cadence]) -> dict[str, int]:
+    """The rule windows for these cadences, in seconds.
+
+    DOWN_WINDOW and STALE_WINDOW are honored as configured, but never
+    shorter than the slowest target needs: a 1200 s down window holds two
+    points of a 600 s probe, where DOWN_MIN_POINTS are required, and
+    target_down could never fire. On the default step nothing changes.
+    """
+    longest = cadence.longest_step(cadences)
+    return {
+        "down": max(
+            _env_int("DOWN_WINDOW", DEFAULT_DOWN_WINDOW), DOWN_WINDOW_STEPS * longest
+        ),
+        "stale": max(
+            _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW),
+            STALE_WINDOW_STEPS * longest,
+        ),
+        "mean": MEAN_STEPS * longest,
+        "step": longest,
+    }
+
 
 def evaluate_with_context() -> tuple[list[dict], dict]:
     """Run all rules and ALSO return the rows they were derived from.
@@ -670,14 +723,21 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
     small wifi_link measurement (a reduce, two increases and a last), which
     return nothing at all on a wired host.
     """
-    down_window = _env_int("DOWN_WINDOW", DEFAULT_DOWN_WINDOW)
+    # The cadence refines the windows; a failed query must not silence
+    # every rule for the cycle, so it falls back to the default step.
+    try:
+        cadences = cadence.by_target(_query(cadence.cadence_flux()))
+    except Exception:  # influx client raises many exception types
+        cadences = {}
+    windows = _windows(cadences)
+    down_window = windows["down"]
 
     down_rows = _query(_down_points_flux(down_window))
-    mean_rows = _query(_mean_loss_flux())
+    mean_rows = _query(_mean_loss_flux(windows["mean"]))
     micro_rows = _query(
         _microcut_flux(_env_float("MICROCUT_LOSS_PCT", DEFAULT_MICROCUT_LOSS_PCT))
     )
-    stale_rows = _query(_stale_flux())
+    stale_rows = _query(_stale_flux(windows["stale"]))
     wifi_rows = {
         "signal": _query(_wifi_signal_flux(
             _env_float("WIFI_WEAK_DBM", DEFAULT_WIFI_WEAK_DBM))),
@@ -688,22 +748,27 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
 
     incidents = rule_target_down(down_rows)
     down_targets = {i["target"] for i in incidents}
-    incidents += rule_high_loss(mean_rows, exclude=down_targets, points=down_rows)
+    incidents += rule_high_loss(
+        mean_rows,
+        exclude=down_targets,
+        points=down_rows,
+        cadences=cadences,
+        window_s=windows["mean"],
+    )
     incidents += rule_microcut_burst(micro_rows)
     # The verdict reads the folded shape, not the raw windows.
     micro_rows = microcut_rows(microcuts.fold_cuts(micro_rows), micro_rows)
-    widespread = rule_widespread(down_rows)
+    widespread = rule_widespread(down_rows, step_s=windows["step"])
     incidents = widespread + suppress_widespread(incidents, widespread)
-    incidents += rule_exporter_stale(
-        stale_rows, _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
-    )
-    incidents += rule_ipv6_down(mean_rows)
+    incidents += rule_exporter_stale(stale_rows, windows["stale"])
+    incidents += rule_ipv6_down(mean_rows, windows["mean"])
     context = {
         "down_rows": down_rows,
         "mean_rows": mean_rows,
         "micro_rows": micro_rows,
         "stale_rows": stale_rows,
         "wifi_rows": wifi_rows,
+        "windows": windows,
     }
     return incidents, context
 

@@ -19,6 +19,14 @@ The denominator is the probe's pings-per-cycle, read PER RRD from its
 `ping1..pingN` data sources — probes differ (FPing uses 10, DNS uses 5), and
 a fixed denominator understates loss on every probe that disagrees with it.
 SMOKEPING_PINGS (default 20) is only a fallback for RRDs with no ping DSs.
+
+CADENCE FIELDS (added 2026-09): every point also carries ``pings`` (the
+denominator above) and ``step`` (seconds between the RRD's rows), so the
+alerter and the MCP server read each target's real cycle instead of assuming
+10 pings every 300 s. They live on the point, not in a side table, so a point
+written before a probe's step changed still says what it was measured with.
+No dashboard or tool query reads them: all filter on ``_field``, and
+``/ping[0-9]+/`` does not match ``pings``.
 Historical points written by older versions keep their original scale: before
 2026-07 a raw count, and between 2026-07 and 2026-08 a ratio against a fixed
 20 (so half the true value for FPing targets, a quarter for DNS).
@@ -124,6 +132,18 @@ def loss_to_ratio(loss_count, pings: int):
     if loss_count is None or pings <= 0:
         return None
     return max(0.0, min(1.0, float(loss_count) / float(pings)))
+
+
+def step_from_rows(rows):
+    """Seconds between an RRD's rows, or None with fewer than two rows.
+
+    `rrdtool fetch` returns the finest archive that covers the range, whose
+    rows are the probe's step apart -- nan rows included, so a fetch of a
+    target that is down still has its spacing. The smallest positive gap is
+    used so a missing row cannot double it."""
+    stamps = sorted({ts for ts, _ in rows})
+    gaps = [b - a for a, b in zip(stamps, stamps[1:]) if b > a]
+    return min(gaps) if gaps else None
 
 
 def pings_from_ds_names(ds_names, fallback: int) -> int:
@@ -239,9 +259,12 @@ def write_with_retry(write_api, bucket: str, points, retries: int = WRITE_RETRIE
 
 
 # ───────────────────────── export ─────────────────────────
-def build_points(rrd_file: str, rows, rrd_dir: str, pings: int):
+def build_points(rrd_file: str, rows, rrd_dir: str, pings: int, step=None):
     """Turn fetch rows into Influx points, timestamped from the RRD rows.
-    Returns (points, last_ts) where last_ts is the newest row with data."""
+    Returns (points, last_ts) where last_ts is the newest row with data.
+
+    ``pings`` and ``step`` (when known) are written as fields on every
+    point; see CADENCE FIELDS in the module docstring."""
     measurement = measurement_for(rrd_file, rrd_dir)
     target_name = pathlib.Path(rrd_file).stem
     category = category_for(rrd_file, rrd_dir)
@@ -268,6 +291,9 @@ def build_points(rrd_file: str, rows, rrd_dir: str, pings: int):
               .time(ts, WritePrecision.S))
         for name, val in fields.items():
             pt.field(name, val)
+        pt.field("pings", int(pings))
+        if step:
+            pt.field("step", int(step))
         points.append(pt)
         last_ts = ts
     return points, last_ts
@@ -313,9 +339,10 @@ def run_cycle(write_api, bucket: str, rrd_dir: str, state: dict, pings: int) -> 
                 continue
 
             ds_names, rows = fetch_rows(rrd, start, now)
+            step = step_from_rows(rows)
             rows = [(ts, data) for ts, data in rows if start < ts <= now]
             points, last_ts = build_points(
-                rrd, rows, rrd_dir, pings_from_ds_names(ds_names, pings))
+                rrd, rows, rrd_dir, pings_from_ds_names(ds_names, pings), step)
             if not points:
                 continue
             if write_with_retry(write_api, bucket, points):

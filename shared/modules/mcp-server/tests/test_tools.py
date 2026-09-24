@@ -1074,3 +1074,75 @@ def test_loss_events_reporting_takes_the_larger_count_when_a_cycle_splits(monkey
     result = server.get_loss_events(hours=24)
     assert result["targets_reporting"] == 10
     assert len(result["widespread"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# get_loss_events on a probe that is not on the default 300 s / 10 pings
+# ---------------------------------------------------------------------------
+
+def _with_cadence(fake, **steps):
+    """Answer the cadence query with ``name=(step, pings)``, else ``fake``."""
+    def wrapped(flux):
+        if '"step"' in flux and "last()" in flux:
+            return [row for target, (step, pings) in steps.items()
+                    for row in ({"target": target, "_field": "step", "_value": step},
+                                {"target": target, "_field": "pings", "_value": pings})]
+        return fake(flux)
+    return wrapped
+
+
+def _spaced_rows(target, values, step_s):
+    rows = [{"_time": _T0 + timedelta(seconds=step_s * i), "target": target,
+             "_measurement": "latency", "_value": v}
+            for i, v in enumerate(values) if v]
+    rows.sort(key=lambda r: r["_time"], reverse=True)
+    return rows
+
+
+def test_loss_events_folds_a_600_s_probes_run_with_its_own_step(monkeypatch, no_api):
+    """Consecutive points of a 600 s probe are 600 s apart: on the fixed
+    300 s gap they split into one-point episodes, each "5 minutes" long."""
+    events = _spaced_rows("Slow", [1.0, 1.0, 1.0], 600)
+    _patch_influx(monkeypatch, _with_cadence(lambda flux: events, Slow=(600, 20)))
+    result = server.get_loss_events(hours=24)
+    assert len(result["episodes"]) == 1
+    assert result["episodes"][0]["points"] == 3
+    assert result["episodes"][0]["minutes"] == 30
+    entry = result["by_target"][0]
+    assert (entry["step_s"], entry["pings"]) == (600, 20)
+
+
+def test_loss_events_say_what_a_default_target_is_measured_with(monkeypatch, no_api):
+    _patch_influx(monkeypatch, _loss_fake({"NYT": [0.2]}, targets=_TEN))
+    entry = server.get_loss_events(hours=24)["by_target"][0]
+    assert (entry["step_s"], entry["pings"]) == (300, 10)
+
+
+def test_loss_events_survive_a_failed_cadence_query(monkeypatch, no_api):
+    base = _loss_fake({"NYT": [1.0, 1.0]}, targets=_TEN)
+
+    def fake(flux):
+        if '"step"' in flux and "last()" in flux:
+            raise RuntimeError("influx hiccup")
+        return base(flux)
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_loss_events(hours=24)
+    assert "error" not in result
+    assert result["episodes"][0]["minutes"] == 10
+
+
+def test_widespread_all_lost_needs_every_row_of_a_target_in_its_step():
+    """Two rows of one target in one 300 s step (a late duplicate): it is
+    lost for that step only when both were."""
+    def ev(target, pct, offset=0):
+        return {"target": target, "loss_pct": pct,
+                "_epoch": _T0.timestamp() + offset}
+
+    reporting = {int(_T0.timestamp()) // 300 * 300: 3}
+    events = [ev("a", 100.0), ev("b", 100.0), ev("c", 100.0), ev("c", 40.0, 60)]
+    run = server._widespread_runs(events, reporting)[0]
+    assert run["targets_affected"] == 3
+    assert run["all_lost"] is False
+    events[-1]["loss_pct"] = 100.0
+    assert server._widespread_runs(events, reporting)[0]["all_lost"] is True

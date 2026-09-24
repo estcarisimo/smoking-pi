@@ -84,17 +84,37 @@ def summarize_connection(body):
     }
 
 
-def calculate_bandwidth(targets_data):
-    """Calculate estimated bandwidth usage"""
-    total_targets = sum(
-        len(v) for k, v in targets_data.get('active_targets', {}).items() 
-        if isinstance(v, list)
-    )
-    
-    # Assuming 10 pings every 300s with 64 bytes each
-    bandwidth_per_target = (10 * 64 * 8) / 300  # bits per second
-    total_bandwidth_mbps = (total_targets * bandwidth_per_target) / 1_000_000
-    
+# What SmokePing ships every probe with; a target whose probe is unknown
+# (config-manager did not answer /probes) is counted at this.
+DEFAULT_STEP_SECONDS = 300
+DEFAULT_PINGS = 10
+PACKET_BYTES = 64
+
+
+def calculate_bandwidth(targets_data, probes=None):
+    """Estimated probe traffic: each target's pings per step at 64 bytes.
+
+    ``probes`` is config-manager's /probes list. The estimate used to assume
+    10 pings every 300 s for every target, which counted a DNS target (5
+    queries) double and ignored any probe on another step.
+    """
+    cadence = {
+        p.get('name'): (p.get('pings') or DEFAULT_PINGS,
+                        p.get('step_seconds') or DEFAULT_STEP_SECONDS)
+        for p in (probes or []) if isinstance(p, dict)
+    }
+    total_targets = 0
+    bits_per_second = 0.0
+    for targets in targets_data.get('active_targets', {}).values():
+        if not isinstance(targets, list):
+            continue
+        for target in targets:
+            total_targets += 1
+            probe = target.get('probe') if isinstance(target, dict) else None
+            pings, step = cadence.get(probe, (DEFAULT_PINGS, DEFAULT_STEP_SECONDS))
+            bits_per_second += pings * PACKET_BYTES * 8 / step
+    total_bandwidth_mbps = bits_per_second / 1_000_000
+
     return {
         'total_targets': total_targets,
         'bandwidth_mbps': round(total_bandwidth_mbps, 3),
@@ -123,8 +143,13 @@ def index():
         if isinstance(targets, list):
             target_counts[category] = len(targets)
     
-    # Calculate bandwidth
-    bandwidth_info = calculate_bandwidth(targets_data)
+    # Calculate bandwidth from each target's probe
+    try:
+        probes = config_api.get_probes_from_db().get('probes', [])
+    except Exception as e:
+        current_app.logger.warning(f"Failed to get probes via API: {e}")
+        probes = []
+    bandwidth_info = calculate_bandwidth(targets_data, probes)
     
     # Check SmokePing status
     smokeping_running = get_smokeping_status()

@@ -397,12 +397,10 @@ class OCAFetcher:
             total = sum(len(v) for v in targets_config['active_targets'].values() 
                        if isinstance(v, list))
             targets_config['metadata']['total_targets'] = total
-            
-            # Estimate bandwidth (rough calculation)
-            # Assuming 10 pings every 300s with 64 bytes each
-            bandwidth_per_target = (10 * 64 * 8) / 300  # bits per second
-            total_bandwidth_mbps = (total * bandwidth_per_target) / 1_000_000
-            targets_config['metadata']['bandwidth_estimate_mbps'] = round(total_bandwidth_mbps, 2)
+            # No bandwidth estimate here: nothing read it, and the one it
+            # wrote assumed 10 pings every 300 s for every probe. The web
+            # admin's dashboard computes it from each target's probe.
+            targets_config['metadata'].pop('bandwidth_estimate_mbps', None)
             
             # Write updated configuration atomically under the shared lock
             with get_config_lock():

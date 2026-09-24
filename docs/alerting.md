@@ -187,11 +187,11 @@ missing reports directory is skipped quietly.
 | `ALERT_WEBHOOK_TOKEN` | — | Optional bearer token for the webhook |
 | `ALERT_INTERVAL` | `60` | Seconds between evaluations |
 | `ALERT_COOLDOWN` | `3600` | Seconds before re-notifying an active incident |
-| `ALERT_RESOLVE_AFTER` | `900` | Seconds an incident must be absent before a recovery notice fires (flap damping) |
+| `ALERT_RESOLVE_AFTER` | `900` | Seconds an incident must be absent before a recovery notice fires (flap damping). Never less than three steps of the slowest probe |
 | `ALERT_MAX_PER_HOUR` | `6` | Hard ceiling on notifications per incident per rolling hour; `0` disables |
 | `ALERT_STATE_FILE` | `/var/lib/alerter/state.json` | Incident/report state (atomic writes) |
-| `DOWN_WINDOW` | `1200` | `target_down` window (seconds). SmokePing probes on a 300 s step and `DOWN_MIN_POINTS` is 3, so this must span **strictly more** than 3 steps — at exactly 3 the rule stops matching whenever jitter costs it one point, and the incident flaps. See [Flap damping](#flap-damping-and-why-the-cooldown-alone-is-not-enough) |
-| `STALE_WINDOW` | `1200` | `exporter_stale` window (seconds); same step arithmetic as `DOWN_WINDOW` |
+| `DOWN_WINDOW` | `1200` | `target_down` window (seconds). SmokePing probes on a 300 s step by default and `DOWN_MIN_POINTS` is 3, so this must span **strictly more** than 3 steps — at exactly 3 the rule stops matching whenever jitter costs it one point, and the incident flaps. See [Flap damping](#flap-damping-and-why-the-cooldown-alone-is-not-enough). A probe on a slower step raises it to four of that probe's steps by itself (see [Probe cadence](#probe-cadence)) |
+| `STALE_WINDOW` | `1200` | `exporter_stale` window (seconds); same step arithmetic as `DOWN_WINDOW`, raised the same way |
 | `HIGH_LOSS_PCT` | `20` | `high_loss` threshold (percent) |
 | `HIGH_LOSS_MIN_POINTS` | `2` | Probe cycles above 15% loss that `high_loss` needs within the mean's own 15 minutes (the latest three cycles of the down window, so a cycle that aged out of the mean cannot corroborate a new one). One bad cycle can average over `HIGH_LOSS_PCT` on its own, and one cycle is a blink |
 | `WIDESPREAD_PCT` | `80` | Share of the reporting targets that must be lossy in the same probe cycle for `outage`, or at 100% for `uplink_down` |
@@ -485,6 +485,31 @@ position matters:
   looking brand new when the mute lifts, sending it down the first-seen path
   and alerting immediately — reintroducing exactly the flapping described
   below.
+
+
+## Probe cadence
+
+Every rule above counts probe cycles, and SmokePing's cycle is set per probe:
+its `step` (300 s as shipped) and its `pings` (10 for FPing, 5 for DNS,
+HTTP and TCP). The exporter writes both as fields on every `latency` and
+`dns_latency` point, and the alerter reads the latest per target before
+each evaluation (`common/cadence.py`). A target with neither, such as a
+point from an older exporter, counts as 300 s and 10 pings.
+
+What follows from a target's cadence:
+
+- `DOWN_WINDOW` and `STALE_WINDOW` are never shorter than four steps of the
+  slowest probe, and `ALERT_RESOLVE_AFTER` is never shorter than three. On
+  a 600 s probe the configured 1200 s would hold two points where
+  `target_down` needs three, and it could never fire.
+- The mean behind `high_loss` and `ipv6_down` covers three steps of the
+  slowest probe: 15 min on the shipped step. Persistence counts each
+  target's own latest three cycles.
+- `outage` and `uplink_down` bucket points to the slowest step. A faster
+  target's several points in one bucket are averaged, so one lost point of
+  five does not make it "lost" for that cycle.
+
+On the shipped probes, all of this is exactly what it was.
 
 ## Flap damping, and why the cooldown alone is not enough
 
