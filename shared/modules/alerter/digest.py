@@ -182,6 +182,7 @@ def build(
         "target_total": data.get("target_total", len(targets)),
         "cpe": data.get("cpe", []),
         "wifi": data.get("wifi") or {},
+        "uplink": data.get("uplink") or {},
         "alerts_fired": len(alerts),
         "recoveries": len(recoveries),
         "active_incidents": len(active),
@@ -192,6 +193,7 @@ def build(
         "message": render(
             hours, targets, lossy, worst, len(alerts), len(recoveries),
             len(active), active_mutes, suppressed, wifi=data.get("wifi") or {},
+            uplink=data.get("uplink") or {},
         ),
         "links": links.entry_point_links(hours=hours),
     }
@@ -208,6 +210,7 @@ def render(
     active_mutes: list[dict] | None = None,
     suppressed: int = 0,
     wifi: dict | None = None,
+    uplink: dict | None = None,
 ) -> str:
     """The digest text, in the same shape as everything else this bot sends.
 
@@ -285,6 +288,20 @@ def render(
         if wifi.get("roams"):
             detail += f", {_plural(int(wifi['roams']), 'roam', 'roams')}"
         lines.append(f"{light} Wi-Fi {where} — {detail}.")
+
+    # Only when the uplink changed: every series above has a before and an
+    # after that crossed different links, and the morning reader should
+    # know before comparing them. A quiet day adds nothing.
+    changes = (uplink or {}).get("changes") or []
+    if changes:
+        if not (wifi and wifi.get("min_dbm") is not None):
+            lines.append("")
+            lines.append(b("Local link"))
+        for change in changes[-3:]:
+            text = aggregates.describe_uplink_change(change)
+            lines.append(f"{watch} {esc(text[0].upper() + text[1:])}.")
+        if len(changes) > 3:
+            lines.append(f"{watch} …and {_plural(len(changes) - 3, 'earlier change', 'earlier changes')}.")
 
     # Only when something is muted: a "Muted: nothing" line every morning
     # would train the reader to skip the section that matters on the one day

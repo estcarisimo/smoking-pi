@@ -9,6 +9,25 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **An uplink change reaches the diagnosis, not only the dashboards.** A
+  latency step at the moment a cable was plugged in is the path changing,
+  not the ISP. Everything that interprets the measurements now says so, in
+  the same words, from `host_uplink`:
+  - the alert's verdict gets one more sentence when the change was in the
+    hour before the alert (*"Also: this host's uplink moved from wlan0 to
+    eth0 (wired) at 14:02, so the measurements before and after crossed
+    different links."*), whatever the scope;
+  - the daily digest lists the day's changes under *Local link*, on a wired
+    host too, and the AI report's prompt lists them all;
+  - the MCP server's `system_status` has an `uplink` block (the interface,
+    its kind and the last change within a week), and `get_loss_events` has
+    `uplink_changes` when one falls in its window.
+
+  A quiet uplink adds nothing to any of them, and a failed or missing
+  `host_uplink` query changes nothing either.
+
 ## [2.13.0] — 2026-09-24
 
 Is it measuring, and can you tell? Plus a release process that proves

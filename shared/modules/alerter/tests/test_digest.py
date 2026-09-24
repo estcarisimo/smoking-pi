@@ -383,6 +383,36 @@ def test_wifi_line_appears_only_when_collected(collected):
     assert payload["wifi"]["ssid"] == "ExampleNet"
 
 
+def test_uplink_changes_are_listed_under_local_link(collected):
+    """A wired host has no Wi-Fi line, so the changes bring the heading."""
+    collected["value"]["uplink"] = {
+        "current": {"interface": "eth0", "kind": "wired", "family": 4},
+        "changes": [{"time": "2026-09-24T13:02:00+00:00", "previous": "wlan0",
+                     "interface": "eth0", "kind": "wired"}],
+    }
+    payload = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)
+    text = payload["message"]
+    assert "<b>Local link</b>" in text
+    assert "🟡 This host's uplink moved from wlan0 to eth0 (wired) at " in text
+    assert payload["uplink"]["current"]["interface"] == "eth0"
+
+
+def test_a_quiet_uplink_adds_nothing(collected):
+    collected["value"]["uplink"] = {"current": {"interface": "wlan0", "kind": "wireless",
+                                                "family": 4}, "changes": []}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert "Local link" not in text
+
+
+def test_many_uplink_changes_keep_the_newest_three(collected):
+    changes = [{"time": f"2026-09-24T1{h}:00:00+00:00", "previous": "wlan0",
+                "interface": "eth0", "kind": "wired"} for h in range(5)]
+    collected["value"]["uplink"] = {"current": None, "changes": changes}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert text.count("uplink moved") == 3
+    assert "…and 2 earlier changes." in text
+
+
 def test_wifi_line_lights(collected):
     base = {"interface": "wlan0", "uplink_is_wifi": True, "ssid": "N", "channel": 1,
             "tx_bitrate_mbps": 100.0, "samples": 10, "max_dbm": -50.0, "median_dbm": -55.0}

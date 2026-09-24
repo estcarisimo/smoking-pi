@@ -601,6 +601,39 @@ def test_context_carries_the_four_wifi_aggregates(monkeypatch):
     }
 
 
+def test_context_carries_the_uplink_changes(monkeypatch):
+    from datetime import datetime, timezone
+
+    def fake_query(flux_src):
+        if "host_uplink" in flux_src:
+            assert "-3600s" in flux_src
+            return [{"_time": datetime(2026, 9, 24, 13, 2, tzinfo=timezone.utc),
+                     "previous": "wlan0", "interface": "eth0", "kind": "wired"}]
+        if "-10m" in flux_src:
+            return [{"_value": 30}]
+        return []
+
+    monkeypatch.setattr(evaluator, "_query", fake_query)
+    _, context = evaluator.evaluate_with_context()
+    assert context["uplink_changes"] == [{
+        "time": "2026-09-24T13:02:00+00:00", "previous": "wlan0",
+        "interface": "eth0", "kind": "wired"}]
+
+
+def test_a_failed_uplink_query_costs_nothing(monkeypatch):
+    """host_uplink is absent on older exporters; the rules must still run."""
+    def fake_query(flux_src):
+        if "host_uplink" in flux_src:
+            raise RuntimeError("no such measurement")
+        if "-10m" in flux_src:
+            return [{"_value": 30}]
+        return []
+
+    monkeypatch.setattr(evaluator, "_query", fake_query)
+    incidents, context = evaluator.evaluate_with_context()
+    assert context["uplink_changes"] == []
+
+
 def test_wifi_weak_threshold_reaches_the_query(monkeypatch):
     monkeypatch.setenv("WIFI_WEAK_DBM", "-70")
     assert "r._value < -70.0" in evaluator._wifi_signal_flux(
