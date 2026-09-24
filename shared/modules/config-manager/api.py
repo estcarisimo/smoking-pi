@@ -122,6 +122,9 @@ class ConfigManagerAPI:
         self._db_mode_cache = None  # tuple(bool, checked_at)
         self._db_mode_ttl = 30  # seconds
 
+        # What the RRD guard did before the latest reload (see _guard_rrds).
+        self.last_rrd_guard: Dict[str, Any] = {}
+
         # Initialize status cache
         self._status_cache = {}
         self._cache_ttl = 30  # 30 seconds cache TTL
@@ -345,6 +348,51 @@ class ConfigManagerAPI:
         ipv6_check.set_status(status)
         return status
 
+    def _guard_rrds(self, container) -> Dict[str, Any]:
+        """Archive every RRD the new configuration would make SmokePing die on.
+
+        SmokePing refuses to load when an RRD's step or ping count differs
+        from its probe's, and the refusal kills the daemon -- every target
+        stops, not only that one. rrd_guard.py (in the SmokePing image)
+        moves such files to /data/.archive/ before the reload. The expected
+        cadence comes from the generated Targets and Probes, plus the CPE
+        targets and the Database defaults inside the container. Never
+        raises: a guard that cannot run leaves the reload as it was before.
+        """
+        try:
+            targets_file = OUTPUT_DIR / "Targets"
+            probes_file = OUTPUT_DIR / "Probes"
+            if not targets_file.exists():
+                return {'ran': False, 'reason': 'no generated Targets file yet'}
+            cpe = container.exec_run(['cat', '/config/CPE_Targets'])
+            database = container.exec_run(['cat', '/config/Database'])
+            expected = freshness.expected_cadence(
+                targets_file.read_text(),
+                cpe.output.decode(errors='replace') if cpe.exit_code == 0 else '',
+                probes_file.read_text() if probes_file.exists() else '',
+                database.output.decode(errors='replace') if database.exit_code == 0 else '',
+            )
+            ran = container.exec_run(
+                ['python3', '/exporters/rrd_guard.py', json.dumps({'expected': expected})],
+                demux=True)
+            stdout = (ran.output[0] or b'').decode(errors='replace')
+            if ran.exit_code != 0:
+                logger.warning(f"RRD guard failed (exit {ran.exit_code}): {stdout.strip()}")
+                return {'ran': False, 'reason': f'rrd_guard exit {ran.exit_code}'}
+            report = json.loads(stdout)
+            for moved in report.get('archived', []):
+                logger.warning(
+                    "Archived %s (step %s, %s pings) -> %s: the probe now wants "
+                    "step %s, %s pings", moved['rrd'], moved['had']['step'],
+                    moved['had']['pings'], moved['to'], moved['wants']['step'],
+                    moved['wants']['pings'])
+            for error in report.get('errors', []):
+                logger.warning("RRD guard: %s: %s", error.get('rrd'), error.get('error'))
+            return {'ran': True, **report}
+        except Exception as e:
+            logger.warning(f"RRD guard could not run: {e}")
+            return {'ran': False, 'reason': 'rrd_guard could not run'}
+
     def _signal_smokeping_reload(self) -> bool:
         """Ask SmokePing to reload its config; True only if the signal landed.
 
@@ -359,6 +407,7 @@ class ConfigManagerAPI:
             container_name = resolve_container_name('smokeping')
             client = docker.from_env()
             container = client.containers.get(container_name)
+            self.last_rrd_guard = self._guard_rrds(container)
             result = container.exec_run(['killall', '-HUP', 'smokeping'])
             if result.exit_code != 0:
                 output = (result.output or b'').decode(errors='replace').strip()
