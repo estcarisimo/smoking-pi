@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome - Smoking Pi{% endblock %}
+
+{% block content %}
+<h1 class="mb-2">Welcome to Smoking Pi</h1>
+<p class="lead mb-4">Your install is already measuring. Three short steps show what it measures and let you shape it. Nothing changes unless you choose it here.</p>
+
+<!-- Step 1: is it measuring? (stage A) -->
+<div class="card mb-4" id="tour-measuring">
+    <div class="card-header"><h5 class="mb-0">1. Is it measuring?</h5></div>
+    <div class="card-body">
+        {% if not measurements.available %}
+        <p class="mb-0 text-muted">Could not check yet: {{ measurements.reason }}. The first data point of every target arrives five minutes after the start.</p>
+        {% elif measurements.measuring %}
+        <p class="mb-0"><span class="badge bg-success">Measuring</span> {{ measurements.fresh }} of {{ measurements.total }} targets updated in the last two measurement steps.</p>
+        {% else %}
+        <p class="mb-0">
+            <span class="badge bg-warning text-dark">Not everything yet</span>
+            {{ measurements.fresh }} of {{ measurements.total }} targets have data.
+            {% if measurements.pending %}{{ measurements.pending }} are waiting for their first measurement (SmokePing measures every five minutes).{% endif %}
+            The dashboard's Measurements card names the rest.
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Step 2: what this host's own network suggests (stage B) -->
+<div class="card mb-4" id="tour-connection">
+    <div class="card-header"><h5 class="mb-0">2. Measure your own network</h5></div>
+    <div class="card-body">
+        {% if not connection.available %}
+        <p class="mb-0 text-muted">Could not read this host's network: {{ connection.reason }}.</p>
+        {% else %}
+        {% if connection.interface %}
+        <p>Measuring over <strong>{{ connection.interface }}</strong> ({{ 'Wi-Fi' if connection.wireless else 'wired' }}).
+        The targets below depend on where this Pi is, so no install can ship them.</p>
+        {% endif %}
+        <ul class="list-unstyled mb-3" id="suggestions">
+            {% for i in connection.entries %}
+            <li class="mb-2" data-status="{{ i.status }}">
+                {% if i.status == 'suggested' %}
+                <div class="form-check">
+                    <input class="form-check-input suggestion" type="checkbox" checked
+                           id="suggest-{{ loop.index }}"
+                           {% for key, value in i.suggest.items() %}data-{{ key|replace('_', '-') }}="{{ value }}" {% endfor %}>
+                    <label class="form-check-label" for="suggest-{{ loop.index }}">
+                        <strong>{{ i.suggest.title }}</strong> <span class="result ms-2"></span>
+                        <br><small class="text-muted">{{ i.why }}</small>
+                    </label>
+                </div>
+                {% elif i.status in ('measured', 'automatic') %}
+                <span class="badge bg-success">measured</span> <code>{{ i.host }}</code>{% if i.measured_as %} as {{ i.measured_as }}{% endif %}
+                <br><small class="text-muted">{{ i.why }}</small>
+                {% else %}
+                <span class="badge bg-secondary">skipped</span> <code>{{ i.host }}</code>
+                <br><small class="text-muted">{{ i.why }}</small>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% if connection.suggested %}
+        <button type="button" class="btn btn-primary" id="add-suggestions">Add the checked targets</button>
+        {% else %}
+        <p class="mb-0 text-muted">Everything this host suggests is measured already.</p>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<!-- Step 3: what the install set up -->
+<div class="card mb-4" id="tour-seeded">
+    <div class="card-header"><h5 class="mb-0">3. What was set up for you</h5></div>
+    <div class="card-body">
+        {% if not using_database %}
+        <p class="mb-0 text-muted">The database is not available, so the targets cannot be changed from here. They are listed on the Targets page.</p>
+        {% elif not groups %}
+        <p class="mb-0 text-muted">Could not list the targets; the Targets page has them.</p>
+        {% else %}
+        <p>Turn off anything you do not care about. A paused target keeps its history and can be turned back on from the Targets page.</p>
+        {% for category, intro, targets in groups %}
+        <h6 class="mt-3 mb-1">{{ category }}</h6>
+        {% if intro %}<p class="small text-muted mb-1">{{ intro }}</p>{% endif %}
+        {% for t in targets %}
+        <div class="form-check form-switch">
+            <input class="form-check-input seeded" type="checkbox" role="switch"
+                   id="target-{{ t.id }}" data-id="{{ t.id }}" data-name="{{ t.name }}"
+                   {% if t.is_active %}checked{% endif %}>
+            <label class="form-check-label" for="target-{{ t.id }}">{{ t.title or t.name }} <small class="text-muted">{{ t.host }}{% if t.probe %} · {{ t.probe }}{% endif %}</small></label>
+        </div>
+        {% endfor %}
+        {% endfor %}
+        {% endif %}
+    </div>
+</div>
+
+<form method="post" action="{{ url_for('welcome.finish') }}" class="d-flex gap-2 mb-5">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" name="outcome" value="done" class="btn btn-success">Finish</button>
+    <button type="submit" name="outcome" value="skipped" class="btn btn-outline-secondary">Skip for now</button>
+    <span class="text-muted small align-self-center">Either way, the dashboard's <em>Welcome tour</em> button brings this back.</span>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    // Adding goes through /targets/add, the form's own endpoint and
+    // validation; pausing through /targets/<id>/toggle, the Targets page's.
+    const addButton = document.getElementById('add-suggestions');
+    if (addButton) {
+        addButton.addEventListener('click', async function () {
+            addButton.disabled = true;
+            for (const box of document.querySelectorAll('input.suggestion:checked:not(:disabled)')) {
+                const result = box.closest('li').querySelector('.result');
+                const form = new FormData();
+                for (const key of ['target_type', 'name', 'hostname', 'title', 'dns_query']) {
+                    const value = box.dataset[key.replace(/_(\w)/g, (m, c) => c.toUpperCase())];
+                    if (value) form.append(key, value);
+                }
+                try {
+                    await fetchJSON('/targets/add', { method: 'POST', body: form });
+                    result.textContent = 'added';
+                    result.className = 'result ms-2 badge bg-success';
+                    box.disabled = true;
+                } catch (error) {
+                    const errors = (error.data && error.data.errors) || {};
+                    result.textContent = Object.values(errors).join('; ') || error.message;
+                    result.className = 'result ms-2 text-danger small';
+                }
+            }
+            addButton.disabled = false;
+        });
+    }
+
+    document.querySelectorAll('input.seeded').forEach(function (box) {
+        box.addEventListener('change', async function () {
+            box.disabled = true;
+            try {
+                const data = await fetchJSON(`/targets/${box.dataset.id}/toggle`, { method: 'POST' });
+                if (data.is_active !== null && data.is_active !== undefined) box.checked = Boolean(data.is_active);
+                if (data.reloaded === false) showToast('Warning', data.message, 'warning');
+            } catch (error) {
+                box.checked = !box.checked;
+                showToast('Error', `Could not change "${box.dataset.name}": ${error.message}`, 'danger');
+            } finally {
+                box.disabled = false;
+            }
+        });
+    });
+})();
+</script>
+{% endblock %}

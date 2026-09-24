@@ -11,6 +11,22 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The first login is a welcome tour.** The install seeded 21 targets
+  in silence, and a new user met a dashboard of numbers with no idea what
+  was being measured or why. The web admin (Standard, Pro) now opens once
+  on three steps. First, whether it is measuring. Second, what this host's
+  network suggests (the *Your connection* entries below, checked by
+  default, added in one click through the add form's own validation).
+  Third, the seeded targets by category, each with a switch to pause it.
+  The seeding stays (a decision of 2026-09-24): an install measures from
+  the first minute, and the tour shows what it set up instead of asking
+  first. It adds and pauses through the Targets page's endpoints, so it
+  has no write path of its own. *Finish* and *Skip for now* are
+  remembered by config-manager (`GET`/`POST /first-run`, a file beside
+  the generated config). The dashboard's **Welcome tour** button reopens
+  it. If config-manager cannot be asked, the dashboard opens normally: an
+  outage never traps a login in the tour. Existing installs see it once
+  after upgrading, which is also where they meet the router suggestion.
 - **The dashboard suggests what your own network should be measured
   against.** Every install seeded the same targets, and the one address
   that separates "my Wi-Fi" from "my ISP", your router, was never among

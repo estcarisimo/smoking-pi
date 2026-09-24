@@ -2,7 +2,7 @@
 Dashboard route - Main overview page
 """
 
-from flask import Blueprint, render_template, current_app, url_for
+from flask import Blueprint, redirect, render_template, request, current_app, url_for
 from app.services.config_api import ConfigAPIGateway
 
 dashboard_bp = Blueprint('dashboard', __name__)
@@ -104,6 +104,10 @@ def calculate_bandwidth(targets_data):
 @dashboard_bp.route('/')
 def index():
     """Main dashboard view"""
+    # A new install's first login goes to the welcome tour, once. ?tour=off
+    # is the way out when recording the outcome failed.
+    if request.args.get('tour') != 'off' and config_api.tour_pending():
+        return redirect(url_for('welcome.index'))
     # Load current targets via API
     try:
         targets_data = config_api.get_targets_config()
