@@ -1247,3 +1247,50 @@ def test_loss_events_tiny_percent_is_valid_flux(monkeypatch, no_api):
     captured = _patch_influx(monkeypatch, _loss_fake({}, targets=_TEN))
     server.get_loss_events(hours=24, min_loss_pct=0.001)
     assert "r._value >= 0.00001)" in captured[1]
+
+
+# ---------------------------------------------------------------------------
+# get_latency_stats: HTTP/TCP coverage and unknown target names
+# ---------------------------------------------------------------------------
+
+
+def test_latency_stats_reads_http_and_tcp(monkeypatch, no_api):
+    captured = _patch_influx(monkeypatch, lambda flux: [])
+    server.get_latency_stats(hours=6)
+    for m in ("latency", "dns_latency", "http_latency", "tcp_latency"):
+        assert all(f'r._measurement == "{m}"' in q for q in captured)
+
+
+def test_latency_stats_unknown_target_names_the_real_ones(monkeypatch, api):
+    _patch_influx(monkeypatch, lambda flux: [])
+    result = server.get_latency_stats(target="Google_DNS", hours=6)
+    assert result["error"] == "No monitoring target named 'Google_DNS' was found."
+    assert result["available_targets"] == ["cloudflare_dns", "google_dns"]
+    assert result["did_you_mean"] == ["google_dns"]
+    assert "hint" not in result
+
+
+def test_latency_stats_unknown_target_without_a_close_match(monkeypatch, api):
+    _patch_influx(monkeypatch, lambda flux: [])
+    result = server.get_latency_stats(target="CPE_Gateway", hours=6)
+    assert "error" in result and "did_you_mean" not in result
+    assert "get_microcut_stats" in result["hint"]
+
+
+def test_latency_stats_known_target_without_data_keeps_the_note(
+    monkeypatch, api
+):
+    _patch_influx(monkeypatch, lambda flux: [])
+    result = server.get_latency_stats(target="google_dns", hours=6)
+    assert result["stats"] == [] and "No data points" in result["note"]
+
+
+def test_latency_stats_dead_config_api_keeps_the_note(monkeypatch):
+    class DeadAPI:
+        def request(self, method, path, **kwargs):
+            raise backends.ConfigAPIError("config-manager unreachable")
+
+    monkeypatch.setattr(backends, "get_config_api", lambda: DeadAPI())
+    _patch_influx(monkeypatch, lambda flux: [])
+    result = server.get_latency_stats(target="Anything", hours=6)
+    assert "error" not in result and "No data points" in result["note"]

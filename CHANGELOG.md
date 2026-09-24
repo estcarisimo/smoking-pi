@@ -30,6 +30,18 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The assistant could not see the HTTP and TCP targets, and a wrong
+  target name looked like missing data.** `get_latency_stats` read only the
+  ICMP and DNS measurements, so the 12 `*_h1/_h2/_h3` and `*_tcp443`
+  targets were invisible to it: asked about `Google_h2`, it answered "no
+  data points". It now reads `http_latency` and `tcp_latency` too (30 of 30
+  targets on the reference Pi, up from 18), in the MCP server and in the
+  web admin's assistant. In the MCP server, a name that is not a target
+  (an agent asked for `Cloudflare` and `CPE_Gateway` in a real session on
+  2026-09-24) now returns an error with the real names, a `did_you_mean`
+  (`cloudflare`), and a pointer to `get_microcut_stats` when the name looks
+  like the CPE, instead of an empty result that reads like an outage.
+
 - **`smoking-pi upgrade` left a disabled profile's container running on
   its old image.** `up -d --remove-orphans` removes only containers of
   services the compose files no longer define; a service that is defined

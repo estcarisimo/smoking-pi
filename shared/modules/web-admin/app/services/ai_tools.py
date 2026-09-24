@@ -214,8 +214,9 @@ TOOLS = [
         "name": "get_latency_stats",
         "description": (
             "Per-target latency and loss statistics over a time window: "
-            "median_ms, p95_ms, avg_loss_pct (from the latency and "
-            "dns_latency measurements)."
+            "median_ms, p95_ms, avg_loss_pct for ICMP, DNS, HTTP (the "
+            "whole fetch, not comparable with a ping) and TCP connect "
+            "targets."
         ),
         "input_schema": {
             "type": "object",
@@ -438,7 +439,9 @@ def _get_latency_stats(tool_input: dict) -> dict:
         target_filter = (
             f"|> filter(fn: (r) => r.target == {flux_str(target)}) " if target else ""
         )
-        base = _base_flux(["latency", "dns_latency"], hours)
+        base = _base_flux(
+            ["latency", "dns_latency", "http_latency", "tcp_latency"], hours
+        )
     except ValueError:
         return {"error": "Invalid target name: quotes, backslashes and "
                          "control characters are not allowed."}
