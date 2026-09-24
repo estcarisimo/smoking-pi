@@ -9,6 +9,7 @@ Run via ``main.py`` (stdio or streamable-http transport).
 
 from __future__ import annotations
 
+import difflib
 import functools
 import json
 import logging
@@ -52,7 +53,8 @@ Prefer these tools over running ping, curl, traceroute, or a speed test in a
 shell. A live probe describes one instant, cannot see the past, competes with
 the very measurement this host is taking, and will disagree with the graphs the
 user is looking at. Use `get_latency_stats` for how a target has been
-performing, `get_loss_events` for when packets were dropped, and
+performing (ICMP, DNS, HTTP fetches and TCP connects; take exact names from
+`list_targets`), `get_loss_events` for when packets were dropped, and
 `get_microcut_stats` for brief local-link dropouts, and `get_wifi_stats` for
 the Pi's own wireless uplink (signal, bitrate, disconnects, roams) when the
 host is on Wi-Fi -- a microcut that lines up with a signal dip is the router
@@ -624,20 +626,63 @@ _CLAMP_LOSS_RATIO = (
 )
 
 
+# Every per-target measurement with a `median` and a `loss` field in seconds
+# and ratio. `cpe_latency` has its own tool (get_microcut_stats).
+_STATS_MEASUREMENTS = ["latency", "dns_latency", "http_latency", "tcp_latency"]
+
+
+def _unknown_target_error(name: str) -> dict | None:
+    """An error naming the real targets, when `name` is not one of them.
+
+    An agent guesses names ("Cloudflare" for "cloudflare", "CPE_Gateway"),
+    and "no data points" reads like an outage rather than a typo. Returns
+    None when the name exists (its data is simply missing) or when the
+    config API cannot say -- then the caller keeps its plain note.
+    """
+    try:
+        names = sorted(
+            t["name"] for t in _fetch_targets(backends.get_config_api())
+            if t.get("name")
+        )
+    except Exception as exc:  # deliberately broad, as in _target_catalog
+        log.warning("target lookup unavailable: %s", exc)
+        return None
+    if not names or name in names:
+        return None
+    result: dict[str, Any] = {
+        "error": f"No monitoring target named '{name}' was found.",
+        "available_targets": names,
+        "hint": "The CPE gateway is not a target: its latency and microcuts "
+                "come from get_microcut_stats.",
+    }
+    close = [n for n in names if n.lower() == name.lower()] or (
+        difflib.get_close_matches(name, names, n=3, cutoff=0.6)
+    )
+    if close:
+        result["did_you_mean"] = close
+    return result
+
+
 @mcp.tool()
 @logged_tool
 def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
     """Get latency and packet-loss statistics per monitoring target.
 
-    For each target (ICMP `latency` and DNS `dns_latency` measurements),
-    computes over the requested time window:
+    For each target -- ICMP (`latency`), DNS (`dns_latency`), HTTP fetches
+    (`http_latency`, the *_h1/_h2/_h3 targets) and TCP connects
+    (`tcp_latency`, the *_tcp443 targets) -- computes over the requested
+    time window:
       - median_ms: median round-trip latency in milliseconds
       - p95_ms: 95th-percentile latency in milliseconds
       - avg_loss_pct: mean packet loss as a percentage (0-100)
 
+    For HTTP targets the median is the whole fetch (DNS, connect, TLS and
+    the response), so it is not comparable with an ICMP round trip.
+
     Args:
         target: Optional exact target name to filter to a single target
-            (see list_targets). Omit for all targets.
+            (see list_targets). Omit for all targets. A name that is not a
+            target returns an error listing the real ones.
         hours: Size of the lookback window in hours (default 24).
 
     The data is already recorded — this host measures every target on a
@@ -657,7 +702,7 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
             if target
             else ""
         )
-        base = _base_flux(["latency", "dns_latency"], hours)
+        base = _base_flux(_STATS_MEASUREMENTS, hours)
     except ValueError as exc:
         return {"error": str(exc)}
 
@@ -706,6 +751,9 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
         if entry_links:
             entry["links"] = entry_links
     if target and not results:
+        unknown = _unknown_target_error(target)
+        if unknown:
+            return unknown
         return {
             "window_hours": hours,
             "stats": [],
