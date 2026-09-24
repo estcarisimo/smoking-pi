@@ -152,6 +152,22 @@ version gets a matching GitHub release and git tag.
   `pivot`) as a column, not a tag filter.
 ### Fixed
 
+- **An IPv6 address in `PUBLIC_BASE_HOST` or `TUNNEL_BASE_HOST` now makes
+  a working link.** The "already has a port?" test was "contains a colon",
+  which every IPv6 literal does. So `2001:db8::5` became
+  `http://2001:db8::5`: no brackets and no port, a URL no browser opens.
+  With one set, every Grafana and web-admin link in alerts and assistant
+  answers was dead. The address is now bracketed and gets its port
+  (`http://[2001:db8::5]:3000`), and `[addr]:port` keeps its own port.
+  A link-local `fe80::` address, or one with a zone id, makes no links and
+  logs why once: it routes only with a zone id, and browsers reject zone
+  ids in a URL. A bare host with a path now gets its port before the path
+  (`pi.lan:3000/x`, not `pi.lan/x:3000`). Values with a scheme are used
+  as given, as before. `smoking-pi links --lan` now takes a global or ULA
+  IPv6 address and stores it bracketed. It still refuses link-local and
+  `::1`, and warns that the web admin (`0.0.0.0:8080`) is IPv4-only. It
+  also shows a `host:port` value once, instead of with `:3000` appended.
+
 - **SmokePing no longer dies on an RRD it cannot load.** An RRD is made
   for one step and one ping count. When a target's file disagrees with its
   probe, SmokePing stops at reload ("RRD parameter mismatch ... You must

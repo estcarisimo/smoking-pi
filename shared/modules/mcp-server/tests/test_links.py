@@ -9,8 +9,11 @@ their phone.
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
 
+import logging
+
 import pytest
 
+import common.links
 import links
 
 LINK_VARS = (
@@ -33,6 +36,8 @@ def clean_env(monkeypatch):
     """Start every test from an unconfigured deployment."""
     for var in SCRUBBED:
         monkeypatch.delenv(var, raising=False)
+    # Refusals are logged once per process; each test starts unlogged.
+    monkeypatch.setattr(common.links, "_REPORTED_BASES", set())
 
 
 def _query(url):
@@ -82,6 +87,89 @@ def test_scheme_qualified_base_gets_no_port(monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_HOST", "https://smokingpi.example.com")
     assert links.grafana_base() == "https://smokingpi.example.com"
     assert links.web_admin_base() == "https://smokingpi.example.com"
+
+
+def test_host_with_a_path_gets_the_port_before_the_path(monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "pi.lan/smokingpi")
+    assert links.grafana_base() == "http://pi.lan:3000/smokingpi"
+
+
+# An IPv6 literal carries colons, so "does it already have a port?" cannot be
+# "is there a colon": that test gave http://2001:db8::5 -- no port, no
+# brackets, a URL no browser opens.
+
+
+@pytest.mark.parametrize(
+    ("value", "grafana", "web_admin"),
+    [
+        ("2001:db8::5", "http://[2001:db8::5]:3000", "http://[2001:db8::5]:8080"),
+        ("[2001:db8::5]", "http://[2001:db8::5]:3000", "http://[2001:db8::5]:8080"),
+        ("[2001:db8::5]:9999", "http://[2001:db8::5]:9999", "http://[2001:db8::5]:9999"),
+        ("fd12:3456::27/", "http://[fd12:3456::27]:3000", "http://[fd12:3456::27]:8080"),
+        ("::ffff:192.0.2.1", "http://[::ffff:192.0.2.1]:3000", "http://[::ffff:192.0.2.1]:8080"),
+    ],
+)
+def test_ipv6_literal_is_bracketed_and_gets_the_port(
+    monkeypatch, value, grafana, web_admin
+):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", value)
+    assert links.grafana_base() == grafana
+    assert links.web_admin_base() == web_admin
+
+
+def test_ipv6_base_builds_a_parseable_link(monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "2001:db8::5")
+    url = links.grafana_url("smokeping-lat-pct-v28", "target", "UBA")
+    parsed = urlparse(url)
+    assert parsed.hostname == "2001:db8::5"
+    assert parsed.port == 3000
+
+
+def test_ipv6_tunnel_host_is_bracketed_too(monkeypatch):
+    monkeypatch.setenv("TUNNEL_BASE_HOST", "2001:db8::7")
+    assert links.grafana_tunnel_base() == "http://[2001:db8::7]:3000"
+
+
+def test_scheme_qualified_ipv6_base_is_left_alone(monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "https://[2001:db8::5]")
+    assert links.grafana_base() == "https://[2001:db8::5]"
+
+
+@pytest.mark.parametrize(
+    "value", ["fe80::1", "[fe80::1]", "fe80::1%wlan0", "[fe80::1%25wlan0]:3000"]
+)
+def test_link_local_ipv6_makes_no_links_and_says_why(monkeypatch, caplog, value):
+    """fe80:: needs a zone id to route, and browsers reject zone ids."""
+    monkeypatch.setenv("PUBLIC_BASE_HOST", value)
+    with caplog.at_level(logging.WARNING, logger="common.links"):
+        assert links.grafana_base() is None
+        assert links.links_configured() is False
+    assert "link-local" in caplog.text
+
+
+def test_link_local_primary_falls_back_to_the_tunnel(monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "fe80::1")
+    monkeypatch.setenv("TUNNEL_BASE_HOST", "https://smokingpi.example.com")
+    assert links.grafana_base() == "https://smokingpi.example.com"
+
+
+@pytest.mark.parametrize(
+    "value", ["[2001:db8::5", "[2001:db8::5]x", "[2001:db8::5]:", "[pi.lan]", "2001:zz::1"]
+)
+def test_malformed_ipv6_makes_no_links(monkeypatch, caplog, value):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", value)
+    with caplog.at_level(logging.WARNING, logger="common.links"):
+        assert links.grafana_base() is None
+    assert "Ignoring base host" in caplog.text
+
+
+def test_a_refused_base_is_logged_once(monkeypatch, caplog):
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "fe80::1")
+    with caplog.at_level(logging.WARNING, logger="common.links"):
+        for _ in range(3):
+            links.grafana_base()
+            links.web_admin_base()
+    assert caplog.text.count("Ignoring base host") == 1
 
 
 def test_explicit_urls_win_over_base_host(monkeypatch):
