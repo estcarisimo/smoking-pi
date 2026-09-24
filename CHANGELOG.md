@@ -11,6 +11,21 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`smoking-pi alerts`: where alerts go, in one command.** With the
+  `alerts` profile on and `NOTIFY_MODE` unset, alerts were evaluated,
+  logged and delivered nowhere, with no error. The command:
+  - sets the mode (`--openclaw --to telegram:<id>`, `--webhook` with the
+    URL on stdin or at a prompt, `--off`, or asks) and its keys;
+  - takes the gateway token from the user's `openclaw.json` when there is
+    one, never printing it;
+  - refuses a bare chat id, which OpenClaw does not deliver to;
+  - turns on the profile, recreates the alerter (and the mcp-server, which
+    delivers charts through the same keys), and prints the alerter's own
+    delivery preflight line;
+  - with `--test`, or a yes at the prompt, sends one labeled message
+    through the new `alerter main.py --test`, which refuses after a failed
+    preflight. A message arriving is the only proof that the recipient is
+    right.
 - **`smoking-pi config`: settings by name, not by editing the env
   file.** `list` shows every key the edition's `.env.template` declares,
   with secrets hidden. `get` prints one, and a secret only with
