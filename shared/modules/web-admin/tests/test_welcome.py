@@ -30,6 +30,10 @@ CONNECTION = {
 }
 
 
+ASSISTANT = {"available": True, "mcp": "running", "connected": False,
+             "since": "2026-09-24T00:36:51.515788679Z", "calls": 0}
+
+
 def _stub(monkeypatch, pending=True, recorded=None):
     gw = dashboard_module.config_api
     monkeypatch.setattr(gw, "get_targets_config",
@@ -43,6 +47,7 @@ def _stub(monkeypatch, pending=True, recorded=None):
     monkeypatch.setattr(gw, "is_database_available", lambda: True)
     monkeypatch.setattr(gw, "get_all_targets_from_db", lambda: {"targets": TARGETS})
     monkeypatch.setattr(gw, "tour_pending", lambda: pending)
+    monkeypatch.setattr(gw, "get_assistant", lambda: ASSISTANT)
     calls = [] if recorded is None else recorded
     monkeypatch.setattr(gw, "set_first_run", lambda outcome: calls.append(outcome) or {})
     return calls
@@ -138,3 +143,38 @@ def test_group_targets_orders_known_categories_first():
     groups = welcome_module.group_targets(TARGETS)
     assert [g[0] for g in groups] == ["top_sites", "dns_resolvers", "lab"]
     assert groups[2][1] == ""
+
+
+# --- step 4: the assistant, from the MCP server's own evidence ---------------
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("body, needles", [
+    ({"available": False}, ["Could not check"]),
+    ({"available": True, "mcp": "absent", "connected": False},
+     ["Not set up", "sudo smoking-pi openclaw</code>"]),
+    ({"available": True, "mcp": "stopped", "connected": False, "state": "exited"},
+     ["Stopped", "(exited)", "sudo smoking-pi up"]),
+    (ASSISTANT, ["Not used yet", "since it started (2026-09-24 00:36 UTC)",
+                 "sudo smoking-pi openclaw --check"]),
+    ({"available": True, "mcp": "running", "connected": True, "calls": 2,
+      "since": "2026-09-24T00:36:51Z", "last_tool": "get_loss_events",
+      "last_call": "2026-09-24T09:12:07.000000000Z"},
+     ["Connected", "<code>get_loss_events</code> at 2026-09-24 09:12 UTC",
+      "2 calls since the server started"]),
+])
+def test_the_assistant_step_says_what_the_server_shows(client, monkeypatch, body, needles):
+    _stub(monkeypatch)
+    monkeypatch.setattr(dashboard_module.config_api, "get_assistant", lambda: body)
+    login(client)
+    html = client.get("/welcome/").get_data(as_text=True)
+    assert "4. Ask it in plain words" in html
+    for needle in needles:
+        assert needle in html
+
+
+def test_when_reads_dockers_nanosecond_times():
+    assert welcome_module.when("2026-09-24T00:36:51.515788679Z") == "2026-09-24 00:36 UTC"
+    assert welcome_module.when(None) is None
+    assert welcome_module.when("garbage") == "garbage"

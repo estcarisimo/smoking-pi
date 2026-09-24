@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1 class="mb-2">Welcome to Smoking Pi</h1>
-<p class="lead mb-4">Your install is already measuring. Three short steps show what it measures and let you shape it. Nothing changes unless you choose it here.</p>
+<p class="lead mb-4">Your install is already measuring. Three short steps show what it measures and let you shape it; a fourth, optional, connects a chat assistant. Nothing changes unless you choose it here.</p>
 
 <!-- Step 1: is it measuring? (stage A) -->
 <div class="card mb-4" id="tour-measuring">
@@ -91,6 +91,25 @@
         {% endfor %}
         {% endfor %}
         {% endif %}
+    </div>
+</div>
+
+<div class="card mb-4" id="tour-assistant">
+    <div class="card-header"><h5 class="mb-0">4. Ask it in plain words <small class="text-muted">optional</small></h5></div>
+    <div class="card-body">
+        <p>A chat assistant such as OpenClaw can answer "was my connection bad last night?" from this Pi's recorded history, and bring its alerts to your phone. Smoking Pi measures and alerts without one.</p>
+        {% if not assistant.available %}
+        <p class="mb-0 text-muted">Could not check: config-manager did not answer.</p>
+        {% elif assistant.mcp == 'absent' %}
+        <p class="mb-0"><span class="badge bg-secondary">Not set up</span> On the Pi, run <code>sudo smoking-pi openclaw</code>. It starts the assistant server (Pro edition) and connects an OpenClaw gateway on the same machine.</p>
+        {% elif assistant.mcp == 'stopped' %}
+        <p class="mb-0"><span class="badge bg-warning text-dark">Stopped</span> The assistant server is set up but not running ({{ assistant.state }}). <code>sudo smoking-pi up</code> starts it again.</p>
+        {% elif not assistant.connected %}
+        <p class="mb-0"><span class="badge bg-warning text-dark">Not used yet</span> The assistant server is running, but no assistant has called it since it started{% if assistant.since %} ({{ assistant.since }}){% endif %}. If you connected one, <code>sudo smoking-pi openclaw --check</code> asks it a question and reads the server's log, which is the only proof: an assistant can answer fluently without ever calling it.</p>
+        {% else %}
+        <p class="mb-0"><span class="badge bg-success">Connected</span> Your assistant last called <code>{{ assistant.last_tool }}</code>{% if assistant.last_call %} at {{ assistant.last_call }}{% endif %}: {{ assistant.calls }} call{{ '' if assistant.calls == 1 else 's' }} since the server started.</p>
+        {% endif %}
+        <p class="small text-muted mt-2 mb-0">Guides: <a href="https://estcarisimo.github.io/smoking-pi/openclaw-integration/" target="_blank" rel="noopener">OpenClaw on this Pi</a> · <a href="https://estcarisimo.github.io/smoking-pi/remote-openclaw/" target="_blank" rel="noopener">OpenClaw on another computer</a></p>
     </div>
 </div>
 

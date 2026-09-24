@@ -31,6 +31,7 @@ from scripts import ipv6_check
 # Shared file lock / atomic write helpers
 from file_ops import get_config_lock, atomic_write_yaml
 import freshness
+import assistant
 import recommendations
 
 # Import database models and repositories
@@ -477,6 +478,27 @@ class ConfigManagerAPI:
             started_at=_container_started_at(container),
         )
         return {'available': True, 'checked_at': datetime.now().isoformat(), **body}
+
+    def assistant_status(self) -> Dict[str, Any]:
+        """Whether an assistant is calling the MCP server; see assistant.py.
+
+        Reads the mcp-server container's own tool= log lines through the
+        Docker socket, as `smoking-pi openclaw --check` does from the host.
+        A project without that container (not Pro, or the mcp profile off)
+        answers "absent", which is a state, not an error.
+        """
+        try:
+            container_name = resolve_container_name('mcp-server')
+        except Exception:
+            return {'available': True, **assistant.summarize(None, None, '')}
+        container = docker.from_env().containers.get(container_name)
+        state = container.attrs.get('State', {})
+        logs = ''
+        if container.status == 'running':
+            # tail bounds the read on a server that has run for months.
+            logs = container.logs(timestamps=True, tail=20000).decode(errors='replace')
+        return {'available': True, **assistant.summarize(
+            container.status, state.get('StartedAt'), logs)}
 
     def connection_recommendations(self) -> Dict[str, Any]:
         """The host's uplink, router, resolvers and CPE, and which of them
@@ -1402,6 +1424,17 @@ def get_categories():
             
     except Exception as e:
         return error_response(500, "Failed to get categories", e)
+
+
+@app.route('/assistant', methods=['GET'])
+@require_api_token
+def get_assistant():
+    """Is a chat assistant calling the MCP server? (assistant.py)"""
+    try:
+        return jsonify(api.assistant_status())
+    except Exception as e:
+        return error_response(503, "Could not read the MCP server's state", e,
+                              available=False)
 
 
 # What a probe's cycle may be set to (PUT /probes/<name>). Steps from one

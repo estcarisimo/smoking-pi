@@ -67,6 +67,7 @@ COPY models.py ./
 COPY file_ops.py ./
 COPY freshness.py ./
 COPY recommendations.py ./
+COPY assistant.py ./
 COPY pydantic_models.py ./
 
 # Make scripts executable
