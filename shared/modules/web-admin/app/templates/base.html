@@ -69,6 +69,12 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint and request.endpoint.startswith('probes.') %}active{% endif %}"
+                           href="{{ url_for('probes.index') }}">
+                            <i class="bi bi-stopwatch"></i> Probes
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.endpoint and request.endpoint.startswith('ai.') %}active{% endif %}"
                            href="{{ url_for('ai.reports') }}">
                             <i class="bi bi-stars"></i> AI

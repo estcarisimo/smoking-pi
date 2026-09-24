@@ -245,6 +245,20 @@ class ConfigManagerClient:
             logger.error(f"Failed to delete target {target_id}: {e}")
             raise
     
+    def update_probe(self, name: str, changes: Dict[str, Any]) -> Dict[str, Any]:
+        """Change a probe's step_seconds and/or pings (PUT /probes/<name>).
+
+        Raises ValueError with config-manager's own message on a refusal
+        (400/404): it says which value is not allowed and why.
+        """
+        response = self._make_request('PUT', f'/probes/{name}', json=changes)
+        body = response.json() if response.text else {}
+        if response.status_code == 200:
+            return body
+        if response.status_code in (400, 404):
+            raise ValueError(body.get('error', 'Probe change refused'))
+        raise RuntimeError(f"Failed to update probe: {body.get('error', response.status_code)}")
+
     def toggle_target(self, target_id: int) -> Dict[str, Any]:
         """Toggle target active status"""
         try:
@@ -544,6 +558,10 @@ class ConfigAPIGateway:
             logger.error(f"Failed to get categories from database: {e}")
             raise
     
+    def update_probe(self, name: str, changes: Dict[str, Any]) -> Dict[str, Any]:
+        """Change a probe's cycle; see ConfigManagerClient.update_probe."""
+        return self.client.update_probe(name, changes)
+
     def get_probes_from_db(self) -> Dict[str, Any]:
         """Get all probes from database"""
         try:

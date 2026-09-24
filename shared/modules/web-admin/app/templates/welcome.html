@@ -11,14 +11,14 @@
     <div class="card-header"><h5 class="mb-0">1. Is it measuring?</h5></div>
     <div class="card-body">
         {% if not measurements.available %}
-        <p class="mb-0 text-muted">Could not check yet: {{ measurements.reason }}. The first data point of every target arrives five minutes after the start.</p>
+        <p class="mb-0 text-muted">Could not check yet: {{ measurements.reason }}. The first data point of every target arrives one probe step after the start (five minutes, unless its probe was changed).</p>
         {% elif measurements.measuring %}
         <p class="mb-0"><span class="badge bg-success">Measuring</span> {{ measurements.fresh }} of {{ measurements.total }} targets updated in the last two measurement steps.</p>
         {% else %}
         <p class="mb-0">
             <span class="badge bg-warning text-dark">Not everything yet</span>
             {{ measurements.fresh }} of {{ measurements.total }} targets have data.
-            {% if measurements.pending %}{{ measurements.pending }} are waiting for their first measurement (SmokePing measures every five minutes).{% endif %}
+            {% if measurements.pending %}{{ measurements.pending }} are waiting for their first measurement (each probe measures on its own step, every five minutes unless changed on the Probes page).{% endif %}
             The dashboard's Measurements card names the rest.
         </p>
         {% endif %}

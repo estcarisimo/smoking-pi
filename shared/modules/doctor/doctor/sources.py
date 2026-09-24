@@ -416,12 +416,26 @@ def measurements_in(query: str) -> set[str]:
     return set(_MEASUREMENT_RE.findall(query))
 
 
+_FIELD_EQ_RE = re.compile(r'r\._field\s*==\s*"([^"]+)"')
+_PIVOT_FIELDS_RE = re.compile(r'pivot\([^)]*columnKey:\s*\[\s*"_field"\s*\]')
+
+
 def tag_refs_in(query: str) -> set[str]:
-    return {
-        name
-        for name in _TAG_REF_RE.findall(query)
-        if name not in FLUX_BUILTIN_COLUMNS
-    }
+    """``r.<name>`` references that must be tags.
+
+    After ``pivot(columnKey: ["_field"])`` the fields the query selected
+    (``r._field == "loss"``) are columns too, and ``r.loss`` reads one of
+    them -- a field, not a tag filter that can never match.
+
+    Only references AFTER the pivot are exempt, and only for fields selected
+    before it: ``r.loss`` ahead of the pivot is still a tag filter.
+    """
+    pivot = _PIVOT_FIELDS_RE.search(query)
+    cut = pivot.start() if pivot else len(query)
+    pivoted = set(_FIELD_EQ_RE.findall(query[:cut])) if pivot else set()
+    before = set(_TAG_REF_RE.findall(query[:cut]))
+    after = set(_TAG_REF_RE.findall(query[cut:])) - pivoted
+    return {name for name in before | after if name not in FLUX_BUILTIN_COLUMNS}
 
 
 # ---------------------------------------------------------------------------
