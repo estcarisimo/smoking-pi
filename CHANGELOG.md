@@ -11,6 +11,18 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **A probe's step and pings can be changed in the web admin.** A new
+  **Probes** page lists each probe's cycle, its targets and its traffic.
+  **Change** sets how often (every minute to every hour) and how many
+  pings (3 to 20). Before saving, it says that every target of the probe
+  starts a new SmokePing history, with the old files archived and not
+  deleted, and that Grafana keeps everything. It needs a confirmation.
+  Behind it, `PUT /probes/<name>` on the config API accepts only those
+  two values. It refuses a cycle that could outrun its step (pings ×
+  per-ping timeout), then saves, regenerates and reloads, and the RRD
+  guard archives the old files. The welcome tour no longer promises
+  "every five minutes". This is part 3 of stage D; see
+  `docs/measurement-frequency.md`.
 - **The first login is a welcome tour.** The install seeded 21 targets
   in silence, and a new user met a dashboard of numbers with no idea what
   was being measured or why. The web admin (Standard, Pro) now opens once
