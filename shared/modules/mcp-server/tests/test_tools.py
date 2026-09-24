@@ -486,8 +486,8 @@ def test_loss_events_shaping(monkeypatch, no_api):
         "loss_pct": 25.0,
     }
     # threshold converted from percent to ratio; clamping applied
-    assert "r._value >= 0.1" in captured[0]
-    assert "if r._value > 1.0 then 1.0" in captured[0]
+    assert "r._value >= 0.1" in captured[1]
+    assert "if r._value > 1.0 then 1.0" in captured[1]
 
 
 def test_loss_events_threshold_validation(no_api):
@@ -897,17 +897,20 @@ def _loss_fake(per_target, background=0, targets=None, steps=None):
 def test_loss_events_default_threshold_skips_single_lost_pings(monkeypatch, no_api):
     captured = _patch_influx(monkeypatch, _loss_fake({}, background=143))
     result = server.get_loss_events(hours=24)
-    assert result["min_loss_pct"] == 15.0
-    assert "r._value >= 0.15" in captured[0]
+    # The pings-lost rule: no fixed percent, 1.5 pings' worth per target,
+    # which is 15% on the default ten pings.
+    assert result["min_loss_pct"] is None
+    assert result["min_lost_pings"] == 1.5
+    assert "r._value >= 0.15" in captured[1]
     # The denominator query must put its count in _value, where it is read
     # (distinct() does; count(column: "target") does not -- seen live), and
     # it must be PER STEP: over a day more names rotate through than report
     # in any one cycle, which put 80% out of reach -- also seen live.
-    assert 'group(columns: ["_time"])' in captured[2]
-    assert 'distinct(column: "target") |> count()' in captured[2]
-    assert "count(column" not in captured[2]
+    assert 'group(columns: ["_time"])' in captured[3]
+    assert 'distinct(column: "target") |> count()' in captured[3]
+    assert "count(column" not in captured[3]
     # The excluded background is counted, not hidden.
-    assert "r._value > 0.0 and r._value < 0.15" in captured[1]
+    assert "r._value > 0.0 and r._value < 0.15" in captured[2]
     assert result["background_points"] == 143
     assert result["events"] == [] and result["episodes"] == [] and result["widespread"] == []
 
@@ -1001,7 +1004,7 @@ def test_loss_events_rollups_see_past_the_events_cap(monkeypatch, no_api):
     per_target = {t: [1.0] * 40 for t in targets}
     captured = _patch_influx(monkeypatch, _loss_fake(per_target))
     result = server.get_loss_events(hours=24)
-    assert f"limit(n: {server.MAX_ROLLUP_ROWS})" in captured[0]
+    assert f"limit(n: {server.MAX_ROLLUP_ROWS})" in captured[1]
     assert result["event_count"] == 720
     assert len(result["events"]) == 500 and result["truncated"] is True
     assert result["widespread"][0]["minutes"] == 200
@@ -1146,3 +1149,34 @@ def test_widespread_all_lost_needs_every_row_of_a_target_in_its_step():
     assert run["all_lost"] is False
     events[-1]["loss_pct"] = 100.0
     assert server._widespread_runs(events, reporting)[0]["all_lost"] is True
+
+
+def test_loss_events_count_pings_lost_per_target(monkeypatch, no_api):
+    """20 pings: two lost is 7.5%+ ; 5 DNS queries: one lost (20%) is not an
+    event. The per-target bar goes into the query as a Flux dict."""
+    base = _loss_fake({"NYT": [0.2]}, targets=_TEN)
+    captured = _patch_influx(
+        monkeypatch, _with_cadence(base, Big=(300, 20), GoogleDNS=(300, 5)))
+    server.get_loss_events(hours=24)
+    events_flux, background_flux = captured[1], captured[2]
+    for flux in (events_flux, background_flux):
+        assert flux.startswith('import "dict"\n')
+        assert '{key: "Big", value: 0.075}' in flux
+        assert '{key: "GoogleDNS", value: 0.3}' in flux
+    assert ("r._value >= dict.get(dict: event_ratio, key: r.target, default: 0.15)"
+            in events_flux)
+
+
+def test_loss_events_explicit_percent_applies_to_everyone(monkeypatch, no_api):
+    base = _loss_fake({"NYT": [0.2]}, targets=_TEN)
+    captured = _patch_influx(monkeypatch, _with_cadence(base, Big=(300, 20)))
+    result = server.get_loss_events(hours=24, min_loss_pct=12)
+    assert "dict" not in captured[1]
+    assert "r._value >= 0.12" in captured[1]
+    assert result["min_loss_pct"] == 12.0 and result["min_lost_pings"] is None
+
+
+def test_loss_events_tiny_percent_is_valid_flux(monkeypatch, no_api):
+    captured = _patch_influx(monkeypatch, _loss_fake({}, targets=_TEN))
+    server.get_loss_events(hours=24, min_loss_pct=0.001)
+    assert "r._value >= 0.00001)" in captured[1]

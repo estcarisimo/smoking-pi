@@ -13,7 +13,6 @@ import pytest
 
 from app.services import ai_tools
 from common import microcuts
-from common.aggregates import LOSS_EVENT_PCT
 
 T0 = datetime(2026, 9, 19, 0, 42, 33, tzinfo=timezone.utc)
 CPE = {"target": "136.25.220.1", "protocol": "ipv4"}
@@ -112,12 +111,28 @@ def test_microcut_stats_rejects_bad_hours(monkeypatch):
     assert "error" in ai_tools.execute_tool("get_microcut_stats", {"hours": 0})
 
 
-def test_loss_events_default_is_the_shared_threshold(monkeypatch):
+def test_loss_events_default_is_the_shared_pings_lost_rule(monkeypatch):
+    seen = []
+
+    def query(flux):
+        seen.append(flux)
+        if '"step"' in flux and "last()" in flux:
+            return [{"target": "GoogleDNS", "_field": "pings", "_value": 5}]
+        return []
+
+    monkeypatch.setattr(ai_tools, "query_influx", query)
+    out = ai_tools.execute_tool("get_loss_events", {"hours": 24})
+    assert out["min_loss_pct"] is None and out["min_lost_pings"] == 1.5
+    assert '{key: "GoogleDNS", value: 0.3}' in seen[1]
+    assert "default: 0.15)" in seen[1]
+
+
+def test_loss_events_explicit_percent_is_kept(monkeypatch):
     seen = []
     monkeypatch.setattr(ai_tools, "query_influx", lambda flux: seen.append(flux) or [])
-    out = ai_tools.execute_tool("get_loss_events", {"hours": 24})
-    assert out["min_loss_pct"] == LOSS_EVENT_PCT == 15.0
-    assert f"r._value >= {LOSS_EVENT_PCT / 100.0}" in seen[0]
+    out = ai_tools.execute_tool("get_loss_events", {"hours": 24, "min_loss_pct": 5})
+    assert out["min_loss_pct"] == 5.0
+    assert seen == [seen[0]] and "r._value >= 0.05" in seen[0]
 
 
 @pytest.mark.parametrize("name", ["get_loss_events", "get_microcut_stats"])
@@ -126,7 +141,7 @@ def test_tool_descriptions_state_the_definition(name):
     text = tool["description"]
     if name == "get_loss_events":
         assert "background" in text
-        assert f"default {LOSS_EVENT_PCT:g}" in (
+        assert "two or more lost pings" in (
             tool["input_schema"]["properties"]["min_loss_pct"]["description"]
         )
     else:
