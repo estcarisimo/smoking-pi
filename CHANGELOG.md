@@ -11,6 +11,13 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`shared/scripts/acceptance-record.sh`: the release record, filled in
+  from the Pi.** It prints the *Validation* block of
+  `docs/release-acceptance.md` with the tag, commit, Pi model, OS, kernel,
+  architecture, per-container image, restart count and uptime, and the
+  doctor's summary. It names any container that isn't on the candidate's
+  tag. Read-only, no secrets. Its first run found `ai-insights` on `:dev`
+  during the v2.13.0-rc.2 acceptance.
 - **Which interface the measurements crossed, over time.** A cable plugged
   into a Pi that measured over Wi-Fi moves every measurement onto Ethernet
   (NetworkManager gives it metric 100 against Wi-Fi's 600), and nothing

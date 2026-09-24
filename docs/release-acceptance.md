@@ -83,9 +83,14 @@ the same commit.
 - [ ] `smoking-pi backup` completed (from a clone: `packaging/smoking-pi backup`) and
   the directory is somewhere other than the Pi's SD card. Note its path in
   the record.
-- [ ] `git describe --tags` and `uname -r` / `cat /etc/os-release` on the
-  Pi, for the record: the OS version, kernel, Pi model
-  (`cat /proc/device-tree/model`), architecture.
+- [ ] `shared/scripts/acceptance-record.sh --tag X.Y.Z-rc.N` on the Pi,
+  from the live checkout (`SMOKING_PI_VERSION` or an exact git tag also
+  name the candidate). It prints the *Validation* block below with the tag, commit, Pi
+  model, OS, Debian release, kernel and architecture filled in, plus each
+  container's image, restart count and uptime and the doctor's summary. It
+  also names any container that is not on the candidate's image tag. The
+  rest stays `<fill>`. Run it again at the end of the 24 hours for the
+  *Stability* line.
 - [ ] The rollback is one command away: the previous tag checked out and
   `smoking-pi upgrade`, or the backup restored. Write down which.
 
