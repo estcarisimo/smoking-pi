@@ -11,6 +11,12 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`smoking-pi alerts --digest HH:MM|off [--digest-tz ZONE]`: the
+  daily summary without editing the env file.** The time and zone are
+  checked before anything is written; a value the alerter cannot read
+  would disable the digest. It works alone or together with a delivery
+  mode, and it says when `NOTIFY_MODE` is off and the digest would only be
+  logged.
 - **`smoking-pi links`: where the links in alerts and assistant answers
   point.** With no option, it shows the at-home and from-anywhere
   addresses. `--lan auto` sets `PUBLIC_BASE_HOST` to the address the local
