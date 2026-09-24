@@ -11,6 +11,13 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`shared/scripts/acceptance-record.sh`: the release record, filled in
+  from the Pi.** It prints the *Validation* block of
+  `docs/release-acceptance.md` with the tag, commit, Pi model, OS, kernel,
+  architecture, per-container image, restart count and uptime, and the
+  doctor's summary. It names any container that isn't on the candidate's
+  tag. Read-only, no secrets. Its first run found `ai-insights` on `:dev`
+  during the v2.13.0-rc.2 acceptance.
 - **`smoking-pi alerts --digest HH:MM|off [--digest-tz ZONE]`: the
   daily summary without editing the env file.** The time and zone are
   checked before anything is written; a value the alerter cannot read
