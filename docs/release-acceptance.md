@@ -83,8 +83,9 @@ the same commit.
 - [ ] `smoking-pi backup` completed (from a clone: `packaging/smoking-pi backup`) and
   the directory is somewhere other than the Pi's SD card. Note its path in
   the record.
-- [ ] `shared/scripts/acceptance-record.sh` on the Pi, from the live
-  checkout. It prints the *Validation* block below with the tag, commit, Pi
+- [ ] `shared/scripts/acceptance-record.sh --tag X.Y.Z-rc.N` on the Pi,
+  from the live checkout (`SMOKING_PI_VERSION` or an exact git tag also
+  name the candidate). It prints the *Validation* block below with the tag, commit, Pi
   model, OS, Debian release, kernel and architecture filled in, plus each
   container's image, restart count and uptime and the doctor's summary. It
   also names any container that is not on the candidate's image tag. The
