@@ -5,6 +5,7 @@ Provides REST interface for SmokePing configuration management
 """
 
 import hmac
+import json
 import logging
 import secrets
 from datetime import datetime
@@ -30,6 +31,7 @@ from scripts import ipv6_check
 # Shared file lock / atomic write helpers
 from file_ops import get_config_lock, atomic_write_yaml
 import freshness
+import recommendations
 
 # Import database models and repositories
 from models import (
@@ -425,6 +427,42 @@ class ConfigManagerAPI:
             started_at=_container_started_at(container),
         )
         return {'available': True, 'checked_at': datetime.now().isoformat(), **body}
+
+    def connection_recommendations(self) -> Dict[str, Any]:
+        """The host's uplink, router, resolvers and CPE, and which of them
+        SmokePing already measures. See recommendations.py.
+
+        The facts come from host_facts.py run inside the SmokePing
+        container: this service sits on a Docker bridge, so its own routes
+        and resolvers are Docker's. That only works where SmokePing shares
+        the host's network; elsewhere the card says so instead of showing
+        the bridge's gateway as "your router".
+        """
+        targets_file = OUTPUT_DIR / "Targets"
+        container_name = resolve_container_name('smokeping')
+        container = docker.from_env().containers.get(container_name)
+        mode = container.attrs.get('HostConfig', {}).get('NetworkMode')
+        if mode != 'host':
+            return recommendations.unavailable(
+                "SmokePing runs on a Docker network in this edition, so it "
+                "cannot see this host's router or resolvers")
+        # demux: stdout is the JSON, stderr (a log line, a traceback) is not.
+        ran = container.exec_run(['python3', '/exporters/host_facts.py'], demux=True)
+        stdout, stderr = ran.output if isinstance(ran.output, tuple) else (ran.output, b'')
+        if ran.exit_code != 0:
+            logger.warning("host_facts.py exited %s: %s", ran.exit_code,
+                           (stderr or b'').decode(errors='replace')[-500:])
+            return recommendations.unavailable(
+                f"could not read the host's network (host_facts exit {ran.exit_code})")
+        try:
+            facts = json.loads((stdout or b'').decode(errors='replace'))
+        except ValueError:
+            return recommendations.unavailable("the host's network facts were unreadable")
+        cpe = container.exec_run(['cat', '/config/CPE_Targets'])
+        measured = recommendations.measured_hosts(
+            targets_file.read_text() if targets_file.exists() else '',
+            cpe.output.decode(errors='replace') if cpe.exit_code == 0 else '')
+        return recommendations.recommend(facts, measured)
 
     def _target_change_ages(self) -> Dict[str, float]:
         """Seconds since each target last changed (added, edited, toggled).
@@ -961,6 +999,16 @@ def measurements():
         return jsonify(api.measurement_freshness())
     except Exception as e:
         return error_response(500, "Failed to check measurement freshness", e)
+
+
+@app.route('/recommendations', methods=['GET'])
+@require_api_token
+def connection_recommendations():
+    """What this host's connection suggests measuring. See recommendations.py."""
+    try:
+        return jsonify(api.connection_recommendations())
+    except Exception as e:
+        return error_response(500, "Failed to read the host's connection", e)
 
 
 @app.route('/generate', methods=['POST'])

@@ -310,6 +310,31 @@ class TestInterfaceChoice:
             tmp_path, [("d0", "00000000", "0001", 100)])
         assert wifi_link.default_route_interface(route) == "d0"
 
+    def test_the_default_route_names_its_gateway(self, tmp_path):
+        """/proc/net/route prints the gateway in host order: 0156A8C0 on a
+        little-endian Pi is 192.168.86.1. The gateway is the router, the
+        first thing a "Your connection" card can suggest measuring."""
+        route = self._routes(tmp_path, [("wlan0", "00000000", 600)])
+        assert wifi_link.default_route4(route) == ("wlan0", "192.168.86.1")
+
+    def test_the_gateway_follows_the_lowest_metric_route(self, tmp_path):
+        p = tmp_path / "route-two"
+        p.write_text(
+            "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+            "wlan0\t00000000\t0156A8C0\t0003\t0\t0\t600\t00000000\n"
+            "eth0\t00000000\t0100A8C0\t0003\t0\t0\t100\t00000000\n")
+        assert wifi_link.default_route4(p) == ("eth0", "192.168.0.1")
+
+    def test_an_on_link_default_route_has_no_gateway(self, tmp_path):
+        p = tmp_path / "route-onlink"
+        p.write_text(
+            "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+            "wg0\t00000000\t00000000\t0001\t0\t0\t100\t00000000\n")
+        assert wifi_link.default_route4(p) == ("wg0", None)
+
+    def test_no_default_route_is_none(self, tmp_path):
+        assert wifi_link.default_route4(tmp_path / "missing") is None
+
 
 class TestIPv6Uplink:
     """A v6-only host has no row in /proc/net/route at all."""
@@ -354,6 +379,18 @@ class TestIPv6Uplink:
 
     def test_a_missing_file_is_not_an_error(self, tmp_path):
         assert wifi_link.default_route_interface6(tmp_path / "nope") is None
+
+    def test_the_v6_default_route_names_its_next_hop(self, tmp_path):
+        """Router advertisements install a link-local next hop."""
+        row = ("0" * 32 + " 00 " + "0" * 32 + " 00 fe800000000000000000000000000001"
+               " 00000400 00000001 00000000 00000003    wlan0")
+        p = tmp_path / "ipv6_route"
+        p.write_text(row + "\n")
+        assert wifi_link.default_route6(p) == ("wlan0", "fe80::1")
+
+    def test_a_v6_default_route_without_a_next_hop(self, tmp_path):
+        route6 = self._route6(tmp_path, [self._default("wg0", flags="00000001")])
+        assert wifi_link.default_route6(route6) == ("wg0", None)
 
     def test_a_gateway_less_default_route_still_counts(self, tmp_path):
         """wg-quick installs `default dev wg0` with no via. Observed on a real

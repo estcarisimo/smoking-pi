@@ -335,6 +335,30 @@ config and reloads it. The first hop is not in that list because nobody
 has to add it: CPE discovery traceroutes out every hour, finds the first
 responsive hop and injects it as a target of its own.
 
+**Start with what your own network suggests.** The seeded targets are the
+same on every install; your router and the resolvers your network hands
+out are not. On Pro, where SmokePing shares the host's network, the web
+admin's dashboard has a **Your connection** card that reads them from the
+host itself:
+
+- the interface every measurement leaves by, and whether it is Wi-Fi;
+- **your router** (the default gateway). Loss or delay there is your Wi-Fi
+  or your LAN, and a problem that is fine at the router but bad further
+  out is past your home. It is not seeded, because every home's router
+  has a different address;
+- the ISP's first hop, which CPE discovery already measures;
+- the DNS resolvers the host was given. A local cache or a VPN stub
+  (`127.0.0.53`, Tailscale's `100.100.100.100`) is not worth measuring and
+  says so.
+
+Each one says whether it is measured already, and under which name. What
+is not has an **Add…** button that opens *Targets → Add* filled in: you
+see the target, change it if you like, and save it through the same
+validation as anything you type. Nothing is added for you. The same list
+is `GET /recommendations` on the config API. On Standard, whose SmokePing
+sits on a Docker network, the card says it cannot see the host's router
+instead of showing Docker's.
+
 Useful to know on the first day:
 
 - **Netflix's Open Connect appliances** serving your network are discovered

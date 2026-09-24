@@ -108,6 +108,49 @@
     </div>
 </div>
 
+<!-- Your connection: what this host's own network suggests measuring -->
+<div class="card mb-4" id="connection-card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-router"></i> Your connection</h5>
+    </div>
+    <div class="card-body">
+        {% if not connection.available %}
+        <p class="mb-0 text-muted">Could not check: {{ connection.reason }}</p>
+        {% else %}
+        <p class="mb-2">
+            {% if connection.interface %}
+            Measuring over <strong>{{ connection.interface }}</strong>
+            ({{ 'Wi-Fi' if connection.wireless else 'wired' }}).
+            {% if connection.wireless %}<span class="text-muted">Every measurement crosses this Wi-Fi link first; the router below is the way to tell it apart from your ISP.</span>{% endif %}
+            {% else %}
+            <span class="badge bg-warning text-dark">No default route</span> this host has no route to the Internet right now.
+            {% endif %}
+        </p>
+        {% if connection.entries %}
+        <table class="table table-sm mb-0">
+            <thead><tr><th>What</th><th>Address</th><th>Measured</th><th>Why</th></tr></thead>
+            <tbody>
+            {% for i in connection.entries %}
+            <tr>
+                <td>{{ {'gateway': 'Router', 'gateway6': 'Router (IPv6)', 'cpe': "ISP's first hop", 'resolver': 'DNS resolver'}.get(i.kind, i.kind) }}</td>
+                <td><code>{{ i.host }}</code></td>
+                <td>
+                    {% if i.status == 'measured' %}<span class="badge bg-success">yes</span> as {{ i.measured_as }}
+                    {% elif i.status == 'automatic' %}<span class="badge bg-success">automatically</span>
+                    {% elif i.status == 'suggested' %}<a class="btn btn-sm btn-outline-primary" href="{{ i.add_url }}">Add…</a>
+                    {% elif i.status == 'local' %}<span class="badge bg-secondary">not needed</span>
+                    {% else %}<span class="badge bg-secondary">not possible</span>{% endif %}
+                </td>
+                <td class="small text-muted">{{ i.why }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+
 <!-- OCA Management -->
 <div class="card mb-4">
     <div class="card-header">

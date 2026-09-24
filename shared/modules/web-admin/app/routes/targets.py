@@ -466,10 +466,17 @@ def add_target():
     categories = ['custom', 'dns_resolvers']
     probes = ['FPing', 'FPing6', 'DNS']
     
-    return render_template('targets/add.html', 
-                         categories=categories, 
+    # A suggestion from the dashboard's "Your connection" card arrives as
+    # query parameters; the form shows them and validates them on submit
+    # like anything typed. Only the form's own fields are taken.
+    prefill = {key: request.args.get(key, '').strip()
+               for key in ('name', 'hostname', 'title', 'target_type', 'dns_query')
+               if request.args.get(key)}
+    return render_template('targets/add.html',
+                         categories=categories,
                          probes=probes,
-                         using_database=config_api.is_database_available())
+                         using_database=config_api.is_database_available(),
+                         **prefill)
 
 @targets_bp.route('/delete/<name>', methods=['POST'])
 def delete_target(name):
