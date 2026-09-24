@@ -95,7 +95,10 @@ which the digest and the AI report use):
 
 - Default `min_loss_pct` 5 → 15: two or more lost pings, or any lost DNS
   query. The excluded single-ping points are returned as
-  `background_points` so the assistant can say they exist.
+  `background_points` so the assistant can say they exist. *(Since
+  replaced by a count: two or more lost pings of whatever the probe sends,
+  `common.cadence.EVENT_LOST_PINGS`; see
+  [Probe cadence](alerting.md#probe-cadence).)*
 - `episodes`: consecutive points per target folded into one, with start,
   duration, worst loss and whether it was total.
 - `widespread`: runs of cycles in which 80% of the reporting targets had an
@@ -238,7 +241,7 @@ saying "strong microcuts" after the MCP tool had stopped. The web-admin image
 now builds from `shared/` like the alerter, ai-insights and mcp-server
 images, copies `common/` in, and the tool calls `common.microcuts` for the
 cut windows, the folding and the threshold; its `get_loss_events` default
-rose from 5% to the shared `LOSS_EVENT_PCT` (15%) for the reason given under
+rose from 5% to the shared `LOSS_EVENT_PCT` (15%; now `EVENT_LOST_PINGS`) for the reason given under
 [Downtime](#downtime). Run against the Pi's InfluxDB beside the MCP tool, the
 two answer identically for 24 h and 7 d (`web-admin/tests/test_ai_tools_microcuts.py`
 replays the quiet day, the six-window cut and the two isolated windows).

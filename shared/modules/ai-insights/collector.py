@@ -8,7 +8,7 @@ collector`` working for the reporter and its tests.
 from __future__ import annotations
 
 from common.aggregates import (
-    LOSS_EVENT_PCT,
+    EVENT_LOST_PINGS,
     MAX_TARGETS,
     MAX_WORST_WINDOWS,
     collect,
@@ -18,7 +18,7 @@ from common.aggregates import (
 )
 
 __all__ = [
-    "LOSS_EVENT_PCT",
+    "EVENT_LOST_PINGS",
     "MAX_TARGETS",
     "MAX_WORST_WINDOWS",
     "collect",
