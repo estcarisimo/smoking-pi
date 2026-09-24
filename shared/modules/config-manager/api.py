@@ -403,6 +403,7 @@ class ConfigManagerAPI:
         exec_run's exit code and log "Sent reload signal" when killall had
         found no smokeping process to signal.
         """
+        self.last_rrd_guard = {}
         try:
             container_name = resolve_container_name('smokeping')
             client = docker.from_env()
@@ -1403,6 +1404,95 @@ def get_categories():
         return error_response(500, "Failed to get categories", e)
 
 
+# What a probe's cycle may be set to (PUT /probes/<name>). Steps from one
+# minute to one hour; SmokePing's shipped step is 300. At least 3 pings, so
+# "more than 1.5 pings' worth lost" (common.cadence.EVENT_LOST_PINGS) is
+# not every single loss; at most 20, what the Database section defaults to.
+PROBE_STEPS = (60, 120, 300, 600, 900, 1800, 3600)
+PROBE_MIN_PINGS = 3
+PROBE_MAX_PINGS = 20
+PROBE_EDITABLE = ('step_seconds', 'pings')
+
+
+def probe_cadence_problem(step: Any, pings: Any, timeout: Any = None):
+    """Why ``step``/``pings`` cannot be a probe's cycle, or None.
+
+    ``timeout`` is the probe's per-ping timeout in seconds when it has one
+    (the Curl probes: 10). Its pings run one after another per target, so
+    a cycle that could take longer than the step would overlap the next.
+    """
+    if not isinstance(step, int) or isinstance(step, bool) or step not in PROBE_STEPS:
+        allowed = ', '.join(str(s) for s in PROBE_STEPS)
+        return f"step_seconds must be one of {allowed}"
+    if (not isinstance(pings, int) or isinstance(pings, bool)
+            or not PROBE_MIN_PINGS <= pings <= PROBE_MAX_PINGS):
+        return f"pings must be between {PROBE_MIN_PINGS} and {PROBE_MAX_PINGS}"
+    try:
+        worst = pings * float(timeout) if timeout is not None else 0.0
+    except (TypeError, ValueError):
+        worst = 0.0
+    if worst > step:
+        return (f"{pings} pings with a {float(timeout):g} s timeout can take "
+                f"{worst:g} s, longer than a {step} s step")
+    return None
+
+
+@app.route('/probes/<name>', methods=['PUT'])
+@require_api_token
+def update_probe(name):
+    """Change a probe's step and/or pings, then regenerate and reload.
+
+    Every target of the probe starts a new RRD: the reload's RRD guard
+    moves the old files to /data/.archive/ (see _guard_rrds), because
+    SmokePing refuses, fatally, to load an RRD made for another cycle. The
+    response says how many targets that concerns and what the guard did.
+    """
+    if not api.use_database:
+        return jsonify({'error': 'Database not available'}), 400
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not any(k in body for k in PROBE_EDITABLE):
+        return error_response(400, "Send step_seconds and/or pings")
+    unknown = sorted(k for k in body if k not in PROBE_EDITABLE)
+    if unknown:
+        return error_response(
+            400, "Only step_seconds and pings can be changed here", fields=unknown)
+    try:
+        session = get_db_session()
+        try:
+            probe = ProbeRepository(session).get_by_name(name)
+            if probe is None:
+                return jsonify({'error': 'Probe not found'}), 404
+            previous = {'step_seconds': probe.step_seconds, 'pings': probe.pings}
+            wanted = {**previous, **{k: body[k] for k in PROBE_EDITABLE if k in body}}
+            problem = probe_cadence_problem(
+                wanted['step_seconds'], wanted['pings'],
+                (probe.options or {}).get('timeout'))
+            if problem:
+                return error_response(400, problem)
+            targets = session.query(Target).filter(Target.probe_id == probe.id)
+            counts = {'targets': targets.count(),
+                      'active_targets': targets.filter(Target.is_active.is_(True)).count()}
+            if wanted == previous:
+                return jsonify({'success': True, 'changed': False, 'probe': name,
+                                'previous': previous, **counts})
+            probe.step_seconds = wanted['step_seconds']
+            probe.pings = wanted['pings']
+            session.commit()
+        finally:
+            session.close()
+        reloaded = api._regenerate_smokeping_config()
+        logger.info("Probe %s: step %s -> %s, pings %s -> %s", name,
+                    previous['step_seconds'], wanted['step_seconds'],
+                    previous['pings'], wanted['pings'])
+        return jsonify({
+            'success': True, 'changed': True, 'probe': name,
+            'previous': previous, 'current': wanted, **counts,
+            'reloaded': reloaded, 'rrd_guard': api.last_rrd_guard,
+        })
+    except Exception as e:
+        return error_response(500, "Failed to update probe", e)
+
+
 @app.route('/probes', methods=['GET'])
 @require_api_token
 def get_probes():
@@ -1427,6 +1517,8 @@ def get_probes():
                     'is_default': probe.is_default,
                     'module': probe.module,
                     'options': probe.options or {},
+                    'targets': len(probe.targets),
+                    'active_targets': sum(1 for t in probe.targets if t.is_active),
                 } for probe in probes]
             })
             
