@@ -957,11 +957,13 @@ STUB
 
 @test "alerts --digest refuses a time or zone it cannot read, before writing anything" {
     alerts_setup
-    for bad in 7:45 24:00 12:60 noon; do
+    for bad in 24:00 12:60 noon 7:5; do
         run "$CLI" alerts --digest "$bad"
         [ "$status" -eq 2 ]
     done
     run "$CLI" alerts --digest 07:45 --digest-tz Mars/Olympus
+    [ "$status" -eq 2 ]
+    run "$CLI" alerts --digest 07:45 --digest-tz ../../etc/hostname
     [ "$status" -eq 2 ]
     run "$CLI" alerts --digest-tz Europe/London
     [ "$status" -eq 2 ]
@@ -981,4 +983,18 @@ STUB
     grep -qx 'DIGEST_ENABLED=true' "$SMOKING_PI_ENV_FILE"
     grep -qx 'DIGEST_AT=08:30' "$SMOKING_PI_ENV_FILE"
     [[ "$output" != *"logged, not sent"* ]]
+}
+
+
+@test "alerts --digest takes 7:45 as 07:45; with --off both are said once each" {
+    alerts_setup
+    run "$CLI" alerts --digest 7:45
+    [ "$status" -eq 0 ]
+    grep -qx 'DIGEST_AT=07:45' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts --off --digest 08:30 --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'DIGEST_AT=08:30' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"logged, not delivered"* ]]
+    [[ "$output" == *"logged, not sent"* ]]
 }
