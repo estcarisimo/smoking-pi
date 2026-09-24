@@ -9,6 +9,48 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.0] — 2026-09-24
+
+Is it measuring, and can you tell? Plus a release process that proves
+itself.
+
+The web admin's dashboard now answers the first question a new install
+raises. It shows how many targets were written in the last two
+measurement steps, judged from each target's own RRD rather than a file
+count (the reference Pi has 180 RRDs for 30 targets). A SmokePing reload
+that failed is no longer reported as done. `smoking-pi install` ends on
+the address to open, `smoking-pi openclaw` connects the assistant, and a
+getting-started guide walks through the rest. The doctor names the
+interface every measurement crosses. It now resolves the uplink by route
+metric, and IPv6-only hosts are covered.
+
+Secrets stay off the screen unless you ask: `show-passwords.sh` withholds
+them, `--show-secrets` refuses a pipe unless forced, and the env file's
+permissions are checked. Three health checks that had never worked now
+do, and none of them puts a credential on a command line. The config API
+finds containers by their Compose labels instead of guessing their names.
+
+The documentation was held to the code. The backup recipe backed up
+nothing. "Switching databases" told you to delete every target. The MCP
+tool table was four tools short. All of these are fixed.
+
+Every PR now builds all nine images for both architectures and runs
+CodeQL. Releases are cut from a candidate tag, `latest` moves only after
+every install test has passed, and each release carries an evidence file
+tying it to its commit, digests and package checksum. This is the first
+release cut that way.
+
+The third candidate brings more. How often each probe measures can be
+changed from the web admin. The analysis reads each target's real cycle,
+loss events and Grafana's "unreachable" overlay count pings lost instead
+of a fixed percent, and a guard keeps SmokePing running when an RRD no
+longer matches its probe. The first login is a welcome tour: whether it
+is measuring, what your own network suggests (the router, the
+resolvers), and the seeded targets you may want to pause. Settings that meant editing the env file
+now have commands: `smoking-pi config`, `alerts` (with the daily digest)
+and `links`. The InfluxDB dashboards mark the moment the uplink changes,
+from Wi-Fi to Ethernet or back.
+
 ### Added
 
 - **`shared/scripts/acceptance-record.sh`: the release record, filled in
@@ -135,129 +177,6 @@ version gets a matching GitHub release and git tag.
   your router. The gateway comes from the same route parsing that picks
   the Wi-Fi verdict's uplink (`wifi_link.default_route4/6`), so the two
   cannot disagree. `GET /recommendations` on the config API.
-
-### Changed
-
-- **The analysis reads each target's real probe cycle.** The alerter and
-  the MCP server assumed every target is measured every 300 s with 10
-  pings. That holds for the shipped probes, but on a probe with a
-  600 s step the 1200 s down window held two points where `target_down`
-  needs three, so it could never fire. The exporter now writes `step` and
-  `pings` as fields on every `latency`/`dns_latency` point, and
-  `common/cadence.py` reads the latest per target. `DOWN_WINDOW`,
-  `STALE_WINDOW` and `ALERT_RESOLVE_AFTER` are floored at four, four and
-  three steps of the slowest probe. The mean behind `high_loss` covers
-  three of those steps, and widespread cycles are bucketed to that step.
-  `get_loss_events` folds each target's episodes on its own step and
-  reports `step_s` and `pings` per target. On the shipped probes every
-  window, message and result is what it was. This is the first of three
-  parts of editable measurement frequency (first-run stage D). See
-  *Probe cadence* in `docs/alerting.md`.
-- **Loss events are counted in pings lost, not in a fixed percent.** The
-  15% bar meant "2 of 10" on FPing, "3 of 20" on a 20-ping probe, and a
-  single lost DNS query of five cleared it. An event is now more than 1.5
-  pings' worth lost, of however many the target's probe sends. The RRD
-  spreads a cycle's lost pings over two aligned steps, so loss values are
-  not whole pings, and 1.5 keeps one lost ping out whole. The same rule
-  applies to `high_loss` persistence, the floor for `outage` (with
-  `WIDESPREAD_LOSS_PCT`), `get_loss_events` in the MCP server and the web
-  assistant, and the digest's and AI report's `loss_events`. Each builds
-  the per-target bar into its Flux query as a `dict`. `min_loss_pct`
-  still sets a fixed percent when given. On the shipped probes, only one
-  lost DNS query stops counting: seven days on the reference Pi gave 843
-  events under both rules. This is part 2 of stage D.
-
-- **Grafana's "unreachable" overlay counts pings lost, too.** Five
-  dashboards marked a 15-minute window when its mean loss reached 5%. On
-  the shipped step that is 1.5 lost pings of 30, and on any other step it
-  means something else. A window is now marked when its points lost 1.5
-  pings' worth between them (loss × `pings`, with 10 or 5 when a point
-  predates the field). On the reference Pi over seven days, ICMP went
-  from 387 marked windows to 383 and DNS from 46 to 45. HTTP (194 → 142)
-  and TCP (78 → 62) lose their single-lost-fetch marks, the same rule as
-  the loss events. The doctor now reads a pivoted field (`r.loss` after
-  `pivot`) as a column, not a tag filter.
-### Fixed
-
-- **An IPv6 address in `PUBLIC_BASE_HOST` or `TUNNEL_BASE_HOST` now makes
-  a working link.** The "already has a port?" test was "contains a colon",
-  which every IPv6 literal does. So `2001:db8::5` became
-  `http://2001:db8::5`: no brackets and no port, a URL no browser opens.
-  With one set, every Grafana and web-admin link in alerts and assistant
-  answers was dead. The address is now bracketed and gets its port
-  (`http://[2001:db8::5]:3000`), and `[addr]:port` keeps its own port.
-  A link-local `fe80::` address, or one with a zone id, makes no links and
-  logs why once: it routes only with a zone id, and browsers reject zone
-  ids in a URL. A bare host with a path now gets its port before the path
-  (`pi.lan:3000/x`, not `pi.lan/x:3000`). Values with a scheme are used
-  as given, as before. `smoking-pi links --lan` now takes a global or ULA
-  IPv6 address and stores it bracketed. It still refuses link-local and
-  `::1`, and warns that the web admin (`0.0.0.0:8080`) is IPv4-only. It
-  also shows a `host:port` value once, instead of with `:3000` appended.
-
-- **SmokePing no longer dies on an RRD it cannot load.** An RRD is made
-  for one step and one ping count. When a target's file disagrees with its
-  probe, SmokePing stops at reload ("RRD parameter mismatch ... You must
-  delete ...rrd") and every target stops being measured. That happens when
-  a probe's step or pings change, when a paused target is resumed after
-  such a change, or when a deleted target is added again under the same
-  name. Before every reload, config-manager now runs `rrd_guard.py` in the
-  SmokePing container with what the new configuration expects of each
-  RRD, CPE targets included. Mismatches are moved, not deleted, to
-  `/data/.archive/<time>/`; SmokePing creates fresh files, and Grafana
-  keeps the full history from InfluxDB. On the reference Pi, a dry run
-  checked all 30 RRDs and found nothing to move. The ClickHouse exporter
-  skips the archive. See `docs/measurement-frequency.md`.
-- **`step_seconds` and `pings` on a target are refused, not dropped.**
-  `POST`/`PUT /targets` accepted both and discarded them without a word:
-  they belong to the probe, and SmokePing measures every target of a probe
-  on the same cycle. The API now answers 400, naming the fields.
-- **The add form says DNS sends 5 queries.** It said 10. The form now
-  states each probe's cadence from its configured settings.
-- **The dashboard's bandwidth estimate uses each target's probe.** It
-  assumed 10 pings every 300 s for every target, which counted DNS, HTTP
-  and TCP targets (5 per cycle) double. The OCA fetcher's copy of the same
-  estimate, which nothing read, is gone.
-
-### Removed
-
-- **The `static:` block of `sources.yaml`.** It listed websites, IPv6
-  sites and DNS resolvers that nothing read: the seeded targets come from
-  `targets.yaml`, and what depends on the host is now suggested by the
-  card above. Existing installs keep their copy; it stays unread.
-
-## [2.13.0] — 2026-09-24
-
-Is it measuring, and can you tell? Plus a release process that proves
-itself.
-
-The web admin's dashboard now answers the first question a new install
-raises. It shows how many targets were written in the last two
-measurement steps, judged from each target's own RRD rather than a file
-count (the reference Pi has 180 RRDs for 30 targets). A SmokePing reload
-that failed is no longer reported as done. `smoking-pi install` ends on
-the address to open, `smoking-pi openclaw` connects the assistant, and a
-getting-started guide walks through the rest. The doctor names the
-interface every measurement crosses. It now resolves the uplink by route
-metric, and IPv6-only hosts are covered.
-
-Secrets stay off the screen unless you ask: `show-passwords.sh` withholds
-them, `--show-secrets` refuses a pipe unless forced, and the env file's
-permissions are checked. Three health checks that had never worked now
-do, and none of them puts a credential on a command line. The config API
-finds containers by their Compose labels instead of guessing their names.
-
-The documentation was held to the code. The backup recipe backed up
-nothing. "Switching databases" told you to delete every target. The MCP
-tool table was four tools short. All of these are fixed.
-
-Every PR now builds all nine images for both architectures and runs
-CodeQL. Releases are cut from a candidate tag, `latest` moves only after
-every install test has passed, and each release carries an evidence file
-tying it to its commit, digests and package checksum. This is the first
-release cut that way.
-
-### Added
 
 - **Releases are cut from a candidate, and `latest` waits for the install
   tests.** Until now `latest` moved to a new release's images in the same
@@ -440,6 +359,46 @@ release cut that way.
 
 ### Changed
 
+- **The analysis reads each target's real probe cycle.** The alerter and
+  the MCP server assumed every target is measured every 300 s with 10
+  pings. That holds for the shipped probes, but on a probe with a
+  600 s step the 1200 s down window held two points where `target_down`
+  needs three, so it could never fire. The exporter now writes `step` and
+  `pings` as fields on every `latency`/`dns_latency` point, and
+  `common/cadence.py` reads the latest per target. `DOWN_WINDOW`,
+  `STALE_WINDOW` and `ALERT_RESOLVE_AFTER` are floored at four, four and
+  three steps of the slowest probe. The mean behind `high_loss` covers
+  three of those steps, and widespread cycles are bucketed to that step.
+  `get_loss_events` folds each target's episodes on its own step and
+  reports `step_s` and `pings` per target. On the shipped probes every
+  window, message and result is what it was. This is the first of three
+  parts of editable measurement frequency (first-run stage D). See
+  *Probe cadence* in `docs/alerting.md`.
+- **Loss events are counted in pings lost, not in a fixed percent.** The
+  15% bar meant "2 of 10" on FPing, "3 of 20" on a 20-ping probe, and a
+  single lost DNS query of five cleared it. An event is now more than 1.5
+  pings' worth lost, of however many the target's probe sends. The RRD
+  spreads a cycle's lost pings over two aligned steps, so loss values are
+  not whole pings, and 1.5 keeps one lost ping out whole. The same rule
+  applies to `high_loss` persistence, the floor for `outage` (with
+  `WIDESPREAD_LOSS_PCT`), `get_loss_events` in the MCP server and the web
+  assistant, and the digest's and AI report's `loss_events`. Each builds
+  the per-target bar into its Flux query as a `dict`. `min_loss_pct`
+  still sets a fixed percent when given. On the shipped probes, only one
+  lost DNS query stops counting: seven days on the reference Pi gave 843
+  events under both rules. This is part 2 of stage D.
+
+- **Grafana's "unreachable" overlay counts pings lost, too.** Five
+  dashboards marked a 15-minute window when its mean loss reached 5%. On
+  the shipped step that is 1.5 lost pings of 30, and on any other step it
+  means something else. A window is now marked when its points lost 1.5
+  pings' worth between them (loss × `pings`, with 10 or 5 when a point
+  predates the field). On the reference Pi over seven days, ICMP went
+  from 387 marked windows to 383 and DNS from 46 to 45. HTTP (194 → 142)
+  and TCP (78 → 62) lose their single-lost-fetch marks, the same rule as
+  the loss events. The doctor now reads a pivoted field (`r.loss` after
+  `pivot`) as a column, not a tag filter.
+
 - **`show-passwords.sh` no longer prints your secrets unless you ask.** It
   ran at the end of every install and on every `smoking-pi passwords`, and
   it printed all nine of them — the Grafana password, the config-manager
@@ -464,6 +423,46 @@ release cut that way.
   in, so a mode looser than `x00` is called out with the `chmod` to fix it.
 
 ### Fixed
+
+- **An IPv6 address in `PUBLIC_BASE_HOST` or `TUNNEL_BASE_HOST` now makes
+  a working link.** The "already has a port?" test was "contains a colon",
+  which every IPv6 literal does. So `2001:db8::5` became
+  `http://2001:db8::5`: no brackets and no port, a URL no browser opens.
+  With one set, every Grafana and web-admin link in alerts and assistant
+  answers was dead. The address is now bracketed and gets its port
+  (`http://[2001:db8::5]:3000`), and `[addr]:port` keeps its own port.
+  A link-local `fe80::` address, or one with a zone id, makes no links and
+  logs why once: it routes only with a zone id, and browsers reject zone
+  ids in a URL. A bare host with a path now gets its port before the path
+  (`pi.lan:3000/x`, not `pi.lan/x:3000`). Values with a scheme are used
+  as given, as before. `smoking-pi links --lan` now takes a global or ULA
+  IPv6 address and stores it bracketed. It still refuses link-local and
+  `::1`, and warns that the web admin (`0.0.0.0:8080`) is IPv4-only. It
+  also shows a `host:port` value once, instead of with `:3000` appended.
+
+- **SmokePing no longer dies on an RRD it cannot load.** An RRD is made
+  for one step and one ping count. When a target's file disagrees with its
+  probe, SmokePing stops at reload ("RRD parameter mismatch ... You must
+  delete ...rrd") and every target stops being measured. That happens when
+  a probe's step or pings change, when a paused target is resumed after
+  such a change, or when a deleted target is added again under the same
+  name. Before every reload, config-manager now runs `rrd_guard.py` in the
+  SmokePing container with what the new configuration expects of each
+  RRD, CPE targets included. Mismatches are moved, not deleted, to
+  `/data/.archive/<time>/`; SmokePing creates fresh files, and Grafana
+  keeps the full history from InfluxDB. On the reference Pi, a dry run
+  checked all 30 RRDs and found nothing to move. The ClickHouse exporter
+  skips the archive. See `docs/measurement-frequency.md`.
+- **`step_seconds` and `pings` on a target are refused, not dropped.**
+  `POST`/`PUT /targets` accepted both and discarded them without a word:
+  they belong to the probe, and SmokePing measures every target of a probe
+  on the same cycle. The API now answers 400, naming the fields.
+- **The add form says DNS sends 5 queries.** It said 10. The form now
+  states each probe's cadence from its configured settings.
+- **The dashboard's bandwidth estimate uses each target's probe.** It
+  assumed 10 pings every 300 s for every target, which counted DNS, HTTP
+  and TCP targets (5 per cycle) double. The OCA fetcher's copy of the same
+  estimate, which nothing read, is gone.
 
 - **A SmokePing reload that failed was reported as done.** After every
   target change config-manager sends `killall -HUP smokeping` into the
@@ -670,6 +669,13 @@ release cut that way.
   A typo, or a wired interface asked to report Wi-Fi statistics, disabled the
   collector with no message — indistinguishable from "no wireless hardware".
   It now logs which it is, and the wireless interfaces it did find.
+
+### Removed
+
+- **The `static:` block of `sources.yaml`.** It listed websites, IPv6
+  sites and DNS resolvers that nothing read: the seeded targets come from
+  `targets.yaml`, and what depends on the host is now suggested by the
+  card above. Existing installs keep their copy; it stays unread.
 
 ## [2.12.0] — 2026-09-22
 
