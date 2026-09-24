@@ -747,3 +747,63 @@ config_setup() {
     run "$CLI" config set CLICKHOUSE_HTTP_PORT 8124 --no-apply
     [ "$status" -eq 0 ]
 }
+
+# --- links: where alert and assistant links point --------------------------------
+
+links_setup() {
+    cp "$REPO/editions/pro/.env.template" "$STUB_HOME/editions/pro/"
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nPUBLIC_BASE_HOST=\nTUNNEL_BASE_HOST=\n' > "$SMOKING_PI_ENV_FILE"
+}
+
+@test "links with no option shows where links point, and changes nothing" {
+    links_setup
+    run "$CLI" links
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"at home:       none (smoking-pi links --lan auto)"* ]]
+    [[ "$output" == *"from anywhere: none"* ]]
+    ! grep -q ' up -d' "$DOCKER_LOG" 2>/dev/null
+}
+
+@test "links --lan auto takes the default route's source address, not the SSH one" {
+    links_setup
+    export SSH_CONNECTION="100.64.0.9 50000 100.101.102.103 22"
+    run "$CLI" links --lan auto
+    [ "$status" -eq 0 ]
+    grep -qx 'PUBLIC_BASE_HOST=192.0.2.10' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"http://192.0.2.10:3000/ (Grafana)"* ]]
+    # alerter and mcp-server read it; the stub's enabled services have neither.
+    [[ "$output" == *"which no enabled profile runs"* ]]
+}
+
+@test "links --tunnel refuses a bare host: it would become a dead http link" {
+    links_setup
+    run "$CLI" links --tunnel smokingpi.example.com
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Include the scheme"* ]]
+    grep -qx 'TUNNEL_BASE_HOST=' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" links --tunnel https://smokingpi.example.com/
+    [ "$status" -eq 0 ]
+    grep -qx 'TUNNEL_BASE_HOST=https://smokingpi.example.com' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "links --lan refuses loopback and URLs; --off clears both" {
+    links_setup
+    run "$CLI" links --lan 127.0.0.1
+    [ "$status" -eq 2 ]
+    run "$CLI" links --lan http://x
+    [ "$status" -eq 2 ]
+    printf 'PUBLIC_BASE_HOST=10.0.0.2\nTUNNEL_BASE_HOST=https://t.example\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" links --off
+    [ "$status" -eq 0 ]
+    grep -qx 'PUBLIC_BASE_HOST=' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'TUNNEL_BASE_HOST=' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "links on an edition without the MCP server says so" {
+    links_setup
+    export SMOKING_PI_EDITION=basic
+    cp "$REPO/editions/basic/docker-compose.yml" "$STUB_HOME/editions/basic/"
+    run "$CLI" links --lan auto
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Pro services"* ]]
+}
