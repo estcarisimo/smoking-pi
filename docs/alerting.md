@@ -515,7 +515,11 @@ a 15-minute window is marked when it lost 1.5 pings' worth in total
 that is exactly the old "15-minute mean at 5% or more" (5% of 3 × 10
 pings), and it stays one lost ping short of a mark whatever the step.
 Points written before the exporter recorded `pings` count as 10 for
-`latency` and 5 for DNS, HTTP and TCP.
+`latency` and 5 for DNS, HTTP and TCP: what those probes always sent.
+The alerter's flat default of 10 is a different case. It reads each
+target's latest `pings` from the last 6 hours, and the alerter ships in
+the same release as the exporter that writes it, so every target has a
+real count within one exporter cycle (60 s).
 
 On the shipped probes, all of this is exactly what it was.
 

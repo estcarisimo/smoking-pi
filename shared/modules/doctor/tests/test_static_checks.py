@@ -774,3 +774,15 @@ def test_pivoted_fields_are_columns_not_tag_filters():
     # Without the pivot, r.loss is a tag filter that can never match.
     plain = 'from(bucket:"s") |> filter(fn:(r)=> r._field == "loss" and r.loss > 0)'
     assert sources.tag_refs_in(plain) == {"loss"}
+
+
+def test_a_field_named_before_the_pivot_is_still_a_tag_filter():
+    from doctor import sources
+
+    query = (
+        'from(bucket:"s") |> filter(fn:(r)=> r.loss > 0 and '
+        '(r._field == "loss" or r._field == "pings")) '
+        '|> pivot(rowKey: ["_time"], columnKey: [ "_field" ], valueColumn: "_value") '
+        '|> map(fn:(r)=> ({ r with _value: r.loss * float(v: r.pings) }))'
+    )
+    assert sources.tag_refs_in(query) == {"loss"}
