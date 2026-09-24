@@ -1054,6 +1054,8 @@ def set_first_run():
         if outcome not in FIRST_RUN_OUTCOMES:
             return jsonify({'error': "outcome must be 'done', 'skipped' or 'reset'"}), 400
         state = {'outcome': outcome, 'at': datetime.now().isoformat(timespec='seconds')}
+        # Finished before the first config generation made the directory.
+        _first_run_file().parent.mkdir(parents=True, exist_ok=True)
         _first_run_file().write_text(json.dumps(state))
         return jsonify({'completed': True, **state})
     except OSError as e:

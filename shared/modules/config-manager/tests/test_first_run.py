@@ -52,3 +52,9 @@ def test_the_endpoints_require_the_token(client, monkeypatch):
     monkeypatch.setenv("CONFIG_API_TOKEN", "sekrit")
     assert client.get("/first-run").status_code == 401
     assert client.post("/first-run", json={"outcome": "done"}).status_code == 401
+
+
+def test_finishing_before_the_output_directory_exists(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(api_module, "OUTPUT_DIR", tmp_path / "not-yet")
+    assert client.post("/first-run", json={"outcome": "done"}).status_code == 200
+    assert client.get("/first-run").get_json()["outcome"] == "done"

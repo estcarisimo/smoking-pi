@@ -1,5 +1,7 @@
 """The welcome tour (first-run stage C) and the dashboard's redirect to it."""
 
+import re
+
 from conftest import login
 
 from app.routes import dashboard as dashboard_module
@@ -78,8 +80,10 @@ def test_the_tour_shows_all_three_steps(client, monkeypatch):
     assert "as CloudflareDNS" in html
     # Step 3: seeded targets by category, known ones first, a paused one off.
     assert html.index("top_sites") < html.index("dns_resolvers") < html.index(">lab<")
-    assert 'id="target-1" data-id="1" data-name="Google"\n                   checked' in html
-    assert 'id="target-2" data-id="2" data-name="GoogleDNS"\n                   >' in html
+    switches = {m.group(1): "checked" in m.group(0)
+                for m in re.finditer(r'<input[^>]*class="form-check-input seeded"[^>]*'
+                                     r'data-name="(\w+)"[^>]*>', html)}
+    assert switches == {"Google": True, "GoogleDNS": False, "Mine": True}
 
 
 def test_finish_and_skip_are_recorded(client, monkeypatch):
