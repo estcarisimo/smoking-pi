@@ -506,7 +506,7 @@ def _get_loss_events(tool_input: dict) -> dict:
             cadences = {}
         prelude, bar = cadence.event_threshold_flux(cadences)
     else:
-        prelude, bar = "", repr(threshold / 100.0)
+        prelude, bar = "", cadence.flux_float(threshold / 100.0)
 
     flux = (
         prelude

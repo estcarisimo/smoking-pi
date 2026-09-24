@@ -49,6 +49,9 @@ DEFAULT = Cadence(DEFAULT_STEP, DEFAULT_PINGS)
 # lost pings split 1.2 + 0.8; 1.5 keeps a single lost ping out whole and
 # is exactly the old 15% on a 10-ping probe.
 EVENT_LOST_PINGS = 1.5
+# A ping count above this is a corrupt point, not a probe: SmokePing's own
+# limit is far lower, and the API refuses more than 100.
+MAX_PINGS = 1000
 
 
 def cadence_flux(measurements: tuple[str, ...] = ("latency", "dns_latency")) -> str:
@@ -77,7 +80,7 @@ def by_target(rows: list[dict]) -> dict[str, Cadence]:
             number = int(value)
         except (TypeError, ValueError):
             continue
-        if number > 0:
+        if number > 0 and not (field == "pings" and number > MAX_PINGS):
             seen.setdefault(target, {})[field] = number
     return {
         target: Cadence(
@@ -138,6 +141,14 @@ def event_ratio(pings: int, min_lost: float = EVENT_LOST_PINGS) -> float:
     return min(1.0, min_lost / pings) if pings > 0 else 1.0
 
 
+def flux_float(value: float) -> str:
+    """A float as a Flux literal: fixed-point, never ``1e-05`` -- Flux has no
+    exponent syntax -- and always with a decimal point, since ``1`` is an
+    int in Flux and comparing it with a float ``_value`` is a type error."""
+    text = f"{float(value):.9f}".rstrip("0")
+    return text + "0" if text.endswith(".") else text
+
+
 def event_threshold_flux(
     cadences: dict[str, Cadence], min_lost: float = EVENT_LOST_PINGS
 ) -> tuple[str, str]:
@@ -156,14 +167,16 @@ def event_threshold_flux(
         if ratio == default:
             continue
         try:
-            pairs.append(f"{{key: {flux_str(target)}, value: {ratio!r}}}")
+            pairs.append(f"{{key: {flux_str(target)}, value: {flux_float(ratio)}}}")
         except ValueError:
             continue
     if not pairs:
-        return "", repr(default)
+        return "", flux_float(default)
     prelude = (
         'import "dict"\n'
         f"event_ratio = dict.fromList(pairs: [{', '.join(pairs)}])\n"
     )
-    return prelude, f"dict.get(dict: event_ratio, key: r.target, default: {default!r})"
+    return prelude, (
+        f"dict.get(dict: event_ratio, key: r.target, default: {flux_float(default)})"
+    )
 

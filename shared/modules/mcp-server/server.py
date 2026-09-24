@@ -923,7 +923,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
     if threshold is None:
         prelude, bar = cadence.event_threshold_flux(cadences)
     else:
-        prelude, bar = "", repr(threshold / 100.0)
+        prelude, bar = "", cadence.flux_float(threshold / 100.0)
 
     base = (
         _base_flux(["latency", "dns_latency"], hours)

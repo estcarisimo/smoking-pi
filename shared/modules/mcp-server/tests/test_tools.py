@@ -1174,3 +1174,9 @@ def test_loss_events_explicit_percent_applies_to_everyone(monkeypatch, no_api):
     assert "dict" not in captured[1]
     assert "r._value >= 0.12" in captured[1]
     assert result["min_loss_pct"] == 12.0 and result["min_lost_pings"] is None
+
+
+def test_loss_events_tiny_percent_is_valid_flux(monkeypatch, no_api):
+    captured = _patch_influx(monkeypatch, _loss_fake({}, targets=_TEN))
+    server.get_loss_events(hours=24, min_loss_pct=0.001)
+    assert "r._value >= 0.00001)" in captured[1]

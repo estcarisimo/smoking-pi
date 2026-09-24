@@ -792,3 +792,17 @@ def test_event_threshold_flux_maps_only_non_default_probes():
     assert cadence.event_threshold_flux({}) == ("", "0.15")
     unsafe = {'x"y': cadence.Cadence(300, 5)}
     assert cadence.event_threshold_flux(unsafe) == ("", "0.15")
+
+
+def test_flux_floats_never_use_an_exponent():
+    """Flux has no exponent syntax: repr(0.00001) == '1e-05' breaks a query."""
+    assert cadence.flux_float(0.15) == "0.15"
+    assert cadence.flux_float(0.075) == "0.075"
+    assert cadence.flux_float(1.0) == "1.0"
+    assert cadence.flux_float(0.00001) == "0.00001"
+    assert "e" not in cadence.flux_float(1 / 3)
+
+
+def test_a_corrupt_ping_count_is_ignored():
+    rows = _cadence_rows(bad=(300, 50000))
+    assert cadence.by_target(rows) == {"bad": cadence.Cadence(300, 10)}
