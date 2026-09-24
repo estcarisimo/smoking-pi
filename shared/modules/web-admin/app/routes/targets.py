@@ -229,7 +229,40 @@ def _add_target_error_response(errors, name, hostname, title, target_type,
     return render_template('targets/add.html',
                          name=name, hostname=hostname, title=title,
                          target_type=target_type, dns_query=dns_query,
-                         http_version=http_version)
+                         http_version=http_version,
+                         cadence_text=probe_cadence_text())
+
+
+# What the shipped probes.yaml sets; the form says this when config-manager
+# cannot be asked. DNS sends 5 queries, not 10 -- the form used to say 10.
+SHIPPED_CADENCE = {'FPing': (10, 300), 'FPing6': (10, 300), 'DNS': (5, 300)}
+CADENCE_UNITS = {'DNS': 'queries'}
+
+
+def describe_cadence(pings, step_seconds, unit='pings'):
+    """'10 pings every 5 minutes', from a probe's own settings."""
+    if step_seconds % 60 == 0:
+        minutes = step_seconds // 60
+        every = 'minute' if minutes == 1 else f'{minutes} minutes'
+    else:
+        every = f'{step_seconds} seconds'
+    return f'{pings} {unit} every {every}'
+
+
+def probe_cadence_text():
+    """The add form's "N pings every M minutes" per probe, read from
+    config-manager's /probes and falling back to what ships."""
+    cadence = dict(SHIPPED_CADENCE)
+    try:
+        for probe in config_api.get_probes_from_db().get('probes', []):
+            name, pings = probe.get('name'), probe.get('pings')
+            step = probe.get('step_seconds')
+            if name and pings and step:
+                cadence[name] = (int(pings), int(step))
+    except Exception as e:
+        current_app.logger.warning(f"Failed to get probes: {e}")
+    return {name: describe_cadence(pings, step, CADENCE_UNITS.get(name, 'pings'))
+            for name, (pings, step) in cadence.items()}
 
 
 @targets_bp.route('/add', methods=['GET', 'POST'])
@@ -476,6 +509,7 @@ def add_target():
                          categories=categories,
                          probes=probes,
                          using_database=config_api.is_database_available(),
+                         cadence_text=probe_cadence_text(),
                          **prefill)
 
 @targets_bp.route('/delete/<name>', methods=['POST'])

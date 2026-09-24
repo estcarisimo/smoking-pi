@@ -149,8 +149,13 @@ def run_iteration() -> None:
         context["micro_rows"],
         records=current.get("incidents", {}),
         wifi_rows=context.get("wifi_rows"),
+        mean_window=evaluator._format_window(context["windows"]["mean"]),
     )
-    actions = state.reconcile(current, incidents)
+    actions = state.reconcile(
+        current,
+        incidents,
+        min_resolve_after=evaluator.MEAN_STEPS * context["windows"]["step"],
+    )
     peers = _peers_by_target(context["mean_rows"])
     for event in actions["alerts"]:
         payload = {

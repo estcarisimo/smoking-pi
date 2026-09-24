@@ -29,7 +29,7 @@ except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
 import backends
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
-from common import charts, microcuts, mutes, openclaw
+from common import cadence, charts, microcuts, mutes, openclaw
 
 # Framing for the connecting client. Without it an agent that also has shell
 # access will answer "how is my internet?" by running ping/curl itself, which
@@ -41,8 +41,9 @@ This server exposes a Raspberry Pi that has been continuously measuring a home
 network for as long as it has been running. It is a record of the past, not a
 probe you trigger.
 
-Every monitored target is pinged on a 300-second cycle and the CPE/gateway link
-is sampled every 10 seconds; results are kept for months. So questions about
+Every monitored target is measured on a fixed cycle (300 seconds unless its
+probe was configured otherwise) and the CPE/gateway link is sampled every 10
+seconds; results are kept for months. So questions about
 how the connection *is*, *was*, or *has been behaving* are answered from
 recorded history here — including questions about last night, yesterday, or a
 moment the user noticed something and you were not watching.
@@ -192,14 +193,15 @@ MAX_ROLLUP_ROWS = 5000
 # every target); 15 keeps anything that lost two or more, and any DNS point
 # (5 queries, so one lost is 20%).
 DEFAULT_MIN_LOSS_PCT = 15.0
-# A run of loss points on one target with gaps no longer than this is one
-# episode. Two probe steps: one missing point does not split a cut in two.
-EPISODE_GAP_S = 600
+# A run of loss points on one target with gaps no longer than this many of
+# its probe steps is one episode: one missing point does not split a cut in
+# two. Each target's own step (common.cadence), 300 s when unknown.
+EPISODE_GAP_STEPS = 2
 # Share of the reporting targets that must have an event in the same probe
 # step for that step to count as widespread -- the same bar the alerter's
 # rule_widespread applies (its own copy; the alerter is not importable here).
 WIDESPREAD_SHARE = 0.8
-STEP_S = 300
+STEP_S = cadence.DEFAULT_STEP
 # Cycles of total loss before a widespread run is attributed to this host's
 # uplink rather than to a brief cut -- the alerter's DOWN_MIN_POINTS.
 UPLINK_MIN_STEPS = 3
@@ -638,8 +640,8 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
             (see list_targets). Omit for all targets.
         hours: Size of the lookback window in hours (default 24).
 
-    The data is already recorded — this host pings every target on a
-    300-second cycle and has done so continuously. Use this instead of
+    The data is already recorded — this host measures every target on a
+    fixed cycle (300 seconds by default) and has done so continuously. Use this instead of
     running ping yourself: it covers the whole window rather than this
     instant, it matches the graphs the user sees, and it does not add probe
     traffic. This is the tool for "how is my internet / my connection?",
@@ -715,22 +717,25 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
     return {"window_hours": hours, "stats": results}
 
 
-def _epoch(value: Any) -> float | None:
-    if isinstance(value, datetime):
-        return value.timestamp()
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
-        except ValueError:
-            return None
-    return None
+_epoch = cadence.epoch
 
 
-def _loss_episodes(events: list[dict]) -> list[dict]:
+def _cadences() -> dict[str, cadence.Cadence]:
+    """Each target's step and pings; empty (every target on the default)
+    when the query fails -- the cadence refines the answer, it is never a
+    reason to refuse one."""
+    try:
+        return cadence.by_target(query_influx(cadence.cadence_flux()))
+    except Exception:  # influx client raises many exception types
+        return {}
+
+
+def _loss_episodes(
+    events: list[dict], cadences: dict[str, cadence.Cadence] | None = None
+) -> list[dict]:
     """Fold per-target events (any order) into runs no more than
-    EPISODE_GAP_S apart. Newest episode first."""
+    EPISODE_GAP_STEPS of that target's steps apart. Newest episode first."""
+    cadences = cadences or {}
     by_key: dict[tuple, list[dict]] = {}
     for event in events:
         if event.get("_epoch") is None:
@@ -740,9 +745,11 @@ def _loss_episodes(events: list[dict]) -> list[dict]:
     episodes: list[dict] = []
     for (target, measurement), rows in by_key.items():
         rows.sort(key=lambda e: e["_epoch"])
+        step_s = cadence.of(cadences, target).step
+        gap_s = EPISODE_GAP_STEPS * step_s
         run: list[dict] = []
         for row in rows + [None]:
-            if row is not None and (not run or row["_epoch"] - run[-1]["_epoch"] <= EPISODE_GAP_S):
+            if row is not None and (not run or row["_epoch"] - run[-1]["_epoch"] <= gap_s):
                 run.append(row)
                 continue
             if run:
@@ -752,7 +759,10 @@ def _loss_episodes(events: list[dict]) -> list[dict]:
                         "measurement": measurement,
                         "start": run[0]["time"],
                         "end": run[-1]["time"],
-                        "minutes": int((run[-1]["_epoch"] - run[0]["_epoch"]) // 60) + STEP_S // 60,
+                        "minutes": (
+                            int((run[-1]["_epoch"] - run[0]["_epoch"]) // 60)
+                            + step_s // 60
+                        ),
                         "points": len(run),
                         "max_loss_pct": max(e["loss_pct"] for e in run),
                         "all_lost": all(e["loss_pct"] >= 99.9 for e in run),
@@ -763,9 +773,16 @@ def _loss_episodes(events: list[dict]) -> list[dict]:
     return episodes
 
 
-def _widespread_runs(events: list[dict], reporting: dict[int, int]) -> list[dict]:
+def _widespread_runs(
+    events: list[dict], reporting: dict[int, int], step_s: int = STEP_S
+) -> list[dict]:
     """Probe steps in which WIDESPREAD_SHARE of the targets reporting IN
     THAT STEP had an event, folded into runs. Newest first.
+
+    Steps are ``step_s`` long -- the slowest target's step, so every target
+    has a point in each (``reporting`` must be bucketed the same way). A
+    faster target with several points in one step counts as lost in it only
+    when all of its events there were.
 
     The denominator is per step, not per window: the Netflix OCA targets
     rotate, so a day holds more distinct names than any one cycle does, and
@@ -784,8 +801,11 @@ def _widespread_runs(events: list[dict], reporting: dict[int, int]) -> list[dict
         epoch = event.get("_epoch")
         if epoch is None:
             continue
-        step = int(epoch // STEP_S) * STEP_S
-        by_step.setdefault(step, {})[event["target"]] = event["loss_pct"] >= 99.9
+        step = int(epoch // step_s) * step_s
+        hits = by_step.setdefault(step, {})
+        hits[event["target"]] = hits.get(event["target"], True) and (
+            event["loss_pct"] >= 99.9
+        )
 
     def needed(step: int) -> float | None:
         total = reporting.get(step, 0)
@@ -798,7 +818,9 @@ def _widespread_runs(events: list[dict], reporting: dict[int, int]) -> list[dict
     runs: list[dict] = []
     run: list[int] = []
     for step in steps + [None]:
-        if step is not None and (not run or step - run[-1] <= EPISODE_GAP_S):
+        if step is not None and (
+            not run or step - run[-1] <= EPISODE_GAP_STEPS * step_s
+        ):
             run.append(step)
             continue
         if run:
@@ -817,7 +839,7 @@ def _widespread_runs(events: list[dict], reporting: dict[int, int]) -> list[dict
                 {
                     "start": datetime.fromtimestamp(run[0], tz=timezone.utc).isoformat(),
                     "end": datetime.fromtimestamp(run[-1], tz=timezone.utc).isoformat(),
-                    "minutes": (run[-1] - run[0]) // 60 + STEP_S // 60,
+                    "minutes": (run[-1] - run[0]) // 60 + step_s // 60,
                     "targets_affected": affected,
                     "targets_total": max(reporting[s] for s in run),
                     "all_lost": all_lost,
@@ -862,6 +884,10 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
     `background_points` counts the points BELOW min_loss_pct but above zero
     that were left out: on a host measuring across Wi-Fi that is one lost
     ping of ten, a few dozen to a few hundred a day, and not an event.
+
+    Each `by_target` entry carries `step_s` and `pings`: that target's cycle
+    and pings per point, so a loss percentage can be read as pings lost (10%
+    of 10 pings is one; 20% of 5 DNS queries is one).
 
     Args:
         hours: Lookback window in hours (default 24).
@@ -922,6 +948,8 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
         targets_rows = query_influx(targets_flux)
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
+    cadences = _cadences()
+    step_s = cadence.longest_step(cadences)
 
     events = [
         {
@@ -951,6 +979,9 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
                 "last_time": event["time"],
             },
         )
+        if entry["event_count"] == 0:
+            own = cadence.of(cadences, event["target"])
+            entry["step_s"], entry["pings"] = own.step, own.pings
         entry["event_count"] += 1
         entry["max_loss_pct"] = max(entry["max_loss_pct"], event["loss_pct"])
         # Rows arrive newest-first, so the last one seen is the oldest.
@@ -974,21 +1005,21 @@ def get_loss_events(hours: int = 24, min_loss_pct: float = DEFAULT_MIN_LOSS_PCT)
             continue
         # max, not overwrite: if jitter ever splits one cycle over two
         # _time values, the larger count is the cycle's.
-        step = int(epoch // STEP_S) * STEP_S
+        step = int(epoch // step_s) * step_s
         reporting[step] = max(reporting.get(step, 0), int(row["_value"]))
     background = 0
     for row in background_rows:
         if row.get("_value") is not None:
             background += int(row["_value"])
 
-    episodes = _loss_episodes(events)
+    episodes = _loss_episodes(events, cadences)
     for episode in episodes:
         episode_links = _links_for(
             catalog, episode["target"], episode["measurement"], hours=hours
         )
         if episode_links.get("graph"):
             episode["graph"] = episode_links["graph"]
-    widespread = _widespread_runs(events, reporting)
+    widespread = _widespread_runs(events, reporting, step_s)
     for event in events:
         del event["_epoch"]
 
@@ -1036,9 +1067,9 @@ def get_microcut_stats(hours: int = 24) -> dict:
 
     Use it for "were there microcuts last night?", "is the CPE link
     flapping?", and for explaining call/game stutters that leave no trace in
-    the 300-second target data. Report the floor as the floor ("the gateway
-    sat at p90 18%"), confirmed cuts with their duration, and possible cuts
-    as possible; never a top-5 as if it were five events.
+    the target data (one point per probe cycle, 300 s by default). Report
+    the floor as the floor ("the gateway sat at p90 18%"), confirmed cuts
+    with their duration, and possible cuts as possible; never a top-5 as if it were five events.
     """
     hours, err = _validate_hours(hours)
     if err:

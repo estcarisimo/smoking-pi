@@ -197,6 +197,21 @@ class TestParseFetchOutput:
         assert len(rows) == 3
 
 
+# ───────────────────────── step ─────────────────────────
+class TestStepFromRows:
+    def test_spacing_of_the_rows_nan_rows_included(self):
+        _, rows = rrd2influx.parse_fetch_output(SAMPLE_FETCH)
+        assert rrd2influx.step_from_rows(rows) == 300
+
+    def test_a_missing_row_does_not_double_it(self):
+        rows = [(1000, {}), (1060, {}), (1180, {})]
+        assert rrd2influx.step_from_rows(rows) == 60
+
+    def test_one_row_is_not_enough(self):
+        assert rrd2influx.step_from_rows([(1000, {})]) is None
+        assert rrd2influx.step_from_rows([]) is None
+
+
 # ───────────────────────── point building ─────────────────────────
 class TestBuildPoints:
     def test_loss_converted_and_all_nan_rows_skipped(self):
@@ -212,6 +227,26 @@ class TestBuildPoints:
         assert 'target=Google' in line
         assert 'category=topsites' in line
         assert line.startswith("latency,")
+
+    def test_points_carry_their_cadence(self):
+        # The alerter and the MCP server read each target's cycle from
+        # these, instead of assuming 10 pings every 300 s.
+        base = "/var/lib/smokeping"
+        _, rows = rrd2influx.parse_fetch_output(SAMPLE_FETCH)
+        points, _ = rrd2influx.build_points(
+            f"{base}/websites/Google.rrd", rows, base, pings=10, step=300)
+        line = points[0].to_line_protocol()
+        assert "pings=10i" in line
+        assert "step=300i" in line
+
+    def test_unknown_step_is_left_out_not_guessed(self):
+        base = "/var/lib/smokeping"
+        _, rows = rrd2influx.parse_fetch_output(SAMPLE_FETCH)
+        points, _ = rrd2influx.build_points(
+            f"{base}/websites/Google.rrd", rows, base, pings=10)
+        line = points[0].to_line_protocol()
+        assert "pings=10i" in line
+        assert "step=" not in line
 
     def test_timestamps_come_from_rows(self):
         base = "/var/lib/smokeping"

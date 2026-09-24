@@ -600,3 +600,122 @@ def test_wifi_weak_threshold_reaches_the_query(monkeypatch):
     monkeypatch.setenv("WIFI_WEAK_DBM", "-70")
     assert "r._value < -70.0" in evaluator._wifi_signal_flux(
         evaluator._env_float("WIFI_WEAK_DBM", evaluator.DEFAULT_WIFI_WEAK_DBM))
+
+
+# ---------------------------------------------------------------------------
+# Probe cadence: each target's own step, not a fixed 300 s
+# ---------------------------------------------------------------------------
+
+from common import cadence  # noqa: E402
+
+
+def _cadence_rows(**steps):
+    """cadence_flux rows: ``name=(step, pings)``."""
+    rows = []
+    for target, (step, pings) in steps.items():
+        rows.append({"target": target, "_field": "step", "_value": step})
+        rows.append({"target": target, "_field": "pings", "_value": pings})
+    return rows
+
+
+def _spaced(target, values, step_s, start=STEP0):
+    return [{"target": target, "_value": v,
+             "_time": start + timedelta(seconds=step_s * i)}
+            for i, v in enumerate(values)]
+
+
+def test_cadence_by_target_falls_back_field_by_field():
+    rows = _cadence_rows(slow=(600, 20)) + [
+        {"target": "dns", "_field": "pings", "_value": 5},
+        {"target": "odd", "_field": "step", "_value": 0},
+        {"target": None, "_field": "step", "_value": 60},
+        {"target": "x", "_field": "median", "_value": 0.01},
+    ]
+    got = cadence.by_target(rows)
+    assert got == {
+        "slow": cadence.Cadence(600, 20),
+        "dns": cadence.Cadence(300, 5),
+    }
+    assert cadence.of(got, "unknown") == cadence.DEFAULT
+    assert cadence.longest_step(got) == 600
+    # Faster probes never shrink a window below the default.
+    assert cadence.longest_step(cadence.by_target(_cadence_rows(f=(60, 10)))) == 300
+
+
+def test_windows_on_the_default_step_are_what_they_always_were(monkeypatch):
+    monkeypatch.delenv("DOWN_WINDOW", raising=False)
+    monkeypatch.delenv("STALE_WINDOW", raising=False)
+    assert evaluator._windows({}) == {
+        "down": 1200, "stale": 1200, "mean": 900, "step": 300,
+    }
+
+
+def test_windows_stretch_to_hold_a_slow_probes_points(monkeypatch):
+    """A 1200 s down window holds two points of a 600 s probe, where three
+    are required: target_down could never fire for it."""
+    monkeypatch.setenv("DOWN_WINDOW", "1200")
+    monkeypatch.delenv("STALE_WINDOW", raising=False)
+    cadences = cadence.by_target(_cadence_rows(slow=(600, 10)))
+    assert evaluator._windows(cadences) == {
+        "down": 2400, "stale": 2400, "mean": 1800, "step": 600,
+    }
+    # A configured window longer than the floor is kept as it is.
+    monkeypatch.setenv("DOWN_WINDOW", "3600")
+    assert evaluator._windows(cadences)["down"] == 3600
+
+
+def test_target_down_fires_for_a_600_s_probe_end_to_end(monkeypatch):
+    queried = []
+
+    def fake_query(flux_src):
+        queried.append(flux_src)
+        if '"step"' in flux_src and "last()" in flux_src:
+            return _cadence_rows(slow=(600, 10))
+        if "cpe_latency" in flux_src or "wifi_link" in flux_src:
+            return []
+        if "count()" in flux_src:
+            return [{"_value": 8}]
+        if "mean()" in flux_src:
+            assert "-1800s" in flux_src
+            return [{"target": "slow", "category": "ping", "_value": 1.0}]
+        assert "-2400s" in flux_src
+        return _spaced("slow", [1.0, 1.0, 1.0, 1.0], 600)
+
+    monkeypatch.setattr(evaluator, "_query", fake_query)
+    monkeypatch.delenv("DOWN_WINDOW", raising=False)
+    incidents, context = evaluator.evaluate_with_context()
+    assert [i["key"] for i in incidents] == ["target_down:slow"]
+    assert context["windows"]["step"] == 600
+
+
+def test_persistence_counts_a_fast_probes_own_cycles():
+    """Three cycles of a 60 s probe are three minutes, not fifteen: two
+    lossy points ten minutes ago are not persistence now."""
+    fast = cadence.by_target(_cadence_rows(fast=(60, 10)))
+    old_then_clean = _spaced("fast", [0.3, 0.3] + [0.0] * 10, 60)
+    assert evaluator._lossy_points_by_target(old_then_clean, 15.0, cadences=fast) == {}
+    recent = _spaced("fast", [0.0] * 10 + [0.3, 0.3], 60)
+    assert evaluator._lossy_points_by_target(recent, 15.0, cadences=fast) == {"fast": 2}
+
+
+def test_widespread_buckets_to_the_slowest_step_and_averages_the_rest():
+    """A 60 s target has five points in a 300 s bucket. One lost point of
+    five is not "lost" for that cycle; all five are."""
+    # Three of five lost; the fast target decides whether it is 80%.
+    slow = {t: [1.0, 1.0, 1.0] for t in TARGETS[:3]}
+    slow[TARGETS[3]] = [0.0, 0.0, 0.0]
+    rows = _timed_points(slow) + _spaced("fast", [1.0] + [0.0] * 14, 60)
+    assert evaluator.rule_widespread(rows) == []
+    rows = _timed_points(slow) + _spaced("fast", [1.0] * 15, 60)
+    assert [i["rule"] for i in evaluator.rule_widespread(rows)] == ["uplink_down"]
+
+
+def test_widespread_on_a_600_s_step_joins_consecutive_cycles():
+    rows = []
+    for t in TARGETS:
+        rows += _spaced(t, [0.0, 0.5, 0.5, 0.0], 600)
+    incidents = evaluator.rule_widespread(rows, step_s=600)
+    assert [i["rule"] for i in incidents] == ["outage"]
+    assert "same 20-minute span" in incidents[0]["message"]
+    # Bucketed to 300 s instead, two 600 s cycles read as non-adjacent.
+    assert len(evaluator.rule_widespread(rows, step_s=300)) == 1

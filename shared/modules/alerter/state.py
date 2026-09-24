@@ -57,7 +57,8 @@ DEFAULT_COOLDOWN = 3600  # seconds; ALERT_COOLDOWN
 # How long an incident must stay absent before it counts as recovered.
 # Must exceed the widest rule window's point spacing, or a rule sitting near
 # its minimum-points threshold will drop out and "recover" on ordinary window
-# jitter. 900 s covers three 300 s SmokePing steps.
+# jitter. 900 s covers three 300 s SmokePing steps; on a slower step the
+# caller passes min_resolve_after so it still covers three.
 DEFAULT_RESOLVE_AFTER = 900  # seconds; ALERT_RESOLVE_AFTER
 # Hard ceiling on notifications per incident key per rolling hour. This is a
 # blast-radius limit, not a tuning knob: it is meant to be unreachable in
@@ -206,8 +207,16 @@ def _apply_mute(record: dict, incident: dict, entries: list[dict],
     return True
 
 
-def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> dict:
+def reconcile(
+    state: dict,
+    incidents: list[dict],
+    now: float | None = None,
+    min_resolve_after: int = 0,
+) -> dict:
     """Fold current incidents into ``state`` and return notification actions.
+
+    ``min_resolve_after`` floors ALERT_RESOLVE_AFTER: three of the slowest
+    target's steps, so a slow probe's ordinary gap is not a recovery.
 
     Mutates ``state`` in place. Returns
     ``{"alerts": [event, ...], "recoveries": [event, ...]}`` where each
@@ -217,7 +226,7 @@ def reconcile(state: dict, incidents: list[dict], now: float | None = None) -> d
     if now is None:
         now = time.time()
     cooldown = _cooldown()
-    resolve_after = _resolve_after()
+    resolve_after = max(_resolve_after(), min_resolve_after)
     limit = _max_per_hour()
     records: dict = state.setdefault("incidents", {})
     # Read once per cycle, never written here: the mcp-server owns this file

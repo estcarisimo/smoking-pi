@@ -1145,6 +1145,29 @@ def get_targets():
         return error_response(500, "Failed to get targets", e)
 
 
+# Set on the probe, never on one target: SmokePing measures every target of
+# a probe on the probe's step and ping count. These used to be accepted here
+# and dropped without a word (models.TARGET_WRITABLE_FIELDS has neither).
+PROBE_OWNED_FIELDS = ('step_seconds', 'pings')
+
+
+def _probe_owned_fields_response(target_data):
+    """A 400 naming the probe-owned fields in ``target_data``, or None."""
+    if not isinstance(target_data, dict):
+        return None
+    fields = [f for f in PROBE_OWNED_FIELDS if f in target_data]
+    if not fields:
+        return None
+    return jsonify({
+        'error': (
+            f"{' and '.join(fields)} cannot be set on a target: every target "
+            "of a probe is measured on that probe's step and ping count. "
+            "Change the probe, or give the target another probe."
+        ),
+        'fields': fields,
+    }), 400
+
+
 @app.route('/targets', methods=['POST'])
 @require_api_token
 def create_target():
@@ -1159,6 +1182,9 @@ def create_target():
         target_data = request.get_json()
         if not target_data:
             raise BadRequest("Empty request body")
+        refused = _probe_owned_fields_response(target_data)
+        if refused:
+            return refused
         
         # Validate required fields
         required_fields = ['name', 'host', 'title', 'category_id', 'probe_id']
@@ -1204,6 +1230,9 @@ def update_target(target_id):
         target_data = request.get_json()
         if not target_data:
             raise BadRequest("Empty request body")
+        refused = _probe_owned_fields_response(target_data)
+        if refused:
+            return refused
         
         session = get_db_session()
         try:

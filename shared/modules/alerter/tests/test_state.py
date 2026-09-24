@@ -128,6 +128,16 @@ def test_grace_period_is_configurable(state_file, monkeypatch):
     assert len(state.reconcile(st, [], now=1100.0)["recoveries"]) == 1
 
 
+def test_a_slow_step_floors_the_grace_period(state_file, monkeypatch):
+    """Three 600 s steps: a slow probe's ordinary gap is not a recovery."""
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "900")
+    st = state.load_state()
+    state.reconcile(st, [_incident()], now=1000.0, min_resolve_after=1800)
+    state.reconcile(st, [], now=1100.0, min_resolve_after=1800)  # missing
+    assert state.reconcile(st, [], now=2100.0, min_resolve_after=1800)["recoveries"] == []
+    assert len(state.reconcile(st, [], now=3000.0, min_resolve_after=1800)["recoveries"]) == 1
+
+
 def test_recovery_is_immediate_when_grace_is_zero(state_file, monkeypatch):
     monkeypatch.setenv("ALERT_RESOLVE_AFTER", "0")
     st = state.load_state()

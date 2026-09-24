@@ -171,10 +171,13 @@ def classify(
     records: dict | None = None,
     now: float | None = None,
     wifi_rows: dict | None = None,
+    mean_window: str = "15m",
 ) -> dict:
     """Return ``{scope, line, affected, total, cpe_cutting, wifi, evidence}``.
 
     Pure: rows in, verdict out, no network and no clock unless one is given.
+    ``mean_window`` names the span ``mean_rows`` cover: 15m on the default
+    300 s step, longer when a slower probe stretched it.
     """
     import time
 
@@ -259,7 +262,9 @@ def classify(
         return _out("monitor_uplink", _uplink_line(wifi))
 
     if total == 0:
-        return _out("unclear", "No comparable measurements in the last 15m.")
+        return _out(
+            "unclear", f"No comparable measurements in the last {mean_window}."
+        )
 
     # 2. The Wi-Fi hop: the first hop is dropping AND the host's own
     #    wireless uplink was weak or dropped in the same hour. The CPE probes
@@ -300,7 +305,7 @@ def classify(
     if affected == 0:
         return _out(
             "unclear",
-            f"No target is above {impaired_pct:.0f}% mean loss over 15m.",
+            f"No target is above {impaired_pct:.0f}% mean loss over {mean_window}.",
         )
 
     # 5/6. A uniform impaired set names its own cause.

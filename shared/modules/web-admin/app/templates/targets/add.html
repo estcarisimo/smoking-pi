@@ -207,7 +207,7 @@
                         <ul class="small">
                             <li>Standard ping for IPv4 addresses</li>
                             <li>Works with hostnames that resolve to IPv4</li>
-                            <li>10 pings every 5 minutes</li>
+                            <li>{{ (cadence_text or {}).get('FPing', '10 pings every 5 minutes') }}</li>
                         </ul>
                     </div>
                     <div class="col-md-4">
@@ -215,7 +215,7 @@
                         <ul class="small">
                             <li>Ping for IPv6 addresses</li>
                             <li>Works with hostnames that resolve to IPv6</li>
-                            <li>10 pings every 5 minutes</li>
+                            <li>{{ (cadence_text or {}).get('FPing6', '10 pings every 5 minutes') }}</li>
                         </ul>
                     </div>
                     <div class="col-md-4">
@@ -223,7 +223,7 @@
                         <ul class="small">
                             <li>DNS lookup response time</li>
                             <li>Tests DNS server performance</li>
-                            <li>10 queries every 5 minutes</li>
+                            <li>{{ (cadence_text or {}).get('DNS', '5 queries every 5 minutes') }}</li>
                         </ul>
                     </div>
                 </div>

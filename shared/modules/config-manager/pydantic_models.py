@@ -264,20 +264,9 @@ class TargetBase(BaseModel):
         max_length=500,
         description="Target description"
     )
-    
-    # Monitoring configuration
-    step_seconds: Optional[int] = Field(
-        default=None,
-        ge=60,
-        le=3600,
-        description="Override probe interval for this target"
-    )
-    pings: Optional[int] = Field(
-        default=None,
-        ge=1,
-        le=100,
-        description="Override ping count for this target"
-    )
+
+    # No step_seconds / pings: they belong to the probe (see ProbeBase), and
+    # the API refuses them on a target.
     
     # Location data (for OCA targets)
     latitude: Optional[Decimal] = Field(
@@ -335,8 +324,6 @@ class TargetUpdate(BaseModel):
     active: Optional[bool] = Field(default=None)
     category_id: Optional[int] = Field(default=None)
     description: Optional[str] = Field(default=None, max_length=500)
-    step_seconds: Optional[int] = Field(default=None, ge=60, le=3600)
-    pings: Optional[int] = Field(default=None, ge=1, le=100)
     latitude: Optional[Decimal] = Field(default=None, ge=-90, le=90)
     longitude: Optional[Decimal] = Field(default=None, ge=-180, le=180)
     city: Optional[str] = Field(default=None, max_length=100)

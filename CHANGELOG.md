@@ -46,6 +46,37 @@ version gets a matching GitHub release and git tag.
   the Wi-Fi verdict's uplink (`wifi_link.default_route4/6`), so the two
   cannot disagree. `GET /recommendations` on the config API.
 
+### Changed
+
+- **The analysis reads each target's real probe cycle.** The alerter and
+  the MCP server assumed every target is measured every 300 s with 10
+  pings. That holds for the shipped probes, but on a probe with a
+  600 s step the 1200 s down window held two points where `target_down`
+  needs three, so it could never fire. The exporter now writes `step` and
+  `pings` as fields on every `latency`/`dns_latency` point, and
+  `common/cadence.py` reads the latest per target. `DOWN_WINDOW`,
+  `STALE_WINDOW` and `ALERT_RESOLVE_AFTER` are floored at four, four and
+  three steps of the slowest probe. The mean behind `high_loss` covers
+  three of those steps, and widespread cycles are bucketed to that step.
+  `get_loss_events` folds each target's episodes on its own step and
+  reports `step_s` and `pings` per target. On the shipped probes every
+  window, message and result is what it was. This is the first of three
+  parts of editable measurement frequency (first-run stage D). See
+  *Probe cadence* in `docs/alerting.md`.
+
+### Fixed
+
+- **`step_seconds` and `pings` on a target are refused, not dropped.**
+  `POST`/`PUT /targets` accepted both and discarded them without a word:
+  they belong to the probe, and SmokePing measures every target of a probe
+  on the same cycle. The API now answers 400, naming the fields.
+- **The add form says DNS sends 5 queries.** It said 10. The form now
+  states each probe's cadence from its configured settings.
+- **The dashboard's bandwidth estimate uses each target's probe.** It
+  assumed 10 pings every 300 s for every target, which counted DNS, HTTP
+  and TCP targets (5 per cycle) double. The OCA fetcher's copy of the same
+  estimate, which nothing read, is gone.
+
 ### Removed
 
 - **The `static:` block of `sources.yaml`.** It listed websites, IPv6
