@@ -783,14 +783,17 @@ profiles_with() {
 }
 
 alerter_preflight_line() {
-    # The alerter checks delivery once at start and says so; wait for it.
-    local i line
+    # The alerter checks delivery once at start and logs one line: INFO when
+    # it looks usable, ERROR otherwise (notifier.preflight). Only lines since
+    # $1, the moment before the recreate: an older container's verdict is
+    # about the old settings. Two of the errors do not say "preflight".
+    local since="$1" i line
     for i in $(seq 1 30); do
-        line="$(compose logs alerter --since 2m 2>/dev/null | grep -E 'Delivery preflight|NOTIFY_MODE=' | tail -1 || true)"
-        case "$line" in *"Delivery preflight"*) echo "$line"; return 0 ;; esac
+        line="$(compose logs alerter --since "$since" 2>/dev/null \
+            | grep -E 'Delivery preflight|NOTIFY_MODE=(openclaw|webhook) but' | tail -1 || true)"
+        [ -z "$line" ] || { echo "$line"; return 0; }
         sleep 2
     done
-    echo "$line"
 }
 
 cmd_alerts() {
@@ -879,14 +882,16 @@ cmd_alerts() {
     # The mcp-server delivers get_chart through the same OpenClaw keys.
     local services="alerter"
     has_service mcp-server && services="alerter mcp-server"
+    local started
+    started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     # shellcheck disable=SC2086  # one word per service
     compose up -d $services
     [ "$mode" = off ] && return 0
 
-    local line; line="$(alerter_preflight_line)"
+    local line; line="$(alerter_preflight_line "$started")"
     echo "${line:-The alerter logged no delivery preflight; see: smoking-pi logs alerter}"
     case "$line" in
-        *"reachable"*) ;;
+        *" INFO "*"Delivery preflight"*) ;;
         *) echo "Delivery is not working yet; the line above says why (docs/alerting.md)." >&2; return 1 ;;
     esac
     if [ -z "$test_msg" ] && [ "$yes" = 0 ] && [ -t 0 ]; then

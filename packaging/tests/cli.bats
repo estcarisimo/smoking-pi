@@ -757,7 +757,7 @@ alerts_setup() {
     cat > "$BATS_TEST_TMPDIR/bin2/docker" <<STUB
 #!/bin/sh
 case "\$*" in
-    *"logs alerter"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "alerter-1 | 2026-09-24 12:00:00 INFO alerter.notifier: \${STUB_PREFLIGHT}"; exit 0 ;;
+    *"logs alerter"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "alerter-1 | 2026-09-24 12:00:00 \${STUB_LEVEL:-INFO} alerter.notifier: \${STUB_PREFLIGHT}"; exit 0 ;;
     *"exec -T alerter python main.py --test"*) echo "docker \$*" >> "\$DOCKER_LOG"; exit \${STUB_TEST_EXIT:-0} ;;
 esac
 exec "$BATS_TEST_TMPDIR/bin/docker" "\$@"
@@ -777,6 +777,8 @@ STUB
     grep -qx 'COMPOSE_PROFILES=influxdb,mcp,alerts' "$SMOKING_PI_ENV_FILE"
     grep -q 'up -d alerter' "$DOCKER_LOG"
     [[ "$output" == *"'message' tool permitted"* ]]
+    # Only what the new container logged: --since the moment before the recreate.
+    grep -Eq 'logs alerter --since 20[0-9-]+T[0-9:]+Z' "$DOCKER_LOG"
     # No test message unless asked.
     ! grep -q 'main.py --test' "$DOCKER_LOG"
     # The token is never printed.
@@ -804,9 +806,14 @@ STUB
 @test "alerts says delivery is not working when the preflight is not green" {
     alerts_setup
     export STUB_PREFLIGHT="Delivery preflight: http://127.0.0.1:18789/tools/invoke rejected the Gateway token (401)."
+    export STUB_LEVEL=ERROR
     run "$CLI" alerts --openclaw --to telegram:1 --test --yes
     [ "$status" -eq 1 ]
     [[ "$output" == *"rejected the Gateway token"* ]]
+    # "reachable, but the tool is not permitted" is red too, despite the word.
+    export STUB_PREFLIGHT="Delivery preflight: http://127.0.0.1:18789/tools/invoke is reachable, but the 'message' tool is not permitted"
+    run "$CLI" alerts --openclaw --to telegram:1 --yes
+    [ "$status" -eq 1 ]
     [[ "$output" == *"not working yet"* ]]
     ! grep -q 'main.py --test' "$DOCKER_LOG"
 }
