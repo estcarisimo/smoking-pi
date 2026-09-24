@@ -495,6 +495,11 @@ class ClickHouseExporter:
         
         try:
             for rrd_file in self.settings.rrd_dir.rglob("*.rrd"):
+                # rglob enters dot directories: skip what rrd_guard.py
+                # archived, or old history would be exported as a target.
+                rel = rrd_file.relative_to(self.settings.rrd_dir)
+                if any(part.startswith(".") for part in rel.parts[:-1]):
+                    continue
                 if rrd_file.is_file():
                     rrd_files.append(rrd_file)
             

@@ -79,6 +79,19 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **SmokePing no longer dies on an RRD it cannot load.** An RRD is made
+  for one step and one ping count. When a target's file disagrees with its
+  probe, SmokePing stops at reload ("RRD parameter mismatch ... You must
+  delete ...rrd") and every target stops being measured. That happens when
+  a probe's step or pings change, when a paused target is resumed after
+  such a change, or when a deleted target is added again under the same
+  name. Before every reload, config-manager now runs `rrd_guard.py` in the
+  SmokePing container with what the new configuration expects of each
+  RRD, CPE targets included. Mismatches are moved, not deleted, to
+  `/data/.archive/<time>/`; SmokePing creates fresh files, and Grafana
+  keeps the full history from InfluxDB. On the reference Pi, a dry run
+  checked all 30 RRDs and found nothing to move. The ClickHouse exporter
+  skips the archive. See `docs/measurement-frequency.md`.
 - **`step_seconds` and `pings` on a target are refused, not dropped.**
   `POST`/`PUT /targets` accepted both and discarded them without a word:
   they belong to the probe, and SmokePing measures every target of a probe
