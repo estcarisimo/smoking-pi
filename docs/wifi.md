@@ -133,7 +133,8 @@ the `previous` points: a vertical marker reading *Uplink wlan0 → eth0
 
 `smoking-pi doctor --live` names the standby too, when there is one:
 `measuring over eth0 (wired, IPv4); wlan0 also has a default route, at a
-higher metric, and takes over if eth0 goes down`.
+higher metric, and takes over if eth0 goes down`. Only IPv4 standbys are
+named; a v6-only uplink gets the plain line.
 
 ### Choosing the interface
 

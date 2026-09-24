@@ -495,7 +495,7 @@ def check_uplink_interface(
         standby = [
             other
             for other in sources.default_route_ifaces(proc_route)[1:]
-            if other != iface and not sources.is_virtual(other)
+            if not sources.is_virtual(other)
         ]
         if standby:
             # Both links up is normal, not a warning. It is worth a word

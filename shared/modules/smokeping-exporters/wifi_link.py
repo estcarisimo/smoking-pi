@@ -680,6 +680,9 @@ def main() -> int:
                     "no bitrate, failures or channel data")
 
     iface: str | None = None
+    # The last uplink read successfully: if reading /proc fails for a cycle,
+    # the Wi-Fi sample keeps its uplink flag instead of claiming "not the uplink".
+    up = Uplink("", "none", 0)
     idle_logged = False
     slow = SlowState()
     last_bssid: str | None = None
@@ -688,7 +691,6 @@ def main() -> int:
 
     while True:
         started = time.time()
-        up = Uplink("", "none", 0)
         try:
             up = current_uplink()
             point = tracker.due(up, started)
