@@ -18,6 +18,20 @@ version gets a matching GitHub release and git tag.
   doctor's summary. It names any container that isn't on the candidate's
   tag. Read-only, no secrets. Its first run found `ai-insights` on `:dev`
   during the v2.13.0-rc.2 acceptance.
+- **Which interface the measurements crossed, over time.** A cable plugged
+  into a Pi that measured over Wi-Fi moves every measurement onto Ethernet
+  (NetworkManager gives it metric 100 against Wi-Fi's 600), and nothing
+  recorded it: latency stepped down with no explanation. On an
+  Ethernet-only Pi nothing recorded the uplink at all. The Wi-Fi collector
+  now writes `host_uplink` (`interface`, `kind`, `family`) on every Pro host,
+  at once on a change and every minute otherwise, and it adds `previous` on
+  the point where the interface changed. The last value is read back after a
+  restart, so a change across a reboot is marked too. Every InfluxDB
+  dashboard has an **Uplink changed** annotation (*Uplink wlan0 → eth0
+  (wired)*). `doctor --live` names the standby route when both links are up,
+  and the doctor now checks annotation queries against what the exporters
+  write, as it does panel queries. `docs/wifi.md` explains how to choose the
+  interface with route metrics (*Choosing the interface*).
 - **`smoking-pi alerts --digest HH:MM|off [--digest-tz ZONE]`: the
   daily summary without editing the env file.** The time and zone are
   checked before anything is written; a value the alerter cannot read

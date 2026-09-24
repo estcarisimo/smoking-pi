@@ -374,6 +374,13 @@ def iter_queries(dashboard: Dashboard):
             query = query.get("query")
         if isinstance(query, str) and query.strip():
             yield f"variable ${variable.get('name')}", query
+    for annotation in (dashboard.data.get("annotations") or {}).get("list") or []:
+        if not isinstance(annotation, dict):
+            continue
+        target = annotation.get("target")
+        query = target.get("query") if isinstance(target, dict) else None
+        if isinstance(query, str) and query.strip():
+            yield f"annotation {annotation.get('name')!r}", query
 
 
 def _iter_panels(data: dict):
@@ -783,11 +790,22 @@ VIRTUAL_IFACE_PREFIXES = (
 
 def default_route_iface(proc_route: pathlib.Path) -> str | None:
     """The interface carrying the IPv4 default route, lowest metric first."""
+    ifaces = default_route_ifaces(proc_route)
+    return ifaces[0] if ifaces else None
+
+
+def default_route_ifaces(proc_route: pathlib.Path) -> list[str]:
+    """Every interface with an IPv4 default route, lowest metric first.
+
+    The first carries the traffic. The others are standbys: with Ethernet
+    and Wi-Fi both connected, NetworkManager gives Ethernet the lower metric
+    and the measurements move to Wi-Fi only if the cable goes.
+    """
     try:
         lines = proc_route.read_text().splitlines()[1:]
     except OSError:
-        return None
-    best: tuple[int, str] | None = None
+        return []
+    routes: list[tuple[int, str]] = []
     for line in lines:
         parts = line.split()
         if len(parts) < 2 or parts[1] != "00000000" or parts[0] == "*":
@@ -803,9 +821,12 @@ def default_route_iface(proc_route: pathlib.Path) -> str | None:
             metric = int(parts[6]) if len(parts) >= 7 else 0
         except ValueError:
             metric = 0
-        if best is None or metric < best[0]:
-            best = (metric, parts[0])
-    return best[1] if best else None
+        routes.append((metric, parts[0]))
+    ordered: list[str] = []
+    for _, iface in sorted(routes, key=lambda r: r[0]):  # stable: ties keep file order
+        if iface not in ordered:
+            ordered.append(iface)
+    return ordered
 
 
 def default_route_iface6(proc_route6: pathlib.Path) -> str | None:
