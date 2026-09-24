@@ -24,7 +24,8 @@ Configuration (see ``docs/mcp-server.md``):
 
 - ``PUBLIC_BASE_HOST`` -- host or ``scheme://host`` reachable by whoever reads
   the answers (``192.168.86.27``, ``smokingpi.tailnet.ts.net``). The default
-  service ports are appended.
+  service ports are appended; an IPv6 literal is bracketed first, and a
+  link-local one (``fe80::``) is ignored, since no browser opens it.
 - ``GRAFANA_PUBLIC_URL`` / ``WEB_ADMIN_PUBLIC_URL`` -- full base URLs, for
   reverse proxies and tunnels where the ports are not visible. These win over
   ``PUBLIC_BASE_HOST``.
@@ -36,11 +37,15 @@ Configuration (see ``docs/mcp-server.md``):
 
 from __future__ import annotations
 
+import ipaddress
+import logging
 import os
 import re
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlencode
+
+log = logging.getLogger("common.links")
 
 DEFAULT_GRAFANA_PORT = 3000
 DEFAULT_WEB_ADMIN_PORT = 8080
@@ -97,21 +102,76 @@ MEASUREMENT_BY_PROBE = {
 }
 
 
+# Values already reported as unusable, so a bad setting is logged once per
+# process instead of once per link built.
+_REPORTED_BASES: set[str] = set()
+
+
+def _refuse_base(value: str, reason: str) -> None:
+    if value not in _REPORTED_BASES:
+        _REPORTED_BASES.add(value)
+        log.warning("Ignoring base host %r for links: %s", value, reason)
+
+
+def _split_authority(value: str, authority: str) -> tuple[str, bool] | None:
+    """``(host, has_port)`` for a bare authority, or None if it is unusable.
+
+    The host comes back ready for a URL: an IPv6 literal is bracketed. An
+    unbracketed IPv6 literal cannot carry a port (``2001:db8::5:3000`` is
+    itself an address), so it is taken as an address without one.
+    """
+    if authority.startswith("["):
+        address, closed, after = authority[1:].partition("]")
+        if not closed:
+            _refuse_base(value, "unbalanced '[' in an IPv6 literal")
+            return None
+        if after and not (after[0] == ":" and after[1:].isdigit()):
+            _refuse_base(value, "expected [address] or [address]:port")
+            return None
+        has_port = bool(after)
+    elif authority.count(":") >= 2:
+        address, has_port = authority, False
+    else:
+        # A hostname or an IPv4 address, with or without :port.
+        return authority, ":" in authority
+    try:
+        ip = ipaddress.IPv6Address(address)
+    except ValueError:
+        _refuse_base(value, "not an IPv6 address")
+        return None
+    # A link-local address only routes with a zone id (fe80::1%wlan0), and
+    # browsers refuse zone ids in URLs: every such link would be dead.
+    if ip.is_link_local or ip.scope_id:
+        _refuse_base(value, "link-local IPv6 needs a zone id, which browsers reject")
+        return None
+    if ip.is_unspecified:
+        _refuse_base(value, ":: is no host's address")
+        return None
+    return f"[{address}]{after if has_port else ''}", has_port
+
+
 def _normalize_base(value: str | None, default_port: int | None) -> str | None:
-    """Turn a configured host or URL into a base URL, or None if unset."""
+    """Turn a configured host or URL into a base URL, or None if unset.
+
+    A value with a scheme is taken as complete. A bare host gets ``http://``
+    and, unless it already carries a port, ``default_port``; an IPv6 literal
+    is bracketed (``2001:db8::5`` -> ``http://[2001:db8::5]:3000``).
+    """
     if not value:
         return None
     base = value.strip().rstrip("/")
     if not base:
         return None
-    if "://" not in base:
-        base = f"http://{base}"
-        if default_port is not None:
-            # Only append the port when the host does not already carry one.
-            host_part = base.split("://", 1)[1]
-            if ":" not in host_part.split("/", 1)[0]:
-                base = f"{base}:{default_port}"
-    return base
+    if "://" in base:
+        return base
+    authority, slash, path = base.partition("/")
+    split = _split_authority(base, authority)
+    if split is None:
+        return None
+    host, has_port = split
+    if default_port is not None and not has_port:
+        host = f"{host}:{default_port}"
+    return f"http://{host}{slash}{path}"
 
 
 def _tier(url_var: str, host_var: str, default_port: int) -> str | None:

@@ -809,7 +809,7 @@ links_setup() {
 }
 
 
-@test "links refuses a forgotten value, an IPv6 literal and a path; takes a LAN proxy's https://host" {
+@test "links refuses a forgotten value, a link-local IPv6 literal and a path; takes a LAN proxy's https://host" {
     links_setup
     run "$CLI" links --lan --off
     [ "$status" -eq 2 ]
@@ -818,6 +818,8 @@ links_setup() {
     [ "$status" -eq 2 ]
     run "$CLI" links --lan fe80::1
     [ "$status" -eq 2 ]
+    [[ "$output" == *"link-local"* ]]
+    grep -qx 'PUBLIC_BASE_HOST=' "$SMOKING_PI_ENV_FILE"
     run "$CLI" links --lan https://pi.lan/grafana
     [ "$status" -eq 2 ]
     run "$CLI" links --lan https://pi.lan
@@ -937,6 +939,38 @@ STUB
     [ "$status" -eq 1 ]
     [[ "$output" == *"Pro service"* ]]
     grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "links --lan takes a global IPv6 literal, stores it bracketed, and says the web admin is IPv4-only" {
+    links_setup
+    cp "$REPO/editions/pro/docker-compose.yml" "$STUB_HOME/editions/pro/"
+    run "$CLI" links --lan 2001:DB8::5
+    [ "$status" -eq 0 ]
+    # Brackets are outside env_quote's safe set, so the value is quoted;
+    # Compose and env_get both strip the quotes.
+    grep -qxF "PUBLIC_BASE_HOST='[2001:db8::5]'" "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"http://[2001:db8::5]:3000/ (Grafana)"* ]]
+    [[ "$output" == *"web admin listens on IPv4 only"* ]]
+    run "$CLI" links --lan '[2001:db8::5]:9999'
+    [ "$status" -eq 0 ]
+    grep -qxF "PUBLIC_BASE_HOST='[2001:db8::5]:9999'" "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"at home:       http://[2001:db8::5]:9999/"* ]]
+    for bad in '::' '::1' '[fe80::1]' 'fd00::1%eth0' '[2001:db8::5' '[2001:db8::5]:x' '2001:zz::1' '2001:::1'; do
+        run "$CLI" links --lan "$bad"
+        [ "$status" -eq 2 ]
+    done
+    grep -qxF "PUBLIC_BASE_HOST='[2001:db8::5]:9999'" "$SMOKING_PI_ENV_FILE"
+}
+
+@test "links shows a host that names its port once, not with :3000 appended" {
+    links_setup
+    printf 'PUBLIC_BASE_HOST=pi.local:9999\nTUNNEL_BASE_HOST=\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" links
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"at home:       http://pi.local:9999/"* ]]
+    printf 'PUBLIC_BASE_HOST=2001:db8::5\nTUNNEL_BASE_HOST=\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" links
+    [[ "$output" == *"at home:       http://[2001:db8::5]:3000/ (Grafana)"* ]]
 }
 
 # --- alerts --digest ---------------------------------------------------------------

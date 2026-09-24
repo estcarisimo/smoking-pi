@@ -186,7 +186,15 @@ recreated to pick it up. By hand, set one variable for the common case:
 # editions/pro/.env — standard ports (:3000, :8080) are appended
 PUBLIC_BASE_HOST=192.168.86.27
 PUBLIC_BASE_HOST=smokingpi.tailnet-name.ts.net
+PUBLIC_BASE_HOST=2001:db8::5          # becomes http://[2001:db8::5]:3000
 ```
+
+An IPv6 literal is bracketed for you, with or without brackets as given
+(`[2001:db8::5]:9999` keeps its port). A link-local `fe80::` address is
+ignored, with a warning in the service log: it only routes with a zone id
+(`%wlan0`), and browsers refuse zone ids in a URL. Pro's web admin
+publishes `0.0.0.0:8080`, IPv4 only, so its links do not open over IPv6;
+Grafana's do.
 
 Or set both URLs where a proxy or tunnel hides the ports:
 
