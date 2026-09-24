@@ -723,7 +723,12 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
     small wifi_link measurement (a reduce, two increases and a last), which
     return nothing at all on a wired host.
     """
-    cadences = cadence.by_target(_query(cadence.cadence_flux()))
+    # The cadence refines the windows; a failed query must not silence
+    # every rule for the cycle, so it falls back to the default step.
+    try:
+        cadences = cadence.by_target(_query(cadence.cadence_flux()))
+    except Exception:  # influx client raises many exception types
+        cadences = {}
     windows = _windows(cadences)
     down_window = windows["down"]
 

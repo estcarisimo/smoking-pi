@@ -719,3 +719,21 @@ def test_widespread_on_a_600_s_step_joins_consecutive_cycles():
     assert "same 20-minute span" in incidents[0]["message"]
     # Bucketed to 300 s instead, two 600 s cycles read as non-adjacent.
     assert len(evaluator.rule_widespread(rows, step_s=300)) == 1
+
+
+def test_a_failed_cadence_query_falls_back_to_the_default_windows(monkeypatch):
+    def fake_query(flux_src):
+        if '"step"' in flux_src and "last()" in flux_src:
+            raise RuntimeError("influx hiccup")
+        if "cpe_latency" in flux_src or "wifi_link" in flux_src:
+            return []
+        if "count()" in flux_src:
+            return [{"_value": 8}]
+        if "mean()" in flux_src:
+            return [{"target": "dead", "category": "ping", "_value": 1.0}]
+        return _timed_points({"dead": [1.0, 1.0, 1.0, 1.0]})
+
+    monkeypatch.setattr(evaluator, "_query", fake_query)
+    incidents, context = evaluator.evaluate_with_context()
+    assert [i["key"] for i in incidents] == ["target_down:dead"]
+    assert context["windows"]["step"] == 300

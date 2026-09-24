@@ -1158,14 +1158,13 @@ def _probe_owned_fields_response(target_data):
     fields = [f for f in PROBE_OWNED_FIELDS if f in target_data]
     if not fields:
         return None
-    return jsonify({
-        'error': (
-            f"{' and '.join(fields)} cannot be set on a target: every target "
-            "of a probe is measured on that probe's step and ping count. "
-            "Change the probe, or give the target another probe."
-        ),
-        'fields': fields,
-    }), 400
+    return error_response(
+        400,
+        f"{' and '.join(fields)} cannot be set on a target: every target "
+        "of a probe is measured on that probe's step and ping count. "
+        "Change the probe, or give the target another probe.",
+        fields=fields,
+    )
 
 
 @app.route('/targets', methods=['POST'])

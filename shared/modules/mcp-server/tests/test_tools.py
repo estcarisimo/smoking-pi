@@ -1130,3 +1130,19 @@ def test_loss_events_survive_a_failed_cadence_query(monkeypatch, no_api):
     result = server.get_loss_events(hours=24)
     assert "error" not in result
     assert result["episodes"][0]["minutes"] == 10
+
+
+def test_widespread_all_lost_needs_every_row_of_a_target_in_its_step():
+    """Two rows of one target in one 300 s step (a late duplicate): it is
+    lost for that step only when both were."""
+    def ev(target, pct, offset=0):
+        return {"target": target, "loss_pct": pct,
+                "_epoch": _T0.timestamp() + offset}
+
+    reporting = {int(_T0.timestamp()) // 300 * 300: 3}
+    events = [ev("a", 100.0), ev("b", 100.0), ev("c", 100.0), ev("c", 40.0, 60)]
+    run = server._widespread_runs(events, reporting)[0]
+    assert run["targets_affected"] == 3
+    assert run["all_lost"] is False
+    events[-1]["loss_pct"] = 100.0
+    assert server._widespread_runs(events, reporting)[0]["all_lost"] is True
