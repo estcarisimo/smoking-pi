@@ -11,6 +11,44 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **A DNS observer: which names this house resolves, and a clear answer when
+  it stops knowing.** Measuring "the services that matter here" needs to know
+  what the house uses, and the Pi, an ordinary LAN client, only saw its own
+  traffic. The new opt-in `dns` profile (Pro; `smoking-pi dns enable`) runs
+  **AdGuard Home** (pinned v0.107.79, filtering off) on port 53. The router
+  forwards the house's DNS to it, and it forwards over DoH to 1.1.1.1 and
+  8.8.8.8. We reused AdGuard instead of writing a DNS server: it already has
+  DoH/DoT/DoQ upstreams, a plain-DNS fallback, serve-stale caching and a
+  query log. We wrote the part AdGuard does not have: a supervisor that says
+  whether observations are arriving and, if not, why. The three causes look
+  the same from the Pi (no queries), so each gets its own evidence:
+  - **container or Docker down**: a `status.json` heartbeat that readers
+    treat as `down` after 90 s, keeping the time of the last real query; a
+    stop on purpose is written at once as `stopped`;
+  - **router never set, or reverted**: a canary. A unique name under
+    `.invalid` is asked of the router every 5 min; seen here means the path
+    works (`quiet`, not an outage, when the house is silent); three misses
+    and no queries mean `not_receiving`; misses while queries arrive mean
+    `partial` (a secondary DNS takes a share);
+  - **AdGuard hung**: an `ANY` self-test every 10 s that AdGuard answers
+    locally, so an internet outage never fails it; after 3 misses AdGuard
+    is killed and restarted.
+
+  The house's own fallback is the router's secondary DNS, and
+  `smoking-pi dns enable` tells you to set one. The generated config also
+  closes four traps, each tested:
+  - AdGuard's default 20 queries/s rate limit, which would throttle the whole
+    house behind the router's single address;
+  - an empty `DNS_ALLOW_CLIENTS`, which AdGuard reads as "everyone" (an open
+    resolver);
+  - upstreams or reverse lookups that go to the router, which loop back to
+    the Pi;
+  - AdGuard's 90-day query log, cut to 7 days with client addresses masked.
+
+  Names never leave the Pi. See `docs/dns-observer.md`. The e2e run on the
+  reference Pi used side ports and a stand-in router; the real router has
+  not been pointed at it yet.
+
 - **An uplink change reaches the diagnosis, not only the dashboards.** A
   latency step at the moment a cable was plugged in is the path changing,
   not the ISP. Everything that interprets the measurements now says so, in
