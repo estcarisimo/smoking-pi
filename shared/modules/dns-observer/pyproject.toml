@@ -1,0 +1,43 @@
+[project]
+name = "smoking-pi-dns-observer"
+version = "1.0.0"
+description = "Supervisor around AdGuard Home: observes the house's DNS and says when it stops receiving it"
+requires-python = ">=3.11"
+dependencies = [
+    # Self-test and canary queries.
+    "dnspython>=2.6",
+    # AdGuard Home's loopback API (query log, statistics).
+    "httpx>=0.27",
+    # AdGuard's config file.
+    "pyyaml>=6.0",
+    # AdGuard stores the admin password as a bcrypt hash.
+    "bcrypt>=4.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+include = ["*.py"]
+exclude = ["tests/*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+pythonpath = ["."]
