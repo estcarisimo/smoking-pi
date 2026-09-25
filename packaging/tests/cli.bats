@@ -1219,3 +1219,17 @@ STUB
     run "$CLI" install --yes --database influxdb --profiles dns
     [[ "$output" != *"unknown profile"* ]]
 }
+
+@test "dns enable says so, and prints no router advice, when the observer never answers" {
+    dns_setup
+    cat > "$BATS_TEST_TMPDIR/bin3/sleep" <<'STUB'
+#!/bin/sh
+exit 0
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin3/sleep"
+    sed -i 's/echo .{"server": {"answering": true}}.;/echo "{}";/' "$BATS_TEST_TMPDIR/bin3/docker"
+    run "$CLI" dns enable
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"did not start answering"* ]]
+    [[ "$output" != *"primary:"* ]]
+}

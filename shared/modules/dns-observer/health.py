@@ -193,6 +193,15 @@ def evaluate(
             )
         if starting:
             return out("starting", "Started; waiting for the first canary.")
+        if last_seen is None:
+            # No canary confirmed since this process started: after a restart
+            # observed_until is old, and "quiet" would vouch for a router
+            # nobody has checked yet (it may have reverted meanwhile).
+            return out(
+                "starting",
+                f"No DNS query for {_mins(idle_for)}; waiting for a canary to "
+                "confirm the router still forwards to the Pi.",
+            )
         # Fewer misses than the threshold: the path is presumed working.
         return out(
             "quiet",

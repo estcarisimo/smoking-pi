@@ -1607,11 +1607,18 @@ cmd_dns() {
     fi
     env_set COMPOSE_PROFILES "$(profiles_with dns)"
     compose up -d dns-observer
-    local i
+    local i up=0
     for i in $(seq 1 30); do
-        compose exec -T dns-observer python status.py --json 2>/dev/null | grep -q '"answering": true' && break
+        if compose exec -T dns-observer python status.py --json 2>/dev/null | grep -q '"answering": true'; then
+            up=1; break
+        fi
         sleep 2
     done
+    if [ "$up" = 0 ]; then
+        echo "The DNS observer did not start answering within a minute; do not point the router at it yet." >&2
+        echo "See: smoking-pi dns status; smoking-pi logs dns-observer" >&2
+        return 1
+    fi
     local lan; lan="$(lan_address)"; lan="${lan:-<the LAN address of this machine>}"
     echo
     echo "The DNS observer answers on $lan, port 53. Nothing reaches it yet."

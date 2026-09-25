@@ -151,3 +151,19 @@ def test_write_status_is_json(tmp_path):
     path = tmp_path / "s" / "status.json"
     health.write_status(str(path), {"state": "quiet"})
     assert json.loads(path.read_text()) == {"state": "quiet"}
+
+
+def test_restart_after_long_outage_is_not_quiet_until_a_canary_arrives():
+    # observed_until restored from before the outage, one canary missed so far.
+    restored = NOW - 7200
+    s = health.evaluate(
+        **{**BASE, "started_at": NOW - 400},
+        last_query_at=restored, canaries=canaries(False),
+    )
+    assert s["state"] == "starting"
+    assert s["state"] not in health.LIVE_STATES
+    s = health.evaluate(
+        **{**BASE, "started_at": NOW - 400},
+        last_query_at=restored, canaries=canaries(True),
+    )
+    assert s["state"] == "quiet"
