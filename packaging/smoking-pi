@@ -1331,7 +1331,8 @@ link_cli() {
     fi
     # Another smoking-pi that is not a link to a checkout is the package's
     # (or Homebrew's): shadowing it from /usr/local/bin would run this
-    # checkout's code against the package's state.
+    # checkout's code against the package's state. Said even under
+    # --quiet: it is a "could not", and `smoking-pi` there is not this one.
     if [ -n "$found" ] && ! { [ -L "$found" ] && [[ "$(readlink "$found")" == */packaging/smoking-pi ]]; }; then
         echo "Not linking: 'smoking-pi' is already $found (installed by a package). This checkout runs as $self."
         return 0

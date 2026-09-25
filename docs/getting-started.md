@@ -123,7 +123,7 @@ It needs `git` and nothing else:
 ```bash
 git clone https://github.com/estcarisimo/smoking-pi.git
 cd smoking-pi
-./packaging/smoking-pi link
+./packaging/smoking-pi link   # if it says "open a new terminal", do that first
 smoking-pi version
 ```
 
