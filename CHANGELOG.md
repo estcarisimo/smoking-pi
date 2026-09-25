@@ -15,7 +15,7 @@ version gets a matching GitHub release and git tag.
   clone installed with `setup.sh` never put it on the `PATH`: the reference
   Pi had no `smoking-pi` at all, and reading the passwords meant typing
   `~/smoking-pi/packaging/smoking-pi passwords --show-secrets`. Now
-  `setup.sh` (all three editions) and `smoking-pi upgrade` link the
+  `setup.sh` (all three editions), `smoking-pi install` and `upgrade` link the
   checkout's command into `/usr/local/bin` (through `sudo` only when it asks
   no password), else `~/.local/bin`; `smoking-pi link` does it on demand.
   It never shadows the package's `/usr/bin/smoking-pi` and never replaces a

@@ -561,6 +561,9 @@ cmd_install() {
     echo "Your passwords are set but not printed above -- an install transcript"
     echo "is the last place they should live. To read them, on this machine:"
     echo "  smoking-pi passwords --show-secrets"
+    # From a clone, the command those lines name must exist by name
+    # (setup.sh links it too; this one is for whoever skipped it).
+    link_cli --quiet
     echo
     # Last, so it is what is on screen when the install finishes. An install
     # whose web page is still starting is not a failed install.

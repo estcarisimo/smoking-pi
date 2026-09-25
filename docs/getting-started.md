@@ -130,7 +130,7 @@ smoking-pi version
 `link` makes `smoking-pi` a command in every directory: a symlink to the
 checkout's `packaging/smoking-pi` in `/usr/local/bin` (through `sudo` when
 it asks no password), else in `~/.local/bin` (open a new terminal if it
-says that is not on your `PATH` yet). `setup.sh` and `smoking-pi upgrade`
+says that is not on your `PATH` yet). `setup.sh`, `smoking-pi install` and `upgrade`
 do the same, so a clone installed before `link` existed gets it at its
 next upgrade. It never shadows the package's `/usr/bin/smoking-pi`.
 

@@ -1245,3 +1245,19 @@ stub_clone() {
     run "$STUB_HOME/packaging/smoking-pi"
     [[ "$output" == *"packaging/smoking-pi link"* ]]
 }
+
+@test "install from a clone links the command, so the names it prints work in every directory" {
+    stub_clone
+    rm "$SMOKING_PI_ENV_FILE"
+    run "$STUB_HOME/packaging/smoking-pi" install --edition pro --database influxdb --yes
+    [ "$status" -eq 0 ]
+    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/packaging/smoking-pi" ]
+    [[ "$output" == *"smoking-pi is now a command"* ]]
+}
+
+@test "every edition's setup.sh links the command (the path the README gives a clone)" {
+    for ed in basic standard pro; do
+        grep -q 'packaging/smoking-pi" link --quiet' "$REPO/editions/$ed/setup.sh" \
+            || { echo "editions/$ed/setup.sh does not run smoking-pi link"; return 1; }
+    done
+}
