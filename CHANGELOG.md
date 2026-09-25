@@ -11,6 +11,20 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`smoking-pi` is a command in every directory, from a clone too.** A
+  clone installed with `setup.sh` never put it on the `PATH`: the reference
+  Pi had no `smoking-pi` at all, and reading the passwords meant typing
+  `~/smoking-pi/packaging/smoking-pi passwords --show-secrets`. Now
+  `setup.sh` (all three editions) and `smoking-pi upgrade` link the
+  checkout's command into `/usr/local/bin` (through `sudo` only when it asks
+  no password), else `~/.local/bin`; `smoking-pi link` does it on demand.
+  It never shadows the package's `/usr/bin/smoking-pi` and never replaces a
+  real file. `smoking-pi` with no command now says what is installed, how
+  many services run, where to open it and the handful of commands people
+  use; `--help` stays the full reference. The setup scripts' closing tips,
+  the README and the guides use the command instead of `./show-passwords.sh`,
+  `docker compose` or `packaging/smoking-pi`.
+
 - **An uplink change reaches the diagnosis, not only the dashboards.** A
   latency step at the moment a cable was plugged in is the path changing,
   not the ISP. Everything that interprets the measurements now says so, in

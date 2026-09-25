@@ -412,7 +412,8 @@ from the release asset is the package path.
 ### The command
 
 Done 2026-09-20. `packaging/smoking-pi` (installed as `/usr/bin/smoking-pi`
-by the package; runs from a clone as `packaging/smoking-pi`) is the
+by the package; from a clone, `setup.sh`, `upgrade` and `smoking-pi link`
+symlink it into `/usr/local/bin`, else `~/.local/bin`) is the
 lifecycle table below, as commands. Everything it does is what the README
 and [Upgrades](upgrades.md) say to type by hand; what it adds is the order
 and the guards.
@@ -424,6 +425,7 @@ and the guards.
 | `backup [DIR] [--online]` | `pg_dumpall` (the restore path for a PostgreSQL major); the volumes **the active services mount**, each as `volumes/<compose key>.tgz` (`postgres-data.tgz`, whatever Docker name it had), with the stack stopped (`--online` skips the stop; the tarballs may be inconsistent, and the manifest says so); the env file (mode 600) and the config directory; a `manifest` (edition, version, `online`, each key's Docker name) | lists the volumes with sizes before stopping; a `trap` restarts the stack if a tar fails; the directory is mode 700 (it holds every secret) |
 | `restore DIR [--force] [--no-start] [--yes]` | env file and config only where missing (`--force` overwrites); each tarball's **key** resolved to the volume *this* stack mounts for it — `pro_postgres-data`, or a fixed `name:` such as Standard's `smokeping-standard-postgres-data` — from the rendered config, never from the file name; keys no active service mounts are listed and skipped; `down`; contents replaced (emptied, then extracted; a failure is reported per volume and the rest continue, the stack stays stopped); `up` (`--no-start` leaves it stopped to inspect) | refuses a directory without a manifest or of another edition (a packaged host with no env file and no edition recorded, a new card, takes the backup's edition instead and records it); shows the plan and warns about an `--online` backup, then asks you to type the project name (as destructive as `purge`) |
 | `purge [--config] [--yes]` | `down`; `docker volume rm` of the active services' volumes; `--config` also the env file, config and output directories (what `install` needs gone to start over) | asks you to type the project name — `--yes` is for scripts |
+| *(none)* / `link` | Alone: the version, the edition, how many of its services run, the address to open, the common commands (`--help` is the reference). `link`, from a clone: a symlink to the checkout's `packaging/smoking-pi` in `/usr/local/bin` (directly, or through a `sudo` that asks no password), else `~/.local/bin`; `setup.sh` and `upgrade` run it | `link` does nothing outside a clone (no `.git`, or packaged mode), never shadows another `smoking-pi` that is not a checkout's link (the package's `/usr/bin` one), never replaces a real file; a link another checkout left is repointed, and it says so |
 
 Two details cost a lesson each on the reference Pi:
 
