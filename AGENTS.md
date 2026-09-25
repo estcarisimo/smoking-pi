@@ -40,7 +40,7 @@ tests, the strict docs build, CodeQL, and **every image built for arm64 and
 amd64** (not pushed; `Images build (all)` is the required check). All must be
 green; CodeQL on a PR is diff-only, so "0 results" on a PR means *no new
 alerts*, not "fixed". The release adds what only a release can prove:
-`release.yml` publishes the nine images to GHCR from the tag, builds the
+`release.yml` publishes the ten images to GHCR from the tag, builds the
 `.deb` and installs it across the OS matrix, and `docs.yml` deploys the site.
 Where each image builds from is `packaging/image-context.sh`, read by both
 workflows. A Dockerfile change is still deployed on the reference Pi before
@@ -57,9 +57,10 @@ merge: CI proves it builds, the Pi proves it runs.
 | `shared/modules/mcp-server/` | MCP tools over the config API and InfluxDB; deep links |
 | `shared/modules/smokeping-exporters/` | RRD → InfluxDB/ClickHouse; CPE microcut detector |
 | `shared/modules/doctor/` | Static + live checks that the pieces agree |
+| `shared/modules/dns-observer/` | AdGuard Home (pinned binary) + supervisor: canary through the router, self-test restarts, `status.json` heartbeat |
 | `shared/modules/common/` | The only code shared between images: Flux, charts, links, mutes, OpenClaw client |
 | `shared/modules/grafana/provisioning/` | Dashboards as JSON; separate trees for InfluxDB and ClickHouse |
-| `docs/` | getting-started, alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, http-probes, doctor, clickhouse, ipv6-gating, upgrades, packaging, release-acceptance |
+| `docs/` | getting-started, alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, http-probes, doctor, clickhouse, ipv6-gating, dns-observer, upgrades, packaging, release-acceptance |
 | `packaging/` | The shipped install path since v2.12.0: the `smoking-pi` CLI, the systemd unit, the `.deb` builder, the apt repository builder, the Homebrew formula and their tests — see `docs/packaging.md` |
 
 ## Constraints
@@ -171,7 +172,7 @@ checks they match); merge; a candidate tag `vX.Y.Z-rc.N` with a GitHub
 section + the Validation section). Tags other than `vX.Y.Z`,
 `vX.Y.Z-rc.N` (N from 1) and `test-*` are refused
 (`packaging/release-version.sh`, tested in `release-version.bats`). The tag
-triggers `release.yml` — nine images × two architectures to
+triggers `release.yml` — ten images × two architectures to
 `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` (it refuses a tag that
 disagrees with `CITATION.cff`), then the `.deb` built from the tagged tree
 and installed with each supported host's own `apt` (Ubuntu 22.04/24.04

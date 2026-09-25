@@ -104,6 +104,7 @@ create_env_file() {
             # neither should ship empty. hex keeps them sed- and URL-safe.
             local config_api_token=$(generate_hex_key 32)
             local mcp_api_token=$(generate_hex_key 32)
+            local dns_admin_pass=$(generate_hex_key 24)
             
             # Get database type from env file or use default
             local tsdb_type=$(grep "^TSDB_TYPE=" "$env_file" | cut -d= -f2 || echo "influxdb")
@@ -117,6 +118,7 @@ create_env_file() {
             sed -i "s/SECRET_KEY=.*/SECRET_KEY=$secret_key/" "$env_file"
             sed -i "s/^CONFIG_API_TOKEN=.*/CONFIG_API_TOKEN=$config_api_token/" "$env_file"
             sed -i "s/^MCP_API_TOKEN=.*/MCP_API_TOKEN=$mcp_api_token/" "$env_file"
+            sed -i "s/^DNS_ADMIN_PASSWORD=.*/DNS_ADMIN_PASSWORD=$dns_admin_pass/" "$env_file"
             
             # Database-specific replacements
             if [ "$tsdb_type" = "influxdb" ]; then

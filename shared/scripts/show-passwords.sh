@@ -287,6 +287,10 @@ if [ "$EDITION" = "standard" ] || [ "$EDITION" = "pro" ]; then
             echo -e "  ${PURPLE}MCP server:${NC}     ${RED}unset -- the MCP endpoint is unauthenticated${NC}"
             echo -e "     Set MCP_API_TOKEN in $ENV_FILE (openssl rand -hex 32) and restart"
         fi
+        if [ -n "${DNS_ADMIN_PASSWORD:-}" ]; then
+            echo -e "  ${PURPLE}DNS observer:${NC}   user smokingpi, $(secret "$DNS_ADMIN_PASSWORD")"
+            echo -e "     AdGuard Home admin on http://127.0.0.1:3053 (profile: dns; ssh -L 3053:localhost:3053)"
+        fi
     fi
 fi
 

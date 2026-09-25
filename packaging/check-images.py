@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 EDITIONS = ("basic", "standard", "pro")
-ALL_PROFILES = "influxdb,mcp,alerts,ai,clickhouse"
+ALL_PROFILES = "influxdb,mcp,alerts,ai,dns,clickhouse"
 # Workflow -> how many service matrices it must carry.
 WORKFLOWS = {".github/workflows/release.yml": 3, ".github/workflows/ci.yml": 1}
 REGISTRY_DEFAULT = "ghcr.io/estcarisimo/smoking-pi"

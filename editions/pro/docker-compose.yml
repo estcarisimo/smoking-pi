@@ -569,6 +569,54 @@ services:
         condition: service_started
         required: false
 
+  # DNS observer (opt-in: COMPOSE_PROFILES=dns, or `smoking-pi dns enable`).
+  # AdGuard Home with filtering off, as the resolver the router forwards the
+  # house's DNS to, plus a supervisor that restarts it when it stops
+  # answering and says when observations stop arriving (router reverted,
+  # never configured, container down). See docs/dns-observer.md.
+  # network_mode: host: it binds port 53 on the Pi and must see the real
+  # client address; its admin API stays on 127.0.0.1.
+  dns-observer:
+    build: ../../shared/modules/dns-observer
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/dns-observer:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
+    network_mode: host
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [dns]
+    environment:
+      # Port 53 on every IPv4 address by default; a comma-separated list
+      # of addresses narrows it (the LAN address only, say).
+      - DNS_BIND=${DNS_BIND:-0.0.0.0}
+      - DNS_PORT=${DNS_PORT:-53}
+      # Encrypted upstreams first, then plain DNS as the last resort. Never
+      # the router: it forwards to the Pi, so that is a loop (refused).
+      - DNS_UPSTREAMS=${DNS_UPSTREAMS:-https://1.1.1.1/dns-query,https://8.8.8.8/dns-query}
+      - DNS_FALLBACK=${DNS_FALLBACK:-1.1.1.1,8.8.8.8}
+      - DNS_BOOTSTRAP=${DNS_BOOTSTRAP:-1.1.1.1,8.8.8.8}
+      - DNS_UPSTREAM_TIMEOUT_MS=${DNS_UPSTREAM_TIMEOUT_MS:-2000}
+      - DNS_ALLOW_PRIVATE_UPSTREAM=${DNS_ALLOW_PRIVATE_UPSTREAM:-}
+      - DNS_ALLOW_CLIENTS=${DNS_ALLOW_CLIENTS:-}
+      # Names stay on the Pi, for this long; client addresses are masked.
+      - DNS_RETENTION_DAYS=${DNS_RETENTION_DAYS:-7}
+      - DNS_ANONYMIZE_CLIENTS=${DNS_ANONYMIZE_CLIENTS:-1}
+      # The canary: a unique name asked of the router every interval. Seen
+      # here = the router forwards to the Pi. auto = the default gateway.
+      - DNS_CANARY_VIA=${DNS_CANARY_VIA:-auto}
+      - DNS_CANARY_DOMAIN=${DNS_CANARY_DOMAIN:-canary.smoking-pi.invalid}
+      - DNS_CANARY_INTERVAL=${DNS_CANARY_INTERVAL:-300}
+      - DNS_CANARY_MISSES=${DNS_CANARY_MISSES:-3}
+      - DNS_QUIET_AFTER=${DNS_QUIET_AFTER:-1800}
+      # AdGuard Home's admin UI/API: loopback only (ssh -L 3053:localhost:3053).
+      - DNS_ADMIN_ADDRESS=${DNS_ADMIN_ADDRESS:-127.0.0.1:3053}
+      - DNS_ADMIN_PASSWORD=${DNS_ADMIN_PASSWORD:-}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - dns-observer-conf:/opt/adguardhome/conf
+      - dns-observer-work:/opt/adguardhome/work
+      - dns-observer-state:/var/lib/dns-observer
+      - /etc/localtime:/etc/localtime:ro
+
   clickhouse:
     image: clickhouse/clickhouse-server:24.1-alpine
     container_name: smokeping-pro-clickhouse
@@ -604,6 +652,9 @@ volumes:
   reports:
   alerter-state:
   alerter-mutes:
+  dns-observer-conf:
+  dns-observer-work:
+  dns-observer-state:
   clickhouse-data:
     name: smokeping-pro-clickhouse-data
   clickhouse-logs:
