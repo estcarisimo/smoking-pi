@@ -281,6 +281,20 @@ if [ -n "$START" ]; then
     if [ -d /run/systemd/system ]; then
         systemctl enable --now smoking-pi || fail "the unit did not start"
         systemctl is-active smoking-pi || fail "the unit is not active"
+        # 6c. The Docker engine going away under a running stack, the two
+        # ways a package upgrade of Docker does it: a restart, and a stop
+        # then a start (prerm, then postinst). A reboot cannot be run on
+        # these VMs; this is the part of it the unit decides. After each,
+        # the stack must be measuring again by itself and the unit active.
+        systemctl restart docker
+        wait_web
+        systemctl is-active --quiet smoking-pi || fail "after a Docker restart the unit is not active"
+        echo "docker restart: the stack came back"
+        systemctl stop docker.socket docker.service
+        systemctl start docker.service
+        wait_web
+        systemctl is-active --quiet smoking-pi || fail "after a Docker stop and start the unit is not active"
+        echo "docker stop + start: the stack came back"
         systemctl stop smoking-pi || fail "the unit did not stop"
     else
         smoking-pi down
