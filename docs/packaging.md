@@ -101,6 +101,11 @@ What worked, on the Pi, with no Docker involved in the build:
   unreachable), a cold first `up` can outlast any timeout,
   and systemd killing a build half-way is the worst outcome — so `install`
   is run interactively first and the unit handles every boot after.
+  It is wanted by `docker.service` as well as `multi-user.target`:
+  `Requires=docker.service` stops it (and `ExecStop` removes the
+  containers) when Docker stops, so without that link a Docker upgrade
+  that stops and then starts the daemon left the monitor down until the
+  next boot. `postinst` re-enables an enabled unit so an upgrade adds it.
 - `smoking-pi install` refuses to run over an existing `.env`: `setup.sh`
   regenerates every secret, and the PostgreSQL and InfluxDB volumes keep
   the old ones. Re-running it is how a working stack stops authenticating
@@ -541,8 +546,10 @@ verify`, the doctor's static checks, every edition rendered with that
 host's Compose and the packaged overlay (no state mount left under
 `/opt`), `install` refusing an existing env file, and — with `--start
 basic` on a host with a daemon — the real first install, the web UI
-answering, `systemctl enable --now smoking-pi`, a stop, then `apt-get
-remove` keeping the env file and the output directory.
+answering, `systemctl enable --now smoking-pi`, Docker restarted and
+Docker stopped then started under it (the stack must answer again by
+itself after each), a stop, then `apt-get remove` keeping the env file
+and the output directory.
 
 From the Pi, against any OS version, without touching the Pi's own stack:
 
