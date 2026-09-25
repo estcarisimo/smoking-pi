@@ -3,7 +3,7 @@ name: Release
 # Builds every image the editions declare, for linux/arm64 and linux/amd64,
 # and publishes them to ghcr.io/estcarisimo/smoking-pi/<service>:<version>
 # on a `vX.Y.Z` tag. This is the only place images are *published*: every
-# PR already builds all nine for both architectures (ci.yml, image-build;
+# PR already builds all ten for both architectures (ci.yml, image-build;
 # the same packaging/image-context.sh), so a tag publishes what PRs have
 # built, and every change is also deployed on the reference Pi before merge
 # (AGENTS.md, Process).
@@ -90,6 +90,7 @@ jobs:
           - ai-insights
           - alerter
           - config-manager
+          - dns-observer
           - grafana
           - influxdb
           - mcp-server
@@ -160,6 +161,7 @@ jobs:
           - ai-insights
           - alerter
           - config-manager
+          - dns-observer
           - grafana
           - influxdb
           - mcp-server
@@ -390,6 +392,7 @@ jobs:
           - ai-insights
           - alerter
           - config-manager
+          - dns-observer
           - grafana
           - influxdb
           - mcp-server

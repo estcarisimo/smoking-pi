@@ -179,6 +179,7 @@ Everything is Compose. Optional services are behind profiles so the default stac
 | `alerts` | The alerting engine and daily digest | `NOTIFY_MODE` + delivery settings |
 | `mcp` | MCP server on `127.0.0.1:8090` | `MCP_API_TOKEN` |
 | `ai` | AI health reports | `ANTHROPIC_API_KEY` |
+| `dns` | DNS observer (AdGuard Home) on port 53, for the router to forward the house's DNS to | `smoking-pi dns enable`; see [docs/dns-observer.md](docs/dns-observer.md) |
 
 ```bash
 # In editions/pro/.env
@@ -267,7 +268,7 @@ uv sync            # or: python -m venv .venv && pip install -e ".[dev]"
 Every module with a `tests/` directory is discovered by CI. Tests mock the network, the database and Docker; none needs a running stack.
 
 ```bash
-for m in alerter mcp-server web-admin config-manager doctor smokeping-exporters; do
+for m in alerter mcp-server web-admin config-manager doctor smokeping-exporters dns-observer; do
   (cd shared/modules/$m && pytest tests/ -q)
 done
 ```

@@ -92,7 +92,7 @@ smoking-pi — SmokePing on a Raspberry Pi, with the trimmings
 Usage: smoking-pi <command> [args]   (no command: what is installed and running)
 
   install [--edition basic|standard|pro] [--database influxdb|clickhouse]
-          [--profiles mcp,alerts,ai] [--yes]
+          [--profiles mcp,alerts,ai,dns] [--yes]
                      First install only: generate secrets, choose the edition,
                      backend and optional profiles, start the stack, print what
                      to open. Interactive unless --yes. Refuses to run over an
@@ -157,6 +157,14 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      server's log, which is the only thing that proves the
                      agent is using your history instead of its own shell.
                      Pro only; OpenClaw elsewhere: docs/remote-openclaw.md.
+  dns [status [--json] | enable [--yes] | disable [--yes]]
+                     The DNS observer (Pro): AdGuard Home on port 53, for the
+                     router to forward the house's DNS to. 'enable' turns on
+                     the dns profile, starts it and says what to set on the
+                     router; 'status' says whether it is receiving queries and,
+                     if not, why (router reverted, never configured, down).
+                     'disable' asks you to point the router back first.
+                     docs/dns-observer.md.
   doctor [--live]    Instrumentation doctor (needs the doctor package).
   link               From a clone: make 'smoking-pi' a command in every directory
                      (a link in /usr/local/bin, else ~/.local/bin). setup.sh and
@@ -467,7 +475,7 @@ cmd_install() {
     case "$database" in influxdb|clickhouse) ;; *) echo "unknown database: $database" >&2; exit 2 ;; esac
     local pr
     for pr in ${profiles//,/ }; do
-        case "$pr" in mcp|alerts|ai) ;; *) echo "unknown profile: $pr (mcp, alerts, ai)" >&2; exit 2 ;; esac
+        case "$pr" in mcp|alerts|ai|dns) ;; *) echo "unknown profile: $pr (mcp, alerts, ai, dns)" >&2; exit 2 ;; esac
     done
     if [ "$yes" = 0 ] && command -v whiptail >/dev/null; then
         edition=$(whiptail --title "Smoking Pi" --menu "Which edition?" 15 60 3 \
@@ -478,10 +486,11 @@ cmd_install() {
                 influxdb "InfluxDB 2 (recommended)" clickhouse "ClickHouse (experimental)" 3>&1 1>&2 2>&3) || exit 1
             # Optional services are Compose profiles; the choice is written
             # into the env file so a plain `up` keeps it (setup.sh explains).
-            profiles=$(whiptail --title "Smoking Pi" --checklist "Optional services (space toggles)" 14 70 3 \
+            profiles=$(whiptail --title "Smoking Pi" --checklist "Optional services (space toggles)" 15 70 4 \
                 mcp "MCP server: a chat assistant can ask about your network" OFF \
                 alerts "Alerter: downtime, microcut and Wi-Fi alerts (needs NOTIFY_MODE)" OFF \
-                ai "AI reports (needs ANTHROPIC_API_KEY in the env file)" OFF 3>&1 1>&2 2>&3) || exit 1
+                ai "AI reports (needs ANTHROPIC_API_KEY in the env file)" OFF \
+                dns "DNS observer on port 53 (then point the router at it)" OFF 3>&1 1>&2 2>&3) || exit 1
             profiles=$(echo "$profiles" | tr -d '"' | tr ' ' ',')
         fi
     fi
@@ -1631,6 +1640,110 @@ cmd_purge() {
     echo "Purged. 'smoking-pi install' starts over."
 }
 
+# --- dns: the DNS observer -------------------------------------------------------
+
+profiles_without() {
+    # COMPOSE_PROFILES with $1 removed.
+    env_get COMPOSE_PROFILES | tr ',' '\n' | { grep -vx "$1" || true; } | paste -sd, -
+}
+
+dns_status() {
+    # The observer's own verdict (status.py). When the container is not
+    # running there is no verdict to ask for; say so, and that it matters.
+    if [ -n "$(compose ps -q --status running dns-observer 2>/dev/null)" ]; then
+        compose exec -T dns-observer python status.py "$@"
+        return
+    fi
+    echo "state:          down (the dns-observer container is not running)"
+    case ",$(env_get COMPOSE_PROFILES)," in
+        *,dns,*) echo "fix:            smoking-pi up; then smoking-pi logs dns-observer" ;;
+        *) echo "fix:            not enabled: smoking-pi dns enable" ;;
+    esac
+    return 1
+}
+
+port53_holder() {
+    # Whatever already listens on port 53 (systemd-resolved's stub listens
+    # on 127.0.0.53 only and does not conflict with 0.0.0.0 on Linux, but
+    # dnsmasq, a Pi-hole or another AdGuard do).
+    command -v ss >/dev/null || return 0
+    # `|| true`: under pipefail a grep that matches nothing -- the usual,
+    # nothing on port 53 -- would end the whole command.
+    ss -Hlnup 'sport = :53' 2>/dev/null | grep -v '127\.0\.0\.5[34]' | head -1 || true
+}
+
+cmd_dns() {
+    local action="${1:-status}"; [ $# -gt 0 ] && shift
+    need_edition
+    if ! grep -q '^  dns-observer:' "$EDITION_DIR/docker-compose.yml"; then
+        echo "The DNS observer is a Pro service; the $SMOKING_PI_EDITION edition does not ship it." >&2
+        return 1
+    fi
+    local yes=0 a
+    case "$action" in
+        status) dns_status "$@"; return ;;
+        enable|disable)
+            while [ $# -gt 0 ]; do
+                case "$1" in --yes|-y) yes=1; shift ;; *) echo "unknown option $1" >&2; return 2 ;; esac
+            done ;;
+        -h|--help) usage; return 0 ;;
+        *) echo "unknown dns action: $action (status, enable, disable)" >&2; return 2 ;;
+    esac
+
+    if [ "$action" = disable ]; then
+        echo "If the router forwards DNS to this Pi, point it back at its previous DNS first:"
+        echo "with the observer gone, a router with no secondary DNS leaves the house offline."
+        if [ "$yes" = 0 ]; then
+            [ -t 0 ] || { echo "Confirm with --yes." >&2; return 2; }
+            read -r -p "The router no longer points here. Disable? [y/N] " a
+            case "$a" in y|Y|yes) ;; *) echo "Nothing changed."; return 1 ;; esac
+        fi
+        env_set COMPOSE_PROFILES "$(profiles_without dns)"
+        compose stop dns-observer >/dev/null 2>&1 || true
+        remove_disabled
+        echo "DNS observer disabled. Its query log stays in its volumes until 'smoking-pi purge'."
+        return 0
+    fi
+
+    if [ -z "$(compose ps -q --status running dns-observer 2>/dev/null)" ]; then
+        local holder; holder="$(port53_holder)"
+        if [ -n "$holder" ]; then
+            echo "Something already listens on port 53 here:" >&2
+            echo "  $holder" >&2
+            echo "Stop it first, or set DNS_BIND to an address it does not use." >&2
+            return 1
+        fi
+    fi
+    if [ -z "$(env_get DNS_ADMIN_PASSWORD)" ]; then
+        env_set DNS_ADMIN_PASSWORD "$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')"
+        echo "Generated DNS_ADMIN_PASSWORD (smoking-pi passwords --show-secrets shows it)."
+    fi
+    env_set COMPOSE_PROFILES "$(profiles_with dns)"
+    compose up -d dns-observer
+    local i up=0
+    for i in $(seq 1 30); do
+        if compose exec -T dns-observer python status.py --json 2>/dev/null | grep -q '"answering": true'; then
+            up=1; break
+        fi
+        sleep 2
+    done
+    if [ "$up" = 0 ]; then
+        echo "The DNS observer did not start answering within a minute; do not point the router at it yet." >&2
+        echo "See: smoking-pi dns status; smoking-pi logs dns-observer" >&2
+        return 1
+    fi
+    local lan; lan="$(lan_address)"; lan="${lan:-<the LAN address of this machine>}"
+    echo
+    echo "The DNS observer answers on $lan, port 53. Nothing reaches it yet."
+    echo "On the router, set its DNS server (the upstream it forwards to, often 'custom DNS'):"
+    echo "  primary:   $lan"
+    echo "  secondary: 1.1.1.1  -- keeps the house online if this Pi is down, at the cost"
+    echo "             of the share of queries the router sends there ('partial' in status)."
+    echo "Do not change the DNS your devices get by DHCP; the router keeps doing that."
+    echo "Then: smoking-pi dns status   (the canary proves the router forwards here within ~15 min)"
+    echo "Details, per router, and what is and is not observed: docs/dns-observer.md"
+}
+
 case "${1:-}" in
     install) shift; cmd_install "$@" ;;
     upgrade) shift; cmd_upgrade "$@" ;;
@@ -1641,6 +1754,7 @@ case "${1:-}" in
     config) shift; cmd_config "$@" ;;
     links) shift; cmd_links "$@" ;;
     alerts) shift; cmd_alerts "$@" ;;
+    dns) shift; cmd_dns "$@" ;;
     up) shift; compose up -d "$@"; remove_disabled ;;
     down) shift; compose down "$@" ;;
     restart) shift; compose restart "$@" ;;

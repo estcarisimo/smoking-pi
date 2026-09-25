@@ -1261,3 +1261,108 @@ stub_clone() {
             || { echo "editions/$ed/setup.sh does not run smoking-pi link"; return 1; }
     done
 }
+
+# --- dns: the DNS observer --------------------------------------------------------
+
+dns_setup() {
+    cp "$REPO/editions/pro/.env.template" "$STUB_HOME/editions/pro/"
+    printf 'COMPOSE_PROFILES=influxdb,mcp\n' > "$SMOKING_PI_ENV_FILE"
+    chmod 600 "$SMOKING_PI_ENV_FILE"
+    # In front of the suite's stub: whether the observer runs (STUB_DNS_RUNNING)
+    # and its status script. Everything else falls through to it.
+    mkdir -p "$BATS_TEST_TMPDIR/bin3"
+    cat > "$BATS_TEST_TMPDIR/bin3/docker" <<STUB
+#!/bin/sh
+case "\$*" in
+    *"ps -q --status running dns-observer"*) echo "docker \$*" >> "\$DOCKER_LOG"; [ -z "\${STUB_DNS_RUNNING:-}" ] || echo abc123; exit 0 ;;
+    *"exec -T dns-observer python status.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo '{"server": {"answering": true}}'; echo "state:          observing"; exit 0 ;;
+esac
+exec "$BATS_TEST_TMPDIR/bin/docker" "\$@"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin3/docker"
+    # Nothing on port 53 unless STUB_PORT53 says what.
+    printf '#!/bin/sh\n[ -z "$STUB_PORT53" ] || echo "$STUB_PORT53"\n' > "$BATS_TEST_TMPDIR/bin3/ss"
+    chmod +x "$BATS_TEST_TMPDIR/bin3/ss"
+    export PATH="$BATS_TEST_TMPDIR/bin3:$PATH" STUB_PORT53=""
+}
+
+@test "dns enable generates the password, adds the profile, starts it, says what to set on the router" {
+    dns_setup
+    run "$CLI" dns enable
+    [ "$status" -eq 0 ]
+    grep -Eq '^DNS_ADMIN_PASSWORD=[0-9a-f]{48}$' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,dns' "$SMOKING_PI_ENV_FILE"
+    grep -q 'up -d dns-observer' "$DOCKER_LOG"
+    [[ "$output" == *"primary:   192.0.2.10"* ]]
+    [[ "$output" == *"secondary: 1.1.1.1"* ]]
+    # The password is never printed, and the file keeps its mode.
+    pw="$(sed -n 's/^DNS_ADMIN_PASSWORD=//p' "$SMOKING_PI_ENV_FILE")"
+    [[ "$output" != *"$pw"* ]]
+    [ "$(stat -c %a "$SMOKING_PI_ENV_FILE")" = 600 ]
+}
+
+@test "dns enable keeps an existing password and adds the profile once" {
+    dns_setup
+    printf 'COMPOSE_PROFILES=influxdb,dns\nDNS_ADMIN_PASSWORD=keepme\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" dns enable
+    [ "$status" -eq 0 ]
+    grep -qx 'DNS_ADMIN_PASSWORD=keepme' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,dns' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "dns enable refuses when something else holds port 53, and changes nothing" {
+    dns_setup
+    export STUB_PORT53='UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("dnsmasq",pid=1,fd=4))'
+    run "$CLI" dns enable
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"dnsmasq"* ]]
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    ! grep -q 'up -d dns-observer' "$DOCKER_LOG"
+}
+
+@test "dns disable asks first (the router may still point here), --yes removes the profile" {
+    dns_setup
+    printf 'COMPOSE_PROFILES=influxdb,dns,mcp\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" dns disable < /dev/null
+    [ "$status" -eq 2 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,dns,mcp' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" dns disable --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"point it back"* ]]
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "dns status: the observer's own verdict when running, 'down' and why when not" {
+    dns_setup
+    run "$CLI" dns status
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"down"* ]]
+    [[ "$output" == *"smoking-pi dns enable"* ]]
+    printf 'COMPOSE_PROFILES=influxdb,dns\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" dns status
+    [[ "$output" == *"smoking-pi up"* ]]
+    export STUB_DNS_RUNNING=1
+    run "$CLI" dns status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"observing"* ]]
+}
+
+@test "install accepts the dns profile" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    run "$CLI" install --yes --database influxdb --profiles dns
+    [[ "$output" != *"unknown profile"* ]]
+}
+
+@test "dns enable says so, and prints no router advice, when the observer never answers" {
+    dns_setup
+    cat > "$BATS_TEST_TMPDIR/bin3/sleep" <<'STUB'
+#!/bin/sh
+exit 0
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin3/sleep"
+    sed -i 's/echo .{"server": {"answering": true}}.;/echo "{}";/' "$BATS_TEST_TMPDIR/bin3/docker"
+    run "$CLI" dns enable
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"did not start answering"* ]]
+    [[ "$output" != *"primary:"* ]]
+}
