@@ -29,7 +29,28 @@ LAN devices ──DNS──▶ router ──forwards──▶ Pi :53 (AdGuard Ho
 Pro edition, opt-in (`dns` profile). It is off unless you enable it, and
 until the router points at it, it changes nothing about the house's DNS.
 
-## Enabling it
+## Setup guide
+
+About 20 minutes, most of it waiting for the check in step 6. You need the
+Pro edition running and the router's admin app or page. Keep a phone with
+mobile data at hand: if something goes wrong, it is how you reach the
+router's settings to undo step 5, if your router is managed from an app.
+
+The model is **router → Pi → encrypted upstream**. Your devices keep asking
+the router for DNS, as they do today, and only the router's own upstream
+changes. That is one setting, in one place, and one tap undoes it. This
+guide never changes the DNS server your devices get by DHCP, and never turns
+on AdGuard's DHCP server.
+
+### 1. Give the Pi a fixed address
+
+The router is about to send the whole house's DNS to one address. If the
+Pi's DHCP lease then hands it a new address, the router forwards to nothing.
+In the router, reserve the Pi's current address; `hostname -I` on the Pi
+shows it. Routers call this "DHCP reservation", "static lease" or "address
+reservation", and put it next to the DHCP settings.
+
+### 2. Start the observer
 
 ```bash
 smoking-pi dns enable
@@ -37,61 +58,90 @@ smoking-pi dns enable
 
 This command:
 
+- refuses if something else already listens on port 53 here, such as a
+  Pi-hole or dnsmasq, and changes nothing in that case;
 - generates `DNS_ADMIN_PASSWORD` if the install predates it;
-- adds `dns` to `COMPOSE_PROFILES` and starts `dns-observer`;
-- prints what to set on the router.
+- adds `dns` to `COMPOSE_PROFILES` and starts `dns-observer`, and nothing
+  else;
+- prints the address to give the router.
 
-It refuses if something else already listens on port 53 here, such as a
-Pi-hole or dnsmasq.
+`smoking-pi dns status` now reads `starting` and then `not_receiving`. That
+is correct: nothing sends queries here yet.
 
-Then set the router, and check:
+### 3. Check that the Pi answers, before touching the router
+
+From a laptop on the same network (use the Pi's address from step 1):
+
+```bash
+nslookup example.com 192.168.86.27
+```
+
+An address in the answer means the Pi resolves. A timeout means the router
+must not point at it yet; see
+[When the observer is not getting information](#when-the-observer-is-not-getting-information)
+and `smoking-pi logs dns-observer`.
+
+### 4. Decide on a secondary
+
+| | Value | Why |
+|---|---|---|
+| Primary | the Pi's address | Queries reach the observer |
+| Secondary | `1.1.1.1` (or your ISP's resolver) | **The house stays online if the Pi is down** |
+
+Many routers spread queries across primary and secondary, or switch to the
+secondary after one slow answer. The observer then sees only part of the
+house's DNS, and its state says so (`partial`). Without a secondary it sees
+everything, but when the Pi is off the house has no DNS until the router
+gives up on it, which some routers never do. We recommend keeping the
+secondary: an incomplete record beats a house without DNS.
+
+### 5. Point the router at the Pi
+
+Find the setting for **the DNS servers the router itself uses**. It is
+often called "custom DNS", "DNS server" under the WAN or Internet settings,
+or "upstream" or "forwarders". Enter the primary and secondary from step 4
+and save.
+
+This works on routers that answer the house's DNS themselves (a DNS proxy
+or forwarder), which is what most home routers do: their devices get the
+router's own address as DNS server, and `nslookup example.com` on a laptop
+names the router as the server. If yours names another address, the router
+is handing devices a resolver directly. Changing that is the DHCP-direct
+mode, which this guide does not cover.
+
+**IPv6.** Routers with IPv6 often have a second pair of DNS fields for it.
+With IPv6 on, the router may send some queries to those servers, which
+bypass the Pi, and the state shows `partial`. The observer listens on IPv4
+only by default. Pointing the IPv6 fields at the Pi takes
+`DNS_BIND=0.0.0.0,::` and a Pi IPv6 address that does not change. Most ISP
+prefixes do change, so the simplest choice is to leave the IPv6 fields as
+they are.
+
+### 6. Confirm it took effect
 
 ```bash
 smoking-pi dns status
 ```
 
-## Pointing the router at the Pi
+It reads `observing` as soon as the first query arrives, usually within
+seconds. The canary line shows one seen within about 5 minutes. Only the canary proves the router forwards here: the observer asks the
+router for a unique name every 5 minutes, and seeing that name arrive is the
+evidence. The busiest names appear under the status as the house uses the
+network.
 
-The model is **router → Pi → encrypted upstream**. Your devices keep getting
-the router as their DNS server from DHCP, and only the router's own upstream
-changes. This is the least intrusive change: one setting, in one place, easy
-to undo.
+If it reads `not_receiving` after 20 minutes, the router is not forwarding
+to the Pi. Check the setting saved, and that the address matches step 1.
 
-On the router, find the setting for **the DNS server it uses**. It is often
-called "custom DNS", "DNS server" under the WAN or Internet settings, or
-"upstream". Set:
+### Undo
 
-| | Value | Why |
-|---|---|---|
-| Primary | the Pi's LAN address (`smoking-pi dns enable` prints it) | Queries reach the observer |
-| Secondary | `1.1.1.1` (or your ISP's resolver) | **The house stays online if the Pi is down** |
+Change the router's DNS back to automatic **first**, then:
 
-**Do not** change the DNS server your devices get by DHCP, and do not turn on
-AdGuard's DHCP server. Announcing the Pi to every client by DHCP would show
-per-device names, but it makes the Pi a visible dependency for every device.
-It is a later mode, not this one.
+```bash
+smoking-pi dns disable
+```
 
-**The trade-off of the secondary.** Many routers spread queries across
-primary and secondary, or switch to the secondary after one slow answer. The
-observer then sees only part of the house's DNS, and its state says so
-(`partial`). Without a secondary, it sees everything, but when the Pi is off
-the house has no DNS until the router gives up on it, which some routers
-never do. We recommend keeping the secondary: an incomplete record beats a
-house without DNS.
-
-Where the setting lives, on routers we know of:
-
-- **Google Nest Wifi / Google Wifi** (the reference house): in the Google
-  Home app, Wi-Fi → Network settings → Advanced networking → DNS → Custom.
-  *Not yet verified end to end on the reference house.*
-- **OpenWrt**: Network → DHCP and DNS → Forwards (`server=` in dnsmasq), with
-  "Ignore resolv file" set.
-- **FRITZ!Box**: Internet → Account Information → DNS Server → "Use other
-  DNSv4 servers".
-- **UniFi**: the WAN network's DNS servers.
-
-Only the canary proves that the setting took effect: within about 15 minutes
-of the change, `smoking-pi dns status` shows the canary seen.
+In the other order, a router that forwards only to the Pi leaves the house
+without DNS for as long as the observer is gone.
 
 ## When the observer is not getting information
 
@@ -246,10 +296,5 @@ All optional except the password; in the env file (`smoking-pi config set`).
 
 ## Turning it off
 
-```bash
-smoking-pi dns disable
-```
-
-**Point the router back first.** With the observer gone, a router that
-forwards only to the Pi leaves the house without DNS. The query log stays in
-the volumes until `smoking-pi purge`.
+See [Undo](#undo): point the router back first, then `smoking-pi dns
+disable`. The query log stays in the volumes until `smoking-pi purge`.
