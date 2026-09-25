@@ -1780,8 +1780,13 @@ cmd_dns() {
     echo "  secondary: 1.1.1.1  -- keeps the house online if this Pi is down, at the cost"
     echo "             of the share of queries the router sends there ('partial' in status)."
     echo "Do not change the DNS your devices get by DHCP; the router keeps doing that."
-    echo "Then: smoking-pi dns status   (the canary proves the router forwards here within ~15 min)"
-    echo "Details, per router, and what is and is not observed: docs/dns-observer.md"
+    echo
+    echo "Before that:"
+    echo "  - reserve $lan for this Pi in the router's DHCP settings, or a new lease"
+    echo "    leaves the router forwarding the house's DNS to nothing;"
+    echo "  - from a laptop, check it answers: nslookup example.com $lan"
+    echo "After: smoking-pi dns status   (the canary proves the router forwards here within ~5 min)"
+    echo "Step by step, per router: docs/dns-observer.md, \"Setup guide\""
 }
 
 case "${1:-}" in

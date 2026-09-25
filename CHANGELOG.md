@@ -11,6 +11,19 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **A step-by-step guide for pointing a router at the DNS observer.** The
+  first version of `docs/dns-observer.md` said what to set but skipped two
+  steps that decide whether the house keeps its DNS:
+  - **reserve the Pi's address first.** Without a reservation, a new DHCP
+    lease leaves the router forwarding every query to an address nobody
+    holds;
+  - **check from a laptop that the Pi answers** (`nslookup example.com
+    <Pi>`) before the router depends on it.
+
+  The guide is now six numbered steps plus undo, for any router. It also
+  says how to tell whether a router is a DNS proxy, which is what the setup
+  needs. `smoking-pi dns enable` prints both checks.
+
 - **`smoking-pi` is a command in every directory, from a clone too.** A
   clone installed with `setup.sh` never put it on the `PATH`: the reference
   Pi had no `smoking-pi` at all, and reading the passwords meant typing
