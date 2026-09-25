@@ -30,6 +30,20 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **A clone on a release tag runs that release's images, without a variable
+  typed in front of every command.** The compose files name
+  `…/<service>:${SMOKING_PI_VERSION:-dev}`, and a clone never recorded a
+  version: the reference Pi, checked out on `v2.13.0` and running the
+  `:2.13.0` images, was one bare `smoking-pi up` or `upgrade` away from
+  recreating every container on stale local `:dev` builds. The command now
+  takes the version from the checkout's release tag (the final release over
+  its candidates on the same commit; `git` reads the checkout under `sudo`
+  too), `smoking-pi paths` says where it came from, and `upgrade` stops with
+  the way out when the tag has no published images. Off any tag it builds
+  `:dev` as before; `SMOKING_PI_VERSION=dev` builds whatever the checkout is
+  on, and any other value is still a pin. The release-acceptance steps no
+  longer need the variable.
+
 - **A Docker upgrade could leave a packaged install down until the next
   boot.** The unit `Requires=docker.service`, so when Docker stops it stops
   too, and its `ExecStop` removes the containers. Nothing started it again

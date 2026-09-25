@@ -74,6 +74,34 @@ if [ "${SMOKING_PI_PACKAGED:-}" = 1 ] && [ -z "${SMOKING_PI_VERSION:-}" ]; then
     SMOKING_PI_VERSION="$(installed_version)"
     export SMOKING_PI_VERSION
 fi
+# A clone checked out on a release tag runs that release's images, the
+# ones the Release workflow published for exactly this code. Before, only
+# a SMOKING_PI_VERSION typed in front of every command did: the reference
+# Pi, on v2.13.0 and running the :2.13.0 images, was one bare `up` or
+# `upgrade` away from recreating everything on stale local :dev builds.
+# The final release wins over its candidates on the same commit (v2.13.0
+# and v2.13.0-rc.3 are both on d66ed80). Not on a tag: :dev, built here.
+# safe.directory: under sudo, git refuses a checkout another user owns,
+# and the answer would silently have been :dev. SMOKING_PI_VERSION=dev
+# builds whatever the checkout is on.
+clone_release() {
+    [ -e "$SMOKING_PI_HOME/.git" ] && command -v git >/dev/null || return 0
+    local tags finals
+    tags="$(git -c safe.directory="$SMOKING_PI_HOME" -C "$SMOKING_PI_HOME" tag --points-at HEAD 2>/dev/null \
+        | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(-rc\.[0-9][0-9]*\)\{0,1\}\)$/\1/p')" || return 0
+    finals="$(printf '%s\n' "$tags" | grep -v -- '-rc\.' || true)"
+    printf '%s\n' "${finals:-$tags}" | grep . | sort -V | tail -n1 || true
+}
+VERSION_SOURCE=""
+if [ "${SMOKING_PI_PACKAGED:-}" != 1 ] && [ -z "${SMOKING_PI_VERSION:-}" ]; then
+    SMOKING_PI_VERSION="$(clone_release)"
+    if [ -n "$SMOKING_PI_VERSION" ]; then
+        export SMOKING_PI_VERSION; VERSION_SOURCE="the checkout is on v$SMOKING_PI_VERSION"
+    else
+        unset SMOKING_PI_VERSION
+    fi
+fi
+if [ "${SMOKING_PI_VERSION:-}" = dev ]; then unset SMOKING_PI_VERSION; fi
 # Where the state the stack rewrites lives (docs/packaging.md, "Relocatable
 # state"). From a clone the defaults are beside the compose file, untracked;
 # the .deb sets the packaged layout in /etc/default/smoking-pi. The env file
@@ -170,7 +198,8 @@ Environment: SMOKING_PI_HOME (default: this checkout or /opt/smoking-pi),
              /etc/smoking-pi/env, /etc/smoking-pi/config, /var/lib/smoking-pi/output).
              SMOKING_PI_VERSION pulls the published images of that release
              instead of building (packaged: the installed version unless
-             set; a clone: unset means `dev`, never published, so it builds),
+             set; a clone: the release tag its checkout is on, else `dev`,
+             never published, so it builds; `dev` forces a build),
              SMOKING_PI_REGISTRY to pull a fork's images.
 USAGE
 }
@@ -1316,7 +1345,12 @@ cmd_upgrade() {
     if [ -n "${SMOKING_PI_VERSION:-}" ]; then
         # The compose files name ghcr.io/.../<service>:$SMOKING_PI_VERSION;
         # a new package changed the version, so the pull fetches the release.
-        compose pull
+        echo "Pulling the $SMOKING_PI_VERSION images${VERSION_SOURCE:+ ($VERSION_SOURCE)}."
+        compose pull || {
+            echo "No published $SMOKING_PI_VERSION images to pull. To build this checkout instead:" >&2
+            echo "  SMOKING_PI_VERSION=dev smoking-pi upgrade" >&2
+            exit 1
+        }
     else
         # A clone: the images are built here. --pull refreshes the base
         # images so a Dependabot bump in a Dockerfile actually lands.
@@ -1542,7 +1576,7 @@ case "${1:-}" in
         echo "config:   ${SMOKING_PI_CONFIG_DIR:-$EDITION_DIR/config-manager/config}"
         echo "output:   ${SMOKING_PI_OUTPUT_DIR:-$EDITION_DIR/config-manager/output}"
         echo "mode:     $([ "${SMOKING_PI_PACKAGED:-0}" = 1 ] && echo packaged '(no source mounts)' || echo development '(source mounts from home)')"
-        echo "images:   ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/<service>:${SMOKING_PI_VERSION:-dev}$([ -n "${SMOKING_PI_VERSION:-}" ] || echo ' (dev: built from home, never pulled)')"
+        echo "images:   ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/<service>:${SMOKING_PI_VERSION:-dev}$([ -n "${SMOKING_PI_VERSION:-}" ] || echo ' (dev: built from home, never pulled)')${VERSION_SOURCE:+ ($VERSION_SOURCE)}"
         echo "data:     docker volumes ${SMOKING_PI_EDITION}_* (docker volume ls)" ;;
     version) v="$(installed_version)"; echo "${v:-unknown}" ;;
     -h|--help|help|"") usage ;;

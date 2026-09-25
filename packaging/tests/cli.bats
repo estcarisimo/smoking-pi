@@ -1128,3 +1128,65 @@ STUB
     [ "$status" -eq 0 ]
     grep -qx 'docker rm pro-alerter-1' "$DOCKER_LOG"
 }
+
+# A clone on a release tag runs that release's images. The stub tree made
+# into a git repository, tagged as the test says.
+stub_git() {
+    git -C "$STUB_HOME" init -q
+    git -C "$STUB_HOME" -c user.name=t -c user.email=t@example.invalid add -A
+    git -C "$STUB_HOME" -c user.name=t -c user.email=t@example.invalid commit -qm stub
+    local t; for t in "$@"; do git -C "$STUB_HOME" tag "$t"; done
+}
+
+@test "a clone on a release tag runs its images: the final release beats its candidates" {
+    stub_git v9.9.9-rc.3 v9.9.9 not-a-release
+    run "$CLI" paths
+    [[ "$output" == *"<service>:9.9.9 (the checkout is on v9.9.9)"* ]]
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Pulling the 9.9.9 images (the checkout is on v9.9.9)"* ]]
+    run compose_calls
+    [[ "${lines[0]}" == *" pull" ]]
+    [[ "$output" != *"build"* ]]
+}
+
+@test "a clone on a candidate tag only runs the candidate's images" {
+    stub_git v9.9.9-rc.2 v9.9.9-rc.10
+    run "$CLI" paths
+    [[ "$output" == *"<service>:9.9.9-rc.10 "* ]]
+}
+
+@test "a clone off any tag builds :dev, as before" {
+    stub_git
+    run "$CLI" paths
+    [[ "$output" == *"<service>:dev (dev: built from home"* ]]
+    run "$CLI" upgrade --skip-doctor
+    run compose_calls
+    [[ "${lines[0]}" == *" build --pull" ]]
+}
+
+@test "SMOKING_PI_VERSION=dev builds even on a tag; any other value is a pin that wins" {
+    stub_git v9.9.9
+    SMOKING_PI_VERSION=dev run "$CLI" upgrade --skip-doctor
+    run compose_calls
+    [[ "${lines[0]}" == *" build --pull" ]]
+    SMOKING_PI_VERSION=1.0.0 run "$CLI" paths
+    [[ "$output" == *"<service>:1.0.0"* ]]
+    [[ "$output" != *"checkout is on"* ]]
+}
+
+@test "a tag with no published images: upgrade stops and names the way to build" {
+    stub_git v9.9.9
+    fail_docker_on " pull"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"SMOKING_PI_VERSION=dev smoking-pi upgrade"* ]]
+    run compose_calls
+    [[ "$output" != *"up -d"* ]]
+}
+
+@test "packaged mode ignores git: the installed tree's version, as before" {
+    stub_git v1.2.3
+    SMOKING_PI_PACKAGED=1 run "$CLI" paths
+    [[ "$output" == *"<service>:9.9.9"* ]]
+}

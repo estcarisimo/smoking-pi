@@ -127,7 +127,8 @@ cd smoking-pi
 ```
 
 From a clone the command is `./packaging/smoking-pi` (or put it on your
-`PATH`), the images are **built locally** rather than pulled, and the state
+`PATH`), the images are **built locally** rather than pulled (checked out
+on a release tag, `git checkout v2.13.0`, it pulls that release's), and the state
 stays beside the edition's compose file instead of under `/etc`. Everything
 else in this guide is identical.
 
