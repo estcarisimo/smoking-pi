@@ -1408,7 +1408,7 @@ cmd_restore() {
     # A fresh card (packaged, nothing installed, no edition recorded) is
     # restored as the edition it was backed up from, and records it the way
     # `install` does, so the unit starts that one.
-    if [ "$EDITION_DEFAULTED" = 1 ] && [ "${SMOKING_PI_PACKAGED:-}" = 1 ] && [ -n "$EDITION_FILE" ] \
+    if [ -n "$b_edition" ] && [ "$EDITION_DEFAULTED" = 1 ] && [ "${SMOKING_PI_PACKAGED:-}" = 1 ] && [ -n "$EDITION_FILE" ] \
         && [ ! -f "$ENV_FILE" ] && [ -d "$SMOKING_PI_HOME/editions/$b_edition" ]; then
         SMOKING_PI_EDITION="$b_edition"; EDITION_DIR="$SMOKING_PI_HOME/editions/$b_edition"
         mkdir -p "$(dirname "$EDITION_FILE")" && printf '%s\n' "$b_edition" > "$EDITION_FILE"

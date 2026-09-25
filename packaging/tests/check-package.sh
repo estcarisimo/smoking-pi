@@ -73,7 +73,9 @@ project_volumes() {
     local project; project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' /etc/smoking-pi/env 2>/dev/null)
     docker volume ls -q --filter "label=com.docker.compose.project=${project:-$START}" | sort
 }
-data_volume() { project_volumes | grep -- '-data$' | grep -v postgres | head -1; }
+# `|| true`: no match must reach the caller's own message, not trip set -e
+# inside the assignment.
+data_volume() { project_volumes | grep -- '-data$' | grep -v postgres | head -1 || true; }
 read_marker() { docker run --rm -v "$1:/v:ro" alpine:3.20 cat /v/.check-package-marker 2>/dev/null || true; }
 config_sum() { (cd "$(smoking-pi paths | sed -n 's/^config: *//p')" && find . -type f | sort | xargs -r sha256sum) | sha256sum | cut -d' ' -f1; }
 image_tag() { smoking-pi paths | sed -n 's|^images: .*/<service>:\([^ ]*\).*|\1|p'; }
@@ -243,8 +245,9 @@ if [ -n "$START" ]; then
 
     # 6b. Recovery, on the real stack: what a dead SD card costs. A marker
     # in the data volume, `backup` (offline: down, tar, up), then `purge
-    # --config` -- volumes, env file and config gone, a card with only the
-    # package on it -- then `restore` from the backup. The secrets, the
+    # --config` -- volumes, env file and config gone; with the edition file
+    # removed by hand below (purge keeps it, a recorded choice), a card with
+    # only the package on it -- then `restore` from the backup. The secrets, the
     # config and the marker must come back, and the web UI must answer.
     # Until now backup/restore ran only against a stubbed docker (cli.bats).
     vol=$(data_volume); [ -n "$vol" ] || fail "no data volume among: $(project_volumes | tr '\n' ' ')"
@@ -268,7 +271,7 @@ if [ -n "$START" ]; then
     [ "$(cat /etc/smoking-pi/edition 2>/dev/null)" = "$START" ] || fail "restore did not record the backup's edition"
     [ "$(sha256sum /etc/smoking-pi/env | cut -d' ' -f1)" = "$env_sum" ] || fail "restore did not bring back the same env file"
     [ "$(config_sum)" = "$cfg_sum" ] || fail "restore did not bring back the same config"
-    [ "$(project_volumes)" = "$vols_before" ] || fail "restore made other volumes: $(project_volumes | tr '\n' ' ') (was: $(echo "$vols_before" | tr '\n' ' ')))"
+    [ "$(project_volumes)" = "$vols_before" ] || fail "restore made other volumes: $(project_volumes | tr '\n' ' ') (was: $(echo "$vols_before" | tr '\n' ' '))"
     [ "$(read_marker "$vol")" = "$marker" ] || fail "the data volume did not come back from the backup"
     smoking-pi up
     wait_web

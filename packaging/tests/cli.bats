@@ -322,8 +322,15 @@ fail_docker_on() {
     [[ "$output" == *"restoring as the backup's, basic"* ]]
     [ "$(cat "$BATS_TEST_TMPDIR/edition")" = basic ]
     grep -q FROM=backup "$SMOKING_PI_ENV_FILE"
+    # A manifest without an edition adopts nothing and writes nothing.
+    rm "$SMOKING_PI_ENV_FILE" "$BATS_TEST_TMPDIR/edition"
+    sed -i '/^edition=/d' "$BATS_TEST_TMPDIR/bk/manifest"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --no-start
+    [ "$status" -eq 1 ]
+    [ ! -f "$BATS_TEST_TMPDIR/edition" ]
+    printf 'edition=basic\n' >> "$BATS_TEST_TMPDIR/bk/manifest"
     # A recorded edition is a choice: it is never overwritten.
-    rm "$SMOKING_PI_ENV_FILE"; echo pro > "$BATS_TEST_TMPDIR/edition"
+    rm -f "$SMOKING_PI_ENV_FILE"; echo pro > "$BATS_TEST_TMPDIR/edition"
     run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --no-start
     [ "$status" -eq 1 ]
     [ "$(cat "$BATS_TEST_TMPDIR/edition")" = pro ]
