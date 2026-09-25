@@ -34,9 +34,11 @@ version gets a matching GitHub release and git tag.
   boot.** The unit `Requires=docker.service`, so when Docker stops it stops
   too, and its `ExecStop` removes the containers. Nothing started it again
   when Docker came back: a Docker package upgrade that stops and then
-  starts the daemon left the monitor off. Proven on all five release hosts
-  (a restart recovered; a stop then start did not answer for 5 minutes on
-  any). The unit is now also wanted by `docker.service`, and the package
+  starts the daemon left the monitor off. `Requires=` carries a restart of
+  Docker over to the unit, which is why `systemctl restart docker`
+  recovered, but a stop is carried over and a later start is not: on all
+  five release hosts the stop then start left the web UI silent for 5
+  minutes. The unit is now also wanted by `docker.service`, and the package
   re-enables an already enabled unit on upgrade so existing installs get
   it. Every release now restarts Docker, and stops and starts it, under
   the running unit. A clone (like the reference Pi) has no unit; its
