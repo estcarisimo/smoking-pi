@@ -61,7 +61,7 @@ cd smoking-pi
 (cd editions/pro      && ./setup.sh --database clickhouse)  # Pro with ClickHouse instead of InfluxDB
 ```
 
-From a clone the images are built locally rather than pulled (on a release tag, that release's are pulled), and `./packaging/smoking-pi` is the same command without the package.
+From a clone the images are built locally rather than pulled (on a release tag, that release's are pulled), and `setup.sh` makes `smoking-pi` a command in every directory (a link to the checkout's `packaging/smoking-pi` in `/usr/local/bin`, or `~/.local/bin` without a passwordless sudo). A clone set up before that: `./packaging/smoking-pi link` once, or the next `upgrade` does it.
 
 **macOS, untested** (no Mac has run it yet — the formula exists, `Formula/smoking-pi.rb`; Docker Desktop required, and Pro's host-network measurements see Docker's Linux VM, not the Mac):
 
@@ -95,15 +95,18 @@ Upgrade path is `Basic → Standard → Pro`; `shared/scripts/migrate-to-edition
 
 ### Basic Usage
 
+From any directory (`sudo` first when installed by the package):
+
 ```bash
-# Where is everything, and what are the passwords?
-./show-passwords.sh                      # from any edition directory (URLs, status)
-./show-passwords.sh --show-secrets       # ...and the secret values themselves
+smoking-pi                               # what is installed, whether it runs, where to open it
+smoking-pi --help                        # every command
+smoking-pi passwords                     # URLs, usernames, health checks
+smoking-pi passwords --show-secrets      # ...and the secret values themselves
 
 # Container lifecycle
-../../shared/scripts/manage-containers.sh --action status --verbose
-../../shared/scripts/manage-containers.sh --action logs --service grafana
-../../shared/scripts/manage-containers.sh --action restart --edition pro
+smoking-pi status
+smoking-pi logs grafana
+smoking-pi restart
 
 # Plain Compose works too, from the edition directory
 docker compose ps
@@ -130,7 +133,7 @@ Pro ships an MCP server and a ready-made agent skill, so *"how was the week?"* i
 # Opt in by adding the profile to .env, so a later bare `docker compose up -d` keeps it
 sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=influxdb,mcp/' editions/pro/.env
 (cd editions/pro && docker compose up -d mcp-server)
-claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp   # token: ./show-passwords.sh --show-secrets
+claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp   # token: smoking-pi passwords --show-secrets
 
 # Install the OpenClaw skill so a Telegram chat can ask; re-run after any change (from the checkout root)
 ./shared/scripts/install-openclaw-skill.sh --reload

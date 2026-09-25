@@ -186,6 +186,6 @@ From a package, two levels, and neither touches the measurements:
 To delete the measurements, decide it explicitly, with the command still
 installed: `sudo smoking-pi purge` (the volumes, after typing the project
 name) or `sudo smoking-pi purge --config` (the env file and directories
-too), then `apt purge`. From a clone the same commands apply
-(`packaging/smoking-pi purge`), and there is nothing to `apt remove`.
+too), then `apt purge`. From a clone the same commands apply, without
+`sudo` (`smoking-pi purge`), and there is nothing to `apt remove`.
 

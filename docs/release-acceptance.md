@@ -65,7 +65,7 @@ the same commit.
    (apt reads the version from inside the file, not its name, so it still
    installs `X.Y.Z~rc.1`), then `sudo smoking-pi upgrade`. A clone (the
    reference Pi): `git checkout vX.Y.Z-rc.1`, then
-   `packaging/smoking-pi upgrade`, which pulls the published images instead
+   `smoking-pi upgrade`, which pulls the published images instead
    of building: a clone on a release tag runs that tag's images (`smoking-pi
    paths` shows which), with no variable to keep set. Start the 24-hour
    stability clock.
@@ -86,7 +86,7 @@ the same commit.
 - [ ] The candidate is a `vX.Y.Z-rc.N` tag on a merged `main` (every PR
   reviewed, CI green) whose Release run is green, with `[Unreleased]`
   converted into the dated section and `CITATION.cff` bumped.
-- [ ] `smoking-pi backup` completed (from a clone: `packaging/smoking-pi backup`) and
+- [ ] `smoking-pi backup` completed and
   the directory is somewhere other than the Pi's SD card. Note its path in
   the record.
 - [ ] `shared/scripts/acceptance-record.sh --tag X.Y.Z-rc.N` on the Pi,

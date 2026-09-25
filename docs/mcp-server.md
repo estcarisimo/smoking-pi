@@ -45,7 +45,7 @@ you an outage, are in
 | `CONFIG_API_URL` | `http://config-manager:5000` | config-manager base URL (`http://localhost:5000` from the host) |
 | `CONFIG_API_TOKEN` | *(unset)* | If set, sent as `Authorization: Bearer <token>` on every API request |
 | `INFLUX_URL` | `http://influxdb:8086` | InfluxDB 2.x URL (`http://localhost:8086` from the host) |
-| `INFLUX_TOKEN` | *(unset)* | InfluxDB API token (see `.env` / `./show-passwords.sh --show-secrets`) |
+| `INFLUX_TOKEN` | *(unset)* | InfluxDB API token (see `.env` / `smoking-pi passwords --show-secrets`) |
 | `INFLUX_ORG` | `smokeping` | InfluxDB organization |
 | `INFLUX_BUCKET` | `smokeping` | InfluxDB bucket |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` (streamable-http) |
@@ -275,7 +275,7 @@ python3 -m venv ~/.mcp-smokeping-venv
 
 Then register the server with Claude Code. Because the tools talk to
 containers from the host, point the URLs at localhost and pass the InfluxDB
-token (find it in `editions/pro/.env` or via `./show-passwords.sh --show-secrets`):
+token (find it in `editions/pro/.env` or via `smoking-pi passwords --show-secrets`):
 
 ```bash
 claude mcp add smokeping \
