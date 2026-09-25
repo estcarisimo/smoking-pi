@@ -125,6 +125,9 @@ if [ -n "$OLD_DEB" ]; then
     conffile_as_shipped "after the previous release's install"
     [ "$(cat /etc/smoking-pi/edition)" = "$START" ] || fail "the previous release did not record the edition"
     wait_web
+    # Enabled, as on a user's host: the upgrade must carry the unit's newer
+    # [Install] links (wanted by docker.service) to an already enabled unit.
+    [ ! -d /run/systemd/system ] || systemctl enable smoking-pi
     old_env_sum=$(sha256sum /etc/smoking-pi/env | cut -d' ' -f1)
     old_images=$(running_images); echo "$old_images" | sed 's/^/   running: /'
     echo "$old_images" | grep -q ":$old_tag\$" || fail "the previous release is not running the images it names"
@@ -225,6 +228,10 @@ if [ -n "$START" ]; then
     docker info >/dev/null || fail "no Docker daemon to start $START with"
     pin_images "$IMAGE_TAG"
     if [ -n "$OLD_DEB" ]; then
+        if [ -d /run/systemd/system ]; then
+            [ -e /etc/systemd/system/docker.service.wants/smoking-pi.service ] \
+                || fail "the package upgrade did not re-enable the unit as wanted by docker.service"
+        fi
         # The recorded edition and the secrets survived the package upgrade.
         [ "$(cat /etc/smoking-pi/edition)" = "$START" ] || fail "the upgrade lost the recorded edition"
         [ "$(sha256sum /etc/smoking-pi/env | cut -d' ' -f1)" = "$old_env_sum" ] || fail "the package upgrade touched the env file"

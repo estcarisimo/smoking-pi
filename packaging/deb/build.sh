@@ -95,6 +95,12 @@ if [ "$1" = configure ]; then
     mkdir -p /etc/smoking-pi/config /var/lib/smoking-pi/output
     chmod 0750 /etc/smoking-pi
     systemctl daemon-reload >/dev/null 2>&1 || true
+    # An enabled unit keeps the links of the [Install] section it was
+    # enabled with; re-enabling adds the ones a newer unit declares (it is
+    # also wanted by docker.service now) without starting or stopping it.
+    if systemctl is-enabled --quiet smoking-pi 2>/dev/null; then
+        systemctl reenable smoking-pi >/dev/null 2>&1 || true
+    fi
     echo "smoking-pi installed. Next: sudo smoking-pi install   (then: systemctl enable --now smoking-pi)"
 fi
 POST

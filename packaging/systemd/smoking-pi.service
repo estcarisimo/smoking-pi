@@ -27,4 +27,9 @@ TimeoutStartSec=infinity
 TimeoutStopSec=120
 
 [Install]
-WantedBy=multi-user.target
+# docker.service too: Requires= stops this unit when Docker stops -- and
+# ExecStop removes the containers -- but nothing started it again when
+# Docker came back. A package upgrade of Docker that stops and then starts
+# the daemon left the monitor down until the next boot. Wanted by Docker,
+# it starts whenever Docker does.
+WantedBy=multi-user.target docker.service
