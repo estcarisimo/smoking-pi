@@ -30,6 +30,17 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **A Docker upgrade could leave a packaged install down until the next
+  boot.** The unit `Requires=docker.service`, so when Docker stops it stops
+  too, and its `ExecStop` removes the containers. Nothing started it again
+  when Docker came back: a Docker package upgrade that stops and then
+  starts the daemon left the monitor off. Proven on all five release hosts
+  (a restart recovered; a stop then start did not answer for 5 minutes on
+  any). The unit is now also wanted by `docker.service`, and the package
+  re-enables an already enabled unit on upgrade so existing installs get
+  it. Every release now restarts Docker, and stops and starts it, under
+  the running unit. A clone (like the reference Pi) has no unit; its
+  containers come back by their `unless-stopped` policy.
 - **`restore` refused a Basic or Standard backup on a new card.** With
   only the package installed there is no edition recorded, so the command
   assumed Pro and answered "backup is of the basic edition, this is pro" —

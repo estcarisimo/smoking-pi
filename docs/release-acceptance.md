@@ -30,6 +30,7 @@ only what a release alone can show:
 | The `.deb` built from the tagged tree installs with each supported host's own `apt` | `release.yml`: `package`, `debian` (Debian 12/13 containers) |
 | It installs, starts Basic with those images, and upgrades from the previous release keeping its secrets | `release.yml`: `host` (Ubuntu VMs) |
 | Its data survives: `backup`, `purge --config` and `restore` onto a card with no edition recorded bring back the same secrets, config and data; `apt purge` and a reinstall bring back the same stack | `release.yml`: `host` (`check-package.sh`, steps 6b and 8) |
+| It comes back by itself when Docker is restarted, or stopped and started (a Docker package upgrade), under the enabled unit | `release.yml`: `host` (`check-package.sh`, step 6c) |
 | It works on a Raspberry Pi: the kernel, the Wi-Fi driver, the first hop, boot order, the measurements | this checklist, on the reference Pi |
 | It stays up: 24 hours with no restart and no unexplained gap | this checklist, *Stability* |
 | `latest` points at it — only after every install test passed | `release.yml`: `promote` |
