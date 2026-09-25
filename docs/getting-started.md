@@ -134,8 +134,9 @@ says that is not on your `PATH` yet). `setup.sh`, `smoking-pi install` and `upgr
 do the same, so a clone installed before `link` existed gets it at its
 next upgrade. It never shadows the package's `/usr/bin/smoking-pi`.
 
-From a clone the images are **built locally** rather than pulled, `sudo`
-is not needed (the env file is yours), and the state stays beside the
+From a clone the images are **built locally** rather than pulled (checked
+out on a release tag, `git checkout v2.13.0`, it pulls that release's),
+`sudo` is not needed (the env file is yours), and the state stays beside the
 edition's compose file instead of under `/etc`. Everything else in this
 guide is identical.
 

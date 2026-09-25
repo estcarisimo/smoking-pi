@@ -8,7 +8,8 @@
 # ghcr.io/estcarisimo/smoking-pi/<service>:<version>, and `pull_policy:
 # missing` makes Compose pull that name first and build from `build:` only
 # when the pull fails. SMOKING_PI_VERSION unset means `:dev`, a tag the
-# release workflow never publishes, so a clone builds what it checked out;
+# release workflow never publishes, so a clone builds what it checked out
+# (the smoking-pi command, in a clone on a release tag, sets that tag's);
 # the package sets SMOKING_PI_VERSION to its own version and pulls (the
 # release workflow builds arm64+amd64 on every `vX.Y.Z` tag). Point
 # SMOKING_PI_REGISTRY at a fork's registry to pull from there.

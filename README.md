@@ -61,7 +61,7 @@ cd smoking-pi
 (cd editions/pro      && ./setup.sh --database clickhouse)  # Pro with ClickHouse instead of InfluxDB
 ```
 
-From a clone the images are built locally rather than pulled, and `setup.sh` makes `smoking-pi` a command in every directory (a link to the checkout's `packaging/smoking-pi` in `/usr/local/bin`, or `~/.local/bin` without a passwordless sudo). A clone set up before that: `./packaging/smoking-pi link` once, or the next `upgrade` does it.
+From a clone the images are built locally rather than pulled (on a release tag, that release's are pulled), and `setup.sh` makes `smoking-pi` a command in every directory (a link to the checkout's `packaging/smoking-pi` in `/usr/local/bin`, or `~/.local/bin` without a passwordless sudo). A clone set up before that: `./packaging/smoking-pi link` once, or the next `upgrade` does it.
 
 **macOS, untested** (no Mac has run it yet — the formula exists, `Formula/smoking-pi.rb`; Docker Desktop required, and Pro's host-network measurements see Docker's Linux VM, not the Mac):
 

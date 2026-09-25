@@ -269,13 +269,22 @@ With `image:`, `build:` and `pull_policy: missing` together, Compose (v2.38
 verified) **pulls the name first and builds only when the pull fails**. That
 one rule gives both modes without a second compose file:
 
-- **A clone** leaves `SMOKING_PI_VERSION` unset → `:dev`, a tag the release
+- **A clone off a release tag** leaves `SMOKING_PI_VERSION` unset → `:dev`, a tag the release
   workflow refuses to publish → the pull fails → Compose builds from the
   checkout, as it always did. The built image is simply named
   `ghcr.io/estcarisimo/smoking-pi/<service>:dev` instead of `pro-<service>`.
   A `:latest` default would have done the opposite: a fresh clone would
   silently run the last release's code with a newer checkout, and only the
   doctor's `deployed-code-current` would notice.
+- **A clone checked out on a release tag** (`git checkout v2.13.0`): the
+  command takes the version from the tag → the published images of exactly
+  that code, as the package would. The final release wins over a candidate
+  on the same commit (`v2.13.0` over `v2.13.0-rc.3`). Before, only a
+  `SMOKING_PI_VERSION` typed in front of every command did this, and the
+  reference Pi — on `v2.13.0`, running the `:2.13.0` images — was one bare
+  `smoking-pi up` from recreating every container on stale local `:dev`
+  builds. `SMOKING_PI_VERSION=dev` builds the checkout whatever it is on.
+  Only the command does this; a bare `docker compose` still means `:dev`.
 - **The package**: in packaged mode the command takes `SMOKING_PI_VERSION`
   from the tree it installed (`/opt/smoking-pi/CITATION.cff`) → the pull
   succeeds → the first start is a download, not a 20-minute build on a
@@ -421,7 +430,7 @@ and the guards.
 | Command | What it does | Guard |
 | --- | --- | --- |
 | `install [--edition] [--database] [--profiles mcp,alerts,ai] [--yes]` | whiptail menus or flags; `setup.sh` (secrets, backend profile); the optional profiles appended to `COMPOSE_PROFILES` in the env file and started; passwords printed | refuses over an existing env file (`setup.sh` would rotate the secrets the volumes hold); validates edition, backend and profile names before touching anything; says which profiles need a key (`ai`: `ANTHROPIC_API_KEY`, `alerts`: `NOTIFY_MODE`) |
-| `upgrade [--skip-doctor]` | `SMOKING_PI_VERSION` set (the package): `compose pull` — the version changed with the package, so this fetches the release; unset (a clone): `compose build --pull`; then `up -d --remove-orphans`, then the doctor `--live` | refuses without an env file; prints the reminder that a PostgreSQL or InfluxDB major is a migration ([Upgrades](upgrades.md)) |
+| `upgrade [--skip-doctor]` | `SMOKING_PI_VERSION` set (the package, or a clone on a release tag): `compose pull` — the version changed with the package or the checkout, so this fetches the release (no such images: it stops and names `SMOKING_PI_VERSION=dev`); unset (a clone off any tag): `compose build --pull`; then `up -d --remove-orphans`, then the doctor `--live` | refuses without an env file; prints the reminder that a PostgreSQL or InfluxDB major is a migration ([Upgrades](upgrades.md)) |
 | `backup [DIR] [--online]` | `pg_dumpall` (the restore path for a PostgreSQL major); the volumes **the active services mount**, each as `volumes/<compose key>.tgz` (`postgres-data.tgz`, whatever Docker name it had), with the stack stopped (`--online` skips the stop; the tarballs may be inconsistent, and the manifest says so); the env file (mode 600) and the config directory; a `manifest` (edition, version, `online`, each key's Docker name) | lists the volumes with sizes before stopping; a `trap` restarts the stack if a tar fails; the directory is mode 700 (it holds every secret) |
 | `restore DIR [--force] [--no-start] [--yes]` | env file and config only where missing (`--force` overwrites); each tarball's **key** resolved to the volume *this* stack mounts for it — `pro_postgres-data`, or a fixed `name:` such as Standard's `smokeping-standard-postgres-data` — from the rendered config, never from the file name; keys no active service mounts are listed and skipped; `down`; contents replaced (emptied, then extracted; a failure is reported per volume and the rest continue, the stack stays stopped); `up` (`--no-start` leaves it stopped to inspect) | refuses a directory without a manifest or of another edition (a packaged host with no env file and no edition recorded, a new card, takes the backup's edition instead and records it); shows the plan and warns about an `--online` backup, then asks you to type the project name (as destructive as `purge`) |
 | `purge [--config] [--yes]` | `down`; `docker volume rm` of the active services' volumes; `--config` also the env file, config and output directories (what `install` needs gone to start over) | asks you to type the project name — `--yes` is for scripts |
