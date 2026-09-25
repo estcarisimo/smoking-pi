@@ -16,7 +16,8 @@ deliberately, using the procedures below.
 
 `smoking-pi backup` does the dump and the volume tarballs below in one go
 (with the stack stopped for a minute), `smoking-pi restore DIR` puts them
-back, and `smoking-pi upgrade` pulls or rebuilds, recreates what changed
+back (on a new card with only the package installed, it restores the edition
+the backup was taken from and records it), and `smoking-pi upgrade` pulls or rebuilds, recreates what changed
 and runs the doctor — [Packaging](packaging.md#the-command). The procedures
 below are what those commands do, for when you need one step of them.
 

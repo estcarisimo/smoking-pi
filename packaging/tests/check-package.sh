@@ -67,6 +67,15 @@ running_images() {
     local project; project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' /etc/smoking-pi/env)
     docker ps --filter "label=com.docker.compose.project=${project:-$START}" --format '{{.Image}}' | sort
 }
+project_volumes() {
+    # The stack's Docker volumes, by name, from Compose's own label (the
+    # fixed `name:`s -- smokeping-basic-data -- carry it too).
+    local project; project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' /etc/smoking-pi/env 2>/dev/null)
+    docker volume ls -q --filter "label=com.docker.compose.project=${project:-$START}" | sort
+}
+data_volume() { project_volumes | grep -- '-data$' | grep -v postgres | head -1; }
+read_marker() { docker run --rm -v "$1:/v:ro" alpine:3.20 cat /v/.check-package-marker 2>/dev/null || true; }
+config_sum() { (cd "$(smoking-pi paths | sed -n 's/^config: *//p')" && find . -type f | sort | xargs -r sha256sum) | sha256sum | cut -d' ' -f1; }
 image_tag() { smoking-pi paths | sed -n 's|^images: .*/<service>:\([^ ]*\).*|\1|p'; }
 pin_images() {
     # A throwaway build: its images carry the git tag, not a Debian
@@ -231,6 +240,41 @@ if [ -n "$START" ]; then
         wait_web
     fi
     smoking-pi status
+
+    # 6b. Recovery, on the real stack: what a dead SD card costs. A marker
+    # in the data volume, `backup` (offline: down, tar, up), then `purge
+    # --config` -- volumes, env file and config gone, a card with only the
+    # package on it -- then `restore` from the backup. The secrets, the
+    # config and the marker must come back, and the web UI must answer.
+    # Until now backup/restore ran only against a stubbed docker (cli.bats).
+    vol=$(data_volume); [ -n "$vol" ] || fail "no data volume among: $(project_volumes | tr '\n' ' ')"
+    marker="check-package $(date -u +%s) $RANDOM"
+    docker run --rm -v "$vol:/v" alpine:3.20 sh -c "echo '$marker' > /v/.check-package-marker"
+    env_sum=$(sha256sum /etc/smoking-pi/env | cut -d' ' -f1); cfg_sum=$(config_sum)
+    vols_before=$(project_volumes)
+    backup_dir="$(mktemp -d)/backup"
+    smoking-pi backup "$backup_dir"
+    grep -qx "edition=$START" "$backup_dir/manifest" || fail "the backup's manifest does not name the edition"
+    [ -n "$(ls "$backup_dir"/volumes/*.tgz 2>/dev/null)" ] || fail "the backup holds no volume"
+    [ -n "$(running_images)" ] || fail "backup left the stack stopped"
+    wait_web
+    smoking-pi purge --config --yes
+    [ -z "$(project_volumes)" ] || fail "purge left volumes: $(project_volumes | tr '\n' ' ')"
+    [ ! -e /etc/smoking-pi/env ] || fail "purge --config left the env file"
+    # A new card has no recorded edition either: restore must take the
+    # backup's, not refuse a Basic backup as "this is pro".
+    rm -f /etc/smoking-pi/edition
+    smoking-pi restore "$backup_dir" --yes --no-start
+    [ "$(cat /etc/smoking-pi/edition 2>/dev/null)" = "$START" ] || fail "restore did not record the backup's edition"
+    [ "$(sha256sum /etc/smoking-pi/env | cut -d' ' -f1)" = "$env_sum" ] || fail "restore did not bring back the same env file"
+    [ "$(config_sum)" = "$cfg_sum" ] || fail "restore did not bring back the same config"
+    [ "$(project_volumes)" = "$vols_before" ] || fail "restore made other volumes: $(project_volumes | tr '\n' ' ') (was: $(echo "$vols_before" | tr '\n' ' ')))"
+    [ "$(read_marker "$vol")" = "$marker" ] || fail "the data volume did not come back from the backup"
+    smoking-pi up
+    wait_web
+    echo "recovery OK: backup, purge --config, restore; secrets, config and data are back"
+    rm -rf "$(dirname "$backup_dir")"
+
     if [ -d /run/systemd/system ]; then
         systemctl enable --now smoking-pi || fail "the unit did not start"
         systemctl is-active smoking-pi || fail "the unit is not active"
@@ -260,4 +304,21 @@ apt-get purge -y -qq smoking-pi 2>&1 | grep -i 'kept /etc/smoking-pi/env' || fai
 [ ! -e /var/lib/smoking-pi ] || fail "purge left /var/lib/smoking-pi"
 [ -f /etc/smoking-pi/env ] || fail "purge deleted the env file (the volumes' credentials)"
 [ "$(docker volume ls -q 2>/dev/null | sort || true)" = "$volumes_before" ] || fail "purge touched the Docker volumes"
+# 8. Reinstall after the purge, as postrm's message tells the user to:
+# the kept env file and volumes must bring the same stack back, with the
+# same secrets and the same data, without `install` (which refuses).
+if [ -n "$START" ]; then
+    apt-get install -y -qq --no-install-recommends --allow-downgrades "$DEB" >/tmp/check-package.apt-again.log 2>&1 \
+        || { tail -20 /tmp/check-package.apt-again.log; fail "apt could not reinstall the package after the purge"; }
+    [ "$(cat /etc/smoking-pi/edition)" = "$START" ] || fail "the purge lost the recorded edition"
+    [ "$(sha256sum /etc/smoking-pi/env | cut -d' ' -f1)" = "$env_sum" ] || fail "the env file changed across remove, purge and reinstall"
+    pin_images "$IMAGE_TAG"
+    smoking-pi up
+    wait_web
+    [ "$(read_marker "$vol")" = "$marker" ] || fail "the data did not survive apt purge and a reinstall"
+    smoking-pi down
+    pin_images ""
+    apt-get purge -y -qq smoking-pi >/dev/null
+    echo "reinstall OK: the kept env file and volumes brought the same stack back"
+fi
 echo "== package OK on $PRETTY_NAME ($(dpkg --print-architecture)): $(echo "$picked" | tr -s ' \n' ' ')"

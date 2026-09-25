@@ -46,6 +46,10 @@ EDITION_FILE="${SMOKING_PI_ENV_FILE:+$(dirname "$SMOKING_PI_ENV_FILE")/edition}"
 if [ -z "${SMOKING_PI_EDITION:-}" ] && [ -n "$EDITION_FILE" ] && [ -f "$EDITION_FILE" ]; then
     SMOKING_PI_EDITION="$(head -n1 "$EDITION_FILE")"
 fi
+# Nobody chose one (no variable, no state file): `restore` onto a fresh
+# card takes the backup's edition instead of refusing it as "not pro".
+EDITION_DEFAULTED=0
+[ -n "${SMOKING_PI_EDITION:-}" ] || EDITION_DEFAULTED=1
 SMOKING_PI_EDITION="${SMOKING_PI_EDITION:-pro}"
 EDITION_DIR="$SMOKING_PI_HOME/editions/$SMOKING_PI_EDITION"
 # The version of the installed tree, which is also its images' tag. A
@@ -1399,9 +1403,18 @@ cmd_restore() {
         esac
     done
     [ -n "$dir" ] && [ -f "$dir/manifest" ] || { echo "usage: smoking-pi restore DIR (a directory written by 'smoking-pi backup')" >&2; exit 2; }
-    need_edition
     dir="$(cd "$dir" && pwd)"
     local b_edition; b_edition="$(sed -n 's/^edition=//p' "$dir/manifest")"
+    # A fresh card (packaged, nothing installed, no edition recorded) is
+    # restored as the edition it was backed up from, and records it the way
+    # `install` does, so the unit starts that one.
+    if [ "$EDITION_DEFAULTED" = 1 ] && [ "${SMOKING_PI_PACKAGED:-}" = 1 ] && [ -n "$EDITION_FILE" ] \
+        && [ ! -f "$ENV_FILE" ] && [ -d "$SMOKING_PI_HOME/editions/$b_edition" ]; then
+        SMOKING_PI_EDITION="$b_edition"; EDITION_DIR="$SMOKING_PI_HOME/editions/$b_edition"
+        mkdir -p "$(dirname "$EDITION_FILE")" && printf '%s\n' "$b_edition" > "$EDITION_FILE"
+        echo "  no edition recorded here: restoring as the backup's, $b_edition"
+    fi
+    need_edition
     [ "$b_edition" = "$SMOKING_PI_EDITION" ] || { echo "backup is of the $b_edition edition, this is $SMOKING_PI_EDITION" >&2; exit 1; }
     # The env file first: without it Compose cannot even name the project.
     if [ -f "$ENV_FILE" ] && [ "$force" = 0 ]; then
