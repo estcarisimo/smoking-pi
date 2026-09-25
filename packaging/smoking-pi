@@ -89,7 +89,7 @@ usage() {
     cat <<'USAGE'
 smoking-pi — SmokePing on a Raspberry Pi, with the trimmings
 
-Usage: smoking-pi <command> [args]
+Usage: smoking-pi <command> [args]   (no command: what is installed and running)
 
   install [--edition basic|standard|pro] [--database influxdb|clickhouse]
           [--profiles mcp,alerts,ai,dns] [--yes]
@@ -166,6 +166,10 @@ Usage: smoking-pi <command> [args]
                      'disable' asks you to point the router back first.
                      docs/dns-observer.md.
   doctor [--live]    Instrumentation doctor (needs the doctor package).
+  link               From a clone: make 'smoking-pi' a command in every directory
+                     (a link in /usr/local/bin, else ~/.local/bin). setup.sh and
+                     'upgrade' do it already; the package and Homebrew install
+                     their own.
   paths              Where things are (home, edition, env file, config, output, images, data).
   version            Installed version.
 
@@ -566,6 +570,9 @@ cmd_install() {
     echo "Your passwords are set but not printed above -- an install transcript"
     echo "is the last place they should live. To read them, on this machine:"
     echo "  smoking-pi passwords --show-secrets"
+    # From a clone, the command those lines name must exist by name
+    # (setup.sh links it too; this one is for whoever skipped it).
+    link_cli --quiet
     echo
     # Last, so it is what is on screen when the install finishes. An install
     # whose web page is still starting is not a failed install.
@@ -1310,6 +1317,110 @@ cmd_openclaw() {
     echo "which asks a question and checks the server's log, not the answer."
 }
 
+link_cli() {
+    # A clone's command on PATH, so it is `smoking-pi passwords` from any
+    # directory rather than ~/smoking-pi/packaging/smoking-pi. The .deb
+    # installs /usr/bin/smoking-pi and Homebrew its own wrapper; this is
+    # only for a checkout. A symlink, not a copy: the command finds its home
+    # through readlink -f, and an upgrade of the checkout upgrades it.
+    # /usr/local/bin is on every PATH (sudo's secure_path included) but
+    # needs root; ~/.local/bin does not, and Debian's ~/.profile adds it at
+    # login. --quiet: only say something when it changed or could not.
+    local quiet=0 self found dir target
+    [ "${1:-}" = --quiet ] && quiet=1
+    self="$SMOKING_PI_HOME/packaging/smoking-pi"
+    if [ ! -e "$SMOKING_PI_HOME/.git" ] || [ ! -x "$self" ] || [ "${SMOKING_PI_PACKAGED:-0}" = 1 ]; then
+        [ "$quiet" = 1 ] || echo "$SMOKING_PI_HOME is not a clone: its package put smoking-pi on the PATH."
+        return 0
+    fi
+    found="$(command -v smoking-pi 2>/dev/null || true)"
+    if [ -n "$found" ] && [ "$(readlink -f "$found")" = "$(readlink -f "$self")" ]; then
+        [ "$quiet" = 1 ] || echo "smoking-pi is a command already: $found -> $self"
+        return 0
+    fi
+    # Another smoking-pi that is not a link to a checkout is the package's
+    # (or Homebrew's): shadowing it from /usr/local/bin would run this
+    # checkout's code against the package's state. Said even under
+    # --quiet: it is a "could not", and `smoking-pi` there is not this one.
+    if [ -n "$found" ] && ! { [ -L "$found" ] && [[ "$(readlink "$found")" == */packaging/smoking-pi ]]; }; then
+        echo "Not linking: 'smoking-pi' is already $found (installed by a package). This checkout runs as $self."
+        return 0
+    fi
+    for dir in ${SMOKING_PI_BIN_DIRS:-/usr/local/bin $HOME/.local/bin}; do
+        target="$dir/smoking-pi"
+        # Never replace a real file there, only a link a checkout made.
+        if [ -e "$target" ] && [ ! -L "$target" ]; then continue; fi
+        # Ours to write, else root's through a sudo that asks no password
+        # (setup.sh may run unattended); a prompt would be worse than
+        # ~/.local/bin.
+        if { mkdir -p "$dir" 2>/dev/null && [ -w "$dir" ] && ln -sfn "$self" "$target" 2>/dev/null; } \
+            || { [ -d "$dir" ] && sudo -n ln -sfn "$self" "$target" 2>/dev/null; }; then
+            echo "smoking-pi is now a command: $target -> $self"
+            if [ "$(command -v smoking-pi 2>/dev/null)" != "$target" ]; then
+                case ":$PATH:" in
+                    *":$dir:"*) ;;
+                    *) echo "  $dir is not on this shell's PATH yet: open a new terminal (or log in again)." ;;
+                esac
+            fi
+            return 0
+        fi
+    done
+    echo "Could not link smoking-pi into ${SMOKING_PI_BIN_DIRS:-/usr/local/bin or ~/.local/bin}; run it as $self," >&2
+    echo "or: sudo ln -s $self /usr/local/bin/smoking-pi" >&2
+    return 0
+}
+
+brief() {
+    # `smoking-pi` alone: what is here and the handful of commands a person
+    # actually needs, not the full reference (that is --help).
+    local v running total=0
+    v="$(installed_version)"
+    echo "smoking-pi ${v:-unknown} -- SmokePing network monitoring"
+    echo
+    if [ ! -d "$EDITION_DIR" ]; then
+        echo "No $SMOKING_PI_EDITION edition at $EDITION_DIR."
+    elif [ -e "$ENV_FILE" ] && [ ! -r "$ENV_FILE" ]; then
+        # Packaged: /etc/smoking-pi is root's, secrets included.
+        echo "Installed ($SMOKING_PI_EDITION edition). Run it with sudo to see its state: sudo smoking-pi"
+    elif [ ! -f "$ENV_FILE" ]; then
+        echo "Not installed on this machine yet. Start with:"
+        echo "  smoking-pi install        choose the edition, then start it"
+    else
+        # `config` needs no daemon, `ps` does: only a ps that answered counts.
+        if running="$(compose ps --status running --services 2>/dev/null)"; then
+            running="$(printf '%s' "$running" | grep -c . || true)"
+            total="$(compose config --services 2>/dev/null | grep -c . || true)"
+            echo "Edition:  $SMOKING_PI_EDITION, $running of $total services running"
+        else
+            echo "Edition:  $SMOKING_PI_EDITION (Docker did not answer: is it running, and may you use it?)"
+        fi
+        case "$SMOKING_PI_EDITION" in
+            basic) echo "Open:     http://$(host_address):$(env_value SMOKEPING_PORT | grep . || echo 8080)/" ;;
+            standard) echo "Open:     http://$(host_address):$(env_value WEB_ADMIN_PORT | grep . || echo 8080)/" ;;
+            *) echo "Open:     http://$(host_address):8080/   (Grafana on :3000)" ;;
+        esac
+    fi
+    cat <<'COMMON'
+
+Common commands:
+  smoking-pi status                   the containers and their state
+  smoking-pi url                      what to open in a browser, and whether it answers
+  smoking-pi passwords                usernames and health checks (--show-secrets: the values)
+  smoking-pi doctor --live            is it measuring?
+  smoking-pi logs [service]           follow the logs
+  smoking-pi upgrade                  after a new release
+  smoking-pi backup                   everything, to a directory
+
+Every command and option: smoking-pi --help
+COMMON
+    # Run by its path from a clone that is not on the PATH yet.
+    if [ -e "$SMOKING_PI_HOME/.git" ] && [ "${SMOKING_PI_PACKAGED:-0}" != 1 ] \
+        && [ "$(readlink -f "$(command -v smoking-pi 2>/dev/null || echo /nonexistent)")" != "$(readlink -f "$SMOKING_PI_HOME/packaging/smoking-pi")" ]; then
+        echo
+        echo "Tip: 'smoking-pi' is not a command in every directory yet: $SMOKING_PI_HOME/packaging/smoking-pi link"
+    fi
+}
+
 cmd_upgrade() {
     local doctor=1
     while [ $# -gt 0 ]; do
@@ -1334,6 +1445,8 @@ cmd_upgrade() {
     # Only the services whose image or config changed are recreated.
     compose up -d --remove-orphans
     remove_disabled
+    # A clone installed before setup.sh linked the command gets it here.
+    link_cli --quiet
     # An `if`, not `[ ] &&`: as the function's last statement a false test
     # would become its exit status, and --skip-doctor would "fail".
     if [ "$doctor" = 1 ]; then run_doctor --live; fi
@@ -1659,6 +1772,8 @@ case "${1:-}" in
         echo "images:   ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/<service>:${SMOKING_PI_VERSION:-dev}$([ -n "${SMOKING_PI_VERSION:-}" ] || echo ' (dev: built from home, never pulled)')"
         echo "data:     docker volumes ${SMOKING_PI_EDITION}_* (docker volume ls)" ;;
     version) v="$(installed_version)"; echo "${v:-unknown}" ;;
-    -h|--help|help|"") usage ;;
+    link) shift; link_cli "$@" ;;
+    "") brief ;;
+    -h|--help|help) usage ;;
     *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
 esac

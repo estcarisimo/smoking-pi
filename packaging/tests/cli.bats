@@ -1129,6 +1129,139 @@ STUB
     grep -qx 'docker rm pro-alerter-1' "$DOCKER_LOG"
 }
 
+# `smoking-pi` alone, and `link`: the command by name from any directory.
+# A clone of the stub tree: the command copied into it and run from there,
+# so its home is the tree it sits in, as in a real checkout.
+stub_clone() {
+    mkdir -p "$STUB_HOME/.git" "$STUB_HOME/packaging"
+    cp "$CLI" "$STUB_HOME/packaging/smoking-pi"
+    unset SMOKING_PI_HOME
+    # No sudo that could reach a real /usr/local/bin.
+    printf '#!/bin/sh\nexit 1\n' > "$BATS_TEST_TMPDIR/bin/sudo"; chmod +x "$BATS_TEST_TMPDIR/bin/sudo"
+    export SMOKING_PI_BIN_DIRS="$BATS_TEST_TMPDIR/sysbin $BATS_TEST_TMPDIR/userbin"
+    mkdir -p "$BATS_TEST_TMPDIR/sysbin"
+}
+
+@test "no command: version, edition, how many services run, where to open it, the common commands" {
+    run "$CLI"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"smoking-pi 9.9.9"* ]]
+    [[ "$output" == *"Edition:  pro, 1 of 3 services running"* ]]
+    [[ "$output" == *"Open:     http://192.0.2.10:8080/"* ]]
+    [[ "$output" == *"smoking-pi passwords"* ]]
+    [[ "$output" == *"smoking-pi --help"* ]]
+    # Short: not the reference.
+    [[ "$output" != *"Usage: smoking-pi <command>"* ]]
+}
+
+@test "no command, nothing installed: says so and names install" {
+    rm "$SMOKING_PI_ENV_FILE"
+    run "$CLI"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Not installed on this machine yet"* ]]
+    [[ "$output" == *"smoking-pi install"* ]]
+}
+
+@test "no command, Docker not answering: says so rather than 0 of N running" {
+    fail_docker_on "ps --status running"
+    run "$CLI"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Docker did not answer"* ]]
+    [[ "$output" != *"services running"* ]]
+}
+
+@test "--help is still the full reference" {
+    run "$CLI" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Usage: smoking-pi <command>"* ]]
+    [[ "$output" == *"  link "* ]]
+}
+
+@test "link from a clone: the first writable directory gets a symlink to the checkout's command" {
+    stub_clone
+    run "$STUB_HOME/packaging/smoking-pi" link
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"smoking-pi is now a command: $BATS_TEST_TMPDIR/sysbin/smoking-pi"* ]]
+    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/packaging/smoking-pi" ]
+    # Not on this shell's PATH: it says what to do.
+    [[ "$output" == *"open a new terminal"* ]]
+    # And the link works from anywhere, finding its home through it.
+    cd "$BATS_TEST_TMPDIR"
+    run "$BATS_TEST_TMPDIR/sysbin/smoking-pi" paths
+    [[ "$output" == *"home:     $STUB_HOME"* ]]
+}
+
+@test "link without root and without a passwordless sudo falls back to the user's directory" {
+    stub_clone
+    chmod 555 "$BATS_TEST_TMPDIR/sysbin"
+    [ -w "$BATS_TEST_TMPDIR/sysbin" ] && skip "running as root: every directory is writable"
+    run "$STUB_HOME/packaging/smoking-pi" link
+    [ "$status" -eq 0 ]
+    [ ! -e "$BATS_TEST_TMPDIR/sysbin/smoking-pi" ]
+    [ "$(readlink "$BATS_TEST_TMPDIR/userbin/smoking-pi")" = "$STUB_HOME/packaging/smoking-pi" ]
+}
+
+@test "link when already on the PATH: nothing to do; --quiet says nothing" {
+    stub_clone
+    ln -s "$STUB_HOME/packaging/smoking-pi" "$BATS_TEST_TMPDIR/sysbin/smoking-pi"
+    export PATH="$BATS_TEST_TMPDIR/sysbin:$PATH"
+    run "$STUB_HOME/packaging/smoking-pi" link
+    [[ "$output" == *"already"* ]]
+    run "$STUB_HOME/packaging/smoking-pi" link --quiet
+    [ -z "$output" ]
+}
+
+@test "link never shadows a package's smoking-pi, and never replaces a real file" {
+    stub_clone
+    mkdir -p "$BATS_TEST_TMPDIR/usr/bin"
+    printf '#!/bin/sh\n' > "$BATS_TEST_TMPDIR/usr/bin/smoking-pi"; chmod +x "$BATS_TEST_TMPDIR/usr/bin/smoking-pi"
+    export PATH="$BATS_TEST_TMPDIR/usr/bin:$PATH"
+    run "$STUB_HOME/packaging/smoking-pi" link
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Not linking"* ]]
+    [ ! -e "$BATS_TEST_TMPDIR/sysbin/smoking-pi" ]
+}
+
+@test "link repoints a link another checkout left, and says so" {
+    stub_clone
+    ln -s /elsewhere/packaging/smoking-pi "$BATS_TEST_TMPDIR/sysbin/smoking-pi"
+    export PATH="$BATS_TEST_TMPDIR/sysbin:$PATH"
+    run "$STUB_HOME/packaging/smoking-pi" link
+    [ "$status" -eq 0 ]
+    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/packaging/smoking-pi" ]
+}
+
+@test "link outside a clone (the package's tree) does nothing" {
+    mkdir -p "$STUB_HOME/packaging" && cp "$CLI" "$STUB_HOME/packaging/smoking-pi"
+    export SMOKING_PI_BIN_DIRS="$BATS_TEST_TMPDIR/sysbin"; mkdir -p "$BATS_TEST_TMPDIR/sysbin"
+    run "$CLI" link
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"not a clone"* ]]
+    [ ! -e "$BATS_TEST_TMPDIR/sysbin/smoking-pi" ]
+}
+
+@test "no command from a clone that is not on the PATH: the tip names link" {
+    stub_clone
+    run "$STUB_HOME/packaging/smoking-pi"
+    [[ "$output" == *"packaging/smoking-pi link"* ]]
+}
+
+@test "install from a clone links the command, so the names it prints work in every directory" {
+    stub_clone
+    rm "$SMOKING_PI_ENV_FILE"
+    run "$STUB_HOME/packaging/smoking-pi" install --edition pro --database influxdb --yes
+    [ "$status" -eq 0 ]
+    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/packaging/smoking-pi" ]
+    [[ "$output" == *"smoking-pi is now a command"* ]]
+}
+
+@test "every edition's setup.sh links the command (the path the README gives a clone)" {
+    for ed in basic standard pro; do
+        grep -q 'packaging/smoking-pi" link --quiet' "$REPO/editions/$ed/setup.sh" \
+            || { echo "editions/$ed/setup.sh does not run smoking-pi link"; return 1; }
+    done
+}
+
 # --- dns: the DNS observer --------------------------------------------------------
 
 dns_setup() {

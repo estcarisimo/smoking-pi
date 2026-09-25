@@ -220,14 +220,17 @@ elif [ "$DATABASE" = "clickhouse" ]; then
 fi
 
 echo ""
+# The command, on the PATH from any directory (a clone only; the package
+# and Homebrew install their own). Never fails the setup.
+SMOKING_PI_HOME="$ROOT_DIR" SMOKING_PI_EDITION=pro "$ROOT_DIR/packaging/smoking-pi" link --quiet || true
+echo ""
 echo -e "${CYAN}🔐 Credentials:${NC}"
-echo -e "  Run: ${YELLOW}./show-passwords.sh${NC} for URLs and status"
+echo -e "  Run: ${YELLOW}smoking-pi passwords${NC} for URLs and status"
 echo -e "  Add ${YELLOW}--show-secrets${NC} to display the passwords and tokens themselves"
-echo -e "  Or check the env file directly: $ENV_FILE"
 echo ""
 echo -e "${CYAN}💡 Tips:${NC}"
-echo -e "  - View logs: docker compose ${COMPOSE_ARGS[*]} logs"
-echo -e "  - Stop services: docker compose ${COMPOSE_ARGS[*]} down"
-echo -e "  - View passwords: ./show-passwords.sh --show-secrets"
-echo -e "  - Verify PostgreSQL: ./verify-postgres.sh"
-echo -e "  - Access Grafana dashboards for advanced monitoring"
+echo -e "  - What is here, from any directory: smoking-pi"
+echo -e "  - The address to open: smoking-pi url"
+echo -e "  - View logs: smoking-pi logs [service]"
+echo -e "  - Stop services: smoking-pi down"
+echo -e "  - Is it measuring: smoking-pi doctor --live"
