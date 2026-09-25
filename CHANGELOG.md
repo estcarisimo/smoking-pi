@@ -30,6 +30,20 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **`restore` refused a Basic or Standard backup on a new card.** With
+  only the package installed there is no edition recorded, so the command
+  assumed Pro and answered "backup is of the basic edition, this is pro" —
+  exactly when the backup was needed. A packaged host with no env file and
+  no recorded edition now restores the backup's edition and records it, the
+  way `install` does. An installed host still refuses another edition's
+  backup, and a recorded edition is never overwritten.
+- **Recovery was never tested on a real stack.** `backup`, `restore` and
+  `purge` ran only against a stubbed docker. Every release now runs, on each
+  Ubuntu host, a marker in the data volume, `backup`, `purge --config`, the
+  edition file removed (a new card), `restore`: the same env file, config
+  and marker must come back and the web UI answer. After `apt purge`, it
+  reinstalls the package and starts the kept env file and volumes: the same
+  secrets and data, as the purge message promises.
 - **The assistant could not see the HTTP and TCP targets, and a wrong
   target name looked like missing data.** `get_latency_stats` read only the
   ICMP and DNS measurements, so the 12 `*_h1/_h2/_h3` and `*_tcp443`

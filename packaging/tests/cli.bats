@@ -304,6 +304,38 @@ fail_docker_on() {
     [[ "$output" == *"backup is of the basic edition"* ]]
 }
 
+@test "restore onto a fresh packaged card takes the backup's edition and records it; an installed one still refuses" {
+    mkdir -p "$BATS_TEST_TMPDIR/bk/volumes"
+    printf 'edition=basic\nproject=basic\nonline=0\n' > "$BATS_TEST_TMPDIR/bk/manifest"
+    printf 'COMPOSE_PROFILES=\nFROM=backup\n' > "$BATS_TEST_TMPDIR/bk/env"
+    touch "$BATS_TEST_TMPDIR/bk/volumes/smokeping-config.tgz"
+    export SMOKING_PI_PACKAGED=1
+    # Installed Pro (an env file, no recorded edition): a Basic backup is refused.
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --no-start
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"backup is of the basic edition, this is pro"* ]]
+    [ ! -f "$BATS_TEST_TMPDIR/edition" ]
+    # A fresh card: no env file, no edition recorded.
+    rm "$SMOKING_PI_ENV_FILE"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --no-start
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"restoring as the backup's, basic"* ]]
+    [ "$(cat "$BATS_TEST_TMPDIR/edition")" = basic ]
+    grep -q FROM=backup "$SMOKING_PI_ENV_FILE"
+    # A manifest without an edition adopts nothing and writes nothing.
+    rm "$SMOKING_PI_ENV_FILE" "$BATS_TEST_TMPDIR/edition"
+    sed -i '/^edition=/d' "$BATS_TEST_TMPDIR/bk/manifest"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --no-start
+    [ "$status" -eq 1 ]
+    [ ! -f "$BATS_TEST_TMPDIR/edition" ]
+    printf 'edition=basic\n' >> "$BATS_TEST_TMPDIR/bk/manifest"
+    # A recorded edition is a choice: it is never overwritten.
+    rm -f "$SMOKING_PI_ENV_FILE"; echo pro > "$BATS_TEST_TMPDIR/edition"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --no-start
+    [ "$status" -eq 1 ]
+    [ "$(cat "$BATS_TEST_TMPDIR/edition")" = pro ]
+}
+
 make_backup_dir() {
     # A backup taken under another project name, with a fixed-name volume
     # and a key this stack does not mount (clickhouse-data).
