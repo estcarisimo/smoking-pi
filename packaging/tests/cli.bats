@@ -1295,3 +1295,11 @@ STUB
     [[ "$output" == *"did not start answering"* ]]
     [[ "$output" != *"primary:"* ]]
 }
+
+@test "packaged, a failed pull names the network, not a build from /opt" {
+    fail_docker_on " pull"
+    SMOKING_PI_VERSION=2.12.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"check the network"* ]]
+    [[ "$output" != *"SMOKING_PI_VERSION=dev"* ]]
+}
