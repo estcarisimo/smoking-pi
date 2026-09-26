@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`tools/dns-explore`: how diverse, concentrated and stable is what the
+  house resolves.** This is iteration 0 of automatic target selection from the DNS
+  observer. It reads the observer's query log and reports at five aggregation levels: hostname,
+  service (eTLD+1), CDN (end of the CNAME chain), origin AS, and AS
+  organisation. It uses three scores: queries, uncached queries, and hours present.
+  For each, it gives richness, HHI and its effective number, Shannon's
+  effective number, and coverage of the top-K for several K. It also shows how many
+  CDNs and ASes sit behind the top-K services, which is what coalescing
+  hides, and the day-over-day churn of the top-K. The Pi's own traffic is
+  left out: it resolves through the router, so it reaches the
+  observer too. The tool changes nothing. The design's thresholds are
+  meant to come from its numbers after a week of data. CI runs its tests
+  with the modules'.
+
 ## [2.13.3] — 2026-09-26
 
 A test for the DNS observer's setup, and a canary routers forward.
