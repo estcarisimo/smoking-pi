@@ -31,7 +31,7 @@ until the router points at it, it changes nothing about the house's DNS.
 
 ## Setup guide
 
-About 20 minutes, most of it waiting for the check in step 6. You need the
+About 10 minutes. You need the
 Pro edition running and the router's admin app or page. Keep a phone with
 mobile data at hand: if something goes wrong, it is how you reach the
 router's settings to undo step 5, if your router is managed from an app.
@@ -79,7 +79,9 @@ dig @192.168.1.10 example.com
 ```
 
 `status: NOERROR` and an address in the ANSWER SECTION mean the Pi
-resolves. A timeout means the router
+resolves. `smoking-pi dns test` on the Pi checks the same thing from the Pi
+side (its first three lines; the router lines fail until step 5, which is
+expected here). A timeout means the router
 must not point at it yet; see
 [When the observer is not getting information](#when-the-observer-is-not-getting-information)
 and `smoking-pi logs dns-observer`.
@@ -103,7 +105,9 @@ secondary: an incomplete record beats a house without DNS.
 Find the setting for **the DNS servers the router itself uses**. It is
 often called "custom DNS", "DNS server" under the WAN or Internet settings,
 or "upstream" or "forwarders". Enter the primary and secondary from step 4
-and save.
+and save. Then **leave the settings and open them again**: some router apps
+and pages keep an edit on screen that was never applied, and the first sign
+is the check in step 6 failing.
 
 This works on routers that answer the house's DNS themselves (a DNS proxy
 or forwarder), which is what most home routers do: their devices get the
@@ -120,20 +124,70 @@ only by default. Pointing the IPv6 fields at the Pi takes
 prefixes do change, so the simplest choice is to leave the IPv6 fields as
 they are.
 
-### 6. Confirm it took effect
+### 6. Test it
+
+Right after saving the router setting, on the Pi:
 
 ```bash
-smoking-pi dns status
+smoking-pi dns test
 ```
 
-It reads `observing` as soon as the first query arrives, usually within
-seconds. The canary line shows one seen within about 5 minutes. Only the canary proves the router forwards here: the observer asks the
-router for a unique name every 5 minutes, and seeing that name arrive is the
-evidence. The busiest names appear under the status as the house uses the
-network.
+It checks each link of the path in a few seconds, in order:
 
-If it reads `not_receiving` after 20 minutes, the router is not forwarding
-to the Pi. Check the setting saved, and that the address matches step 1.
+```text
+OK    Pi DNS server answers: 127.0.0.1:53
+OK    answers on the LAN: 192.168.1.10:53
+OK    upstreams answer: a unique name, NXDOMAIN in 165 ms
+OK    router answers: a unique name via 192.168.1.1, NXDOMAIN in 169 ms
+OK    router forwards to the Pi: 10/10 test names asked of 192.168.1.1 arrived here
+
+The DNS path works: devices -> router -> Pi -> upstreams.
+```
+
+The last line is the one that matters. The Pi asks the router for ten
+unique names that nobody else could ask, and counts how many arrive in its
+own query log. A router that forwards here passes them all on; one that does
+not, passes none. Every name the test asks is unique and under the canary
+domain, so no cache holds it (`NXDOMAIN` is the upstream's answer) and the
+observer does not count it as the house's traffic: running the test never
+turns `not_receiving` into `observing`. The command exits 1 when a check
+failed, so a script can use it.
+
+| Failing line | What it means | What to do |
+|---|---|---|
+| `Pi DNS server answers` | AdGuard is not answering on the Pi | `smoking-pi dns status`; `smoking-pi logs dns-observer` |
+| `answers on the LAN` | It answers on loopback only: the router cannot reach it | `DNS_BIND` must include the LAN address or `0.0.0.0`; check the Pi's firewall allows port 53 |
+| `upstreams answer` | The Pi cannot reach its encrypted resolvers | `smoking-pi doctor`; check the Pi's internet and `DNS_UPSTREAMS` |
+| `router answers` | Devices asking the router get no answer right now | Fix the lines above; if the router points only at the Pi, set it back to automatic meanwhile |
+| `router forwards`, **0/10** | The router is not using the Pi | Open the router's DNS setting again: it did not save, or it points at another address. Check the address matches step 1 |
+| `router forwards`, 0/10, *answers itself* | The router answers the test names' suffix itself and never forwards it | `smoking-pi config set DNS_CANARY_DOMAIN <a name it forwards>`: the default, under `home.arpa`, if you had changed it; otherwise a name under a domain you own |
+| `router forwards`, **some**/10 (warning) | The router also sends queries elsewhere: the secondary from step 4, or IPv6 DNS | Expected with a secondary; the status reads `partial` |
+
+Two things it does not need: rebooting the router, and renewing the DHCP
+leases of your devices. Devices keep asking the router, as they did before;
+only the router's own upstream changed, and it applies at once.
+
+If it ends with a note that the Pi's address comes from DHCP, make sure you
+reserved it (step 1). The router cannot tell the Pi whether it did.
+
+After that, `smoking-pi dns status` keeps checking on its own: it reads
+`observing` as soon as the house's queries arrive, and its canary asks the
+router for one unique name every 5 minutes, so a router that reverts its
+setting later is caught within about 15 minutes. The busiest names appear
+under the status as the house uses the network.
+
+### Checking the path by hand
+
+From a laptop on the same network, with `192.168.1.10` standing for the Pi
+and `192.168.1.1` for the router:
+
+| Command | Expected | It shows |
+|---|---|---|
+| `dig example.com` | `SERVER:` is the router's address | Devices ask the router, as the guide assumes |
+| `dig @192.168.1.10 example.com` | `status: NOERROR`, an address | The Pi answers on the LAN |
+| `dig @192.168.1.1 example.com` | `status: NOERROR`, an address | The router answers |
+| `dig +short whoami.akamai.net` | Address(es) of the public resolver's egress | Which public resolver the house ends up at: with the router pointed at the Pi, those of the Pi's upstreams ([Which resolver answers](public-resolver.md)) |
+| `dig test-$RANDOM.canary.smoking-pi.home.arpa` | `NXDOMAIN`, and the name in the Pi's query log (admin UI) within seconds | The router forwards to the Pi: a name nobody else asks, so not cached anywhere. The by-hand version of the test's last line |
 
 ### Undo
 
@@ -177,7 +231,7 @@ ISP-pushed configurations.
 - *The problem*: a quiet house at 4 a.m. and a router that went back to its
   ISP's DNS look identical by query count alone.
 - *The canary*: every `DNS_CANARY_INTERVAL` (5 min), the supervisor asks
-  **the router** for a unique name, `<random>.canary.smoking-pi.invalid`. If
+  **the router** for a unique name, `<random>.canary.smoking-pi.home.arpa`. If
   the router forwards to the Pi, the name shows up in the query log here.
   - Canaries arriving and no queries means `quiet`, a quiet house.
   - `DNS_CANARY_MISSES` (3) canaries in a row not arriving, and no queries,
@@ -185,9 +239,14 @@ ISP-pushed configurations.
   - Canaries missing while queries arrive means `partial`: the router splits
     between the Pi and its secondary.
 
-  The name is under `.invalid`, which by RFC 6761 exists nowhere. A canary
-  that leaks to a public resolver, after the router reverted, is answered
-  NXDOMAIN and reaches nobody's authoritative server.
+  The name is under `home.arpa`, which RFC 8375 reserves for home networks:
+  it exists nowhere publicly. A canary that leaks to a public resolver,
+  after the router reverted, is answered NXDOMAIN and reaches nobody's
+  authoritative server. It is not under `.invalid` or `.test`: routers that
+  follow RFC 6761 answer those themselves and never forward them, so a
+  canary there could never arrive and the state would stay `partial` or
+  `not_receiving` on a router that works. `smoking-pi dns test` says when a
+  router does that with the name in use.
 - *With the canary off* (`DNS_CANARY_VIA=off`), silence reads as `idle`: "I
   cannot tell". It never reads as `quiet`.
 
@@ -202,11 +261,11 @@ stale cache for up to 12 h, and new names fail (state `upstream_failing`).
 |---|---|---|---|
 | `observing` | yes | Queries are arriving | — |
 | `quiet` | yes | No queries for `DNS_QUIET_AFTER` (30 min), but the canary still arrives | — |
-| `partial` | yes | Queries arrive, canaries do not: the router splits across a secondary | Expected with a secondary DNS |
+| `partial` | yes | Queries arrive, canaries do not: the router splits across a secondary, or answers the canary name itself | Expected with a secondary DNS; otherwise `smoking-pi dns test` |
 | `upstream_fallback` | yes | DoH failing; answering over plain DNS | Check the Pi's internet |
 | `upstream_failing` | yes | Upstreams failing; stale cache or SERVFAIL | Check the Pi's internet |
 | `idle` | no | Silence, canary off: cannot tell why | Turn the canary on |
-| `not_receiving` | no | Canaries not forwarded and no queries; or never any query | Check the router's DNS setting |
+| `not_receiving` | no | Canaries not forwarded and no queries; or never any query | Check the router's DNS setting; `smoking-pi dns test` |
 | `server_down` | no | AdGuard not answering; being restarted | `smoking-pi logs dns-observer` if it persists |
 | `starting` | no | Just started | Wait for the first canary |
 | `stopped` | no | Stopped on purpose | `smoking-pi up` |
@@ -299,7 +358,7 @@ All optional except the password; in the env file (`smoking-pi config set`).
 | `DNS_RETENTION_DAYS` | `7` | Query log and statistics |
 | `DNS_ANONYMIZE_CLIENTS` | `1` | Mask client addresses |
 | `DNS_CANARY_VIA` | `auto` | Where the canary is asked: `auto` (default gateway), `off`, or an address |
-| `DNS_CANARY_DOMAIN` | `canary.smoking-pi.invalid` | Change it if the router answers `.invalid` itself |
+| `DNS_CANARY_DOMAIN` | `canary.smoking-pi.home.arpa` | Change it if the router answers it itself (`smoking-pi dns test` says so) |
 | `DNS_CANARY_INTERVAL` / `DNS_CANARY_MISSES` | `300` / `3` | ~15 min to `not_receiving` |
 | `DNS_QUIET_AFTER` | `1800` | Silence before `quiet`/`idle` |
 | `DNS_ADMIN_ADDRESS` | `127.0.0.1:3053` | Admin UI listen address; `0.0.0.0:3053` opens it to the network |

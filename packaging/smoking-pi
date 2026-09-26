@@ -185,12 +185,15 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      server's log, which is the only thing that proves the
                      agent is using your history instead of its own shell.
                      Pro only; OpenClaw elsewhere: docs/remote-openclaw.md.
-  dns [status [--json] | enable [--yes] | disable [--yes]]
+  dns [status [--json] | test [--via ROUTER] [--json] | enable [--yes] | disable [--yes]]
                      The DNS observer (Pro): AdGuard Home on port 53, for the
                      router to forward the house's DNS to. 'enable' turns on
                      the dns profile, starts it and says what to set on the
                      router; 'status' says whether it is receiving queries and,
                      if not, why (router reverted, never configured, down).
+                     'test' checks the whole path in seconds, right after
+                     changing the router: the Pi answers on the LAN, resolves
+                     upstream, and the router forwards unique test names here.
                      'disable' asks you to point the router back first.
                      docs/dns-observer.md.
   doctor [--live]    Instrumentation doctor (needs the doctor package).
@@ -1702,6 +1705,30 @@ dns_status() {
     return 1
 }
 
+dns_test() {
+    # The whole path, now (connection_test.py): what the canary would say
+    # in 15 minutes. Exit 1 when a check failed.
+    if [ -z "$(compose ps -q --status running dns-observer 2>/dev/null)" ]; then
+        echo "FAIL  the dns-observer container is not running" >&2
+        case ",$(env_get COMPOSE_PROFILES)," in
+            *,dns,*) echo "      fix: smoking-pi up; then smoking-pi logs dns-observer" >&2 ;;
+            *) echo "      fix: smoking-pi dns enable" >&2 ;;
+        esac
+        return 1
+    fi
+    local rc=0 lan
+    compose exec -T dns-observer python connection_test.py "$@" || rc=$?
+    # A lease can move the Pi to another address, and the router would
+    # forward the house's DNS to nothing. Only the router knows whether
+    # the lease is reserved; say it once, as a note, not a failure.
+    case " $* " in *" --json "*) return "$rc" ;; esac
+    lan="$(lan_address)"
+    if [ -n "$lan" ] && ip -4 -o addr show 2>/dev/null | grep -F " $lan/" | grep -q ' dynamic'; then
+        echo "note: $lan comes from DHCP; reserve it for this Pi in the router (docs/dns-observer.md, step 1)."
+    fi
+    return "$rc"
+}
+
 port53_holder() {
     # Whatever already listens on port 53 (systemd-resolved's stub listens
     # on 127.0.0.53 only and does not conflict with 0.0.0.0 on Linux, but
@@ -1722,12 +1749,13 @@ cmd_dns() {
     local yes=0 a
     case "$action" in
         status) dns_status "$@"; return ;;
+        test) dns_test "$@"; return ;;
         enable|disable)
             while [ $# -gt 0 ]; do
                 case "$1" in --yes|-y) yes=1; shift ;; *) echo "unknown option $1" >&2; return 2 ;; esac
             done ;;
         -h|--help) usage; return 0 ;;
-        *) echo "unknown dns action: $action (status, enable, disable)" >&2; return 2 ;;
+        *) echo "unknown dns action: $action (status, test, enable, disable)" >&2; return 2 ;;
     esac
 
     if [ "$action" = disable ]; then
@@ -1785,7 +1813,8 @@ cmd_dns() {
     echo "  - reserve $lan for this Pi in the router's DHCP settings, or a new lease"
     echo "    leaves the router forwarding the house's DNS to nothing;"
     echo "  - from a laptop, check it answers: dig @$lan example.com"
-    echo "After: smoking-pi dns status   (the canary proves the router forwards here within ~5 min)"
+    echo "After: smoking-pi dns test     (checks the whole path in seconds)"
+    echo "       smoking-pi dns status   (the canary keeps checking it every 5 min)"
     echo "Step by step, per router: docs/dns-observer.md, \"Setup guide\""
 }
 

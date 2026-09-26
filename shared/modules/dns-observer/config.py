@@ -29,10 +29,12 @@ DEFAULT_UPSTREAMS = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query"
 DEFAULT_FALLBACK = "1.1.1.1,8.8.8.8"
 DEFAULT_BOOTSTRAP = "1.1.1.1,8.8.8.8"
 
-# RFC 6761 reserves .invalid: nothing under it exists, so a canary that
-# leaks to a public resolver (the router no longer forwards here) is
-# answered NXDOMAIN and reaches nobody's authoritative server.
-DEFAULT_CANARY_DOMAIN = "canary.smoking-pi.invalid"
+# RFC 8375 reserves home.arpa for home networks: nothing under it exists
+# publicly, so a canary that leaks to a public resolver (the router no
+# longer forwards here) is answered NXDOMAIN and reaches nobody's server.
+# Not .invalid or .test: routers that follow RFC 6761 answer those
+# themselves and never forward them, so the canary could never arrive.
+DEFAULT_CANARY_DOMAIN = "canary.smoking-pi.home.arpa"
 
 
 class ConfigError(ValueError):

@@ -9,6 +9,44 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`smoking-pi dns test`: is the DNS path working, in seconds.** After
+  pointing the router at the Pi, the only confirmation was the canary: one
+  name every 5 minutes, about 15 minutes to a verdict. That is too slow to
+  tell right away whether the router setting was saved. The new command checks each link
+  in order:
+  - the Pi answers on loopback and on its LAN address;
+  - its encrypted upstreams answer;
+  - the router answers;
+  - the router forwards to the Pi. It asks the router for ten unique names
+    and counts how many arrive in the Pi's query log.
+
+  All, some or none is the verdict: all is working, some means a
+  secondary DNS, none means the router is not using the Pi. Each failing
+  line says what to do, and the command exits 1 when a check failed. Every
+  name it asks is unique and under the canary domain, so the observer does
+  not count the test as the house's traffic. It
+  also notes when the Pi's own address is a DHCP lease that has to be
+  reserved. On the reference house it caught both problems of the day: a
+  router setting that had not saved (0/20 arriving, then 20/20), and the
+  canary name issue below.
+  The guide's step 6 is now "Test it", with a table from each failing line
+  to its fix, and a section to check the path by hand with `dig` from a
+  laptop. See `docs/dns-observer.md`.
+
+### Fixed
+
+- **The DNS observer's canary could never arrive on routers that follow
+  RFC 6761**, so a working setup read `partial` or `not_receiving`. The
+  canary was `<random>.canary.smoking-pi.invalid`, and such routers answer
+  `.invalid` (and `.test`) themselves, flagged authoritative, without
+  forwarding. The reference router does. The default is now
+  `canary.smoking-pi.home.arpa`: `home.arpa` (RFC 8375) exists nowhere
+  publicly either, and that router forwards it. An env file that sets
+  `DNS_CANARY_DOMAIN` keeps its value. The `partial` hint names
+  `smoking-pi dns test`, which tells this case apart from a secondary DNS.
+
 ## [2.13.2] — 2026-09-26
 
 Who answers the house's DNS on the Internet side, and an admin page you
