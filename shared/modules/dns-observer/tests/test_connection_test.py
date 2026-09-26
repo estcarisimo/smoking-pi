@@ -37,9 +37,9 @@ class Net:
             raise TimeoutError
         if rdtype == "ANY":
             return ct.Answer("REFUSED", 0, False, 0.1)
-        if not name.startswith("t"):  # the real name
-            ok = self.upstream_ok
-            return ct.Answer("NOERROR" if ok else "SERVFAIL", 1 if ok else 0, False, 12)
+        if name.startswith(("upstream-", "router-")):
+            # A unique name: NXDOMAIN from upstream, SERVFAIL when none answers.
+            return ct.Answer("NXDOMAIN" if self.upstream_ok else "SERVFAIL", 0, False, 12)
         # A test name asked of the router.
         self.seen += 1
         if self.forward == "all" or (self.forward == "some" and self.seen % 2):
@@ -52,7 +52,7 @@ class Net:
 
 def run(env, net, via=ROUTER, lan=LAN, count=6):
     return asyncio.run(ct.run(
-        Config.from_env(env), via=via, count=count, name="example.com",
+        Config.from_env(env), via=via, count=count,
         query=net.query, querylog=net.querylog, lan=lan,
     ))
 
@@ -75,10 +75,18 @@ def test_router_not_pointed_at_the_pi(env):
 
 def test_router_answers_the_canary_suffix_itself(env):
     # RFC 6761 routers answer .invalid / .test authoritatively, never forwarding.
+    old = {**env, "DNS_CANARY_DOMAIN": "canary.smoking-pi.invalid"}
+    last = run(old, Net(forward="none", router_aa=True))[-1]
+    assert last.result == "fail"
+    assert "*.canary.smoking-pi.invalid itself" in last.detail
+    assert "DNS_CANARY_DOMAIN canary.smoking-pi.home.arpa" in last.fix
+
+
+def test_router_answers_the_default_itself_advice_is_not_a_no_op(env):
     last = run(env, Net(forward="none", router_aa=True))[-1]
     assert last.result == "fail"
-    assert "itself" in last.detail
-    assert "DNS_CANARY_DOMAIN canary.smoking-pi.home.arpa" in last.fix
+    assert "DNS_CANARY_DOMAIN canary.smoking-pi.home.arpa" not in last.fix
+    assert "canary.<your domain>" in last.fix
 
 
 def test_some_forwarded_is_a_warning_not_a_failure(env):
@@ -100,14 +108,34 @@ def test_not_reachable_on_the_lan(env):
 
 def test_upstreams_failing(env):
     checks = dict(results(run(env, Net(upstream_ok=False))))
-    assert checks["resolves through the upstreams"] == "fail"
-    assert checks["router resolves"] == "fail"
+    assert checks["upstreams answer"] == "fail"
+    assert checks["router answers"] == "fail"
 
 
 def test_no_router_skips_the_router_checks(env):
     checks = run(env, Net(), via=None)
     assert checks[-1].result == "skip"
-    assert not any(c.name == "router resolves" for c in checks)
+    assert not any(c.name == "router answers" for c in checks)
+
+
+def test_every_name_asked_is_one_the_supervisor_ignores(env):
+    # A diagnostic run must not count as house traffic (not_receiving would
+    # read observing right after it).
+    import main
+
+    cfg = Config.from_env(env)
+    asked = []
+    net = Net()
+    real = net.query
+
+    async def spy(name, rdtype, server, port):
+        asked.append(name)
+        return await real(name, rdtype, server, port)
+
+    net.query = spy
+    run(env, net)
+    sup = main.Supervisor(cfg)
+    assert asked and all(sup._is_ours(n) for n in asked)
 
 
 def test_router_silent_on_test_names(env):

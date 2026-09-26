@@ -17,14 +17,16 @@ version gets a matching GitHub release and git tag.
   tell right away whether the router setting was saved. The new command checks each link
   in order:
   - the Pi answers on loopback and on its LAN address;
-  - it resolves a real name through its encrypted upstreams;
-  - the router resolves;
+  - its encrypted upstreams answer;
+  - the router answers;
   - the router forwards to the Pi. It asks the router for ten unique names
     and counts how many arrive in the Pi's query log.
 
   All, some or none is the verdict: all is working, some means a
   secondary DNS, none means the router is not using the Pi. Each failing
-  line says what to do, and the command exits 1 when a check failed. It
+  line says what to do, and the command exits 1 when a check failed. Every
+  name it asks is unique and under the canary domain, so the observer does
+  not count the test as the house's traffic. It
   also notes when the Pi's own address is a DHCP lease that has to be
   reserved. On the reference house it caught both problems of the day: a
   router setting that had not saved (0/20 arriving, then 20/20), and the

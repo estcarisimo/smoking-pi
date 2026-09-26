@@ -6,14 +6,20 @@ hour to say anything. Each check has its own fix:
 
 1. the Pi's DNS server answers, on loopback and on the LAN address the
    router will use;
-2. it resolves a real name through the encrypted upstreams;
-3. the router resolves at all;
+2. it gets an answer from the encrypted upstreams;
+3. the router answers at all;
 4. the router forwards to the Pi: ``--count`` unique names asked of the
    router, counted as they arrive in the Pi's query log. All, some or
    none is the verdict. None, with the router flagging its answers as
    authoritative (``aa``), means it answers the canary's suffix itself
    and never forwards it (routers do that with ``.invalid`` and ``.test``,
    RFC 6761).
+
+Every name it asks is a unique one under the canary domain, which the
+supervisor leaves out of the house's traffic: running the test while the
+state reads ``not_receiving`` must not turn it into ``observing``. A unique
+name is in no cache, so any answer to it (NXDOMAIN included) came from
+upstream.
 
 Exit 0 when nothing failed (a warning is not a failure), 1 otherwise.
 """
@@ -36,7 +42,7 @@ import dns.message
 import dns.rcode
 
 import adguard
-from config import Config, ConfigError
+from config import DEFAULT_CANARY_DOMAIN, Config, ConfigError
 from main import default_gateway
 
 # How long a forwarded name may take to show up in AdGuard's query log.
@@ -88,6 +94,16 @@ def lan_address(via: str | None) -> str | None:
         return None
 
 
+def unique(cfg: Config, label: str) -> str:
+    return f"{label}-{secrets.token_hex(4)}.{cfg.canary_domain}"
+
+
+def resolved(a: Answer | None) -> bool:
+    """An answer from upstream: NXDOMAIN for a name that does not exist is
+    one. SERVFAIL (AdGuard found no upstream) or silence is not."""
+    return a is not None and a.rcode in ("NOERROR", "NXDOMAIN")
+
+
 def forwarding_verdict(
     via: str, lan: str | None, sent: int, arrived: int, authoritative: int, domain: str
 ) -> Check:
@@ -107,12 +123,23 @@ def forwarding_verdict(
             "sees part of the house (state 'partial').",
         )
     if authoritative:
+        if domain == DEFAULT_CANARY_DOMAIN:
+            fix = (
+                f"This router answers {domain} too. Set a name under a domain "
+                "it forwards, such as one you own: smoking-pi config set "
+                "DNS_CANARY_DOMAIN canary.<your domain>, then run this again."
+            )
+        else:
+            fix = (
+                "Set a name the router forwards: smoking-pi config set "
+                f"DNS_CANARY_DOMAIN {DEFAULT_CANARY_DOMAIN} (the default), then "
+                "run this again."
+            )
         return Check(
             name, "fail",
             f"{detail}; the router answers *.{domain} itself (authoritative) and "
             "never forwards it",
-            "Set a canary name the router forwards: smoking-pi config set "
-            "DNS_CANARY_DOMAIN canary.smoking-pi.home.arpa, then run this again.",
+            fix,
         )
     target = lan or "this Pi's LAN address"
     return Check(
@@ -129,7 +156,6 @@ async def run(
     *,
     via: str | None,
     count: int,
-    name: str,
     query: Query = udp_query,
     querylog: Callable[..., Awaitable[list[dict]]] | None = None,
     lan: str | None = None,
@@ -146,7 +172,7 @@ async def run(
     # 1. The server answers. ANY is refused by AdGuard itself, without an
     # upstream, so this says "listening", not "the internet works".
     local = cfg.selftest_host
-    a = await ask(f"selftest-{secrets.token_hex(4)}.{cfg.canary_domain}", "ANY", local)
+    a = await ask(unique(cfg, "selftest"), "ANY", local)
     if a is None:
         checks.append(Check(
             "Pi DNS server answers", "fail", f"no answer from {local}:{port}",
@@ -156,7 +182,7 @@ async def run(
     checks.append(Check("Pi DNS server answers", "ok", f"{local}:{port}"))
 
     if lan and lan != local:
-        a = await ask(f"selftest-{secrets.token_hex(4)}.{cfg.canary_domain}", "ANY", lan)
+        a = await ask(unique(cfg, "selftest"), "ANY", lan)
         if a is None:
             checks.append(Check(
                 "answers on the LAN", "fail", f"no answer from {lan}:{port}",
@@ -167,18 +193,18 @@ async def run(
         else:
             checks.append(Check("answers on the LAN", "ok", f"{lan}:{port}"))
 
-    # 2. A real name through the encrypted upstreams.
-    a = await ask(name, "A", local)
-    if a is None or a.rcode != "NOERROR" or not a.answers:
-        got = "timeout" if a is None else f"{a.rcode}, {a.answers} answers"
+    # 2. The encrypted upstreams answer.
+    a = await ask(unique(cfg, "upstream"), "A", local)
+    if not resolved(a):
+        got = "timeout" if a is None else a.rcode
         checks.append(Check(
-            "resolves through the upstreams", "fail", f"{name}: {got}",
+            "upstreams answer", "fail", f"a unique name: {got}",
             "The Pi cannot reach its encrypted upstreams: check its internet "
             "(smoking-pi doctor) and DNS_UPSTREAMS.",
         ))
     else:
         checks.append(Check(
-            "resolves through the upstreams", "ok", f"{name} in {a.ms:.0f} ms"
+            "upstreams answer", "ok", f"a unique name, {a.rcode} in {a.ms:.0f} ms"
         ))
 
     if via is None:
@@ -189,18 +215,20 @@ async def run(
         ))
         return checks
 
-    # 3. The router resolves at all.
-    a = await ask(name, "A", via, cfg.canary_port)
-    if a is None or a.rcode != "NOERROR" or not a.answers:
-        got = "timeout" if a is None else f"{a.rcode}, {a.answers} answers"
+    # 3. The router answers at all.
+    a = await ask(unique(cfg, "router"), "A", via, cfg.canary_port)
+    if not resolved(a):
+        got = "timeout" if a is None else a.rcode
         checks.append(Check(
-            "router resolves", "fail", f"{name} via {via}: {got}",
+            "router answers", "fail", f"a unique name via {via}: {got}",
             "The house has no working DNS through the router right now. If the "
             "router points only at the Pi, fix the checks above first; otherwise "
             "set the router's DNS back to automatic.",
         ))
     else:
-        checks.append(Check("router resolves", "ok", f"{name} via {via} in {a.ms:.0f} ms"))
+        checks.append(Check(
+            "router answers", "ok", f"a unique name via {via}, {a.rcode} in {a.ms:.0f} ms"
+        ))
 
     # 4. The router forwards here: unique names, counted on arrival.
     nonce = f"t{secrets.token_hex(5)}"
@@ -241,7 +269,7 @@ async def _main(args: argparse.Namespace) -> list[Check]:
     api = adguard.AdGuardAPI(cfg)
     try:
         return await run(
-            cfg, via=via, count=args.count, name=args.name,
+            cfg, via=via, count=args.count,
             querylog=api.querylog, lan=lan_address(via),
         )
     finally:
@@ -252,7 +280,6 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="smoking-pi dns test")
     p.add_argument("--via", help="the router's address (default: the default gateway)")
     p.add_argument("--count", type=int, default=10, help="test names to send (default 10)")
-    p.add_argument("--name", default="example.com", help="real name to resolve")
     p.add_argument("--json", action="store_true")
     args = p.parse_args(argv)
     args.count = max(1, min(args.count, 50))

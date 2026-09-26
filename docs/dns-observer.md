@@ -137,8 +137,8 @@ It checks each link of the path in a few seconds, in order:
 ```text
 OK    Pi DNS server answers: 127.0.0.1:53
 OK    answers on the LAN: 192.168.1.10:53
-OK    resolves through the upstreams: example.com in 16 ms
-OK    router resolves: example.com via 192.168.1.1 in 8 ms
+OK    upstreams answer: a unique name, NXDOMAIN in 165 ms
+OK    router answers: a unique name via 192.168.1.1, NXDOMAIN in 169 ms
 OK    router forwards to the Pi: 10/10 test names asked of 192.168.1.1 arrived here
 
 The DNS path works: devices -> router -> Pi -> upstreams.
@@ -147,17 +147,20 @@ The DNS path works: devices -> router -> Pi -> upstreams.
 The last line is the one that matters. The Pi asks the router for ten
 unique names that nobody else could ask, and counts how many arrive in its
 own query log. A router that forwards here passes them all on; one that does
-not, passes none. The command exits 1 when a check failed, so a script can
-use it.
+not, passes none. Every name the test asks is unique and under the canary
+domain, so no cache holds it (`NXDOMAIN` is the upstream's answer) and the
+observer does not count it as the house's traffic: running the test never
+turns `not_receiving` into `observing`. The command exits 1 when a check
+failed, so a script can use it.
 
 | Failing line | What it means | What to do |
 |---|---|---|
 | `Pi DNS server answers` | AdGuard is not answering on the Pi | `smoking-pi dns status`; `smoking-pi logs dns-observer` |
 | `answers on the LAN` | It answers on loopback only: the router cannot reach it | `DNS_BIND` must include the LAN address or `0.0.0.0`; check the Pi's firewall allows port 53 |
-| `resolves through the upstreams` | The Pi cannot reach its encrypted resolvers | `smoking-pi doctor`; check the Pi's internet and `DNS_UPSTREAMS` |
-| `router resolves` | Devices asking the router get no answer right now | Fix the lines above; if the router points only at the Pi, set it back to automatic meanwhile |
+| `upstreams answer` | The Pi cannot reach its encrypted resolvers | `smoking-pi doctor`; check the Pi's internet and `DNS_UPSTREAMS` |
+| `router answers` | Devices asking the router get no answer right now | Fix the lines above; if the router points only at the Pi, set it back to automatic meanwhile |
 | `router forwards`, **0/10** | The router is not using the Pi | Open the router's DNS setting again: it did not save, or it points at another address. Check the address matches step 1 |
-| `router forwards`, 0/10, *answers itself* | The router answers the test names' suffix itself and never forwards it | `smoking-pi config set DNS_CANARY_DOMAIN <a name it forwards>`; the default under `home.arpa` works on most routers |
+| `router forwards`, 0/10, *answers itself* | The router answers the test names' suffix itself and never forwards it | `smoking-pi config set DNS_CANARY_DOMAIN <a name it forwards>`: the default, under `home.arpa`, if you had changed it; otherwise a name under a domain you own |
 | `router forwards`, **some**/10 (warning) | The router also sends queries elsewhere: the secondary from step 4, or IPv6 DNS | Expected with a secondary; the status reads `partial` |
 
 Two things it does not need: rebooting the router, and renewing the DHCP
