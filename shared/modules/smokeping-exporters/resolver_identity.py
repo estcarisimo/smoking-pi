@@ -117,8 +117,10 @@ def default_gateway(route_file: Path = PROC_ROUTE) -> str | None:
 
 
 def dig(server: str, name: str, rtype: str, port: int = 53) -> list[str] | None:
-    """``dig +short`` answers, one per line; None when the server did not
-    answer at all (timeout, refused), [] when it answered with nothing."""
+    """``dig +short`` answers, one per line; None when no reply came back
+    (a timeout, or dig itself failing), [] when a reply carried no answer.
+    ``+short`` hides the response code, so NXDOMAIN, SERVFAIL and REFUSED
+    all read as []: callers must not treat [] as a final answer."""
     cmd = ["dig", "+short", f"+time={DIG_TIMEOUT}", "+tries=1", "-p", str(port),
            f"@{server}", name, rtype]
     try:
@@ -201,11 +203,12 @@ class OwnerCache:
         hit = self._asn.get(ip)
         if hit and self._clock() - hit[0] < OWNER_TTL:
             return hit[1]
-        lines = self._lookup(LOOKUP_SERVER, cymru_name(ip), "TXT")
-        if lines is None:
-            return 0  # not cached: try again next cycle
-        value = parse_origin(lines)
-        self._asn[ip] = (self._clock(), value)
+        value = parse_origin(self._lookup(LOOKUP_SERVER, cymru_name(ip), "TXT") or [])
+        # Only a real answer is cached. An empty reply may be a REFUSED or a
+        # SERVFAIL (see dig), and caching it would name the owner "unknown"
+        # for a day instead of asking again next cycle.
+        if value:
+            self._asn[ip] = (self._clock(), value)
         return value
 
     def name(self, asn: int) -> str:
@@ -214,11 +217,9 @@ class OwnerCache:
         hit = self._name.get(asn)
         if hit and self._clock() - hit[0] < OWNER_TTL:
             return hit[1]
-        lines = self._lookup(LOOKUP_SERVER, f"AS{asn}.asn.cymru.com", "TXT")
-        if lines is None:
-            return ""
-        value = parse_as_name(lines)
-        self._name[asn] = (self._clock(), value)
+        value = parse_as_name(self._lookup(LOOKUP_SERVER, f"AS{asn}.asn.cymru.com", "TXT") or [])
+        if value:
+            self._name[asn] = (self._clock(), value)
         return value
 
 
@@ -397,31 +398,31 @@ def main() -> int:
     while True:
         started = time.time()
         for path, server, port in paths():
+            # One try for the whole path: whatever goes wrong with one path
+            # costs that path this cycle, never the other path or the process.
             try:
                 r = probe(path, server, owners, port)
-            except Exception as exc:  # one path must not stop the other
-                log.error("resolver probe %s via %s failed: %s", path, server, exc)
-                continue
-            if path == "observer" and not r.ok:
-                # Nothing on port 53 here: the observer is not enabled. Not a
-                # failure, and not a point either, or every host without it
-                # would carry an always-failing series.
-                continue
-            previous = tracker.previous_for(r)
-            try:
+                if path == "observer" and not r.ok:
+                    # Nothing on port 53 here: the observer is not enabled.
+                    # Not a failure, and not a point either, or every host
+                    # without it would carry an always-failing series.
+                    continue
+                previous = tracker.previous_for(r)
                 write_api.write(bucket=bucket, record=build_point(r, previous, int(started)))
+                tracker.written(r, previous is not None)
+                snapshot[path] = snapshot_entry(r, int(started))
+                label = owner_label(r) if r.ok else "no answer"
+                if previous is not None:
+                    log.info("resolver via %s changed: %s -> %s", path, previous, label)
+                elif announced.get(path) != label:
+                    log.info("resolver via %s (%s): %s, egress %s%s", path, r.via, label,
+                             ",".join(r.egress) or "-", f", ECS {r.ecs}" if r.ecs else "")
+                announced[path] = label
             except Exception as exc:
-                log.error("dns_resolver write failed: %s", exc)
-                continue
-            tracker.written(r, previous is not None)
-            snapshot[path] = snapshot_entry(r, int(started))
-            label = owner_label(r) if r.ok else "no answer"
-            if previous is not None:
-                log.info("resolver via %s changed: %s -> %s", path, previous, label)
-            elif announced.get(path) != label:
-                log.info("resolver via %s (%s): %s, egress %s%s", path, r.via, label,
-                         ",".join(r.egress) or "-", f", ECS {r.ecs}" if r.ecs else "")
-            announced[path] = label
+                # The type only, as elsewhere: an InfluxDB error's message
+                # can carry the token.
+                log.error("resolver path %s via %s failed this cycle: %s",
+                          path, server, type(exc).__name__)
         # A path that stopped being probed (the observer disabled) drops out.
         live = {p for p, _, _ in paths()}
         write_snapshot({p: e for p, e in snapshot.items() if p in live})

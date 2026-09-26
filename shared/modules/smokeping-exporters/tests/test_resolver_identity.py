@@ -166,3 +166,19 @@ def test_default_gateway(tmp_path):
 )
 def test_paths(env, expected):
     assert ri.paths(env) == expected
+
+
+def test_an_empty_owner_reply_is_not_cached():
+    """dig +short reads a REFUSED as []: the next cycle must ask again."""
+    replies = {"n": 0}
+
+    def lookup(server, name, rtype, port=53):
+        replies["n"] += 1
+        if replies["n"] == 1:
+            return []  # REFUSED, as +short shows it
+        return [f'"{ORIGINS["172.253.240.119"]}"']
+
+    cache = ri.OwnerCache(lookup=lookup)
+    assert cache.asn("172.253.240.119") == 0
+    assert cache.asn("172.253.240.119") == 15169
+    assert cache.asn("172.253.240.119") == 15169 and replies["n"] == 2
