@@ -427,11 +427,63 @@ def check_container_dns_fresh(
     )
 
 
+# Run inside the config-manager container, with the app's own code and URL:
+# can it reach its database? Prints "db", "no-url" (an edition without the
+# database) or "yaml:<ErrorType>" (it cannot, so the API runs in YAML mode).
+_DB_MODE_PROBE = (
+    "import os\n"
+    "u = os.environ.get('DATABASE_URL')\n"
+    "if not u:\n print('no-url'); raise SystemExit\n"
+    "import models\n"
+    "u = getattr(models, 'normalize_database_url', lambda x: x)(u)\n"
+    "from sqlalchemy import create_engine, text\n"
+    "try:\n"
+    " e = create_engine(u, connect_args={'connect_timeout': 5})\n"
+    " with e.connect() as c: c.execute(text('select 1'))\n"
+    " print('db')\n"
+    "except Exception as exc:\n"
+    " print('yaml:' + type(exc).__name__)\n"
+)
+
+
+def check_config_manager_database(docker: Docker | None = None) -> CheckResult:
+    """config-manager uses the database it is configured with.
+
+    From v2.13.0 to v2.13.6 it did not. SQLAlchemy 2.1 changed the driver a
+    bare postgresql:// URL picks, to one the image lacks. Every connection
+    failed, the API fell back to YAML mode, and the database's targets
+    silently stopped being measured: five of the reference Pi's own, for a
+    day and a half. The API answered, the Targets file was written, and
+    SmokePing measured something, so nothing looked wrong.
+    """
+    name = "config-manager-database"
+    docker = docker or Docker()
+    if not docker.available():
+        return skipped(name, "docker is not available here")
+    container = docker.container_for_service("config-manager")
+    if not container:
+        return skipped(name, "config-manager is not running")
+    code, out = docker.run(["exec", container, "python", "-c", _DB_MODE_PROBE])
+    mode = out.strip().splitlines()[-1] if out.strip() else ""
+    if code != 0 or not (mode in ("db", "no-url") or mode.startswith("yaml:")):
+        return result(name, [Finding("could not ask config-manager which mode it runs in; "
+                                     "see smoking-pi logs config-manager")], "",
+                      status=Status.WARN)
+    if mode.startswith("yaml:"):
+        return result(name, [Finding(
+            f"DATABASE_URL is set but config-manager cannot reach its database "
+            f"({mode[5:]}), so it runs in YAML mode: the database's targets are not "
+            "what SmokePing measures (smoking-pi logs config-manager)",
+        )], "")
+    return result(name, [], "using the database" if mode == "db" else "no database configured")
+
+
 def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
     docker = docker or Docker()
     return [
         check_deployed_code_current(repo, docker),
         check_container_dns_fresh(repo, docker),
+        check_config_manager_database(docker),
         check_uplink_interface(),
     ]
 

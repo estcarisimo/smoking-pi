@@ -257,3 +257,14 @@ def test_existing_table_gains_new_probe_columns(config_dir, db_url):
     assert run_migration(config_dir=config_dir, database_url=db_url) is True
     cols = {c["name"] for c in inspect(create_engine(db_url)).get_columns("probes")}
     assert {"module", "options"} <= cols
+
+
+def test_database_url_names_the_driver_the_image_has():
+    # SQLAlchemy 2.1 defaults postgresql:// to psycopg (v3), which the image
+    # lacks: v2.13.0-2.13.6 fell back to YAML mode silently.
+    from models import normalize_database_url
+    assert normalize_database_url("postgresql://u:p@postgres:5432/db") == \
+        "postgresql+psycopg2://u:p@postgres:5432/db"
+    assert normalize_database_url("postgres://u:p@h/db") == "postgresql+psycopg2://u:p@h/db"
+    assert normalize_database_url("postgresql+psycopg://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
+    assert normalize_database_url("sqlite:///x.db") == "sqlite:///x.db"
