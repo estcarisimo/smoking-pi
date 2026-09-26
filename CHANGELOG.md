@@ -9,6 +9,30 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`upgrade` failed when another command changed the stack at the same
+  time, and could leave containers under temporary names.** The v2.13.2 and
+  v2.13.7 upgrades on the reference Pi stopped with `Conflict. The container
+  name "/<id>_pro-influxdb-1" is already in use`. The old containers kept
+  running, and a later retry went through. It was not a Compose bug that
+  `COMPOSE_PARALLEL_LIMIT=1` avoids. Each time, a second session's
+  `upgrade` or `config set` was running `compose up` on the same project.
+  Compose replaces a container by creating `<old id>_<name>`, then stopping
+  and removing the old one, then renaming. Two runs that see the same old
+  container choose the same temporary name, so one is refused. Two
+  concurrent `up`s on the Pi's Docker 28.3.2 and Compose v2.38.2 reproduce
+  that error. They also leave services *running* under their temporary
+  names, which the next `up` reports as "Running" and never fixes. Then
+  `docker exec pro-postgres-1`, and anything else that finds a container
+  by name, misses it. The command now changes containers one at a time,
+  with a `flock` on the edition directory; commands that only read do not
+  wait. After every `up` it renames a temporary-named container back
+  when its name is free and removes a never-started copy beside the real
+  one. If `up` fails while such a container exists (a `docker compose` run
+  by hand is not under the lock), it waits for the other run, repairs, and
+  tries once more.
+
 ## [2.13.7] — 2026-09-26
 
 config-manager uses its database again.

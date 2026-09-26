@@ -232,8 +232,41 @@ profiles() {
     [ -f "$ENV_FILE" ] && sed -n 's/^COMPOSE_PROFILES=//p' "$ENV_FILE" | tail -1 || true
 }
 
+STACK_LOCKED=0
+
+stack_lock() {
+    # One command at a time may change the containers. Two `compose up`s on
+    # one project race each other's recreates: Compose replaces a container
+    # by creating "<old id>_<name>", stopping and removing the old one, then
+    # renaming -- two runs that saw the same old container pick the same
+    # temporary name, and the second is refused ("Conflict. The container
+    # name "/<id>_pro-influxdb-1" is already in use"), or finds the old one
+    # already being removed. Both v2.13.2 and v2.13.7 upgrades on the
+    # reference Pi hit it: a second session's `upgrade` or `config set` was
+    # running at the same time. Held on the edition directory (readable by
+    # the root of a package install and the user of a clone alike, nothing
+    # to create or leave behind) until this command exits. No flock (macOS):
+    # no lock, as before.
+    [ "$STACK_LOCKED" = 1 ] && return 0
+    command -v flock >/dev/null 2>&1 || return 0
+    exec 9<"$EDITION_DIR"
+    if ! flock -n 9; then
+        echo "Another smoking-pi command is changing this stack; waiting for it to finish." >&2
+        flock 9
+    fi
+    STACK_LOCKED=1
+}
+
 compose() {
     need_edition
+    case "${1:-}" in
+        up|down|create|start|stop|restart|rm|kill) stack_lock ;;
+    esac
+    if [ "${1:-}" = up ]; then shift; compose_up "$@"; return; fi
+    compose_exec "$@"
+}
+
+compose_exec() {
     local p; p="$(profiles)"
     local extra=(--env-file "$ENV_FILE" -f docker-compose.yml)
     if [ "$SMOKING_PI_EDITION" = pro ] && [[ "$p" == *clickhouse* ]]; then
@@ -244,7 +277,78 @@ compose() {
     if [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] && [ -f "$EDITION_DIR/docker-compose.packaged.yml" ]; then
         extra+=(-f docker-compose.packaged.yml)
     fi
-    ( cd "$EDITION_DIR" && COMPOSE_PROFILES="$p" docker compose "${extra[@]}" "$@" )
+    # 9<&-: the lock is this command's, not something a child could keep.
+    ( cd "$EDITION_DIR" && COMPOSE_PROFILES="$p" docker compose "${extra[@]}" "$@" 9<&- )
+}
+
+compose_up() {
+    # `compose up`, then put right what an interrupted or raced recreate
+    # left behind (repair_temp_names). The lock keeps two smoking-pi
+    # commands apart; a `docker compose` typed by hand is not under it. When
+    # `up` fails while a container of the project carries a temporary name,
+    # that is such a race: wait for the other run, repair, try once more.
+    local st=0 i
+    compose_exec up "$@" || st=$?
+    if [ "$st" -ne 0 ] && [ -n "$(temp_named)" ]; then
+        echo "Compose failed while a container was being recreated: another Compose run was changing this stack at the same time. Waiting for it, then trying once more." >&2
+        for i in $(seq 30); do
+            [ -n "$(temp_named)" ] || break
+            sleep 2
+        done
+        repair_temp_names
+        st=0
+        compose_exec up "$@" || st=$?
+    fi
+    repair_temp_names
+    return "$st"
+}
+
+project_containers() {
+    # "name state" per container of the project, stopped ones included.
+    local proj
+    proj="$(project)" || proj=""
+    [ -n "$proj" ] || return 0
+    docker ps -a --filter "label=com.docker.compose.project=$proj" \
+        --format '{{.Names}} {{.State}}' 2>/dev/null || true
+}
+
+temp_named() {
+    # Containers under Compose's temporary recreate name, "<12 hex>_<name>".
+    project_containers | grep -E '^[0-9a-f]{12}_' || true
+}
+
+repair_temp_names() {
+    # A recreate that did not reach its rename leaves the new container as
+    # "<old id>_<name>". Compose does not fix it later -- the next `up` says
+    # "Running" -- and everything that finds a container by name (docker
+    # exec pro-postgres-1, the doctor) misses it. Reproduced with two
+    # concurrent `up`s on Compose v2.38.2: both replaced services stayed
+    # under their temporary names. Rename it when its name is free; remove
+    # it when it never started and the name is taken (the service runs under
+    # its name; the next `up` recreates it if it is out of date); anything
+    # else is for a person to decide.
+    local listed name state final
+    listed="$(project_containers)"
+    [ -n "$listed" ] || return 0
+    while read -r name state; do
+        [[ "$name" =~ ^[0-9a-f]{12}_(.+)$ ]] || continue
+        final="${BASH_REMATCH[1]}"
+        if ! awk -v n="$final" '$1 == n {f=1} END {exit !f}' <<<"$listed"; then
+            if docker rename "$name" "$final" >/dev/null; then
+                echo "Renamed $name to $final (a Compose recreate had stopped before its last step)."
+            else
+                echo "warning: could not rename $name to $final (docker ps -a)" >&2
+            fi
+        elif [ "$state" = created ]; then
+            if docker rm "$name" >/dev/null; then
+                echo "Removed $name, a recreate's copy that never started ($final is the service's container)."
+            else
+                echo "warning: could not remove $name (docker ps -a)" >&2
+            fi
+        else
+            echo "warning: $name ($state) and $final both exist, left by an interrupted Compose recreate. Keep one: docker rm -f <the other>, then smoking-pi up" >&2
+        fi
+    done <<<"$listed"
 }
 
 project() {

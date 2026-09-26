@@ -32,6 +32,15 @@ setup() {
 #!/bin/sh
 echo "docker $*" >> "$DOCKER_LOG"
 case "$*" in
+    # `compose up` fails its first STUB_UP_FAILS times (unset = never).
+    *" up -d"*)
+        if [ -n "${STUB_UP_FAILS:-}" ]; then
+            n=$(cat "$DOCKER_LOG.up" 2>/dev/null || echo 0)
+            echo $((n + 1)) > "$DOCKER_LOG.up"
+            [ "$n" -ge "$STUB_UP_FAILS" ] || exit 1
+        fi ;;
+    # The project's containers as "name state" (STUB_STATES, \n-separated).
+    *"--format {{.Names}} {{.State}}"*) printf '%b' "${STUB_STATES:-}" ;;
     *"config --format json"*)
         # Three shapes: a default-named volume (pro_postgres-data), one
         # declared with a fixed name and mounted by an active service
@@ -1480,4 +1489,112 @@ STUB
     [ "$status" -eq 1 ]
     [[ "$output" == *"check the network"* ]]
     [[ "$output" != *"SMOKING_PI_VERSION=dev"* ]]
+}
+
+# Two Compose runs on one project race each other's recreates: the v2.13.2
+# and v2.13.7 upgrades on the reference Pi failed with "Conflict. The
+# container name "/<id>_pro-influxdb-1" is already in use" while a second
+# session's upgrade / config set was running. A reproduction with two
+# concurrent `up`s on Compose v2.38.2 left both replaced services running
+# under their temporary names.
+
+hold_lock() {
+    # Another command holding the stack lock: flock -o keeps it in flock's
+    # own process, not the sleep's.
+    flock -o "$STUB_HOME/editions/pro" /bin/sleep 60 3>&- &
+    LOCK_PID=$!
+    until ! flock -n "$STUB_HOME/editions/pro" true; do :; done 2>/dev/null
+}
+
+release_lock() {
+    # The sleep ending ends flock, which releases the lock.
+    pkill -P "$LOCK_PID" sleep
+    wait "$LOCK_PID" || true
+}
+
+@test "a command that changes containers waits for another one to finish" {
+    hold_lock
+    "$CLI" up > "$BATS_TEST_TMPDIR/out" 2>&1 3>&- &
+    pid=$!
+    for _ in $(seq 100); do
+        grep -q "waiting for it to finish" "$BATS_TEST_TMPDIR/out" && break
+        /bin/sleep 0.1
+    done
+    grep -q "Another smoking-pi command is changing this stack" "$BATS_TEST_TMPDIR/out"
+    ! grep -q ' up -d' "$DOCKER_LOG"
+    release_lock
+    wait "$pid"
+    grep -q ' up -d' "$DOCKER_LOG"
+}
+
+@test "a command that only reads does not wait for the lock" {
+    hold_lock
+    run timeout 10 "$CLI" status
+    release_lock
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"waiting"* ]]
+    grep -q ' ps$' "$DOCKER_LOG"
+}
+
+@test "the lock is not passed on to docker compose" {
+    # A child holding fd 9 open past the command would hold the lock too.
+    printf '#!/bin/sh\necho "fd9 $([ -e /proc/self/fd/9 ] && echo open || echo closed)" >> "$DOCKER_LOG"\nexit 0\n' > "$BATS_TEST_TMPDIR/bin/docker"
+    run "$CLI" up
+    grep -q 'fd9 closed' "$DOCKER_LOG"
+    ! grep -q 'fd9 open' "$DOCKER_LOG"
+}
+
+@test "after up, a container left under Compose's temporary name gets its name back" {
+    export STUB_STATES='b2a14da7a0ee_pro-influxdb-1 running\npro-postgres-1 running\n'
+    run "$CLI" up
+    [ "$status" -eq 0 ]
+    grep -qx 'docker rename b2a14da7a0ee_pro-influxdb-1 pro-influxdb-1' "$DOCKER_LOG"
+    [[ "$output" == *"Renamed b2a14da7a0ee_pro-influxdb-1 to pro-influxdb-1"* ]]
+    ! grep -q '^docker rm\|pro-postgres-1' <(grep '^docker \(rm\|rename\)' "$DOCKER_LOG")
+}
+
+@test "a temporary copy that never started, beside the named container, is removed" {
+    export STUB_STATES='53642260c024_pro-dns-observer-1 created\npro-dns-observer-1 running\n'
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    grep -qx 'docker rm 53642260c024_pro-dns-observer-1' "$DOCKER_LOG"
+    ! grep -q '^docker rename\|^docker rm pro-dns-observer-1' "$DOCKER_LOG"
+}
+
+@test "two running copies are left for a person, with a warning" {
+    export STUB_STATES='53642260c024_pro-dns-observer-1 running\npro-dns-observer-1 running\n'
+    run "$CLI" up
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"both exist"* ]]
+    ! grep -q '^docker \(rm\|rename\)' "$DOCKER_LOG"
+}
+
+@test "upgrade: up failing mid-recreate is retried once, after the leftovers are repaired" {
+    export STUB_UP_FAILS=1
+    export STUB_STATES='b2a14da7a0ee_pro-influxdb-1 created\npro-influxdb-1 running\n'
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"another Compose run was changing this stack"* ]]
+    [ "$(grep -c ' up -d --remove-orphans' "$DOCKER_LOG")" -eq 2 ]
+    # The repair comes between the two attempts.
+    first_rm=$(grep -n '^docker rm b2a14da7a0ee_pro-influxdb-1' "$DOCKER_LOG" | head -1 | cut -d: -f1)
+    second_up=$(grep -n ' up -d --remove-orphans' "$DOCKER_LOG" | sed -n 2p | cut -d: -f1)
+    [ "$first_rm" -lt "$second_up" ]
+}
+
+@test "up failing with no container mid-recreate is not retried, and upgrade fails" {
+    export STUB_UP_FAILS=1
+    export STUB_STATES='pro-influxdb-1 running\n'
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -ne 0 ]
+    [ "$(grep -c ' up -d --remove-orphans' "$DOCKER_LOG")" -eq 1 ]
+    [[ "$output" != *"trying once more"* ]]
+}
+
+@test "a retry that fails again fails the upgrade" {
+    export STUB_UP_FAILS=2
+    export STUB_STATES='b2a14da7a0ee_pro-influxdb-1 created\npro-influxdb-1 running\n'
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -ne 0 ]
+    [ "$(grep -c ' up -d --remove-orphans' "$DOCKER_LOG")" -eq 2 ]
 }
