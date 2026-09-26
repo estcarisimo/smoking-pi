@@ -9,6 +9,27 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The DNS observer's admin password and address were hard to find, and
+  the admin UI could not be opened from another computer.** It listened
+  on `127.0.0.1:3053` only, on purpose (the query log holds every name
+  the house resolves), so `http://<Pi>:3053` from a laptop failed. The
+  way around it, an SSH tunnel, was one line at the bottom of the privacy
+  section, and `smoking-pi passwords` listed the password as a hidden
+  line under "API Tokens". Four changes:
+  - `smoking-pi passwords` now has its own DNS observer section: the URL
+    that works for the current `DNS_ADMIN_ADDRESS`, the user, the password
+    (with `--show-secrets`) and whether the observer runs. The health
+    checks include port 53 when the `dns` profile is on;
+  - `DNS_ADMIN_ADDRESS` and the other `DNS_*` keys are real keys in the
+    env template, so `smoking-pi config set DNS_ADMIN_ADDRESS 0.0.0.0:3053`
+    opens the UI to the network. Before, they were comments, which
+    `config set` refuses as unknown keys;
+  - with the UI on `0.0.0.0`, the supervisor reads the API on loopback
+    instead of connecting to the wildcard address;
+  - the guide says where the password is and both ways in.
+
 ### Changed
 
 - **The DNS setup guide checks with `dig`, and examples use a generic

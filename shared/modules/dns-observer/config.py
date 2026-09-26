@@ -141,7 +141,15 @@ class Config:
 
     @property
     def admin_url(self) -> str:
-        return f"http://{self.admin_address}"
+        """Where the supervisor reaches the API: loopback when the UI listens
+        on every address (0.0.0.0 or [::]), which is not an address to
+        connect to."""
+        host, _, port = self.admin_address.rpartition(":")
+        if host in ("0.0.0.0", ""):
+            host = "127.0.0.1"
+        elif host in ("[::]", "::"):
+            host = "[::1]"
+        return f"http://{host}:{port}"
 
     @property
     def selftest_host(self) -> str:

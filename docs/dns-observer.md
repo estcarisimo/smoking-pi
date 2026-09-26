@@ -60,7 +60,8 @@ This command:
 
 - refuses if something else already listens on port 53 here, such as a
   Pi-hole or dnsmasq, and changes nothing in that case;
-- generates `DNS_ADMIN_PASSWORD` if the install predates it;
+- generates `DNS_ADMIN_PASSWORD` if the install predates it (the admin UI's
+  password; `smoking-pi passwords --show-secrets` shows it);
 - adds `dns` to `COMPOSE_PROFILES` and starts `dns-observer`, and nothing
   else;
 - prints the address to give the router.
@@ -250,10 +251,17 @@ through. Status says "network DNS only", and that is what it is.
 - Client addresses are masked (`DNS_ANONYMIZE_CLIENTS=1`, AdGuard's
   `anonymize_client_ip`). In the router model every query comes from the
   router anyway.
-- The admin UI and API listen on `127.0.0.1:3053` only. To look at the query
-  log: `ssh -L 3053:localhost:3053 pi@<the Pi>`, then open
-  http://localhost:3053 and sign in as `smokingpi` with `DNS_ADMIN_PASSWORD`
-  (`smoking-pi passwords --show-secrets`).
+- The admin UI (AdGuard Home's own, with the query log and statistics)
+  listens on `127.0.0.1:3053` by default, this machine only. Sign in as
+  `smokingpi`; `smoking-pi passwords --show-secrets` shows the password and
+  where to open it. Two ways in from another computer:
+  - an SSH tunnel: `ssh -L 3053:localhost:3053 pi@192.168.1.10` (the Pi's
+    address), then open http://localhost:3053;
+  - open it to the network, like the web admin and Grafana:
+    `smoking-pi config set DNS_ADMIN_ADDRESS 0.0.0.0:3053`, then
+    http://192.168.1.10:3053. Anyone on the network who has the password
+    then sees every name the house resolves. `smoking-pi config unset
+    DNS_ADMIN_ADDRESS` closes it again.
 
 ## Safety rules the configuration enforces
 
@@ -294,7 +302,7 @@ All optional except the password; in the env file (`smoking-pi config set`).
 | `DNS_CANARY_DOMAIN` | `canary.smoking-pi.invalid` | Change it if the router answers `.invalid` itself |
 | `DNS_CANARY_INTERVAL` / `DNS_CANARY_MISSES` | `300` / `3` | ~15 min to `not_receiving` |
 | `DNS_QUIET_AFTER` | `1800` | Silence before `quiet`/`idle` |
-| `DNS_ADMIN_ADDRESS` | `127.0.0.1:3053` | Admin UI/API listen address |
+| `DNS_ADMIN_ADDRESS` | `127.0.0.1:3053` | Admin UI listen address; `0.0.0.0:3053` opens it to the network |
 
 ## Turning it off
 
