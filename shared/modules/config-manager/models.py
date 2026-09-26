@@ -186,6 +186,22 @@ def retry_db_connection(max_retries: int = 5, delay: float = 2.0,
     return decorator
 
 
+def normalize_database_url(url: str) -> str:
+    """Name the PostgreSQL driver the image carries: psycopg2.
+
+    A bare ``postgresql://`` URL leaves the choice to SQLAlchemy, and 2.1
+    changed its default to psycopg (v3), which the image does not have.
+    From v2.13.0 on, every connection then failed with "No module named
+    'psycopg'" and the API fell back to YAML mode without a word: the
+    database's targets stopped being measured. Any explicit driver
+    (``postgresql+psycopg://``, ``sqlite://``) is left alone.
+    """
+    for scheme in ("postgresql://", "postgres://"):
+        if url.startswith(scheme):
+            return "postgresql+psycopg2://" + url[len(scheme):]
+    return url
+
+
 class DatabaseManager:
     """Database connection and session management with retry logic"""
 
@@ -200,7 +216,7 @@ class DatabaseManager:
                 "to enable database mode."
             )
 
-        self.database_url = database_url
+        self.database_url = normalize_database_url(database_url)
         self.engine = None
         self.SessionLocal = None
         self._initialize_with_retry()

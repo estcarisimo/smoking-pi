@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **config-manager had not used its database since v2.13.0, and nothing
+  said so.** SQLAlchemy 2.1 changed the driver a bare `postgresql://` URL
+  selects, to psycopg (v3), which the image does not carry. Every
+  connection failed, and the API fell back to YAML mode silently. From then
+  on SmokePing measured `targets.yaml` instead of the database. On the
+  reference Pi, five targets that exist only in the database went
+  unmeasured for about a day and a half, and everything needing the
+  database answered "Database not available": target edits through the API
+  and `smoking-pi dns adopt`. The URL now names `postgresql+psycopg2`,
+  which the image has. An explicit driver in `DATABASE_URL` is left alone.
+  Proven on the reference Pi: with it, the running container connects and
+  reads the database's 30 targets.
+
+### Added
+
+- **The doctor checks that config-manager uses its database**
+  (`config-manager-database`, with `--live`). It fails when `DATABASE_URL`
+  is set but the app cannot connect, naming the error. On the reference
+  Pi, before this release, it fails with `ModuleNotFoundError`. It would
+  have caught the problem above on the day it started.
+
 ## [2.13.6] — 2026-09-26
 
 The config-manager image starts again.

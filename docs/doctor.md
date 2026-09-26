@@ -126,6 +126,26 @@ forwards to whatever the daemon currently resolves with — so it is fresh by
 construction. The first real run of this check flagged all six healthy
 containers before that exclusion existed, which is how a check gets ignored.
 
+### `config-manager-database`
+
+The config-manager uses the database it is configured with. From v2.13.0 to
+v2.13.6 it did not. SQLAlchemy 2.1 changed the driver a bare
+`postgresql://` URL selects to psycopg (v3), which the image does not
+carry. Every connection failed with `No module named 'psycopg'`, and the
+API fell back to YAML mode without a word. The database's targets stopped
+being what SmokePing measured: on the reference Pi, five of its own targets
+went unmeasured for a day and a half. The API answered, the Targets file
+was written, and graphs kept coming.
+
+Inside the config-manager container, with the app's own code and
+`DATABASE_URL`, the check opens a connection with a 5 s timeout:
+
+- **fail** when the URL is set but the connection fails, naming the error
+  type;
+- **ok** when it connects, or when no database is configured;
+- **warn** when the probe itself did not answer;
+- **skip** without Docker or without the container.
+
 ### `uplink-interface`
 
 Names the interface every measurement actually crosses, and says what kind it
@@ -184,7 +204,7 @@ IPv4 has the same shape: `ip route add unreachable default` is listed in
 set, and reporting `*` as the interface being measured would be worse than
 reporting nothing.
 
-The two Docker checks skip cleanly when Docker is absent, so `--live` is safe
+The Docker checks skip cleanly when Docker is absent, so `--live` is safe
 to run anywhere; `uplink-interface` asks the kernel rather than Docker and
 answers on any Linux host, skipping only where `/proc/net` is not there.
 Without the flag the behavior is exactly as before, and CI is unaffected.

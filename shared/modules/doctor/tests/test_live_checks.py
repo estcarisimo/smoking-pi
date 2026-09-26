@@ -312,6 +312,7 @@ def test_run_all_returns_every_check(repo, host_resolv):
     assert [r.name for r in results] == [
         "deployed-code-current",
         "container-dns-fresh",
+        "config-manager-database",
         "uplink-interface",
     ]
     # Without a daemon the two Docker checks skip rather than report a broken
@@ -617,3 +618,35 @@ def test_a_host_without_proc_net_is_skipped(tmp_path):
         tmp_path / "none", tmp_path / "none6", tmp_path / "sysnet"
     )
     assert res.status is Status.SKIP
+
+
+# -- config-manager-database -----------------------------------------------------
+
+PS_CM = "ps --filter label=com.docker.compose.service=config-manager --format {{.Names}}"
+EXEC_CM = "exec pro-config-manager-1 python -c"
+
+
+def _cm(mode: str, rc: int = 0) -> FakeDocker:
+    return FakeDocker({PS_CM: (0, "pro-config-manager-1\n"), EXEC_CM: (rc, mode + "\n")})
+
+
+def test_config_manager_on_its_database_is_ok():
+    assert live_checks.check_config_manager_database(_cm("db")).status == Status.OK
+
+
+def test_config_manager_in_yaml_mode_with_a_database_configured_fails():
+    # v2.13.0-2.13.6: SQLAlchemy 2.1 picked a driver the image lacks.
+    res = live_checks.check_config_manager_database(_cm("yaml:ModuleNotFoundError"))
+    assert res.status == Status.FAIL
+    assert "ModuleNotFoundError" in res.findings[0].message
+
+
+def test_no_database_configured_is_ok():
+    assert live_checks.check_config_manager_database(_cm("no-url")).status == Status.OK
+
+
+def test_unanswered_probe_warns_and_missing_docker_skips():
+    assert live_checks.check_config_manager_database(_cm("", rc=1)).status == Status.WARN
+    assert live_checks.check_config_manager_database(
+        FakeDocker({}, present=False)).status == Status.SKIP
+    assert live_checks.check_config_manager_database(FakeDocker({PS_CM: (0, "")})).status == Status.SKIP
