@@ -133,3 +133,29 @@ def test_a_host_with_no_route(client, monkeypatch):
                                   "uplink": {"interface": None, "wireless": False}})
     login(client)
     assert "No default route" in client.get("/").get_data(as_text=True)
+
+
+RESOLVERS = {
+    "router": {"ok": True, "owner": "AS15169 GOOGLE - Google LLC, US",
+               "owners": [{"asn": 15169, "name": "GOOGLE - Google LLC, US"}],
+               "egress": ["172.253.240.119", "172.253.198.156"], "ecs": "192.0.2.0/24"},
+    "observer": {"ok": True, "owners": [{"asn": 13335, "name": "CLOUDFLARENET - Cloudflare, Inc., US"},
+                                        {"asn": 15169, "name": "GOOGLE - Google LLC, US"}],
+                 "egress": ["172.71.169.57"], "ecs": ""},
+}
+
+
+def test_the_card_says_who_answers_the_dns(client, monkeypatch):
+    _stub_dashboard(monkeypatch, {**BODY, "public_resolver": RESOLVERS})
+    login(client)
+    html = client.get("/").get_data(as_text=True)
+    assert "DNS through your router is answered by <strong>Google LLC (AS15169)</strong>" in html
+    assert "<code>192.0.2.0/24</code>" in html
+    assert ("through the DNS observer is answered by <strong>Cloudflare (AS13335) and "
+            "Google LLC (AS15169)</strong>") in html
+
+
+def test_no_resolver_line_before_the_first_probe(client, monkeypatch):
+    _stub_dashboard(monkeypatch, {**BODY, "public_resolver": {"router": {"ok": False}}})
+    login(client)
+    assert "is answered by" not in client.get("/").get_data(as_text=True)

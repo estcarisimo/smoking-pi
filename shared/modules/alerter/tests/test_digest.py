@@ -416,6 +416,29 @@ def test_many_uplink_changes_keep_the_newest_three(collected):
     assert moved == sorted(moved, reverse=True)
 
 
+def test_a_resolver_change_is_listed_under_local_link(collected):
+    collected["value"]["resolver"] = {
+        "current": {"router": {"owner": "AS15169 GOOGLE - Google LLC, US", "ecs": ""}},
+        "changes": [{"time": "2026-09-24T13:02:00+00:00", "path": "router",
+                     "previous": "AS19281 QUAD9-AS-1, US",
+                     "owner": "AS15169 GOOGLE - Google LLC, US"}],
+    }
+    payload = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)
+    text = payload["message"]
+    assert "<b>Local link</b>" in text
+    assert ("🟡 The resolver answering through the router changed from "
+            "AS19281 QUAD9-AS-1, US to AS15169 GOOGLE - Google LLC, US at ") in text
+    assert payload["resolver"]["current"]["router"]["owner"].startswith("AS15169")
+
+
+def test_a_steady_resolver_adds_nothing(collected):
+    collected["value"]["resolver"] = {
+        "current": {"router": {"owner": "AS15169 GOOGLE - Google LLC, US", "ecs": ""}},
+        "changes": []}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert "Local link" not in text and "resolver" not in text
+
+
 def test_wifi_line_lights(collected):
     base = {"interface": "wlan0", "uplink_is_wifi": True, "ssid": "N", "channel": 1,
             "tx_bitrate_mbps": 100.0, "samples": 10, "max_dbm": -50.0, "median_dbm": -55.0}

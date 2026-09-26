@@ -94,6 +94,14 @@ services:
       - WIFI_SAMPLE_INTERVAL=${WIFI_SAMPLE_INTERVAL:-10}
       # Channel/width/survey change only on a roam; sampled less often.
       - WIFI_SLOW_INTERVAL=${WIFI_SLOW_INTERVAL:-60}
+      # Which public resolver answers (docs/public-resolver.md): every
+      # RESOLVER_INTERVAL seconds, through RESOLVER_VIA (auto = the default
+      # gateway; off; or an address) and through the DNS observer on
+      # DNS_PORT when it runs (RESOLVER_OBSERVER=off skips that path).
+      - RESOLVER_INTERVAL=${RESOLVER_INTERVAL:-900}
+      - RESOLVER_VIA=${RESOLVER_VIA:-auto}
+      - RESOLVER_OBSERVER=${RESOLVER_OBSERVER:-auto}
+      - DNS_PORT=${DNS_PORT:-53}
     # Optional dependency on influxdb for InfluxDB mode
     depends_on:
       influxdb:

@@ -129,7 +129,7 @@ def test_nothing_known_is_an_empty_card_not_an_error():
     body = recommendations.recommend({}, {})
     assert body == {"available": True,
                     "uplink": {"interface": None, "wireless": False},
-                    "items": [], "suggested": 0}
+                    "items": [], "suggested": 0, "public_resolver": {}}
 
 
 # --- the Docker side --------------------------------------------------------
@@ -209,3 +209,10 @@ def test_unreadable_facts_are_reported(client, fake_smokeping):
 def test_the_endpoint_requires_the_token(client, monkeypatch):
     monkeypatch.setenv("CONFIG_API_TOKEN", "sekrit")
     assert client.get("/recommendations").status_code == 401
+
+
+def test_the_public_resolver_is_passed_through_untouched():
+    snap = {"router": {"ok": True, "owner": "AS15169 GOOGLE - Google LLC, US"}}
+    body = recommendations.recommend({**FACTS, "public_resolver": snap}, {})
+    assert body["public_resolver"] == snap
+    assert recommendations.recommend(FACTS, {})["public_resolver"] == {}

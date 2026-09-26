@@ -548,6 +548,29 @@ def _uplink_changes(hours: float) -> list[dict]:
 UPLINK_STATUS_HOURS = 24 * 7
 
 
+def _resolver_now() -> dict:
+    """Who answers the house's DNS on the Internet side, per path (router,
+    observer), and the last change of hands within a week; {} without
+    dns_resolver data or on failure."""
+    try:
+        current = aggregates.parse_resolver_current(
+            query_influx(aggregates.resolver_current_flux()))
+        changes = aggregates.parse_resolver_changes(
+            query_influx(aggregates.resolver_changes_flux(f"-{UPLINK_STATUS_HOURS}h")))
+    except Exception as exc:  # noqa: BLE001 - optional measurement, never fatal
+        # The type only: an influx error message can carry the token.
+        log.warning("dns_resolver status lookup failed: %s", type(exc).__name__)
+        return {}
+    if not current and not changes:
+        return {}
+    return {
+        "paths": current,
+        "last_change": ({**changes[-1], "said": aggregates.describe_resolver_change(changes[-1])}
+                        if changes else None),
+        "changes_7d": len(changes),
+    }
+
+
 def _uplink_now() -> dict:
     """The current uplink and its last change within a week; {} without
     host_uplink data or on failure."""
@@ -595,6 +618,13 @@ def system_status() -> dict:
     `uplink` names the interface every measurement crosses (`kind`:
     wireless, wired, virtual or none) and its `last_change` within a week:
     numbers from before a change crossed a different link.
+
+    `resolver` says who answers the house's DNS on the Internet side, per
+    path (`router`; `observer` when the Pi's DNS observer runs): the owner
+    (an ASN and its registry name, e.g. "AS15169 GOOGLE - Google LLC, US")
+    and `ecs`, the client subnet it passes on to websites, from which CDNs
+    choose the server they send the house to. A `last_change` means
+    CDN-backed targets may have moved servers at that moment.
     """
     api = backends.get_config_api()
     result: dict = {}
@@ -641,6 +671,10 @@ def system_status() -> dict:
     uplink = _uplink_now()
     if uplink:
         result["uplink"] = uplink
+
+    resolver = _resolver_now()
+    if resolver:
+        result["resolver"] = resolver
 
     # The one place that reports on deep-link configuration. Repeating the
     # hint on every measurement response would be noise; saying it nowhere

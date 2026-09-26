@@ -183,6 +183,7 @@ def build(
         "cpe": data.get("cpe", []),
         "wifi": data.get("wifi") or {},
         "uplink": data.get("uplink") or {},
+        "resolver": data.get("resolver") or {},
         "alerts_fired": len(alerts),
         "recoveries": len(recoveries),
         "active_incidents": len(active),
@@ -194,6 +195,7 @@ def build(
             hours, targets, lossy, worst, len(alerts), len(recoveries),
             len(active), active_mutes, suppressed, wifi=data.get("wifi") or {},
             uplink=data.get("uplink") or {},
+            resolver=data.get("resolver") or {},
         ),
         "links": links.entry_point_links(hours=hours),
     }
@@ -211,6 +213,7 @@ def render(
     suppressed: int = 0,
     wifi: dict | None = None,
     uplink: dict | None = None,
+    resolver: dict | None = None,
 ) -> str:
     """The digest text, in the same shape as everything else this bot sends.
 
@@ -302,6 +305,20 @@ def render(
             lines.append(f"{watch} {esc(text[0].upper() + text[1:])}.")
         if len(changes) > 3:
             lines.append(f"{watch} …and {_plural(len(changes) - 3, 'earlier change', 'earlier changes')}.")
+
+    # Only when the resolver changed hands: CDN-backed targets may move to
+    # other servers at that moment, so the numbers before and after are not
+    # the same path either. A quiet day adds nothing.
+    resolver_changes = (resolver or {}).get("changes") or []
+    if resolver_changes:
+        if not changes and not (wifi and wifi.get("min_dbm") is not None):
+            lines.append("")
+            lines.append(b("Local link"))
+        for change in reversed(resolver_changes[-3:]):
+            text = aggregates.describe_resolver_change(change)
+            lines.append(f"{watch} {esc(text[0].upper() + text[1:])}.")
+        if len(resolver_changes) > 3:
+            lines.append(f"{watch} …and {_plural(len(resolver_changes) - 3, 'earlier change', 'earlier changes')}.")
 
     # Only when something is muted: a "Muted: nothing" line every morning
     # would train the reader to skip the section that matters on the one day

@@ -81,7 +81,32 @@ def summarize_connection(body):
         'wireless': bool(uplink.get('wireless')),
         'entries': items,
         'suggested': body.get('suggested', 0),
+        'public_resolver': summarize_public_resolver(body.get('public_resolver') or {}),
     }
+
+
+def summarize_public_resolver(paths):
+    """The card's DNS line: who answers through the router and, when it
+    runs, through the DNS observer. Owner names come from the ASN registry
+    ('GOOGLE - Google LLC, US'); the part before ' - ' is shown."""
+    out = []
+    for path, label in (('router', 'through your router'), ('observer', 'through the DNS observer')):
+        entry = paths.get(path) or {}
+        if not entry.get('ok'):
+            continue
+        owners = []
+        for o in entry.get('owners') or []:
+            name = str(o.get('name') or '')
+            short = name.split(' - ', 1)[-1].split(',')[0].strip() if ' - ' in name else name
+            owners.append(f"{short or 'unknown'} (AS{o.get('asn')})")
+        out.append({
+            'path': path,
+            'label': label,
+            'owners': ' and '.join(owners) or 'an unknown network',
+            'ecs': entry.get('ecs') or '',
+            'egress': entry.get('egress') or [],
+        })
+    return out
 
 
 # What SmokePing ships every probe with; a target whose probe is unknown

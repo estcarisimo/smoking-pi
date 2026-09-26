@@ -26,6 +26,20 @@
 "queryType": "flux",
 "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"host_uplink\" and (r._field == \"previous\" or r._field == \"interface\" or r._field == \"kind\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => exists r.previous) |> map(fn: (r) => ({_time: r._time, text: \"Uplink \" + r.previous + \" → \" + (if r.interface == \"\" then \"none\" else r.interface + \" (\" + r.kind + \")\"), tags: \"uplink\"}))"
 }
+},
+{
+"datasource": {
+"type": "influxdb",
+"uid": "influxdb"
+},
+"enable": true,
+"iconColor": "orange",
+"name": "Resolver changed",
+"target": {
+"refId": "Anno",
+"queryType": "flux",
+"query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolver\" and (r._field == \"previous\" or r._field == \"owner\")) |> pivot(rowKey: [\"_time\", \"path\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => exists r.previous) |> map(fn: (r) => ({_time: r._time, text: \"Resolver via \" + r.path + \": \" + r.previous + \" → \" + r.owner, tags: \"resolver\"}))"
+}
 }
 ]
 },

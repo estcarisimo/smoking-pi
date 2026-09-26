@@ -57,6 +57,12 @@ __all__ = [
     "MAX_WORST_WINDOWS",
     "collect",
     "describe_uplink_change",
+    "describe_resolver_change",
+    "resolver_changes_flux",
+    "parse_resolver_changes",
+    "collect_resolver",
+    "resolver_current_flux",
+    "parse_resolver_current",
     "flux_str",
     "influx_bucket",
     "query_influx",
@@ -342,6 +348,86 @@ def describe_uplink_change(change: dict, with_time: bool = True) -> str:
     return f"this host's uplink moved from {prev} to {new} ({kind}){at}"
 
 
+# --- dns_resolver: who answers the house's DNS on the Internet side ------------
+#
+# Written by smokeping-exporters/resolver_identity.py, per path (router,
+# observer). A change point carries ``previous``, the owners before; the
+# dashboards' "Resolver changed" annotation reads the same rows.
+
+RESOLVER_PATHS = {"router": "through the router", "observer": "through the DNS observer"}
+
+
+def resolver_changes_flux(range_start: str) -> str:
+    """The change points since ``range_start``, oldest first, one row each
+    with path / previous / owner."""
+    return (
+        base_flux(["dns_resolver"], range_start)
+        + '|> filter(fn: (r) => r._field == "previous" or r._field == "owner") '
+        '|> pivot(rowKey: ["_time", "path"], columnKey: ["_field"], valueColumn: "_value") '
+        "|> filter(fn: (r) => exists r.previous) "
+        '|> group() |> sort(columns: ["_time"])'
+    )
+
+
+def parse_resolver_changes(rows: list[dict]) -> list[dict]:
+    """Rows of resolver_changes_flux as ``[{time, path, previous, owner}]``."""
+    out = []
+    for r in rows:
+        if r.get("previous") is None:
+            continue
+        out.append({
+            "time": _iso(r.get("_time")),
+            "path": str(r.get("path") or ""),
+            "previous": str(r.get("previous")),
+            "owner": str(r.get("owner") or ""),
+        })
+    return out
+
+
+def describe_resolver_change(change: dict, with_time: bool = True) -> str:
+    """One change in words, e.g. "the resolver answering through the router
+    changed from AS15169 GOOGLE - Google LLC, US to AS19281 QUAD9-AS-1, US at
+    14:02". Shared so every surface says it the same way."""
+    at = f" at {_clock(change.get('time'))}" if with_time else ""
+    where = RESOLVER_PATHS.get(change.get("path") or "", f"via {change.get('path')}")
+    return (f"the resolver answering {where} changed from {change.get('previous')} "
+            f"to {change.get('owner') or 'unknown'}{at}")
+
+
+def resolver_current_flux() -> str:
+    """The newest owner and client subnet per path, within the hour."""
+    return (
+        base_flux(["dns_resolver"], "-1h")
+        + '|> filter(fn: (r) => r._field == "owner" or r._field == "ecs") |> last()'
+    )
+
+
+def parse_resolver_current(rows: list[dict]) -> dict[str, dict]:
+    """Rows of resolver_current_flux as ``{path: {owner, ecs}}``; a path
+    whose last probe got no answer (owner "") is left out."""
+    current: dict[str, dict] = {}
+    for r in rows:
+        path, fld = r.get("path"), r.get("_field")
+        if path and fld:
+            current.setdefault(str(path), {})[str(fld)] = str(r.get("_value") or "")
+    return {p: v for p, v in current.items() if v.get("owner")}
+
+
+def collect_resolver(hours: int) -> dict:
+    """``{current: {path: {owner, ecs}}, changes: [...]}`` over the window;
+    ``{}`` without dns_resolver data (an older exporter, no InfluxDB) or on
+    failure -- optional, like the uplink block."""
+    try:
+        changes = parse_resolver_changes(query_influx(resolver_changes_flux(f"-{int(hours)}h")))
+        current = parse_resolver_current(query_influx(resolver_current_flux()))
+    except Exception:  # noqa: BLE001 - optional measurement, never fatal
+        log.warning("dns_resolver aggregate failed; going out without it", exc_info=True)
+        return {}
+    if not current and not changes:
+        return {}
+    return {"current": current, "changes": changes}
+
+
 def _collect_uplink(hours: int) -> dict:
     """``{current: {interface, kind, family} | None, changes: [...]}`` over the
     window; ``{}`` when host_uplink has nothing (Standard, an older
@@ -383,6 +469,7 @@ def collect(hours: int = 24) -> dict:
     cpe = _collect_cpe_stats(hours)
     wifi = _collect_wifi_stats(hours)
     uplink = _collect_uplink(hours)
+    resolver = collect_resolver(hours)
     return {
         "window_hours": hours,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -392,4 +479,5 @@ def collect(hours: int = 24) -> dict:
         "cpe": cpe,
         "wifi": wifi,
         "uplink": uplink,
+        "resolver": resolver,
     }

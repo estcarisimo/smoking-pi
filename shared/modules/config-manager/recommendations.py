@@ -140,6 +140,9 @@ def recommend(facts: Dict[str, Any], measured: Dict[str, str]) -> Dict[str, Any]
                    "wireless": bool(facts.get("wireless"))},
         "items": items,
         "suggested": sum(1 for i in items if i["status"] == "suggested"),
+        # Who answers the house's DNS on the Internet side (resolver_identity);
+        # {} before the collector's first cycle.
+        "public_resolver": facts.get("public_resolver") or {},
     }
 
 

@@ -9,6 +9,31 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Which public resolver answers for the house, over time.** The router is
+  the DNS server devices use, but it forwards to someone else. That
+  resolver's public address, and the client subnet it passes on, are what
+  CDNs pick your servers from, so a change of resolver can move every
+  CDN-backed measurement at once. Nothing recorded who it was. Now
+  `resolver_identity.py`, in the SmokePing container, asks
+  `whoami.akamai.net` and `o-o.myaddr.l.google.com` every 15 minutes through
+  the router and through the DNS observer when it runs, and finds each egress
+  address's owner (ASN and name) from Team Cymru's DNS service. On the
+  reference Pi, through its router: Google (AS15169), whose egress address
+  changed on each of three queries, passing a /24 client subnet. Through
+  the DNS observer: Cloudflare and Google, AdGuard's two upstreams. Written
+  to InfluxDB as `dns_resolver`, and shown in four places:
+  - the web admin's *Your connection* card;
+  - a *Resolver changed* Grafana annotation next to *Uplink changed*;
+  - a digest line on a day it changed hands;
+  - a `resolver` block in the assistant's `system_status`.
+
+  A change means the owners share none with the owners seen before. A
+  pool's varying mix is not a change: otherwise the observer, spreading
+  over Cloudflare and Google, would read "changed" on every other cycle.
+  See `docs/public-resolver.md`.
+
 ### Fixed
 
 - **The DNS observer's admin password and address were hard to find, and
