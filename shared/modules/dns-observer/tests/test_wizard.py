@@ -191,3 +191,27 @@ def test_owners_are_cached_and_misses_retried():
     assert o.owner("192.0.2.99") == ["AS64500", "EXAMPLE-NET"]
     assert "203.0.113.0/24" not in o.cache  # a miss is not cached
     assert o.owner(None) is None
+
+
+def test_owner_cache_is_pruned_with_the_services(wiz):
+    owners = NoLookups({"192.0.2.0/24": ["AS64500", "A"], "198.51.100.0/24": ["AS64501", "B"]})
+    write(wiz.log, [line("old.alpha.org", T0, addr="192.0.2.1"),
+                    line("new.beta.net", T0 + 8 * 24 * HOUR, addr="198.51.100.1")])
+    w = wiz(owners=owners)
+    w.run_once(now=T0 + 60)
+    assert "192.0.2.0/24" in w.owners.cache
+    w.run_once(now=T0 + 8 * 24 * HOUR + 60)
+    assert set(w.owners.cache) == {"198.51.100.0/24"}
+
+
+def test_a_missed_rotation_is_logged(wiz, caplog):
+    write(wiz.log, [line("a.alpha.org", T0 + 1)])
+    w = wiz()
+    w.ingest_new()
+    os.rename(wiz.log, str(wiz.log) + ".2")
+    write(str(wiz.log) + ".1", [line("b.beta.net", T0 + 2)], mode="w")
+    write(wiz.log, [line("c.gamma.com", T0 + 3)], mode="w")
+    import logging
+    with caplog.at_level(logging.INFO, logger="dns-observer.wizard"):
+        assert w.ingest_new() == 1
+    assert "rotated more than once" in caplog.text

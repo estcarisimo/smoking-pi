@@ -285,8 +285,11 @@ class Wizard:
                 if os.stat(rotated).st_ino == st.inode:
                     for lines, _ in self._read_from(rotated, st.offset):
                         kept += self.ingest(lines)
+                else:
+                    log.info("DNS wizard: the log rotated more than once since the last "
+                             "pass; what was appended to the older file is not counted")
             except OSError:
-                pass
+                log.info("DNS wizard: the rotated log is gone; its unread tail is not counted")
             st.offset = 0
         if st.inode == inode and os.path.getsize(self.log_path) < st.offset:
             st.offset = 0  # truncated
@@ -349,6 +352,10 @@ class Wizard:
                 meta["hosts"] = dict(sorted(hosts.items(), key=lambda kv: -kv[1])[:20])
         for day in sorted(st.top_by_day)[:-8]:
             del st.top_by_day[day]
+        # Network owners: only for the addresses still in use.
+        prefixes = {Owners.prefix(m["addr"]) for m in st.meta.values() if m.get("addr")}
+        for net in [n for n in self.owners.cache if n not in prefixes]:
+            del self.owners.cache[net]
 
     # -- the snapshot ------------------------------------------------------------
 

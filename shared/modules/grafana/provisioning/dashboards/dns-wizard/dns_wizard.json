@@ -127,7 +127,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_richness\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_richness\")) |> last()"
     }
    ]
   },
@@ -181,7 +181,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_effective_hhi\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_effective_hhi\")) |> last()"
     }
    ]
   },
@@ -235,7 +235,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"asn_richness\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"asn_richness\")) |> last()"
     }
    ]
   },
@@ -289,7 +289,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"asn_effective_hhi\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"asn_effective_hhi\")) |> last()"
     }
    ]
   },
@@ -352,7 +352,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_jaccard\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_jaccard\")) |> last()"
     }
    ]
   },
@@ -407,7 +407,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"own_share_24h\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"own_share_24h\")) |> last()"
     }
    ]
   },
@@ -461,7 +461,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_distinct_cdn\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_distinct_cdn\")) |> last()"
     }
    ]
   },
@@ -515,7 +515,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_distinct_asn\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_distinct_asn\")) |> last()"
     }
    ]
   },
@@ -569,7 +569,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"queries_1h\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"queries_1h\")) |> last()"
     }
    ]
   },
@@ -623,7 +623,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: -2h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"hours_with_data\")) |> last()"
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"hours_with_data\")) |> last()"
     }
    ]
   },
@@ -1088,7 +1088,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "data = from(bucket: \"smokeping\")\n  |> range(start: -1d)\n  |> filter(fn: (r) => r._measurement == \"dns_wizard_service\")\nlatest = data\n  |> filter(fn: (r) => r._field == \"rank\")\n  |> group()\n  |> keep(columns: [\"_time\"])\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 1)\n  |> findRecord(fn: (key) => true, idx: 0)\ndata\n  |> filter(fn: (r) => r._time == latest._time)\n  |> pivot(rowKey: [\"_time\", \"service\", \"cdn\", \"asn\", \"org\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> keep(columns: [\"rank\", \"service\", \"presence_h\", \"queries_24h\", \"queries_1h\", \"host\", \"cdn\", \"asn\", \"org\"])\n  |> sort(columns: [\"rank\"])"
+     "query": "data = from(bucket: \"smokeping\")\n  |> range(start: -1d)\n  |> filter(fn: (r) => r._measurement == \"dns_wizard_service\")\nlatest = data\n  |> filter(fn: (r) => r._field == \"rank\")\n  |> group()\n  |> keep(columns: [\"_time\"])\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 1)\n  |> findRecord(fn: (key) => true, idx: 0)\n// With DNS_EXPORT_NAMES off there is no snapshot: an empty table, not an error.\nlatestTime = if exists latest._time then latest._time else time(v: 0)\ndata\n  |> filter(fn: (r) => r._time == latestTime)\n  |> pivot(rowKey: [\"_time\", \"service\", \"cdn\", \"asn\", \"org\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> keep(columns: [\"rank\", \"service\", \"presence_h\", \"queries_24h\", \"queries_1h\", \"host\", \"cdn\", \"asn\", \"org\"])\n  |> sort(columns: [\"rank\"])"
     }
    ]
   }
