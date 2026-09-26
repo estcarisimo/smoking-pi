@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.7] — 2026-09-26
+
+config-manager uses its database again.
+
+From v2.13.0 on, a newer SQLAlchemy picked a PostgreSQL driver the image
+does not carry, and config-manager silently fell back to its YAML files.
+SmokePing measured those instead of the database's targets. This release
+names the driver the image has, and the doctor now fails when the database
+is configured but unreachable.
+
 ### Fixed
 
 - **config-manager had not used its database since v2.13.0, and nothing
