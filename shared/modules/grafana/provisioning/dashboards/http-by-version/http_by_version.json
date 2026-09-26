@@ -82,7 +82,7 @@
         "datasource": {
           "uid": "influxdb"
         },
-        "query": "import \"regexp\" from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"http_latency\") |> keep(columns: [\"target\"]) |> distinct(column: \"target\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /_h[123]$/, v: r._value, t: \"\") })) |> distinct() |> sort()",
+        "query": "import \"regexp\" from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"http_latency\" and r.category != \"dns_wizard\") |> keep(columns: [\"target\"]) |> distinct(column: \"target\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /_h[123]$/, v: r._value, t: \"\") })) |> distinct() |> sort()",
         "current": {
           "selected": true,
           "text": "All",

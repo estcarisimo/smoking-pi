@@ -696,9 +696,13 @@ def system_status() -> dict:
 
 
 def _base_flux(measurements: list[str], hours: int) -> str:
+    # The DNS wizard's adopted targets stay out, as in common.tsdb.base_flux:
+    # many CDNs drop ICMP and would read as down, swamping these answers.
     predicate = " or ".join(
         f'r._measurement == {flux_str(m)}' for m in measurements
     )
+    predicate = (f"({predicate}) and "
+                 f"(not exists r.category or r.category != {flux_str('dns_wizard')})")
     return (
         f"from(bucket: {flux_str(influx_bucket())}) "
         f"|> range(start: -{hours}h) "

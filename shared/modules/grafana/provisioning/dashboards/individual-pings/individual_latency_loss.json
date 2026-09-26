@@ -71,7 +71,7 @@
         "name": "target",
         "label": "Target",
         "datasource": { "uid": "influxdb" },
-        "query": "from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"latency\") |> keep(columns: [\"target\"]) |> distinct(column: \"target\") |> sort(columns: [\"target\"])",
+        "query": "from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"latency\" and r.category != \"dns_wizard\") |> keep(columns: [\"target\"]) |> distinct(column: \"target\") |> sort(columns: [\"target\"])",
         "hide": 0,
         "multi": true,
         "includeAll": true,

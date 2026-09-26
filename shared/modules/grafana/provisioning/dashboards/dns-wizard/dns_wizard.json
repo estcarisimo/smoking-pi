@@ -935,7 +935,7 @@
   {
    "id": 18,
    "type": "row",
-   "title": "Top services, latest snapshot (needs DNS_EXPORT_NAMES=1)",
+   "title": "Measured services: what the wizard adopted (category dns_wizard)",
    "collapsed": false,
    "gridPos": {
     "h": 1,
@@ -947,6 +947,260 @@
   },
   {
    "id": 19,
+   "type": "timeseries",
+   "title": "Median latency by protocol, across adopted services",
+   "description": "The median over all adopted services of each protocol's median, per window. ICMP and TCP are network round trips; HTTP includes TLS and the server's answer. Empty until services are adopted (smoking-pi dns adopt).",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 24,
+    "x": 0,
+    "y": 29
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "min": 0,
+     "custom": {
+      "lineWidth": 2,
+      "spanNulls": 1800000
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "import \"regexp\"\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.category == \"dns_wizard\" and r._field == \"median\") |> map(fn: (r) => ({r with _field: if r.probe_type == \"fping\" or r.probe_type == \"fping6\" then \"ICMP\" else if r.probe_type == \"tcpping\" then \"TCP\" else if r.probe_type == \"http1\" then \"HTTP/1.1\" else if r.probe_type == \"http2\" then \"HTTP/2\" else if r.probe_type == \"http3\" then \"HTTP/3\" else r.probe_type})) |> map(fn: (r) => ({r with _value: float(v: r._value) * 1000.0})) |> group(columns: [\"_field\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"_field\"])"
+    }
+   ]
+  },
+  {
+   "id": 20,
+   "type": "table",
+   "title": "Latest median per service (ms)",
+   "description": "Each adopted service's latest median, per protocol, from the last 30 min only: a retired target drops out by itself. Blank cells: the protocol failed or is not answered (many CDNs drop ICMP).",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 14,
+    "w": 12,
+    "x": 0,
+    "y": 37
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "decimals": 1,
+     "custom": {
+      "align": "auto",
+      "cellOptions": {
+       "type": "color-text"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 80
+       },
+       {
+        "color": "red",
+        "value": 200
+       }
+      ]
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "service"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "string"
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "auto"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "service": 0,
+       "ICMP": 1,
+       "TCP": 2,
+       "HTTP/1.1": 3,
+       "HTTP/2": 4,
+       "HTTP/3": 5
+      }
+     }
+    }
+   ],
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "import \"regexp\"\nfrom(bucket: \"smokeping\") |> range(start: -30m) |> filter(fn: (r) => (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.category == \"dns_wizard\" and r._field == \"median\") |> last() |> map(fn: (r) => ({r with service: regexp.replaceAllString(r: /^W_|_(icmp|tcp|h1|h2|h3)$/, v: r.target, t: \"\"), proto: if r.probe_type == \"fping\" or r.probe_type == \"fping6\" then \"ICMP\" else if r.probe_type == \"tcpping\" then \"TCP\" else if r.probe_type == \"http1\" then \"HTTP/1.1\" else if r.probe_type == \"http2\" then \"HTTP/2\" else if r.probe_type == \"http3\" then \"HTTP/3\" else r.probe_type})) |> map(fn: (r) => ({r with _value: float(v: r._value) * 1000.0})) |> group() |> keep(columns: [\"service\", \"proto\", \"_value\"]) |> pivot(rowKey: [\"service\"], columnKey: [\"proto\"], valueColumn: \"_value\") |> sort(columns: [\"service\"])"
+    }
+   ]
+  },
+  {
+   "id": 21,
+   "type": "table",
+   "title": "Latest loss per service",
+   "description": "Share of pings lost in the latest round, per protocol. HTTP/3 loss often means the service does not offer QUIC.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 14,
+    "w": 12,
+    "x": 12,
+    "y": 37
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "custom": {
+      "align": "auto",
+      "cellOptions": {
+       "type": "color-text"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.05
+       },
+       {
+        "color": "red",
+        "value": 0.5
+       }
+      ]
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "service"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "string"
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "auto"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "service": 0,
+       "ICMP": 1,
+       "TCP": 2,
+       "HTTP/1.1": 3,
+       "HTTP/2": 4,
+       "HTTP/3": 5
+      }
+     }
+    }
+   ],
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "import \"regexp\"\nfrom(bucket: \"smokeping\") |> range(start: -30m) |> filter(fn: (r) => (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.category == \"dns_wizard\" and r._field == \"loss\") |> last() |> map(fn: (r) => ({r with service: regexp.replaceAllString(r: /^W_|_(icmp|tcp|h1|h2|h3)$/, v: r.target, t: \"\"), proto: if r.probe_type == \"fping\" or r.probe_type == \"fping6\" then \"ICMP\" else if r.probe_type == \"tcpping\" then \"TCP\" else if r.probe_type == \"http1\" then \"HTTP/1.1\" else if r.probe_type == \"http2\" then \"HTTP/2\" else if r.probe_type == \"http3\" then \"HTTP/3\" else r.probe_type})) |> map(fn: (r) => ({r with _value: float(v: r._value) * 1.0})) |> group() |> keep(columns: [\"service\", \"proto\", \"_value\"]) |> pivot(rowKey: [\"service\"], columnKey: [\"proto\"], valueColumn: \"_value\") |> sort(columns: [\"service\"])"
+    }
+   ]
+  },
+  {
+   "id": 22,
+   "type": "row",
+   "title": "Top services, latest snapshot (needs DNS_EXPORT_NAMES=1)",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 51
+   },
+   "panels": []
+  },
+  {
+   "id": 23,
    "type": "table",
    "title": "Top services by presence",
    "description": "The latest snapshot only, so services that dropped out do not linger. Presence = hours of the last week seen. Host = the busiest stable name, the candidate endpoint to measure. Empty unless DNS_EXPORT_NAMES=1.",
@@ -958,7 +1212,7 @@
     "h": 14,
     "w": 24,
     "x": 0,
-    "y": 29
+    "y": 52
    },
    "options": {
     "showHeader": true,

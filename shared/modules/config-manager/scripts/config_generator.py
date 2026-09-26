@@ -81,12 +81,20 @@ CATEGORY_PRESENTATION = {
         'menu': 'TCP connect',
         'title': 'TCP handshake time (SYN to SYN/ACK, port 443)',
     },
+    # The DNS wizard's adopted services (config-manager/wizard_adopt.py):
+    # one section, every protocol, told apart by the target name's suffix
+    # (_icmp, _tcp, _h1, _h2, _h3), which rrd2influx reads.
+    'dns_wizard': {
+        'section': 'DNS_Wizard',
+        'menu': 'DNS wizard',
+        'title': 'What the house uses, measured (picked by the DNS wizard)',
+    },
 }
 
 # Stable section ordering (known categories first, then any others in
 # data order) so the generated file does not churn between runs.
 CATEGORY_ORDER = ['top_sites', 'netflix_oca', 'dns_resolvers', 'custom',
-                  'http', 'tcp']
+                  'http', 'tcp', 'dns_wizard']
 
 # Probe configuration keys that may be emitted into the SmokePing Probes
 # file. Anything else in probes.yaml (metadata, nested structures, ...)

@@ -105,11 +105,23 @@ def clamp_loss_ratio(value: float) -> float:
     return min(1.0, max(0.0, float(value)))
 
 
-def base_flux(measurements: list[str], range_start: str) -> str:
+# The DNS wizard's adopted targets (category dns_wizard) are exploratory:
+# many CDNs drop ICMP, so they would read as "down" and page, and they would
+# swamp the digest's and the assistant's per-target views. Everything built
+# on base_flux leaves them out unless asked; the DNS Wizard dashboard shows
+# them.
+WIZARD_CATEGORY = "dns_wizard"
+
+
+def base_flux(measurements: list[str], range_start: str,
+              include_wizard: bool = False) -> str:
     """Range + measurement filter prefix. ``range_start`` e.g. ``-300s``."""
     predicate = " or ".join(
         f"r._measurement == {flux_str(m)}" for m in measurements
     )
+    if not include_wizard:
+        predicate = (f"({predicate}) and (not exists r.category or "
+                     f"r.category != {flux_str(WIZARD_CATEGORY)})")
     return (
         f"from(bucket: {flux_str(influx_bucket())}) "
         f"|> range(start: {range_start}) "

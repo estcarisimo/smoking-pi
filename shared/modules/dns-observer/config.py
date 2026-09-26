@@ -140,6 +140,11 @@ class Config:
     wizard_interval: int = 600  # seconds; 0 turns it off
     wizard_top: int = 25
     wizard_exclude: tuple[str, ...] = ()
+    # Which services to measure (wizard.select): K comes from the data.
+    wizard_score: str = "auto"  # auto | presence | queries
+    wizard_coverage: float = 0.8
+    wizard_floor: float = 0.005
+    wizard_max: int = 60
 
     @property
     def status_path(self) -> str:
@@ -247,7 +252,29 @@ class Config:
             wizard_interval=_wizard_interval(env),
             wizard_top=_int(env, "DNS_WIZARD_TOP", 25, minimum=1),
             wizard_exclude=tuple(_split(_get(env, "DNS_WIZARD_EXCLUDE", ""))),
+            wizard_score=_choice(env, "DNS_WIZARD_SCORE", "auto", ("auto", "presence", "queries")),
+            wizard_coverage=_fraction(env, "DNS_WIZARD_COVERAGE", 0.8),
+            wizard_floor=_fraction(env, "DNS_WIZARD_FLOOR", 0.005),
+            wizard_max=_int(env, "DNS_WIZARD_MAX", 60, minimum=1),
         )
+
+
+def _choice(env: dict[str, str], name: str, default: str, allowed: tuple[str, ...]) -> str:
+    value = _get(env, name, default).strip().lower()
+    if value not in allowed:
+        raise ConfigError(f"{name}: {value!r} is not one of {', '.join(allowed)}")
+    return value
+
+
+def _fraction(env: dict[str, str], name: str, default: float) -> float:
+    raw = _get(env, name, str(default)).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ConfigError(f"{name}: {raw!r} is not a number") from None
+    if not 0 < value <= 1:
+        raise ConfigError(f"{name}: must be in (0, 1], got {value}")
+    return value
 
 
 def _wizard_interval(env: dict[str, str]) -> int:

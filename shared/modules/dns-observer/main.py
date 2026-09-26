@@ -325,6 +325,10 @@ class Supervisor:
             canary_domain=self.cfg.canary_domain,
             extra_own=self.cfg.wizard_exclude,
             top=self.cfg.wizard_top,
+            score=self.cfg.wizard_score,
+            coverage=self.cfg.wizard_coverage,
+            floor=self.cfg.wizard_floor,
+            max_k=self.cfg.wizard_max,
         )
         await asyncio.sleep(30)
         while not self.stopping.is_set():

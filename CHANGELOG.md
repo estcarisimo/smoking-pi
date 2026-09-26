@@ -9,6 +9,42 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Measure what the house uses: `smoking-pi dns adopt`.** The DNS wizard
+  now selects which services to measure, and how many comes from the data,
+  not a constant:
+  - the services behind 80% of the house's activity;
+  - plus one service for every network (AS) and CDN holding at least 0.5%
+    of it that those miss;
+  - at most 60 services.
+
+  On the reference house that is 46 services, covering 14 of the 27
+  networks seen. `smoking-pi dns adopt` makes them targets, in one
+  transaction and one SmokePing reload. Each service gets ICMP, TCP 443,
+  and HTTP/1.1, /2 and /3, in a new DNS wizard category. HTTP runs on the
+  wizard's own probes, with 20 requests in parallel and a 5 s timeout. The
+  curated probes allow about 30 targets per HTTP version, because their
+  cadence check assumes every request times out. With these settings, 50
+  services fit in at most 75 s of a 300 s round. Adoption only adds: a
+  service stays measured once adopted, until removals with hysteresis come
+  from a week of data.
+  The DNS Wizard dashboard gains three panels: median latency per protocol
+  across the adopted services, and the latest median and loss per service
+  and protocol. They show the last 30 minutes only, so retired targets do
+  not linger. Settings: `DNS_WIZARD_SCORE`, `DNS_WIZARD_COVERAGE`,
+  `DNS_WIZARD_FLOOR`, `DNS_WIZARD_MAX`.
+
+### Changed
+
+- **The DNS wizard's targets are kept apart from alerting and reports.**
+  Many CDNs drop ICMP, so their targets would read as "down" and page. The
+  alerter, the digest and the assistant (everything built on
+  `common.tsdb.base_flux`) leave the `dns_wizard` category out, and so do
+  the target pickers of the other dashboards. On the live InfluxDB, the
+  filter keeps every existing series: the same point counts, with and
+  without it, for five measurements.
+
 ## [2.13.4] — 2026-09-26
 
 The DNS wizard: what the house uses, from its DNS, in Grafana.

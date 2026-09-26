@@ -47,6 +47,8 @@ from publicsuffixlist import PublicSuffixList
 log = logging.getLogger("dns-observer.wizard")
 
 WINDOW_HOURS = 7 * 24
+# Below this many hours of data every service ties on presence.
+PRESENCE_AFTER_HOURS = 72
 KEEP_QTYPES = {"A", "AAAA", "HTTPS", "SVCB"}
 KS = (5, 10, 20)
 
@@ -143,6 +145,68 @@ def diversity(values: list[float], ks: tuple[int, ...] = KS) -> dict:
         "effective_shannon": math.exp(shannon),
         **{f"cov{k}": sum(shares[:k]) for k in ks},
     }
+
+
+def select(candidates: list[dict], *, coverage: float, floor: float, max_k: int) -> list[dict]:
+    """Which services to measure: K comes from the data, not a constant.
+
+    ``candidates`` are services with a ``score`` (presence or volume), their
+    ``cdn`` and ``asn``, in descending score order, each with a stable
+    ``host`` to measure (the caller leaves out services without one).
+
+    1. Coverage: take services in order until they cover ``coverage`` of the
+       total score (0.8: the services behind 80% of the house's activity).
+    2. Diversity: for every network (AS) and every CDN holding at least
+       ``floor`` of the score that step 1 left out, add its best service.
+       Grouping and cutting hide small-but-real paths; this puts them back.
+    3. Budget: at most ``max_k``. The coverage core is shortened from its
+       tail and the diversity picks recomputed against what is left: a cut
+       never loses a network or CDN above the floor while room remains.
+
+    Returns the picks in score order, each with ``reason``: "coverage",
+    "network <ASN>" or "cdn <domain>".
+    """
+    total = sum(c["score"] for c in candidates)
+    if total <= 0:
+        return []
+    core: list[dict] = []
+    acc = 0.0
+    for c in candidates:
+        if acc >= coverage * total:
+            break
+        core.append({**c, "reason": "coverage"})
+        acc += c["score"]
+
+    shares: dict[str, dict[str, float]] = {"asn": {}, "cdn": {}}
+    for c in candidates:
+        for level in shares:
+            if c.get(level):
+                shares[level][c[level]] = shares[level].get(c[level], 0.0) + c["score"] / total
+
+    def diversity_for(kept: list[dict]) -> list[dict]:
+        extra: list[dict] = []
+        for level in ("asn", "cdn"):
+            picked = {p["service"] for p in kept + extra}
+            have = {c.get(level) for c in kept + extra}
+            for unit in sorted(u for u, sh in shares[level].items() if sh >= floor and u not in have):
+                best = next(c for c in candidates if c.get(level) == unit)
+                if best["service"] not in picked:
+                    label = "network" if level == "asn" else "cdn"
+                    extra.append({**best, "reason": f"{label} {unit}"})
+                    picked.add(best["service"])
+        return extra
+
+    # Over budget: shorten the coverage core from its tail and recompute the
+    # diversity picks against what is left, so a rare network that entered by
+    # coverage and was cut comes back as a diversity pick.
+    kept = core
+    extra = diversity_for(kept)
+    while kept and len(kept) + len(extra) > max_k:
+        kept = kept[:-1]
+        extra = diversity_for(kept)
+    chosen = (kept + extra)[:max_k]
+    order = {c["service"]: i for i, c in enumerate(candidates)}
+    return sorted(chosen, key=lambda c: order[c["service"]])
 
 
 def jaccard(a: set[str], b: set[str]) -> float | None:
@@ -242,12 +306,14 @@ class State:
 class Wizard:
     def __init__(self, log_dir: str, state_dir: str, *, canary_domain: str,
                  extra_own: tuple[str, ...] = (), top: int = 25,
-                 owners: Owners | None = None) -> None:
+                 owners: Owners | None = None, score: str = "auto",
+                 coverage: float = 0.8, floor: float = 0.005, max_k: int = 60) -> None:
         self.log_path = os.path.join(log_dir, "querylog.json")
         self.state_path = os.path.join(state_dir, "wizard-state.json")
         self.out_path = os.path.join(state_dir, "wizard.json")
         self.own = OWN_TRAFFIC + ("." + canary_domain,) + extra_own
         self.top = top
+        self.score, self.coverage, self.floor, self.max_k = score, coverage, floor, max_k
         self.state = State.load(self.state_path)
         self.owners = owners or Owners(self.state.owners)
 
@@ -365,10 +431,12 @@ class Wizard:
         presence: dict[str, int] = {}
         q24: dict[str, int] = {}
         q1: dict[str, int] = {}
+        q7: dict[str, int] = {}
         for hour, per in st.hours.items():
             age = now_h - int(hour)
             for svc, (queries, _uncached) in per.items():
                 presence[svc] = presence.get(svc, 0) + 1
+                q7[svc] = q7.get(svc, 0) + queries
                 if age < 24:
                     q24[svc] = q24.get(svc, 0) + queries
                 if age < 1:
@@ -416,6 +484,39 @@ class Wizard:
             "cdn": len({st.meta.get(s, {}).get("cdn") for s in top10} - {None}),
             "asn": len({owner(s)[0] for s in top10} - {""}),
         }
+        # What to measure. Presence ranks best once there is enough of it;
+        # with a few hours every service ties, so volume ranks until then.
+        score_name = self.score
+        if score_name == "auto":
+            score_name = "presence" if hours_with_data >= PRESENCE_AFTER_HOURS else "queries"
+        weight = presence if score_name == "presence" else q7
+        candidates = []
+        skipped_no_host = 0
+        for svc in sorted(weight, key=lambda s: (-weight[s], -q7.get(s, 0), s)):
+            hosts = st.meta.get(svc, {}).get("hosts") or {}
+            if not hosts:
+                skipped_no_host += 1  # only generated names: nothing stable to measure
+                continue
+            candidates.append({
+                "service": svc, "score": float(weight[svc]),
+                "host": max(hosts, key=hosts.get),
+                "cdn": st.meta.get(svc, {}).get("cdn", ""), "asn": owner(svc)[0],
+            })
+        picks = select(candidates, coverage=self.coverage, floor=self.floor, max_k=self.max_k)
+        total_w = sum(c["score"] for c in candidates) or 1.0
+        selection = {
+            "score": score_name,
+            "coverage_target": self.coverage,
+            "diversity_floor": self.floor,
+            "max": self.max_k,
+            "k": len(picks),
+            "covered": sum(p["score"] for p in picks) / total_w,
+            "networks": len({p["asn"] for p in picks} - {""}),
+            "networks_total": len({c["asn"] for c in candidates} - {""}),
+            "skipped_no_host": skipped_no_host,
+            "services": [{k: p[k] for k in ("service", "host", "cdn", "asn", "reason")} for p in picks],
+        }
+
         return {
             "generated": now,
             "window_hours": WINDOW_HOURS,
@@ -433,6 +534,7 @@ class Wizard:
             "churn": {"top10_jaccard_vs_yesterday":
                       jaccard(set(top10), set(yesterday)) if yesterday is not None else None},
             "top": top,
+            "selection": selection,
         }
 
     def run_once(self, now: float | None = None) -> dict:
