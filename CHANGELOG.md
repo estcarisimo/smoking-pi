@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **The DNS setup guide checks with `dig`, and examples use a generic
+  address.** Step 3 now runs `dig @<Pi> example.com` and says what a good
+  answer looks like (`status: NOERROR`, an address in the ANSWER SECTION).
+  `smoking-pi dns enable` prints the same command. The guide and
+  `docs/mcp-server.md` used the reference Pi's own LAN address as the
+  example; they now use `192.168.1.10`, so nobody copies a real address
+  that is not theirs.
+
 ## [2.13.1] — 2026-09-26
 
 Which names does this house resolve? And when the answer stops coming, why?

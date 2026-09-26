@@ -115,10 +115,10 @@ and the web-admin page for editing it:
 ```json
 {"target": "Amazon", "median_ms": 21.4, "avg_loss_pct": 0.0,
  "links": {
-   "graph": "http://192.168.86.27:3000/d/smokeping-lat-pct-v28?var-target=Amazon&from=now-24h&to=now",
-   "per_ping_detail": "http://192.168.86.27:3000/d/individual-pings-v1?...",
-   "compare_with_peers": "http://192.168.86.27:3000/d/top_sites-side-by-side-v1?...",
-   "edit": "http://192.168.86.27:8080/targets/?q=Amazon"}}
+   "graph": "http://192.168.1.10:3000/d/smokeping-lat-pct-v28?var-target=Amazon&from=now-24h&to=now",
+   "per_ping_detail": "http://192.168.1.10:3000/d/individual-pings-v1?...",
+   "compare_with_peers": "http://192.168.1.10:3000/d/top_sites-side-by-side-v1?...",
+   "edit": "http://192.168.1.10:8080/targets/?q=Amazon"}}
 ```
 
 `get_microcut_stats` goes further and zooms each of its worst-5 windows to a
@@ -184,7 +184,7 @@ recreated to pick it up. By hand, set one variable for the common case:
 
 ```bash
 # editions/pro/.env — standard ports (:3000, :8080) are appended
-PUBLIC_BASE_HOST=192.168.86.27
+PUBLIC_BASE_HOST=192.168.1.10
 PUBLIC_BASE_HOST=smokingpi.tailnet-name.ts.net
 PUBLIC_BASE_HOST=2001:db8::5          # becomes http://[2001:db8::5]:3000
 ```
@@ -216,15 +216,15 @@ So the tunnel address is configured separately, and every link is emitted
 twice:
 
 ```bash
-PUBLIC_BASE_HOST=192.168.86.27               # at home
+PUBLIC_BASE_HOST=192.168.1.10               # at home
 TUNNEL_BASE_HOST=https://smokingpi.example.com   # from anywhere
 ```
 
 ```json
 {"links": {
-   "graph": "http://192.168.86.27:3000/d/smokeping-lat-pct-v28?var-target=Amazon&...",
+   "graph": "http://192.168.1.10:3000/d/smokeping-lat-pct-v28?var-target=Amazon&...",
    "graph_tunnel": "https://smokingpi.example.com/d/smokeping-lat-pct-v28?var-target=Amazon&...",
-   "edit": "http://192.168.86.27:8080/targets/?q=Amazon",
+   "edit": "http://192.168.1.10:8080/targets/?q=Amazon",
    "edit_tunnel": "https://smokingpi.example.com/targets/?q=Amazon"}}
 ```
 

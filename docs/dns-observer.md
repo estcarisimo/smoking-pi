@@ -70,13 +70,15 @@ is correct: nothing sends queries here yet.
 
 ### 3. Check that the Pi answers, before touching the router
 
-From a laptop on the same network (use the Pi's address from step 1):
+From a laptop on the same network, ask the Pi directly. Use the Pi's
+address from step 1; `192.168.1.10` here is only an example:
 
 ```bash
-nslookup example.com 192.168.86.27
+dig @192.168.1.10 example.com
 ```
 
-An address in the answer means the Pi resolves. A timeout means the router
+`status: NOERROR` and an address in the ANSWER SECTION mean the Pi
+resolves. A timeout means the router
 must not point at it yet; see
 [When the observer is not getting information](#when-the-observer-is-not-getting-information)
 and `smoking-pi logs dns-observer`.
@@ -104,8 +106,8 @@ and save.
 
 This works on routers that answer the house's DNS themselves (a DNS proxy
 or forwarder), which is what most home routers do: their devices get the
-router's own address as DNS server, and `nslookup example.com` on a laptop
-names the router as the server. If yours names another address, the router
+router's own address as DNS server, and `dig example.com` on a laptop shows
+the router's address on its `SERVER:` line. If yours names another address, the router
 is handing devices a resolver directly. Changing that is the DHCP-direct
 mode, which this guide does not cover.
 

@@ -1784,7 +1784,7 @@ cmd_dns() {
     echo "Before that:"
     echo "  - reserve $lan for this Pi in the router's DHCP settings, or a new lease"
     echo "    leaves the router forwarding the house's DNS to nothing;"
-    echo "  - from a laptop, check it answers: nslookup example.com $lan"
+    echo "  - from a laptop, check it answers: dig @$lan example.com"
     echo "After: smoking-pi dns status   (the canary proves the router forwards here within ~5 min)"
     echo "Step by step, per router: docs/dns-observer.md, \"Setup guide\""
 }
