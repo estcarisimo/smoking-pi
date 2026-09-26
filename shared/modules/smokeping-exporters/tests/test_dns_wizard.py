@@ -1,6 +1,11 @@
 import json
+import pathlib
+import sys
 
-import dns_wizard
+MODULE_DIR = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(MODULE_DIR))
+
+import dns_wizard  # noqa: E402
 
 SNAP = {
     "generated": 1790380800,

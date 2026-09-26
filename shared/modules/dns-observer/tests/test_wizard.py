@@ -128,7 +128,7 @@ def test_state_survives_a_restart(wiz):
     wiz().run_once(now=T0 + 100)
     w = wiz()
     assert w.ingest_new() == 0
-    assert "netflix.com" in w.state.hours[str(T0 // HOUR)]
+    assert set(w.state.hours[str(T0 // HOUR)]) == {"netflix.com"}
 
 
 # -- the snapshot -------------------------------------------------------------------
