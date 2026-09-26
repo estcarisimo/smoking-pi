@@ -69,6 +69,7 @@ COPY freshness.py ./
 COPY recommendations.py ./
 COPY assistant.py ./
 COPY pydantic_models.py ./
+COPY wizard_adopt.py ./
 
 # Make scripts executable
 RUN chmod +x scripts/*.py
