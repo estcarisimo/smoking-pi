@@ -44,8 +44,8 @@ CDNs drop ICMP and would read as down.
   from a week of data.
   The DNS Wizard dashboard gains three panels: median latency per protocol
   across the adopted services, and the latest median and loss per service
-  and protocol. They show the last 30 minutes only, so retired targets do
-  not linger. Settings: `DNS_WIZARD_SCORE`, `DNS_WIZARD_COVERAGE`,
+  and protocol. The two per-service tables show the last 30 minutes only,
+  so retired targets do not linger in them. Settings: `DNS_WIZARD_SCORE`, `DNS_WIZARD_COVERAGE`,
   `DNS_WIZARD_FLOOR`, `DNS_WIZARD_MAX`.
 
 ### Changed
