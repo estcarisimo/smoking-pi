@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.3] — 2026-09-26
+
+A test for the DNS observer's setup, and a canary routers forward.
+
+`smoking-pi dns test` checks each link of the DNS path right after you
+point the router at the Pi. The last check asks the router for ten unique
+names and counts how many arrive at the Pi. Each failing line says what to
+do. The setup guide's step 6 is now "Test it", with a section for checking
+the same path by hand with `dig` from a laptop. The canary's default name
+moves from `.invalid`, which routers that follow RFC 6761 answer themselves,
+to `home.arpa`.
+
 ### Added
 
 - **`smoking-pi dns test`: is the DNS path working, in seconds.** After
