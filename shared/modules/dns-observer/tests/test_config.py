@@ -100,3 +100,10 @@ def test_empty_client_list_is_refused(env):
 def test_admin_url_never_connects_to_a_wildcard(env, address, url):
     env["DNS_ADMIN_ADDRESS"] = address
     assert Config.from_env(env).admin_url == url
+
+
+@pytest.mark.parametrize("address", ["0.0.0.0", "3053", "0.0.0.0:", "host:port"])
+def test_admin_address_needs_host_and_port(env, address):
+    env["DNS_ADMIN_ADDRESS"] = address
+    with pytest.raises(ConfigError, match="host:port"):
+        Config.from_env(env)

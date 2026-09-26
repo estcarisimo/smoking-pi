@@ -235,3 +235,13 @@ refute_sentinels() {
     run_sp
     [[ "$output" != *"DNS observer (AdGuard Home)"* ]]
 }
+
+
+@test "the SSH hint names the user who ran sudo, never root" {
+    printf 'COMPOSE_PROFILES=influxdb,dns\nDNS_ADMIN_PASSWORD=x\n' >> "$SMOKING_PI_ENV_FILE"
+    cd "$EDITION_DIR"
+    run env USER=root SUDO_USER=pi bash "$SCRIPT"
+    [[ "$output" == *"ssh -L 3053:localhost:3053 pi@"* ]]
+    run env USER=root -u SUDO_USER bash "$SCRIPT"
+    [[ "$output" == *"ssh -L 3053:localhost:3053 <user>@"* ]]
+}

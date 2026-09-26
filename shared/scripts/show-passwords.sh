@@ -237,6 +237,10 @@ fi
 if [ "$EDITION" = "pro" ] && { [[ ",${COMPOSE_PROFILES:-}," == *,dns,* ]] || [ -n "${DNS_ADMIN_PASSWORD:-}" ]; }; then
     dns_admin="${DNS_ADMIN_ADDRESS:-127.0.0.1:3053}"
     dns_port="${dns_admin##*:}"
+    # The account to SSH in as: under sudo $USER is root, which a Pi
+    # rarely accepts over SSH; the one who ran sudo is who logs in.
+    ssh_user="${SUDO_USER:-${USER:-}}"
+    [ -n "$ssh_user" ] && [ "$ssh_user" != root ] || ssh_user="<user>"
     echo
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${WHITE}🌐 DNS observer (AdGuard Home) Credentials${NC}"
@@ -244,7 +248,7 @@ if [ "$EDITION" = "pro" ] && { [[ ",${COMPOSE_PROFILES:-}," == *,dns,* ]] || [ -
     case "$dns_admin" in
         127.*|localhost:*|\[::1\]:*)
             echo -e "  ${PURPLE}URL:${NC}          http://127.0.0.1:${dns_port}  (this machine only)"
-            echo -e "  ${PURPLE}From a computer:${NC} ssh -L ${dns_port}:localhost:${dns_port} ${USER:-pi}@${SERVER_IP:-<this machine>}"
+            echo -e "  ${PURPLE}From a computer:${NC} ssh -L ${dns_port}:localhost:${dns_port} ${ssh_user}@${SERVER_IP:-<this machine>}"
             echo -e "                 then open http://localhost:${dns_port}"
             echo -e "  ${PURPLE}On the network:${NC} smoking-pi config set DNS_ADMIN_ADDRESS 0.0.0.0:${dns_port}"
             echo -e "                 (the query log -- every name the house resolves -- then"
