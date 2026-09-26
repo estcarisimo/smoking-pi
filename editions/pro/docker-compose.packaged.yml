@@ -26,6 +26,7 @@ services:
       # Edition-specific init scripts (config, not shared code): read once
       # at container start, so a replaced tree cannot reach a running one.
       - ./custom-cont-init.d:/custom-cont-init.d:ro
+      - dns-observer-state:/dns-observer:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
   grafana:

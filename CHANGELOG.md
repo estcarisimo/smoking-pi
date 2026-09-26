@@ -11,6 +11,28 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The DNS wizard: what the house uses, from its DNS, in Grafana.** Every
+  10 minutes the DNS observer summarises what the query log gained, per
+  hour and per service (registrable domain). For each service it records
+  the CDN at the end of the CNAME chain and the network (origin AS) behind
+  it. It then writes a snapshot with:
+  - the busiest services by presence (hours seen in the last week);
+  - the diversity and concentration of services, CDNs and networks: count,
+    effective number (1/HHI), Shannon's effective number, and the share the
+    top 5, 10 and 20 cover;
+  - the CDNs and networks behind the top 10;
+  - how much the top 10 moved since yesterday.
+
+  The Pi's own traffic is left out. A new exporter puts the numbers in
+  InfluxDB, and the new **DNS Wizard** dashboard shows them. The table of
+  top services shows the latest snapshot only, so services that dropped out
+  do not linger as stale rows. Names reach InfluxDB only with
+  `DNS_EXPORT_NAMES=1`, because Grafana may be reachable from outside; the
+  numbers carry no names. It changes no target yet. Reading the log is
+  incremental, including across AdGuard's rotation: on the reference Pi,
+  6,000 queries take 0.6 s of CPU. Settings: `DNS_WIZARD_INTERVAL` (0 = off),
+  `DNS_WIZARD_TOP`, `DNS_WIZARD_EXCLUDE`, `DNS_EXPORT_NAMES`. See
+  `docs/dns-observer.md`, "The DNS wizard".
 - **`tools/dns-explore`: how diverse, concentrated and stable is what the
   house resolves.** This is iteration 0 of automatic target selection from the DNS
   observer. It reads the observer's query log and reports at five aggregation levels: hostname,

@@ -277,6 +277,67 @@ fall back to the last known ranking (still in the query log, marked stale
 since `observed_until`), then to the curated default targets. Never read
 silence as "nothing matters in this house".
 
+## The DNS wizard
+
+What the house uses, from its DNS. Every `DNS_WIZARD_INTERVAL` (10 min), the
+observer reads what the query log gained since the last pass and keeps, per
+hour, how often each **service** was asked for. A service is a registrable
+domain: `nrdp.logs.netflix.com` counts as `netflix.com`. For each service it
+also records:
+
+- the **CDN** that serves it, from the end of the CNAME chain
+  (`*.cloudfront.net` is one CDN, whoever the customer);
+- the **network** (origin AS) of its address, from Team Cymru's DNS
+  service. That lookup goes to `1.1.1.1` directly, never through the
+  router: otherwise the lookups would land in the log being summarised.
+
+Services are ranked by **presence**, the number of hours in the last week in
+which they were seen. A burst of telemetry counts as one hour, and a cache
+hides volume but not presence. The Pi's own traffic is left out: image pulls,
+the Cloudflare tunnel, the alert bot, the canary, and SmokePing's lookups of
+its own targets. The Pi resolves through the router like everyone else, so
+without this it would rank its own chores. `DNS_WIZARD_EXCLUDE` adds more
+names to leave out.
+
+It changes no target. It shows what an automatic target selection would
+start from, and how much grouping and cutting would lose. Open it in
+Grafana as **DNS Wizard**:
+
+- **The house, as a whole.** These numbers carry no names and always go to
+  InfluxDB:
+  - services and networks seen this week;
+  - the **effective number** of each: 1/HHI, how many equally used services
+    or networks would give the same concentration. Far below the plain count
+    means a few dominate;
+  - the CDNs and networks behind the top 10;
+  - the share of the top 10 kept since yesterday (churn);
+  - the Pi's own share of queries.
+- **Diversity over time.** The effective number of services, CDNs and
+  networks, and the share of the week's presence the top 5, 10 and 20 cover.
+  The gap between services and networks is the diversity that grouping by
+  network would hide.
+- **Top services.** Rank, presence, queries, the busiest stable host name
+  (the endpoint that would be measured), CDN and network. The table shows the
+  **latest snapshot only**, so services that dropped out do not linger in it.
+  It needs the names in InfluxDB:
+
+  ```bash
+  smoking-pi config set DNS_EXPORT_NAMES 1
+  ```
+
+  Grafana may be reachable from outside, through a tunnel or a shared
+  address. With names exported, anyone who can open it sees which services
+  the house uses. `smoking-pi config unset DNS_EXPORT_NAMES` stops
+  exporting them; names already written stay in InfluxDB until its
+  retention drops them.
+
+The first pass reads up to a week of log, under a minute on a Pi 5. Later
+passes read only what is new. InfluxDB mode only.
+
+For deeper analysis, `tools/dns-explore` (in the repository) reads the same
+log offline. It compares five aggregation levels, three scores and several
+K side by side, with day-over-day churn.
+
 ## What it measures, and what it does not
 
 It records **DNS activity observed at the Pi**, not traffic. That
@@ -305,8 +366,12 @@ through. Status says "network DNS only", and that is what it is.
 ## Privacy
 
 - Names stay on the Pi, in AdGuard's query log inside the `dns-observer-work`
-  volume, for `DNS_RETENTION_DAYS` (7). They are never written to InfluxDB,
-  sent to the AI reports or put in alerts.
+  volume, for `DNS_RETENTION_DAYS` (7), and in the DNS wizard's summary
+  (`wizard.json`, the top services) on the `dns-observer-state` volume. They
+  are never sent to the AI reports or put in alerts. They reach InfluxDB,
+  and so Grafana, only if you set `DNS_EXPORT_NAMES=1` for the
+  [DNS wizard](#the-dns-wizard)'s table. The wizard's numbers carry no
+  names and always go.
 - Client addresses are masked (`DNS_ANONYMIZE_CLIENTS=1`, AdGuard's
   `anonymize_client_ip`). In the router model every query comes from the
   router anyway.
@@ -361,6 +426,10 @@ All optional except the password; in the env file (`smoking-pi config set`).
 | `DNS_CANARY_DOMAIN` | `canary.smoking-pi.home.arpa` | Change it if the router answers it itself (`smoking-pi dns test` says so) |
 | `DNS_CANARY_INTERVAL` / `DNS_CANARY_MISSES` | `300` / `3` | ~15 min to `not_receiving` |
 | `DNS_QUIET_AFTER` | `1800` | Silence before `quiet`/`idle` |
+| `DNS_WIZARD_INTERVAL` | `600` | Seconds between [DNS wizard](#the-dns-wizard) passes; `0` turns it off |
+| `DNS_WIZARD_TOP` | `25` | Services in the wizard's top list |
+| `DNS_WIZARD_EXCLUDE` | (none) | More names to leave out, comma list (`.suffix` or a domain) |
+| `DNS_EXPORT_NAMES` | `0` | `1` puts the top services' names in InfluxDB for the wizard's table |
 | `DNS_ADMIN_ADDRESS` | `127.0.0.1:3053` | Admin UI listen address; `0.0.0.0:3053` opens it to the network |
 
 ## Turning it off

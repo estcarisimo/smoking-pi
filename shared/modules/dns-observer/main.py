@@ -34,6 +34,7 @@ import httpx
 
 import adguard
 import health
+import wizard
 from config import Config, ConfigError
 
 log = logging.getLogger("dns-observer")
@@ -313,6 +314,27 @@ class Supervisor:
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self.stopping.wait(), health.STATUS_INTERVAL)
 
+    # -- the DNS wizard ------------------------------------------------------------
+
+    async def wizard_loop(self) -> None:
+        """wizard.py's pass, in a thread: the first one reads up to a week
+        of log, and the self-test and canary must not wait for it."""
+        wiz = wizard.Wizard(
+            os.path.join(self.cfg.adguard_work, "data"),
+            self.cfg.state_dir,
+            canary_domain=self.cfg.canary_domain,
+            extra_own=self.cfg.wizard_exclude,
+            top=self.cfg.wizard_top,
+        )
+        await asyncio.sleep(30)
+        while not self.stopping.is_set():
+            try:
+                await asyncio.to_thread(wiz.run_once)
+            except Exception:  # one bad pass must not end the loop
+                log.exception("DNS wizard pass failed")
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self.stopping.wait(), self.cfg.wizard_interval)
+
     async def run(self) -> None:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
@@ -323,6 +345,8 @@ class Supervisor:
             asyncio.create_task(self.canary_loop()),
             asyncio.create_task(self.status_loop()),
         ]
+        if self.cfg.wizard_interval:
+            tasks.append(asyncio.create_task(self.wizard_loop()))
         await self.stopping.wait()
         if self.proc and self.proc.returncode is None:
             self.proc.terminate()
