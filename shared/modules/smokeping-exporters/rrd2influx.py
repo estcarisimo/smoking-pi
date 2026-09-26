@@ -58,6 +58,11 @@ DNS_DIRS = ("resolvers", "DNS_Resolvers")
 # These are the sections config_generator.CATEGORY_PRESENTATION emits.
 HTTP_DIRS = ("HTTP",)
 TCP_DIRS = ("TCP",)
+# The DNS wizard's section holds every protocol; the target name's suffix
+# says which (config-manager/wizard_adopt.py names them W_<service>_<proto>).
+WIZARD_DIRS = ("DNS_Wizard",)
+WIZARD_SUFFIXES = {"_h1": "http1", "_h2": "http2", "_h3": "http3",
+                   "_tcp": "tcpping", "_icmp": "fping"}
 
 # HTTP target names end in the version they were probed with
 # (Google_h1, Google_h2, Google_h3); that suffix is the probe_type tag.
@@ -76,6 +81,7 @@ CATEGORY_MAP = {
     "Custom": "custom",
     "HTTP": "http",
     "TCP": "tcp",
+    "DNS_Wizard": "dns_wizard",
     # legacy directory names
     "TopSites": "topsites",
     "resolvers": "dns",
@@ -97,6 +103,12 @@ def measurement_for(rrd_file: str, rrd_dir: str) -> str:
         return "http_latency"
     if top in TCP_DIRS:
         return "tcp_latency"
+    if top in WIZARD_DIRS:
+        name = rel.stem
+        if name.endswith(("_h1", "_h2", "_h3")):
+            return "http_latency"
+        if name.endswith("_tcp"):
+            return "tcp_latency"
     return "latency"
 
 
@@ -113,6 +125,11 @@ def probe_type_for(rrd_file: str, rrd_dir: str) -> str:
     (name ends in '6', e.g. Google6); fping otherwise."""
     measurement = measurement_for(rrd_file, rrd_dir)
     target_name = pathlib.Path(rrd_file).stem
+    rel = pathlib.Path(rrd_file).relative_to(rrd_dir)
+    if rel.parts[0] in WIZARD_DIRS:
+        for suffix, probe_type in WIZARD_SUFFIXES.items():
+            if target_name.endswith(suffix):
+                return probe_type
     if measurement == "dns_latency":
         return "dns"
     if measurement == "http_latency":

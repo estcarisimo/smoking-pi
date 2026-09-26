@@ -185,7 +185,7 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      server's log, which is the only thing that proves the
                      agent is using your history instead of its own shell.
                      Pro only; OpenClaw elsewhere: docs/remote-openclaw.md.
-  dns [status [--json] | test [--via ROUTER] [--json] | enable [--yes] | disable [--yes]]
+  dns [status [--json] | test [--via ROUTER] [--json] | adopt [--dry-run] | enable [--yes] | disable [--yes]]
                      The DNS observer (Pro): AdGuard Home on port 53, for the
                      router to forward the house's DNS to. 'enable' turns on
                      the dns profile, starts it and says what to set on the
@@ -194,6 +194,10 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      'test' checks the whole path in seconds, right after
                      changing the router: the Pi answers on the LAN, resolves
                      upstream, and the router forwards unique test names here.
+                     'adopt' measures what the DNS wizard selected (the
+                     services behind 80% of the house's activity, plus one
+                     per network and CDN): ICMP, TCP 443, HTTP/1.1, /2, /3,
+                     in the dns_wizard category. Add only; --dry-run lists.
                      'disable' asks you to point the router back first.
                      docs/dns-observer.md.
   doctor [--live]    Instrumentation doctor (needs the doctor package).
@@ -1729,6 +1733,21 @@ dns_test() {
     return "$rc"
 }
 
+dns_adopt() {
+    # The wizard's selection becomes targets (config-manager/wizard_adopt.py),
+    # asked of the running API from inside its container: the API token
+    # stays in the container's environment.
+    local a
+    for a in "$@"; do
+        case "$a" in --dry-run) ;; *) echo "unknown option $a (--dry-run)" >&2; return 2 ;; esac
+    done
+    if [ -z "$(compose ps -q --status running config-manager 2>/dev/null)" ]; then
+        echo "config-manager is not running: smoking-pi up" >&2
+        return 1
+    fi
+    compose exec -T config-manager python wizard_adopt.py "$@"
+}
+
 port53_holder() {
     # Whatever already listens on port 53 (systemd-resolved's stub listens
     # on 127.0.0.53 only and does not conflict with 0.0.0.0 on Linux, but
@@ -1750,12 +1769,13 @@ cmd_dns() {
     case "$action" in
         status) dns_status "$@"; return ;;
         test) dns_test "$@"; return ;;
+        adopt) dns_adopt "$@"; return ;;
         enable|disable)
             while [ $# -gt 0 ]; do
                 case "$1" in --yes|-y) yes=1; shift ;; *) echo "unknown option $1" >&2; return 2 ;; esac
             done ;;
         -h|--help) usage; return 0 ;;
-        *) echo "unknown dns action: $action (status, test, enable, disable)" >&2; return 2 ;;
+        *) echo "unknown dns action: $action (status, test, adopt, enable, disable)" >&2; return 2 ;;
     esac
 
     if [ "$action" = disable ]; then

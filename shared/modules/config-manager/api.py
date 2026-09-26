@@ -33,6 +33,7 @@ from file_ops import get_config_lock, atomic_write_yaml
 import freshness
 import assistant
 import recommendations
+import wizard_adopt
 
 # Import database models and repositories
 from models import (
@@ -1154,6 +1155,48 @@ def restart_smokeping():
         return jsonify(result)
     except Exception as e:
         return error_response(500, "Failed to restart SmokePing", e)
+
+
+@app.route('/wizard/adopt', methods=['POST'])
+@require_api_token
+def wizard_adopt_route():
+    """Adopt the DNS wizard's selection as targets (add only).
+
+    ``?dry_run=1`` says what would be added and changes nothing. One
+    transaction and one regeneration, however many targets.
+    """
+    if not api.use_database:
+        return jsonify({'error': 'Database not available'}), 400
+    dry_run = request.args.get('dry_run') in ('1', 'true', 'yes')
+    try:
+        snapshot = wizard_adopt.read_snapshot()
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 409
+    try:
+        max_services = int(os.environ.get('DNS_WIZARD_MAX') or 60)
+    except ValueError:
+        max_services = 60
+    session = get_db_session()
+    try:
+        result = wizard_adopt.adopt(
+            session, (Target, TargetCategory, Probe), snapshot,
+            max_services=max_services, dry_run=dry_run,
+        )
+    except LookupError as e:
+        session.rollback()
+        return jsonify({'error': str(e)}), 409
+    except Exception as e:
+        session.rollback()
+        return error_response(500, "Failed to adopt the DNS wizard's selection", e)
+    finally:
+        session.close()
+    result['reloaded'] = None
+    if not dry_run and result['targets_added']:
+        try:
+            result['reloaded'] = api._regenerate_smokeping_config()
+        except Exception as e:
+            return error_response(500, "Targets added, but regenerating the configuration failed", e)
+    return jsonify(result)
 
 
 @app.route('/oca/refresh', methods=['POST'])

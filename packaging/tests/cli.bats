@@ -1338,6 +1338,8 @@ dns_setup() {
 case "\$*" in
     *"ps -q --status running dns-observer"*) echo "docker \$*" >> "\$DOCKER_LOG"; [ -z "\${STUB_DNS_RUNNING:-}" ] || echo abc123; exit 0 ;;
     *"exec -T dns-observer python status.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo '{"server": {"answering": true}}'; echo "state:          observing"; exit 0 ;;
+    *"ps -q --status running config-manager"*) echo "docker \$*" >> "\$DOCKER_LOG"; [ -z "\${STUB_CM_RUNNING:-}" ] || echo cm123; exit 0 ;;
+    *"exec -T config-manager python wizard_adopt.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "Would add 230 targets for 46 services"; exit 0 ;;
     *"exec -T dns-observer python connection_test.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "FAIL  router forwards to the Pi: 0/10"; exit "\${STUB_DNS_TEST_RC:-0}" ;;
 esac
 exec "$BATS_TEST_TMPDIR/bin/docker" "\$@"
@@ -1435,6 +1437,21 @@ STUB
     run "$CLI" dns test --json
     [ "$status" -eq 1 ]
     [[ "$output" != *"note:"* ]]
+}
+
+@test "dns adopt: runs in config-manager, passes --dry-run, refuses other options and a stopped API" {
+    dns_setup
+    run "$CLI" dns adopt
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"config-manager is not running"* ]]
+    export STUB_CM_RUNNING=1
+    run "$CLI" dns adopt --dry-run
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python wizard_adopt.py --dry-run' "$DOCKER_LOG"
+    [[ "$output" == *"46 services"* ]]
+    run "$CLI" dns adopt --force
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown option --force"* ]]
 }
 
 @test "install accepts the dns profile" {

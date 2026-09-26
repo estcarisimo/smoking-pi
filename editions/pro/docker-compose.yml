@@ -279,6 +279,9 @@ services:
       # The defaults are untracked directories; config-manager seeds an
       # empty config dir from its templates/ on first start.
       - ${SMOKING_PI_CONFIG_DIR:-./config-manager/config}:/app/config
+      # The DNS wizard's selection (wizard.json), read-only, for
+      # smoking-pi dns adopt. Empty while the dns profile is off.
+      - dns-observer-state:/dns-observer:ro
       - ${SMOKING_PI_OUTPUT_DIR:-./config-manager/output}:/app/output
       - ./smokeping/config:/app/smokeping-config
       - /var/run/docker.sock:/var/run/docker.sock
@@ -298,6 +301,8 @@ services:
       IPV6_MODE: ${IPV6_MODE:-auto}
       IPV6_PROBE_HOSTS: ${IPV6_PROBE_HOSTS:-}
       IPV6_RECHECK_INTERVAL: ${IPV6_RECHECK_INTERVAL:-900}
+      # The most services `smoking-pi dns adopt` keeps measuring (add only).
+      DNS_WIZARD_MAX: ${DNS_WIZARD_MAX:-60}
       # PostgreSQL connection
       DATABASE_URL: "postgresql://smokeping:${POSTGRES_PASSWORD:?Error: Please run ./setup.sh first to generate passwords}@postgres:5432/smokeping_targets"
     depends_on:
@@ -629,6 +634,14 @@ services:
       - DNS_WIZARD_INTERVAL=${DNS_WIZARD_INTERVAL:-600}
       - DNS_WIZARD_TOP=${DNS_WIZARD_TOP:-25}
       - DNS_WIZARD_EXCLUDE=${DNS_WIZARD_EXCLUDE:-}
+      # Which services to measure: those behind DNS_WIZARD_COVERAGE (0.8) of
+      # the activity by DNS_WIZARD_SCORE (auto: volume until 72 h of data,
+      # then presence), plus one per network and CDN holding at least
+      # DNS_WIZARD_FLOOR (0.005) of it, at most DNS_WIZARD_MAX (60).
+      - DNS_WIZARD_SCORE=${DNS_WIZARD_SCORE:-auto}
+      - DNS_WIZARD_COVERAGE=${DNS_WIZARD_COVERAGE:-0.8}
+      - DNS_WIZARD_FLOOR=${DNS_WIZARD_FLOOR:-0.005}
+      - DNS_WIZARD_MAX=${DNS_WIZARD_MAX:-60}
       # AdGuard Home's admin UI/API: loopback only (ssh -L 3053:localhost:3053).
       - DNS_ADMIN_ADDRESS=${DNS_ADMIN_ADDRESS:-127.0.0.1:3053}
       - DNS_ADMIN_PASSWORD=${DNS_ADMIN_PASSWORD:-}

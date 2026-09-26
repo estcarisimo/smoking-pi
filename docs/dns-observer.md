@@ -299,8 +299,9 @@ its own targets. The Pi resolves through the router like everyone else, so
 without this it would rank its own chores. `DNS_WIZARD_EXCLUDE` adds more
 names to leave out.
 
-It changes no target. It shows what an automatic target selection would
-start from, and how much grouping and cutting would lose. Open it in
+On its own it changes no target: it shows what the house uses, and how much
+grouping and cutting would lose. To **measure** what it selects, see
+[Measuring what the house uses](#measuring-what-the-house-uses). Open it in
 Grafana as **DNS Wizard**:
 
 - **The house, as a whole.** These numbers carry no names and always go to
@@ -333,6 +334,68 @@ Grafana as **DNS Wizard**:
 
 The first pass reads up to a week of log, under a minute on a Pi 5. Later
 passes read only what is new. InfluxDB mode only.
+
+### Measuring what the house uses
+
+The wizard also **selects** which services to measure. How many is not a
+constant; the data decides:
+
+1. **Coverage.** Services in order of score until they cover
+   `DNS_WIZARD_COVERAGE` (80%) of the house's activity. The score is
+   `DNS_WIZARD_SCORE`: `auto` uses query volume until there are 72 hours of
+   data, then presence. With only a few hours, every service ties on
+   presence.
+2. **Diversity.** For every network (AS) and every CDN holding at least
+   `DNS_WIZARD_FLOOR` (0.5%) of the activity that step 1 left out, its best
+   service is added. Grouping and cutting hide small but real paths; this
+   puts them back.
+3. **Budget.** At most `DNS_WIZARD_MAX` (60) services. Over budget, the tail
+   of step 1 goes first, and the diversity picks are recomputed against
+   what is left.
+
+On the reference house, with 2.7 hours of data: 46 services, covering 80%
+of the queries and 14 of the 27 networks seen. Services whose names are all
+generated (hashes, pod ids) have no stable host to measure and are skipped.
+
+Adopt the selection:
+
+```bash
+smoking-pi dns adopt --dry-run   # what it would add
+smoking-pi dns adopt
+```
+
+Each service gets the whole suite, in the **DNS wizard** category
+(SmokePing section `DNS_Wizard`), named `W_<service>_<protocol>`:
+
+| Suffix | Probe | Measures |
+|---|---|---|
+| `_icmp` | FPing | Network round trip |
+| `_tcp` | TCPPing, port 443 | TCP handshake |
+| `_h1`, `_h2`, `_h3` | WizardHTTP1/2/3 | HTTPS fetch over HTTP/1.1, /2, /3 |
+
+The HTTP probes are the wizard's own copies of CurlHTTP1/2/3, with 20
+requests in parallel (`forks`) and a 5 s timeout. A request usually takes
+100–300 ms. The probe's cadence check assumes the worst case, every request
+timing out, and with the curated probes' 5 forks and 10 s timeout only about
+30 targets per HTTP version fit a 300 s round. With the wizard's settings,
+50 services take at most 3 batches × 5 pings × 5 s = 75 s. The curated
+targets' probes are untouched.
+
+**Adoption only adds.** A service stays measured once adopted, even if it
+drops out of the selection later, so its history has no holes. Removing
+services, with hysteresis so the list does not churn, comes later, from a
+week of data. `DNS_WIZARD_MAX` caps the total.
+
+**Kept apart from the rest.** Many CDNs do not answer ICMP, so their ICMP
+targets would read as "down". The alerter, the daily digest and the
+assistant leave the `dns_wizard` category out, and so do the target pickers
+of the other dashboards. The DNS Wizard dashboard shows them:
+
+- the median latency per protocol across the adopted services;
+- the latest median and loss per service and protocol.
+
+Both look at the last 30 minutes only, so a target that stops reporting
+drops out of the tables by itself.
 
 For deeper analysis, `tools/dns-explore` (in the repository) reads the same
 log offline. It compares five aggregation levels, three scores and several
@@ -429,6 +492,10 @@ All optional except the password; in the env file (`smoking-pi config set`).
 | `DNS_WIZARD_INTERVAL` | `600` | Seconds between [DNS wizard](#the-dns-wizard) passes; `0` turns it off |
 | `DNS_WIZARD_TOP` | `25` | Services in the wizard's top list |
 | `DNS_WIZARD_EXCLUDE` | (none) | More names to leave out, comma list (`.suffix` or a domain) |
+| `DNS_WIZARD_SCORE` | `auto` | What ranks services for the selection: `auto`, `presence` or `queries` |
+| `DNS_WIZARD_COVERAGE` | `0.8` | Share of the activity the selected services cover |
+| `DNS_WIZARD_FLOOR` | `0.005` | A network or CDN with at least this share gets a service |
+| `DNS_WIZARD_MAX` | `60` | Most services selected, and most kept measuring |
 | `DNS_EXPORT_NAMES` | `0` | `1` puts the top services' names in InfluxDB for the wizard's table |
 | `DNS_ADMIN_ADDRESS` | `127.0.0.1:3053` | Admin UI listen address; `0.0.0.0:3053` opens it to the network |
 

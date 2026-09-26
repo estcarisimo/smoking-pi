@@ -304,3 +304,20 @@ class TestRRDChangedSince:
         # Failing open matters: a stat error must never silently stop a target
         # from being exported.
         assert rrd2influx._rrd_changed_since(str(tmp_path / "gone.rrd"), 2000) is True
+
+
+class TestDnsWizardSection:
+    """The DNS wizard's section mixes protocols; the name suffix decides."""
+
+    @pytest.mark.parametrize("name,measurement,probe_type", [
+        ("W_netflix_com_icmp", "latency", "fping"),
+        ("W_netflix_com_tcp", "tcp_latency", "tcpping"),
+        ("W_netflix_com_h1", "http_latency", "http1"),
+        ("W_netflix_com_h2", "http_latency", "http2"),
+        ("W_netflix_com_h3", "http_latency", "http3"),
+    ])
+    def test_suffix_classification(self, name, measurement, probe_type):
+        f = f"/data/DNS_Wizard/{name}.rrd"
+        assert rrd2influx.measurement_for(f, "/data") == measurement
+        assert rrd2influx.probe_type_for(f, "/data") == probe_type
+        assert rrd2influx.category_for(f, "/data") == "dns_wizard"

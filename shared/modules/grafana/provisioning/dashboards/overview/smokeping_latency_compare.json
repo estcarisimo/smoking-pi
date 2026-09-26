@@ -70,7 +70,7 @@
 "type": "query",
 "name": "target",
 "datasource": { "uid": "influxdb" },
-"query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"smokeping\", predicate: (r) => r._measurement != \"dns_latency\", tag: \"target\")",
+"query": "import \"influxdata/influxdb/v1\"\n  v1.tagValues(bucket: \"smokeping\", predicate: (r) => r._measurement != \"dns_latency\" and r.category != \"dns_wizard\", tag: \"target\")",
 "hide": 0,
 "multi": true,
 "includeAll": true,

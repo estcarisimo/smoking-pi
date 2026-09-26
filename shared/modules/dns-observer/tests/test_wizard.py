@@ -215,3 +215,46 @@ def test_a_missed_rotation_is_logged(wiz, caplog):
     with caplog.at_level(logging.INFO, logger="dns-observer.wizard"):
         assert w.ingest_new() == 1
     assert "rotated more than once" in caplog.text
+
+
+# -- selection: K from the data ---------------------------------------------------
+
+
+def cand(svc, score, asn="AS1", cdn="c.net"):
+    return {"service": svc, "score": float(score), "asn": asn, "cdn": cdn, "host": "www." + svc}
+
+
+def test_select_covers_the_activity_then_adds_diversity():
+    cands = [cand("a.com", 50), cand("b.com", 30), cand("c.com", 10, asn="AS2"),
+             cand("d.com", 6, asn="AS3", cdn="d.net"), cand("e.com", 4, asn="AS4")]
+    picks = wizard.select(cands, coverage=0.8, floor=0.05, max_k=10)
+    reasons = {p["service"]: p["reason"] for p in picks}
+    # a+b = 80% of the score; AS2 (10%) and AS3 (6%) hold more than the 5% floor.
+    assert reasons == {"a.com": "coverage", "b.com": "coverage",
+                       "c.com": "network AS2", "d.com": "network AS3"}
+    assert [p["service"] for p in picks] == ["a.com", "b.com", "c.com", "d.com"]
+
+
+def test_select_k_grows_with_diversity():
+    flat = [cand(f"s{i}.com", 1, asn=f"AS{i}") for i in range(40)]
+    peaked = [cand("big.com", 90)] + [cand(f"s{i}.com", 0.25) for i in range(40)]
+    assert len(wizard.select(flat, coverage=0.8, floor=0.005, max_k=100)) >= 32
+    assert len(wizard.select(peaked, coverage=0.8, floor=0.005, max_k=100)) == 1
+
+
+def test_select_budget_keeps_diversity_trims_the_tail():
+    cands = [cand(f"s{i}.com", 10) for i in range(9)] + [cand("rare.com", 9, asn="AS9")]
+    picks = wizard.select(cands, coverage=0.99, floor=0.05, max_k=4)
+    assert len(picks) == 4
+    assert "rare.com" in {p["service"] for p in picks}
+
+
+def test_snapshot_selects_by_volume_until_presence_means_something(wiz):
+    lines = [line("www.big.org", T0 + i) for i in range(40)] + [line("www.small.net", T0 + 5)]
+    lines += [line("4b574871442a5359d494-pod-x.gen.com", T0 + 6)] * 30  # no stable host
+    write(wiz.log, lines)
+    sel = wiz().run_once(now=T0 + HOUR)["selection"]
+    assert sel["score"] == "queries"
+    assert [s["service"] for s in sel["services"]][0] == "big.org"
+    assert sel["skipped_no_host"] == 1
+    assert all(s["host"] for s in sel["services"])
