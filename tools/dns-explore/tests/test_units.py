@@ -89,3 +89,13 @@ def test_asn_level_needs_a_lookup():
 )
 def test_one_lookup_per_prefix(addr, prefix):
     assert units.AsnLookup.prefix(addr) == prefix
+
+
+def test_as_names_keep_their_spaces(monkeypatch):
+    look = units.AsnLookup()
+    answers = {
+        "2.0.192.origin.asn.cymru.com": "64500 | 192.0.2.0/24 | US | arin | 2020-01-01",
+        "AS64500.asn.cymru.com": "64500 | US | arin | 2020-01-01 | Example Networks Inc, US",
+    }
+    monkeypatch.setattr(look, "_txt", answers.get)
+    assert look.owner("192.0.2.9") == units.Owner("AS64500", "Example Networks Inc")

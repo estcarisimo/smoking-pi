@@ -19,6 +19,7 @@ Scores
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -121,10 +122,15 @@ def retained(df: pd.DataFrame, by: str, of: str, top: pd.Index) -> int:
     return int(df.loc[df[by].isin(top), of].nunique())
 
 
-def daily_topk(df: pd.DataFrame, level: str, score: str, k: int) -> dict[pd.Timestamp, set[str]]:
-    """The top-K units of each calendar day (local time of the log)."""
-    out: dict[pd.Timestamp, set[str]] = {}
-    for day, part in df.groupby(df["ts"].dt.floor("D")):
+def daily_topk(df: pd.DataFrame, level: str, score: str, k: int) -> dict[date, set[str]]:
+    """The top-K units of each calendar day.
+
+    Uses the ``day`` column when present (the log's local calendar day, as
+    :func:`dns_explore.cli.load` builds it), otherwise the UTC day of ``ts``.
+    """
+    days = df["day"] if "day" in df else df["ts"].dt.date
+    out: dict[date, set[str]] = {}
+    for day, part in df.groupby(days):
         out[day] = set(scores(part, level, score).index[:k])
     return out
 
@@ -147,8 +153,9 @@ def churn(df: pd.DataFrame, level: str, score: str, k: int) -> pd.DataFrame:
     Returns
     -------
     pandas.DataFrame
-        One row per day after the first: ``jaccard`` with the day before,
-        ``entered`` and ``left`` (how many units swapped).
+        One row per day after the first: ``jaccard`` with the previous day
+        in the log, ``entered`` and ``left`` (how many units swapped), and
+        ``gap_days``, 1 unless days are missing from the log in between.
     """
     days = daily_topk(df, level, score, k)
     rows = []
@@ -156,6 +163,12 @@ def churn(df: pd.DataFrame, level: str, score: str, k: int) -> pd.DataFrame:
     for prev, cur in zip(ordered, ordered[1:], strict=False):
         a, b = days[prev], days[cur]
         rows.append(
-            {"day": cur.date(), "jaccard": jaccard(a, b), "entered": len(b - a), "left": len(a - b)}
+            {
+                "day": cur,
+                "jaccard": jaccard(a, b),
+                "entered": len(b - a),
+                "left": len(a - b),
+                "gap_days": (cur - prev).days,
+            }
         )
-    return pd.DataFrame(rows, columns=["day", "jaccard", "entered", "left"])
+    return pd.DataFrame(rows, columns=["day", "jaccard", "entered", "left", "gap_days"])

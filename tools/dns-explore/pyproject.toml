@@ -9,7 +9,6 @@ dependencies = [
     "pandas>=2.2",
     "publicsuffixlist>=1.0",
     "typer>=0.12",
-    "zstandard>=0.22",
 ]
 
 [project.scripts]

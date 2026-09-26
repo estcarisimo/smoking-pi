@@ -14,7 +14,7 @@ def test_report_from_files_without_network(tmp_path, line):
         + [line("nrdp.logs.netflix.com", m) for m in range(30)]
         + [line("api.telegram.org", m) for m in range(40)]  # the Pi's own
         + [line("www.bbc.co.uk", day + 5), line("www.netflix.com", day + 6)]
-        + [line("a.example.org", 1, qtype="PTR")]
+        + [line("www.netflix.com", 1, qtype="PTR")]
     )
     log = tmp_path / "querylog.json"
     log.write_text("\n".join(lines) + "\n")
@@ -39,3 +39,33 @@ def test_empty_after_filtering_exits_1(tmp_path, line):
     log.write_text(line("api.telegram.org") + "\n")
     res = runner.invoke(app, ["--file", str(log), "--no-asn"])
     assert res.exit_code == 1
+
+
+def test_local_midnight_stays_on_its_day(tmp_path, line):
+    # Two queries 1 h apart in UTC that are on different *local* days (BST).
+    lines = [
+        line("www.netflix.com").replace(
+            json.loads(line("www.netflix.com"))["T"], "2026-06-30T23:30:00+01:00"
+        ),
+        line("www.bbc.co.uk").replace(
+            json.loads(line("www.bbc.co.uk"))["T"], "2026-07-01T00:30:00+01:00"
+        ),
+    ]
+    log = tmp_path / "querylog.json"
+    log.write_text("\n".join(lines) + "\n")
+    out = tmp_path / "r.json"
+    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1", "--json", str(out)])
+    assert res.exit_code == 0, res.output
+    # In UTC both are on 30 June (one day, no churn); locally they are two days.
+    assert json.loads(out.read_text())["churn"], "two local days give a churn table"
+
+
+def test_own_traffic_is_counted_whatever_its_type(tmp_path, line):
+    log = tmp_path / "querylog.json"
+    log.write_text(
+        "\n".join([line("api.telegram.org", qtype="PTR"), line("www.netflix.com")]) + "\n"
+    )
+    out = tmp_path / "r.json"
+    runner.invoke(app, ["--file", str(log), "--no-asn", "--json", str(out)])
+    counts = json.loads(out.read_text())["counts"]
+    assert counts["excluded_own"] == 1 and counts["dropped_type_or_rcode"] == 0

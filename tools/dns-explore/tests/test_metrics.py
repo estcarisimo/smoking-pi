@@ -95,3 +95,20 @@ def test_churn_day_over_day():
 
 def test_churn_needs_two_days():
     assert metrics.churn(frame([("a.example", 0, False)]), "service", "queries", 5).empty
+
+
+def test_churn_reports_gaps_in_the_log():
+    day = 24 * 60
+    rows = [("a.example", 0, False), ("b.example", 3 * day, False)]
+    c = metrics.churn(frame(rows), "service", "queries", k=1)
+    assert list(c["gap_days"]) == [3]
+
+
+def test_days_are_the_logs_local_days_not_utc():
+    # 00:30 BST on 1 July is 23:30 UTC on 30 June: it belongs to 1 July.
+    from datetime import date
+
+    df = frame([("a.example", 0, False), ("b.example", 1, False)])
+    df["day"] = [date(2026, 6, 30), date(2026, 7, 1)]
+    days = metrics.daily_topk(df, "service", "queries", 5)
+    assert days == {date(2026, 6, 30): {"a.example"}, date(2026, 7, 1): {"b.example"}}

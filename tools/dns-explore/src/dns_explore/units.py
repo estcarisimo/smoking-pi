@@ -187,7 +187,8 @@ class AsnLookup:
         if asn not in self._names:
             name_txt = self._txt(f"{asn}.asn.cymru.com") or ""
             parts = [p.strip() for p in name_txt.split("|")]
-            self._names[asn] = parts[-1].split(",")[0].split()[0] if parts[-1] else asn
+            # "NETFLIX-ASN, US": the name is everything before the country.
+            self._names[asn] = parts[-1].rsplit(",", 1)[0].strip() if parts[-1] else asn
         return Owner(asn, self._names[asn])
 
     def resolve_all(self, addrs: Iterable[str], workers: int = 16) -> None:

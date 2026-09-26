@@ -52,16 +52,20 @@ def load(
     counts["in_window"] = len(queries)
     kept, own, other = [], 0, 0
     for q in queries:
-        if q.qtype not in KEEP_QTYPES or q.rcode != "NOERROR":
-            other += 1
-        elif units.excluded(q, exclude):
+        if units.excluded(q, exclude):
             own += 1
+        elif q.qtype not in KEEP_QTYPES or q.rcode != "NOERROR":
+            other += 1
         else:
             kept.append(q)
     counts.update(excluded_own=own, dropped_type_or_rcode=other, kept=len(kept))
     df = pd.DataFrame(
         {
             "ts": pd.to_datetime([q.ts for q in kept], utc=True),
+            # The calendar day as the log wrote it (AdGuard logs the host's
+            # local time with its offset); UTC days would move the hour
+            # after local midnight to the day before.
+            "day": [q.ts.date() for q in kept],
             "cached": [q.cached for q in kept],
             "q": kept,
         }
@@ -200,7 +204,7 @@ def report(
         typer.echo(top.astype(int).to_string())
 
     # Churn needs at least two days.
-    days = df["ts"].dt.floor("D").nunique()
+    days = df["day"].nunique()
     results["churn"] = []
     typer.echo(f"\n== Day-over-day churn of the top-K ({days} day(s) in the log) ==")
     if days < 2:
@@ -218,6 +222,7 @@ def report(
                             "k": kk,
                             "mean_jaccard": c["jaccard"].mean(),
                             "mean_swaps": (c["entered"] + c["left"]).mean() / 2,
+                            "max_gap_days": c["gap_days"].max(),
                         }
                     )
         ch = pd.DataFrame(churn_rows)
