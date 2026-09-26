@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.2] — 2026-09-26
+
+Who answers the house's DNS on the Internet side, and an admin page you
+can find.
+
+Every 15 minutes the Pi now checks which public resolver really answers:
+through the router, and through the DNS observer when it runs. It records
+the resolver's owner, its egress addresses, and the client subnet it passes
+on to websites, which CDNs pick servers from. It shows on the web admin's
+Connection card, in Grafana, in the daily digest and in the assistant's
+`system_status`.
+
+The DNS observer's admin password has its own section in `smoking-pi
+passwords`. `smoking-pi config set DNS_ADMIN_ADDRESS 0.0.0.0:3053` opens
+AdGuard Home's page to the network (the default stays this machine only).
+The setup guide checks with `dig`.
+
 ### Added
 
 - **Which public resolver answers for the house, over time.** The router is
