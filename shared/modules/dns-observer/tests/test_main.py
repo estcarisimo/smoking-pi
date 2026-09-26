@@ -43,7 +43,7 @@ class FakeAPI:
 
     async def stats(self):
         return {"top_queried_domains": [
-            {"netflix.com": 40}, {"abc123.canary.smoking-pi.invalid": 1}, {"bbc.co.uk": 3},
+            {"netflix.com": 40}, {"abc123.canary.smoking-pi.home.arpa": 1}, {"bbc.co.uk": 3},
         ]}
 
     async def close(self):
@@ -59,8 +59,8 @@ def test_refresh_separates_canaries_from_the_house(env):
     sup = main.Supervisor(Config.from_env(env))
     sup.canaries = {"abc123": [1790375100.0, None], "ffff00": [1790375100.0, None]}
     sup.api = FakeAPI([
-        entry("abc123.canary.smoking-pi.invalid", "2026-09-25T22:25:00.5Z"),
-        entry("selftest-1.canary.smoking-pi.invalid", "2026-09-25T22:26:30Z"),
+        entry("abc123.canary.smoking-pi.home.arpa", "2026-09-25T22:25:00.5Z"),
+        entry("selftest-1.canary.smoking-pi.home.arpa", "2026-09-25T22:26:30Z"),
         entry("netflix.com", "2026-09-25T22:26:00Z"),
     ])
     asyncio.run(sup.refresh())

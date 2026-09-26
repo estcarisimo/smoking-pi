@@ -612,7 +612,7 @@ services:
       # The canary: a unique name asked of the router every interval. Seen
       # here = the router forwards to the Pi. auto = the default gateway.
       - DNS_CANARY_VIA=${DNS_CANARY_VIA:-auto}
-      - DNS_CANARY_DOMAIN=${DNS_CANARY_DOMAIN:-canary.smoking-pi.invalid}
+      - DNS_CANARY_DOMAIN=${DNS_CANARY_DOMAIN:-canary.smoking-pi.home.arpa}
       - DNS_CANARY_INTERVAL=${DNS_CANARY_INTERVAL:-300}
       - DNS_CANARY_MISSES=${DNS_CANARY_MISSES:-3}
       - DNS_QUIET_AFTER=${DNS_QUIET_AFTER:-1800}

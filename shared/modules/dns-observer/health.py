@@ -142,7 +142,8 @@ def evaluate(
             f"(since {_clock(recent[0][0])}) and no DNS query has reached the Pi"
             + (f" since {_clock(last_query_at)}." if last_query_at else "."),
             "Check that the router's DNS setting still points at the Pi: routers "
-            "revert it on firmware updates and factory resets.",
+            "revert it on firmware updates and factory resets. smoking-pi dns "
+            "test checks the whole path in seconds.",
         )
 
     answered = upstreams.get("answered", 0)
@@ -160,8 +161,8 @@ def evaluate(
             "canaries. It is probably splitting queries between the Pi and a "
             "secondary DNS server, so only part of the house's DNS is observed.",
             "Expected when the router has a secondary DNS for resilience. If it "
-            "has none, the router may answer the canary name itself: set "
-            "DNS_CANARY_DOMAIN to a name it forwards.",
+            "has none, the router may answer the canary name itself: "
+            "smoking-pi dns test tells the two apart.",
         )
     if answered >= 5 and upstreams.get("via_fallback", 0) >= 0.5 * answered:
         return out(
@@ -181,7 +182,8 @@ def evaluate(
         return out(
             "not_receiving",
             "No DNS query has ever reached the Pi.",
-            "Point the router's DNS server setting at the Pi (docs/dns-observer.md).",
+            "Point the router's DNS server setting at the Pi (docs/dns-observer.md), "
+            "then check it with smoking-pi dns test.",
         )
     if idle_for >= quiet_after:
         if not canary_enabled:

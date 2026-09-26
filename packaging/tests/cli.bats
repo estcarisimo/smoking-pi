@@ -1338,6 +1338,7 @@ dns_setup() {
 case "\$*" in
     *"ps -q --status running dns-observer"*) echo "docker \$*" >> "\$DOCKER_LOG"; [ -z "\${STUB_DNS_RUNNING:-}" ] || echo abc123; exit 0 ;;
     *"exec -T dns-observer python status.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo '{"server": {"answering": true}}'; echo "state:          observing"; exit 0 ;;
+    *"exec -T dns-observer python connection_test.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "FAIL  router forwards to the Pi: 0/10"; exit "\${STUB_DNS_TEST_RC:-0}" ;;
 esac
 exec "$BATS_TEST_TMPDIR/bin/docker" "\$@"
 STUB
@@ -1407,6 +1408,33 @@ STUB
     run "$CLI" dns status
     [ "$status" -eq 0 ]
     [[ "$output" == *"observing"* ]]
+}
+
+@test "dns test: runs the path check in the observer, passes its exit code and options, notes a DHCP lease" {
+    dns_setup
+    # The Pi's address, and whether it is a lease: the host's `ip`, stubbed.
+    cat > "$BATS_TEST_TMPDIR/bin3/ip" <<'STUB'
+#!/bin/sh
+case "$*" in
+    *"route get"*) echo "1.1.1.1 via 192.168.1.1 dev wlan0 src 192.168.1.10 uid 1000" ;;
+    *"addr show"*) echo "3: wlan0    inet 192.168.1.10/24 brd 192.168.1.255 scope global dynamic noprefixroute wlan0" ;;
+esac
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin3/ip"
+    run "$CLI" dns test
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"not running"* ]]
+    [[ "$output" == *"smoking-pi dns enable"* ]]
+    ! grep -q 'connection_test.py' "$DOCKER_LOG"
+    export STUB_DNS_RUNNING=1
+    run "$CLI" dns test --via 192.168.1.1
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T dns-observer python connection_test.py --via 192.168.1.1' "$DOCKER_LOG"
+    [[ "$output" == *"note: 192.168.1.10 comes from DHCP"* ]]
+    export STUB_DNS_TEST_RC=1
+    run "$CLI" dns test --json
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"note:"* ]]
 }
 
 @test "install accepts the dns profile" {
