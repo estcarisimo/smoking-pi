@@ -216,7 +216,7 @@ So the tunnel address is configured separately, and every link is emitted
 twice:
 
 ```bash
-PUBLIC_BASE_HOST=192.168.1.10               # at home
+PUBLIC_BASE_HOST=192.168.1.10                    # at home
 TUNNEL_BASE_HOST=https://smokingpi.example.com   # from anywhere
 ```
 
