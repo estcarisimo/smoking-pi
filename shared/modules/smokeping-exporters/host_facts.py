@@ -29,6 +29,9 @@ from typing import Any
 
 import wifi_link
 
+# Written by resolver_identity.py, in this same container.
+RESOLVER_SNAPSHOT = Path("/tmp/resolver_identity.json")
+
 RESOLV_CONF = Path("/etc/resolv.conf")
 CPE_STATE = Path("/tmp/cpe_state.json")
 
@@ -63,11 +66,23 @@ def cpe(state_file: Path = CPE_STATE) -> dict[str, Any] | None:
     return {k: state.get(k) for k in ("ipv4", "ipv6", "updated")}
 
 
+def public_resolver(snapshot: Path = RESOLVER_SNAPSHOT) -> dict[str, Any] | None:
+    """What resolver_identity.py last saw per path (router, observer):
+    who owns the resolver that answers, its egress addresses, the client
+    subnet it passes on. None before its first cycle or without it."""
+    try:
+        data = json.loads(snapshot.read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def facts(proc_route: Path = wifi_link.PROC_ROUTE,
           proc_route6: Path = wifi_link.PROC_IPV6_ROUTE,
           sys_net: Path = wifi_link.SYS_NET,
           resolv_conf: Path = RESOLV_CONF,
-          state_file: Path = CPE_STATE) -> dict[str, Any]:
+          state_file: Path = CPE_STATE,
+          resolver_snapshot: Path | None = None) -> dict[str, Any]:
     route4 = wifi_link.default_route4(proc_route)
     route6 = wifi_link.default_route6(proc_route6)
     # v4 first, then v6: wifi_link.uplink_interface's rule.
@@ -79,6 +94,7 @@ def facts(proc_route: Path = wifi_link.PROC_ROUTE,
         "gateway6": route6[1] if route6 else None,
         "resolvers": resolvers(resolv_conf),
         "cpe": cpe(state_file),
+        "public_resolver": public_resolver(resolver_snapshot or RESOLVER_SNAPSHOT),
     }
 
 

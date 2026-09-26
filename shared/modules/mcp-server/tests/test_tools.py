@@ -1294,3 +1294,37 @@ def test_latency_stats_dead_config_api_keeps_the_note(monkeypatch):
     _patch_influx(monkeypatch, lambda flux: [])
     result = server.get_latency_stats(target="Anything", hours=6)
     assert "error" not in result and "No data points" in result["note"]
+
+
+def _resolver_rows(flux):
+    from datetime import datetime, timezone
+    if "dns_resolver" not in flux:
+        return []
+    if "exists r.previous" in flux:
+        return [{"_time": datetime(2026, 9, 25, 13, 2, tzinfo=timezone.utc), "path": "router",
+                 "previous": "AS19281 QUAD9-AS-1, US", "owner": "AS15169 GOOGLE - Google LLC, US"}]
+    return [{"path": "router", "_field": "owner", "_value": "AS15169 GOOGLE - Google LLC, US"},
+            {"path": "router", "_field": "ecs", "_value": "192.0.2.0/24"},
+            {"path": "observer", "_field": "owner", "_value": ""}]
+
+
+def test_system_status_says_who_answers_the_dns_and_the_last_change(api, monkeypatch):
+    _patch_influx(monkeypatch, _resolver_rows)
+    resolver = server.system_status()["resolver"]
+    assert resolver["paths"] == {"router": {"owner": "AS15169 GOOGLE - Google LLC, US",
+                                            "ecs": "192.0.2.0/24"}}
+    assert resolver["changes_7d"] == 1
+    assert resolver["last_change"]["said"].startswith(
+        "the resolver answering through the router changed from AS19281 QUAD9-AS-1, US "
+        "to AS15169 GOOGLE - Google LLC, US at ")
+
+
+def test_system_status_without_dns_resolver_says_nothing(api, monkeypatch, caplog):
+    _patch_influx(monkeypatch, lambda flux: [])
+    assert "resolver" not in server.system_status()
+
+    def boom(flux):
+        raise RuntimeError("Token hunter2 leaked")
+    _patch_influx(monkeypatch, boom)
+    result = server.system_status()
+    assert "resolver" not in result and "hunter2" not in caplog.text

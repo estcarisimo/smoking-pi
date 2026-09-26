@@ -87,6 +87,14 @@ case "${TSDB_TYPE}" in
             echo "Starting Wi-Fi link collector..."
             run_detached supervise_loop "Wi-Fi link" python3 /exporters/wifi_link.py
         fi
+
+        # Which public resolver answers, through the router and through the
+        # DNS observer (docs/public-resolver.md). Needs dig, which the image
+        # carries for the DNS probes.
+        if [ -f "/exporters/resolver_identity.py" ]; then
+            echo "Starting resolver identity collector..."
+            run_detached supervise_loop "Resolver identity" python3 /exporters/resolver_identity.py
+        fi
         ;;
 
     "clickhouse")

@@ -132,6 +132,13 @@
             <span class="badge bg-warning text-dark">No default route</span> this host has no route to the Internet right now.
             {% endif %}
         </p>
+        {% for r in connection.public_resolver %}
+        <p class="mb-2" id="public-resolver-{{ r.path }}">
+            DNS {{ r.label }} is answered by <strong>{{ r.owners }}</strong>{% if r.ecs %}, which passes your
+            subnet <code>{{ r.ecs }}</code> on to websites (CDNs pick your server from it){% endif %}.
+            <span class="text-muted small">Seen from {{ r.egress | length }} address{{ '' if r.egress | length == 1 else 'es' }}: {{ r.egress | join(', ') }}.</span>
+        </p>
+        {% endfor %}
         {% if connection.entries %}
         <table class="table table-sm mb-0">
             <thead><tr><th>What</th><th>Address</th><th>Measured</th><th>Why</th></tr></thead>

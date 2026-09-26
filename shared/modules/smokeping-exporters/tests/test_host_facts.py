@@ -25,7 +25,8 @@ def _host(tmp_path, *, route="", route6="", wireless=(), resolv="", cpe=None):
         (tmp_path / "cpe.json").write_text(json.dumps(cpe))
     return dict(proc_route=tmp_path / "route", proc_route6=tmp_path / "ipv6_route",
                 sys_net=net, resolv_conf=tmp_path / "resolv.conf",
-                state_file=tmp_path / "cpe.json")
+                state_file=tmp_path / "cpe.json",
+                resolver_snapshot=tmp_path / "resolver.json")
 
 
 def test_a_pi_on_wifi(tmp_path):
@@ -43,6 +44,7 @@ def test_a_pi_on_wifi(tmp_path):
         "gateway6": None,
         "resolvers": ["1.1.1.1", "8.8.8.8"],
         "cpe": {"ipv4": "136.25.220.1", "ipv6": None, "updated": 1.5},
+        "public_resolver": None,
     }
 
 
@@ -66,9 +68,11 @@ def test_a_v6_only_host_takes_its_uplink_from_the_v6_route(tmp_path):
 def test_nothing_readable_is_all_empty_never_an_error(tmp_path):
     missing = tmp_path / "missing"
     got = host_facts.facts(proc_route=missing, proc_route6=missing, sys_net=missing,
-                           resolv_conf=missing, state_file=missing)
+                           resolv_conf=missing, state_file=missing,
+                           resolver_snapshot=missing)
     assert got == {"uplink": None, "wireless": False, "gateway4": None,
-                   "gateway6": None, "resolvers": [], "cpe": None}
+                   "gateway6": None, "resolvers": [], "cpe": None,
+                   "public_resolver": None}
 
 
 def test_duplicate_nameservers_are_listed_once(tmp_path):
@@ -86,4 +90,13 @@ def test_the_command_prints_one_json_object():
     out = subprocess.run([sys.executable, str(MODULE_DIR / "host_facts.py")],
                          capture_output=True, text=True, check=True).stdout
     assert set(json.loads(out)) == {"uplink", "wireless", "gateway4", "gateway6",
-                                    "resolvers", "cpe"}
+                                    "resolvers", "cpe", "public_resolver"}
+
+
+def test_the_public_resolver_snapshot_is_passed_through(tmp_path):
+    snap = tmp_path / "resolver.json"
+    assert host_facts.public_resolver(snap) is None
+    snap.write_text('{"router": {"ok": true, "owner": "AS15169 GOOGLE - Google LLC, US"}}')
+    assert host_facts.public_resolver(snap)["router"]["ok"] is True
+    snap.write_text("[1, 2]")
+    assert host_facts.public_resolver(snap) is None
