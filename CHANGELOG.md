@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **v2.13.5's config-manager image did not start.** The Dockerfile copies
+  the application file by file, and it did not copy the new
+  `wizard_adopt.py`. Every worker then failed to boot with `No module named
+  'wizard_adopt'`. The unit tests passed because they import from the
+  source tree. The image now carries the file, and a new test fails when a
+  module the API imports, directly or through another local module, is
+  missing from the Dockerfile. It fails on v2.13.5's Dockerfile. On the
+  reference Pi, `config-manager` was rolled back to 2.13.4 until this
+  release; SmokePing kept measuring meanwhile.
+
 ## [2.13.5] — 2026-09-26
 
 Measure what the house uses.
