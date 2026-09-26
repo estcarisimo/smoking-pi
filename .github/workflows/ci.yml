@@ -248,7 +248,7 @@ jobs:
         run: |
           set -e
           found=0
-          for dir in shared/modules/*/; do
+          for dir in shared/modules/*/ tools/*/; do
             [ -d "$dir/tests" ] || continue
             found=1
             echo "═══ Testing $dir ═══"

@@ -1,0 +1,32 @@
+[project]
+name = "dns-explore"
+version = "0.1.0"
+description = "Explore what the DNS observer saw: diversity, concentration and churn of the house's services at several aggregation levels"
+requires-python = ">=3.11"
+dependencies = [
+    "dnspython>=2.6",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "publicsuffixlist>=1.0",
+    "typer>=0.12",
+    "zstandard>=0.22",
+]
+
+[project.scripts]
+dns-explore = "dns_explore.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "PTH"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
