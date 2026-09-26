@@ -23,3 +23,9 @@ def test_latency_stats_reads_http_and_tcp(monkeypatch):
         assert all(f'r._measurement == "{m}"' in q for q in seen)
     assert result["stats"][0]["target"] == "Google_h2"
     assert result["stats"][0]["median_ms"] == 100.0
+
+
+def test_assistant_queries_leave_the_dns_wizard_out():
+    from app.services import ai_tools as tools
+    q = tools._base_flux(["latency", "dns_latency"], 24)
+    assert 'not exists r.category or r.category != "dns_wizard"' in q

@@ -225,6 +225,7 @@ def main(argv: list[str]) -> int:
     Runs inside the config-manager container (smoking-pi dns adopt), so the
     API token comes from the container's own environment.
     """
+    import urllib.error
     import urllib.request
 
     dry = "--dry-run" in argv
@@ -238,8 +239,14 @@ def main(argv: list[str]) -> int:
         with urllib.request.urlopen(req, timeout=120) as resp:
             body = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
-        body = json.loads(exc.read() or b"{}")
+        try:
+            body = json.loads(exc.read() or b"{}")
+        except ValueError:
+            body = {}
         print(f"refused: {body.get('error', exc.reason)}", file=sys.stderr)
+        return 1
+    except (urllib.error.URLError, OSError) as exc:
+        print(f"the config-manager API did not answer: {type(exc).__name__}", file=sys.stderr)
         return 1
     verb = "Would add" if dry else "Added"
     print(f"{verb} {body['targets_added']} targets for {body['services_added']} services "

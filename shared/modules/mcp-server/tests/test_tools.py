@@ -1328,3 +1328,11 @@ def test_system_status_without_dns_resolver_says_nothing(api, monkeypatch, caplo
     _patch_influx(monkeypatch, boom)
     result = server.system_status()
     assert "resolver" not in result and "hunter2" not in caplog.text
+
+
+def test_measurement_queries_leave_the_dns_wizard_out():
+    # The wizard's adopted targets (many CDNs drop ICMP) must not read as
+    # down in "how is my internet?"; series without a category are kept.
+    q = server._base_flux(["latency", "http_latency"], 1)
+    assert '(r._measurement == "latency" or r._measurement == "http_latency")' in q
+    assert 'not exists r.category or r.category != "dns_wizard"' in q
