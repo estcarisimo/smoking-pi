@@ -9,6 +9,19 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.4] — 2026-09-26
+
+The DNS wizard: what the house uses, from its DNS, in Grafana.
+
+The DNS observer now summarises the query log every 10 minutes: per
+service, the hours it was seen in the last week, the CDN that serves it
+and the network behind it. The new **DNS Wizard** dashboard shows how
+diverse and how concentrated that is (services, CDNs, networks), what the
+top 10 covers and how much it moved since yesterday. With
+`DNS_EXPORT_NAMES=1`, a table lists the top services themselves. It changes
+no target. `tools/dns-explore` reads the same log offline, comparing
+aggregation levels, scores and depths side by side.
+
 ### Added
 
 - **The DNS wizard: what the house uses, from its DNS, in Grafana.** Every
@@ -30,7 +43,7 @@ version gets a matching GitHub release and git tag.
   `DNS_EXPORT_NAMES=1`, because Grafana may be reachable from outside; the
   numbers carry no names. It changes no target yet. Reading the log is
   incremental, including across AdGuard's rotation: on the reference Pi,
-  6,000 queries take 0.6 s of CPU. Settings: `DNS_WIZARD_INTERVAL` (0 = off),
+  6,212 log entries took 0.6 s of CPU. Settings: `DNS_WIZARD_INTERVAL` (0 = off),
   `DNS_WIZARD_TOP`, `DNS_WIZARD_EXCLUDE`, `DNS_EXPORT_NAMES`. See
   `docs/dns-observer.md`, "The DNS wizard".
 - **`tools/dns-explore`: how diverse, concentrated and stable is what the
