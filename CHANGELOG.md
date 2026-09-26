@@ -9,6 +9,14 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.6] — 2026-09-26
+
+The config-manager image starts again.
+
+v2.13.5's config-manager image lacked a new module and could not boot.
+This release ships it, and a test now catches a module the API imports but
+the image does not carry.
+
 ### Fixed
 
 - **v2.13.5's config-manager image did not start.** The Dockerfile copies
