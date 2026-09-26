@@ -287,11 +287,11 @@ compose_up() {
     # commands apart; a `docker compose` typed by hand is not under it. When
     # `up` fails while a container of the project carries a temporary name,
     # that is such a race: wait for the other run, repair, try once more.
-    local st=0 i
+    local st=0
     compose_exec up "$@" || st=$?
     if [ "$st" -ne 0 ] && [ -n "$(temp_named)" ]; then
         echo "Compose failed while a container was being recreated: another Compose run was changing this stack at the same time. Waiting for it, then trying once more." >&2
-        for i in $(seq 30); do
+        for _ in $(seq 30); do
             [ -n "$(temp_named)" ] || break
             sleep 2
         done
