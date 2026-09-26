@@ -9,6 +9,31 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.1] — 2026-09-26
+
+Which names does this house resolve? And when the answer stops coming, why?
+
+The new opt-in `dns` profile (Pro) runs AdGuard Home on port 53 for the
+router to forward the house's DNS to. A supervisor around it tells a quiet
+house from a router that stopped forwarding, a hung server, and a stopped
+container. `smoking-pi dns enable|status|disable` manages it, and a
+step-by-step guide covers any router. It includes reserving the Pi's
+address and testing it from a laptop before the router depends on it.
+
+`smoking-pi` is now a command in every directory, from a clone too. A clone
+on a release tag runs that release's images without a variable in front of
+every command.
+
+Fixes:
+- A Docker stop then start left packaged installs down (the web UI was
+  silent for 5 minutes on all five release hosts).
+- `restore` refused a Basic or Standard backup on a new card.
+- The assistant could not see the 12 HTTP and TCP targets.
+- `upgrade` left a disabled profile's container on its old image.
+
+Every release now tests recovery on a real stack: `backup`, `purge`,
+`restore`, and a reinstall after `apt purge`.
+
 ### Added
 
 - **A step-by-step guide for pointing a router at the DNS observer.** The
