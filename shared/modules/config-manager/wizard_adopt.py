@@ -60,6 +60,25 @@ WIZARD_TIMEOUT = 5
 NAME_MAX = 30  # what the web admin accepts for a target name
 
 
+# Why adoption cannot go ahead, by code. The API answers with these fixed
+# texts, never with an exception's (error-response contract, api.py).
+UNAVAILABLE = {
+    "no_snapshot": "no DNS wizard snapshot: is the DNS observer enabled (smoking-pi dns enable)?",
+    "bad_snapshot": "the DNS wizard snapshot is not valid JSON",
+    "stale_snapshot": "the DNS wizard snapshot is over 24 h old: the observer is not running",
+    "no_selection": "the DNS wizard has not selected any service yet",
+    "missing_probe": "a probe the suite needs (FPing, TCPPing or CurlHTTP1/2/3) is missing",
+}
+
+
+class Unavailable(Exception):
+    """Adoption cannot go ahead; ``code`` is a key of UNAVAILABLE."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 def target_base(service: str) -> str:
     """A stable, SmokePing-safe name stem for a service.
 
@@ -84,18 +103,13 @@ def read_snapshot(path: Path | None = None, now: float | None = None) -> dict:
     try:
         snap = json.loads(path.read_text())
     except OSError:
-        raise LookupError(
-            "no DNS wizard snapshot: is the DNS observer enabled (smoking-pi dns enable)?"
-        ) from None
+        raise Unavailable("no_snapshot") from None
     except ValueError:
-        raise LookupError("the DNS wizard snapshot is not valid JSON") from None
-    age = (now or time.time()) - float(snap.get("generated", 0))
-    if age > MAX_AGE_S:
-        raise LookupError(
-            f"the DNS wizard snapshot is {age / 3600:.0f} h old: the observer is not running"
-        )
+        raise Unavailable("bad_snapshot") from None
+    if (now or time.time()) - float(snap.get("generated", 0)) > MAX_AGE_S:
+        raise Unavailable("stale_snapshot")
     if not (snap.get("selection") or {}).get("services"):
-        raise LookupError("the DNS wizard has not selected any service yet")
+        raise Unavailable("no_selection")
     return snap
 
 
@@ -111,7 +125,8 @@ def ensure_probes(session, probe_model) -> dict[str, object]:
             continue
         src = by_name.get(source)
         if src is None:
-            raise LookupError(f"probe {source} is missing: cannot derive {new}")
+            logger.error("probe %s is missing: cannot derive %s", source, new)
+            raise Unavailable("missing_probe")
         options = dict(src.options or {})
         options["timeout"] = WIZARD_TIMEOUT
         probe = probe_model(
@@ -125,7 +140,8 @@ def ensure_probes(session, probe_model) -> dict[str, object]:
     needed = {probe for _, probe, _ in SUITE}
     missing = sorted(needed - by_name.keys())
     if missing:
-        raise LookupError(f"probes missing: {', '.join(missing)}")
+        logger.error("probes missing: %s", ", ".join(missing))
+        raise Unavailable("missing_probe")
     return {name: by_name[name] for name in needed}
 
 

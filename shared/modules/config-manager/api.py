@@ -1170,8 +1170,9 @@ def wizard_adopt_route():
     dry_run = request.args.get('dry_run') in ('1', 'true', 'yes')
     try:
         snapshot = wizard_adopt.read_snapshot()
-    except LookupError as e:
-        return jsonify({'error': str(e)}), 409
+    except wizard_adopt.Unavailable as e:
+        return jsonify({'error': wizard_adopt.UNAVAILABLE.get(e.code, 'unavailable'),
+                        'code': e.code}), 409
     try:
         max_services = int(os.environ.get('DNS_WIZARD_MAX') or 60)
     except ValueError:
@@ -1182,9 +1183,10 @@ def wizard_adopt_route():
             session, (Target, TargetCategory, Probe), snapshot,
             max_services=max_services, dry_run=dry_run,
         )
-    except LookupError as e:
+    except wizard_adopt.Unavailable as e:
         session.rollback()
-        return jsonify({'error': str(e)}), 409
+        return jsonify({'error': wizard_adopt.UNAVAILABLE.get(e.code, 'unavailable'),
+                        'code': e.code}), 409
     except Exception as e:
         session.rollback()
         return error_response(500, "Failed to adopt the DNS wizard's selection", e)

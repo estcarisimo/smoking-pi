@@ -246,7 +246,7 @@ def test_select_budget_keeps_diversity_trims_the_tail():
     cands = [cand(f"s{i}.com", 10) for i in range(9)] + [cand("rare.com", 9, asn="AS9")]
     picks = wizard.select(cands, coverage=0.99, floor=0.05, max_k=4)
     assert len(picks) == 4
-    assert "rare.com" in {p["service"] for p in picks}
+    assert any(p["service"] == "rare.com" for p in picks)
 
 
 def test_snapshot_selects_by_volume_until_presence_means_something(wiz):

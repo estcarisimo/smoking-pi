@@ -133,15 +133,17 @@ def test_dry_run_changes_nothing(env):
 
 
 @pytest.mark.parametrize("snap,msg", [
-    (None, "no DNS wizard snapshot"),
-    ({"generated": time.time() - 3 * 86400, "selection": {"services": [{}]}}, "h old"),
-    ({"generated": time.time(), "selection": {"services": []}}, "not selected any"),
+    (None, "no_snapshot"),
+    ({"generated": time.time() - 3 * 86400, "selection": {"services": [{}]}}, "stale_snapshot"),
+    ({"generated": time.time(), "selection": {"services": []}}, "no_selection"),
 ])
 def test_refuses_without_a_usable_snapshot(env, snap, msg):
     if snap is not None:
         env.write(snap)
     r = env.client.post("/wizard/adopt")
-    assert r.status_code == 409 and msg in r.get_json()["error"]
+    body = r.get_json()
+    assert r.status_code == 409 and body["code"] == msg
+    assert body["error"] == wizard_adopt.UNAVAILABLE[msg]
 
 
 def test_the_generator_gives_the_wizard_its_own_section():
