@@ -13,8 +13,8 @@ class SmokingPi < Formula
 
   desc "SmokePing network monitoring stack, from a Raspberry Pi to any Docker host"
   homepage "https://github.com/estcarisimo/smoking-pi"
-  url "https://github.com/estcarisimo/smoking-pi/archive/refs/tags/v2.13.0.tar.gz"
-  sha256 "a899a36f682fa59d57a3eeecbe3178f36c0c9e8fcbbb4037081dcbd18967202d"
+  url "https://github.com/estcarisimo/smoking-pi/archive/refs/tags/v2.13.1.tar.gz"
+  sha256 "d1c972b7c652f65d3c66d73b4030cd5f79b9f35550aaad4d4deaddf34c07ef5a"
   license "MIT"
   head "https://github.com/estcarisimo/smoking-pi.git", branch: "main"
 
