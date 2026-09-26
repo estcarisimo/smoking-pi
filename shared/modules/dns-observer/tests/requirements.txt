@@ -4,3 +4,4 @@ dnspython
 httpx
 pyyaml
 bcrypt
+publicsuffixlist

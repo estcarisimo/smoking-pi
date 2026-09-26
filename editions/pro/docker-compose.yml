@@ -62,6 +62,9 @@ services:
       # docker-compose.packaged.yml (docs/packaging.md, "Packaged mode").
       - ../../shared/modules/smokeping-exporters:/exporters:ro
       - ./custom-cont-init.d:/custom-cont-init.d:ro
+      # The DNS observer's state (wizard.json), read-only. Empty while the
+      # dns profile is off, and the exporter then writes nothing.
+      - dns-observer-state:/dns-observer:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
@@ -102,6 +105,10 @@ services:
       - RESOLVER_VIA=${RESOLVER_VIA:-auto}
       - RESOLVER_OBSERVER=${RESOLVER_OBSERVER:-auto}
       - DNS_PORT=${DNS_PORT:-53}
+      # The DNS wizard's snapshot, from the observer's state volume. The
+      # names of the house's services go to InfluxDB (and Grafana) only
+      # with DNS_EXPORT_NAMES=1; the numbers about them always do.
+      - DNS_EXPORT_NAMES=${DNS_EXPORT_NAMES:-0}
     # Optional dependency on influxdb for InfluxDB mode
     depends_on:
       influxdb:
@@ -616,6 +623,12 @@ services:
       - DNS_CANARY_INTERVAL=${DNS_CANARY_INTERVAL:-300}
       - DNS_CANARY_MISSES=${DNS_CANARY_MISSES:-3}
       - DNS_QUIET_AFTER=${DNS_QUIET_AFTER:-1800}
+      # The DNS wizard: every DNS_WIZARD_INTERVAL seconds (0 = off), what
+      # the house resolved, per service, into wizard.json on the state
+      # volume. DNS_WIZARD_EXCLUDE adds names to leave out, like the Pi's own.
+      - DNS_WIZARD_INTERVAL=${DNS_WIZARD_INTERVAL:-600}
+      - DNS_WIZARD_TOP=${DNS_WIZARD_TOP:-25}
+      - DNS_WIZARD_EXCLUDE=${DNS_WIZARD_EXCLUDE:-}
       # AdGuard Home's admin UI/API: loopback only (ssh -L 3053:localhost:3053).
       - DNS_ADMIN_ADDRESS=${DNS_ADMIN_ADDRESS:-127.0.0.1:3053}
       - DNS_ADMIN_PASSWORD=${DNS_ADMIN_PASSWORD:-}

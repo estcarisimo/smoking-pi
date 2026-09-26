@@ -95,6 +95,13 @@ case "${TSDB_TYPE}" in
             echo "Starting resolver identity collector..."
             run_detached supervise_loop "Resolver identity" python3 /exporters/resolver_identity.py
         fi
+
+        # The DNS wizard's snapshot (dns-observer/wizard.py) into InfluxDB
+        # for the "DNS wizard" dashboard. Idle while the observer is off.
+        if [ -f "/exporters/dns_wizard.py" ]; then
+            echo "Starting DNS wizard exporter..."
+            run_detached supervise_loop "DNS wizard" python3 /exporters/dns_wizard.py
+        fi
         ;;
 
     "clickhouse")

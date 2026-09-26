@@ -1,0 +1,1096 @@
+{
+ "uid": "dns-wizard-v1",
+ "title": "DNS Wizard",
+ "tags": [
+  "smokeping",
+  "dns",
+  "wizard"
+ ],
+ "schemaVersion": 37,
+ "version": 1,
+ "editable": false,
+ "refresh": "5m",
+ "time": {
+  "from": "now-7d",
+  "to": "now"
+ },
+ "timezone": "browser",
+ "annotations": {
+  "list": [
+   {
+    "builtIn": 1,
+    "datasource": {
+     "type": "grafana",
+     "uid": "-- Grafana --"
+    },
+    "enable": true,
+    "hide": true,
+    "iconColor": "rgba(0, 211, 255, 1)",
+    "name": "Annotations & Alerts",
+    "type": "dashboard"
+   }
+  ]
+ },
+ "templating": {
+  "list": []
+ },
+ "links": [
+  {
+   "title": "SmokePing dashboards",
+   "type": "dashboards",
+   "tags": [
+    "smokeping"
+   ],
+   "asDropdown": true,
+   "includeVars": false,
+   "keepTime": true,
+   "icon": "external link",
+   "targetBlank": false
+  }
+ ],
+ "panels": [
+  {
+   "id": 1,
+   "type": "text",
+   "title": "",
+   "gridPos": {
+    "h": 3,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   },
+   "options": {
+    "mode": "markdown",
+    "content": "**What the house uses, from its DNS.** The DNS observer summarises what the house resolves: services (registrable domains), who serves them (CDN) and on which networks (AS). It ranks them by **presence**, the hours of the last week each was seen. It changes no target: it shows what an automatic selection would work from. The top-services table needs `smoking-pi config set DNS_EXPORT_NAMES 1`, because service names are private and Grafana may be reachable from outside. See docs/dns-observer.md, \"The DNS wizard\"."
+   }
+  },
+  {
+   "id": 2,
+   "type": "row",
+   "title": "The house, as a whole (no names)",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 3
+   },
+   "panels": []
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Services this week",
+   "description": "Distinct services (registrable domains) seen in the last 7 days, the Pi's own traffic left out.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 0,
+    "y": 4
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_richness\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "Effective services",
+   "description": "1/HHI of the services' presence: how many equally-used services would give the same concentration. Far below the count = a few dominate.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 4,
+    "y": 4
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_effective_hhi\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Networks (AS) this week",
+   "description": "Distinct origin networks behind those services.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 8,
+    "y": 4
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"asn_richness\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "type": "stat",
+   "title": "Effective networks",
+   "description": "1/HHI over networks. Much lower than effective services: many services share a few networks (Cloudflare, Amazon, Google).",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 12,
+    "y": 4
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 1,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"asn_effective_hhi\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "Top 10 kept since yesterday",
+   "description": "Jaccard of today's top-10 services with yesterday's. 100% = no churn.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 16,
+    "y": 4
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.5
+       },
+       {
+        "color": "green",
+        "value": 0.8
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_jaccard\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "type": "stat",
+   "title": "The Pi's own share (24 h)",
+   "description": "Queries from the Pi itself (image pulls, tunnel, alerts, SmokePing lookups) left out of everything here.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 20,
+    "y": 4
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"own_share_24h\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 9,
+   "type": "stat",
+   "title": "CDNs behind the top 10",
+   "description": "How many distinct CDNs serve the 10 most present services.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 0,
+    "y": 8
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_distinct_cdn\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "type": "stat",
+   "title": "Networks behind the top 10",
+   "description": "How many distinct networks (AS) serve them. Measuring the top 10 covers only these paths.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 6,
+    "y": 8
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_distinct_asn\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 11,
+   "type": "stat",
+   "title": "Queries (last hour)",
+   "description": "Queries the house made in the last hour, without the Pi's own.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 12,
+    "y": 8
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"queries_1h\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "type": "stat",
+   "title": "Hours of data",
+   "description": "Hours of the last week with any query: presence is out of this many.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 18,
+    "y": 8
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value",
+    "graphMode": "none",
+    "colorMode": "value",
+    "justifyMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: -25h) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"hours_with_data\")) |> last()"
+    }
+   ]
+  },
+  {
+   "id": 13,
+   "type": "row",
+   "title": "Diversity and concentration over time",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 12
+   },
+   "panels": []
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "Effective number (1/HHI)",
+   "description": "How many equally-used units would give the same concentration, per aggregation level. The gap between services and networks is the diversity that grouping by network hides.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 13
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "spanNulls": 3600000
+     },
+     "min": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "service_effective_hhi"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "services"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "cdn_effective_hhi"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "CDNs"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "asn_effective_hhi"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "networks (AS)"
+       }
+      ]
+     }
+    ]
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_effective_hhi\" or r._field == \"cdn_effective_hhi\" or r._field == \"asn_effective_hhi\")) |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false) |> drop(columns: [\"_start\", \"_stop\", \"_measurement\"]) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
+    }
+   ]
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "Share covered by the top K (services, by presence)",
+   "description": "What fraction of the week's presence the top 5, 10 and 20 services cover: how much a target list of that size would miss.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 13
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "spanNulls": 3600000
+     },
+     "min": 0,
+     "unit": "percentunit",
+     "max": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "service_cov5"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "top 5"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "service_cov10"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "top 10"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "service_cov20"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "top 20"
+       }
+      ]
+     }
+    ]
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_cov5\" or r._field == \"service_cov10\" or r._field == \"service_cov20\")) |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false) |> drop(columns: [\"_start\", \"_stop\", \"_measurement\"]) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
+    }
+   ]
+  },
+  {
+   "id": 16,
+   "type": "timeseries",
+   "title": "Top-10 churn",
+   "description": "Share of the top 10 kept from the day before (Jaccard). Low values mean an automatic selection would keep swapping targets.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 0,
+    "y": 21
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "spanNulls": 3600000
+     },
+     "min": 0,
+     "unit": "percentunit",
+     "max": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "top10_jaccard"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "top 10 kept"
+       }
+      ]
+     }
+    ]
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"top10_jaccard\")) |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false) |> drop(columns: [\"_start\", \"_stop\", \"_measurement\"]) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
+    }
+   ]
+  },
+  {
+   "id": 17,
+   "type": "timeseries",
+   "title": "Queries",
+   "description": "Queries the house made in the hour before each snapshot, without the Pi's own.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 12,
+    "y": 21
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "spanNulls": 3600000
+     },
+     "min": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "queries_1h"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "queries, last hour"
+       }
+      ]
+     }
+    ]
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"queries_1h\")) |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false) |> drop(columns: [\"_start\", \"_stop\", \"_measurement\"]) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
+    }
+   ]
+  },
+  {
+   "id": 18,
+   "type": "row",
+   "title": "Top services, latest snapshot (needs DNS_EXPORT_NAMES=1)",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 28
+   },
+   "panels": []
+  },
+  {
+   "id": 19,
+   "type": "table",
+   "title": "Top services by presence",
+   "description": "The latest snapshot only, so services that dropped out do not linger. Presence = hours of the last week seen. Host = the busiest stable name, the candidate endpoint to measure. Empty unless DNS_EXPORT_NAMES=1.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 14,
+    "w": 24,
+    "x": 0,
+    "y": 29
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto"
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "presence_h"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "presence (h)"
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 168
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "queries_24h"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "queries (24 h)"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "queries_1h"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "queries (1 h)"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "asn"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "network"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "org"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "network name"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "rank"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 60
+       }
+      ]
+     }
+    ]
+   },
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "rank": 0,
+       "service": 1,
+       "presence_h": 2,
+       "queries_24h": 3,
+       "queries_1h": 4,
+       "host": 5,
+       "cdn": 6,
+       "asn": 7,
+       "org": 8
+      }
+     }
+    }
+   ],
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "data = from(bucket: \"smokeping\")\n  |> range(start: -1d)\n  |> filter(fn: (r) => r._measurement == \"dns_wizard_service\")\nlatest = data\n  |> filter(fn: (r) => r._field == \"rank\")\n  |> group()\n  |> keep(columns: [\"_time\"])\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 1)\n  |> findRecord(fn: (key) => true, idx: 0)\n// With DNS_EXPORT_NAMES off there is no snapshot: an empty table, not an error.\nlatestTime = if exists latest._time then latest._time else time(v: 0)\ndata\n  |> filter(fn: (r) => r._time == latestTime)\n  |> pivot(rowKey: [\"_time\", \"service\", \"cdn\", \"asn\", \"org\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> keep(columns: [\"rank\", \"service\", \"presence_h\", \"queries_24h\", \"queries_1h\", \"host\", \"cdn\", \"asn\", \"org\"])\n  |> sort(columns: [\"rank\"])"
+    }
+   ]
+  }
+ ]
+}

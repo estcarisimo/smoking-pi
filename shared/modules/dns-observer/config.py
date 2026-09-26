@@ -136,6 +136,10 @@ class Config:
     adguard_binary: str
     adguard_conf: str
     adguard_work: str
+    # The DNS wizard (wizard.py): what the house uses, summarised.
+    wizard_interval: int = 600  # seconds; 0 turns it off
+    wizard_top: int = 25
+    wizard_exclude: tuple[str, ...] = ()
 
     @property
     def status_path(self) -> str:
@@ -240,7 +244,18 @@ class Config:
             adguard_binary=env.get("ADGUARD_BINARY", "/opt/adguardhome/AdGuardHome"),
             adguard_conf=env.get("ADGUARD_CONF", "/opt/adguardhome/conf/AdGuardHome.yaml"),
             adguard_work=env.get("ADGUARD_WORK", "/opt/adguardhome/work"),
+            wizard_interval=_wizard_interval(env),
+            wizard_top=_int(env, "DNS_WIZARD_TOP", 25, minimum=1),
+            wizard_exclude=tuple(_split(_get(env, "DNS_WIZARD_EXCLUDE", ""))),
         )
+
+
+def _wizard_interval(env: dict[str, str]) -> int:
+    """0 (off) or at least 60 s: each pass reads what the log gained."""
+    value = _int(env, "DNS_WIZARD_INTERVAL", 600, minimum=0)
+    if 0 < value < 60:
+        raise ConfigError(f"DNS_WIZARD_INTERVAL: 0 (off) or >= 60, got {value}")
+    return value
 
 
 def _is_ip(value: str) -> bool:

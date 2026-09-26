@@ -12,6 +12,8 @@ dependencies = [
     "pyyaml>=6.0",
     # AdGuard stores the admin password as a bcrypt hash.
     "bcrypt>=4.1",
+    # The DNS wizard's services are registrable domains (eTLD+1).
+    "publicsuffixlist>=1.0",
 ]
 
 [project.optional-dependencies]
