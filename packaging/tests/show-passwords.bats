@@ -242,6 +242,6 @@ refute_sentinels() {
     cd "$EDITION_DIR"
     run env USER=root SUDO_USER=pi bash "$SCRIPT"
     [[ "$output" == *"ssh -L 3053:localhost:3053 pi@"* ]]
-    run env USER=root -u SUDO_USER bash "$SCRIPT"
+    run env -u SUDO_USER USER=root bash "$SCRIPT"
     [[ "$output" == *"ssh -L 3053:localhost:3053 <user>@"* ]]
 }
