@@ -230,6 +230,48 @@ if [ "$EXTERNAL_IP" != "Unable to detect" ] && [ "$EDITION" != "basic" ]; then
 fi
 
 
+# The DNS observer's admin UI (AdGuard Home), when the dns profile is on or
+# a password exists. Where it can be opened depends on DNS_ADMIN_ADDRESS:
+# loopback by default, so from another computer it takes an SSH tunnel or
+# `smoking-pi config set DNS_ADMIN_ADDRESS 0.0.0.0:3053`.
+if [ "$EDITION" = "pro" ] && { [[ ",${COMPOSE_PROFILES:-}," == *,dns,* ]] || [ -n "${DNS_ADMIN_PASSWORD:-}" ]; }; then
+    dns_admin="${DNS_ADMIN_ADDRESS:-127.0.0.1:3053}"
+    dns_port="${dns_admin##*:}"
+    # The account to SSH in as: under sudo $USER is root, which a Pi
+    # rarely accepts over SSH; the one who ran sudo is who logs in.
+    ssh_user="${SUDO_USER:-${USER:-}}"
+    [ -n "$ssh_user" ] && [ "$ssh_user" != root ] || ssh_user="<user>"
+    echo
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}🌐 DNS observer (AdGuard Home) Credentials${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    case "$dns_admin" in
+        127.*|localhost:*|\[::1\]:*)
+            echo -e "  ${PURPLE}URL:${NC}          http://127.0.0.1:${dns_port}  (this machine only)"
+            echo -e "  ${PURPLE}From a computer:${NC} ssh -L ${dns_port}:localhost:${dns_port} ${ssh_user}@${SERVER_IP:-<this machine>}"
+            echo -e "                 then open http://localhost:${dns_port}"
+            echo -e "  ${PURPLE}On the network:${NC} smoking-pi config set DNS_ADMIN_ADDRESS 0.0.0.0:${dns_port}"
+            echo -e "                 (the query log -- every name the house resolves -- then"
+            echo -e "                 opens from any device here, behind this password)"
+            ;;
+        0.0.0.0:*|\[::\]:*)
+            echo -e "  ${PURPLE}URL:${NC}          http://${SERVER_IP:-localhost}:${dns_port}" ;;
+        *)
+            echo -e "  ${PURPLE}URL:${NC}          http://${dns_admin}" ;;
+    esac
+    echo -e "  ${PURPLE}Username:${NC}     ${DNS_ADMIN_USER:-smokingpi}"
+    if [ -n "${DNS_ADMIN_PASSWORD:-}" ]; then
+        echo -e "  ${PURPLE}Password:${NC}     $(secret "$DNS_ADMIN_PASSWORD")"
+    else
+        echo -e "  ${PURPLE}Password:${NC}     ${RED}unset${NC} -- smoking-pi dns enable generates it"
+    fi
+    if compose ps --status running --services 2>/dev/null | grep -qx dns-observer; then
+        echo -e "  ${GREEN}✅ The DNS observer is running${NC}  (smoking-pi dns status)"
+    else
+        echo -e "  ${RED}❌ The DNS observer is not running${NC}  (smoking-pi dns enable)"
+    fi
+fi
+
 # Show Grafana credentials only for Pro edition
 if [ "$EDITION" = "pro" ]; then
     echo
@@ -286,10 +328,6 @@ if [ "$EDITION" = "standard" ] || [ "$EDITION" = "pro" ]; then
         else
             echo -e "  ${PURPLE}MCP server:${NC}     ${RED}unset -- the MCP endpoint is unauthenticated${NC}"
             echo -e "     Set MCP_API_TOKEN in $ENV_FILE (openssl rand -hex 32) and restart"
-        fi
-        if [ -n "${DNS_ADMIN_PASSWORD:-}" ]; then
-            echo -e "  ${PURPLE}DNS observer:${NC}   user smokingpi, $(secret "$DNS_ADMIN_PASSWORD")"
-            echo -e "     AdGuard Home admin on http://127.0.0.1:3053 (profile: dns; ssh -L 3053:localhost:3053)"
         fi
     fi
 fi
@@ -560,6 +598,9 @@ if [ "$EDITION" != "basic" ]; then
 fi
 if [ "$EDITION" = "pro" ]; then
     check_port 3000 "Grafana"
+    if [[ ",${COMPOSE_PROFILES:-}," == *,dns,* ]]; then
+        check_port "${DNS_PORT:-53}" "DNS observer"
+    fi
     if [ "$TSDB_TYPE" = "clickhouse" ]; then
         check_port 8123 "ClickHouse"
     else

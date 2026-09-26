@@ -212,3 +212,36 @@ STUB
 refute_sentinels() {
     [[ "$output" != *"SENTINEL-"* ]] || { echo "a secret leaked:"; echo "$output"; return 1; }
 }
+
+@test "the DNS observer has its own section: user, hidden password, and where it opens" {
+    printf 'COMPOSE_PROFILES=influxdb,dns\nDNS_ADMIN_PASSWORD=SENTINEL-dns\n' >> "$SMOKING_PI_ENV_FILE"
+    run_sp
+    [[ "$output" == *"DNS observer (AdGuard Home) Credentials"* ]]
+    [[ "$output" == *"smokingpi"* ]]
+    [[ "$output" != *"SENTINEL-dns"* ]]
+    # Loopback by default: the tunnel and the one command that opens it.
+    [[ "$output" == *"ssh -L 3053:localhost:3053"* ]]
+    [[ "$output" == *"smoking-pi config set DNS_ADMIN_ADDRESS 0.0.0.0:3053"* ]]
+    [[ "$output" == *"Port 53 (DNS observer)"* ]]
+    printf 'DNS_ADMIN_ADDRESS=0.0.0.0:3053\n' >> "$SMOKING_PI_ENV_FILE"
+    run_sp
+    [[ "$output" == *":3053"* ]]
+    [[ "$output" != *"ssh -L 3053"* ]]
+    run_sp --show-secrets --force
+    [[ "$output" == *"SENTINEL-dns"* ]]
+}
+
+@test "no DNS observer section without the dns profile or a password" {
+    run_sp
+    [[ "$output" != *"DNS observer (AdGuard Home)"* ]]
+}
+
+
+@test "the SSH hint names the user who ran sudo, never root" {
+    printf 'COMPOSE_PROFILES=influxdb,dns\nDNS_ADMIN_PASSWORD=x\n' >> "$SMOKING_PI_ENV_FILE"
+    cd "$EDITION_DIR"
+    run env USER=root SUDO_USER=pi bash "$SCRIPT"
+    [[ "$output" == *"ssh -L 3053:localhost:3053 pi@"* ]]
+    run env -u SUDO_USER USER=root bash "$SCRIPT"
+    [[ "$output" == *"ssh -L 3053:localhost:3053 <user>@"* ]]
+}

@@ -141,7 +141,15 @@ class Config:
 
     @property
     def admin_url(self) -> str:
-        return f"http://{self.admin_address}"
+        """Where the supervisor reaches the API: loopback when the UI listens
+        on every address (0.0.0.0 or [::]), which is not an address to
+        connect to."""
+        host, _, port = self.admin_address.rpartition(":")
+        if host in ("0.0.0.0", ""):
+            host = "127.0.0.1"
+        elif host in ("[::]", "::"):
+            host = "[::1]"
+        return f"http://{host}:{port}"
 
     @property
     def selftest_host(self) -> str:
@@ -198,6 +206,14 @@ class Config:
                 "DNS_ADMIN_PASSWORD is empty; setup generates it (smoking-pi passwords)"
             )
 
+        admin_address = _get(env, "DNS_ADMIN_ADDRESS", "127.0.0.1:3053")
+        admin_host, _, admin_port = admin_address.rpartition(":")
+        if not admin_host or not admin_port.isdigit():
+            raise ConfigError(
+                f"DNS_ADMIN_ADDRESS: {admin_address!r} is not host:port "
+                "(127.0.0.1:3053, or 0.0.0.0:3053 to open it to the network)"
+            )
+
         timeout_ms = _int(env, "DNS_UPSTREAM_TIMEOUT_MS", 2000, minimum=200)
         return cls(
             bind_hosts=bind,
@@ -209,7 +225,7 @@ class Config:
             anonymize_clients=_get(env, "DNS_ANONYMIZE_CLIENTS", "1") not in ("0", "false"),
             retention_hours=24 * _int(env, "DNS_RETENTION_DAYS", 7, minimum=1),
             upstream_timeout=f"{timeout_ms}ms",
-            admin_address=_get(env, "DNS_ADMIN_ADDRESS", "127.0.0.1:3053"),
+            admin_address=admin_address,
             admin_user=_get(env, "DNS_ADMIN_USER", "smokingpi"),
             admin_password=password,
             canary_via=via,
