@@ -9,6 +9,19 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.5] — 2026-09-26
+
+Measure what the house uses.
+
+The DNS wizard now selects which services to measure, and how many comes
+from the data: the services behind 80% of the house's activity, plus one
+for every network and CDN holding at least 0.5% of it that those miss, at
+most 60. `smoking-pi dns adopt` makes them targets with ICMP, TCP 443 and
+HTTP/1.1, /2 and /3, on the wizard's own HTTP probes. Adoption only adds.
+The DNS Wizard dashboard shows their latency and loss per protocol. The
+alerter, the digest and the assistants leave these targets out, since many
+CDNs drop ICMP and would read as down.
+
 ### Added
 
 - **Measure what the house uses: `smoking-pi dns adopt`.** The DNS wizard
