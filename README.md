@@ -26,7 +26,7 @@ Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [
 - 🌐 **Remote access built in**: temporary Cloudflare tunnels with no account, or permanent ones with yours
 - 🔐 **Secure defaults**: `setup.sh` generates every password and API token, the config API and MCP server bind to loopback, Grafana snapshots are off, and error responses never echo internals
 - 🍿 **Netflix CDN monitoring**: discovers the Open Connect Appliances serving your network and tracks them
-- 🔎 **Measure what your house actually uses** (Pro, opt-in): point the router's DNS at the Pi and the DNS observer learns which services the house resolves, ranks them by how many hours a week they appear, and `smoking-pi dns adopt` turns the top ones into targets. It sees only the DNS queries the router forwards to it, never traffic, so browsers or apps with their own encrypted DNS, VPNs and iCloud Private Relay stay out of view. Off until you run `smoking-pi dns enable`; see [docs/dns-observer.md](docs/dns-observer.md)
+- 🔎 **Measure what your house actually uses** (Pro, opt-in): point the router's DNS at the Pi and the DNS observer learns which services the house resolves and scores them (by query volume at first, by how many hours a week they appear once it has three days of data), and `smoking-pi dns adopt` turns the top-scoring ones into targets. It sees only the DNS queries the router forwards to it, never traffic, so browsers or apps with their own encrypted DNS, VPNs and iCloud Private Relay stay out of view. Off until you run `smoking-pi dns enable`; see [docs/dns-observer.md](docs/dns-observer.md)
 
 ## 🚀 Quick Start
 

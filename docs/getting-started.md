@@ -407,8 +407,9 @@ Useful to know on the first day:
   seeded targets are a starting point. To learn what this house actually
   resolves, start the DNS observer with `smoking-pi dns enable`, point the
   router's DNS at the Pi and confirm the path with `smoking-pi dns test`.
-  After a few days, `smoking-pi dns adopt` adds the services it ranks
-  highest as targets. It changes nothing until the router points at it,
+  After a few days, `smoking-pi dns adopt` adds the highest-scoring
+  services as targets (by query volume at first, by hours seen per week
+  once there are three days of data). It changes nothing until the router points at it,
   and it sees DNS queries only, never traffic
   ([DNS observer](dns-observer.md)).
 
