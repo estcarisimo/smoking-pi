@@ -55,7 +55,9 @@ def entry(name, time, **kw):
             "upstream": "https://1.1.1.1:443/dns-query", **kw}
 
 
-def test_refresh_separates_canaries_from_the_house(env):
+def test_refresh_separates_canaries_from_the_house(env, monkeypatch):
+    # refresh() drops canaries older than a day; pin the clock to the log's hour.
+    monkeypatch.setattr(main.time, "time", lambda: 1790375200.0)
     sup = main.Supervisor(Config.from_env(env))
     sup.canaries = {"abc123": [1790375100.0, None], "ffff00": [1790375100.0, None]}
     sup.api = FakeAPI([
