@@ -43,6 +43,17 @@ version gets a matching GitHub release and git tag.
   first asks InfluxDB whether it accepts the `.env` token. It adopts a
   token from `auth list` only after InfluxDB accepts that token too. When
   none works, it stops with an error and leaves `.env` untouched.
+- **The welcome tour's assistant step never saw a call.** Step 4 counts
+  the MCP server's `mcp.tools: tool=<name>` log lines as proof that the
+  assistant was used. The server's `basicConfig` asked for that format,
+  but importing the MCP SDK had already given the root logger a bare
+  `%(message)s` handler, so `basicConfig` did nothing. The real line was
+  `tool=system_status args=- -> ok in 1209ms`, with no logger name, and the
+  step said "not used yet" however often the assistant was used. The
+  server now configures logging with `force=True`. A tool call against
+  the rebuilt image logs `INFO mcp.tools: tool=list_targets …`, which the
+  tour matches. `smoking-pi openclaw --check` only greps `tool=` and reads
+  either format.
 
 ## [2.13.7] — 2026-09-26
 
