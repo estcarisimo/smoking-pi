@@ -35,6 +35,14 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The DNS wizard adopted two of the Pi's own chores.** `piwheels.org`
+  (Raspberry Pi OS's pip index) and `grafana.com` (Grafana's update check;
+  its usage stats go to `grafana.org`) were selected and measured as
+  services of the house on the reference Pi. They are now on the Pi's
+  own-traffic list, next to `pypi.org`, in the observer and in
+  `tools/dns-explore`. A house that really uses them is not counted for
+  them either.
+
 - **The DNS wizard ranked SmokePing's own lookups as the house's use.**
   The Pi resolves through the router, which forwards to the observer, so
   every name SmokePing measures reached the log about once per TTL, all

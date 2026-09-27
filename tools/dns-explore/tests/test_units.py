@@ -56,6 +56,10 @@ def test_looks_random(name, random):
         ("config-manager", True),
         ("nas.internal", True),
         ("github.io", False),  # a suffix itself is still public
+        # Raspberry Pi OS's pip index; Grafana's update check and usage stats.
+        ("www.piwheels.org", True),
+        ("grafana.com", True),
+        ("stats.grafana.org", True),
     ],
 )
 def test_default_exclusions(line, name, own):

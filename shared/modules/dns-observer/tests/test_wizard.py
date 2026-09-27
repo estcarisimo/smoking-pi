@@ -77,7 +77,8 @@ def test_cdn_uses_icann_suffixes_only():
 @pytest.mark.parametrize(("name", "own"), [
     ("api.telegram.org", True), ("ghcr.io", True), ("whoami.akamai.net", True),
     ("x1.canary.smoking-pi.home.arpa", True), ("a1.w10.akamai.net", False), ("netflix.com", False),
-    ("config-manager", True), ("nas.internal", True), ("github.io", False)])
+    ("config-manager", True), ("nas.internal", True), ("github.io", False),
+    ("www.piwheels.org", True), ("grafana.com", True), ("stats.grafana.org", True)])
 def test_own_traffic(name, own):
     patterns = wizard.OWN_TRAFFIC + (".canary.smoking-pi.home.arpa",)
     assert wizard.is_own(name, wizard.service_of(name), patterns) is own

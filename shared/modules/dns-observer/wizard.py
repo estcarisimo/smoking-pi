@@ -63,6 +63,8 @@ OWN_TRAFFIC = (
     "ghcr.io", "github.com", "githubusercontent.com", "docker.io", "docker.com",
     "argotunnel.com", "cloudflared.com", "telegram.org", "cymru.com",
     "debian.org", "raspberrypi.com", "raspberrypi.org", "pypi.org", "pythonhosted.org",
+    # Raspberry Pi OS's pip index; Grafana's update check and usage stats.
+    "piwheels.org", "grafana.com", "grafana.org",
     "whoami.akamai.net", "myaddr.l.google.com",
 )
 

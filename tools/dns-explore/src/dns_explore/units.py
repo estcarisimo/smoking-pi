@@ -71,6 +71,10 @@ DEFAULT_EXCLUDE = (
     "raspberrypi.org",
     "pypi.org",
     "pythonhosted.org",
+    # Raspberry Pi OS's pip index; Grafana's update check and usage stats.
+    "piwheels.org",
+    "grafana.com",
+    "grafana.org",
     # resolver_identity.py's probes.
     "whoami.akamai.net",
     "myaddr.l.google.com",
