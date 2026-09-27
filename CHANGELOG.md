@@ -11,6 +11,19 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The DNS wizard adopted `config-manager`, one of the Pi's own containers,
+  as a service of the house.** `smoking-pi dns adopt` on the reference Pi
+  created five `W_config_manager_*` targets. The Pi's host-networked
+  containers look that bare name up through the router, which forwards it
+  to the observer. With no registrable domain, `service_of()` returned the
+  raw name, and the own-traffic list only matches suffixes such as `.lan`.
+  A name outside the public suffix list (a bare name, `.internal`, `.lan`)
+  now counts as the Pi's own traffic in the observer and in
+  `tools/dns-explore`. The snapshot also skips such names already counted in
+  the seven-day state, and `wizard_adopt` refuses a bare name or a private
+  TLD (`.internal`, `.lan`, …) from an older observer's snapshot. Targets adopted earlier are left in place: removing
+  them is a decision for the operator.
+
 - **`upgrade` failed when another command changed the stack at the same
   time, and could leave containers under temporary names.** The v2.13.2 and
   v2.13.7 upgrades on the reference Pi stopped with `Conflict. The container

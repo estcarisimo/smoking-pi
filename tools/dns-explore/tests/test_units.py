@@ -52,6 +52,10 @@ def test_looks_random(name, random):
         ("a1.w10.akamai.net", False),
         ("www.google.com", False),
         ("netflix.com", False),
+        # Outside the public suffixes: one of the Pi's containers, a private TLD.
+        ("config-manager", True),
+        ("nas.internal", True),
+        ("github.io", False),  # a suffix itself is still public
     ],
 )
 def test_default_exclusions(line, name, own):
