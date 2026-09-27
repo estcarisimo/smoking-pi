@@ -12,6 +12,11 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
+# Colour only on a terminal, and never under NO_COLOR (no-color.org): a
+# copy piped to grep or saved to a file is plain text.
+if [ ! -t 1 ] || [ -n "${NO_COLOR:-}" ]; then
+    RED='' GREEN='' YELLOW='' BLUE='' PURPLE='' CYAN='' WHITE='' NC=''
+fi
 
 usage() {
     cat <<'EOF'

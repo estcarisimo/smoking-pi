@@ -50,6 +50,10 @@ version gets a matching GitHub release and git tag.
   `tools/dns-explore`. A house that really uses them is not counted for
   them either.
 
+- **`smoking-pi passwords` wrote colour codes into pipes and files.**
+  `smoking-pi passwords | grep Grafana`, or a copy saved to a file, came
+  out full of `\033[0;36m`. Colours are now used only when the output is a
+  terminal, and never when `NO_COLOR` is set.
 - **The DNS wizard ranked SmokePing's own lookups as the house's use.**
   The Pi resolves through the router, which forwards to the observer, so
   every name SmokePing measures reached the log about once per TTL, all

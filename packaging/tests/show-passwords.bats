@@ -245,3 +245,21 @@ refute_sentinels() {
     run env -u SUDO_USER USER=root bash "$SCRIPT"
     [[ "$output" == *"ssh -L 3053:localhost:3053 <user>@"* ]]
 }
+
+@test "piped, the output carries no colour codes" {
+    run_sp
+    [ "$status" -eq 0 ]
+    ! printf '%s' "$output" | grep -q $'\x1b\['
+}
+
+@test "on a terminal it is coloured, unless NO_COLOR is set" {
+    command -v script >/dev/null || skip "no script(1) for a pseudo-terminal"
+    cd "$EDITION_DIR"
+    run script -qec "bash '$SCRIPT'" /dev/null
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | grep -q $'\x1b\['
+    run script -qec "NO_COLOR=1 bash '$SCRIPT'" /dev/null
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | grep -q 'Credentials'
+    ! printf '%s' "$output" | grep -q $'\x1b\['
+}
