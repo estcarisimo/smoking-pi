@@ -57,6 +57,12 @@ did, and is the way to run an unreleased branch.
   ([the last mile from the CPE](cpe-last-mile.md)).
 - **Netflix's Open Connect appliances** serving your network, discovered and
   tracked.
+- **What the house actually uses** (Pro, opt-in). When the router forwards
+  DNS to the Pi, the [DNS observer](dns-observer.md) learns which services
+  the house resolves and ranks them. `smoking-pi dns adopt` turns the top
+  ones into targets, so the monitor measures your services instead of a
+  generic list. It sees DNS queries, not traffic. Apps with their own
+  encrypted DNS, VPNs and iCloud Private Relay stay out of view.
 
 ## What happens with it
 

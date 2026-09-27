@@ -26,6 +26,7 @@ Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [
 - 🌐 **Remote access built in**: temporary Cloudflare tunnels with no account, or permanent ones with yours
 - 🔐 **Secure defaults**: `setup.sh` generates every password and API token, the config API and MCP server bind to loopback, Grafana snapshots are off, and error responses never echo internals
 - 🍿 **Netflix CDN monitoring**: discovers the Open Connect Appliances serving your network and tracks them
+- 🔎 **Measure what your house actually uses** (Pro, opt-in): point the router's DNS at the Pi and the DNS observer learns which services the house resolves, ranks them by how many hours a week they appear, and `smoking-pi dns adopt` turns the top ones into targets. It sees only the DNS queries the router forwards to it, never traffic, so browsers or apps with their own encrypted DNS, VPNs and iCloud Private Relay stay out of view. Off until you run `smoking-pi dns enable`; see [docs/dns-observer.md](docs/dns-observer.md)
 
 ## 🚀 Quick Start
 
@@ -375,6 +376,7 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 - **LinuxServer.io** for a SmokePing image that is maintained
 - **Tranco, the Chrome UX Report and Cloudflare Radar** for the top-sites lists that seed per-country targets
 - **The Grafana, InfluxDB and ClickHouse communities** for the storage and the pictures
+- **[AdGuard Home](https://github.com/AdguardTeam/AdGuardHome)** (GPL-3.0), the DNS server inside the optional DNS observer, run unmodified with filtering off
 
 ---
 
