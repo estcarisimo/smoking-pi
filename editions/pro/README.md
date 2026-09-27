@@ -366,7 +366,7 @@ exec smokeping --nodaemon
 
 ## 📚 Additional Documentation
 
-- **[Architecture Details](ARCHITECTURE.md)**: Complete system architecture and data flow diagrams
+- **[Architecture](../../docs/architecture.md)**: every container, what it reads and writes, and which profile turns it on
 - **[DNS Monitoring Guide](DNS_MONITORING.md)**: DNS resolution monitoring setup and troubleshooting  
 - **[Main Project README](../README.md)**: Overview of all deployment options
 - **[Web Admin Guide](../web-admin/README.md)**: Target management interface

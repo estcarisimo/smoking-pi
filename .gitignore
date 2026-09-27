@@ -67,6 +67,9 @@ smokeping.cache
 # SmokePing generated images/graphs
 *.png
 *.svg
+# ...but the documentation's own images are source (docs/img/architecture.svg)
+!docs/img/*.svg
+!docs/img/*.png
 smokemail
 
 # =============================================================================
