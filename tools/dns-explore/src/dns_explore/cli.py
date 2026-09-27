@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -38,11 +39,27 @@ def _window(value: str) -> timedelta | None:
 
 
 # Where an install keeps SmokePing's generated Targets: a clone's Pro edition,
-# then the .deb layout (SMOKING_PI_OUTPUT_DIR).
+# then the .deb layout's default SMOKING_PI_OUTPUT_DIR. A relocated output
+# directory comes first (_output_dir_targets).
 TARGETS_CANDIDATES = (
     Path.home() / "smoking-pi/editions/pro/config-manager/output/Targets",
     Path("/var/lib/smoking-pi/output/Targets"),
 )
+DEB_DEFAULTS = Path("/etc/default/smoking-pi")
+
+
+def _output_dir_targets() -> list[Path]:
+    """Targets under SMOKING_PI_OUTPUT_DIR, from the environment or from the
+    .deb's /etc/default/smoking-pi, where an operator may have moved it."""
+    dirs = [os.environ.get("SMOKING_PI_OUTPUT_DIR", "")]
+    try:
+        for ln in DEB_DEFAULTS.read_text().splitlines():
+            key, _, value = ln.strip().partition("=")
+            if key == "SMOKING_PI_OUTPUT_DIR":
+                dirs.append(value.strip().strip("'\""))
+    except OSError:
+        pass
+    return [Path(d) / "Targets" for d in dirs if d]
 
 
 def _targets(value: str) -> Path | None:
@@ -53,7 +70,8 @@ def _targets(value: str) -> Path | None:
         if not path.is_file():
             raise typer.BadParameter(f"{value}: no such file", param_hint="--targets")
         return path
-    return next((p for p in TARGETS_CANDIDATES if p.is_file()), None)
+    candidates = [*_output_dir_targets(), *TARGETS_CANDIDATES]
+    return next((p for p in candidates if p.is_file()), None)
 
 
 def load(

@@ -105,3 +105,18 @@ def test_a_missing_targets_file_is_an_error(tmp_path, line):
     log.write_text(line("www.bbc.co.uk") + "\n")
     res = runner.invoke(app, ["--file", str(log), "--no-asn", "--targets", str(tmp_path / "nope")])
     assert res.exit_code != 0
+
+
+def test_auto_follows_a_relocated_output_dir(tmp_path, line, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "Targets").write_text("host = www.netflix.com\n")
+    defaults = tmp_path / "smoking-pi"
+    defaults.write_text(f'SMOKING_PI_EDITION=pro\nSMOKING_PI_OUTPUT_DIR="{out_dir}"\n')
+    monkeypatch.setattr("dns_explore.cli.DEB_DEFAULTS", defaults)
+    log = tmp_path / "querylog.json"
+    log.write_text(line("www.netflix.com") + "\n" + line("www.bbc.co.uk") + "\n")
+    out = tmp_path / "r.json"
+    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1", "--json", str(out)])
+    assert res.exit_code == 0, res.output
+    assert json.loads(out.read_text())["counts"]["excluded_measured"] == 1

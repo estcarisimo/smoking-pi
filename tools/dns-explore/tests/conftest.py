@@ -20,6 +20,8 @@ def no_install_targets(monkeypatch):
     from dns_explore import cli
 
     monkeypatch.setattr(cli, "TARGETS_CANDIDATES", ())
+    monkeypatch.setattr(cli, "DEB_DEFAULTS", cli.Path("/nonexistent/smoking-pi"))
+    monkeypatch.delenv("SMOKING_PI_OUTPUT_DIR", raising=False)
 
 
 def wire_answer(qname: str, qtype: str, cnames: tuple[str, ...], addrs: tuple[str, ...]) -> str:

@@ -30,6 +30,7 @@ de observaciones DNS a targets" in the project's Notion.
 - 🔍 **What coalescing hides**: how many hostnames, CDNs, ASes and organisations sit behind the top-K services.
 - 🔁 **Churn**: day-over-day Jaccard of the top-K, per level, score and K.
 - 🙈 **The Pi's own traffic left out**: image pulls, tunnels, alert bots, the observer's canary, and names reserved for documentation. The Pi resolves through the router, so this traffic reaches the observer like the house's does.
+- 📡 **SmokePing's lookups left out too**: the names it measures, read from the install's generated `Targets` (`--targets`). It looks each one up about once per TTL, all day and all night; on the reference Pi that was a third of the log.
 
 ## 🚀 Quick Start
 
