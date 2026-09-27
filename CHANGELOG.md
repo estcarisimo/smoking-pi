@@ -32,6 +32,17 @@ version gets a matching GitHub release and git tag.
   one. If `up` fails while such a container exists (a `docker compose` run
   by hand is not under the lock), it waits for the other run, repairs, and
   tries once more.
+- **`sync-influx-token.sh` would have replaced a working InfluxDB token
+  with the word `admin`.** It read the token from the fourth field of
+  `influx auth list`. InfluxDB 2.9 stores tokens hashed and leaves that
+  column blank, so the fourth field becomes the user name. On a 2.9 test
+  instance whose `.env` held the right token, the script reported a
+  mismatch, wrote `INFLUX_TOKEN=admin` and restarted Grafana. The script
+  runs on every Pro setup and restart. Nothing on 2.7 was affected, but
+  the pending `influxdb:2.9` bump would have triggered it. The script now
+  first asks InfluxDB whether it accepts the `.env` token. It adopts a
+  token from `auth list` only after InfluxDB accepts that token too. When
+  none works, it stops with an error and leaves `.env` untouched.
 
 ## [2.13.7] — 2026-09-26
 
