@@ -165,7 +165,7 @@ def test_high_loss_threshold_env_tunable(monkeypatch):
 CPE_T0 = datetime(2026, 9, 19, 0, 42, 33, tzinfo=timezone.utc)
 
 
-def _windows(spec, target="136.25.220.1", protocol="ipv4"):
+def _windows(spec, target="203.0.113.1", protocol="ipv4"):
     """Raw cut windows as [(seconds after CPE_T0, loss_pct), ...]."""
     return [{"_time": CPE_T0 + timedelta(seconds=off), "target": target,
              "protocol": protocol, "_value": loss} for off, loss in spec]
@@ -177,7 +177,7 @@ def test_microcut_burst_fires_on_one_confirmed_cut_and_names_its_duration():
     incidents = evaluator.rule_microcut_burst(_windows([(30 * i, 100.0) for i in range(6)]))
     assert len(incidents) == 1
     inc = incidents[0]
-    assert inc["key"] == "microcut_burst:136.25.220.1/ipv4"
+    assert inc["key"] == "microcut_burst:203.0.113.1/ipv4"
     assert inc["severity"] == "warning"
     assert inc["value"] == 6
     assert "1 cut of 2 min 40 s (6 windows, all at 100%)" in inc["message"]
@@ -211,13 +211,13 @@ def test_microcut_burst_env_tunable(monkeypatch):
     rows = _windows([(0, 52.0), (23 * 60, 62.0)], protocol="ipv6")
     incidents = evaluator.rule_microcut_burst(rows)
     assert len(incidents) == 1
-    assert incidents[0]["key"] == "microcut_burst:136.25.220.1/ipv6"
+    assert incidents[0]["key"] == "microcut_burst:203.0.113.1/ipv6"
 
 
 def test_microcut_burst_keeps_protocols_apart():
     rows = _windows([(0, 100.0)], protocol="ipv4") + _windows([(0, 52.0)], protocol="ipv6")
     keys = [i["key"] for i in evaluator.rule_microcut_burst(rows)]
-    assert keys == ["microcut_burst:136.25.220.1/ipv4"]
+    assert keys == ["microcut_burst:203.0.113.1/ipv4"]
 
 
 def test_microcut_message_states_the_loss_threshold(monkeypatch):
@@ -230,7 +230,7 @@ def test_microcut_rows_carry_the_folded_shape_for_the_verdict():
     raw = _windows([(30 * i, 100.0) for i in range(6)] + [(50 * 60, 52.0)])
     from common import microcuts
     rows = evaluator.microcut_rows(microcuts.fold_cuts(raw), raw)
-    assert rows == [{"target": "136.25.220.1", "protocol": "ipv4",
+    assert rows == [{"target": "203.0.113.1", "protocol": "ipv4",
                      "_value": 7, "cuts": 1, "possible": 1}]
 
 

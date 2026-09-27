@@ -100,10 +100,10 @@ def test_the_cpe_gateway_is_found_by_ip(api, renderer, monkeypatch):
         return [{"_value": 6.7}]
 
     monkeypatch.setattr(server, "query_influx", _query)
-    summary, _ = _blocks(server.get_chart("136.25.220.1", hours=6))
+    summary, _ = _blocks(server.get_chart("203.0.113.1", hours=6))
     assert summary["measurement"] == "cpe_latency"
     assert renderer["measurement"] == "cpe_latency"
-    assert '"cpe_latency"' in asked[0] and '"136.25.220.1"' in asked[0]
+    assert '"cpe_latency"' in asked[0] and '"203.0.113.1"' in asked[0]
 
 
 def test_a_name_that_could_break_a_flux_literal_is_refused(api, renderer):

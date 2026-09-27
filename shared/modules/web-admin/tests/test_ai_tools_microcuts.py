@@ -15,7 +15,7 @@ from app.services import ai_tools
 from common import microcuts
 
 T0 = datetime(2026, 9, 19, 0, 42, 33, tzinfo=timezone.utc)
-CPE = {"target": "136.25.220.1", "protocol": "ipv4"}
+CPE = {"target": "203.0.113.1", "protocol": "ipv4"}
 
 
 def _fake_influx(monkeypatch, cut_windows, windows=2880, p50=10.0, p90=16.0,

@@ -35,7 +35,7 @@ def test_a_pi_on_wifi(tmp_path):
         route="wlan0\t00000000\t0156A8C0\t0003\t0\t0\t600\t00000000\n",
         wireless=("wlan0",),
         resolv="# generated\nsearch lan\nnameserver 1.1.1.1\nnameserver 8.8.8.8\n",
-        cpe={"ipv4": "136.25.220.1", "ipv6": None, "updated": 1.5, "other": 1},
+        cpe={"ipv4": "203.0.113.1", "ipv6": None, "updated": 1.5, "other": 1},
     )
     assert host_facts.facts(**paths) == {
         "uplink": "wlan0",
@@ -43,7 +43,7 @@ def test_a_pi_on_wifi(tmp_path):
         "gateway4": "192.168.86.1",
         "gateway6": None,
         "resolvers": ["1.1.1.1", "8.8.8.8"],
-        "cpe": {"ipv4": "136.25.220.1", "ipv6": None, "updated": 1.5},
+        "cpe": {"ipv4": "203.0.113.1", "ipv6": None, "updated": 1.5},
         "public_resolver": None,
     }
 

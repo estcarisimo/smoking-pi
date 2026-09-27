@@ -169,7 +169,7 @@ def test_get_chart_cpe_lookup_failure_is_static(monkeypatch):
         raise _InfluxLikeError()
 
     monkeypatch.setattr(server, "query_influx", boom)
-    result = server.get_chart("136.25.220.1", hours=6)
+    result = server.get_chart("203.0.113.1", hours=6)
     assert isinstance(result, dict)
     assert "hunter2" not in str(result) and "HTTPHeaderDict" not in str(result)
     assert result["error"].startswith("InfluxDB query failed")
