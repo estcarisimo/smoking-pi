@@ -403,6 +403,15 @@ Useful to know on the first day:
 - **If the Pi is on Wi-Fi**, the uplink itself is measured — signal,
   bitrate, throughput, disconnects — so a bad hour can be blamed on the air
   rather than the ISP ([Wi-Fi uplink stats](wifi.md)).
+- **Measure what the house uses, not a generic list** (Pro, opt-in). The
+  seeded targets are a starting point. To learn what this house actually
+  resolves, start the DNS observer with `smoking-pi dns enable`, point the
+  router's DNS at the Pi and confirm the path with `smoking-pi dns test`.
+  After a few days, `smoking-pi dns adopt` adds the highest-scoring
+  services as targets (by query volume at first, by hours seen per week
+  once there are three days of data). It changes nothing until the router points at it,
+  and it sees DNS queries only, never traffic
+  ([DNS observer](dns-observer.md)).
 
 ---
 
