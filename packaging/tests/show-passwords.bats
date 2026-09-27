@@ -256,7 +256,10 @@ refute_sentinels() {
     command -v script >/dev/null || skip "no script(1) for a pseudo-terminal"
     cd "$EDITION_DIR"
     run script -qec "bash '$SCRIPT'" /dev/null
+    [ "$status" -eq 0 ]
     printf '%s' "$output" | grep -q $'\x1b\['
     run script -qec "NO_COLOR=1 bash '$SCRIPT'" /dev/null
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | grep -q 'Credentials'
     ! printf '%s' "$output" | grep -q $'\x1b\['
 }
