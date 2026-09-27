@@ -512,6 +512,80 @@
    "backgroundColor": "#f8fafc",
    "boundElements": [
     {
+     "id": "8880cbb7d6c5a875c654",
+     "type": "text"
+    },
+    {
+     "id": "5b5940a5f202a87ab6f2",
+     "type": "arrow"
+    }
+   ],
+   "fillStyle": "solid",
+   "frameId": null,
+   "groupIds": [],
+   "height": 90,
+   "id": "19903b00e8006ed69272",
+   "isDeleted": false,
+   "link": null,
+   "locked": false,
+   "opacity": 100,
+   "roughness": 0,
+   "roundness": {
+    "type": 3
+   },
+   "seed": 2844361178,
+   "strokeColor": "#64748b",
+   "strokeStyle": "solid",
+   "strokeWidth": 2,
+   "type": "rectangle",
+   "updated": 1,
+   "version": 1,
+   "versionNonce": 1194052497,
+   "width": 320,
+   "x": 960,
+   "y": 110
+  },
+  {
+   "angle": 0,
+   "autoResize": true,
+   "backgroundColor": "transparent",
+   "boundElements": [],
+   "containerId": "19903b00e8006ed69272",
+   "fillStyle": "solid",
+   "fontFamily": 2,
+   "fontSize": 14,
+   "frameId": null,
+   "groupIds": [],
+   "height": 60,
+   "id": "8880cbb7d6c5a875c654",
+   "isDeleted": false,
+   "lineHeight": 1.25,
+   "link": null,
+   "locked": false,
+   "opacity": 100,
+   "originalText": "IPinfo\nthe public address's city, once a day;\nPUBLIC_IP_GEO=0 turns it off",
+   "roughness": 0,
+   "roundness": null,
+   "seed": 1253249078,
+   "strokeColor": "#1f2937",
+   "strokeStyle": "solid",
+   "strokeWidth": 2,
+   "text": "IPinfo\nthe public address's city, once a day;\nPUBLIC_IP_GEO=0 turns it off",
+   "textAlign": "center",
+   "type": "text",
+   "updated": 1,
+   "version": 1,
+   "versionNonce": 672010076,
+   "verticalAlign": "middle",
+   "width": 304,
+   "x": 968,
+   "y": 125.0
+  },
+  {
+   "angle": 0,
+   "backgroundColor": "#f8fafc",
+   "boundElements": [
+    {
      "id": "c51bf01e0aeeafa6fcdf",
      "type": "text"
     },
@@ -1128,6 +1202,10 @@
      "type": "arrow"
     },
     {
+     "id": "5b5940a5f202a87ab6f2",
+     "type": "arrow"
+    },
+    {
      "id": "8d601f8cb132a2ac6cdf",
      "type": "arrow"
     },
@@ -1176,21 +1254,21 @@
    "fontSize": 14,
    "frameId": null,
    "groupIds": [],
-   "height": 200,
+   "height": 220,
    "id": "0ab27bf286573e720307",
    "isDeleted": false,
    "lineHeight": 1.25,
    "link": null,
    "locked": false,
    "opacity": 100,
-   "originalText": "SmokePing\nFPing, FPing6, TCPPing, Curl (HTTP/1.1, /2, /3), DNS\none RRD file per target\nExporters started in the container:\n\u00b7 rrd2influx / rrd2clickhouse: RRD to the time series\n\u00b7 microcut_detector: outages shorter than a step\n\u00b7 cpe_discovery: the ISP's first hop\n\u00b7 wifi_link: the Wi-Fi link and the uplink\n\u00b7 resolver_identity: which resolver answers\n\u00b7 dns_wizard: the wizard's snapshot",
+   "originalText": "SmokePing\nFPing, FPing6, TCPPing, Curl (HTTP/1.1, /2, /3), DNS\none RRD file per target\nExporters started in the container:\n\u00b7 rrd2influx / rrd2clickhouse: RRD to the time series\n\u00b7 microcut_detector: outages shorter than a step\n\u00b7 cpe_discovery: the ISP's first hop\n\u00b7 wifi_link: the Wi-Fi link and the uplink\n\u00b7 resolver_identity: which resolver answers\n\u00b7 public_ip: the public address and its network\n\u00b7 dns_wizard: the wizard's snapshot",
    "roughness": 0,
    "roundness": null,
    "seed": 2200439372,
    "strokeColor": "#1f2937",
    "strokeStyle": "solid",
    "strokeWidth": 2,
-   "text": "SmokePing\nFPing, FPing6, TCPPing, Curl (HTTP/1.1, /2, /3), DNS\none RRD file per target\nExporters started in the container:\n\u00b7 rrd2influx / rrd2clickhouse: RRD to the time series\n\u00b7 microcut_detector: outages shorter than a step\n\u00b7 cpe_discovery: the ISP's first hop\n\u00b7 wifi_link: the Wi-Fi link and the uplink\n\u00b7 resolver_identity: which resolver answers\n\u00b7 dns_wizard: the wizard's snapshot",
+   "text": "SmokePing\nFPing, FPing6, TCPPing, Curl (HTTP/1.1, /2, /3), DNS\none RRD file per target\nExporters started in the container:\n\u00b7 rrd2influx / rrd2clickhouse: RRD to the time series\n\u00b7 microcut_detector: outages shorter than a step\n\u00b7 cpe_discovery: the ISP's first hop\n\u00b7 wifi_link: the Wi-Fi link and the uplink\n\u00b7 resolver_identity: which resolver answers\n\u00b7 public_ip: the public address and its network\n\u00b7 dns_wizard: the wizard's snapshot",
    "textAlign": "center",
    "type": "text",
    "updated": 1,
@@ -1199,7 +1277,7 @@
    "verticalAlign": "middle",
    "width": 464,
    "x": 438,
-   "y": 395.0
+   "y": 385.0
   },
   {
    "angle": 0,
@@ -2142,6 +2220,108 @@
    "width": 210.4,
    "x": 684.8,
    "y": 252
+  },
+  {
+   "angle": 0,
+   "backgroundColor": "transparent",
+   "boundElements": [
+    {
+     "id": "1f99ef080952943715d2",
+     "type": "text"
+    }
+   ],
+   "elbowed": false,
+   "endArrowhead": "arrow",
+   "endBinding": {
+    "elementId": "19903b00e8006ed69272",
+    "focus": 0,
+    "gap": 4
+   },
+   "fillStyle": "solid",
+   "frameId": null,
+   "groupIds": [],
+   "height": 124,
+   "id": "5b5940a5f202a87ab6f2",
+   "isDeleted": false,
+   "lastCommittedPoint": null,
+   "link": null,
+   "locked": false,
+   "opacity": 100,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     -72
+    ],
+    [
+     130,
+     -72
+    ],
+    [
+     130,
+     -124
+    ]
+   ],
+   "roughness": 0,
+   "roundness": {
+    "type": 2
+   },
+   "seed": 581664187,
+   "startArrowhead": null,
+   "startBinding": {
+    "elementId": "44987dd05ef203d0e915",
+    "focus": 0,
+    "gap": 4
+   },
+   "strokeColor": "#334155",
+   "strokeStyle": "solid",
+   "strokeWidth": 2,
+   "type": "arrow",
+   "updated": 1,
+   "version": 1,
+   "versionNonce": 3810667097,
+   "width": 130,
+   "x": 890,
+   "y": 327
+  },
+  {
+   "angle": 0,
+   "autoResize": true,
+   "backgroundColor": "transparent",
+   "boundElements": [],
+   "containerId": "5b5940a5f202a87ab6f2",
+   "fillStyle": "solid",
+   "fontFamily": 2,
+   "fontSize": 12,
+   "frameId": null,
+   "groupIds": [],
+   "height": 20,
+   "id": "1f99ef080952943715d2",
+   "isDeleted": false,
+   "lineHeight": 1.25,
+   "link": null,
+   "locked": false,
+   "opacity": 100,
+   "originalText": "public address",
+   "roughness": 0,
+   "roundness": null,
+   "seed": 778847453,
+   "strokeColor": "#334155",
+   "strokeStyle": "solid",
+   "strokeWidth": 2,
+   "text": "public address",
+   "textAlign": "center",
+   "type": "text",
+   "updated": 1,
+   "version": 1,
+   "versionNonce": 2980645260,
+   "verticalAlign": "middle",
+   "width": 116.8,
+   "x": 906.6,
+   "y": 245
   },
   {
    "angle": 0,

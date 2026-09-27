@@ -34,6 +34,7 @@
 <path d="M200,653 L200,727" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
 <path d="M333,590 L427,590" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M670,327 L670,199" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M890,327 L890.0,265.0 Q890,255 900.0,255.0 L1010.0,255.0 Q1020,255 1020.0,245.0 L1020,203" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M913,430 L957,430" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M913,620 L925.0,620.0 Q935,620 935.0,630.0 L935.0,840.0 Q935,850 945.0,850.0 L957,850" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
 <path d="M1257,380 L1203,380" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
@@ -52,6 +53,11 @@
 <g transform="translate(448,135) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></g>
 <text x="478" y="151" font-size="17" font-weight="700" fill="#334155">The Internet: what is measured</text>
 <text x="448" y="177" font-size="14" fill="#1f2937">sites and CDNs, Netflix OCAs, public resolvers, and the router</text>
+<rect x="960" y="110" width="320" height="90" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(978,125) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></g>
+<text x="1008" y="141" font-size="17" font-weight="700" fill="#334155">IPinfo</text>
+<text x="978" y="167" font-size="14" fill="#1f2937">the public address&#x27;s city, once a day;</text>
+<text x="978" y="188" font-size="14" fill="#1f2937">PUBLIC_IP_GEO=0 turns it off</text>
 <rect x="70" y="1000" width="260" height="90" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
 <g transform="translate(88,1015) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0M12 19.5v.1"/></g>
 <text x="118" y="1031" font-size="17" font-weight="700" fill="#334155">Home router</text>
@@ -105,7 +111,8 @@
 <text x="454" y="499" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">cpe_discovery</tspan>: the ISP&#x27;s first hop</text>
 <text x="454" y="519" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">wifi_link</tspan>: the Wi-Fi link and the uplink</text>
 <text x="454" y="539" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">resolver_identity</tspan>: which resolver answers</text>
-<text x="454" y="559" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">dns_wizard</tspan>: the wizard&#x27;s snapshot</text>
+<text x="454" y="559" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">public_ip</tspan>: the public address and its network</text>
+<text x="454" y="579" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">dns_wizard</tspan>: the wizard&#x27;s snapshot</text>
 <rect x="430" y="790" width="480" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
 <g transform="translate(448,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l5 5M4.5 10.5a6 6 0 1 0 12 0 6 6 0 1 0-12 0"/></g>
 <text x="478" y="821" font-size="17" font-weight="700" fill="#c2410c">DNS observer</text>
@@ -152,6 +159,7 @@
 <rect x="210" y="679" width="38" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="229" y="694" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">SQL</text>
 <rect x="318" y="564" width="124" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="380" y="580" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">Targets, Probes</text>
 <rect x="685" y="251" width="210" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="790" y="266" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">ICMP, TCP, HTTP, DNS probes</text>
+<rect x="907" y="244" width="117" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="965" y="260" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">public address</text>
 <rect x="905" y="404" width="59" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="935" y="420" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">points</text>
 <rect x="913" y="724" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="935" y="740" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">rows</text>
 <rect x="1208" y="354" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="370" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">Flux</text>

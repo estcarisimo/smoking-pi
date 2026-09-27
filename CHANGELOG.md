@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Grafana opens on an Overview page.** "Smoking Pi – Overview" shows
+  where the Pi is connected (uplink, Wi-Fi SSID, public address, the
+  network that announces it, an approximate location, the resolver) and
+  what it is measuring (targets answering per layer in the last 15
+  minutes, targets losing packets, measurements in the last hour), with
+  links to every detailed dashboard. The DNS wizard's targets are counted
+  apart: on the reference Pi, 78 of the 79 targets losing packets were
+  wizard targets, most of them CDNs that drop ICMP. A new collector,
+  `public_ip.py`, finds the public address by asking Google's authoritative
+  DNS directly, its network through Team Cymru, and its city, region and
+  country through ipinfo.io once a day. `PUBLIC_IP_GEO=0` keeps the address
+  from ipinfo.io. With ClickHouse, Grafana keeps its own home page.
+  `docs/public-address.md`.
+
 ### Changed
 
 - **The architecture diagram is redrawn.** A Raspberry Pi frame holds the

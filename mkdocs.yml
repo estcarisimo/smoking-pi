@@ -23,6 +23,7 @@ nav:
       - IPv6 gating: ipv6-gating.md
       - DNS observer: dns-observer.md
       - Which resolver answers: public-resolver.md
+      - Overview and public address: public-address.md
   - Alerts and the assistant:
       - Alerting: alerting.md
       - Detection reliability: detection-reliability.md
