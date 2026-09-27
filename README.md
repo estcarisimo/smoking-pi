@@ -224,6 +224,8 @@ docker compose build web-admin && docker compose up -d web-admin
 
 Each edition is a Compose file that assembles services from `shared/modules/`; containers never import across each other, and the few pieces two containers share live in `shared/modules/common/`.
 
+**[The architecture diagram](https://estcarisimo.github.io/smoking-pi/architecture/)** shows every container, what it reads and writes, and which Compose profile turns it on ([source](docs/architecture.md)).
+
 ```text
 smoking-pi/
 ├── editions/
@@ -240,6 +242,7 @@ smoking-pi/
 │   │   ├── alerter/           # Rules, verdict, charts, digest, delivery
 │   │   ├── mcp-server/        # MCP tools over the config API and InfluxDB
 │   │   ├── ai-insights/       # Periodic AI health reports
+│   │   ├── dns-observer/      # AdGuard Home + the DNS wizard: what the house resolves
 │   │   ├── doctor/            # Static + live instrumentation checks
 │   │   └── common/            # Flux helpers, chart renderer, deep links, mutes, OpenClaw client
 │   ├── scripts/               # setup helpers, container management, tunnels, skill install

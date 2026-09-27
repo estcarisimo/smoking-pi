@@ -11,6 +11,18 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **An architecture diagram that cannot go stale** (`docs/architecture.md`).
+  It shows every container of the Pro edition, what each reads and writes,
+  which Compose profile turns it on, and what sits outside the Pi. One spec
+  (`tools/architecture/architecture.py`) writes both the SVG on the docs
+  site and an `.excalidraw` file to edit by hand. Its tests fail when a
+  Compose service, a profile or an exporter the SmokePing container starts
+  is missing from the drawing, or when the drawings are older than the
+  spec. It replaces three diagrams from December 2025 in `editions/pro/`
+  (`ARCHITECTURE.md`, `architecture-diagram.txt`, `excalidraw-guide.md`),
+  which predated config-manager's database, the DNS observer, the MCP
+  server, the alerter and ai-insights.
+
 - **`tools/dns-explore` leaves out SmokePing's lookups of what it
   measures**, as the observer's wizard now does. `--targets` (default
   `auto`) reads SmokePing's generated `Targets` from a clone or a `.deb`
