@@ -69,3 +69,54 @@ def test_own_traffic_is_counted_whatever_its_type(tmp_path, line):
     runner.invoke(app, ["--file", str(log), "--no-asn", "--json", str(out)])
     counts = json.loads(out.read_text())["counts"]
     assert counts["excluded_own"] == 1 and counts["dropped_type_or_rcode"] == 0
+
+
+def test_what_smokeping_measures_is_left_out(tmp_path, line, monkeypatch):
+    # SmokePing re-resolves www.netflix.com all night; the house asked for
+    # nrdp.logs.netflix.com once. Only the house's lookup is kept.
+    lines = [line("www.netflix.com", m) for m in range(20)] + [
+        line("nrdp.logs.netflix.com", 3),
+        line("www.bbc.co.uk", 4),
+    ]
+    log = tmp_path / "querylog.json"
+    log.write_text("\n".join(lines) + "\n")
+    targets = tmp_path / "Targets"
+    targets.write_text("++ W_netflix\nhost = www.netflix.com\n++ G\nhost = 8.8.8.8\n")
+    out = tmp_path / "r.json"
+
+    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1",
+                              "--targets", str(targets), "--json", str(out)])
+    assert res.exit_code == 0, res.output
+    counts = json.loads(out.read_text())["counts"]
+    assert counts["excluded_measured"] == 20 and counts["kept"] == 2
+
+    monkeypatch.setattr("dns_explore.cli.TARGETS_CANDIDATES", (targets,))
+    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1", "--json", str(out)])
+    assert json.loads(out.read_text())["counts"]["excluded_measured"] == 20  # found by auto
+
+    for args in (["--targets", "none"], ["--no-exclude-own"]):
+        res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1",
+                                  "--json", str(out), *args])
+        assert json.loads(out.read_text())["counts"]["excluded_measured"] == 0, args
+
+
+def test_a_missing_targets_file_is_an_error(tmp_path, line):
+    log = tmp_path / "querylog.json"
+    log.write_text(line("www.bbc.co.uk") + "\n")
+    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--targets", str(tmp_path / "nope")])
+    assert res.exit_code != 0
+
+
+def test_auto_follows_a_relocated_output_dir(tmp_path, line, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "Targets").write_text("host = www.netflix.com\n")
+    defaults = tmp_path / "smoking-pi"
+    defaults.write_text(f'SMOKING_PI_EDITION=pro\nSMOKING_PI_OUTPUT_DIR="{out_dir}"\n')
+    monkeypatch.setattr("dns_explore.cli.DEB_DEFAULTS", defaults)
+    log = tmp_path / "querylog.json"
+    log.write_text(line("www.netflix.com") + "\n" + line("www.bbc.co.uk") + "\n")
+    out = tmp_path / "r.json"
+    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1", "--json", str(out)])
+    assert res.exit_code == 0, res.output
+    assert json.loads(out.read_text())["counts"]["excluded_measured"] == 1

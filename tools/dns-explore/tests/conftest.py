@@ -14,6 +14,16 @@ import pytest
 T0 = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def no_install_targets(monkeypatch):
+    """--targets auto must not find the Targets of the machine running the tests."""
+    from dns_explore import cli
+
+    monkeypatch.setattr(cli, "TARGETS_CANDIDATES", ())
+    monkeypatch.setattr(cli, "DEB_DEFAULTS", cli.Path("/nonexistent/smoking-pi"))
+    monkeypatch.delenv("SMOKING_PI_OUTPUT_DIR", raising=False)
+
+
 def wire_answer(qname: str, qtype: str, cnames: tuple[str, ...], addrs: tuple[str, ...]) -> str:
     """A response in DNS wire format, base64, as AdGuard stores it."""
     q = dns.message.make_query(qname, qtype)
