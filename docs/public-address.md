@@ -32,7 +32,7 @@ over IPv6; a family with no route here writes nothing, so most houses show
   [ipinfo.io](https://ipinfo.io). This is geolocation *by address*: often
   the ISP's point of presence, sometimes another city, never the house. It
   is asked only when the address changes or once a day. IPinfo also returns
-  a postal code and a reverse hostname; neither is kept.
+  coordinates, a postal code and a reverse hostname; none of them is kept.
 
 A change of address or network writes the old one as `previous`, like the
 other collectors.

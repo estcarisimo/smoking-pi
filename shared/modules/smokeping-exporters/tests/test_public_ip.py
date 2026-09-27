@@ -18,7 +18,7 @@ from resolver_identity import OwnerCache  # noqa: E402
 V4 = "198.51.100.23"
 ORIGIN = "64500 | 198.51.100.0/24 | US | arin | 2010-01-01"
 NAME = "64500 | US | arin | 2000-01-01 | EXAMPLE-NET - Example ISP, US"
-PLACE = {"city": "Exampleville", "region": "Example Region", "country": "ZZ", "loc": "0.0000,0.0000"}
+PLACE = {"city": "Exampleville", "region": "Example Region", "country": "ZZ"}
 
 
 def fake_dig(answers):
@@ -58,7 +58,7 @@ def test_probe_names_the_network_and_the_place():
     owners = OwnerCache(lookup=LOOKUP)
     p = pub.probe("ipv4", owners, geo(), LOOKUP)
     assert (p.ip, p.asn, p.owner) == (V4, 64500, "EXAMPLE-NET - Example ISP, US")
-    assert (p.city, p.region, p.country, p.loc) == ("Exampleville", "Example Region", "ZZ", "0.0000,0.0000")
+    assert (p.city, p.region, p.country) == ("Exampleville", "Example Region", "ZZ")
 
 
 def test_a_family_without_a_route_is_not_ok_and_asks_nobody():
@@ -103,8 +103,9 @@ class _Resp:
         return False
 
 
-def test_ipinfo_keeps_only_the_place_not_postal_or_hostname():
-    body = {**PLACE, "ip": V4, "postal": "78701", "hostname": "h.example.net", "org": "AS64500 X"}
+def test_ipinfo_keeps_only_the_place_not_coordinates_postal_or_hostname():
+    body = {**PLACE, "ip": V4, "loc": "0.0,0.0", "postal": "00000", "hostname": "h.example.net",
+            "org": "AS64500 X"}
     seen = {}
 
     def opener(req, timeout):

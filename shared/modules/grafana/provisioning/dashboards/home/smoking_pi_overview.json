@@ -270,7 +270,7 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:-2h) |> filter(fn:(r) => r._measurement == \"public_ip\" and r.family == \"ipv4\" and (r._field == \"ip\" or r._field == \"asn\" or r._field == \"owner\" or r._field == \"city\" or r._field == \"region\" or r._field == \"country\")) |> last() |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> group() |> map(fn:(r) => ({_time: r._time, _value: \"AS\" + string(v: r.asn) + \" \" + r.owner})) |> keep(columns:[\"_time\",\"_value\"])"
+          "query": "from(bucket:\"smokeping\") |> range(start:-2h) |> filter(fn:(r) => r._measurement == \"public_ip\" and r.family == \"ipv4\" and (r._field == \"ip\" or r._field == \"asn\" or r._field == \"owner\" or r._field == \"city\" or r._field == \"region\" or r._field == \"country\")) |> last() |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> group() |> filter(fn:(r) => r.owner != \"\") |> map(fn:(r) => ({_time: r._time, _value: \"AS\" + string(v: r.asn) + \" \" + r.owner})) |> keep(columns:[\"_time\",\"_value\"])"
         }
       ]
     },
@@ -323,7 +323,7 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:-2h) |> filter(fn:(r) => r._measurement == \"public_ip\" and r.family == \"ipv4\" and (r._field == \"ip\" or r._field == \"asn\" or r._field == \"owner\" or r._field == \"city\" or r._field == \"region\" or r._field == \"country\")) |> last() |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> group() |> map(fn:(r) => ({_time: r._time, _value: r.city + \", \" + r.region + \", \" + r.country})) |> keep(columns:[\"_time\",\"_value\"])"
+          "query": "from(bucket:\"smokeping\") |> range(start:-2h) |> filter(fn:(r) => r._measurement == \"public_ip\" and r.family == \"ipv4\" and (r._field == \"ip\" or r._field == \"asn\" or r._field == \"owner\" or r._field == \"city\" or r._field == \"region\" or r._field == \"country\")) |> last() |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> group() |> filter(fn:(r) => r.country != \"\") |> map(fn:(r) => ({_time: r._time, _value: r.city + \", \" + r.region + \", \" + r.country})) |> keep(columns:[\"_time\",\"_value\"])"
         }
       ]
     },

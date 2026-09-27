@@ -10,12 +10,12 @@ Internet sees, the network (AS) that announces it, and an approximate place.
   and once over IPv6; a family with no route here is simply absent.
 * **Network.** Team Cymru's origin lookup, as resolver_identity.py does for
   resolvers (the same helpers, the same cache).
-* **Place.** IPinfo (``https://ipinfo.io/<ip>/json``): city, region, country
-  and approximate coordinates. This is geolocation *by address*, often only
+* **Place.** IPinfo (``https://ipinfo.io/<ip>/json``): city, region and
+  country. This is geolocation *by address*, often only
   the ISP's point of presence, never the house. Asked only when the address
   changes or once a day; ``PUBLIC_IP_GEO=0`` turns it off (nothing leaves for
-  ipinfo.io then) and ``IPINFO_TOKEN`` is used when set. The postal code and
-  the reverse hostname IPinfo also returns are not kept.
+  ipinfo.io then) and ``IPINFO_TOKEN`` is used when set. The coordinates,
+  postal code and reverse hostname IPinfo also returns are not kept.
 
 Writes measurement ``public_ip`` (tag ``family``: ``ipv4``/``ipv6``) every
 PUBLIC_IP_INTERVAL seconds (900). On the point where the address or its
@@ -51,7 +51,7 @@ GEO_TTL = 86400  # seconds a place is kept for an unchanged address
 GOOGLE_NS = {"ipv4": "216.239.32.10", "ipv6": "2001:4860:4802:32::a"}
 MYADDR = "o-o.myaddr.l.google.com"
 IPINFO_URL = "https://ipinfo.io/{ip}/json"
-GEO_FIELDS = ("city", "region", "country", "loc")
+GEO_FIELDS = ("city", "region", "country")
 
 
 @dataclass
@@ -63,7 +63,6 @@ class Public:
     city: str = ""
     region: str = ""
     country: str = ""
-    loc: str = ""
 
     @property
     def ok(self) -> bool:
@@ -85,7 +84,7 @@ def own_address(family: str, lookup=dig) -> str:
 
 
 def ipinfo(ip: str, token: str = "", opener=urllib.request.urlopen) -> dict[str, str]:
-    """City, region, country and 'lat,lon' for an address; {} on any failure."""
+    """City, region and country for an address; {} on any failure."""
     headers = {"Accept": "application/json", "User-Agent": "smoking-pi"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -143,8 +142,7 @@ def build_point(p: Public, previous: str | None, ts: int) -> Point:
           .field("owner", p.owner)
           .field("city", p.city)
           .field("region", p.region)
-          .field("country", p.country)
-          .field("loc", p.loc))
+          .field("country", p.country))
     if previous is not None:
         pt.field("previous", previous)
     return pt.time(ts, WritePrecision.S)
