@@ -55,6 +55,7 @@ def test_nothing_drawn_that_compose_does_not_run():
 
 def test_profiles_match_compose():
     for name, profiles in compose_services().items():
+        assert len(profiles) <= 1, f"{name}: one box cannot show profiles {sorted(profiles)}"
         n = drawn()[name]
         expected = next(iter(profiles)) if profiles else None
         assert n.profile == expected, f"{name}: Compose profile {profiles or 'none'}"

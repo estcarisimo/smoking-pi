@@ -6,19 +6,20 @@
 <rect width="1900" height="1010" rx="16" fill="#ffffff"/>
 <path d="M170,134 L170,216" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M185,36 L190,20 L1320,20 L1320,36" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M170,334 L170,416" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M170,344 L170,416" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M170,534 L170,616" fill="none" stroke="#334155" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
 <path d="M304,447 L466,414" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M664,216 L655,134" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M894,407 L996,424" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M859,524 L1058,696" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
-<path d="M1292,134 L1228,246" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1296,400 L1234,415" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1289,144 L1230,246" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1296,394 L1234,411" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M1296,502 L1234,483" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1354,656 L1234,550" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1534,370 L1596,370" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1345,656 L1234,554" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1534,364 L1596,366" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M1534,540 L1596,540" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1596,710 L1534,710" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1596,720 L1534,720" fill="none" stroke="#334155" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M1415,486 L1415,424" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M170,856 L170,780 L466,763" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M729,804 L820,905 L996,905" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M680,696 L680,524" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
@@ -39,19 +40,22 @@
 <text x="1165" y="890" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">Encrypted DNS upstreams</text>
 <text x="1165" y="916" text-anchor="middle" font-size="16" fill="#1f2937">DoH to 1.1.1.1 / 8.8.8.8</text>
 <text x="1165" y="938" text-anchor="middle" font-size="16" fill="#1f2937">plain DNS as last resort</text>
-<rect x="1600" y="330" width="280" height="80" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
-<text x="1740" y="360" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">Chat and webhooks</text>
-<text x="1740" y="386" text-anchor="middle" font-size="16" fill="#1f2937">Telegram, Slack, webhooks</text>
+<rect x="1600" y="320" width="280" height="100" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
+<text x="1740" y="350" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">Chat and webhooks</text>
+<text x="1740" y="376" text-anchor="middle" font-size="16" fill="#1f2937">Telegram via OpenClaw,</text>
+<text x="1740" y="398" text-anchor="middle" font-size="16" fill="#1f2937">Slack, webhooks</text>
 <rect x="1600" y="500" width="280" height="80" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
 <text x="1740" y="530" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">Anthropic API</text>
 <text x="1740" y="556" text-anchor="middle" font-size="16" fill="#1f2937">written health reports</text>
-<rect x="1600" y="670" width="280" height="80" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
+<rect x="1600" y="670" width="280" height="100" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
 <text x="1740" y="700" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">AI assistants</text>
-<text x="1740" y="726" text-anchor="middle" font-size="16" fill="#1f2937">OpenClaw, any MCP client</text>
-<rect x="40" y="220" width="260" height="110" rx="12" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2.5"/>
+<text x="1740" y="726" text-anchor="middle" font-size="16" fill="#1f2937">OpenClaw, any MCP client;</text>
+<text x="1740" y="748" text-anchor="middle" font-size="16" fill="#1f2937">charts go back to chat</text>
+<rect x="40" y="220" width="260" height="120" rx="12" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2.5"/>
 <text x="170" y="250" text-anchor="middle" font-size="20" font-weight="bold" fill="#1e3a5f">web-admin</text>
 <text x="170" y="276" text-anchor="middle" font-size="16" fill="#1f2937">Flask UI :8080</text>
-<text x="170" y="298" text-anchor="middle" font-size="16" fill="#1f2937">targets, probes, tour</text>
+<text x="170" y="298" text-anchor="middle" font-size="16" fill="#1f2937">targets, probes, tour,</text>
+<text x="170" y="320" text-anchor="middle" font-size="16" fill="#1f2937">AI reports</text>
 <rect x="40" y="420" width="260" height="110" rx="12" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2.5"/>
 <text x="170" y="450" text-anchor="middle" font-size="20" font-weight="bold" fill="#1e3a5f">config-manager</text>
 <text x="170" y="476" text-anchor="middle" font-size="16" fill="#1f2937">REST API :5000</text>
@@ -83,20 +87,24 @@
 <rect x="990" y="700" width="250" height="90" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
 <text x="1115" y="730" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">ClickHouse  [clickhouse]</text>
 <text x="1115" y="756" text-anchor="middle" font-size="16" fill="#1f2937">alternative backend</text>
-<rect x="1180" y="40" width="280" height="90" rx="12" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2.5"/>
+<rect x="1180" y="40" width="280" height="100" rx="12" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2.5"/>
 <text x="1320" y="70" text-anchor="middle" font-size="20" font-weight="bold" fill="#1e3a5f">Grafana</text>
 <text x="1320" y="96" text-anchor="middle" font-size="16" fill="#1f2937">dashboards :3000</text>
-<rect x="1300" y="320" width="230" height="100" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
-<text x="1415" y="350" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">alerter  [alerts]</text>
-<text x="1415" y="376" text-anchor="middle" font-size="16" fill="#1f2937">outages, microcuts,</text>
-<text x="1415" y="398" text-anchor="middle" font-size="16" fill="#1f2937">verdicts, digests</text>
+<text x="1320" y="118" text-anchor="middle" font-size="16" fill="#1f2937">(a ClickHouse set too)</text>
+<rect x="1300" y="300" width="230" height="120" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
+<text x="1415" y="330" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">alerter  [alerts]</text>
+<text x="1415" y="356" text-anchor="middle" font-size="16" fill="#1f2937">outages, microcuts,</text>
+<text x="1415" y="378" text-anchor="middle" font-size="16" fill="#1f2937">verdicts, digests,</text>
+<text x="1415" y="400" text-anchor="middle" font-size="16" fill="#1f2937">AI reports</text>
 <rect x="1300" y="490" width="230" height="100" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
 <text x="1415" y="520" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">ai-insights  [ai]</text>
-<text x="1415" y="546" text-anchor="middle" font-size="16" fill="#1f2937">health reports</text>
-<rect x="1300" y="660" width="230" height="100" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
+<text x="1415" y="546" text-anchor="middle" font-size="16" fill="#1f2937">health reports into</text>
+<text x="1415" y="568" text-anchor="middle" font-size="16" fill="#1f2937">a shared volume</text>
+<rect x="1300" y="660" width="230" height="120" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
 <text x="1415" y="690" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">mcp-server  [mcp]</text>
 <text x="1415" y="716" text-anchor="middle" font-size="16" fill="#1f2937">tools for assistants;</text>
-<text x="1415" y="738" text-anchor="middle" font-size="16" fill="#1f2937">asks config-manager too</text>
+<text x="1415" y="738" text-anchor="middle" font-size="16" fill="#1f2937">asks config-manager,</text>
+<text x="1415" y="760" text-anchor="middle" font-size="16" fill="#1f2937">mutes alerts</text>
 <rect x="1600" y="860" width="280" height="90" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
 <text x="1740" y="890" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">On the host</text>
 <text x="1740" y="916" text-anchor="middle" font-size="16" fill="#1f2937">smoking-pi CLI, systemd unit,</text>
@@ -105,8 +113,8 @@
 <text x="170" y="179" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">configure</text>
 <rect x="733" y="8" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
 <text x="755" y="24" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">look</text>
-<rect x="148" y="363" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="170" y="379" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">REST</text>
+<rect x="148" y="368" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
+<text x="170" y="384" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">REST</text>
 <rect x="152" y="563" width="37" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
 <text x="170" y="579" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">SQL</text>
 <rect x="318" y="419" width="135" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
@@ -117,20 +125,22 @@
 <text x="945" y="406" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">points</text>
 <rect x="936" y="598" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
 <text x="958" y="614" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">rows</text>
-<rect x="1238" y="178" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1260" y="194" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">Flux</text>
-<rect x="1238" y="382" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1265" y="398" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reads</text>
+<rect x="1237" y="183" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1259" y="199" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">Flux</text>
+<rect x="1238" y="376" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1265" y="392" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reads</text>
 <rect x="1238" y="466" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
 <text x="1265" y="482" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reads</text>
-<rect x="1267" y="591" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1294" y="607" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reads</text>
-<rect x="1538" y="344" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1565" y="360" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">sends</text>
+<rect x="1263" y="593" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1290" y="609" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reads</text>
+<rect x="1538" y="339" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1565" y="355" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">sends</text>
 <rect x="1543" y="514" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
 <text x="1565" y="530" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">asks</text>
-<rect x="1547" y="684" width="37" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1565" y="700" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">MCP</text>
+<rect x="1547" y="694" width="37" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1565" y="710" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">MCP</text>
+<rect x="1380" y="443" width="69" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1415" y="459" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reports</text>
 <rect x="250" y="759" width="135" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
 <text x="318" y="775" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">the house&#x27;s DNS</text>
 <rect x="865" y="893" width="86" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>

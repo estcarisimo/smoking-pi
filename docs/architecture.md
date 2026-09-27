@@ -26,11 +26,18 @@ the Wi-Fi link, which public resolver answers, and the DNS wizard's
 snapshot.
 
 **Looking and acting.** Grafana, the alerter, ai-insights and the MCP server
-all read InfluxDB. The alerter sends to Telegram, Slack or webhooks,
-ai-insights asks the Anthropic API for written reports, and the MCP server
-answers AI assistants such as OpenClaw. The MCP server also asks
-config-manager for targets and probes; that line is left out of the drawing
-to keep it readable.
+all read InfluxDB. With the `clickhouse` profile, Grafana reads ClickHouse
+through its own set of dashboards. The alerter sends alerts and digests to
+Telegram (through the OpenClaw gateway), Slack or webhooks. ai-insights asks
+the Anthropic API for written health reports and writes them to a shared
+volume: web-admin shows them and the alerter delivers them. The MCP server
+answers AI assistants such as OpenClaw, and posts charts back into the chat
+through the same gateway.
+
+Three lines are left out of the drawing to keep it readable. The MCP server
+asks config-manager for targets and probes. The MCP server writes alert
+mutes that the alerter reads, and it reads the alerter's state. web-admin
+reads the reports volume.
 
 **The house's DNS (optional).** When the router forwards the house's DNS to
 the Pi, the [DNS observer](dns-observer.md) resolves it through encrypted
