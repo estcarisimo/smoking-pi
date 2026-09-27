@@ -29,9 +29,23 @@ if [ -z "$INFLUXDB" ]; then
     exit 1
 fi
 
-# Try to get the actual token from InfluxDB
+token_works() {
+    [ -n "$1" ] && docker exec "$INFLUXDB" influx bucket list --token "$1" --hide-headers >/dev/null 2>&1
+}
+
+# InfluxDB 2.9+ stores tokens hashed and can no longer show them, so asking
+# whether it accepts the .env token is the only check that works everywhere.
+if token_works "$INFLUX_TOKEN"; then
+    echo "✅ Token is already synchronized"
+    exit 0
+fi
+
+# Up to 2.8, `auth list` shows tokens in the clear. From 2.9 the column is
+# blank and the fourth field is the user name, so a candidate is adopted only
+# once InfluxDB accepts it -- never write a token that was not proven.
 echo "📡 Retrieving active token from InfluxDB..."
 ACTIVE_TOKEN=$(docker exec "$INFLUXDB" influx auth list --hide-headers 2>/dev/null | grep "admin's Token" | awk '{print $4}' || true)
+token_works "$ACTIVE_TOKEN" || ACTIVE_TOKEN=""
 
 if [ -z "$ACTIVE_TOKEN" ]; then
     # If we can't get the token, try using the admin password to create one
@@ -45,11 +59,18 @@ if [ -z "$ACTIVE_TOKEN" ]; then
         --org "${INFLUX_ORG}" \
         --bucket "${INFLUX_BUCKET}" \
         --token "${INFLUX_TOKEN}" 2>/dev/null || true
-    
-    ACTIVE_TOKEN="${INFLUX_TOKEN}"
+
+    if token_works "$INFLUX_TOKEN"; then
+        echo "✅ Created the .env token in InfluxDB"
+        exit 0
+    fi
+    echo "❌ InfluxDB rejects INFLUX_TOKEN from $ENV_FILE and holds no token"
+    echo "   that can be recovered (2.9+ stores them hashed). Create one with"
+    echo "   'influx auth create --all-access' and put it in INFLUX_TOKEN."
+    exit 1
 fi
 
-if [ -n "$ACTIVE_TOKEN" ] && [ "$ACTIVE_TOKEN" != "$INFLUX_TOKEN" ]; then
+if [ "$ACTIVE_TOKEN" != "$INFLUX_TOKEN" ]; then
     echo "🔧 Token mismatch detected!"
     echo "   ENV Token: ${INFLUX_TOKEN:0:10}..."
     echo "   Active Token: ${ACTIVE_TOKEN:0:10}..."
