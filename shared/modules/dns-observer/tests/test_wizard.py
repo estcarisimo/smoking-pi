@@ -158,6 +158,50 @@ def test_names_counted_before_the_filter_are_never_ranked(wiz):
     assert [t["service"] for t in snap["top"]] == ["netflix.com"]
 
 
+TARGETS = """\
+*** Targets ***
++ Web
+++ W_example_org_icmp
+probe = FPing
+host = www.alpha.org.
+++ Google_dns
+probe = DNS
+host = 8.8.8.8
+++ Multi
+host = /Web/W_example_org_icmp /Web/Google_dns
+"""
+
+
+def test_measured_hosts_are_names_only(tmp_path):
+    path = tmp_path / "Targets"
+    path.write_text(TARGETS)
+    assert wizard.measured_hosts(str(path)) == {"www.alpha.org"}
+    assert wizard.measured_hosts(str(tmp_path / "missing")) == frozenset()
+    assert wizard.measured_hosts(None) == frozenset()
+
+
+def test_what_smokeping_measures_is_the_pis_own(wiz, tmp_path):
+    # SmokePing re-resolves www.alpha.org every TTL, all night: without the
+    # Targets file the wizard would rank it first on presence.
+    targets = tmp_path / "Targets"
+    lines = [line("www.alpha.org", T0 + h * HOUR + 5) for h in range(5)]
+    lines += [line("mail.alpha.org", T0 + 9)]  # the house, same service
+    lines += [line("steady.beta.net", T0 + h * HOUR + 7) for h in range(2)]
+    write(wiz.log, lines)
+    targets.write_text("")  # not measured yet
+    snap = wiz(targets_path=str(targets)).run_once(now=T0 + 5 * HOUR)
+    assert snap["top"][0]["service"] == "alpha.org"
+
+    write(wiz.log, lines, mode="w")
+    targets.write_text(TARGETS)  # adopted: now the Pi looks it up
+    for f in wiz.state.iterdir():
+        f.unlink()
+    snap = wiz(targets_path=str(targets)).run_once(now=T0 + 5 * HOUR)
+    assert [t["service"] for t in snap["top"]] == ["beta.net", "alpha.org"]
+    assert snap["top"][1]["presence_h"] == 1  # the house's one lookup
+    assert math.isclose(snap["own_share_24h"], 5 / 8)
+
+
 def test_random_names_are_never_the_endpoint(wiz):
     write(wiz.log, [line("d3p8zr0ffa9t17.cdnhost.org", T0 + 1)] * 3
           + [line("www.cdnhost.org", T0 + 2)])

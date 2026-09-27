@@ -329,6 +329,7 @@ class Supervisor:
             coverage=self.cfg.wizard_coverage,
             floor=self.cfg.wizard_floor,
             max_k=self.cfg.wizard_max,
+            targets_path=self.cfg.wizard_targets,
         )
         await asyncio.sleep(30)
         while not self.stopping.is_set():

@@ -634,6 +634,9 @@ services:
       - DNS_WIZARD_INTERVAL=${DNS_WIZARD_INTERVAL:-600}
       - DNS_WIZARD_TOP=${DNS_WIZARD_TOP:-25}
       - DNS_WIZARD_EXCLUDE=${DNS_WIZARD_EXCLUDE:-}
+      # SmokePing's own lookups of what it measures are left out too: the
+      # Pi resolves through the router, so they reach the log (below).
+      - DNS_WIZARD_TARGETS=/smokeping-config/Targets
       # Which services to measure: those behind DNS_WIZARD_COVERAGE (0.8) of
       # the activity by DNS_WIZARD_SCORE (auto: volume until 72 h of data,
       # then presence), plus one per network and CDN holding at least
@@ -650,6 +653,7 @@ services:
       - dns-observer-conf:/opt/adguardhome/conf
       - dns-observer-work:/opt/adguardhome/work
       - dns-observer-state:/var/lib/dns-observer
+      - ${SMOKING_PI_OUTPUT_DIR:-./config-manager/output}:/smokeping-config:ro
       - /etc/localtime:/etc/localtime:ro
 
   clickhouse:

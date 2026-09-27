@@ -11,6 +11,21 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The DNS wizard ranked SmokePing's own lookups as the house's use.**
+  The Pi resolves through the router, which forwards to the observer, so
+  every name SmokePing measures reached the log about once per TTL, all
+  night. On the reference Pi, 40% of the queries counted between 02:00 and
+  06:00 were lookups of the 53 targets the wizard had just adopted, which
+  made those services look present every hour. From 72 h of data the
+  ranking is by presence, so the selection would have kept choosing what
+  it had already adopted. The docs said these lookups were left out; they
+  were not. The observer now reads SmokePing's `Targets` (mounted
+  read-only) and counts each measured name as the Pi's own. Replayed on the
+  reference Pi's log, the Pi's share of the queries went from 22% to 55%.
+  Clients are anonymized, so the Pi cannot be told apart by address. The
+  house's lookups of exactly those names are left out too, and
+  `docs/dns-observer.md` says so.
+
 - **The DNS wizard adopted `config-manager`, one of the Pi's own containers,
   as a service of the house.** `smoking-pi dns adopt` on the reference Pi
   created five `W_config_manager_*` targets. The Pi's host-networked

@@ -86,6 +86,38 @@ def is_public(name: str) -> bool:
     return _psl_known.publicsuffix(name) is not None
 
 
+_TARGET_HOST = re.compile(r"^[ \t]*host[ \t]*=[ \t]*(\S+)", re.M)
+
+
+def measured_hosts(path: str | None) -> frozenset[str]:
+    """The names SmokePing measures, from the Targets file it reads.
+
+    Each one reaches this log the way the house's names do (the Pi resolves
+    through the router), about once per TTL, so a measured name looks
+    present every hour: without this the wizard ranks the targets it just
+    adopted. And the Pi keeps the router's cache of those names warm, so the
+    house's own lookups of them rarely get here at all: leaving them out
+    loses little. Addresses and MultiHost paths (/Group/Target) are not
+    names. A missing file (no SmokePing yet) is an empty set."""
+    if not path:
+        return frozenset()
+    try:
+        with open(path) as fh:
+            text = fh.read()
+    except OSError:
+        return frozenset()
+    names = set()
+    for m in _TARGET_HOST.finditer(text):
+        name = m.group(1).rstrip(".").lower()
+        if name.startswith("/"):
+            continue
+        try:
+            ipaddress.ip_address(name)
+        except ValueError:
+            names.add(name)
+    return frozenset(names)
+
+
 def cdn_of(name: str, cnames: list[str]) -> str:
     end = cnames[-1] if cnames else name
     return _psl_icann.privatesuffix(end) or end
@@ -321,11 +353,14 @@ class Wizard:
     def __init__(self, log_dir: str, state_dir: str, *, canary_domain: str,
                  extra_own: tuple[str, ...] = (), top: int = 25,
                  owners: Owners | None = None, score: str = "auto",
-                 coverage: float = 0.8, floor: float = 0.005, max_k: int = 60) -> None:
+                 coverage: float = 0.8, floor: float = 0.005, max_k: int = 60,
+                 targets_path: str | None = None) -> None:
         self.log_path = os.path.join(log_dir, "querylog.json")
         self.state_path = os.path.join(state_dir, "wizard-state.json")
         self.out_path = os.path.join(state_dir, "wizard.json")
         self.own = OWN_TRAFFIC + ("." + canary_domain,) + extra_own
+        self.targets_path = targets_path
+        self.measured: frozenset[str] = frozenset()
         self.top = top
         self.score, self.coverage, self.floor, self.max_k = score, coverage, floor, max_k
         self.state = State.load(self.state_path)
@@ -396,7 +431,7 @@ class Wizard:
             svc = service_of(name)
             own = st.own.setdefault(hour, [0, 0])
             own[1] += 1
-            if is_own(name, svc, self.own):
+            if name in self.measured or is_own(name, svc, self.own):
                 own[0] += 1
                 continue
             counts = st.hours.setdefault(hour, {}).setdefault(svc, [0, 0])
@@ -555,6 +590,7 @@ class Wizard:
 
     def run_once(self, now: float | None = None) -> dict:
         now = now or time.time()
+        self.measured = measured_hosts(self.targets_path)  # adoption adds to it
         kept = self.ingest_new()
         self.prune(now)
         snap = self.snapshot(now)
