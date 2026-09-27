@@ -178,7 +178,9 @@
             It is off until you start it, and it changes nothing until the router points at it.</p>
         <p class="mb-2">On the Pi: <code>smoking-pi dns enable</code>, then set the router's DNS server to the Pi
             and check the path with <code>smoking-pi dns test</code>. After a few days,
-            <code>smoking-pi dns adopt</code> adds the services it found as targets.</p>
+            <code>smoking-pi dns adopt</code> adds the services it found as targets.
+            Already ran <code>dns enable</code>? Then it has not reported yet:
+            <code>smoking-pi dns status</code> says why.</p>
         <p class="small text-muted mb-0">It sees the DNS queries the router forwards to it, never traffic.
             Apps with their own encrypted DNS, VPNs and iCloud Private Relay stay out of view.
             <a href="https://estcarisimo.github.io/smoking-pi/dns-observer/" target="_blank" rel="noopener">How it works</a></p>
