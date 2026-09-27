@@ -500,6 +500,7 @@ All optional except the password; in the env file (`smoking-pi config set`).
 | `DNS_WIZARD_INTERVAL` | `600` | Seconds between [DNS wizard](#the-dns-wizard) passes; `0` turns it off |
 | `DNS_WIZARD_TOP` | `25` | Services in the wizard's top list |
 | `DNS_WIZARD_EXCLUDE` | (none) | More names to leave out, comma list (`.suffix` or a domain) |
+| `DNS_WIZARD_TARGETS` | `/smokeping-config/Targets` | SmokePing's generated targets; the names it measures are left out as the Pi's own |
 | `DNS_WIZARD_SCORE` | `auto` | What ranks services for the selection: `auto`, `presence` or `queries` |
 | `DNS_WIZARD_COVERAGE` | `0.8` | Share of the activity the selected services cover |
 | `DNS_WIZARD_FLOOR` | `0.005` | A network or CDN with at least this share gets a service |
