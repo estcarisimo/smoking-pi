@@ -120,6 +120,35 @@ def is_public(name: str) -> bool:
     return _psl_known.publicsuffix(name) is not None
 
 
+_TARGET_HOST = re.compile(r"^[ \t]*host[ \t]*=[ \t]*(\S+)", re.M)
+
+
+def measured_hosts(text: str) -> frozenset[str]:
+    r"""The names a SmokePing ``Targets`` file measures.
+
+    SmokePing looks each of them up through the router about once per TTL,
+    so they reach the observer's log all day and all night. They are the
+    Pi's own lookups, whatever the house does (the DNS observer's wizard
+    leaves them out the same way). Addresses and MultiHost paths are not
+    names.
+
+    Examples
+    --------
+    >>> sorted(measured_hosts("host = www.bbc.co.uk.\nhost = 8.8.8.8\nhost = /A/b /A/c"))
+    ['www.bbc.co.uk']
+    """
+    names = set()
+    for m in _TARGET_HOST.finditer(text):
+        name = m.group(1).rstrip(".").lower()
+        if name.startswith("/"):
+            continue
+        try:
+            ipaddress.ip_address(name)
+        except ValueError:
+            names.add(name)
+    return frozenset(names)
+
+
 def looks_random(name: str) -> bool:
     """Whether the leftmost label looks generated (a hash or pod id), so the
     name cannot be a stable measurement endpoint."""

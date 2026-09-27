@@ -11,6 +11,13 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`tools/dns-explore` leaves out SmokePing's lookups of what it
+  measures**, as the observer's wizard now does. `--targets` (default
+  `auto`) reads SmokePing's generated `Targets` from a clone or a `.deb`
+  install and counts those names apart; `--targets none` keeps them in.
+  On the reference Pi's log they were 33.5% of all queries. The week-long
+  run due around 3 October needs no hand-made exclusion file.
+
 - **The welcome tour shows every measurement layer, not only ping.** A new
   step 3, "What it measures", lists ICMP ping, DNS resolution, the TCP
   handshake and HTTP/1.1, 2 and 3. For each it says what the layer tells

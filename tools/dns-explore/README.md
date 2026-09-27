@@ -63,6 +63,12 @@ uv run dns-explore -f querylog.json.1 -f querylog.json --exclude-file mine.txt -
 
 # Keep the Pi's own traffic in, to see how much it weighs
 uv run dns-explore --no-exclude-own
+
+# SmokePing's lookups of what it measures are left out by default (found in
+# the install; they are a third of the log once the wizard has adopted).
+# Point at another Targets file, or keep them in:
+uv run dns-explore --targets /var/lib/smoking-pi/output/Targets
+uv run dns-explore --targets none
 ```
 
 Churn needs at least two calendar days of log. AdGuard keeps 7 days

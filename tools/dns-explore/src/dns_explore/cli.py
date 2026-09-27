@@ -37,11 +37,31 @@ def _window(value: str) -> timedelta | None:
     return {"h": timedelta(hours=n), "d": timedelta(days=n)}[unit]
 
 
+# Where an install keeps SmokePing's generated Targets: a clone's Pro edition,
+# then the .deb layout (SMOKING_PI_OUTPUT_DIR).
+TARGETS_CANDIDATES = (
+    Path.home() / "smoking-pi/editions/pro/config-manager/output/Targets",
+    Path("/var/lib/smoking-pi/output/Targets"),
+)
+
+
+def _targets(value: str) -> Path | None:
+    if value == "none":
+        return None
+    if value != "auto":
+        path = Path(value)
+        if not path.is_file():
+            raise typer.BadParameter(f"{value}: no such file", param_hint="--targets")
+        return path
+    return next((p for p in TARGETS_CANDIDATES if p.is_file()), None)
+
+
 def load(
     files: list[Path] | None,
     container: str,
     window: timedelta | None,
     exclude: tuple[str, ...],
+    measured: frozenset[str] = frozenset(),
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     """Queries as a DataFrame, and counts of what was filtered and why."""
     queries = list(logread.read_files(files) if files else logread.read_container(container))
@@ -50,15 +70,18 @@ def load(
         newest = max(q.ts for q in queries)
         queries = [q for q in queries if q.ts >= newest - window]
     counts["in_window"] = len(queries)
-    kept, own, other = [], 0, 0
+    kept, own, smokeping, other = [], 0, 0, 0
     for q in queries:
-        if units.excluded(q, exclude):
+        if q.qname in measured:
+            smokeping += 1
+        elif units.excluded(q, exclude):
             own += 1
         elif q.qtype not in KEEP_QTYPES or q.rcode != "NOERROR":
             other += 1
         else:
             kept.append(q)
-    counts.update(excluded_own=own, dropped_type_or_rcode=other, kept=len(kept))
+    counts.update(excluded_own=own, excluded_measured=smokeping,
+                  dropped_type_or_rcode=other, kept=len(kept))
     df = pd.DataFrame(
         {
             "ts": pd.to_datetime([q.ts for q in kept], utc=True),
@@ -108,6 +131,11 @@ def report(
     exclude_file: Annotated[
         Path | None, typer.Option(help="Extra exclusion patterns, one per line.")
     ] = None,
+    targets: Annotated[
+        str,
+        typer.Option(help="SmokePing's generated Targets: the names it measures are the "
+                     "Pi's own lookups. 'auto' finds the install's; 'none' keeps them."),
+    ] = "auto",
     show: Annotated[int, typer.Option(help="Top units to list per level.")] = 15,
     asn: Annotated[bool, typer.Option(help="Look up origin ASes (Team Cymru via 1.1.1.1).")] = True,
     json_out: Annotated[
@@ -133,7 +161,13 @@ def report(
             if ln.strip() and not ln.startswith("#")
         )
 
-    df, counts = load(file, container, _window(window), patterns)
+    targets_path = _targets(targets)
+    measured = (units.measured_hosts(targets_path.read_text())
+                if targets_path and exclude_own else frozenset())
+    if targets == "auto" and targets_path is None and exclude_own:
+        typer.echo("No SmokePing Targets found: its own lookups stay in (--targets PATH).")
+
+    df, counts = load(file, container, _window(window), patterns, measured)
     if df.empty:
         typer.echo(f"No queries left after filtering: {counts}")
         raise typer.Exit(1)
@@ -157,6 +191,8 @@ def report(
         f"Queries: {counts['in_window']} in window; kept {counts['kept']}; "
         f"the Pi's own/local {counts['excluded_own']} "
         f"({100 * counts['excluded_own'] / total_read:.1f}%); "
+        f"SmokePing's lookups of {len(measured)} measured names {counts['excluded_measured']} "
+        f"({100 * counts['excluded_measured'] / total_read:.1f}%); "
         f"other types or failed {counts['dropped_type_or_rcode']}"
     )
     if "fqdn" in level_list:
