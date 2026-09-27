@@ -20,8 +20,8 @@ version gets a matching GitHub release and git tag.
   A name outside the public suffix list (a bare name, `.internal`, `.lan`)
   now counts as the Pi's own traffic in the observer and in
   `tools/dns-explore`. The snapshot also skips such names already counted in
-  the seven-day state, and `wizard_adopt` refuses a bare name from an older
-  observer's snapshot. Targets adopted earlier are left in place: removing
+  the seven-day state, and `wizard_adopt` refuses a bare name or a private
+  TLD (`.internal`, `.lan`, …) from an older observer's snapshot. Targets adopted earlier are left in place: removing
   them is a decision for the operator.
 
 - **`upgrade` failed when another command changed the stack at the same

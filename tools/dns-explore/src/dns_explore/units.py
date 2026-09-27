@@ -100,6 +100,7 @@ def service_of(name: str) -> str:
     return _psl.privatesuffix(name) or name
 
 
+@lru_cache(maxsize=65536)
 def is_public(name: str) -> bool:
     """Whether ``name`` sits under a suffix the public list knows.
 
@@ -107,10 +108,12 @@ def is_public(name: str) -> bool:
     --------
     >>> is_public("www.bbc.co.uk")
     True
+    >>> is_public("github.io")  # a suffix itself is still public
+    True
     >>> is_public("config-manager"), is_public("nas.internal")
     (False, False)
     """
-    return _psl_known.privatesuffix(name) is not None
+    return _psl_known.publicsuffix(name) is not None
 
 
 def looks_random(name: str) -> bool:

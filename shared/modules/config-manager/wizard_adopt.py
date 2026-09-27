@@ -58,6 +58,10 @@ WIZARD_PROBES = {"WizardHTTP1": "CurlHTTP1", "WizardHTTP2": "CurlHTTP2",
 WIZARD_FORKS = 20
 WIZARD_TIMEOUT = 5
 NAME_MAX = 30  # what the web admin accepts for a target name
+# Private TLDs an observer before 2.13.8 could still select (it only knew
+# .lan, .local, .home.arpa, .arpa, .test, .invalid, .localhost as own).
+PRIVATE_TLDS = (".internal", ".lan", ".local", ".localdomain", ".home", ".corp",
+                ".intranet", ".private", ".arpa", ".test", ".invalid", ".localhost")
 
 
 # Why adoption cannot go ahead, by code. The API answers with these fixed
@@ -166,9 +170,9 @@ def plan(snapshot: dict, existing_names: set[str], adopted: set[str],
     over_cap: list[str] = []
     stems = set(adopted)
     for s in snapshot["selection"]["services"]:
-        # A bare name is one of the Pi's own containers (config-manager), not
-        # a service; observers before 2.13.8 could still select one.
-        if "." not in s["service"]:
+        # A bare name is one of the Pi's own containers (config-manager), a
+        # private TLD a LAN device; observers before 2.13.8 could select both.
+        if "." not in s["service"] or s["service"].endswith(PRIVATE_TLDS):
             continue
         base = target_base(s["service"])
         if base not in stems:

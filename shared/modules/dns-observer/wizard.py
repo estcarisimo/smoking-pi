@@ -34,6 +34,7 @@ import logging
 import math
 import os
 import re
+from functools import lru_cache
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -77,11 +78,12 @@ def service_of(name: str) -> str:
     return _psl.privatesuffix(name) or name
 
 
+@lru_cache(maxsize=65536)
 def is_public(name: str) -> bool:
     """Whether ``name`` sits under a suffix the public list knows. A bare
     name (one of the Pi's containers: config-manager) or a private TLD
     (.internal, .lan) is local traffic, never a service to measure."""
-    return _psl_known.privatesuffix(name) is not None
+    return _psl_known.publicsuffix(name) is not None
 
 
 def cdn_of(name: str, cnames: list[str]) -> str:

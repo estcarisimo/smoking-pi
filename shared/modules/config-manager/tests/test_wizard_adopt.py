@@ -119,9 +119,10 @@ def test_adopt_is_add_only(env):
 
 
 def test_bare_names_are_never_adopted(env):
-    env.write(snapshot(["netflix.com", "config-manager"]))  # an older observer's pick
+    env.write(snapshot(["netflix.com", "config-manager", "nas.internal"]))  # an older observer's pick
     env.client.post("/wizard/adopt")
-    assert not [n for n in names(env.session()) if n.startswith("W_config_manager")]
+    assert not [n for n in names(env.session())
+                if n.startswith(("W_config_manager", "W_nas_internal"))]
     assert "W_netflix_com_icmp" in names(env.session())
 
 
