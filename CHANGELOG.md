@@ -9,6 +9,35 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.13.8] — 2026-09-27
+
+The DNS observer is easier to find, and InfluxDB moves to 2.9.
+
+The dashboard shows whether the observer is working, and how to start it
+when it is off. The welcome tour lists every measurement layer, not only
+ping. The README says what the observer sees and what it cannot. The DNS
+wizard no longer counts the Pi's own lookups as the house's: SmokePing's
+lookups of the hosts it measures, `config-manager`, `piwheels.org` and
+`grafana.com`. InfluxDB goes from 2.7 to 2.9, whose migration hashes
+its tokens and cannot be undone, so back up before upgrading.
+`sync-influx-token.sh` no longer rewrites a working token to `admin`.
+`upgrade` runs one stack change at a time, so two sessions no longer
+clash on container names.
+
+### Changed
+
+- **InfluxDB 2.7 → 2.9.** On first start, 2.9 migrates its metadata and
+  replaces the stored API tokens with hashes. It keeps a copy of the old
+  metadata in the data volume as `influxd.bolt.pre-v2.9.x-upgrade.backup`,
+  named after the 2.9 patch that runs it (2.9.1 today; the image follows
+  the `influxdb:2.9` tag).
+  The migration is one-way: to go back to 2.7, restore a backup taken
+  before the upgrade (`smoking-pi backup`). Tokens keep working, but
+  `influx auth list` no longer shows them, which is why
+  `sync-influx-token.sh` changed (see Fixed). Checked by hand on a
+  throwaway volume (#157): data written by 2.7 reads back in 2.9, and new
+  writes succeed. The reference Pi's upgrade is the first on real data.
+
 ### Added
 
 - **`tools/dns-explore` leaves out SmokePing's lookups of what it
@@ -26,6 +55,7 @@ version gets a matching GitHub release and git tag.
   it also shows the DNS observer's state, or how to start it. That text is
   shared with the dashboard card. The seeded targets move to step 4, and
   the optional assistant to step 5.
+
 - **The dashboard says whether the DNS observer is working, and invites
   you to start it when it is off.** Until now, the only way to see its
   state was `smoking-pi dns status` on the Pi. It was one row in the README,
@@ -54,6 +84,7 @@ version gets a matching GitHub release and git tag.
   `smoking-pi passwords | grep Grafana`, or a copy saved to a file, came
   out full of `\033[0;36m`. Colours are now used only when the output is a
   terminal, and never when `NO_COLOR` is set.
+
 - **The DNS wizard ranked SmokePing's own lookups as the house's use.**
   The Pi resolves through the router, which forwards to the observer, so
   every name SmokePing measures reached the log about once per TTL, all
@@ -103,6 +134,7 @@ version gets a matching GitHub release and git tag.
   one. If `up` fails while such a container exists (a `docker compose` run
   by hand is not under the lock), it waits for the other run, repairs, and
   tries once more.
+
 - **`sync-influx-token.sh` would have replaced a working InfluxDB token
   with the word `admin`.** It read the token from the fourth field of
   `influx auth list`. InfluxDB 2.9 stores tokens hashed and leaves that
@@ -114,6 +146,7 @@ version gets a matching GitHub release and git tag.
   first asks InfluxDB whether it accepts the `.env` token. It adopts a
   token from `auth list` only after InfluxDB accepts that token too. When
   none works, it stops with an error and leaves `.env` untouched.
+
 - **The welcome tour's assistant step never saw a call.** Step 4 counts
   the MCP server's `mcp.tools: tool=<name>` log lines as proof that the
   assistant was used. The server's `basicConfig` asked for that format,

@@ -17,8 +17,8 @@ authors:
 repository-code: "https://github.com/estcarisimo/smoking-pi"
 url: "https://github.com/estcarisimo/smoking-pi"
 license: MIT
-version: 2.13.7
-date-released: "2026-09-26"
+version: 2.13.8
+date-released: "2026-09-27"
 keywords:
   - network-monitoring
   - latency
