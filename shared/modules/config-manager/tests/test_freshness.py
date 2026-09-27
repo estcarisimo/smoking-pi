@@ -51,7 +51,7 @@ menu = CPE
 title = ISP CPE Monitoring (auto-discovered)
 
 ++ CPE_IPv4
-host = 136.25.220.1
+host = 203.0.113.1
 """
 
 PROBES = """*** Probes ***

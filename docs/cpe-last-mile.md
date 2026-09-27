@@ -9,18 +9,21 @@ could read them, a latency spike could be labelled "your fiber dropped
 This page records what was checked on the reference Pi, what the gateway
 does expose (documented below because it is useful for other things), and
 the conclusion. Read-only checks only; nothing was changed on the router.
+Public addresses below are RFC 5737 documentation addresses
+(`203.0.113.0/24`) standing in for the real ones; everything else is as
+observed.
 
 ## What the reference deployment looks like
 
 ```
 Pi (wlan0) ──Wi-Fi── Nest Wifi Pro (192.168.86.1) ──Ethernet── Fiber Jack (ONT) ──fiber── Google Fiber
-                                                   WAN: public /23 via DHCP, gateway 136.25.220.1
+                                                   WAN: public /23 via DHCP, gateway 203.0.113.1
 ```
 
 - The router at 192.168.86.1 is a **Nest Wifi Pro** (`modelId: SIROCCO`).
   Its WAN is plain Ethernet with a public DHCP address, so the **Fiber Jack
   is a transparent bridge** in front of it.
-- The first ISP hop, 136.25.220.1, is what `cpe_discovery.py` already
+- The first ISP hop, 203.0.113.1, is what `cpe_discovery.py` already
   targets as `CPE_IPv4`. That hop *is* fiber + ONT + OLT + the ISP's first
   router, so its latency series is the last mile in latency terms.
 
@@ -40,8 +43,8 @@ Home app uses for on-LAN diagnostics; it is the only endpoint under
 | key | meaning | example on the reference Pi |
 | --- | --- | --- |
 | `wan.online`, `wan.ethernetLink` | WAN up, physical link up | `true`, `true` |
-| `wan.ipMethod`, `wan.localIpAddress`, `wan.ipPrefixLength` | how the WAN address was obtained and what it is | `dhcp`, `136.25.221.231`, `23` |
-| `wan.gatewayIpAddress` | the ISP's first hop | `136.25.220.1` |
+| `wan.ipMethod`, `wan.localIpAddress`, `wan.ipPrefixLength` | how the WAN address was obtained and what it is | `dhcp`, `203.0.113.231`, `23` |
+| `wan.gatewayIpAddress` | the ISP's first hop | `203.0.113.1` |
 | `wan.leaseDurationSeconds` | DHCP lease | `10800` |
 | `wan.nameServers`, `dns.servers`, `dns.mode` | resolvers the router uses/hands out | `8.8.8.8`, `8.8.4.4`, `automatic` |
 | `wan.captivePortal`, `wan.pppoeDetected`, `wan.invalidCredentials` | WAN diagnostics | all `false` |

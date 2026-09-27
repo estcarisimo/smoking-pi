@@ -17,7 +17,7 @@ BODY = {
          "measured_as": None, "why": "Your router.",
          "suggest": {"target_type": "icmp", "name": "Router",
                      "hostname": "192.168.86.1", "title": "Router (192.168.86.1)"}},
-        {"kind": "cpe", "host": "136.25.220.1", "status": "automatic",
+        {"kind": "cpe", "host": "203.0.113.1", "status": "automatic",
          "measured_as": "CPE_IPv4", "suggest": None, "why": "ISP."},
         {"kind": "resolver", "host": "1.1.1.1", "status": "measured",
          "measured_as": "CloudflareDNS", "suggest": None, "why": "DNS."},

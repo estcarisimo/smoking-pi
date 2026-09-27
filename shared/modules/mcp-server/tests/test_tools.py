@@ -566,7 +566,7 @@ _CPE_T0 = datetime(2026, 9, 19, 0, 42, 33, tzinfo=timezone.utc)
 
 
 def _cpe_fake(cut_windows, windows=2880, p50=10.0, p90=18.0, max_loss=None,
-              target="136.25.220.1", protocol="ipv4"):
+              target="203.0.113.1", protocol="ipv4"):
     """A day of cpe_latency: the floor as aggregates, plus the raw windows
     above the threshold as [(seconds after _CPE_T0, loss_pct), ...]."""
     rows = [{"_time": _CPE_T0 + timedelta(seconds=off), "target": target,
@@ -601,7 +601,7 @@ def test_microcut_stats_a_quiet_day_reports_the_floor_and_no_cuts(monkeypatch, n
     assert result["cut_loss_pct"] == 50.0
     assert result["cuts"] == [] and result["worst_windows"] == []
     assert result["stats"] == [{
-        "target": "136.25.220.1", "protocol": "ipv4", "windows": 2880,
+        "target": "203.0.113.1", "protocol": "ipv4", "windows": 2880,
         "p50_loss_pct": 14.0, "p90_loss_pct": 22.0, "max_loss_pct": 44.0,
         "median_jitter_ms": 3.142, "cut_windows": 0, "confirmed_cuts": 0,
         "possible_cuts": 0,

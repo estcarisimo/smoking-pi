@@ -17,7 +17,7 @@ FACTS = {
     "gateway4": "192.168.86.1",
     "gateway6": None,
     "resolvers": ["1.1.1.1", "8.8.8.8"],
-    "cpe": {"ipv4": "136.25.220.1", "ipv6": None, "updated": 1790210247.9},
+    "cpe": {"ipv4": "203.0.113.1", "ipv6": None, "updated": 1790210247.9},
 }
 
 TARGETS = """*** Targets ***
@@ -45,7 +45,7 @@ CPE = """+ CPE
 menu = CPE
 
 ++ CPE_IPv4
-host = 136.25.220.1
+host = 203.0.113.1
 """
 
 
@@ -56,7 +56,7 @@ def by_kind(body):
 def test_measured_hosts_reads_every_generated_file():
     assert recommendations.measured_hosts(TARGETS, CPE) == {
         "1.1.1.1": "CloudflareDNS", "8.8.8.8": "GoogleDNS",
-        "google.com": "Google", "136.25.220.1": "CPE_IPv4"}
+        "google.com": "Google", "203.0.113.1": "CPE_IPv4"}
 
 
 def test_the_reference_pi_is_told_its_router_is_not_measured():
@@ -73,7 +73,7 @@ def test_the_reference_pi_is_told_its_router_is_not_measured():
     assert items[("resolver", "8.8.8.8")]["status"] == "measured"
     assert items[("resolver", "8.8.8.8")]["suggest"] is None
     # The CPE is measured, but not by anything in the target list.
-    cpe = items[("cpe", "136.25.220.1")]
+    cpe = items[("cpe", "203.0.113.1")]
     assert (cpe["status"], cpe["measured_as"]) == ("automatic", "CPE_IPv4")
     assert body["suggested"] == 1
 
