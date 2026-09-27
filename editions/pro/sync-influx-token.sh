@@ -61,7 +61,7 @@ if [ -z "$ACTIVE_TOKEN" ]; then
         --token "${INFLUX_TOKEN}" 2>/dev/null || true
 
     if token_works "$INFLUX_TOKEN"; then
-        echo "✅ Token is already synchronized"
+        echo "✅ Created the .env token in InfluxDB"
         exit 0
     fi
     echo "❌ InfluxDB rejects INFLUX_TOKEN from $ENV_FILE and holds no token"
