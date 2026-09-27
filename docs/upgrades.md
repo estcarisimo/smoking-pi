@@ -21,6 +21,16 @@ the backup was taken from and records it), and `smoking-pi upgrade` pulls or reb
 and runs the doctor — [Packaging](packaging.md#the-command). The procedures
 below are what those commands do, for when you need one step of them.
 
+One command changes the containers at a time. A second `upgrade`, `up` or
+`config set` started meanwhile says *Another smoking-pi command is changing
+this stack; waiting for it to finish* and runs after it. Two Compose runs
+recreating the same containers at once fail with `Conflict. The container
+name "/<id>_pro-influxdb-1" is already in use`, or leave containers running
+under that temporary `<id>_` name. A `docker compose up` typed by hand is
+not under the lock, so after every `up` the command renames such a
+container back, removes a copy that never started, and, if `up` failed
+while one was in flight, waits for the other run and tries once more.
+
 ## PostgreSQL
 
 PostgreSQL is this project's **config source of truth** — the YAML files are
