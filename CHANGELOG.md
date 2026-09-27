@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`sync-influx-token.sh` called a working token rejected.** v2.13.8's
+  check asked InfluxDB `influx bucket list --token`, which also needs an
+  org. The InfluxDB container keeps no CLI config (it is not in the data
+  volume, so a recreate drops it). So on the reference Pi, after the
+  upgrade, the check failed with "must specify org" for the right token,
+  and the script printed that InfluxDB rejects it and exited 1. `.env` was
+  never touched, and Grafana kept working (its datasource health: "3
+  buckets found"). The check now uses `influx org list --token`, which
+  needs no org: 0 for the Pi's token, 1 for a made-up one.
+
 ## [2.13.8] — 2026-09-27
 
 The DNS observer is easier to find, and InfluxDB moves to 2.9.

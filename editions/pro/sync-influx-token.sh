@@ -29,8 +29,11 @@ if [ -z "$INFLUXDB" ]; then
     exit 1
 fi
 
+# `org list` needs no --org. The container has no influx CLI config (it is
+# not in the data volume, so a recreate drops it), and `bucket list` then
+# fails with "must specify org" for a perfectly good token.
 token_works() {
-    [ -n "$1" ] && docker exec "$INFLUXDB" influx bucket list --token "$1" --hide-headers >/dev/null 2>&1
+    [ -n "$1" ] && docker exec "$INFLUXDB" influx org list --token "$1" --hide-headers >/dev/null 2>&1
 }
 
 # InfluxDB 2.9+ stores tokens hashed and can no longer show them, so asking
