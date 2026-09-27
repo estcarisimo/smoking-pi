@@ -70,6 +70,7 @@ COPY recommendations.py ./
 COPY assistant.py ./
 COPY pydantic_models.py ./
 COPY wizard_adopt.py ./
+COPY dns_observer_status.py ./
 
 # Make scripts executable
 RUN chmod +x scripts/*.py

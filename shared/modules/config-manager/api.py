@@ -34,6 +34,7 @@ import freshness
 import assistant
 import recommendations
 import wizard_adopt
+import dns_observer_status
 
 # Import database models and repositories
 from models import (
@@ -1155,6 +1156,16 @@ def restart_smokeping():
         return jsonify(result)
     except Exception as e:
         return error_response(500, "Failed to restart SmokePing", e)
+
+
+@app.route('/dns/observer', methods=['GET'])
+@require_api_token
+def dns_observer_route():
+    """The DNS observer's state for the dashboard. See dns_observer_status.py."""
+    try:
+        return jsonify(dns_observer_status.read())
+    except Exception as e:
+        return error_response(500, "Failed to read the DNS observer's state", e)
 
 
 @app.route('/wizard/adopt', methods=['POST'])

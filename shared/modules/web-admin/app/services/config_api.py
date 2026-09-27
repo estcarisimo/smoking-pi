@@ -304,6 +304,13 @@ class ConfigManagerClient:
             return response.json()
         raise RuntimeError(f"Failed to get recommendations: {response.status_code}")
 
+    def get_dns_observer(self) -> Dict[str, Any]:
+        """The DNS observer's state (config-manager /dns/observer)"""
+        response = self._make_request('GET', '/dns/observer')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get DNS observer state: {response.status_code}")
+
     def get_assistant(self) -> Dict[str, Any]:
         """Is a chat assistant calling the MCP server? (config-manager /assistant)"""
         response = self._make_request('GET', '/assistant')
@@ -465,6 +472,15 @@ class ConfigAPIGateway:
                 'available': False,
                 'reason': 'config-manager unreachable; see web-admin log',
             }
+
+    def get_dns_observer(self) -> Dict[str, Any]:
+        """The DNS observer card's state. Never raises: when config-manager
+        cannot be asked, the card is left out rather than guessed."""
+        try:
+            return self.client.get_dns_observer()
+        except Exception:
+            logger.error("Failed to get the DNS observer state", exc_info=True)
+            return {'available': False}
 
     def tour_pending(self) -> bool:
         """Should the dashboard send this login to the welcome tour? Only when

@@ -2,6 +2,8 @@
 Dashboard route - Main overview page
 """
 
+import time
+
 from flask import Blueprint, redirect, render_template, request, current_app, url_for
 from app.services.config_api import ConfigAPIGateway
 
@@ -82,6 +84,43 @@ def summarize_connection(body):
         'entries': items,
         'suggested': body.get('suggested', 0),
         'public_resolver': summarize_public_resolver(body.get('public_resolver') or {}),
+    }
+
+
+# The observer's states (dns-observer/health.py) as the card colours them.
+DNS_OBSERVER_BADGES = {
+    'observing': 'success', 'quiet': 'info', 'partial': 'info',
+    'upstream_fallback': 'warning', 'upstream_failing': 'warning',
+    'idle': 'secondary', 'starting': 'secondary', 'stopped': 'secondary',
+    'not_receiving': 'warning', 'server_down': 'danger', 'down': 'danger',
+}
+
+
+def summarize_dns_observer(body):
+    """What the dashboard's DNS observer card needs from /dns/observer.
+
+    Not shown where the edition has no observer; an invitation while it is
+    off; its state, reason and fix once it runs.
+    """
+    if not body.get('available'):
+        return {'show': False}
+    if not body.get('enabled'):
+        return {'show': True, 'enabled': False}
+    state = body.get('state') or 'down'
+    until = body.get('observed_until')
+    canary = body.get('canary') or {}
+    return {
+        'show': True,
+        'enabled': True,
+        'state': state,
+        'label': state.replace('_', ' '),
+        'badge': DNS_OBSERVER_BADGES.get(state, 'secondary'),
+        'live': bool(body.get('live')),
+        'reason': body.get('reason') or '',
+        'fix': body.get('fix') or '',
+        'observed_age': humanize_age(int(time.time() - until)) if until else None,
+        'canary': canary if canary.get('enabled') else None,
+        'coverage': body.get('coverage') or '',
     }
 
 
@@ -190,6 +229,7 @@ def index():
     context = {
         'measurements': summarize_measurements(config_api.get_measurements()),
         'connection': summarize_connection(config_api.get_recommendations()),
+        'dns_observer': summarize_dns_observer(config_api.get_dns_observer()),
         'using_database': using_database,
         'smokeping_running': smokeping_running,
         'target_counts': target_counts,

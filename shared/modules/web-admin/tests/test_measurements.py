@@ -56,6 +56,7 @@ def _stub_dashboard(monkeypatch, measurements=None):
                         lambda: {"active_targets": {}, "metadata": {}})
     monkeypatch.setattr(gw, "get_service_status",
                         lambda: {"smokeping": {"running": True}, "using_database": True})
+    monkeypatch.setattr(gw, "get_dns_observer", lambda: {"available": False})
     if measurements is not None:
         monkeypatch.setattr(gw, "get_measurements", lambda: measurements)
 
