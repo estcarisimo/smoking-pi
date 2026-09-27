@@ -294,10 +294,18 @@ also records:
 Services are ranked by **presence**, the number of hours in the last week in
 which they were seen. A burst of telemetry counts as one hour, and a cache
 hides volume but not presence. The Pi's own traffic is left out: image pulls,
-the Cloudflare tunnel, the alert bot, the canary, and SmokePing's lookups of
-its own targets. The Pi resolves through the router like everyone else, so
-without this it would rank its own chores. `DNS_WIZARD_EXCLUDE` adds more
-names to leave out.
+the Cloudflare tunnel, the alert bot, the canary, names that are not on the
+public Internet (`config-manager`, `nas.internal`), and every name SmokePing
+measures, read from its `Targets` file. The Pi resolves through the router
+like everyone else, so without this it would rank its own chores. On the
+reference Pi, SmokePing's lookups were a third of all the queries. A name it
+measures is looked up about once per TTL, all day and all night, so it would
+look present every hour, and the wizard would keep ranking what it has
+already adopted. The cost: the house's own lookups of exactly those names
+are left out too. Few of them reach the observer anyway, because the Pi's
+lookups keep the router's cache of those names warm. The service still
+counts through its other names. `DNS_WIZARD_EXCLUDE` adds more names to
+leave out.
 
 On its own it changes no target: it shows what the house uses, and how much
 grouping and cutting would lose. To **measure** what it selects, see
@@ -492,6 +500,7 @@ All optional except the password; in the env file (`smoking-pi config set`).
 | `DNS_WIZARD_INTERVAL` | `600` | Seconds between [DNS wizard](#the-dns-wizard) passes; `0` turns it off |
 | `DNS_WIZARD_TOP` | `25` | Services in the wizard's top list |
 | `DNS_WIZARD_EXCLUDE` | (none) | More names to leave out, comma list (`.suffix` or a domain) |
+| `DNS_WIZARD_TARGETS` | `/smokeping-config/Targets` | SmokePing's generated targets; the names it measures are left out as the Pi's own |
 | `DNS_WIZARD_SCORE` | `auto` | What ranks services for the selection: `auto`, `presence` or `queries` |
 | `DNS_WIZARD_COVERAGE` | `0.8` | Share of the activity the selected services cover |
 | `DNS_WIZARD_FLOOR` | `0.005` | A network or CDN with at least this share gets a service |
