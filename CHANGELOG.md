@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **The architecture diagram is redrawn.** A Raspberry Pi frame holds the
+  containers in four columns (configure, measure, store, look and act);
+  what the Pi talks to sits outside it. Arrows run on a grid with rounded
+  corners, every box has an icon, data stores are cylinders, a tag on the
+  box names its Compose profile, and `you` badges mark web-admin and
+  Grafana as the two places you come in. The `.excalidraw` file follows
+  the same layout. The spec and its tests are unchanged in what they
+  guarantee.
+
 ### Fixed
 
 - **`sync-influx-token.sh` called a working token rejected.** v2.13.8's

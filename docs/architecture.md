@@ -7,10 +7,15 @@ PostgreSQL.
 
 ![Smoking Pi architecture: containers, what each reads and writes](img/architecture.svg)
 
-Solid boxes are always on. Dashed boxes run only when their
+The large frame is the Raspberry Pi; everything inside it is a container
+that Docker Compose runs, in four columns for the four jobs: configure,
+measure, store, look and act. Solid boxes are always on. Dashed boxes run
+only when their
 [Compose profile](https://docs.docker.com/compose/how-tos/profiles/) is on,
-named in brackets. InfluxDB is itself the `influxdb` profile: it is the
-default time-series backend, and ClickHouse is the alternative.
+named by the tag on the box. InfluxDB is itself the `influxdb` profile: it
+is the default time-series backend, and ClickHouse is the alternative. The
+two `you` badges are where you come in: web-admin on port 8080 and Grafana
+on port 3000, on the LAN or through a Cloudflare tunnel.
 
 ## The paths through it
 
@@ -48,7 +53,8 @@ observer reads SmokePing's generated `Targets`, so the Pi's own lookups of
 what it measures are not counted as the house's.
 
 **The host.** The `smoking-pi` command runs all of it with Docker Compose;
-a `.deb` install adds a systemd unit that brings it back after a reboot. See [Command vs API scope](cli-scope.md).
+a `.deb` install adds a systemd unit that brings it back after a reboot.
+See [Command vs API scope](cli-scope.md).
 
 ## Editing the drawing
 

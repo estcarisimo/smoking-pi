@@ -1,161 +1,169 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1900 1010" width="1900" height="1010" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="t">
-<title id="t">Smoking Pi architecture: containers, what each reads and writes</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1120" width="1920" height="1120" font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t">
+<title id="t">Smoking Pi architecture: the containers on the Pi, what each reads and writes, and what sits outside</title>
 <defs>
-<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#334155"/></marker>
+<marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1,1 L9,5 L1,9 z" fill="#334155"/></marker>
+<filter id="shadow" x="-4%" y="-6%" width="108%" height="116%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.10"/></filter>
 </defs>
-<rect width="1900" height="1010" rx="16" fill="#ffffff"/>
-<path d="M170,134 L170,216" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M185,36 L190,20 L1320,20 L1320,36" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M170,344 L170,416" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M170,534 L170,616" fill="none" stroke="#334155" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-<path d="M304,447 L466,414" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M664,216 L655,134" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M894,407 L996,424" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M859,524 L1058,696" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
-<path d="M1289,144 L1230,246" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1296,394 L1234,411" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1296,502 L1234,483" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1345,656 L1234,554" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1534,364 L1596,366" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1534,540 L1596,540" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1596,720 L1534,720" fill="none" stroke="#334155" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-<path d="M1415,486 L1415,424" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M170,856 L170,780 L466,763" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M729,804 L820,905 L996,905" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M680,696 L680,524" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M466,735 L400,730 L400,500 L304,490" fill="none" stroke="#334155" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-<rect x="40" y="40" width="260" height="90" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
-<text x="170" y="70" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">You</text>
-<text x="170" y="96" text-anchor="middle" font-size="16" fill="#1f2937">browser, on the LAN</text>
-<text x="170" y="118" text-anchor="middle" font-size="16" fill="#1f2937">or a Cloudflare tunnel</text>
-<rect x="470" y="40" width="360" height="90" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
-<text x="650" y="70" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">What is measured</text>
-<text x="650" y="96" text-anchor="middle" font-size="16" fill="#1f2937">sites, CDNs, Netflix OCAs,</text>
-<text x="650" y="118" text-anchor="middle" font-size="16" fill="#1f2937">public resolvers, the router</text>
-<rect x="40" y="860" width="260" height="90" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
-<text x="170" y="890" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">Home router</text>
-<text x="170" y="916" text-anchor="middle" font-size="16" fill="#1f2937">forwards the house&#x27;s DNS</text>
-<text x="170" y="938" text-anchor="middle" font-size="16" fill="#1f2937">to the Pi (optional)</text>
-<rect x="1000" y="860" width="330" height="90" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
-<text x="1165" y="890" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">Encrypted DNS upstreams</text>
-<text x="1165" y="916" text-anchor="middle" font-size="16" fill="#1f2937">DoH to 1.1.1.1 / 8.8.8.8</text>
-<text x="1165" y="938" text-anchor="middle" font-size="16" fill="#1f2937">plain DNS as last resort</text>
-<rect x="1600" y="320" width="280" height="100" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
-<text x="1740" y="350" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">Chat and webhooks</text>
-<text x="1740" y="376" text-anchor="middle" font-size="16" fill="#1f2937">Telegram via OpenClaw,</text>
-<text x="1740" y="398" text-anchor="middle" font-size="16" fill="#1f2937">Slack, webhooks</text>
-<rect x="1600" y="500" width="280" height="80" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
-<text x="1740" y="530" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">Anthropic API</text>
-<text x="1740" y="556" text-anchor="middle" font-size="16" fill="#1f2937">written health reports</text>
-<rect x="1600" y="670" width="280" height="100" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
-<text x="1740" y="700" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">AI assistants</text>
-<text x="1740" y="726" text-anchor="middle" font-size="16" fill="#1f2937">OpenClaw, any MCP client;</text>
-<text x="1740" y="748" text-anchor="middle" font-size="16" fill="#1f2937">charts go back to chat</text>
-<rect x="40" y="220" width="260" height="120" rx="12" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2.5"/>
-<text x="170" y="250" text-anchor="middle" font-size="20" font-weight="bold" fill="#1e3a5f">web-admin</text>
-<text x="170" y="276" text-anchor="middle" font-size="16" fill="#1f2937">Flask UI :8080</text>
-<text x="170" y="298" text-anchor="middle" font-size="16" fill="#1f2937">targets, probes, tour,</text>
-<text x="170" y="320" text-anchor="middle" font-size="16" fill="#1f2937">AI reports</text>
-<rect x="40" y="420" width="260" height="110" rx="12" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2.5"/>
-<text x="170" y="450" text-anchor="middle" font-size="20" font-weight="bold" fill="#1e3a5f">config-manager</text>
-<text x="170" y="476" text-anchor="middle" font-size="16" fill="#1f2937">REST API :5000</text>
-<text x="170" y="498" text-anchor="middle" font-size="16" fill="#1f2937">writes SmokePing&#x27;s config</text>
-<rect x="40" y="620" width="260" height="100" rx="12" fill="#dcfce7" stroke="#14532d" stroke-width="2.5"/>
-<text x="170" y="650" text-anchor="middle" font-size="20" font-weight="bold" fill="#14532d">PostgreSQL</text>
-<text x="170" y="676" text-anchor="middle" font-size="16" fill="#1f2937">targets, categories,</text>
-<text x="170" y="698" text-anchor="middle" font-size="16" fill="#1f2937">probes, sources</text>
-<rect x="470" y="220" width="420" height="300" rx="12" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2.5"/>
-<text x="680" y="250" text-anchor="middle" font-size="20" font-weight="bold" fill="#1e3a5f">SmokePing</text>
-<text x="680" y="276" text-anchor="middle" font-size="16" fill="#1f2937">FPing, FPing6, TCPPing, Curl (HTTP/1.1, /2, /3), DNS</text>
-<text x="680" y="298" text-anchor="middle" font-size="16" fill="#1f2937">RRD files, one per target</text>
-<text x="680" y="320" text-anchor="middle" font-size="16" fill="#1f2937"></text>
-<text x="680" y="342" text-anchor="middle" font-size="16" fill="#1f2937">exporters started in the container:</text>
-<text x="680" y="364" text-anchor="middle" font-size="16" fill="#1f2937">rrd2influx / rrd2clickhouse: RRD to the TSDB</text>
-<text x="680" y="386" text-anchor="middle" font-size="16" fill="#1f2937">microcut_detector: sub-step outages</text>
-<text x="680" y="408" text-anchor="middle" font-size="16" fill="#1f2937">cpe_discovery: the ISP&#x27;s first hop</text>
-<text x="680" y="430" text-anchor="middle" font-size="16" fill="#1f2937">wifi_link: Wi-Fi link and uplink</text>
-<text x="680" y="452" text-anchor="middle" font-size="16" fill="#1f2937">resolver_identity: which resolver answers</text>
-<text x="680" y="474" text-anchor="middle" font-size="16" fill="#1f2937">dns_wizard: the wizard&#x27;s snapshot</text>
-<rect x="470" y="700" width="420" height="100" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
-<text x="680" y="730" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">DNS observer  [dns]</text>
-<text x="680" y="756" text-anchor="middle" font-size="16" fill="#1f2937">AdGuard Home :53 + the wizard</text>
-<text x="680" y="778" text-anchor="middle" font-size="16" fill="#1f2937">what the house resolves</text>
-<rect x="1000" y="250" width="230" height="390" rx="12" fill="#dcfce7" stroke="#14532d" stroke-width="2.5"/>
-<text x="1115" y="280" text-anchor="middle" font-size="20" font-weight="bold" fill="#14532d">InfluxDB  [influxdb]</text>
-<text x="1115" y="306" text-anchor="middle" font-size="16" fill="#1f2937">time series</text>
-<text x="1115" y="328" text-anchor="middle" font-size="16" fill="#1f2937">default backend</text>
-<rect x="990" y="700" width="250" height="90" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
-<text x="1115" y="730" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">ClickHouse  [clickhouse]</text>
-<text x="1115" y="756" text-anchor="middle" font-size="16" fill="#1f2937">alternative backend</text>
-<rect x="1180" y="40" width="280" height="100" rx="12" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2.5"/>
-<text x="1320" y="70" text-anchor="middle" font-size="20" font-weight="bold" fill="#1e3a5f">Grafana</text>
-<text x="1320" y="96" text-anchor="middle" font-size="16" fill="#1f2937">dashboards :3000</text>
-<text x="1320" y="118" text-anchor="middle" font-size="16" fill="#1f2937">(a ClickHouse set too)</text>
-<rect x="1300" y="300" width="230" height="120" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
-<text x="1415" y="330" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">alerter  [alerts]</text>
-<text x="1415" y="356" text-anchor="middle" font-size="16" fill="#1f2937">outages, microcuts,</text>
-<text x="1415" y="378" text-anchor="middle" font-size="16" fill="#1f2937">verdicts, digests,</text>
-<text x="1415" y="400" text-anchor="middle" font-size="16" fill="#1f2937">AI reports</text>
-<rect x="1300" y="490" width="230" height="100" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
-<text x="1415" y="520" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">ai-insights  [ai]</text>
-<text x="1415" y="546" text-anchor="middle" font-size="16" fill="#1f2937">health reports into</text>
-<text x="1415" y="568" text-anchor="middle" font-size="16" fill="#1f2937">a shared volume</text>
-<rect x="1300" y="660" width="230" height="120" rx="12" fill="#ffedd5" stroke="#7c2d12" stroke-width="2.5" stroke-dasharray="10 6"/>
-<text x="1415" y="690" text-anchor="middle" font-size="20" font-weight="bold" fill="#7c2d12">mcp-server  [mcp]</text>
-<text x="1415" y="716" text-anchor="middle" font-size="16" fill="#1f2937">tools for assistants;</text>
-<text x="1415" y="738" text-anchor="middle" font-size="16" fill="#1f2937">asks config-manager,</text>
-<text x="1415" y="760" text-anchor="middle" font-size="16" fill="#1f2937">mutes alerts</text>
-<rect x="1600" y="860" width="280" height="90" rx="12" fill="#f1f5f9" stroke="#475569" stroke-width="2.5"/>
-<text x="1740" y="890" text-anchor="middle" font-size="20" font-weight="bold" fill="#475569">On the host</text>
-<text x="1740" y="916" text-anchor="middle" font-size="16" fill="#1f2937">smoking-pi CLI, systemd unit,</text>
-<text x="1740" y="938" text-anchor="middle" font-size="16" fill="#1f2937">Docker Compose: runs all of it</text>
-<rect x="127" y="163" width="86" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="170" y="179" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">configure</text>
-<rect x="733" y="8" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="755" y="24" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">look</text>
-<rect x="148" y="368" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="170" y="384" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">REST</text>
-<rect x="152" y="563" width="37" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="170" y="579" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">SQL</text>
-<rect x="318" y="419" width="135" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="385" y="435" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">Targets, Probes</text>
-<rect x="543" y="163" width="233" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="659" y="179" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">ICMP, TCP, HTTP, DNS probes</text>
-<rect x="914" y="390" width="61" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="945" y="406" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">points</text>
-<rect x="936" y="598" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="958" y="614" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">rows</text>
-<rect x="1237" y="183" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1259" y="199" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">Flux</text>
-<rect x="1238" y="376" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1265" y="392" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reads</text>
-<rect x="1238" y="466" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1265" y="482" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reads</text>
-<rect x="1263" y="593" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1290" y="609" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reads</text>
-<rect x="1538" y="339" width="53" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1565" y="355" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">sends</text>
-<rect x="1543" y="514" width="45" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1565" y="530" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">asks</text>
-<rect x="1547" y="694" width="37" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1565" y="710" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">MCP</text>
-<rect x="1380" y="443" width="69" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="1415" y="459" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">reports</text>
-<rect x="250" y="759" width="135" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="318" y="775" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">the house&#x27;s DNS</text>
-<rect x="865" y="893" width="86" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="908" y="909" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">upstreams</text>
-<rect x="629" y="598" width="102" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="680" y="614" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">wizard.json</text>
-<rect x="308" y="653" width="184" height="22" rx="5" fill="#ffffff" fill-opacity="0.92"/>
-<text x="400" y="669" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">wizard.json / Targets</text>
-<rect x="380" y="865" width="26" height="16" rx="3" fill="#dbeafe" stroke="#1e3a5f" stroke-width="2"/>
-<text x="414" y="878" font-size="14" fill="#1f2937">always on</text>
-<rect x="380" y="887" width="26" height="16" rx="3" fill="#dcfce7" stroke="#14532d" stroke-width="2"/>
-<text x="414" y="900" font-size="14" fill="#1f2937">data (InfluxDB is the influxdb profile)</text>
-<rect x="380" y="909" width="26" height="16" rx="3" fill="#ffedd5" stroke="#7c2d12" stroke-width="2" stroke-dasharray="5 3"/>
-<text x="414" y="922" font-size="14" fill="#1f2937">a Compose profile turns it on</text>
-<rect x="380" y="931" width="26" height="16" rx="3" fill="#f1f5f9" stroke="#475569" stroke-width="2"/>
-<text x="414" y="944" font-size="14" fill="#1f2937">outside the containers</text>
-<text x="950" y="990" text-anchor="middle" font-size="16" fill="#475569">Basic: SmokePing only.  Standard: + web-admin, config-manager, PostgreSQL.  Pro: all of it.</text>
+<rect width="1920" height="1120" rx="18" fill="#ffffff"/>
+<text x="40" y="60" font-size="28" font-weight="800" fill="#0f172a">Smoking Pi</text>
+<text x="40" y="86" font-size="14.5" fill="#64748b">How the Pro edition fits together: every container, what it reads and writes,</text>
+<text x="40" y="106" font-size="14.5" fill="#64748b">and what sits outside the Pi. Basic runs SmokePing alone; Standard adds the Configure column.</text>
+<rect x="1010" y="44" width="26" height="18" rx="5" fill="#eff6ff" stroke="#1e40af" stroke-width="1.75"/>
+<text x="1044" y="58" font-size="13" fill="#1f2937">always on</text>
+<rect x="1138.8" y="44" width="26" height="18" rx="5" fill="#fff7ed" stroke="#c2410c" stroke-width="1.75" stroke-dasharray="5 3"/>
+<text x="1172.8" y="58" font-size="13" fill="#1f2937">behind a Compose profile</text>
+<path d="M1375.6,49 v11 a13,4 0 0 0 26,0 v-11" fill="#ecfdf5" stroke="#047857" stroke-width="1.75"/><ellipse cx="1388.6" cy="49" rx="13" ry="4" fill="#ecfdf5" stroke="#047857" stroke-width="1.75"/>
+<text x="1409.6" y="58" font-size="13" fill="#1f2937">a data store</text>
+<rect x="1526.0" y="44" width="26" height="18" rx="5" fill="#f8fafc" stroke="#64748b" stroke-width="1.75"/>
+<text x="1560.0" y="58" font-size="13" fill="#1f2937">outside the Pi</text>
+<path d="M1010,84 h26" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="1044" y="88" font-size="13" fill="#1f2937">reads, writes, calls</text>
+<path d="M1218.0,84 h26" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow)"/>
+<text x="1252.0" y="88" font-size="13" fill="#1f2937">only with the clickhouse profile</text>
+<rect x="40" y="230" width="1560" height="720" rx="20" fill="#fafbfd" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="64" y="262" font-size="13" font-weight="800" letter-spacing="2.5" fill="#475569">RASPBERRY PI<tspan font-weight="400" letter-spacing="0" fill="#64748b">   ·   Docker Compose, run by the smoking-pi command</tspan></text>
+<text x="70" y="302" font-size="12" font-weight="700" letter-spacing="2" fill="#64748b">CONFIGURE</text>
+<path d="M70,312 h260" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="430" y="302" font-size="12" font-weight="700" letter-spacing="2" fill="#64748b">MEASURE</text>
+<path d="M430,312 h480" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="960" y="302" font-size="12" font-weight="700" letter-spacing="2" fill="#64748b">STORE</text>
+<path d="M960,312 h240" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="1260" y="302" font-size="12" font-weight="700" letter-spacing="2" fill="#64748b">LOOK AND ACT</text>
+<path d="M1260,312 h300" stroke="#cbd5e1" stroke-width="1.5"/>
+<path d="M200,453 L200,527" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M200,653 L200,727" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M333,590 L427,590" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M670,327 L670,199" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M913,430 L957,430" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M913,620 L925.0,620.0 Q935,620 935.0,630.0 L935.0,840.0 Q935,850 945.0,850.0 L957,850" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
+<path d="M1257,380 L1203,380" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1257,530 L1203,530" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1257,685 L1203,685" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1257,850 L1240.0,850.0 Q1230,850 1230.0,840.0 L1230.0,715.0 Q1230,705 1220.0,705.0 L1203,705" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1563,530 L1647,530" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1563,685 L1647,685" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1647,850 L1563,850" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M1410,627 L1410,593" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M670,787 L670,663" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M427,850 L390.0,850.0 Q380,850 380.0,840.0 L380.0,630.0 Q380,620 370.0,620.0 L333,620" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M200,997 L200.0,985.0 Q200,975 210.0,975.0 L540.0,975.0 Q550,975 550.0,965.0 L550,913" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M790,913 L790.0,1035.0 Q790,1045 800.0,1045.0 L957,1045" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="430" y="120" width="480" height="76" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(448,135) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></g>
+<text x="478" y="151" font-size="17" font-weight="700" fill="#334155">The Internet: what is measured</text>
+<text x="448" y="177" font-size="14" fill="#1f2937">sites and CDNs, Netflix OCAs, public resolvers, and the router</text>
+<rect x="70" y="1000" width="260" height="90" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(88,1015) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0M12 19.5v.1"/></g>
+<text x="118" y="1031" font-size="17" font-weight="700" fill="#334155">Home router</text>
+<text x="88" y="1057" font-size="14" fill="#1f2937">forwards the house&#x27;s DNS</text>
+<text x="88" y="1078" font-size="14" fill="#1f2937">to the Pi (optional)</text>
+<rect x="960" y="1000" width="320" height="90" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(978,1015) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11h14v10H5zM8 11V8a4 4 0 0 1 8 0v3"/></g>
+<text x="1008" y="1031" font-size="17" font-weight="700" fill="#334155">Encrypted DNS upstreams</text>
+<text x="978" y="1057" font-size="14" fill="#1f2937">DoH to 1.1.1.1 and 8.8.8.8;</text>
+<text x="978" y="1078" font-size="14" fill="#1f2937">plain DNS as the last resort</text>
+<rect x="1650" y="470" width="240" height="120" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(1668,485) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></g>
+<text x="1698" y="501" font-size="17" font-weight="700" fill="#334155">Chat and webhooks</text>
+<text x="1668" y="527" font-size="14" fill="#1f2937">Telegram through OpenClaw,</text>
+<text x="1668" y="548" font-size="14" fill="#1f2937">Slack, webhooks</text>
+<rect x="1650" y="630" width="240" height="110" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(1668,645) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 11a3.5 3.5 0 0 0 1 7z"/></g>
+<text x="1698" y="661" font-size="17" font-weight="700" fill="#334155">Anthropic API</text>
+<text x="1668" y="687" font-size="14" fill="#1f2937">writes the health reports</text>
+<rect x="1650" y="790" width="240" height="120" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(1668,805) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16v12H4zM12 4v4M9 14h.1M15 14h.1"/></g>
+<text x="1698" y="821" font-size="17" font-weight="700" fill="#334155">AI assistants</text>
+<text x="1668" y="847" font-size="14" fill="#1f2937">OpenClaw, any MCP client;</text>
+<text x="1668" y="868" font-size="14" fill="#1f2937">charts go back to the chat</text>
+<rect x="70" y="330" width="260" height="120" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(88,345) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2.4" fill="#ffffff"/><circle cx="16" cy="12" r="2.4" fill="#ffffff"/><circle cx="10" cy="18" r="2.4" fill="#ffffff"/></g>
+<text x="118" y="361" font-size="17" font-weight="700" fill="#1e40af">web-admin</text>
+<rect x="199" y="417" width="113" height="22" rx="11" fill="#1e40af"/>
+<g transform="translate(206,420) scale(0.667)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0 4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0"/></g>
+<text x="264" y="432.5" text-anchor="middle" font-size="12" font-weight="600" fill="#ffffff">you · :8080</text>
+<text x="88" y="387" font-size="14" fill="#1f2937">Flask UI: targets, probes,</text>
+<text x="88" y="408" font-size="14" fill="#1f2937">the tour, the AI reports</text>
+<rect x="70" y="530" width="260" height="120" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(88,545) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6zM15 3v4h4M9 12h6M9 16h6"/></g>
+<text x="118" y="561" font-size="17" font-weight="700" fill="#1e40af">config-manager</text>
+<text x="88" y="587" font-size="14" fill="#1f2937">REST API :5000</text>
+<text x="88" y="608" font-size="14" fill="#1f2937">writes SmokePing&#x27;s config</text>
+<path d="M70,741 v98 a130.0,11 0 0 0 260,0 v-98" fill="#ecfdf5" stroke="#047857" stroke-width="2.25" filter="url(#shadow)"/><ellipse cx="200.0" cy="741" rx="130.0" ry="11" fill="#ecfdf5" stroke="#047857" stroke-width="2.25"/>
+<g transform="translate(88,759) scale(0.833)" fill="none" stroke="#047857" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3zM5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></g>
+<text x="118" y="775" font-size="17" font-weight="700" fill="#047857">PostgreSQL</text>
+<text x="88" y="801" font-size="14" fill="#1f2937">targets, categories,</text>
+<text x="88" y="822" font-size="14" fill="#1f2937">probes, sources</text>
+<rect x="430" y="330" width="480" height="330" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(448,345) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-5 4 10 2-5h6"/></g>
+<text x="478" y="361" font-size="17" font-weight="700" fill="#1e40af">SmokePing</text>
+<text x="448" y="387" font-size="14" fill="#1f2937">FPing, FPing6, TCPPing, Curl (HTTP/1.1, /2, /3), DNS</text>
+<text x="448" y="408" font-size="14" fill="#1f2937">one RRD file per target</text>
+<text x="448" y="437" font-size="12" font-weight="700" letter-spacing="1" fill="#64748b">EXPORTERS STARTED IN THE CONTAINER</text>
+<text x="454" y="459" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">rrd2influx / rrd2clickhouse</tspan>: RRD to the time series</text>
+<text x="454" y="479" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">microcut_detector</tspan>: outages shorter than a step</text>
+<text x="454" y="499" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">cpe_discovery</tspan>: the ISP&#x27;s first hop</text>
+<text x="454" y="519" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">wifi_link</tspan>: the Wi-Fi link and the uplink</text>
+<text x="454" y="539" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">resolver_identity</tspan>: which resolver answers</text>
+<text x="454" y="559" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">dns_wizard</tspan>: the wizard&#x27;s snapshot</text>
+<rect x="430" y="790" width="480" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<g transform="translate(448,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l5 5M4.5 10.5a6 6 0 1 0 12 0 6 6 0 1 0-12 0"/></g>
+<text x="478" y="821" font-size="17" font-weight="700" fill="#c2410c">DNS observer</text>
+<rect x="854" y="804" width="38" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="873" y="820" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">dns</text>
+<text x="448" y="847" font-size="14" fill="#1f2937">AdGuard Home on :53, and the wizard</text>
+<text x="448" y="868" font-size="14" fill="#1f2937">what the house resolves, by service</text>
+<path d="M960,341 v378 a120.0,11 0 0 0 240,0 v-378" fill="#ecfdf5" stroke="#047857" stroke-width="2.25" filter="url(#shadow)"/><ellipse cx="1080.0" cy="341" rx="120.0" ry="11" fill="#ecfdf5" stroke="#047857" stroke-width="2.25"/>
+<g transform="translate(978,359) scale(0.833)" fill="none" stroke="#047857" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3zM5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></g>
+<text x="1008" y="375" font-size="17" font-weight="700" fill="#047857">InfluxDB</text>
+<rect x="1108" y="358" width="74" height="22" rx="11" fill="#ffffff" stroke="#047857" stroke-width="1"/><text x="1145" y="374" text-anchor="middle" font-size="12.5" font-weight="600" fill="#047857">influxdb</text>
+<text x="978" y="401" font-size="14" fill="#1f2937">time series</text>
+<text x="978" y="422" font-size="14" fill="#1f2937">the default backend</text>
+<rect x="960" y="790" width="240" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<g transform="translate(978,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3zM5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></g>
+<text x="1008" y="821" font-size="17" font-weight="700" fill="#c2410c">ClickHouse</text>
+<rect x="1094" y="877" width="88" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1138" y="892" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">clickhouse</text>
+<text x="978" y="847" font-size="14" fill="#1f2937">the alternative backend</text>
+<rect x="1260" y="330" width="300" height="100" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(1278,345) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20v-9M10 20V4M16 20v-7M2 20h20"/></g>
+<text x="1308" y="361" font-size="17" font-weight="700" fill="#1e40af">Grafana</text>
+<rect x="1429" y="397" width="113" height="22" rx="11" fill="#1e40af"/>
+<g transform="translate(1436,400) scale(0.667)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0 4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0"/></g>
+<text x="1494" y="412.5" text-anchor="middle" font-size="12" font-weight="600" fill="#ffffff">you · :3000</text>
+<text x="1278" y="387" font-size="14" fill="#1f2937">dashboards; a ClickHouse set too</text>
+<rect x="1260" y="470" width="300" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<g transform="translate(1278,485) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></g>
+<text x="1308" y="501" font-size="17" font-weight="700" fill="#c2410c">alerter</text>
+<rect x="1483" y="484" width="59" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1512" y="500" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">alerts</text>
+<text x="1278" y="527" font-size="14" fill="#1f2937">outages, microcuts, verdicts,</text>
+<text x="1278" y="548" font-size="14" fill="#1f2937">digests, the AI reports</text>
+<rect x="1260" y="630" width="300" height="110" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<g transform="translate(1278,645) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/></g>
+<text x="1308" y="661" font-size="17" font-weight="700" fill="#c2410c">ai-insights</text>
+<rect x="1512" y="644" width="30" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1527" y="660" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">ai</text>
+<text x="1278" y="687" font-size="14" fill="#1f2937">health reports, into</text>
+<text x="1278" y="708" font-size="14" fill="#1f2937">a volume web-admin shows</text>
+<rect x="1260" y="790" width="300" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<g transform="translate(1278,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3"/></g>
+<text x="1308" y="821" font-size="17" font-weight="700" fill="#c2410c">mcp-server</text>
+<rect x="1504" y="804" width="38" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1523" y="820" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">mcp</text>
+<text x="1278" y="847" font-size="14" fill="#1f2937">tools for assistants; asks</text>
+<text x="1278" y="868" font-size="14" fill="#1f2937">config-manager, mutes alerts</text>
+<rect x="210" y="479" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="232" y="494" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">REST</text>
+<rect x="210" y="679" width="38" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="229" y="694" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">SQL</text>
+<rect x="318" y="564" width="124" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="380" y="580" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">Targets, Probes</text>
+<rect x="685" y="251" width="210" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="790" y="266" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">ICMP, TCP, HTTP, DNS probes</text>
+<rect x="905" y="404" width="59" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="935" y="420" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">points</text>
+<rect x="913" y="724" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="935" y="740" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">rows</text>
+<rect x="1208" y="354" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="370" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">Flux</text>
+<rect x="1204" y="504" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="520" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
+<rect x="1204" y="659" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="674" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
+<rect x="1204" y="767" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="782" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
+<rect x="1579" y="504" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="520" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">sends</text>
+<rect x="1583" y="659" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="674" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">asks</text>
+<rect x="1586" y="824" width="38" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="840" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">MCP</text>
+<rect x="1420" y="599" width="66" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1453" y="614" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reports</text>
+<rect x="680" y="714" width="95" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="728" y="730" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json</text>
+<rect x="296" y="679" width="167" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="380" y="694" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json / Targets</text>
+<rect x="313" y="949" width="124" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="375" y="964" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">the house&#x27;s DNS</text>
+<rect x="799" y="1019" width="153" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="875" y="1034" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">encrypted upstreams</text>
 </svg>
