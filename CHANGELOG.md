@@ -28,12 +28,15 @@ clash on container names.
 
 - **InfluxDB 2.7 → 2.9.** On first start, 2.9 migrates its metadata and
   replaces the stored API tokens with hashes. It keeps a copy of the old
-  metadata as `influxd.bolt.pre-v2.9.1-upgrade.backup` in the data volume.
+  metadata in the data volume as `influxd.bolt.pre-v2.9.x-upgrade.backup`,
+  named after the 2.9 patch that runs it (2.9.1 today; the image follows
+  the `influxdb:2.9` tag).
   The migration is one-way: to go back to 2.7, restore a backup taken
   before the upgrade (`smoking-pi backup`). Tokens keep working, but
   `influx auth list` no longer shows them, which is why
-  `sync-influx-token.sh` changed (see Fixed). Checked on a throwaway
-  volume: data written by 2.7 reads back in 2.9, and new writes succeed.
+  `sync-influx-token.sh` changed (see Fixed). Checked by hand on a
+  throwaway volume (#157): data written by 2.7 reads back in 2.9, and new
+  writes succeed. The reference Pi's upgrade is the first on real data.
 
 ### Added
 
