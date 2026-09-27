@@ -2,9 +2,10 @@
 
 Stage C of the first-run flow. The install still seeds its targets, so it
 measures from the first minute; the tour shows what was set up rather than
-replacing it (a decision of 2026-09-24). Three steps, each built on what
+replacing it (a decision of 2026-09-24). Four steps, each built on what
 already exists: is it measuring (stage A), what this host's own network
-suggests (stage B), and the seeded targets, each of which can be paused.
+suggests (stage B), what it measures, layer by layer, with the DNS
+observer's state, and the seeded targets, each of which can be paused.
 Adding and pausing go through the same endpoints as the Targets page, so
 the tour has no write path of its own. Nothing is added, paused or removed
 unless the person chooses it.
@@ -19,7 +20,9 @@ from datetime import datetime
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
-from app.routes.dashboard import config_api, summarize_connection, summarize_measurements
+from app.routes.dashboard import (
+    config_api, summarize_connection, summarize_dns_observer, summarize_measurements,
+)
 
 welcome_bp = Blueprint('welcome', __name__)
 
@@ -33,6 +36,29 @@ CATEGORY_INTROS = OrderedDict([
     ('netflix_oca', "Netflix's caches serving your network, found for you."),
     ('custom', 'Targets of your own.'),
 ])
+
+# The layers the probes measure, bottom up, with the SmokePing probes that
+# measure each (probes.yaml). The tour counts active targets per layer.
+LAYERS = [
+    ('ICMP ping', 'Is the host reachable, how far away, and does the path lose packets.',
+     ('FPing', 'FPing6')),
+    ('DNS resolution', 'How long a lookup takes at public resolvers. Every page load starts with one.',
+     ('DNS',)),
+    ('TCP handshake', 'Connect time to port 443 with nothing on top: the floor under the HTTP times.',
+     ('TCPPing',)),
+    ('HTTP/1.1, HTTP/2, HTTP/3', 'The same page fetched over each version, the version enforced. '
+     'The TLS handshake is inside these times; there is no separate TLS probe.',
+     ('CurlHTTP1', 'CurlHTTP2', 'CurlHTTP3')),
+]
+
+
+def summarize_layers(targets):
+    """[{name, what, active}] per layer; None when the targets could not be read."""
+    if not targets:
+        return None
+    return [{'name': name, 'what': what,
+             'active': sum(1 for t in targets if t.get('is_active') and t.get('probe') in probes)}
+            for name, what, probes in LAYERS]
 
 
 def group_targets(targets):
@@ -78,6 +104,8 @@ def index():
         measurements=summarize_measurements(config_api.get_measurements()),
         connection=summarize_connection(config_api.get_recommendations()),
         groups=group_targets(targets),
+        layers=summarize_layers(targets),
+        dns_observer=summarize_dns_observer(config_api.get_dns_observer()),
         using_database=using_database,
         assistant=summarize_assistant(config_api.get_assistant()),
     )

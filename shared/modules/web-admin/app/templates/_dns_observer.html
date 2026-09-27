@@ -1,0 +1,25 @@
+{# The DNS observer: how to start it while it is off, its state once it runs.
+   Shared by the dashboard card and the welcome tour; expects dns_observer
+   (dashboard.summarize_dns_observer) with show and enabled set. #}
+{% if not dns_observer.enabled %}
+<p class="mb-2">The targets here are a generic starting list. The <strong>DNS observer</strong>
+    learns which services this house actually resolves, so you can measure those instead.
+    It is off until you start it, and it changes nothing until the router points at it.</p>
+<p class="mb-2">On the Pi: <code>smoking-pi dns enable</code>, then set the router's DNS server to the Pi
+    and check the path with <code>smoking-pi dns test</code>. After a few days,
+    <code>smoking-pi dns adopt</code> adds the services it found as targets.
+    Already ran <code>dns enable</code>? Then it has not reported yet:
+    <code>smoking-pi dns status</code> says why.</p>
+<p class="small text-muted mb-0">It sees the DNS queries the router forwards to it, never traffic.
+    Apps with their own encrypted DNS, VPNs and iCloud Private Relay stay out of view.
+    <a href="https://estcarisimo.github.io/smoking-pi/dns-observer/" target="_blank" rel="noopener">How it works</a></p>
+{% else %}
+<p class="mb-2">{{ dns_observer.reason }}</p>
+{% if dns_observer.fix %}<p class="mb-2">What to do: <code>{{ dns_observer.fix }}</code></p>{% endif %}
+<p class="small text-muted mb-0">
+    {% if dns_observer.observed_age %}Last query seen {{ dns_observer.observed_age }} ago.{% else %}No query seen yet.{% endif %}
+    {% if dns_observer.canary %}Router check: {{ dns_observer.canary.seen_24h }} of {{ dns_observer.canary.sent_24h }} test queries came back in 24 h.{% endif %}
+    {{ dns_observer.coverage }}
+    <a href="https://estcarisimo.github.io/smoking-pi/dns-observer/#states" target="_blank" rel="noopener">What the states mean</a>
+</p>
+{% endif %}

@@ -76,7 +76,7 @@ def test_tour_off_is_the_way_out_when_recording_failed(client, monkeypatch):
     assert client.get("/?tour=off").status_code == 200
 
 
-def test_the_tour_shows_all_three_steps(client, monkeypatch):
+def test_the_tour_shows_its_steps(client, monkeypatch):
     _stub(monkeypatch)
     login(client)
     html = client.get("/welcome/").get_data(as_text=True)
@@ -170,7 +170,7 @@ def test_the_assistant_step_says_what_the_server_shows(client, monkeypatch, body
     monkeypatch.setattr(dashboard_module.config_api, "get_assistant", lambda: body)
     login(client)
     html = client.get("/welcome/").get_data(as_text=True)
-    assert "4. Ask it in plain words" in html
+    assert "5. Ask it in plain words" in html
     for needle in needles:
         assert needle in html
 
@@ -179,3 +179,47 @@ def test_when_reads_dockers_nanosecond_times():
     assert welcome_module.when("2026-09-24T00:36:51.515788679Z") == "2026-09-24 00:36 UTC"
     assert welcome_module.when(None) is None
     assert welcome_module.when("garbage") == "garbage"
+
+
+def test_the_layers_step_counts_active_targets_per_layer(client, monkeypatch):
+    _stub(monkeypatch)
+    login(client)
+    html = client.get("/welcome/").get_data(as_text=True)
+    assert "3. What it measures" in html and "4. What was set up for you" in html
+    rows = {r["name"]: r["active"] for r in welcome_module.summarize_layers(TARGETS)}
+    # Two active pings; the DNS target is paused; no TCP or HTTP targets.
+    assert rows == {"ICMP ping": 2, "DNS resolution": 0, "TCP handshake": 0,
+                    "HTTP/1.1, HTTP/2, HTTP/3": 0}
+    assert "there is no separate TLS probe" in html
+
+
+def test_without_targets_the_layers_are_explained_not_counted():
+    assert welcome_module.summarize_layers([]) is None
+
+
+def test_the_layers_step_invites_to_the_dns_observer_while_it_is_off(client, monkeypatch):
+    _stub(monkeypatch)
+    monkeypatch.setattr(dashboard_module.config_api, "get_dns_observer",
+                        lambda: {"available": True, "enabled": False})
+    login(client)
+    html = client.get("/welcome/").get_data(as_text=True)
+    assert "smoking-pi dns enable" in html and "never traffic" in html
+
+
+def test_the_layers_step_shows_the_observers_state_once_it_runs(client, monkeypatch):
+    _stub(monkeypatch)
+    monkeypatch.setattr(dashboard_module.config_api, "get_dns_observer", lambda: {
+        "available": True, "enabled": True, "state": "quiet", "live": True,
+        "reason": "No queries for 30 min; the canary still arrives.", "fix": "",
+        "observed_until": None, "coverage": "", "canary": {"enabled": False}})
+    login(client)
+    html = client.get("/welcome/").get_data(as_text=True)
+    assert 'id="tour-dns-state">quiet</span>' in html and "canary still arrives" in html
+    assert "smoking-pi dns enable" not in html
+
+
+def test_editions_without_an_observer_show_no_dns_section(client, monkeypatch):
+    _stub(monkeypatch)
+    login(client)
+    html = client.get("/welcome/").get_data(as_text=True)
+    assert "What this house uses" not in html

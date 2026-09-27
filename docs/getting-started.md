@@ -357,8 +357,10 @@ has to add it: CPE discovery traceroutes out every hour, finds the first
 responsive hop and injects it as a target of its own.
 
 **The first login is a short tour.** On Standard and Pro, the web admin
-opens on a three-step welcome the first time: whether it is measuring,
-what your own network suggests adding (below), and the targets the
+opens on a four-step welcome the first time: whether it is measuring,
+what your own network suggests adding (below), what it measures layer by
+layer (ping, DNS, TCP, HTTP/1.1–3, and on Pro whether the DNS observer is
+on), and the targets the
 install set up, each with a switch to pause the ones you do not care
 about. The install still seeds its targets, so it measures from the first
 minute; the tour shows them rather than replacing them, and nothing is
