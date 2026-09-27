@@ -21,6 +21,8 @@ from server import mcp
 
 logger = logging.getLogger("mcp")
 
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
 
 def _serve_http_with_auth(host: str, port: int, token: str) -> None:
     """Serve the MCP ASGI app behind bearer auth.
@@ -38,9 +40,13 @@ def _serve_http_with_auth(host: str, port: int, token: str) -> None:
 
 
 def main() -> None:
+    # force: importing the SDK already gave the root logger a bare
+    # "%(message)s" handler, so a plain basicConfig did nothing and tool=
+    # lines lost the "mcp.tools:" prefix the web tour's assistant step reads.
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        format=LOG_FORMAT,
+        force=True,
     )
     transport = os.environ.get("MCP_TRANSPORT", "stdio").strip().lower()
     if transport in ("http", "streamable-http", "streamable_http"):
