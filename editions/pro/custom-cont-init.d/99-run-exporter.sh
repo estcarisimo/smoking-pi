@@ -96,6 +96,13 @@ case "${TSDB_TYPE}" in
             run_detached supervise_loop "Resolver identity" python3 /exporters/resolver_identity.py
         fi
 
+        # The house's public address, network and approximate place, for
+        # Grafana's Overview (docs/public-address.md).
+        if [ -f "/exporters/public_ip.py" ]; then
+            echo "Starting public address collector..."
+            run_detached supervise_loop "Public address" python3 /exporters/public_ip.py
+        fi
+
         # The DNS wizard's snapshot (dns-observer/wizard.py) into InfluxDB
         # for the "DNS wizard" dashboard. Idle while the observer is off.
         if [ -f "/exporters/dns_wizard.py" ]; then

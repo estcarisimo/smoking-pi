@@ -59,6 +59,8 @@ services:
       GF_DATASOURCES_DEFAULT_PASSWORD: ${CLICKHOUSE_PASSWORD}
       GF_DATASOURCES_DEFAULT_DATABASE: ${CLICKHOUSE_DB:-smokeping}
       GF_DATASOURCES_DEFAULT_IS_DEFAULT: "true"
+      # The Overview home page reads InfluxDB: Grafana's own home instead.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: ""
     profiles:
       - clickhouse
 
