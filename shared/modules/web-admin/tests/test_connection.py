@@ -37,6 +37,7 @@ def _stub_dashboard(monkeypatch, connection=None):
                         lambda: {"smokeping": {"running": True}, "using_database": True})
     monkeypatch.setattr(gw, "get_measurements",
                         lambda: {"available": False, "reason": "stubbed"})
+    monkeypatch.setattr(gw, "get_dns_observer", lambda: {"available": False})
     if connection is not None:
         monkeypatch.setattr(gw, "get_recommendations", lambda: connection)
 

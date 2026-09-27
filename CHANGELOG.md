@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The dashboard says whether the DNS observer is working, and invites
+  you to start it when it is off.** Until now, the only way to see its
+  state was `smoking-pi dns status` on the Pi. It was one row in the README,
+  and the web admin never mentioned it. A new card, "What this house uses",
+  appears on Pro only. While the observer is off, it explains what it would
+  give, the commands to start it (`dns enable`, point the router, `dns test`,
+  `dns adopt`), and what it cannot see. Once it runs, it shows the
+  observer's state (`observing`, `quiet`, `not_receiving`...), the reason
+  and the fix, how long ago the last query was seen, and how many of the
+  router test queries came back in 24 h. config-manager serves this as
+  `GET /dns/observer`, from the `status.json` it already mounts. A stale
+  heartbeat reads as `down`, as it does in the observer itself. The house's
+  top domains are not included.
+
 ### Fixed
 
 - **`upgrade` failed when another command changed the stack at the same
