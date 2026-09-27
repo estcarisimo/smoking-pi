@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1 class="mb-2">Welcome to Smoking Pi</h1>
-<p class="lead mb-4">Your install is already measuring. Three short steps show what it measures and let you shape it; a fourth, optional, connects a chat assistant. Nothing changes unless you choose it here.</p>
+<p class="lead mb-4">Your install is already measuring. Four short steps show what it measures and let you shape it; a fifth, optional, connects a chat assistant. Nothing changes unless you choose it here.</p>
 
 <!-- Step 1: is it measuring? (stage A) -->
 <div class="card mb-4" id="tour-measuring">
@@ -68,9 +68,32 @@
     </div>
 </div>
 
-<!-- Step 3: what the install set up -->
+<!-- Step 3: what it measures, layer by layer, and the DNS observer -->
+<div class="card mb-4" id="tour-layers">
+    <div class="card-header"><h5 class="mb-0">3. What it measures</h5></div>
+    <div class="card-body">
+        <p>Smoking Pi measures more than ping. Each layer answers a different question, so a bad hour can be placed: the path, the lookup, the connection or the web server.</p>
+        <table class="table table-sm">
+            <thead><tr><th>Layer</th><th>What it tells you</th>{% if layers %}<th>Active targets</th>{% endif %}</tr></thead>
+            <tbody>
+            {% for l in layers or [] %}
+            <tr><td>{{ l.name }}</td><td>{{ l.what }}</td><td>{% if l.active %}{{ l.active }}{% else %}<span class="text-muted">none</span>{% endif %}</td></tr>
+            {% else %}
+            <tr><td colspan="2" class="text-muted">Could not count the targets; the Targets page has them.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p class="small text-muted">Also measured without any target: the first hop past your router, five times a second, for microcuts; and, when the Pi is on Wi-Fi, the radio link itself. Add targets on any layer from the Targets page.</p>
+        {% if dns_observer.show %}
+        <h6 class="mt-3 mb-1">What this house uses{% if dns_observer.enabled %} <span class="badge bg-{{ dns_observer.badge }}" id="tour-dns-state">{{ dns_observer.label }}</span>{% endif %}</h6>
+        {% include "_dns_observer.html" %}
+        {% endif %}
+    </div>
+</div>
+
+<!-- Step 4: what the install set up -->
 <div class="card mb-4" id="tour-seeded">
-    <div class="card-header"><h5 class="mb-0">3. What was set up for you</h5></div>
+    <div class="card-header"><h5 class="mb-0">4. What was set up for you</h5></div>
     <div class="card-body">
         {% if not using_database %}
         <p class="mb-0 text-muted">The database is not available, so the targets cannot be changed from here. They are listed on the Targets page.</p>
@@ -95,7 +118,7 @@
 </div>
 
 <div class="card mb-4" id="tour-assistant">
-    <div class="card-header"><h5 class="mb-0">4. Ask it in plain words <small class="text-muted">optional</small></h5></div>
+    <div class="card-header"><h5 class="mb-0">5. Ask it in plain words <small class="text-muted">optional</small></h5></div>
     <div class="card-body">
         <p>A chat assistant such as OpenClaw can answer "was my connection bad last night?" from this Pi's recorded history, and bring its alerts to your phone. Smoking Pi measures and alerts without one.</p>
         {% if not assistant.available %}

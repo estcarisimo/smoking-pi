@@ -11,6 +11,14 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The welcome tour shows every measurement layer, not only ping.** A new
+  step 3, "What it measures", lists ICMP ping, DNS resolution, the TCP
+  handshake and HTTP/1.1, 2 and 3. For each it says what the layer tells
+  you and how many active targets use it. It says plainly that the TLS
+  handshake is inside the HTTP times and has no probe of its own. On Pro
+  it also shows the DNS observer's state, or how to start it. That text is
+  shared with the dashboard card. The seeded targets move to step 4, and
+  the optional assistant to step 5.
 - **The dashboard says whether the DNS observer is working, and invites
   you to start it when it is off.** Until now, the only way to see its
   state was `smoking-pi dns status` on the Pi. It was one row in the README,

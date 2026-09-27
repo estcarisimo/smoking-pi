@@ -376,7 +376,7 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 - **LinuxServer.io** for a SmokePing image that is maintained
 - **Tranco, the Chrome UX Report and Cloudflare Radar** for the top-sites lists that seed per-country targets
 - **The Grafana, InfluxDB and ClickHouse communities** for the storage and the pictures
-- **[AdGuard Home](https://github.com/AdguardTeam/AdGuardHome)** (GPL-3.0), the DNS server inside the optional DNS observer, run unmodified with filtering off
+- **[AdGuard Home](https://github.com/AdguardTeam/AdGuardHome), its maintainers and contributors**: the DNS observer is built on their server (GPL-3.0), run unmodified with filtering off
 
 ---
 
