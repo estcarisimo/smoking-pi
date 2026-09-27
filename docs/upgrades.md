@@ -6,7 +6,8 @@ stored, and a green CI build is real evidence.
 
 Two images are different, because they own volumes: **postgres** and
 **influxdb**. For those, a major bump is a data migration wearing a version
-string, and **CI cannot validate it** — the Docker build matrix does not build
+string (and for InfluxDB a minor can be one too: 2.9 hashed every stored
+token on first start, one-way), and **CI cannot validate it** — the Docker build matrix does not build
 the postgres image at all, and no CI job has an existing volume to start
 against. A green check on such a PR means nothing was tested. Dependabot is
 configured to leave these alone (`.github/dependabot.yml`); do them by hand,

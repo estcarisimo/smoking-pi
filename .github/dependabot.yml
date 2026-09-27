@@ -77,7 +77,11 @@ updates:
       # dump first -- see docs/upgrades.md
       - dependency-name: "postgres"
         update-types: ["version-update:semver-major"]
+      # InfluxDB migrates on minors too: 2.9 hashed every stored token on
+      # first start (one-way), and sync-influx-token.sh, which parsed the
+      # token column, would have written INFLUX_TOKEN=admin (#157). A green
+      # CI has no InfluxDB volume, so minors are done by hand as well.
       - dependency-name: "influxdb"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     commit-message:
       prefix: "chore(docker)"
