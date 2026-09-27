@@ -76,7 +76,8 @@ def test_cdn_uses_icann_suffixes_only():
 
 @pytest.mark.parametrize(("name", "own"), [
     ("api.telegram.org", True), ("ghcr.io", True), ("whoami.akamai.net", True),
-    ("x1.canary.smoking-pi.home.arpa", True), ("a1.w10.akamai.net", False), ("netflix.com", False)])
+    ("x1.canary.smoking-pi.home.arpa", True), ("a1.w10.akamai.net", False), ("netflix.com", False),
+    ("config-manager", True), ("nas.internal", True)])
 def test_own_traffic(name, own):
     patterns = wizard.OWN_TRAFFIC + (".canary.smoking-pi.home.arpa",)
     assert wizard.is_own(name, wizard.service_of(name), patterns) is own
@@ -146,6 +147,15 @@ def test_presence_ranks_and_own_share(wiz):
     assert snap["top"][0]["host"] == "steady.beta.net"
     assert math.isclose(snap["own_share_24h"], 5 / 60)
     assert snap["diversity"]["service"]["richness"] == 2
+
+
+def test_names_counted_before_the_filter_are_never_ranked(wiz):
+    # State written by an observer that still counted bare names as services.
+    w = wiz()
+    hour = str(int(T0 // HOUR))
+    w.state.hours[hour] = {"config-manager": [9, 9], "netflix.com": [1, 1]}
+    snap = w.snapshot(T0 + 1)
+    assert [t["service"] for t in snap["top"]] == ["netflix.com"]
 
 
 def test_random_names_are_never_the_endpoint(wiz):

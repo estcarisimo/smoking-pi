@@ -81,6 +81,9 @@ _psl = PublicSuffixList()
 # (cloudfront.net, cdn.cloudflare.net), which would make every customer of
 # a CDN its own "CDN".
 _psl_icann = PublicSuffixList(only_icann=True)
+# Unknown TLDs are not suffixes here: "config-manager" or "nas.internal" is
+# not an Internet service, whatever the default list's "*" rule says.
+_psl_known = PublicSuffixList(accept_unknown=False)
 _HEX_OR_LONG = re.compile(r"^(?=.*\d)[a-z0-9-]{20,}$|^[0-9a-f]{12,}$")
 
 
@@ -95,6 +98,19 @@ def service_of(name: str) -> str:
     'bbc.co.uk'
     """
     return _psl.privatesuffix(name) or name
+
+
+def is_public(name: str) -> bool:
+    """Whether ``name`` sits under a suffix the public list knows.
+
+    Examples
+    --------
+    >>> is_public("www.bbc.co.uk")
+    True
+    >>> is_public("config-manager"), is_public("nas.internal")
+    (False, False)
+    """
+    return _psl_known.privatesuffix(name) is not None
 
 
 def looks_random(name: str) -> bool:
@@ -127,7 +143,10 @@ def cdn_of(q: Query) -> str:
 
 
 def excluded(q: Query, patterns: Iterable[str]) -> bool:
-    """Whether a query is the Pi's own (or local) traffic, by pattern."""
+    """Whether a query is the Pi's own (or local) traffic: a name outside
+    the public suffixes, or one matching a pattern."""
+    if not is_public(q.qname):
+        return True
     svc = service_of(q.qname)
     for p in patterns:
         if p.startswith("."):

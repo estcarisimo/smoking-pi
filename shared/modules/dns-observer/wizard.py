@@ -67,11 +67,21 @@ OWN_TRAFFIC = (
 
 _psl = PublicSuffixList()
 _psl_icann = PublicSuffixList(only_icann=True)
+# Unknown TLDs are not suffixes here: "config-manager" or "nas.internal" is
+# not an Internet service, whatever the default list's "*" rule says.
+_psl_known = PublicSuffixList(accept_unknown=False)
 _HEX_OR_LONG = re.compile(r"^(?=.*\d)[a-z0-9-]{20,}$|^[0-9a-f]{12,}$")
 
 
 def service_of(name: str) -> str:
     return _psl.privatesuffix(name) or name
+
+
+def is_public(name: str) -> bool:
+    """Whether ``name`` sits under a suffix the public list knows. A bare
+    name (one of the Pi's containers: config-manager) or a private TLD
+    (.internal, .lan) is local traffic, never a service to measure."""
+    return _psl_known.privatesuffix(name) is not None
 
 
 def cdn_of(name: str, cnames: list[str]) -> str:
@@ -90,6 +100,8 @@ def looks_random(name: str) -> bool:
 
 
 def is_own(name: str, service: str, patterns: tuple[str, ...]) -> bool:
+    if not is_public(name):
+        return True
     for p in patterns:
         if p.startswith("."):
             if name.endswith(p) or name == p[1:]:
@@ -435,6 +447,8 @@ class Wizard:
         for hour, per in st.hours.items():
             age = now_h - int(hour)
             for svc, (queries, _uncached) in per.items():
+                if not is_public(svc):  # counted before is_own knew
+                    continue
                 presence[svc] = presence.get(svc, 0) + 1
                 q7[svc] = q7.get(svc, 0) + queries
                 if age < 24:

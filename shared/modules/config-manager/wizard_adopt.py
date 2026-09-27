@@ -166,6 +166,10 @@ def plan(snapshot: dict, existing_names: set[str], adopted: set[str],
     over_cap: list[str] = []
     stems = set(adopted)
     for s in snapshot["selection"]["services"]:
+        # A bare name is one of the Pi's own containers (config-manager), not
+        # a service; observers before 2.13.8 could still select one.
+        if "." not in s["service"]:
+            continue
         base = target_base(s["service"])
         if base not in stems:
             if len(stems) >= max_services:
