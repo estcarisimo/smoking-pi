@@ -15,6 +15,15 @@ RUN grafana cli --pluginsDir /var/lib/grafana/plugins \
     && cp -r /var/lib/grafana/plugins/. /opt/grafana-plugins/ \
     && chown -R grafana:root /opt/grafana-plugins
 
+# Grafana 13 "preinstalls" a list of plugins (Explore Traces, Metrics
+# Drilldown, Elasticsearch, Loki...) from grafana.com in the background on
+# every start. No dashboard here uses them. On a Pi it is a download at each
+# boot, and one of them fails every time: the bundled Elasticsearch plugin
+# sits in a root-owned directory the grafana user cannot replace ("Failed to
+# install plugin ... permission denied"). The ClickHouse plugin above is
+# the only one the dashboards need, and it is baked in.
+ENV GF_PLUGINS_PREINSTALL_DISABLED=true
+
 # Provisioning files baked into the image. NOTE: editions/pro/docker-compose.yml
 # bind-mounts provisioning/dashboards, provisioning/dashboards-clickhouse and
 # provisioning/datasources read-only over these paths, so at runtime the repo
