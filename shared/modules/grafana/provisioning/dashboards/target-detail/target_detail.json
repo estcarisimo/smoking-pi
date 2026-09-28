@@ -83,14 +83,15 @@
           "type": "influxdb",
           "uid": "influxdb"
         },
-        "query": "import \"regexp\"\nimport \"strings\"\nimport \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -7d, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r._value, t: \"\") })) |> map(fn: (r) => ({ r with key: strings.toLower(v: r._value) })) |> group(columns: [\"key\"]) |> first() |> group() |> keep(columns: [\"_value\"]) |> sort()",
+        "query": "import \"regexp\"\nimport \"strings\"\nimport \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -7d, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r._value, t: \"\") })) |> map(fn: (r) => ({ r with key: strings.toLower(v: r._value) })) |> group(columns: [\"key\"]) |> sort(columns: [\"_value\"]) |> first() |> group() |> keep(columns: [\"_value\"]) |> sort()",
         "current": {},
         "options": [],
         "includeAll": false,
         "multi": false,
         "refresh": 1,
         "regex": "",
-        "sort": 0
+        "sort": 0,
+        "allowCustomValue": true
       }
     ]
   },
@@ -130,7 +131,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"median\") |> group(columns:[\"_measurement\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_value\",\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field == \"median\") |> group(columns:[\"_measurement\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "B",
@@ -139,7 +140,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"loss\") |> group(columns:[\"_measurement\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_value\",\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field == \"loss\") |> group(columns:[\"_measurement\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "options": {
@@ -164,13 +165,14 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "text"
-          }
+          },
+          "displayName": "${__field.labels._field}"
         },
         "overrides": [
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^(loss|failed.*)$"
+              "options": ".*(loss|failed).*"
             },
             "properties": [
               {
@@ -231,7 +233,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"median\") |> group(columns:[\"_measurement\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_value\",\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field == \"median\") |> group(columns:[\"_measurement\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "B",
@@ -240,7 +242,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"loss\") |> group(columns:[\"_measurement\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_value\",\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field == \"loss\") |> group(columns:[\"_measurement\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "options": {
@@ -265,13 +267,14 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "text"
-          }
+          },
+          "displayName": "${__field.labels._field}"
         },
         "overrides": [
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^(loss|failed.*)$"
+              "options": ".*(loss|failed).*"
             },
             "properties": [
               {
@@ -332,7 +335,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"median\") |> group(columns:[\"probe_type\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> map(fn:(r)=> ({ r with _field: \"median \" + r.probe_type }))  |> keep(columns:[\"_value\",\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ re and r._field == \"median\") |> group(columns:[\"probe_type\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> map(fn:(r)=> ({ r with _field: \"median \" + r.probe_type }))  |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "B",
@@ -341,7 +344,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"loss\") |> group(columns:[\"probe_type\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> map(fn:(r)=> ({ r with _field: \"failed \" + r.probe_type })) |> keep(columns:[\"_value\",\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ re and r._field == \"loss\") |> group(columns:[\"probe_type\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> map(fn:(r)=> ({ r with _field: \"failed \" + r.probe_type })) |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "options": {
@@ -366,13 +369,14 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "text"
-          }
+          },
+          "displayName": "${__field.labels._field}"
         },
         "overrides": [
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^(loss|failed.*)$"
+              "options": ".*(loss|failed).*"
             },
             "properties": [
               {
@@ -433,7 +437,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"median\") |> group(columns:[\"_measurement\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_value\",\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field == \"median\") |> group(columns:[\"_measurement\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "B",
@@ -442,7 +446,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"loss\") |> group(columns:[\"_measurement\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_value\",\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field == \"loss\") |> group(columns:[\"_measurement\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "options": {
@@ -467,13 +471,14 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "text"
-          }
+          },
+          "displayName": "${__field.labels._field}"
         },
         "overrides": [
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^(loss|failed.*)$"
+              "options": ".*(loss|failed).*"
             },
             "properties": [
               {
@@ -551,7 +556,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "B",
@@ -560,7 +565,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.1, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p10\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.1, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p10\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "C",
@@ -569,7 +574,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.9, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p90\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.9, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p90\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "fieldConfig": {
@@ -696,7 +701,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "fieldConfig": {
@@ -719,8 +724,9 @@
       },
       "options": {
         "legend": {
-          "displayMode": "hidden",
-          "placement": "bottom"
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
         },
         "tooltip": {
           "mode": "single",
@@ -768,7 +774,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "B",
@@ -777,7 +783,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.1, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p10\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.1, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p10\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "C",
@@ -786,7 +792,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.9, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p90\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.9, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p90\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "fieldConfig": {
@@ -913,7 +919,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "fieldConfig": {
@@ -936,8 +942,9 @@
       },
       "options": {
         "legend": {
-          "displayMode": "hidden",
-          "placement": "bottom"
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
         },
         "tooltip": {
           "mode": "single",
@@ -985,7 +992,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns:[\"_time\",\"_value\",\"probe_type\"]) |> group(columns:[\"probe_type\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ re and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns:[\"_time\",\"_value\",\"probe_type\"]) |> group(columns:[\"probe_type\"])"
         }
       ],
       "fieldConfig": {
@@ -1070,7 +1077,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns:[\"_time\",\"_value\",\"probe_type\"]) |> group(columns:[\"probe_type\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ re and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns:[\"_time\",\"_value\",\"probe_type\"]) |> group(columns:[\"probe_type\"])"
         }
       ],
       "fieldConfig": {
@@ -1174,7 +1181,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "B",
@@ -1183,7 +1190,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.1, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p10\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.1, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p10\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         },
         {
           "refId": "C",
@@ -1192,7 +1199,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.9, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p90\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.9, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p90\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "fieldConfig": {
@@ -1319,7 +1326,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ /^(?i)${target:regex}(_h[123]|_tcp(443)?|_icmp)?$/ and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "fieldConfig": {
@@ -1342,8 +1349,9 @@
       },
       "options": {
         "legend": {
-          "displayMode": "hidden",
-          "placement": "bottom"
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
         },
         "tooltip": {
           "mode": "single",

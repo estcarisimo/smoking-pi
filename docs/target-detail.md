@@ -12,7 +12,8 @@ Smoking Pi measures for it, layer by layer:
 | DNS | `dns_latency` | A query answered by this target, when the target is a resolver |
 
 The tiles at the top give the median and the loss for each layer over the
-selected range. A layer the target has no probe for says **not measured**,
+selected range. A layer the target has no probe for, or whose probe wrote
+nothing in that range, says **not measured**,
 so you can see at a glance what exists and what does not. Below the tiles,
 each layer has its latency over time, where the line is the median of each
 measurement cycle and the shaded band is the 10th to 90th percentile of that
@@ -34,9 +35,21 @@ name without its probe suffix, ignoring case:
 - The DNS wizard's targets, `W_<service>_icmp`, `_tcp`, `_h1`, `_h2` and
   `_h3`, are all **W_&lt;service&gt;**.
 
-A target added with a different name on another probe (for example `goog`
-for ICMP and `Google_h2` for HTTP) shows up as two entries. Give related
-targets the same base name when you add them.
+The link from another dashboard can carry any of these names, including a
+probe's full name (`Google_h2`) or another case (`google`): the dashboard
+strips the suffix itself and shows the whole target.
+
+What the pairing cannot do:
+
+- A target added with a different name on another probe (for example `goog`
+  for ICMP and `Google_h2` for HTTP) shows up as two entries. Give related
+  targets the same base name when you add them.
+- An IPv6 twin has its own name (`Google6`), so it is its own entry.
+- Two targets with the same name in one measurement (the same name in two
+  categories, or two names that differ only in case) are drawn together, and
+  their bands mix. Keep names unique.
+- The DNS wizard's targets have no DNS layer of their own, so their DNS tile
+  always says "not measured"; the wizard's dashboard covers their DNS.
 
 The dashboard reads InfluxDB. With the ClickHouse backend it is not
 available yet.
