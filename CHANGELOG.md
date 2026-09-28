@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **A Target Detail dashboard: one target, every layer.** Looking at one
+  destination meant opening a dashboard per probe: ICMP in one, TCP and
+  HTTP in another, DNS in a third, each with its own selector, and nothing
+  said which probes a target even had. The new dashboard takes one target
+  from a dropdown and shows every layer measured for it (ICMP, the TCP
+  handshake, HTTP/1.1, /2 and /3, DNS for a resolver). It gives the median
+  and loss per layer, with latency drawn as a median line over the 10th–90th
+  percentile band of each cycle's pings. A layer the target has no probe
+  for says "not measured". Targets pair by name without the probe suffix
+  (`Google`, `Google_tcp443`, `Google_h2`; the DNS wizard's
+  `W_<service>_icmp` … `_h3`). The Overview, latency, resolver, per-ping
+  and HTTP-by-version dashboards link to it with their target. InfluxDB
+  only. `docs/target-detail.md`.
+
 ## [2.14.1] — 2026-09-28
 
 Three fixes from running a package install on the Pi.

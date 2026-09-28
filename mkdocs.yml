@@ -24,6 +24,7 @@ nav:
       - DNS observer: dns-observer.md
       - Which resolver answers: public-resolver.md
       - Overview and public address: public-address.md
+      - One target, every layer: target-detail.md
   - Alerts and the assistant:
       - Alerting: alerting.md
       - Detection reliability: detection-reliability.md
