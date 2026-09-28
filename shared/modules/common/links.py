@@ -79,6 +79,17 @@ DETAIL_BY_MEASUREMENT = {
     "dns_latency": ("dns-resolvers-v1", "target"),
 }
 
+# One target, every layer (ICMP, TCP, HTTP by version, DNS) on one page.
+# The dashboard pairs a target's probes by the name without its probe
+# suffix -- Google, Google_tcp443, Google_h2 are all Google; the DNS
+# wizard's W_<service>_icmp ... _h3 are W_<service> -- so the link carries
+# that base name, and the dashboard's own regex strips the same suffixes.
+TARGET_DETAIL = ("target-detail-v1", "target")
+TARGET_DETAIL_MEASUREMENTS = ("latency", "dns_latency", "http_latency", "tcp_latency")
+# Kept in step with the dashboard's own copy of this pattern
+# (target-detail/target_detail.json); a test compares the two.
+PROBE_SUFFIX_RE = re.compile(r"(_h[123]|_tcp(443)?|_icmp)$")
+
 # Side-by-side comparison dashboards, keyed by the category vocabulary the
 # DATABASE uses. Note this differs from the category tag the exporter writes
 # into InfluxDB (top_sites/netflix_oca/dns_resolvers here vs topsites/netflix/
@@ -332,6 +343,12 @@ def _dashboard_value(measurement: str, name: str) -> str:
     return name
 
 
+def target_base_name(name: str) -> str:
+    """The name a target shares with its other probes: Google_h2 -> Google,
+    Google_tcp443 -> Google, W_netflix_com_icmp -> W_netflix_com."""
+    return PROBE_SUFFIX_RE.sub("", name)
+
+
 def _target_links_for(
     name: str,
     measurement: str,
@@ -358,6 +375,13 @@ def _target_links_for(
         url = grafana_url(uid, var, name, hours=hours, at=at, base=grafana)
         if url:
             out["per_ping_detail"] = url
+
+    if measurement in TARGET_DETAIL_MEASUREMENTS and grafana:
+        uid, var = TARGET_DETAIL
+        url = grafana_url(uid, var, target_base_name(name), hours=hours, at=at,
+                          base=grafana)
+        if url:
+            out["all_layers"] = url
 
     compare_uid = COMPARE_BY_DB_CATEGORY.get(db_category or "")
     if compare_uid and grafana:
@@ -394,7 +418,8 @@ def target_links(
     hours: int | None = None,
     at: Any = None,
 ) -> dict[str, str]:
-    """Links for one target: its graph, the per-ping detail, its peers, its config.
+    """Links for one target: its graph, the per-ping detail, every layer on
+    one page, its peers, its config.
 
     Each key gains a ``<key>_tunnel`` twin when a tunnel base is configured
     alongside a different primary one -- the same panel, reachable from

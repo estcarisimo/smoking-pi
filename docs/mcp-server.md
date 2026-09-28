@@ -109,17 +109,23 @@ configured, so it is not in the target list.
 ## Deep links
 
 Tool responses can carry a `links` object pointing at the Grafana panel for the
-target being discussed, the per-ping detail, a side-by-side against its peers,
-and the web-admin page for editing it:
+target being discussed, the per-ping detail, every layer measured for it on one
+page, a side-by-side against its peers, and the web-admin page for editing it:
 
 ```json
 {"target": "Amazon", "median_ms": 21.4, "avg_loss_pct": 0.0,
  "links": {
    "graph": "http://192.168.1.10:3000/d/smokeping-lat-pct-v28?var-target=Amazon&from=now-24h&to=now",
    "per_ping_detail": "http://192.168.1.10:3000/d/individual-pings-v1?...",
+   "all_layers": "http://192.168.1.10:3000/d/target-detail-v1?var-target=Amazon&...",
    "compare_with_peers": "http://192.168.1.10:3000/d/top_sites-side-by-side-v1?...",
    "edit": "http://192.168.1.10:8080/targets/?q=Amazon"}}
 ```
+
+`all_layers` opens the [Target Detail](target-detail.md) dashboard on the
+target's base name, so a link built from `Google_h2` or `Google_tcp443` shows
+Google's ICMP, TCP, HTTP and DNS together. The CPE hop and the Wi-Fi link have
+no such page.
 
 `get_microcut_stats` goes further and zooms each of its worst-5 windows to a
 ±15-minute range around when it happened, so the link opens on the event rather

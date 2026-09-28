@@ -24,6 +24,11 @@ version gets a matching GitHub release and git tag.
   `W_<service>_icmp` … `_h3`). The Overview, latency, resolver, per-ping
   and HTTP-by-version dashboards link to it with their target. InfluxDB
   only. `docs/target-detail.md`.
+- **The assistant can link to it.** MCP responses carry an `all_layers`
+  link for every ICMP, DNS, HTTP and TCP target, opening the Target Detail
+  dashboard on the target's base name (`Google_h2` → Google). The OpenClaw
+  skill says when to offer it. Refresh the installed skill with
+  `smoking-pi openclaw` after upgrading.
 
 ## [2.14.1] — 2026-09-28
 

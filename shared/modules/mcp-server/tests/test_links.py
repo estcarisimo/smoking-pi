@@ -222,10 +222,12 @@ def test_both_tiers_emit_twinned_links(both_tiers):
     assert set(result) == {
         "graph",
         "per_ping_detail",
+        "all_layers",
         "compare_with_peers",
         "edit",
         "graph_tunnel",
         "per_ping_detail_tunnel",
+        "all_layers_tunnel",
         "compare_with_peers_tunnel",
         "edit_tunnel",
     }
@@ -374,7 +376,9 @@ def test_web_admin_link_prefilters_the_target_list(configured):
 
 def test_ping_target_gets_graph_detail_peers_and_edit(configured):
     result = links.target_links("Amazon", "latency", "top_sites", hours=24)
-    assert set(result) == {"graph", "per_ping_detail", "compare_with_peers", "edit"}
+    assert set(result) == {
+        "graph", "per_ping_detail", "all_layers", "compare_with_peers", "edit"
+    }
     assert "/d/smokeping-lat-pct-v28" in result["graph"]
     assert "/d/individual-pings-v1" in result["per_ping_detail"]
     assert "/d/top_sites-side-by-side-v1" in result["compare_with_peers"]
@@ -390,6 +394,45 @@ def test_unknown_category_just_omits_the_comparison(configured):
     result = links.target_links("Whatever", "latency", "not_a_category")
     assert "compare_with_peers" not in result
     assert "graph" in result
+
+
+# One page for every layer of a target: the link carries the name its
+# probes share, which is what the dashboard's selector lists.
+@pytest.mark.parametrize(
+    "name, measurement, base",
+    [
+        ("Google", "latency", "Google"),
+        ("Google_h2", "http_latency", "Google"),
+        ("Google_tcp443", "tcp_latency", "Google"),
+        ("Quad9DNS", "dns_latency", "Quad9DNS"),
+        ("W_netflix_com_icmp", "latency", "W_netflix_com"),
+        ("W_netflix_com_tcp", "tcp_latency", "W_netflix_com"),
+        ("W_netflix_com_h3", "http_latency", "W_netflix_com"),
+        # Only a trailing probe suffix goes: a name that merely contains one keeps it.
+        ("my_h2_site", "latency", "my_h2_site"),
+    ],
+)
+def test_all_layers_links_the_target_detail_by_base_name(configured, name, measurement, base):
+    result = links.target_links(name, measurement, hours=24)
+    assert "/d/target-detail-v1" in result["all_layers"]
+    assert _query(result["all_layers"])["var-target"] == [base]
+
+
+def test_base_name_pattern_matches_the_dashboard():
+    # The link strips the suffixes the dashboard strips; if one list grows
+    # (a new probe suffix) and the other does not, links land on a target
+    # the dashboard cannot pair.
+    import pathlib
+
+    dashboard = (pathlib.Path(__file__).resolve().parents[2] / "grafana" / "provisioning"
+                 / "dashboards" / "target-detail" / "target_detail.json")
+    assert f"/{common.links.PROBE_SUFFIX_RE.pattern}/" in dashboard.read_text()
+
+
+def test_all_layers_is_only_for_probed_targets(configured):
+    # The CPE hop and the Wi-Fi link are not targets with layers.
+    assert "all_layers" not in links.target_links("CPE", "cpe_latency")
+    assert "all_layers" not in links.wifi_links("wlan0")
 
 
 def test_cpe_has_no_per_ping_or_peer_view(configured):
