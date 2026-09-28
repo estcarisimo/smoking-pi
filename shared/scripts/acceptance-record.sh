@@ -39,9 +39,18 @@ done
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 
 # ── the code ────────────────────────────────────────────────────────────
-commit=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo "<not a git checkout>")
-exact=$(git -C "$REPO" describe --tags --exact-match 2>/dev/null || true)
-tag=${exact:-$(git -C "$REPO" describe --tags 2>/dev/null || echo "<no tag>")}
+if commit=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null); then
+    exact=$(git -C "$REPO" describe --tags --exact-match 2>/dev/null || true)
+    tag=${exact:-$(git -C "$REPO" describe --tags 2>/dev/null || echo "<no tag>")}
+else
+    # A package install: /opt/smoking-pi is no checkout, but it knows its
+    # version -- VERSION for a candidate, CITATION.cff otherwise, the order
+    # the smoking-pi command reads them. The commit is in the evidence file.
+    commit="<the commit in the release's evidence file>"
+    exact=$(head -n1 "$REPO/VERSION" 2>/dev/null || sed -n 's/^version: *//p' "$REPO/CITATION.cff" 2>/dev/null || true)
+    exact=${exact:+v$exact}
+    tag=${exact:-"<no tag>"}
+fi
 [ -n "$EXPECTED" ] || EXPECTED=${exact#v}
 
 # ── the host ────────────────────────────────────────────────────────────
