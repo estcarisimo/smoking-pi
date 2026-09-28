@@ -17,8 +17,9 @@ longer called rejected.
 The Overview says where the Pi is connected (uplink, Wi-Fi network,
 public address, the network that announces it, an approximate location,
 the resolver) and what it is measuring, with links to every dashboard. A
-new collector, `public_ip.py`, finds the public address; `PUBLIC_IP_GEO=0`
-keeps it from ipinfo.io. `sync-influx-token.sh`, after the 2.9 upgrade,
+new collector, `public_ip.py`, finds the public address and, by default,
+sends it to ipinfo.io once a day for the place; set `PUBLIC_IP_GEO=0`
+before upgrading to keep it there. The Overview is Pro with InfluxDB. `sync-influx-token.sh`, after the 2.9 upgrade,
 failed on the right token and exited 1; it now checks with a command that
 needs no org. The architecture diagram is redrawn.
 
