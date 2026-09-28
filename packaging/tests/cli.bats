@@ -1687,3 +1687,82 @@ release_lock() {
     [ "$status" -ne 0 ]
     [ "$(grep -c ' up -d --remove-orphans' "$DOCKER_LOG")" -eq 2 ]
 }
+
+# --- LAN discovery (DNS-SD) ----------------------------------------------
+# Avahi announces whatever sits in its services directory; the record must
+# say where the page is and nothing a stranger on the network should read.
+
+@test "up announces the stack to Avahi: edition, version, page port, no secrets" {
+    mkdir -p "$BATS_TEST_TMPDIR/avahi"
+    export SMOKING_PI_AVAHI_FILE="$BATS_TEST_TMPDIR/avahi/smoking-pi.service"
+    printf 'COMPOSE_PROFILES=influxdb\nPOSTGRES_PASSWORD=s3cr3t\nMCP_API_TOKEN=t0k3n\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" up
+    [ "$status" -eq 0 ]
+    f="$SMOKING_PI_AVAHI_FILE"
+    grep -q '<type>_smoking-pi._tcp</type>' "$f"
+    grep -q '<type>_http._tcp</type>' "$f"
+    grep -q '<port>8080</port>' "$f"
+    grep -q '<txt-record>edition=pro</txt-record>' "$f"
+    grep -q '<txt-record>version=9.9.9</txt-record>' "$f"
+    grep -q '<txt-record>grafana=3000</txt-record>' "$f"
+    ! grep -q -e s3cr3t -e t0k3n "$f"
+    [ "$(stat -c '%a' "$f")" = 644 ]
+    # Unchanged content is not rewritten (Avahi reloads on every write).
+    touch -d '2001-01-01' "$f"
+    run "$CLI" up
+    [ "$(stat -c '%Y' "$f")" = "$(date -d '2001-01-01' +%s)" ]
+    # down withdraws it: nothing answers there any more.
+    run "$CLI" down
+    [ ! -e "$f" ]
+}
+
+@test "without Avahi's directory, up announces nothing and still succeeds" {
+    export SMOKING_PI_AVAHI_FILE="$BATS_TEST_TMPDIR/no-avahi/smoking-pi.service"
+    run "$CLI" up
+    [ "$status" -eq 0 ]
+    [ ! -e "$BATS_TEST_TMPDIR/no-avahi" ]
+}
+
+@test "Basic announces SmokePing's own port and no Grafana" {
+    mkdir -p "$BATS_TEST_TMPDIR/avahi"
+    export SMOKING_PI_AVAHI_FILE="$BATS_TEST_TMPDIR/avahi/smoking-pi.service" SMOKING_PI_EDITION=basic
+    printf 'SMOKEPING_PORT=80\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" up
+    grep -q '<port>80</port>' "$SMOKING_PI_AVAHI_FILE"
+    grep -q 'edition=basic' "$SMOKING_PI_AVAHI_FILE"
+    ! grep -q grafana "$SMOKING_PI_AVAHI_FILE"
+}
+
+@test "discover lists each node once, its IPv4 answer, name unescaped" {
+    cat > "$BATS_TEST_TMPDIR/bin/avahi-browse" <<'STUB'
+#!/bin/sh
+cat <<'OUT'
++;wlan0;IPv6;Smoking\032Pi\032on\032smokingpi;_smoking-pi._tcp;local
+=;wlan0;IPv6;Smoking\032Pi\032on\032smokingpi;_smoking-pi._tcp;local;smokingpi.local;fd00::27;8080;"grafana=3000" "path=/" "version=2.14.1" "edition=pro"
+=;wlan0;IPv4;Smoking\032Pi\032on\032smokingpi;_smoking-pi._tcp;local;smokingpi.local;192.0.2.27;8080;"grafana=3000" "path=/" "version=2.14.1" "edition=pro"
+=;eth0;IPv4;Smoking\032Pi\032on\032lab;_smoking-pi._tcp;local;lab.local;192.0.2.56;80;"path=/" "version=2.13.8" "edition=basic"
+OUT
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/avahi-browse"
+    run "$CLI" discover
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s\n' "$output" | grep -c '^Smoking Pi on smokingpi$')" -eq 1 ]
+    [[ "$output" == *"http://smokingpi.local:8080/   (192.0.2.27, pro 2.14.1)"* ]]
+    [[ "$output" != *"fd00::27"* ]]
+    # Port 80 needs no port in the URL.
+    [[ "$output" == *"http://lab.local/   (192.0.2.56, basic 2.13.8)"* ]]
+}
+
+@test "discover says why when nothing answers, and what to install without avahi-browse" {
+    printf '#!/bin/sh\nexit 0\n' > "$BATS_TEST_TMPDIR/bin/avahi-browse"
+    chmod +x "$BATS_TEST_TMPDIR/bin/avahi-browse"
+    run "$CLI" discover
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"No Smoking Pi announces itself"* ]]
+    rm "$BATS_TEST_TMPDIR/bin/avahi-browse"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    command -v avahi-browse >/dev/null && skip "avahi-browse is installed on this machine"
+    run "$CLI" discover
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"apt install avahi-utils"* ]]
+}

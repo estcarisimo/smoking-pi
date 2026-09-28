@@ -200,6 +200,10 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      in the dns_wizard category. Add only; --dry-run lists.
                      'disable' asks you to point the router back first.
                      docs/dns-observer.md.
+  discover           Every Smoking Pi on this network and where to open it, from
+                     their DNS-SD announcements (needs avahi-browse). install,
+                     up and upgrade announce this one when Avahi runs here;
+                     down withdraws it.
   doctor [--live]    Instrumentation doctor (needs the doctor package).
   link               From a clone: make 'smoking-pi' a command in every directory
                      (a link in /usr/local/bin, else ~/.local/bin). setup.sh and
@@ -530,6 +534,116 @@ http_answers() {
     [ -n "$code" ] && [ "$code" != 000 ]
 }
 
+# The port of the page a person opens first, as each edition's compose file
+# maps it: Pro's web admin is fixed there, the others read the env file.
+# Basic has no web admin, so it is SmokePing's own page.
+ui_port() {
+    local port=""
+    case "$SMOKING_PI_EDITION" in
+        basic) port="$(env_value SMOKEPING_PORT)" ;;
+        standard) port="$(env_value WEB_ADMIN_PORT)" ;;
+    esac
+    echo "${port:-8080}"
+}
+
+# --- LAN discovery (DNS-SD) --------------------------------------------------
+# Avahi, which Raspberry Pi OS runs by default, announces what is in
+# /etc/avahi/services and reloads the directory by itself. The record says
+# a Smoking Pi is here, where its page is and which edition and version it
+# runs -- nothing more: anyone on the network can read it.
+AVAHI_SERVICE_FILE="${SMOKING_PI_AVAHI_FILE:-/etc/avahi/services/smoking-pi.service}"
+
+avahi_service_xml() {
+    local port version grafana=""
+    port="$(ui_port)"; version="$(installed_version)"
+    [ "$SMOKING_PI_EDITION" = pro ] && grafana="
+    <txt-record>grafana=3000</txt-record>"
+    cat <<XML
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Written by smoking-pi (install, up, upgrade), removed by down and by
+     uninstalling the package. Browse with: smoking-pi discover -->
+<service-group>
+  <name replace-wildcards="yes">Smoking Pi on %h</name>
+  <service>
+    <type>_smoking-pi._tcp</type>
+    <port>$port</port>
+    <txt-record>edition=$SMOKING_PI_EDITION</txt-record>
+    <txt-record>version=${version:-unknown}</txt-record>
+    <txt-record>path=/</txt-record>$grafana
+  </service>
+  <service>
+    <type>_http._tcp</type>
+    <port>$port</port>
+    <txt-record>path=/</txt-record>
+  </service>
+</service-group>
+XML
+}
+
+# Announce the stack on the LAN. Never fatal and never a prompt: no avahi,
+# or no right to write its directory (not root), means no record.
+publish_avahi() {
+    local dir tmp
+    dir="$(dirname "$AVAHI_SERVICE_FILE")"
+    [ -d "$dir" ] && [ -w "$dir" ] || return 0
+    tmp="$(mktemp "$dir/.smoking-pi.XXXXXX")" || return 0
+    avahi_service_xml > "$tmp" && chmod 0644 "$tmp"
+    if cmp -s "$tmp" "$AVAHI_SERVICE_FILE"; then rm -f "$tmp"; else mv -f "$tmp" "$AVAHI_SERVICE_FILE"; fi
+    return 0
+}
+
+unpublish_avahi() {
+    [ -w "$(dirname "$AVAHI_SERVICE_FILE")" ] && rm -f "$AVAHI_SERVICE_FILE"
+    return 0
+}
+
+# Every Smoking Pi announcing itself on this network, from avahi-browse's
+# parsable output: =;iface;proto;name;type;domain;host;address;port;"txt"...
+cmd_discover() {
+    if ! command -v avahi-browse >/dev/null; then
+        echo "smoking-pi discover needs avahi-browse: sudo apt install avahi-utils" >&2
+        echo "On a Mac: dns-sd -B _smoking-pi._tcp   (then dns-sd -L \"<name>\" _smoking-pi._tcp)" >&2
+        return 2
+    fi
+    local found
+    found="$(avahi-browse --resolve --terminate --parsable _smoking-pi._tcp 2>/dev/null \
+        | awk -F';' '
+            # avahi escapes a name byte as a three-digit decimal: \032 is a space.
+            function unescape(s,   out, i, c) {
+                out = ""
+                for (i = 1; i <= length(s); i++) {
+                    c = substr(s, i, 1)
+                    if (c == "\\" && substr(s, i + 1, 3) ~ /^[0-9][0-9][0-9]$/) {
+                        out = out sprintf("%c", substr(s, i + 1, 3) + 0); i += 3
+                    } else out = out c
+                }
+                return out
+            }
+            function txt(key,   i, n, parts) {
+                n = split($10, parts, /" "/)
+                for (i = 1; i <= n; i++) { gsub(/"/, "", parts[i]); if (index(parts[i], key "=") == 1) return substr(parts[i], length(key) + 2) }
+                return ""
+            }
+            # One entry per name and host, the IPv4 answer when there is one:
+            # avahi reports each node once per address family.
+            $1 == "=" {
+                k = $4 ";" $7
+                if (!(k in line)) order[++n] = k
+                else if ($3 != "IPv4") next
+                port = ($9 == 80) ? "" : ":" $9
+                line[k] = sprintf("%s\n  http://%s%s/   (%s, %s %s)\n", unescape($4), $7, port, $8, txt("edition"), txt("version"))
+            }
+            END { for (i = 1; i <= n; i++) printf "%s", line[order[i]] }')"
+    if [ -z "$found" ]; then
+        echo "No Smoking Pi announces itself on this network."
+        echo "A Pi installed before this version announces itself after its next 'smoking-pi up' or upgrade;"
+        echo "a network that blocks multicast (guest Wi-Fi, client isolation) hides it."
+        return 1
+    fi
+    printf '%s\n' "$found"
+}
+
 cmd_url() {
     # What to open, where, and with which username. Printed at the end of
     # `install` and on demand: the single most useful thing an install can
@@ -549,16 +663,10 @@ cmd_url() {
     # has no web admin, so it is SmokePing's own page. Ports as each
     # edition's compose file maps them: Pro's web admin and Grafana are
     # fixed there, the others read the env file.
+    port="$(ui_port)"
     case "$SMOKING_PI_EDITION" in
-        basic)
-            port="$(env_value SMOKEPING_PORT)"; port="${port:-8080}"
-            label="SmokePing"; login="no login" ;;
-        standard)
-            port="$(env_value WEB_ADMIN_PORT)"; port="${port:-8080}"
-            label="Web admin"; login="user $(env_value WEB_ADMIN_USERNAME | grep . || echo admin)" ;;
-        *)
-            port=8080; label="Web admin"
-            login="user $(env_value WEB_ADMIN_USERNAME | grep . || echo admin)" ;;
+        basic) label="SmokePing"; login="no login" ;;
+        *) label="Web admin"; login="user $(env_value WEB_ADMIN_USERNAME | grep . || echo admin)" ;;
     esac
     url="http://$host$([ "$port" = 80 ] || echo ":$port")/"
     if [ "$wait" -gt 0 ]; then
@@ -713,6 +821,7 @@ cmd_install() {
     # From a clone, the command those lines name must exist by name
     # (setup.sh links it too; this one is for whoever skipped it).
     link_cli --quiet
+    publish_avahi
     echo
     # Last, so it is what is on screen when the install finishes. An install
     # whose web page is still starting is not a failed install.
@@ -1666,6 +1775,7 @@ cmd_upgrade() {
     # Only the services whose image or config changed are recreated.
     compose up -d --remove-orphans
     remove_disabled
+    publish_avahi
     # A clone installed before setup.sh linked the command gets it here.
     link_cli --quiet
     # An `if`, not `[ ] &&`: as the function's last statement a false test
@@ -2023,8 +2133,9 @@ case "${1:-}" in
     links) shift; cmd_links "$@" ;;
     alerts) shift; cmd_alerts "$@" ;;
     dns) shift; cmd_dns "$@" ;;
-    up) shift; compose up -d "$@"; remove_disabled ;;
-    down) shift; compose down "$@" ;;
+    up) shift; compose up -d "$@"; remove_disabled; publish_avahi ;;
+    down) shift; compose down "$@"; unpublish_avahi ;;
+    discover) shift; cmd_discover "$@" ;;
     restart) shift; compose restart "$@" ;;
     status) shift; compose ps "$@" ;;
     logs) shift; compose logs --tail=200 -f "$@" ;;

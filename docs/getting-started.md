@@ -223,6 +223,27 @@ and says so if it still doesn't: the first start can take longer while
 images download. `sudo smoking-pi url` prints the same block, and checks
 again, whenever you need it.
 
+**Finding it later without its address.** When Avahi runs on the Pi (it
+does on Raspberry Pi OS), `install`, `up` and `upgrade` announce the stack
+on the local network with DNS-SD. From any Linux machine on the same
+network that has the command:
+
+```bash
+smoking-pi discover
+```
+
+```text
+Smoking Pi on raspberrypi
+  http://raspberrypi.local:8080/   (192.168.1.27, pro 2.14.1)
+```
+
+It needs `avahi-browse` (`sudo apt install avahi-utils`). On a Mac,
+`dns-sd -B _smoking-pi._tcp` lists the same announcements. The record says
+only where the page is and which edition and version run there; `down`
+withdraws it, and uninstalling the package removes it. A network that
+blocks multicast (a guest Wi-Fi, client isolation) hides it: use the
+address above.
+
 Above it is a banner with every service's status. The
 secrets are set but **not printed** — an install transcript is the last
 place a password should live. Read them when you need them:
