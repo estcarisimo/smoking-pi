@@ -91,7 +91,9 @@ the same commit.
   the record.
 - [ ] `shared/scripts/acceptance-record.sh --tag X.Y.Z-rc.N` on the Pi,
   from the live checkout (`SMOKING_PI_VERSION` or an exact git tag also
-  name the candidate). It prints the *Validation* block below with the tag, commit, Pi
+  name the candidate), or `/opt/smoking-pi/shared/scripts/acceptance-record.sh`
+  on a package install, where the package's version names it and the
+  commit is the one in the release's evidence file. It prints the *Validation* block below with the tag, commit, Pi
   model, OS, Debian release, kernel and architecture filled in, plus each
   container's image, restart count and uptime and the doctor's summary. It
   also names any container that is not on the candidate's image tag. The

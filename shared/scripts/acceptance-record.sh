@@ -7,14 +7,16 @@
 # can judge (detections, panels, the upgrade timing) stays <fill>.
 #
 # Read-only: it runs `docker inspect` and `smoking-pi doctor --live`, and
-# prints no secret. Run it on the reference Pi, from the checkout:
+# prints no secret. Run it on the Pi, from the checkout or, on a package
+# install, as /opt/smoking-pi/shared/scripts/acceptance-record.sh:
 #
 #   shared/scripts/acceptance-record.sh [--tag 2.13.0-rc.3] [--project pro] [--no-doctor]
 #
-# The candidate's image tag is --tag, else SMOKING_PI_VERSION, else the
-# checkout's exact git tag without its "v". Every container not on it is
-# named. With none of the three, the most common tag is used and the record
-# says so.
+# The candidate's image tag is --tag, else SMOKING_PI_VERSION (the
+# environment, then a pin in /etc/default/smoking-pi), else the checkout's
+# exact git tag without its "v" -- or, on a package install, the package's
+# version (VERSION, else CITATION.cff). Every container not on it is named.
+# With none of these, the most common tag is used and the record says so.
 #
 # Why a script: the checklist used to say "run uname -r and cat
 # /etc/os-release for the record", and a record typed by hand is where the
@@ -25,6 +27,9 @@ set -euo pipefail
 PROJECT=pro
 RUN_DOCTOR=1
 EXPECTED=${SMOKING_PI_VERSION:-}
+# A pin in the package's conffile wins over the package version, as it
+# does for the smoking-pi command.
+[ -n "$EXPECTED" ] || EXPECTED=$(sed -n 's/^SMOKING_PI_VERSION=//p' /etc/default/smoking-pi 2>/dev/null | tail -1 || true)
 while [ $# -gt 0 ]; do
     case "$1" in
         --project) PROJECT=${2:?--project needs a Compose project name}; shift 2 ;;
@@ -46,7 +51,7 @@ else
     # A package install: /opt/smoking-pi is no checkout, but it knows its
     # version -- VERSION for a candidate, CITATION.cff otherwise, the order
     # the smoking-pi command reads them. The commit is in the evidence file.
-    commit="<the commit in the release's evidence file>"
+    commit="<the commit in smoking-pi_<version>_evidence.md on the release>"
     exact=$(head -n1 "$REPO/VERSION" 2>/dev/null || sed -n 's/^version: *//p' "$REPO/CITATION.cff" 2>/dev/null || true)
     exact=${exact:+v$exact}
     tag=${exact:-"<no tag>"}
@@ -117,7 +122,7 @@ if [ -z "$main_tag" ]; then
     while read -r t; do
         if [ "${tags[$t]}" -gt "$main_n" ]; then main_tag=$t; main_n=${tags[$t]}; fi
     done < <(printf '%s\n' "${!tags[@]}" | sort)
-    tag_note=" (the most common tag: no --tag, SMOKING_PI_VERSION or exact git tag)"
+    tag_note=" (the most common tag: no --tag, SMOKING_PI_VERSION, exact git tag or package version)"
 fi
 odd=()
 for row in "${rows[@]}"; do
