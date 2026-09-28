@@ -83,8 +83,8 @@ deployment-independent and should be left alone.
 
 Responses carry a `links` object when deep links are configured: `graph`,
 `per_ping_detail`, `all_layers`, `compare_with_peers`, `edit`. `all_layers` is
-the one page with everything measured for that target (ping, TCP, HTTP by
-version, DNS) — the link to offer when the person wants to look at one
+the one page with whatever is measured for that target (ping, TCP, HTTP by
+version, DNS; a layer it lacks says "not measured") — the link to offer when the person wants to look at one
 destination in depth. Keys ending in `_tunnel` are the same page reached from
 outside the home network — see *Links*, below.
 
@@ -400,9 +400,9 @@ its own, so a LAN URL is the better one at home. Offering both costs a line;
 guessing wrong costs the whole point of sending a link.
 
 The tool responses already carry both. Every `links` object has a primary set
-(`graph`, `per_ping_detail`, `all_layers`, `compare_with_peers`, `edit`) and, when a tunnel
-is configured, a `_tunnel` twin of each (`graph_tunnel`, …). `system_status`
-returns the same pair for the front doors: `grafana_overview`,
+(`graph`, `per_ping_detail`, `all_layers`, `compare_with_peers`, `edit`) and,
+when a tunnel is configured, a `_tunnel` twin of each (`graph_tunnel`, …).
+`system_status` returns the same pair for the front doors: `grafana_overview`,
 `grafana_cpe_microcuts`, `grafana_wifi_link`, `web_admin_targets`.
 
 - Label them for where the reader is, not for the technology: *home* /

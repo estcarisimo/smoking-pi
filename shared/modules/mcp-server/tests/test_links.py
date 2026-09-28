@@ -418,6 +418,17 @@ def test_all_layers_links_the_target_detail_by_base_name(configured, name, measu
     assert _query(result["all_layers"])["var-target"] == [base]
 
 
+def test_base_name_pattern_matches_the_dashboard():
+    # The link strips the suffixes the dashboard strips; if one list grows
+    # (a new probe suffix) and the other does not, links land on a target
+    # the dashboard cannot pair.
+    import pathlib
+
+    dashboard = (pathlib.Path(__file__).resolve().parents[2] / "grafana" / "provisioning"
+                 / "dashboards" / "target-detail" / "target_detail.json")
+    assert f"/{common.links.PROBE_SUFFIX_RE.pattern}/" in dashboard.read_text()
+
+
 def test_all_layers_is_only_for_probed_targets(configured):
     # The CPE hop and the Wi-Fi link are not targets with layers.
     assert "all_layers" not in links.target_links("CPE", "cpe_latency")

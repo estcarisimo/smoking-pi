@@ -86,6 +86,8 @@ DETAIL_BY_MEASUREMENT = {
 # that base name, and the dashboard's own regex strips the same suffixes.
 TARGET_DETAIL = ("target-detail-v1", "target")
 TARGET_DETAIL_MEASUREMENTS = ("latency", "dns_latency", "http_latency", "tcp_latency")
+# Kept in step with the dashboard's own copy of this pattern
+# (target-detail/target_detail.json); a test compares the two.
 PROBE_SUFFIX_RE = re.compile(r"(_h[123]|_tcp(443)?|_icmp)$")
 
 # Side-by-side comparison dashboards, keyed by the category vocabulary the
