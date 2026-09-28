@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.15.2] — 2026-09-28
+
+One fix: the DNS Wizard's *Queries (last hour)* counts the last hour.
+
+It counted the clock hour, so it fell to zero at every hour boundary, and
+only the queries AdGuard had written to its log, which it does in batches
+of 1,000: on a house making a few hundred queries an hour, the figure
+could drop to 0 between writes. It now counts the last 60 minutes and
+adds the queries AdGuard still holds in memory, as does the 24-hour
+count. For the first hour after upgrading it counts from the upgrade on.
+
 ### Fixed
 
 - **The DNS Wizard's "Queries (last hour)" was mostly wrong.** It counted
