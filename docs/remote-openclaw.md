@@ -238,8 +238,8 @@ openclaw mcp set smokeping '{
     "CF-Access-Client-Id": "<service-token-id>",
     "CF-Access-Client-Secret": "<service-token-secret>"
   },
-  "connectTimeout": 10,
-  "timeout": 30
+  "connectionTimeoutMs": 10000,
+  "requestTimeoutMs": 30000
 }'
 ```
 
