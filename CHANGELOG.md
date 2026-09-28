@@ -17,12 +17,15 @@ DNS answers.
 The Target Detail dashboard shows everything measured for one destination
 (ICMP, the TCP handshake, HTTP/1.1, /2 and /3, DNS) with median, loss and
 the spread of each cycle's pings, and says "not measured" for a layer it
-lacks. The assistant's answers link to it. `install`, `up` and `upgrade`
-announce the stack on the LAN with DNS-SD, and `smoking-pi discover` lists
-every Smoking Pi on the network; `SMOKING_PI_ANNOUNCE=0` keeps one off it.
-The DNS observer now times the house's own queries: percentiles per 5
-minutes, from AdGuard's cache and per upstream, in a new row of the DNS
-Wizard dashboard. After upgrading, run `smoking-pi openclaw` to refresh
+lacks (InfluxDB only). The assistant's answers carry an `all_layers` link
+to it. `install`, `up` and `upgrade` announce the stack on the LAN with
+DNS-SD, and `smoking-pi discover` lists every Smoking Pi on the network.
+Announcing is on by default, including after an upgrade, and everyone on
+the network can read the edition and version: `SMOKING_PI_ANNOUNCE=0` in
+`/etc/default/smoking-pi` turns it off. The DNS observer now times the
+house's own queries: percentiles per 5 minutes, from AdGuard's cache and
+per upstream, in a new row of the DNS Wizard dashboard. After upgrading,
+run `smoking-pi openclaw` (with `sudo` on a package install) to refresh
 the assistant's skill.
 
 ### Added
