@@ -409,3 +409,14 @@ def test_old_resolution_buckets_are_pruned(wiz):
     assert str(T0) in w.state.res
     w.run_once(now=T0 + wizard.RES_KEEP + 700)
     assert str(T0) not in w.state.res
+
+
+def test_a_bucket_whose_queries_reach_the_disk_late_is_still_published(wiz):
+    # AdGuard flushes its log every 1000 queries: on a quiet network a
+    # bucket's lines can be read hours after it closed.
+    w = wiz()
+    w.run_once(now=T0 + 5 * HOUR)
+    write(wiz.log, [timed("www.example-shop.test.com", T0 + 10, 20.0)])
+    snap = w.run_once(now=T0 + 5 * HOUR)
+    assert [(r["t"], r["path"]) for r in snap["resolution"]] == [
+        (T0, "dns.cloudflare.com"), (T0, "upstreams")]

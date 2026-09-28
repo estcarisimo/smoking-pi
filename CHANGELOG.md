@@ -11,6 +11,16 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **DNS resolution times from a quiet network were never published.**
+  AdGuard writes its query log in batches of 1,000 queries, and the
+  observer published only the last two hours of buckets. On a quiet
+  network, or at night, a bucket's queries could reach the disk after that
+  and never be exported (seen on a test Pi during the 2.15.0 candidate).
+  Every bucket the observer keeps (six hours) is now published, and
+  rewritten as its queries arrive.
+
+### Fixed
+
 - **`smoking-pi openclaw` could not register with a current OpenClaw.** It
   handed `openclaw mcp set` the timeouts as `connectTimeout`/`timeout`
   (seconds), aliases OpenClaw has since retired: 2026.8 refuses the whole

@@ -427,6 +427,11 @@ Queries AdGuard answers by itself (blocked or rewritten) have the path
 `local`: they are exported but kept out of `upstreams` and of the
 per-upstream panel, since no resolver was asked.
 
+AdGuard writes its query log to disk in batches of 1,000 queries, so on a
+quiet network the times show up late, sometimes hours after the queries.
+A bucket is published as long as the observer keeps it (six hours), and
+rewritten as more of its queries arrive.
+
 Each exported value is the percentile of one 5-minute bucket. Over a
 range wider than that, the panels average the buckets' percentiles,
 unweighted: close, but not the percentile of the whole period. A quiet

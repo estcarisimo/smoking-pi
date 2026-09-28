@@ -77,7 +77,13 @@ OWN_TRAFFIC = (
 # person can feel and coarse enough to stay small.
 RES_BUCKET = 300
 RES_KEEP = 6 * 3600       # buckets kept in the state file
-RES_PUBLISH = 2 * 3600    # complete buckets the snapshot carries (the exporter rewrites them)
+# Complete buckets the snapshot carries; the exporter rewrites them, so a
+# bucket that grows later lands on the same point. As long as the state
+# keeps them: AdGuard writes its log in batches (querylog.size_memory,
+# 1000 queries), so on a quiet network a bucket's queries reach the disk,
+# and this pass, hours after the bucket closed. A shorter window dropped
+# those buckets for good (seen on a quiet test Pi).
+RES_PUBLISH = RES_KEEP
 RES_BIN0_MS = 0.01
 RES_RATIO = 1.2
 RES_BINS = 77             # RES_BIN0_MS * RES_RATIO**76 ~ 10 s; slower goes in the last bin
@@ -665,7 +671,7 @@ class Wizard:
         }
 
     def resolution(self, now: float) -> list[dict]:
-        """The complete 5-minute buckets of the last two hours: per path
+        """The complete 5-minute buckets the state keeps (six hours): per path
         (``cache``, each upstream, ``local`` for AdGuard's own answers) and
         for every upstream together (``upstreams``, neither cache nor local),
         how many queries and their p10 ... p99 in ms. The bucket still
