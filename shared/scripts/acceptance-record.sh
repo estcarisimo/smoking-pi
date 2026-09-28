@@ -7,7 +7,7 @@
 # can judge (detections, panels, the upgrade timing) stays <fill>.
 #
 # Read-only: it runs `docker inspect` and `smoking-pi doctor --live`, and
-# prints no secret. Run it on the reference Pi, from the checkout:
+# prints no secret. Run it on the staging Pi (a package install or a clone):
 #
 #   shared/scripts/acceptance-record.sh [--tag 2.13.0-rc.3] [--project pro] [--no-doctor]
 #
@@ -136,7 +136,7 @@ cat <<EOF
 - Tag / commit: $tag / $commit — accepted as <vX.Y.Z-rc.N> (same commit)
 - Artifacts: images ghcr.io/estcarisimo/smoking-pi/*:$main_tag$tag_note; digests and checksum in the release's evidence file
 - Release workflow: <run URL> — host 5/5, debian 4/4, upgrade from <prev>: <pass>; candidate run: <run URL>
-- Reference Pi: $model, $os$debian, kernel $(uname -r), $arch
+- Staging Pi: $model, $os$debian, kernel $(uname -r), $arch
 - Upgrade on the Pi from <prev>: <pass — minutes>, restarts $restarts; credentials and targets <intact>
 - Reboot recovery: <pass — up in minutes>
 - doctor --live: $doctor

@@ -222,8 +222,10 @@ candidate must be a pre-release and a release must not; `attach` refuses
 the other way round. If `attach` runs before the release exists, the `.deb`
 is the run's `smoking-pi-deb` artifact — create the release and re-run that
 job. `docs.yml` deploys the site and `/apt` for a release, never for a
-candidate. A container is not a Raspberry Pi: the release is still
-deployed and accepted on the reference Pi. After the release:
+candidate. A container is not a Raspberry Pi: each candidate is still
+accepted on the staging Pi, and only the release reaches the production Pi
+(`docs/release-acceptance.md`, step 8; the three machines' roles are in
+`AGENTS.md`, *Environments*). After the release:
 `packaging/homebrew/bump.sh vX.Y.Z` and a PR with the bumped
 `Formula/smoking-pi.rb` (`brew tap` reads `main`; the tarball's checksum
 cannot exist before the tag).

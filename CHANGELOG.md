@@ -27,6 +27,20 @@ version gets a matching GitHub release and git tag.
 
 ### Changed
 
+- **Development, release candidates and production now run on three
+  separate machines.** Until now the reference Pi was all three: builds,
+  test stacks and `git pull`s ran on the machine that also held months of
+  measurements, and release candidates were accepted there. On 2026-09-27
+  its SD card failed under that load (two hard crashes, filesystem
+  errors), and on 2026-09-28 it was moved to a new card with a fresh
+  install from the `.deb` and `smoking-pi restore`. The rule is now dev
+  machine → staging Pi → production Pi: development and throwaway stacks
+  on the dev machine, candidates on a second Pi (the staging Pi), and only
+  released versions on the production Pi, installed with apt. `AGENTS.md`
+  has a new *Environments* section; `docs/release-acceptance.md` accepts
+  candidates on the staging Pi and adds the production upgrade as step 8;
+  `acceptance-record.sh` labels its record "Staging Pi".
+
 - **The architecture diagram is redrawn.** A Raspberry Pi frame holds the
   containers in four columns (configure, measure, store, look and act);
   what the Pi talks to sits outside it. Arrows run on a grid with rounded

@@ -8,11 +8,13 @@ hosts](packaging.md#supported-hosts)); none of that is a Pi. The kernel, the
 Wi-Fi driver, the first hop, boot ordering against `docker.service`, and
 whether the measurements are still right are only shown here.
 
-Until there is a second Pi registered as a self-hosted runner, this is a
-manual gate on the **reference Pi** — which is also the production monitor.
-That is a known compromise: the roadmap asks for the candidate to be
-isolated from the reference monitor's data, and this procedure gets there
-only through the backup and the rollback path below. Do not skip them.
+This is a manual gate on the **staging Pi**: a second Raspberry Pi that
+runs candidates and nothing else. The **production Pi**, which holds the
+measurement history, gets a version only once it is released (*Releasing*,
+step 8). Until 2026-09-28 candidates ran on the production monitor itself,
+isolated from its data only by a backup and the rollback path; the staging
+Pi removes that compromise. The roles of the three machines (dev machine,
+staging Pi, production Pi) are in `AGENTS.md`, *Environments*.
 
 ## What a release proves that a PR does not
 
@@ -31,7 +33,7 @@ only what a release alone can show:
 | It installs, starts Basic with those images, and upgrades from the previous release keeping its secrets | `release.yml`: `host` (Ubuntu VMs) |
 | Its data survives: `backup`, `purge --config` and `restore` onto a card with no edition recorded bring back the same secrets, config and data; `apt purge` and a reinstall bring back the same stack | `release.yml`: `host` (`check-package.sh`, steps 6b and 8) |
 | It comes back by itself when Docker is restarted, or stopped and started (a Docker package upgrade), under the enabled unit | `release.yml`: `host` (`check-package.sh`, step 6c) |
-| It works on a Raspberry Pi: the kernel, the Wi-Fi driver, the first hop, boot order, the measurements | this checklist, on the reference Pi |
+| It works on a Raspberry Pi: the kernel, the Wi-Fi driver, the first hop, boot order, the measurements | this checklist, on the staging Pi |
 | It stays up: 24 hours with no restart and no unexplained gap | this checklist, *Stability* |
 | `latest` points at it — only after every install test passed | `release.yml`: `promote` |
 | What was shipped, tied to the commit: digests, package checksum, the run | the evidence file `attach` puts on the release |
@@ -60,11 +62,11 @@ the same commit.
    before `X.Y.Z`), but GitHub replaces `~` in an asset name with `.`: the
    file to download is `smoking-pi_X.Y.Z.rc.1_all.deb`. `latest` does not
    move and the site is not redeployed for a candidate.
-4. **Accept it on the Pi**, below, on the candidate's own artifacts. A
+4. **Accept it on the staging Pi**, below, on the candidate's own artifacts. A
    package install: `sudo apt install ./smoking-pi_X.Y.Z.rc.1_all.deb`
    (apt reads the version from inside the file, not its name, so it still
-   installs `X.Y.Z~rc.1`), then `sudo smoking-pi upgrade`. A clone (the
-   reference Pi): `git checkout vX.Y.Z-rc.1`, then
+   installs `X.Y.Z~rc.1`), then `sudo smoking-pi upgrade`. A clone:
+   `git checkout vX.Y.Z-rc.1`, then
    `smoking-pi upgrade`, which pulls the published images instead
    of building: a clone on a release tag runs that tag's images (`smoking-pi
    paths` shows which), with no variable to keep set. Start the 24-hour
@@ -80,6 +82,12 @@ the same commit.
    `/apt` follow (`docs.yml`).
 7. **After:** the Homebrew bump (`packaging/homebrew/bump.sh vX.Y.Z`, a
    PR), the roadmap's release row, the posts.
+8. **Upgrade the production Pi**, and only with the release, never a
+   candidate: `sudo apt update && sudo apt install smoking-pi`, then `sudo
+   smoking-pi upgrade`, `docker ps` and `sudo smoking-pi doctor --live`. A
+   release whose notes say a migration cannot be undone (InfluxDB 2.9's
+   token hashing was one) gets a `smoking-pi backup` first, off the Pi's
+   card.
 
 ## Before
 
@@ -88,9 +96,10 @@ the same commit.
   converted into the dated section and `CITATION.cff` bumped.
 - [ ] `smoking-pi backup` completed and
   the directory is somewhere other than the Pi's SD card. Note its path in
-  the record.
-- [ ] `shared/scripts/acceptance-record.sh --tag X.Y.Z-rc.N` on the Pi,
-  from the live checkout (`SMOKING_PI_VERSION` or an exact git tag also
+  the record. (On the staging Pi this proves the backup, not the data: the
+  data that matters is the production Pi's, before step 8.)
+- [ ] `shared/scripts/acceptance-record.sh --tag X.Y.Z-rc.N` on the staging
+  Pi (`SMOKING_PI_VERSION` or, from a clone, an exact git tag also
   name the candidate). It prints the *Validation* block below with the tag, commit, Pi
   model, OS, Debian release, kernel and architecture filled in, plus each
   container's image, restart count and uptime and the doctor's summary. It
@@ -102,11 +111,11 @@ the same commit.
 
 ## Clean install and upgrade
 
-The reference Pi is always an **upgrade**; a clean install is proven by the
-release workflow's `host` jobs (Ubuntu VMs) and, on Raspberry Pi OS, by the
-`debian` containers at the package level only. Once a spare Pi exists, a
-clean install there is the missing half — until then the record says
-"clean install on Raspberry Pi OS: untested".
+The staging Pi is normally an **upgrade** from the previous release. It
+can also be reflashed for a **clean install** on Raspberry Pi OS, which the
+release workflow proves only at the package level (the `debian`
+containers) and on Ubuntu VMs (`host`). The record says which one it was,
+and "clean install on Raspberry Pi OS: untested" when it was not done.
 
 - [ ] The candidate's own artifacts (*Releasing*, step 4) and `smoking-pi
   upgrade` — with a version set, that is `compose pull` then `up -d
@@ -158,8 +167,8 @@ clean install there is the missing half — until then the record says
 
 ## Editions and backends
 
-The reference Pi runs one combination (Pro, InfluxDB, `alerts,mcp`
-profiles). Everything else is **untested on a Pi** unless the record says
+The staging Pi runs the production Pi's combination (Pro, InfluxDB, the
+`alerts`, `mcp` and `dns` profiles). Everything else is **untested on a Pi** unless the record says
 otherwise: Basic and Standard, ClickHouse, the `ai` profile. The release
 workflow starts Basic on Ubuntu; Standard and Pro are rendered on every
 host but started only here. Write the combinations *not* exercised into
@@ -167,7 +176,7 @@ the record — the reader should never infer coverage.
 
 ## Stability
 
-- [ ] The candidate stays on the reference Pi for at least **24 hours**
+- [ ] The candidate stays on the staging Pi for at least **24 hours**
   before the tag, through at least one full day-night cycle of Wi-Fi
   conditions. Acceptance: no container restarted on its own (`docker
   inspect --format '{{.RestartCount}}'` is 0 for all), the doctor still
@@ -193,7 +202,7 @@ Every release gets a **Validation** section in its GitHub release notes
 - Tag / commit: vX.Y.Z / <sha> — accepted as vX.Y.Z-rc.N (same commit)
 - Artifacts: images ghcr.io/estcarisimo/smoking-pi/*:X.Y.Z, smoking-pi_X.Y.Z_all.deb; digests and checksum in smoking-pi_X.Y.Z_evidence.md (release assets)
 - Release workflow: <run URL> — host 5/5, debian 4/4, upgrade from vX.Y.(Z-1): pass | none yet; candidate run: <run URL>
-- Reference Pi: <model>, Raspberry Pi OS <version> (Debian N), kernel <uname -r>, arm64
+- Staging Pi: <model>, Raspberry Pi OS <version> (Debian N), kernel <uname -r>, arm64
 - Upgrade on the Pi from vX.Y.(Z-1): pass — <minutes>, restarts 0; credentials and targets intact
 - Reboot recovery: pass — up in <minutes>
 - doctor --live: <n> ok, <n> warn (why), 0 fail

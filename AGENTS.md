@@ -28,7 +28,7 @@ pip install -e shared/modules/doctor                            # once; the doct
 python -m doctor --repo-root .                                  # static checks (CI runs this)
 python -m doctor --repo-root . --live                           # ...against the running stack
 
-# Deploy one service, from editions/pro
+# Run one service from your branch: on the dev machine only, never on a Pi
 docker compose build <service> && docker compose up -d <service>
 ```
 
@@ -43,8 +43,10 @@ alerts*, not "fixed". The release adds what only a release can prove:
 `release.yml` publishes the ten images to GHCR from the tag, builds the
 `.deb` and installs it across the OS matrix, and `docs.yml` deploys the site.
 Where each image builds from is `packaging/image-context.sh`, read by both
-workflows. A Dockerfile change is still deployed on the reference Pi before
-merge: CI proves it builds, the Pi proves it runs.
+workflows. A Dockerfile change is still built and booted before merge, in a
+throwaway stack on the dev machine: CI proves it builds for both
+architectures, the boot proves it starts, and the staging Pi proves it on a
+Pi at the release candidate.
 
 ## Layout
 
@@ -62,6 +64,29 @@ merge: CI proves it builds, the Pi proves it runs.
 | `shared/modules/grafana/provisioning/` | Dashboards as JSON; separate trees for InfluxDB and ClickHouse |
 | `docs/` | getting-started, alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, http-probes, doctor, clickhouse, ipv6-gating, dns-observer, upgrades, packaging, release-acceptance |
 | `packaging/` | The shipped install path since v2.12.0: the `smoking-pi` CLI, the systemd unit, the `.deb` builder, the apt repository builder, the Homebrew formula and their tests — see `docs/packaging.md` |
+
+## Environments
+
+Three places, one direction: **dev machine → staging Pi → production Pi**
+(decision of 2026-09-28, after the production Pi's SD card failed under
+development load: builds, pulls and test stacks on the machine that also
+holds months of measurements).
+
+| Where | Role | What runs there |
+| --- | --- | --- |
+| Dev machine | All development: editing, tests, image builds, throwaway Compose stacks, upgrade rehearsals, anything destructive | A clone. Not a Pi |
+| Staging Pi | Release candidates before they reach production: the `vX.Y.Z-rc.N` package installed with apt, the acceptance in `docs/release-acceptance.md`, clean installs, upgrade and restore rehearsals, anything that needs Pi hardware (Wi-Fi, the CPE, the house's DNS) | A package install; no data worth keeping |
+| Production Pi | The house's monitor and its history | The package install of the latest **release**, and nothing else |
+
+On the production Pi: only final releases, installed with apt (`sudo apt
+update && sudo apt install smoking-pi`, then `sudo smoking-pi upgrade`),
+checked with `docker ps` and `sudo smoking-pi doctor --live`. No image
+builds, no checkouts or pulls that containers mount, no test stacks, no
+experiments; diagnosis is read-only. One session at a time for anything
+that changes containers (`upgrade`, `up`, `config set`): two concurrent
+`compose up` on one project clash on container names (CHANGELOG 2.13.8).
+"The reference Pi" in older docs and the CHANGELOG is the production Pi;
+measurements quoted from it stay as they were.
 
 ## Constraints
 
@@ -147,9 +172,10 @@ stale copy. The gateway caches the tool set per session.
 
 ## Process
 
-Every change: branch → PR → CI green → **independent review** → merge →
-deploy on the reference Pi (`docker compose build <svc> && up -d <svc>`) →
-smoke test → doctor `--live`. The CHANGELOG entry under `[Unreleased]` says
+Every change: branch → PR → CI green → **independent review** → merge.
+A merged change reaches a Pi only through a release: the candidate on the
+staging Pi (acceptance), then the release on the production Pi (apt,
+`smoking-pi upgrade`, `docker ps`, doctor `--live`); see *Environments*. The CHANGELOG entry under `[Unreleased]` says
 what was wrong, what it would have cost, and what the change does about it.
 
 **Every PR gets an independent review before merge.** Not a self-review:
@@ -167,7 +193,7 @@ outcome. Releases follow `docs/release-acceptance.md`, *Releasing, step by
 step*: a `release/vX.Y.Z` branch converts `[Unreleased]` to a dated section
 with an intro and updates `version`/`date-released` in `CITATION.cff` (CI
 checks they match); merge; a candidate tag `vX.Y.Z-rc.N` with a GitHub
-**pre-release**; the Pi acceptance on that candidate's artifacts; then
+**pre-release**; the acceptance on the staging Pi, on that candidate's artifacts; then
 `vX.Y.Z` on the same commit and `gh release create` (notes = the changelog
 section + the Validation section). Tags other than `vX.Y.Z`,
 `vX.Y.Z-rc.N` (N from 1) and `test-*` are refused
