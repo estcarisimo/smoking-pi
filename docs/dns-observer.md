@@ -405,6 +405,38 @@ of the other dashboards. The DNS Wizard dashboard shows them:
 Both look at the last 30 minutes only, so a target that stops reporting
 drops out of the tables by itself.
 
+### How fast the house's queries resolve
+
+The resolver probes in the other dashboards time a query SmokePing sends
+every few minutes. The observer also sees the house's own queries, and
+AdGuard logs how long each one took. The wizard keeps those times as a
+histogram per 5-minute bucket, per path. A path is `cache` (AdGuard
+answered from its cache), each upstream in `DNS_UPSTREAMS`, or `upstreams`
+(every upstream together). It exports `count` and the 10th, 25th, 50th,
+75th, 90th and 99th percentiles as the `dns_resolution` measurement, in
+seconds like `dns_latency`. Only the Pi's own lookups are left out. The DNS
+Wizard dashboard's *How fast the house's queries resolve* row shows:
+
+- answers from upstream: the median over the 10th–90th percentile band, and
+  the 99th percentile, which is what a person waits for on a cache miss;
+- the share answered from AdGuard's cache;
+- the median per upstream, so one resolver slowing down stands out from the
+  network.
+
+Queries AdGuard answers by itself (blocked or rewritten) have the path
+`local`: they are exported but kept out of `upstreams` and of the
+per-upstream panel, since no resolver was asked.
+
+Each exported value is the percentile of one 5-minute bucket. Over a
+range wider than that, the panels average the buckets' percentiles,
+unweighted: close, but not the percentile of the whole period. A quiet
+bucket has few values, and under 100 queries its p99 is simply its slowest
+one.
+
+These are timings only. No name leaves the Pi for them, whatever
+`DNS_EXPORT_NAMES` says. Like the rest of the DNS Wizard dashboard, the row
+needs InfluxDB.
+
 For deeper analysis, `tools/dns-explore` (in the repository) reads the same
 log offline. It compares five aggregation levels, three scores and several
 K side by side, with day-over-day churn.

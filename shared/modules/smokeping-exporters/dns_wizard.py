@@ -10,6 +10,13 @@ at /dns-observer. Each new snapshot becomes:
   (ASes) are: richness, the effective number (1/HHI), Shannon's effective
   number, the share covered by the top-5/10/20, what sits behind the top 10,
   and how much the top 10 moved since yesterday.
+* ``dns_resolution``: how long the house's queries took to resolve, per
+  5-minute bucket and per ``path`` -- ``cache`` (AdGuard answered from its
+  cache), each upstream's host, and ``upstreams`` (every upstream together).
+  Fields ``count`` and ``p10``, ``p25``, ``p50``, ``p75``, ``p90``, ``p99``
+  in seconds, like ``dns_latency``. No names: timings only. The snapshot
+  carries the last two hours of complete buckets, so each is written a few
+  times with the same timestamp and tags -- the same point, overwritten.
 * ``dns_wizard_service``: the top services, one point each, tagged with
   their name, CDN and network. **Only with DNS_EXPORT_NAMES=1.** The names
   of what a house uses are private. They stay on the Pi's disk unless the
@@ -102,9 +109,28 @@ def service_points(snap: dict, ts: int) -> list[Point]:
     return points
 
 
+QUANTILES = ("p10", "p25", "p50", "p75", "p90", "p99")
+
+
+def resolution_points(snap: dict) -> list[Point]:
+    """One ``dns_resolution`` point per bucket and path (ms -> seconds)."""
+    points = []
+    for r in snap.get("resolution") or []:
+        if not isinstance(r.get("t"), (int, float)) or not r.get("count"):
+            continue
+        p = (Point("dns_resolution").tag("path", str(r.get("path") or "?"))
+             .field("count", int(r["count"])).time(int(r["t"]), WritePrecision.S))
+        for q in QUANTILES:
+            ms = _num(r.get(q))
+            if ms is not None:
+                p = p.field(q, ms / 1000.0)
+        points.append(p)
+    return points
+
+
 def points_for(snap: dict, names: bool) -> list[Point]:
     ts = int(snap["generated"])
-    points = [house_point(snap, ts)]
+    points = [house_point(snap, ts)] + resolution_points(snap)
     if names:
         points += service_points(snap, ts)
     return points

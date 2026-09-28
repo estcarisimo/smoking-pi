@@ -423,8 +423,12 @@ def measurements_in(query: str) -> set[str]:
     return set(_MEASUREMENT_RE.findall(query))
 
 
-_FIELD_EQ_RE = re.compile(r'r\._field\s*==\s*"([^"]+)"')
-_PIVOT_FIELDS_RE = re.compile(r'pivot\([^)]*columnKey:\s*\[\s*"_field"\s*\]')
+_PIVOT_RE = re.compile(r'pivot\([^)]*columnKey:\s*\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]')
+
+
+def _selected_values(query: str, column: str) -> set[str]:
+    """The values a query selects for one column: ``r.<column> == "x"``."""
+    return set(re.findall(r'r\.' + re.escape(column) + r'\s*==\s*"([^"]+)"', query))
 
 
 def tag_refs_in(query: str) -> set[str]:
@@ -432,14 +436,16 @@ def tag_refs_in(query: str) -> set[str]:
 
     After ``pivot(columnKey: ["_field"])`` the fields the query selected
     (``r._field == "loss"``) are columns too, and ``r.loss`` reads one of
-    them -- a field, not a tag filter that can never match.
+    them -- a field, not a tag filter that can never match. The same holds
+    for a pivot over a tag: after ``pivot(columnKey: ["path"])`` the paths
+    selected with ``r.path == "cache"`` are the columns ``r.cache``.
 
-    Only references AFTER the pivot are exempt, and only for fields selected
+    Only references AFTER the pivot are exempt, and only for values selected
     before it: ``r.loss`` ahead of the pivot is still a tag filter.
     """
-    pivot = _PIVOT_FIELDS_RE.search(query)
+    pivot = _PIVOT_RE.search(query)
     cut = pivot.start() if pivot else len(query)
-    pivoted = set(_FIELD_EQ_RE.findall(query[:cut])) if pivot else set()
+    pivoted = _selected_values(query[:cut], pivot.group(1)) if pivot else set()
     before = set(_TAG_REF_RE.findall(query[:cut]))
     after = set(_TAG_REF_RE.findall(query[cut:])) - pivoted
     return {name for name in before | after if name not in FLUX_BUILTIN_COLUMNS}

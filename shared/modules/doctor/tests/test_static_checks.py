@@ -791,6 +791,21 @@ def test_pivoted_fields_are_columns_not_tag_filters():
     assert sources.tag_refs_in(plain) == {"loss"}
 
 
+def test_a_pivot_over_a_tag_makes_its_selected_values_columns():
+    """pivot(columnKey: ["path"]) turns r.path == "cache" into the column
+    r.cache -- the DNS wizard's cache-share panel reads it that way. A value
+    the query never selected is still flagged."""
+    from doctor import sources
+
+    query = (
+        'from(bucket:"s") |> filter(fn:(r)=> r._measurement == "dns_resolution" and '
+        'r._field == "count" and (r.path == "cache" or r.path == "upstreams")) '
+        '|> pivot(rowKey: ["_time"], columnKey: ["path"], valueColumn: "_value") '
+        '|> map(fn:(r)=> ({ _value: float(v: r.cache) / float(v: r.cache + r.upstreams + r.other) }))'
+    )
+    assert sources.tag_refs_in(query) == {"path", "other"}
+
+
 def test_a_field_named_before_the_pivot_is_still_a_tag_filter():
     from doctor import sources
 
