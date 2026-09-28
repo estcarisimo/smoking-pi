@@ -22,9 +22,13 @@ version gets a matching GitHub release and git tag.
   still holds in memory, read from its API: the entries newer than the
   log's last line, with the same filters as the log (the Pi's own traffic
   and SmokePing's targets left out). They are counted in the snapshot, not
-  kept, so a query is never counted twice once written. The 24-hour and
-  7-day counts include them too. For the first hour after upgrading it
-  counts from the upgrade on. `docs/dns-observer.md`.
+  kept, so a query is never counted twice once written. The 24-hour count
+  includes them too; the 7-day volume and presence, which choose what to
+  measure, still come from the log alone. One API read of up to 1,000
+  entries per pass (every 10 minutes) took about 0.6 s on a Pi 4. If
+  AdGuard does not answer, the pass counts the log alone and the observer
+  says so once. For the first hour after upgrading it counts from the
+  upgrade on. `docs/dns-observer.md`.
 
 ## [2.15.1] — 2026-09-28
 

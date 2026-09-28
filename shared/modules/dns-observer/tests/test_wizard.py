@@ -1,4 +1,5 @@
 import base64
+import datetime
 import json
 import math
 import os
@@ -440,7 +441,7 @@ def test_a_bucket_whose_queries_reach_the_disk_late_is_still_published(wiz, capl
 
 def api(name, ts, qtype="A"):
     """An entry of AdGuard's /control/querylog, which has not reached the file."""
-    iso = __import__("datetime").datetime.fromtimestamp(ts, __import__("datetime").UTC)
+    iso = datetime.datetime.fromtimestamp(ts, datetime.UTC)
     return {"time": iso.isoformat().replace("+00:00", ".5Z"),
             "question": {"name": name, "type": qtype, "class": "IN"}}
 
@@ -469,6 +470,8 @@ def test_queries_adguard_holds_in_memory_are_counted_once(wiz):
     snap = w.run_once(now=now, unflushed=memory)
     assert snap["queries_1h"] == 3
     assert snap["queries_24h"] == 3
+    # Not in what selects targets: bbc.co.uk has no row, nothing to measure yet.
+    assert "bbc.co.uk" not in {t["service"] for t in snap["top"]}
     assert {t["service"]: t["queries_1h"] for t in snap["top"]}["netflix.com"] == 1
     # AdGuard flushes them: the file has them now, the API still lists them.
     write(wiz.log, [line("www.bbc.co.uk", T0 + HOUR + 60), line("www.bbc.co.uk", T0 + HOUR + 120)])
@@ -489,3 +492,31 @@ def test_memory_is_counted_when_the_current_log_is_still_empty(wiz):
     write(wiz.log, [], mode="w")
     memory = [api("www.bbc.co.uk", T0 + HOUR + 30), api("www.netflix.com", T0 + HOUR)]
     assert w.run_once(now=T0 + HOUR + 120, unflushed=memory)["queries_1h"] == 2
+
+
+def test_memory_older_than_the_last_hour_is_left_out(wiz):
+    write(wiz.log, [line("www.netflix.com", T0)])
+    snap = wiz().run_once(now=T0 + 2 * HOUR,
+                          unflushed=[api("www.bbc.co.uk", T0 + 30 * 60)])
+    assert snap["queries_1h"] == 0
+
+
+def test_the_last_logged_line_skips_one_adguard_is_still_writing(wiz):
+    write(wiz.log, [line("www.netflix.com", T0 + 10)])
+    with open(wiz.log, "a") as fh:
+        fh.write('{"T":"2026-09-26T00:00:20')  # no newline yet
+    assert wiz().last_logged() == pytest.approx(T0 + 10.5)
+    assert wizard.Wizard(str(wiz.state), str(wiz.state),
+                         canary_domain="x.home.arpa").last_logged() is None
+
+
+def test_a_state_from_before_the_last_hour_buckets_loads(wiz):
+    write(wiz.log, [line("www.netflix.com", T0 + 10)])
+    w = wiz()
+    w.run_once(now=T0 + 60)
+    doc = json.loads((wiz.state / "wizard-state.json").read_text())
+    del doc["recent"]
+    (wiz.state / "wizard-state.json").write_text(json.dumps(doc))
+    # Counts from the upgrade on: the hour already read is not in the buckets.
+    write(wiz.log, [line("www.bbc.co.uk", T0 + 70)])
+    assert wiz().run_once(now=T0 + 120)["queries_1h"] == 1

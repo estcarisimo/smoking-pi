@@ -440,8 +440,11 @@ observer leaves AdGuard's default.
 AdGuard still holds in memory, read from its API (the entries newer than
 the log's last line), to those already in the log. It counts the last 12
 five-minute buckets (55 to 60 minutes, the current one included), not the
-clock hour. For the first hour after the upgrade that brought this, it
-counts from the upgrade on.
+clock hour. The 24-hour count includes the queries in memory too; the
+7-day volume and presence, which choose what to measure, come from the
+log alone. If AdGuard's API does not answer, the count falls back to the
+log and the observer logs it once. For the first hour after the upgrade
+that brought this, it counts from the upgrade on.
 
 Each exported value is the percentile of one 5-minute bucket. Over a
 range wider than that, the panels average the buckets' percentiles,

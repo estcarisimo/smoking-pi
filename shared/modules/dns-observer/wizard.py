@@ -651,9 +651,11 @@ class Wizard:
                 for svc, queries in per.items():
                     if is_public(svc):
                         q1[svc] = q1.get(svc, 0) + queries
+        # Not in the 7-day volume or presence: those select targets, and a
+        # service seen only in memory has no host to measure yet.
         for svc, queries in (unflushed or {}).items():
             if is_public(svc):
-                for table in (q1, q24, q7):
+                for table in (q1, q24):
                     table[svc] = table.get(svc, 0) + queries
         ranked = sorted(presence, key=lambda s: (-presence[s], -q24.get(s, 0), s))
 

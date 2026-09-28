@@ -142,7 +142,10 @@ class AdGuardAPI:
             params["search"] = search
         resp = await self._client.get("/control/querylog", params=params)
         resp.raise_for_status()
-        return resp.json().get("data") or []
+        doc = resp.json()
+        if not isinstance(doc, dict):
+            raise ValueError("the query log is not a JSON object")
+        return doc.get("data") or []
 
     async def stats(self) -> dict:
         resp = await self._client.get("/control/stats")
