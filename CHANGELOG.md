@@ -11,7 +11,7 @@ version gets a matching GitHub release and git tag.
 
 ## [2.14.1] — 2026-09-28
 
-Three fixes found while moving to a package install.
+Three fixes from running a package install on the Pi.
 
 `sudo smoking-pi openclaw` works on a package install: it finds OpenClaw
 under nvm and runs it as you, not as root, and keeps the MCP token out of
@@ -40,8 +40,9 @@ package's version instead of `<no tag>`.
   to be typed by hand into every release's Validation section. It now
   reads the package's version (`VERSION` for a candidate, `CITATION.cff`
   otherwise, as the `smoking-pi` command does). It also defaults the
-  expected image tag to that version, and points to the evidence file for
-  the commit. Seen accepting v2.14.0-rc.1 on a package install.
+  expected image tag to that version (a `SMOKING_PI_VERSION` pin in
+  `/etc/default/smoking-pi` still wins), and points to the evidence file
+  for the commit. Seen accepting v2.14.0-rc.1 on a package install.
 
 - **`sudo smoking-pi openclaw` could not connect OpenClaw on a package
   install.** A package install needs `sudo` to read `/etc/smoking-pi/env`,
