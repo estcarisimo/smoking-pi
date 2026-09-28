@@ -1312,12 +1312,13 @@ openclaw_bin() {
     [ -n "$user" ] && home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6)"
     [ -n "$home" ] || return 0
     alias="$(cat "$home/.nvm/alias/default" 2>/dev/null || true)"
+    # `24` means v24.*, never v240; `24.18.0` means exactly that one.
     case "$alias" in
         v[0-9]*|[0-9]*)
-            f="$(ls -d "$home/.nvm/versions/node/v${alias#v}"*/bin/openclaw 2>/dev/null | sort -V | tail -1)"
+            f="$(ls -d "$home/.nvm/versions/node/v${alias#v}"{,.*}/bin/openclaw 2>/dev/null | sort -V | tail -1 || true)"
             [ -n "$f" ] && { echo "$f"; return 0; } ;;
     esac
-    f="$(ls -d "$home"/.nvm/versions/node/*/bin/openclaw 2>/dev/null | sort -V | tail -1)"
+    f="$(ls -d "$home"/.nvm/versions/node/*/bin/openclaw 2>/dev/null | sort -V | tail -1 || true)"
     [ -n "$f" ] && { echo "$f"; return 0; }
     for f in "$home/.local/bin/openclaw" "$home/.npm-global/bin/openclaw" \
              "$home/.volta/bin/openclaw" "$home/.bun/bin/openclaw"; do
@@ -1488,20 +1489,32 @@ cmd_openclaw() {
 
     # 4. Register, then the skill. Registering alone is the documented
     #    half-install: the agent keeps answering from its shell.
-    as_openclaw_user "$OPENCLAW_BIN" mcp set smokeping "{
-  \"url\": \"http://127.0.0.1:8090/mcp\",
-  \"transport\": \"streamable-http\",
-  \"headers\": {\"Authorization\": \"Bearer $token\"},
-  \"connectTimeout\": 5,
-  \"timeout\": 30
-}" >/dev/null && echo "4/5  Registered as 'smokeping' with OpenClaw." \
-        || { echo "4/5  'openclaw mcp set' failed. Run it by hand from" >&2
-             echo "     docs/openclaw-integration.md and re-run this." >&2; return 1; }
+    #    The JSON holding the token goes through a 0600 file, not sudo's
+    #    command line: sudo logs the full command it runs to the journal.
+    local spec user registered=0
+    spec="$(mktemp)"
+    printf '{\n  "url": "http://127.0.0.1:8090/mcp",\n  "transport": "streamable-http",\n  "headers": {"Authorization": "Bearer %s"},\n  "connectTimeout": 5,\n  "timeout": 30\n}' \
+        "$token" > "$spec"
+    user="$(openclaw_user)"
+    # A failed chown surfaces below as a failed registration, not here.
+    [ -z "$user" ] || chown "$user" "$spec" 2>/dev/null || true
+    as_openclaw_user sh -c 'exec "$0" mcp set smokeping "$(cat "$1")"' "$OPENCLAW_BIN" "$spec" \
+        >/dev/null && registered=1
+    rm -f "$spec"
+    if [ "$registered" = 1 ]; then
+        echo "4/5  Registered as 'smokeping' with OpenClaw."
+    else
+        echo "4/5  'openclaw mcp set' failed. Run it by hand from" >&2
+        echo "     docs/openclaw-integration.md and re-run this." >&2
+        return 1
+    fi
 
     if [ -x "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" ]; then
         as_openclaw_user "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" --reload >/dev/null 2>&1 \
             && echo "5/5  Installed the smokeping-monitoring skill and reloaded the gateway." \
-            || echo "5/5  WARNING: the skill did not install; run shared/scripts/install-openclaw-skill.sh --reload" >&2
+            || { echo "5/5  WARNING: the skill did not install or the gateway did not reload; run" >&2
+                 echo "     shared/scripts/install-openclaw-skill.sh --reload as the gateway's user." >&2
+                 echo "     A user unit needs a session or 'loginctl enable-linger' for systemctl --user." >&2; }
     else
         echo "5/5  WARNING: install-openclaw-skill.sh not found; the agent will answer" >&2
         echo "     from its own shell until the skill is installed." >&2
