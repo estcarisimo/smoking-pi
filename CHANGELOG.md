@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.14.1] — 2026-09-28
+
+Three fixes found while moving to a package install.
+
+`sudo smoking-pi openclaw` works on a package install: it finds OpenClaw
+under nvm and runs it as you, not as root, and keeps the MCP token out of
+sudo's journal. Grafana no longer downloads plugins no dashboard uses at
+every start, nor logs an error doing it. `acceptance-record.sh` names the
+package's version instead of `<no tag>`.
+
 ### Fixed
 
 - **Grafana (Pro) downloaded plugins nobody uses at every start, and
