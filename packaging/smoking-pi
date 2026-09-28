@@ -555,7 +555,10 @@ AVAHI_SERVICE_FILE="${SMOKING_PI_AVAHI_FILE:-/etc/avahi/services/smoking-pi.serv
 
 avahi_service_xml() {
     local port version grafana=""
-    port="$(ui_port)"; version="$(installed_version)"
+    # Only characters XML and a TXT record take as they are: a stray `<` or
+    # `&` would make Avahi reject the whole file, silently.
+    port="$(ui_port)"; case "$port" in ""|*[!0-9]*) port=8080 ;; esac
+    version="$(installed_version | tr -cd 'A-Za-z0-9._+~-')"
     [ "$SMOKING_PI_EDITION" = pro ] && grafana="
     <txt-record>grafana=3000</txt-record>"
     cat <<XML
@@ -582,13 +585,19 @@ XML
 }
 
 # Announce the stack on the LAN. Never fatal and never a prompt: no avahi,
-# or no right to write its directory (not root), means no record.
+# or no right to write its directory (not root), means no record. The
+# record is readable by everyone on the network (edition, version, ports);
+# SMOKING_PI_ANNOUNCE=0 (environment or /etc/default/smoking-pi) keeps the
+# stack off it and withdraws a record already there.
 publish_avahi() {
     local dir tmp
+    case "${SMOKING_PI_ANNOUNCE:-1}" in 0|no|false|off) unpublish_avahi; return 0 ;; esac
     dir="$(dirname "$AVAHI_SERVICE_FILE")"
     [ -d "$dir" ] && [ -w "$dir" ] || return 0
     tmp="$(mktemp "$dir/.smoking-pi.XXXXXX")" || return 0
-    avahi_service_xml > "$tmp" && chmod 0644 "$tmp"
+    # A failed write keeps the record that is there, never a partial one.
+    avahi_service_xml > "$tmp" || { rm -f "$tmp"; return 0; }
+    chmod 0644 "$tmp"
     if cmp -s "$tmp" "$AVAHI_SERVICE_FILE"; then rm -f "$tmp"; else mv -f "$tmp" "$AVAHI_SERVICE_FILE"; fi
     return 0
 }
@@ -606,9 +615,18 @@ cmd_discover() {
         echo "On a Mac: dns-sd -B _smoking-pi._tcp   (then dns-sd -L \"<name>\" _smoking-pi._tcp)" >&2
         return 2
     fi
-    local found
-    found="$(avahi-browse --resolve --terminate --parsable _smoking-pi._tcp 2>/dev/null \
-        | awk -F';' '
+    local browsed found
+    # Its status on its own: under pipefail a failing avahi-browse (no daemon)
+    # would end the command here, with nothing said.
+    if ! browsed="$(avahi-browse --resolve --terminate --parsable _smoking-pi._tcp 2>/dev/null)"; then
+        echo "avahi-browse could not ask the network: is avahi-daemon running here?" >&2
+        echo "  systemctl status avahi-daemon" >&2
+        return 1
+    fi
+    # LC_ALL=C: the name's escaped bytes are bytes; in a UTF-8 locale gawk
+    # would turn each into a character of its own.
+    found="$(printf '%s\n' "$browsed" \
+        | LC_ALL=C awk -F';' '
             # avahi escapes a name byte as a three-digit decimal: \032 is a space.
             function unescape(s,   out, i, c) {
                 out = ""
@@ -629,8 +647,11 @@ cmd_discover() {
             # avahi reports each node once per address family.
             $1 == "=" {
                 k = $4 ";" $7
+                # The first IPv4 answer stays: a host on eth0 and wlan0 is
+                # not reshuffled by the order avahi happens to answer in.
                 if (!(k in line)) order[++n] = k
-                else if ($3 != "IPv4") next
+                else if ($3 != "IPv4" || v4[k]) next
+                if ($3 == "IPv4") v4[k] = 1
                 port = ($9 == 80) ? "" : ":" $9
                 line[k] = sprintf("%s\n  http://%s%s/   (%s, %s %s)\n", unescape($4), $7, port, $8, txt("edition"), txt("version"))
             }

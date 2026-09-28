@@ -1741,6 +1741,7 @@ cat <<'OUT'
 =;wlan0;IPv6;Smoking\032Pi\032on\032smokingpi;_smoking-pi._tcp;local;smokingpi.local;fd00::27;8080;"grafana=3000" "path=/" "version=2.14.1" "edition=pro"
 =;wlan0;IPv4;Smoking\032Pi\032on\032smokingpi;_smoking-pi._tcp;local;smokingpi.local;192.0.2.27;8080;"grafana=3000" "path=/" "version=2.14.1" "edition=pro"
 =;eth0;IPv4;Smoking\032Pi\032on\032lab;_smoking-pi._tcp;local;lab.local;192.0.2.56;80;"path=/" "version=2.13.8" "edition=basic"
+=;eth0;IPv4;Smoking\032Pi\032on\032smokingpi;_smoking-pi._tcp;local;smokingpi.local;192.0.2.99;8080;"grafana=3000" "path=/" "version=2.14.1" "edition=pro"
 OUT
 STUB
     chmod +x "$BATS_TEST_TMPDIR/bin/avahi-browse"
@@ -1749,6 +1750,8 @@ STUB
     [ "$(printf '%s\n' "$output" | grep -c '^Smoking Pi on smokingpi$')" -eq 1 ]
     [[ "$output" == *"http://smokingpi.local:8080/   (192.0.2.27, pro 2.14.1)"* ]]
     [[ "$output" != *"fd00::27"* ]]
+    # The same host again on another interface: the first IPv4 answer stays.
+    [[ "$output" != *"192.0.2.99"* ]]
     # Port 80 needs no port in the URL.
     [[ "$output" == *"http://lab.local/   (192.0.2.56, basic 2.13.8)"* ]]
 }
@@ -1765,4 +1768,23 @@ STUB
     run "$CLI" discover
     [ "$status" -eq 2 ]
     [[ "$output" == *"apt install avahi-utils"* ]]
+}
+
+@test "discover says so when avahi-browse cannot reach the daemon, instead of exiting silently" {
+    printf '#!/bin/sh\necho "Failed to create client object: Daemon not running" >&2\nexit 1\n' \
+        > "$BATS_TEST_TMPDIR/bin/avahi-browse"
+    chmod +x "$BATS_TEST_TMPDIR/bin/avahi-browse"
+    run "$CLI" discover
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"is avahi-daemon running here?"* ]]
+}
+
+@test "SMOKING_PI_ANNOUNCE=0 keeps the stack off the network and withdraws a record already there" {
+    mkdir -p "$BATS_TEST_TMPDIR/avahi"
+    export SMOKING_PI_AVAHI_FILE="$BATS_TEST_TMPDIR/avahi/smoking-pi.service"
+    run "$CLI" up
+    [ -e "$SMOKING_PI_AVAHI_FILE" ]
+    SMOKING_PI_ANNOUNCE=0 run "$CLI" up
+    [ "$status" -eq 0 ]
+    [ ! -e "$SMOKING_PI_AVAHI_FILE" ]
 }

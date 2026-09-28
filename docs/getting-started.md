@@ -238,11 +238,18 @@ Smoking Pi on raspberrypi
 ```
 
 It needs `avahi-browse` (`sudo apt install avahi-utils`). On a Mac,
-`dns-sd -B _smoking-pi._tcp` lists the same announcements. The record says
-only where the page is and which edition and version run there; `down`
-withdraws it, and uninstalling the package removes it. A network that
+`dns-sd -B _smoking-pi._tcp` lists the same announcements. A network that
 blocks multicast (a guest Wi-Fi, client isolation) hides it: use the
 address above.
+
+The record holds no password or token, but **everyone on the network can
+read it**: the page's port, the edition, the version and, on Pro,
+Grafana's port. On a shared or office network you may not want that. Set
+`SMOKING_PI_ANNOUNCE=0` in `/etc/default/smoking-pi` (or in the
+environment of the command) and the next `up` withdraws it. It is written
+by `install`, `up` and `upgrade` when they run as root (the systemd unit
+does at every boot), withdrawn by `down`, and removed when the package is
+uninstalled.
 
 Above it is a banner with every service's status. The
 secrets are set but **not printed** — an install transcript is the last
