@@ -11,15 +11,17 @@ version gets a matching GitHub release and git tag.
 
 ## [2.15.1] — 2026-09-28
 
-One fix, for the `smoking-pi openclaw` step that 2.15.0 asks you to run
-after upgrading.
+Two fixes to 2.15.0: the `smoking-pi openclaw` step it asks you to run
+after upgrading, and its new DNS resolution times.
 
 `smoking-pi openclaw` registers with OpenClaw 2026.8 again: it sent the
 MCP timeouts under keys OpenClaw has retired, and 2026.8 refused the whole
 registration, so the assistant's skill was not refreshed. A gateway that
 was already connected kept working. The keys it sends now need OpenClaw
 2026.4 or newer. After upgrading, run `smoking-pi openclaw` (with `sudo`
-on a package install).
+on a package install). The DNS observer now publishes the resolution
+times of queries AdGuard writes to its log late, up to six hours, instead
+of dropping them; on a quiet network that was most of them.
 
 ### Fixed
 
