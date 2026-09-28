@@ -137,6 +137,8 @@ case "$1" in
 esac
 if [ "$1" = remove ] || [ "$1" = purge ]; then
     systemctl daemon-reload >/dev/null 2>&1 || true
+    # The LAN announcement smoking-pi wrote: nothing answers there any more.
+    rm -f /etc/avahi/services/smoking-pi.service
 fi
 POSTRM
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/prerm" "$PKG/DEBIAN/postrm"

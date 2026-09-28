@@ -11,6 +11,19 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Smoking Pi announces itself on the local network.** Finding the Pi
+  meant remembering its IP address, or its `.local` name if you knew the
+  hostname. When Avahi runs (Raspberry Pi OS runs it), `install`, `up` and
+  `upgrade` now write `/etc/avahi/services/smoking-pi.service`. It
+  announces the web page as `_http._tcp` and as `_smoking-pi._tcp`, with the
+  edition, version and Grafana port in its TXT record: nothing secret, but
+  readable by everyone on the network, so `SMOKING_PI_ANNOUNCE=0` (in
+  `/etc/default/smoking-pi`) turns it off and withdraws it. `down`
+  withdraws it and uninstalling the package removes it. The new
+  `smoking-pi discover` lists every Smoking Pi on the network and where to
+  open it (it needs `avahi-browse`; on a Mac, `dns-sd -B _smoking-pi._tcp`).
+  `docs/getting-started.md`.
+
 - **A Target Detail dashboard: one target, every layer.** Looking at one
   destination meant opening a dashboard per probe: ICMP in one, TCP and
   HTTP in another, DNS in a third, each with its own selector, and nothing
