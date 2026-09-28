@@ -333,8 +333,15 @@ class Supervisor:
         )
         await asyncio.sleep(30)
         while not self.stopping.is_set():
+            # The queries AdGuard has not written to its log yet, for the
+            # last hour's counts. Without them the pass counts the file only.
+            unflushed = None
             try:
-                await asyncio.to_thread(wiz.run_once)
+                unflushed = await self.api.querylog(limit=wizard.UNFLUSHED_LIMIT)
+            except (httpx.HTTPError, ValueError) as exc:
+                log.debug("query log unavailable to the wizard: %s", exc)
+            try:
+                await asyncio.to_thread(wiz.run_once, None, unflushed)
             except Exception:  # one bad pass must not end the loop
                 log.exception("DNS wizard pass failed")
             with contextlib.suppress(asyncio.TimeoutError):

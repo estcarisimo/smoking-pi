@@ -88,6 +88,21 @@ RES_RATIO = 1.2
 RES_BINS = 77             # RES_BIN0_MS * RES_RATIO**76 ~ 10 s; slower goes in the last bin
 RES_QUANTILES = (10, 25, 50, 75, 90, 99)
 
+# "The last hour" is the last 12 five-minute buckets (55 to 60 minutes), not
+# the clock hour: the clock hour dropped to zero at every hour boundary.
+# Per-service counts per bucket are kept for two hours.
+RECENT_KEEP = 2 * 3600
+LAST_HOUR_BUCKETS = 12
+# The queries AdGuard still holds in memory (querylog.size_memory, 1000 by
+# default) come from its API; the log file has only what it flushed.
+UNFLUSHED_LIMIT = 1000
+
+
+def last_hour_start(now: float) -> int:
+    """The first of the last LAST_HOUR_BUCKETS 5-minute buckets, the current
+    (partial) one included."""
+    return (int(now // RES_BUCKET) - LAST_HOUR_BUCKETS + 1) * RES_BUCKET
+
 
 def res_bin(ms: float) -> int:
     if ms <= RES_BIN0_MS:
@@ -403,6 +418,8 @@ class State:
     top_by_day: dict[str, list[str]] = field(default_factory=dict)
     # 5-minute bucket start (epoch) -> path -> {bin: count}: resolution times
     res: dict[str, dict[str, dict[str, int]]] = field(default_factory=dict)
+    # 5-minute bucket start (epoch) -> service -> queries, for the last hour
+    recent: dict[str, dict[str, int]] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: str) -> State:
@@ -509,6 +526,9 @@ class Wizard:
                 continue
             counts = st.hours.setdefault(hour, {}).setdefault(svc, [0, 0])
             counts[0] += 1
+            if ts >= self.now - RECENT_KEEP:
+                per = st.recent.setdefault(str(int(ts // RES_BUCKET) * RES_BUCKET), {})
+                per[svc] = per.get(svc, 0) + 1
             elapsed = e.get("Elapsed")
             if (isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
                     and math.isfinite(elapsed) and elapsed > 0
@@ -554,14 +574,62 @@ class Wizard:
             del st.top_by_day[day]
         for bucket in [b for b in st.res if int(b) < now - RES_KEEP]:
             del st.res[bucket]
+        for bucket in [b for b in st.recent if int(b) < now - RECENT_KEEP]:
+            del st.recent[bucket]
         # Network owners: only for the addresses still in use.
         prefixes = {Owners.prefix(m["addr"]) for m in st.meta.values() if m.get("addr")}
         for net in [n for n in self.owners.cache if n not in prefixes]:
             del self.owners.cache[net]
 
+    def last_logged(self) -> float | None:
+        """The time of the log's last complete line: AdGuard flushed every
+        query up to it. The rotated file's, when the current one is empty."""
+        for path in (self.log_path, self.log_path + ".1"):
+            try:
+                with open(path, "rb") as fh:
+                    size = fh.seek(0, os.SEEK_END)
+                    fh.seek(max(0, size - 65536))
+                    lines = fh.read().splitlines()
+            except OSError:
+                continue
+            for raw in reversed(lines):
+                try:
+                    return parse_time(json.loads(raw)["T"])
+                except (ValueError, KeyError, TypeError):
+                    continue  # a line AdGuard is still writing
+        return None
+
+    def unflushed(self, entries: list[dict] | None, now: float) -> dict[str, int]:
+        """Per service, the house's queries of the last hour that AdGuard
+        holds in memory and has not written to the log yet: its API's
+        entries newer than the log's last line. Counted in the snapshot
+        only, never in the state, so once written they are not counted twice.
+        """
+        if not entries:
+            return {}
+        last = self.last_logged()
+        since = last_hour_start(now)
+        out: dict[str, int] = {}
+        for e in entries:
+            try:
+                ts = parse_time(e["time"])
+                q = e["question"]
+                name = str(q["name"]).rstrip(".").lower()
+            except (ValueError, KeyError, TypeError):
+                continue
+            if (last is not None and ts <= last) or ts < since:
+                continue
+            if str(q.get("type", "")) not in KEEP_QTYPES:
+                continue
+            svc = service_of(name)
+            if name in self.measured or is_own(name, svc, self.own):
+                continue
+            out[svc] = out.get(svc, 0) + 1
+        return out
+
     # -- the snapshot ------------------------------------------------------------
 
-    def snapshot(self, now: float) -> dict:
+    def snapshot(self, now: float, unflushed: dict[str, int] | None = None) -> dict:
         st = self.state
         now_h = int(now // 3600)
         presence: dict[str, int] = {}
@@ -577,8 +645,16 @@ class Wizard:
                 q7[svc] = q7.get(svc, 0) + queries
                 if age < 24:
                     q24[svc] = q24.get(svc, 0) + queries
-                if age < 1:
-                    q1[svc] = q1.get(svc, 0) + queries
+        since = last_hour_start(now)
+        for bucket, per in st.recent.items():
+            if int(bucket) >= since:
+                for svc, queries in per.items():
+                    if is_public(svc):
+                        q1[svc] = q1.get(svc, 0) + queries
+        for svc, queries in (unflushed or {}).items():
+            if is_public(svc):
+                for table in (q1, q24, q7):
+                    table[svc] = table.get(svc, 0) + queries
         ranked = sorted(presence, key=lambda s: (-presence[s], -q24.get(s, 0), s))
 
         self.owners.resolve({m["addr"] for m in st.meta.values() if m.get("addr")})
@@ -702,7 +778,10 @@ class Wizard:
                 out.append({"t": start, "path": "upstreams", **res_quantiles(upstream_all)})
         return out
 
-    def run_once(self, now: float | None = None) -> dict:
+    def run_once(self, now: float | None = None,
+                 unflushed: list[dict] | None = None) -> dict:
+        """One pass. ``unflushed`` is AdGuard's API query log (newest
+        first), for the queries it has not written to the file yet."""
         now = now or time.time()
         self.now = now
         self.measured = measured_hosts(self.targets_path)  # adoption adds to it
@@ -712,7 +791,7 @@ class Wizard:
             log.info("DNS wizard: %d query times reached the log more than %d h late; "
                      "not in the resolution times", self.res_too_late, RES_KEEP // 3600)
         self.prune(now)
-        snap = self.snapshot(now)
+        snap = self.snapshot(now, self.unflushed(unflushed, now))
         self.state.save(self.state_path)
         tmp = f"{self.out_path}.tmp"
         with open(tmp, "w") as fh:

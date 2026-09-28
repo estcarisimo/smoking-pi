@@ -433,3 +433,59 @@ def test_a_bucket_whose_queries_reach_the_disk_late_is_still_published(wiz, capl
         snap = w.run_once(now=T0 + wizard.RES_KEEP + 600)
     assert not any(r["t"] == T0 for r in snap["resolution"])
     assert "1 query times reached the log more than 6 h late" in caplog.text
+
+
+# -- the last hour ---------------------------------------------------------------
+
+
+def api(name, ts, qtype="A"):
+    """An entry of AdGuard's /control/querylog, which has not reached the file."""
+    iso = __import__("datetime").datetime.fromtimestamp(ts, __import__("datetime").UTC)
+    return {"time": iso.isoformat().replace("+00:00", ".5Z"),
+            "question": {"name": name, "type": qtype, "class": "IN"}}
+
+
+def test_the_last_hour_is_sixty_minutes_not_the_clock_hour(wiz):
+    # At 01:10 the last hour starts at 00:15; the clock hour counted only
+    # 01:00-01:10 and fell to zero at every hour boundary.
+    write(wiz.log, [line("www.netflix.com", T0 + 5 * 60),           # 00:05, too old
+                    line("www.netflix.com", T0 + 50 * 60),          # 00:50
+                    line("www.bbc.co.uk", T0 + HOUR + 5 * 60)])     # 01:05
+    snap = wiz().run_once(now=T0 + HOUR + 10 * 60)
+    assert snap["queries_1h"] == 2
+    rows = {t["service"]: t for t in snap["top"]}
+    assert rows["netflix.com"]["queries_1h"] == 1
+    assert rows["bbc.co.uk"]["queries_1h"] == 1
+
+
+def test_queries_adguard_holds_in_memory_are_counted_once(wiz):
+    now = T0 + HOUR + 10 * 60
+    write(wiz.log, [line("www.netflix.com", T0 + HOUR)])
+    memory = [api("www.bbc.co.uk", T0 + HOUR + 120), api("www.bbc.co.uk", T0 + HOUR + 60),
+              api("ghcr.io", T0 + HOUR + 50),            # the Pi's own
+              api("www.bbc.co.uk", T0 + HOUR + 40, "TXT"),  # not a kept type
+              api("www.netflix.com", T0 + HOUR)]         # already in the file
+    w = wiz()
+    snap = w.run_once(now=now, unflushed=memory)
+    assert snap["queries_1h"] == 3
+    assert snap["queries_24h"] == 3
+    assert {t["service"]: t["queries_1h"] for t in snap["top"]}["netflix.com"] == 1
+    # AdGuard flushes them: the file has them now, the API still lists them.
+    write(wiz.log, [line("www.bbc.co.uk", T0 + HOUR + 60), line("www.bbc.co.uk", T0 + HOUR + 120)])
+    snap = w.run_once(now=now + 60, unflushed=memory)
+    assert snap["queries_1h"] == 3
+    assert snap["queries_24h"] == 3
+    # Nothing from the API (AdGuard restarting): the file alone.
+    assert w.run_once(now=now + 120)["queries_1h"] == 3
+
+
+def test_memory_is_counted_when_the_current_log_is_still_empty(wiz):
+    # Right after a rotation the new file is empty: the old one's last line
+    # says what was flushed.
+    write(wiz.log, [line("www.netflix.com", T0 + HOUR)])
+    w = wiz()
+    w.run_once(now=T0 + HOUR + 60)
+    os.replace(wiz.log, str(wiz.log) + ".1")
+    write(wiz.log, [], mode="w")
+    memory = [api("www.bbc.co.uk", T0 + HOUR + 30), api("www.netflix.com", T0 + HOUR)]
+    assert w.run_once(now=T0 + HOUR + 120, unflushed=memory)["queries_1h"] == 2
