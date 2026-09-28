@@ -11,6 +11,19 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Grafana (Pro) downloaded plugins nobody uses at every start, and
+  logged an error doing it.** Grafana 13 preinstalls a list of plugins (Explore
+  Traces, Metrics Drilldown, Elasticsearch, Loki and others) from
+  grafana.com in the background each time it starts. No Smoking Pi
+  dashboard uses them. On the Pi that meant a download at every boot and
+  one `level=error msg="Failed to install plugin" pluginId=elasticsearch`
+  (permission denied on the bundled copy), seen on 2.13.8 and 2.14.0. The
+  image now sets `GF_PLUGINS_PREINSTALL_DISABLED=true`. The ClickHouse
+  plugin, the one the dashboards need, stays baked into the image. Apps
+  an earlier start already installed stay in Grafana's volume and keep
+  loading; they are harmless, and `docker exec pro-grafana-1 grafana cli
+  plugins remove <id>` removes one.
+
 - **`acceptance-record.sh` printed `<no tag>` on a package install.**
   `/opt/smoking-pi` is not a git checkout, so the record's first line said
   `<no tag> / <not a git checkout>` even with `--tag`, and the version had
