@@ -933,6 +933,274 @@
    ]
   },
   {
+   "id": 24,
+   "type": "row",
+   "title": "How fast the house's queries resolve (no names)",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 28
+   },
+   "panels": []
+  },
+  {
+   "id": 25,
+   "type": "timeseries",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "title": "Answers from upstream: resolution time (ms)",
+   "description": "Every query of the house that AdGuard had to ask an upstream resolver: the median of each 5-minute bucket over the band from its 10th to its 90th percentile, and the 99th percentile dashed. What the house waits for on a cache miss. Over long ranges each point averages several buckets' percentiles. Timings only: no name leaves the Pi for this.",
+   "gridPos": {
+    "h": 8,
+    "w": 16,
+    "x": 0,
+    "y": 29
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolution\" and r.path == \"upstreams\" and (r._field == \"p10\" or r._field == \"p50\" or r._field == \"p90\" or r._field == \"p99\")) |> map(fn: (r) => ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"_field\"]) |> group(columns: [\"_field\"])"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "min": 0,
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 0,
+      "spanNulls": false
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "p50"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Median"
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 2
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "green"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "p90"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "p90"
+       },
+       {
+        "id": "custom.fillBelowTo",
+        "value": "p10"
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 25
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 0
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8AB8FF"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "p10"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "p10"
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 0
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8AB8FF"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "p99"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "p99"
+       },
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          10,
+          10
+         ]
+        }
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 26,
+   "type": "timeseries",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "title": "Answered from AdGuard's cache (%)",
+   "description": "The share of the house's queries AdGuard answered from its own cache, in well under a millisecond, instead of asking upstream.",
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 16,
+    "y": 29
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolution\" and r._field == \"count\" and (r.path == \"cache\" or r.path == \"upstreams\")) |> aggregateWindow(every: v.windowPeriod, fn: sum, createEmpty: false) |> pivot(rowKey: [\"_time\"], columnKey: [\"path\"], valueColumn: \"_value\") |> map(fn: (r) => ({ _time: r._time, _field: \"cache\", _value: 100.0 * float(v: if exists r.cache then r.cache else 0) / float(v: (if exists r.cache then r.cache else 0) + (if exists r.upstreams then r.upstreams else 0)) })) |> group(columns: [\"_field\"])"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "max": 100,
+     "displayName": "from cache",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 15
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "single",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 27,
+   "type": "timeseries",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "title": "Median resolution time by upstream (ms)",
+   "description": "The same cache misses, one line per upstream resolver that answered them (DNS_UPSTREAMS). One line creeping up while the others hold is that resolver, not the network.",
+   "gridPos": {
+    "h": 7,
+    "w": 24,
+    "x": 0,
+    "y": 37
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolution\" and r._field == \"p50\" and r.path != \"cache\" and r.path != \"upstreams\") |> map(fn: (r) => ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"path\"]) |> group(columns: [\"path\"])"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "min": 0,
+     "displayName": "${__field.labels.path}",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
    "id": 18,
    "type": "row",
    "title": "Measured services: what the wizard adopted (category dns_wizard)",
@@ -941,7 +1209,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 28
+    "y": 44
    },
    "panels": []
   },
@@ -958,7 +1226,7 @@
     "h": 8,
     "w": 24,
     "x": 0,
-    "y": 29
+    "y": 45
    },
    "options": {
     "legend": {
@@ -1005,7 +1273,7 @@
     "h": 14,
     "w": 12,
     "x": 0,
-    "y": 37
+    "y": 53
    },
    "options": {
     "showHeader": true,
@@ -1102,7 +1370,7 @@
     "h": 14,
     "w": 12,
     "x": 12,
-    "y": 37
+    "y": 53
    },
    "options": {
     "showHeader": true,
@@ -1195,7 +1463,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 51
+    "y": 67
    },
    "panels": []
   },
@@ -1212,7 +1480,7 @@
     "h": 14,
     "w": 24,
     "x": 0,
-    "y": 52
+    "y": 68
    },
    "options": {
     "showHeader": true,

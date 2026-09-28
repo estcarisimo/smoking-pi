@@ -37,6 +37,7 @@ import re
 from functools import lru_cache
 import time
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 
 import dns.exception
@@ -67,6 +68,59 @@ OWN_TRAFFIC = (
     "piwheels.org", "grafana.com", "grafana.org",
     "whoami.akamai.net", "myaddr.l.google.com",
 )
+
+# How long the house's queries take to resolve (AdGuard's "Elapsed", in
+# nanoseconds), kept as a histogram per 5-minute bucket and per path -- the
+# cache, or the upstream that answered -- so a busy house costs a few
+# kilobytes of state and the percentiles are exact to a bin. Bins are
+# log-spaced: 20 % wide from 10 us to 10 s, which is finer than anything a
+# person can feel and coarse enough to stay small.
+RES_BUCKET = 300
+RES_KEEP = 6 * 3600       # buckets kept in the state file
+RES_PUBLISH = 2 * 3600    # complete buckets the snapshot carries (the exporter rewrites them)
+RES_BIN0_MS = 0.01
+RES_RATIO = 1.2
+RES_BINS = 77             # RES_BIN0_MS * RES_RATIO**76 ~ 10 s; slower goes in the last bin
+RES_QUANTILES = (10, 25, 50, 75, 90, 99)
+
+
+def res_bin(ms: float) -> int:
+    if ms <= RES_BIN0_MS:
+        return 0
+    return min(RES_BINS - 1, int(math.log(ms / RES_BIN0_MS) / math.log(RES_RATIO)))
+
+
+def res_value(b: int) -> float:
+    """A bin's value in ms: its geometric center."""
+    return RES_BIN0_MS * RES_RATIO ** (b + 0.5)
+
+
+def res_quantiles(hist: dict[str, int]) -> dict:
+    """``count`` and ``p10`` ... ``p99`` (ms) from a sparse histogram."""
+    bins = sorted((int(b), n) for b, n in hist.items() if n > 0)
+    total = sum(n for _, n in bins)
+    out: dict = {"count": total}
+    if not total:
+        return out
+    for q in RES_QUANTILES:
+        rank, seen = q / 100 * total, 0
+        for b, n in bins:
+            seen += n
+            if seen >= rank:
+                out[f"p{q}"] = round(res_value(b), 3)
+                break
+    return out
+
+
+def res_path(entry: dict) -> str:
+    """``cache`` for an answer from AdGuard's cache, else the host of the
+    upstream that answered (``local`` when AdGuard answered by itself)."""
+    if entry.get("Cached"):
+        return "cache"
+    upstream = str(entry.get("Upstream") or "")
+    host = urlsplit(upstream).hostname if "://" in upstream else upstream.rsplit(":", 1)[0]
+    return host or "local"
+
 
 _psl = PublicSuffixList()
 _psl_icann = PublicSuffixList(only_icann=True)
@@ -334,6 +388,8 @@ class State:
     owners: dict[str, list[str]] = field(default_factory=dict)
     # day (YYYY-MM-DD, local) -> the top-10 services at that day's last pass
     top_by_day: dict[str, list[str]] = field(default_factory=dict)
+    # 5-minute bucket start (epoch) -> path -> {bin: count}: resolution times
+    res: dict[str, dict[str, dict[str, int]]] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: str) -> State:
@@ -438,6 +494,12 @@ class Wizard:
                 continue
             counts = st.hours.setdefault(hour, {}).setdefault(svc, [0, 0])
             counts[0] += 1
+            elapsed = e.get("Elapsed")
+            if isinstance(elapsed, (int, float)) and elapsed > 0:
+                bucket = str(int(ts // RES_BUCKET) * RES_BUCKET)
+                hist = st.res.setdefault(bucket, {}).setdefault(res_path(e), {})
+                b = str(res_bin(elapsed / 1e6))
+                hist[b] = hist.get(b, 0) + 1
             if not e.get("Cached", False):
                 counts[1] += 1
             kept += 1
@@ -469,6 +531,8 @@ class Wizard:
                 meta["hosts"] = dict(sorted(hosts.items(), key=lambda kv: -kv[1])[:20])
         for day in sorted(st.top_by_day)[:-8]:
             del st.top_by_day[day]
+        for bucket in [b for b in st.res if int(b) < now - RES_KEEP]:
+            del st.res[bucket]
         # Network owners: only for the addresses still in use.
         prefixes = {Owners.prefix(m["addr"]) for m in st.meta.values() if m.get("addr")}
         for net in [n for n in self.owners.cache if n not in prefixes]:
@@ -588,7 +652,30 @@ class Wizard:
                       jaccard(set(top10), set(yesterday)) if yesterday is not None else None},
             "top": top,
             "selection": selection,
+            "resolution": self.resolution(now),
         }
+
+    def resolution(self, now: float) -> list[dict]:
+        """The complete 5-minute buckets of the last two hours: per path
+        (``cache``, each upstream) and for every upstream together (``upstreams``),
+        how many queries and their p10 ... p99 in ms. The bucket still
+        filling is left out: its percentiles would move under the reader."""
+        current = int(now // RES_BUCKET) * RES_BUCKET
+        out = []
+        for bucket in sorted(self.state.res, key=int):
+            start = int(bucket)
+            if start >= current or start < now - RES_PUBLISH:
+                continue
+            per = self.state.res[bucket]
+            upstream_all: dict[str, int] = {}
+            for path, hist in sorted(per.items()):
+                out.append({"t": start, "path": path, **res_quantiles(hist)})
+                if path != "cache":
+                    for b, n in hist.items():
+                        upstream_all[b] = upstream_all.get(b, 0) + n
+            if upstream_all:
+                out.append({"t": start, "path": "upstreams", **res_quantiles(upstream_all)})
+        return out
 
     def run_once(self, now: float | None = None) -> dict:
         now = now or time.time()

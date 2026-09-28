@@ -83,3 +83,35 @@ def test_missing_or_broken_snapshot(tmp_path):
     good = tmp_path / "wizard.json"
     good.write_text(json.dumps(SNAP))
     assert dns_wizard.read_snapshot(good)["queries_24h"] == 4832
+
+
+RES = [
+    {"t": 1790380500, "path": "cache", "count": 40, "p10": 0.05, "p25": 0.06, "p50": 0.08,
+     "p75": 0.1, "p90": 0.12, "p99": 0.3},
+    {"t": 1790380500, "path": "dns.cloudflare.com", "count": 12, "p10": 11.0, "p25": 13.2,
+     "p50": 18.9, "p75": 27.1, "p90": 39.0, "p99": 112.0},
+    {"t": 1790380500, "path": "upstreams", "count": 12, "p10": 11.0, "p50": 18.9, "p99": 112.0},
+    {"t": 1790380500, "path": "8.8.8.8", "count": 0},  # nothing to write
+    {"path": "broken", "count": 3},                     # no time: skipped
+]
+
+
+def test_resolution_points_per_bucket_and_path_in_seconds_names_or_not():
+    snap = dict(SNAP, resolution=RES)
+    for names in (False, True):
+        points = [p for p in dns_wizard.points_for(snap, names=names)
+                  if p.to_line_protocol().startswith("dns_resolution")]
+        assert [tags(p)["path"] for p in points] == ["cache", "dns.cloudflare.com", "upstreams"]
+    cf = points[1]
+    f = fields(cf)
+    assert f["count"] == 12
+    assert f["p50"] == 18.9 / 1000.0 and f["p99"] == 0.112
+    # The bucket's own time, not the snapshot's: a bucket rewritten by the
+    # next snapshot lands on the same point.
+    assert cf._time == 1790380500
+    # A quantile the observer left out is not written as zero.
+    assert "p25" not in fields(points[2])
+
+
+def test_no_resolution_section_writes_nothing_more():
+    assert dns_wizard.resolution_points(SNAP) == []

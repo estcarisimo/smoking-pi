@@ -11,6 +11,18 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **How fast the house's DNS queries resolve.** The resolver probes time
+  one query SmokePing sends every few minutes. How long the house's own
+  queries take, which is what people wait for, was in AdGuard's log and
+  went unused. The DNS wizard now keeps each query's resolution time as a
+  histogram per 5-minute bucket and per path: `cache`, each upstream,
+  `upstreams` together. It exports the count and the 10th–99th percentiles
+  as `dns_resolution` (seconds, timings only, no names). The DNS Wizard
+  dashboard gains a row: upstream answers as a median over a p10–p90 band
+  with p99, the share answered from cache, and the median per upstream.
+  The doctor now also understands a `pivot` over a tag (`path`), not only
+  over `_field`. `docs/dns-observer.md`.
+
 - **Smoking Pi announces itself on the local network.** Finding the Pi
   meant remembering its IP address, or its `.local` name if you knew the
   hostname. When Avahi runs (Raspberry Pi OS runs it), `install`, `up` and

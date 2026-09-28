@@ -313,3 +313,86 @@ def test_snapshot_selects_by_volume_until_presence_means_something(wiz):
     assert [s["service"] for s in sel["services"]][0] == "big.org"
     assert sel["skipped_no_host"] == 1
     assert all(s["host"] for s in sel["services"])
+
+
+# -- resolution times ----------------------------------------------------------
+
+
+def timed(name, ts, elapsed_ms, upstream="https://dns.cloudflare.com/dns-query", cached=False):
+    e = json.loads(line(name, ts, cached=cached))
+    e["Elapsed"] = int(elapsed_ms * 1e6)  # AdGuard writes nanoseconds
+    e["Upstream"] = upstream
+    return json.dumps(e)
+
+
+@pytest.mark.parametrize("ms", [0.05, 0.1, 1.0, 12.3, 250.0, 4000.0])
+def test_a_bin_holds_its_value_within_ten_percent(ms):
+    assert abs(wizard.res_value(wizard.res_bin(ms)) / ms - 1) < 0.1
+
+
+def test_bins_clamp_at_both_ends():
+    assert wizard.res_bin(0) == 0
+    assert wizard.res_bin(10 ** 6) == wizard.RES_BINS - 1
+
+
+def test_quantiles_of_a_known_distribution():
+    hist = {}
+    for ms in range(1, 101):
+        b = str(wizard.res_bin(float(ms)))
+        hist[b] = hist.get(b, 0) + 1
+    q = wizard.res_quantiles(hist)
+    assert q["count"] == 100
+    for p, expected in ((10, 10), (50, 50), (90, 90), (99, 99)):
+        assert abs(q[f"p{p}"] / expected - 1) < 0.15, (p, q[f"p{p}"])
+    assert q["p10"] <= q["p25"] <= q["p50"] <= q["p75"] <= q["p90"] <= q["p99"]
+    assert wizard.res_quantiles({}) == {"count": 0}
+
+
+@pytest.mark.parametrize("entry, path", [
+    ({"Cached": True, "Upstream": "https://8.8.8.8:443/dns-query"}, "cache"),
+    ({"Upstream": "https://dns.cloudflare.com/dns-query"}, "dns.cloudflare.com"),
+    ({"Upstream": "https://8.8.8.8:443/dns-query"}, "8.8.8.8"),
+    ({"Upstream": "tls://dns.quad9.net"}, "dns.quad9.net"),
+    ({"Upstream": "1.1.1.1:53"}, "1.1.1.1"),
+    ({"Upstream": ""}, "local"),
+    ({}, "local"),
+])
+def test_the_path_of_an_answer(entry, path):
+    assert wizard.res_path(entry) == path
+
+
+def test_resolution_times_of_the_house_per_path_complete_buckets_only(wiz):
+    w = wiz()
+    lines = [timed("www.example-shop.test.com", T0 + 10 + i, 20.0 + i) for i in range(10)]
+    lines += [timed("api.example-video.net", T0 + 30, 0.1, cached=True) for _ in range(5)]
+    lines += [timed("cdn.example-news.org", T0 + 40, 80.0, upstream="https://8.8.8.8:443/dns-query")]
+    # The Pi's own lookups are not the house's, and do not count.
+    lines += [timed("x.canary.smoking-pi.home.arpa", T0 + 50, 9999.0)]
+    # A line without Elapsed is counted as a query but has no time.
+    lines += [line("www.example-shop.test.com", T0 + 60)]
+    # The bucket still filling at snapshot time is not published.
+    lines += [timed("www.example-shop.test.com", T0 + 610, 5.0)]
+    write(wiz.log, lines)
+    snap = w.run_once(now=T0 + 700)
+    rows = {r["path"]: r for r in snap["resolution"]}
+    assert {r["t"] for r in snap["resolution"]} == {T0}
+    assert set(rows) == {"cache", "dns.cloudflare.com", "8.8.8.8", "upstreams"}
+    assert rows["cache"]["count"] == 5 and rows["cache"]["p50"] < 0.2
+    assert rows["dns.cloudflare.com"]["count"] == 10
+    assert 20 <= rows["dns.cloudflare.com"]["p50"] <= 26
+    assert rows["8.8.8.8"]["count"] == 1
+    # Every upstream together, never the cache: 11 answers.
+    assert rows["upstreams"]["count"] == 11
+    assert all(r["p99"] < 9000 for r in snap["resolution"])
+    # The state keeps the histograms across a restart.
+    again = wiz()
+    assert again.state.res and again.resolution(T0 + 700) == snap["resolution"]
+
+
+def test_old_resolution_buckets_are_pruned(wiz):
+    w = wiz()
+    write(wiz.log, [timed("www.example-shop.test.com", T0 + 10, 20.0)])
+    w.run_once(now=T0 + 700)
+    assert str(T0) in w.state.res
+    w.run_once(now=T0 + wizard.RES_KEEP + 700)
+    assert str(T0) not in w.state.res
