@@ -11,16 +11,6 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
-- **DNS resolution times from a quiet network were never published.**
-  AdGuard writes its query log in batches of 1,000 queries, and the
-  observer published only the last two hours of buckets. On a quiet
-  network, or at night, a bucket's queries could reach the disk after that
-  and never be exported (seen on a test Pi during the 2.15.0 candidate).
-  Every bucket the observer keeps (six hours) is now published, and
-  rewritten as its queries arrive.
-
-### Fixed
-
 - **`smoking-pi openclaw` could not register with a current OpenClaw.** It
   handed `openclaw mcp set` the timeouts as `connectTimeout`/`timeout`
   (seconds), aliases OpenClaw has since retired: 2026.8 refuses the whole
@@ -33,6 +23,16 @@ version gets a matching GitHub release and git tag.
   `docs/openclaw-integration.md` and `docs/remote-openclaw.md`. Checked
   against OpenClaw 2026.8.1: the old spec is refused with that message and
   the new one is saved.
+
+- **DNS resolution times read late were dropped.** AdGuard writes its
+  query log in batches of 1,000 queries, and the observer published only
+  the last two hours of 5-minute buckets. On a quiet network, or at night,
+  a bucket's queries could reach the disk after that and were kept but
+  never exported (seen on a test Pi during the 2.15.0 candidate). Every
+  bucket the observer keeps, six hours, is now published and rewritten as
+  its queries arrive. Queries read more than six hours late are still left
+  out, and the observer logs how many. The same batching makes "Queries
+  (last hour)" read low on a quiet network; that is not changed.
 
 ## [2.15.0] — 2026-09-28
 

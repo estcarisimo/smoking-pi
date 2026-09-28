@@ -430,7 +430,12 @@ per-upstream panel, since no resolver was asked.
 AdGuard writes its query log to disk in batches of 1,000 queries, so on a
 quiet network the times show up late, sometimes hours after the queries.
 A bucket is published as long as the observer keeps it (six hours), and
-rewritten as more of its queries arrive.
+rewritten as more of its queries arrive, so its percentiles can move for a
+while. Queries read more than six hours late are left out, and the
+observer's log says how many. The same batching makes *Queries (last hour)*
+read low on a quiet network. A smaller batch would show everything sooner,
+at the cost of more frequent writes to the Pi's SD card, so the observer
+leaves AdGuard's default.
 
 Each exported value is the percentile of one 5-minute bucket. Over a
 range wider than that, the panels average the buckets' percentiles,

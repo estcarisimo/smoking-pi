@@ -77,12 +77,11 @@ OWN_TRAFFIC = (
 # person can feel and coarse enough to stay small.
 RES_BUCKET = 300
 RES_KEEP = 6 * 3600       # buckets kept in the state file
-# Complete buckets the snapshot carries; the exporter rewrites them, so a
-# bucket that grows later lands on the same point. As long as the state
-# keeps them: AdGuard writes its log in batches (querylog.size_memory,
-# 1000 queries), so on a quiet network a bucket's queries reach the disk,
-# and this pass, hours after the bucket closed. A shorter window dropped
-# those buckets for good (seen on a quiet test Pi).
+# Complete buckets the snapshot carries: all the state keeps. AdGuard
+# writes its log in batches (querylog.size_memory, 1000 queries), so on a
+# quiet network a bucket's queries reach this pass hours after it closed;
+# the exporter rewrites the bucket's point as they arrive. A two-hour
+# window dropped such buckets (seen on a quiet test Pi).
 RES_PUBLISH = RES_KEEP
 RES_BIN0_MS = 0.01
 RES_RATIO = 1.2
@@ -436,6 +435,8 @@ class Wizard:
         self.top = top
         self.score, self.coverage, self.floor, self.max_k = score, coverage, floor, max_k
         self.state = State.load(self.state_path)
+        self.res_too_late = 0
+        self.now = time.time()
         self.owners = owners or Owners(self.state.owners)
 
     # -- reading ---------------------------------------------------------------
@@ -510,6 +511,11 @@ class Wizard:
             counts[0] += 1
             elapsed = e.get("Elapsed")
             if (isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
+                    and math.isfinite(elapsed) and elapsed > 0
+                    and ts < self.now - RES_KEEP):
+                # Older than the buckets kept: prune would drop it at once.
+                self.res_too_late += 1
+            elif (isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
                     and math.isfinite(elapsed) and elapsed > 0):
                 bucket = str(int(ts // RES_BUCKET) * RES_BUCKET)
                 hist = st.res.setdefault(bucket, {}).setdefault(res_path(e), {})
@@ -698,8 +704,13 @@ class Wizard:
 
     def run_once(self, now: float | None = None) -> dict:
         now = now or time.time()
+        self.now = now
         self.measured = measured_hosts(self.targets_path)  # adoption adds to it
+        self.res_too_late = 0
         kept = self.ingest_new()
+        if self.res_too_late:
+            log.info("DNS wizard: %d query times reached the log more than %d h late; "
+                     "not in the resolution times", self.res_too_late, RES_KEEP // 3600)
         self.prune(now)
         snap = self.snapshot(now)
         self.state.save(self.state_path)

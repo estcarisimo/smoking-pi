@@ -411,12 +411,25 @@ def test_old_resolution_buckets_are_pruned(wiz):
     assert str(T0) not in w.state.res
 
 
-def test_a_bucket_whose_queries_reach_the_disk_late_is_still_published(wiz):
+def test_a_bucket_whose_queries_reach_the_disk_late_is_still_published(wiz, caplog):
     # AdGuard flushes its log every 1000 queries: on a quiet network a
-    # bucket's lines can be read hours after it closed.
+    # bucket's lines can be read hours after it closed. Five hours: past the
+    # old two-hour window, inside the six the state keeps.
     w = wiz()
     w.run_once(now=T0 + 5 * HOUR)
     write(wiz.log, [timed("www.example-shop.test.com", T0 + 10, 20.0)])
     snap = w.run_once(now=T0 + 5 * HOUR)
-    assert [(r["t"], r["path"]) for r in snap["resolution"]] == [
-        (T0, "dns.cloudflare.com"), (T0, "upstreams")]
+    rows = {(r["t"], r["path"]): r for r in snap["resolution"]}
+    assert set(rows) == {(T0, "dns.cloudflare.com"), (T0, "upstreams")}
+    assert rows[(T0, "upstreams")]["count"] == 1
+    # More of the same bucket, later still: the same bucket grows.
+    write(wiz.log, [timed("www.example-shop.test.com", T0 + 20, 30.0)])
+    snap = w.run_once(now=T0 + 5 * HOUR + 600)
+    rows = {(r["t"], r["path"]): r for r in snap["resolution"]}
+    assert rows[(T0, "upstreams")]["count"] == 2
+    # Past what the state keeps: not published, and said in the log.
+    write(wiz.log, [timed("www.example-shop.test.com", T0 + 30, 40.0)])
+    with caplog.at_level("INFO"):
+        snap = w.run_once(now=T0 + wizard.RES_KEEP + 600)
+    assert not any(r["t"] == T0 for r in snap["resolution"])
+    assert "1 query times reached the log more than 6 h late" in caplog.text
