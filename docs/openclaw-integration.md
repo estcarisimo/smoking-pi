@@ -32,6 +32,14 @@ which asks the agent a question and reads the MCP server's log — not the
 answer. See [Verify with evidence](#verify-with-evidence-not-with-the-answer)
 for why that distinction is the whole point.
 
+On a package install, run both with `sudo`: the env file is root's. The
+OpenClaw steps still run as you, the user who ran `sudo`, because the
+gateway, its `~/.openclaw` and usually its `openclaw` command (under
+`~/.nvm`, which `sudo` drops from PATH) are yours. The command looks for
+`openclaw` on PATH, then in nvm's default Node version, then in
+`~/.local/bin`, `~/.npm-global/bin`, `~/.volta/bin` and `~/.bun/bin`, and
+says which one it used.
+
 The rest of this page is what those steps do, which is worth reading when
 something does not work, and is the only path if OpenClaw is on another
 machine ([remote-openclaw.md](remote-openclaw.md) first, then section 1 by

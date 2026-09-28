@@ -553,8 +553,10 @@ stub_openclaw() {
     # A PATH with no openclaw on it at all. Deleting the stub is not enough:
     # the developer's own machine may have the real one installed, and then
     # this test would take the opposite branch and pass only on CI.
+    # Same for HOME: the command also looks under ~/.nvm and ~/.local/bin.
     rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
     export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    export HOME="$BATS_TEST_TMPDIR/nobody"
     run "$CLI" openclaw
     # Not an error: the stack measures without an assistant.
     [ "$status" -eq 0 ]
@@ -589,6 +591,93 @@ stub_openclaw() {
     grep -qx 'MCP_API_TOKEN=keepme' "$SMOKING_PI_ENV_FILE"
     grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
     [[ "$output" == *"already set"* ]]
+}
+
+# nvm puts openclaw under ~/.nvm, off any PATH a script or sudo sees.
+# An nvm openclaw that logs which version ran, for the two tests below.
+stub_nvm_openclaw() {
+    local d="$1/.nvm/versions/node/$2/bin"
+    mkdir -p "$d"
+    printf '#!/bin/sh\necho "nvm-%s openclaw $*" >> "%s"\n' "$2" "$DOCKER_LOG" > "$d/openclaw"
+    chmod +x "$d/openclaw"
+}
+
+@test "openclaw finds nvm's default version when PATH has none" {
+    stub_openclaw
+    rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    export HOME="$BATS_TEST_TMPDIR/user"
+    stub_nvm_openclaw "$HOME" v22.22.0
+    stub_nvm_openclaw "$HOME" v24.2.0
+    stub_nvm_openclaw "$HOME" v24.18.0
+    stub_nvm_openclaw "$HOME" v25.9.0
+    mkdir -p "$HOME/.nvm/alias"
+    printf '24\n' > "$HOME/.nvm/alias/default"
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    # The newest 24, not the newest overall: 24 is what nvm runs.
+    grep -q 'nvm-v24.18.0 openclaw mcp set smokeping' "$DOCKER_LOG"
+    ! grep -q 'nvm-v25' "$DOCKER_LOG"
+}
+
+@test "openclaw reads nvm's default alias as a version, not a prefix" {
+    stub_openclaw
+    rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    export HOME="$BATS_TEST_TMPDIR/user"
+    stub_nvm_openclaw "$HOME" v2.0.0
+    stub_nvm_openclaw "$HOME" v24.18.0
+    mkdir -p "$HOME/.nvm/alias"
+    printf '2\n' > "$HOME/.nvm/alias/default"
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    # `2` is v2.*, which v24 is not.
+    grep -q 'nvm-v2.0.0 openclaw mcp set smokeping' "$DOCKER_LOG"
+    printf 'v24.18.0\n' > "$HOME/.nvm/alias/default"
+    : > "$DOCKER_LOG"
+    run "$CLI" openclaw
+    grep -q 'nvm-v24.18.0 openclaw mcp set smokeping' "$DOCKER_LOG"
+}
+
+# A packaged install needs sudo to read /etc/smoking-pi/env. OpenClaw is
+# still the user's: run as root, `mcp set` writes /root/.openclaw, which
+# no gateway reads, and sudo's secure_path hides nvm's openclaw anyway.
+@test "openclaw under sudo registers as the user who ran sudo" {
+    stub_openclaw
+    rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    local home="$BATS_TEST_TMPDIR/alice"
+    stub_nvm_openclaw "$home" v24.18.0
+    export SUDO_USER=alice HOME="$BATS_TEST_TMPDIR/root"
+    # root, and alice is uid 1000 with that home.
+    printf '#!/bin/sh\n[ "$1" = -u ] && [ -n "$2" ] && { echo 1000; exit 0; }\n[ "$1" = -u ] && { echo 0; exit 0; }\necho root\n' \
+        > "$BATS_TEST_TMPDIR/bin/id"
+    printf '#!/bin/sh\necho "alice:x:1000:1000::%s:/bin/bash"\n' "$home" > "$BATS_TEST_TMPDIR/bin/getent"
+    # sudo logs its whole command line, as the real one does to the
+    # journal, then runs the command. chown has no alice to give files to.
+    printf '#!/bin/sh\necho "SUDO $*" >> "%s"\nshift 3\nexec "$@"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/sudo"
+    printf '#!/bin/sh\necho "CHOWN $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/chown"
+    chmod +x "$BATS_TEST_TMPDIR/bin/id" "$BATS_TEST_TMPDIR/bin/getent" \
+             "$BATS_TEST_TMPDIR/bin/sudo" "$BATS_TEST_TMPDIR/bin/chown"
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nMCP_API_TOKEN=s3cr3ttoken\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"as alice"* ]]
+    # alice's nvm bin first on PATH, and her session bus for systemctl --user.
+    grep -q "SUDO -u alice -H env PATH=$home/.nvm/versions/node/v24.18.0/bin:" "$DOCKER_LOG"
+    grep -q 'XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus' "$DOCKER_LOG"
+    # The token reached openclaw, but never sudo's (logged) command line;
+    # the file that carried it was alice's and is gone.
+    # The JSON spans lines, so count: openclaw's own log line holds it once;
+    # through sudo's argv it would show up twice.
+    grep -q 'nvm-v24.18.0 openclaw mcp set smokeping' "$DOCKER_LOG"
+    [ "$(grep -c '"Authorization": "Bearer s3cr3ttoken"' "$DOCKER_LOG")" -eq 1 ]
+    grep -q '^CHOWN alice ' "$DOCKER_LOG"
+    [ ! -e "$(sed -n 's/^CHOWN alice //p' "$DOCKER_LOG")" ]
+    grep -q 'nvm-v24.18.0 openclaw mcp set smokeping' "$DOCKER_LOG"
+    # The skill goes into alice's ~/.openclaw too, not root's.
+    [ "$(grep -c 'SUDO -u alice -H' "$DOCKER_LOG")" -eq 2 ]
+    grep -q 'SKILL --reload' "$DOCKER_LOG"
 }
 
 # The trap the whole verification exists for: the agent answers fluently
