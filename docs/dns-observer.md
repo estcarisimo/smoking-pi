@@ -423,8 +423,19 @@ Wizard dashboard's *How fast the house's queries resolve* row shows:
 - the median per upstream, so one resolver slowing down stands out from the
   network.
 
+Queries AdGuard answers by itself (blocked or rewritten) have the path
+`local`: they are exported but kept out of `upstreams` and of the
+per-upstream panel, since no resolver was asked.
+
+Each exported value is the percentile of one 5-minute bucket. Over a
+range wider than that, the panels average the buckets' percentiles,
+unweighted: close, but not the percentile of the whole period. A quiet
+bucket has few values, and under 100 queries its p99 is simply its slowest
+one.
+
 These are timings only. No name leaves the Pi for them, whatever
-`DNS_EXPORT_NAMES` says.
+`DNS_EXPORT_NAMES` says. Like the rest of the DNS Wizard dashboard, the row
+needs InfluxDB.
 
 For deeper analysis, `tools/dns-explore` (in the repository) reads the same
 log offline. It compares five aggregation levels, three scores and several

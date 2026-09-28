@@ -953,7 +953,7 @@
     "uid": "influxdb"
    },
    "title": "Answers from upstream: resolution time (ms)",
-   "description": "Every query of the house that AdGuard had to ask an upstream resolver: the median of each 5-minute bucket over the band from its 10th to its 90th percentile, and the 99th percentile dashed. What the house waits for on a cache miss. Over long ranges each point averages several buckets' percentiles. Timings only: no name leaves the Pi for this.",
+   "description": "Every query of the house that AdGuard had to ask an upstream resolver: the median of each 5-minute bucket over the band from its 10th to its 90th percentile, and the 99th percentile dashed. What the house waits for on a cache miss. Timings only: no name leaves the Pi for this. Each point is the percentile of a 5-minute bucket; a wider range averages several buckets' percentiles, unweighted, which is close but not the percentile of the whole period. A bucket with few queries has few values: under 100, its p99 is its slowest query.",
    "gridPos": {
     "h": 8,
     "w": 16,
@@ -1159,7 +1159,7 @@
     "uid": "influxdb"
    },
    "title": "Median resolution time by upstream (ms)",
-   "description": "The same cache misses, one line per upstream resolver that answered them (DNS_UPSTREAMS). One line creeping up while the others hold is that resolver, not the network.",
+   "description": "The same cache misses, one line per upstream resolver that answered them (DNS_UPSTREAMS). One line creeping up while the others hold is that resolver, not the network. AdGuard's own answers (blocked or rewritten queries, path \"local\") are left out: no resolver was asked. Each point is the percentile of a 5-minute bucket; a wider range averages several buckets' percentiles, unweighted, which is close but not the percentile of the whole period. A bucket with few queries has few values: under 100, its p99 is its slowest query.",
    "gridPos": {
     "h": 7,
     "w": 24,
@@ -1173,7 +1173,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolution\" and r._field == \"p50\" and r.path != \"cache\" and r.path != \"upstreams\") |> map(fn: (r) => ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"path\"]) |> group(columns: [\"path\"])"
+     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolution\" and r._field == \"p50\" and r.path != \"cache\" and r.path != \"local\" and r.path != \"upstreams\") |> map(fn: (r) => ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"path\"]) |> group(columns: [\"path\"])"
     }
    ],
    "fieldConfig": {

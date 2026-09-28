@@ -354,6 +354,10 @@ def test_quantiles_of_a_known_distribution():
     ({"Upstream": "https://8.8.8.8:443/dns-query"}, "8.8.8.8"),
     ({"Upstream": "tls://dns.quad9.net"}, "dns.quad9.net"),
     ({"Upstream": "1.1.1.1:53"}, "1.1.1.1"),
+    # One IPv6 resolver, one name, however it is written.
+    ({"Upstream": "2606:4700::1111"}, "2606:4700::1111"),
+    ({"Upstream": "[2606:4700::1111]:53"}, "2606:4700::1111"),
+    ({"Upstream": "https://[2606:4700::1111]:443/dns-query"}, "2606:4700::1111"),
     ({"Upstream": ""}, "local"),
     ({}, "local"),
 ])
@@ -368,15 +372,24 @@ def test_resolution_times_of_the_house_per_path_complete_buckets_only(wiz):
     lines += [timed("cdn.example-news.org", T0 + 40, 80.0, upstream="https://8.8.8.8:443/dns-query")]
     # The Pi's own lookups are not the house's, and do not count.
     lines += [timed("x.canary.smoking-pi.home.arpa", T0 + 50, 9999.0)]
-    # A line without Elapsed is counted as a query but has no time.
+    # A line without Elapsed is counted as a query but has no time; nor has
+    # an impossible one (a corrupt line must not end the pass).
     lines += [line("www.example-shop.test.com", T0 + 60)]
+    broken = json.loads(line("www.example-shop.test.com", T0 + 61))
+    broken["Elapsed"] = float("inf")
+    lines += [json.dumps(broken).replace("Infinity", "1e999")]
+    broken["Elapsed"] = True
+    lines += [json.dumps(broken)]
+    # AdGuard's own answers (blocked, rewritten) are "local", never upstream.
+    lines += [timed("ads.example-tracker.net", T0 + 70, 0.02, upstream="")]
     # The bucket still filling at snapshot time is not published.
     lines += [timed("www.example-shop.test.com", T0 + 610, 5.0)]
     write(wiz.log, lines)
     snap = w.run_once(now=T0 + 700)
     rows = {r["path"]: r for r in snap["resolution"]}
     assert {r["t"] for r in snap["resolution"]} == {T0}
-    assert set(rows) == {"cache", "dns.cloudflare.com", "8.8.8.8", "upstreams"}
+    assert set(rows) == {"cache", "dns.cloudflare.com", "8.8.8.8", "local", "upstreams"}
+    assert rows["local"]["count"] == 1
     assert rows["cache"]["count"] == 5 and rows["cache"]["p50"] < 0.2
     assert rows["dns.cloudflare.com"]["count"] == 10
     assert 20 <= rows["dns.cloudflare.com"]["p50"] <= 26

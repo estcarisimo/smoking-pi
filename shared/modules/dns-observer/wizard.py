@@ -118,7 +118,15 @@ def res_path(entry: dict) -> str:
     if entry.get("Cached"):
         return "cache"
     upstream = str(entry.get("Upstream") or "")
-    host = urlsplit(upstream).hostname if "://" in upstream else upstream.rsplit(":", 1)[0]
+    # "host:port", "[v6]:port" and a bare v6 address have no scheme; "//"
+    # makes urlsplit read them as an authority, so one resolver gets one
+    # name whichever way it was written.
+    if "://" not in upstream and not upstream.startswith("[") and upstream.count(":") >= 2:
+        return upstream.lower()  # a bare IPv6 address: its colons are not a port
+    try:
+        host = urlsplit(upstream if "://" in upstream else "//" + upstream).hostname
+    except ValueError:
+        host = None
     return host or "local"
 
 
@@ -495,7 +503,8 @@ class Wizard:
             counts = st.hours.setdefault(hour, {}).setdefault(svc, [0, 0])
             counts[0] += 1
             elapsed = e.get("Elapsed")
-            if isinstance(elapsed, (int, float)) and elapsed > 0:
+            if (isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
+                    and math.isfinite(elapsed) and elapsed > 0):
                 bucket = str(int(ts // RES_BUCKET) * RES_BUCKET)
                 hist = st.res.setdefault(bucket, {}).setdefault(res_path(e), {})
                 b = str(res_bin(elapsed / 1e6))
@@ -657,7 +666,8 @@ class Wizard:
 
     def resolution(self, now: float) -> list[dict]:
         """The complete 5-minute buckets of the last two hours: per path
-        (``cache``, each upstream) and for every upstream together (``upstreams``),
+        (``cache``, each upstream, ``local`` for AdGuard's own answers) and
+        for every upstream together (``upstreams``, neither cache nor local),
         how many queries and their p10 ... p99 in ms. The bucket still
         filling is left out: its percentiles would move under the reader."""
         current = int(now // RES_BUCKET) * RES_BUCKET
@@ -670,7 +680,10 @@ class Wizard:
             upstream_all: dict[str, int] = {}
             for path, hist in sorted(per.items()):
                 out.append({"t": start, "path": path, **res_quantiles(hist)})
-                if path != "cache":
+                # AdGuard's own answers (blocked, rewritten: "local") take
+                # microseconds; with the upstreams they would pass for fast
+                # resolvers.
+                if path not in ("cache", "local"):
                     for b, n in hist.items():
                         upstream_all[b] = upstream_all.get(b, 0) + n
             if upstream_all:
