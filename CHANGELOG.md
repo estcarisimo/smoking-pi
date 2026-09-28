@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.15.1] — 2026-09-28
+
+One fix, for the step 2.15.0 asks you to run after upgrading.
+
+`smoking-pi openclaw` registers with OpenClaw 2026.8 again: it sent the
+MCP timeouts under keys OpenClaw has retired, and 2026.8 refused the whole
+registration, so the assistant's skill was not refreshed. A gateway that
+was already connected kept working. After upgrading, run
+`smoking-pi openclaw` (with `sudo` on a package install).
+
 ### Fixed
 
 - **`smoking-pi openclaw` could not register with a current OpenClaw.** It
