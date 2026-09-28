@@ -93,6 +93,7 @@ class Supervisor:
         self.proc_started = 0.0
         self.last_query_at: float | None = None
         self.canaries: dict[str, list] = {}  # nonce -> [sent_at, seen_at]
+        self.unflushed_failing = False  # the wizard warns once per streak
         self.upstreams: dict = {}
         self.top_domains: list[dict] = []
         self.api = adguard.AdGuardAPI(cfg)
@@ -316,6 +317,24 @@ class Supervisor:
 
     # -- the DNS wizard ------------------------------------------------------------
 
+    async def unflushed_log(self) -> list[dict] | None:
+        """AdGuard's API query log, for the queries it has not written to
+        its file yet (the wizard's last hour). None when AdGuard does not
+        answer: the pass then counts the file alone, and says so once."""
+        try:
+            entries = await self.api.querylog(limit=wizard.UNFLUSHED_LIMIT)
+        except (httpx.HTTPError, ValueError) as exc:
+            if not self.unflushed_failing:
+                log.warning("DNS wizard: AdGuard's query log API did not answer (%s); "
+                            "the last hour counts only what it wrote to its file",
+                            type(exc).__name__)
+            self.unflushed_failing = True
+            return None
+        if self.unflushed_failing:
+            log.info("DNS wizard: AdGuard's query log API answers again")
+        self.unflushed_failing = False
+        return entries
+
     async def wizard_loop(self) -> None:
         """wizard.py's pass, in a thread: the first one reads up to a week
         of log, and the self-test and canary must not wait for it."""
@@ -333,8 +352,9 @@ class Supervisor:
         )
         await asyncio.sleep(30)
         while not self.stopping.is_set():
+            unflushed = await self.unflushed_log()
             try:
-                await asyncio.to_thread(wiz.run_once)
+                await asyncio.to_thread(wiz.run_once, None, unflushed)
             except Exception:  # one bad pass must not end the loop
                 log.exception("DNS wizard pass failed")
             with contextlib.suppress(asyncio.TimeoutError):

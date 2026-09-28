@@ -1,4 +1,8 @@
+import asyncio
+
 import bcrypt
+import httpx
+import pytest
 import yaml
 
 import adguard
@@ -63,3 +67,11 @@ def test_write_config_merges_on_disk(env):
     assert adguard.write_config(cfg) is False
     with open(cfg.adguard_conf) as fh:
         assert yaml.safe_load(fh)["language"] == "es"
+
+
+def test_a_query_log_that_is_not_an_object_is_an_error(env):
+    cfg = Config.from_env(env)
+    client = httpx.AsyncClient(base_url="http://adguard.test",
+                               transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[1])))
+    with pytest.raises(ValueError):
+        asyncio.run(adguard.AdGuardAPI(cfg, client).querylog(limit=10))

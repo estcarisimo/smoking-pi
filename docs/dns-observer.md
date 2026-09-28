@@ -432,10 +432,19 @@ quiet network the times show up late, sometimes hours after the queries.
 A bucket is published as long as the observer keeps it (six hours), and
 rewritten as more of its queries arrive, so its percentiles can move for a
 while. Queries read more than six hours late are left out, and the
-observer's log says how many. The same batching makes *Queries (last hour)*
-read low on a quiet network. A smaller batch would show everything sooner,
-at the cost of more frequent writes to the Pi's SD card, so the observer
-leaves AdGuard's default.
+observer's log says how many. A smaller batch would show everything
+sooner, at the cost of more frequent writes to the Pi's SD card, so the
+observer leaves AdGuard's default.
+
+*Queries (last hour)* does not wait for the batch: it adds the queries
+AdGuard still holds in memory, read from its API (the entries newer than
+the log's last line), to those already in the log. It counts the last 12
+five-minute buckets (55 to 60 minutes, the current one included), not the
+clock hour. The 24-hour count includes the queries in memory too; the
+7-day volume and presence, which choose what to measure, come from the
+log alone. If AdGuard's API does not answer, the count falls back to the
+log and the observer logs it once. For the first hour after the upgrade
+that brought this, it counts from the upgrade on.
 
 Each exported value is the percentile of one 5-minute bucket. Over a
 range wider than that, the panels average the buckets' percentiles,

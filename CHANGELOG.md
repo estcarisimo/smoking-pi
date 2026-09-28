@@ -9,6 +9,27 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The DNS Wizard's "Queries (last hour)" was mostly wrong.** It counted
+  the clock hour, not the last hour, so it fell to zero at every hour
+  boundary and read 10 minutes of queries at ten past. And it counted only
+  what AdGuard had written to its log, which it does in batches of 1,000
+  queries: on the reference Pi, a house making a few hundred queries an
+  hour, that is a write every few hours, and the figure read 0 at 19:00
+  on a normal evening. The same number is in the per-service table. It
+  now counts the last 12 five-minute buckets, and adds the queries AdGuard
+  still holds in memory, read from its API: the entries newer than the
+  log's last line, with the same filters as the log (the Pi's own traffic
+  and SmokePing's targets left out). They are counted in the snapshot, not
+  kept, so a query is never counted twice once written. The 24-hour count
+  includes them too; the 7-day volume and presence, which choose what to
+  measure, still come from the log alone. One API read of up to 1,000
+  entries per pass (every 10 minutes) took about 0.6 s on a Pi 4. If
+  AdGuard does not answer, the pass counts the log alone and the observer
+  says so once. For the first hour after upgrading it counts from the
+  upgrade on. `docs/dns-observer.md`.
+
 ## [2.15.1] — 2026-09-28
 
 Two fixes to 2.15.0: the `smoking-pi openclaw` step it asks you to run

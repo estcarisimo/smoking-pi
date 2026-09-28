@@ -1,5 +1,6 @@
 import asyncio
 
+import httpx
 import pytest
 
 import main
@@ -80,3 +81,27 @@ def test_status_carries_what_readers_need(env):
                 "observed_until", "coverage", "canary", "upstreams", "server"):
         assert key in s
     assert s["stale_after"] - s["heartbeat"] == main.health.STALE_AFTER
+
+
+class DownAPI(FakeAPI):
+    def __init__(self):
+        super().__init__([])
+        self.down = True
+
+    async def querylog(self, *, search=None, limit=100):
+        if self.down:
+            raise httpx.ConnectError("refused")
+        return [entry("netflix.com", "2026-09-25T22:26:00Z")][:limit]
+
+
+def test_the_wizard_says_once_when_adguard_does_not_answer(env, caplog):
+    sup = main.Supervisor(Config.from_env(env))
+    sup.api = DownAPI()
+    with caplog.at_level("INFO"):
+        assert asyncio.run(sup.unflushed_log()) is None
+        assert asyncio.run(sup.unflushed_log()) is None
+        sup.api.down = False
+        assert len(asyncio.run(sup.unflushed_log())) == 1
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1 and "ConnectError" in warnings[0].getMessage()
+    assert "answers again" in caplog.text
