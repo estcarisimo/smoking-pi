@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`smoking-pi openclaw` could not register with a current OpenClaw.** It
+  handed `openclaw mcp set` the timeouts as `connectTimeout`/`timeout`
+  (seconds), aliases OpenClaw has since retired: 2026.8 refuses the whole
+  registration ("Unrecognized key: connectTimeout"), so step 4 failed and
+  the skill was never refreshed. Found by running it on the reference Pi
+  after upgrading to 2.15.0, whose release notes ask for exactly that
+  step; the running gateway was untouched and kept working. It now writes
+  `connectionTimeoutMs`/`requestTimeoutMs` (milliseconds), which OpenClaw
+  has read since 2026.4, and so do the two `mcp set` examples in
+  `docs/openclaw-integration.md` and `docs/remote-openclaw.md`. Checked
+  against OpenClaw 2026.8.1: the old spec is refused with that message and
+  the new one is saved.
+
 ## [2.15.0] — 2026-09-28
 
 One page per target, the Pi on the local network, and how fast the house's

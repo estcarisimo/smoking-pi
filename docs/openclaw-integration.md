@@ -101,8 +101,8 @@ openclaw mcp set smokeping '{
   "url": "http://127.0.0.1:8090/mcp",
   "transport": "streamable-http",
   "headers": {"Authorization": "Bearer <your-mcp-token>"},
-  "connectTimeout": 5,
-  "timeout": 30
+  "connectionTimeoutMs": 5000,
+  "requestTimeoutMs": 30000
 }'
 
 openclaw mcp doctor smokeping        # static config problems

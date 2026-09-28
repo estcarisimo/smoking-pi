@@ -1621,9 +1621,11 @@ cmd_openclaw() {
     #    half-install: the agent keeps answering from its shell.
     #    The JSON holding the token goes through a 0600 file, not sudo's
     #    command line: sudo logs the full command it runs to the journal.
+    #    Timeouts in milliseconds: OpenClaw 2026.8 rejects the retired
+    #    connectTimeout/timeout (seconds) and the whole `mcp set` with them.
     local spec user registered=0
     spec="$(mktemp)"
-    printf '{\n  "url": "http://127.0.0.1:8090/mcp",\n  "transport": "streamable-http",\n  "headers": {"Authorization": "Bearer %s"},\n  "connectTimeout": 5,\n  "timeout": 30\n}' \
+    printf '{\n  "url": "http://127.0.0.1:8090/mcp",\n  "transport": "streamable-http",\n  "headers": {"Authorization": "Bearer %s"},\n  "connectionTimeoutMs": 5000,\n  "requestTimeoutMs": 30000\n}' \
         "$token" > "$spec"
     user="$(openclaw_user)"
     # A failed chown surfaces below as a failed registration, not here.

@@ -580,6 +580,11 @@ stub_openclaw() {
     grep -qx 'POSTGRES_USER=smokeping' "$SMOKING_PI_ENV_FILE"
     [ "$(stat -c '%a' "$SMOKING_PI_ENV_FILE")" = 600 ]
     grep -q 'openclaw mcp set smokeping' "$DOCKER_LOG"
+    # Timeouts under the keys OpenClaw accepts: 2026.8 refuses the whole
+    # registration over the retired connectTimeout/timeout.
+    grep -q '"connectionTimeoutMs": 5000' "$DOCKER_LOG"
+    grep -q '"requestTimeoutMs": 30000' "$DOCKER_LOG"
+    ! grep -qE '"(connectTimeout|timeout)"' "$DOCKER_LOG"
     grep -q 'SKILL --reload' "$DOCKER_LOG"
 }
 
