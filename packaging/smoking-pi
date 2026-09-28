@@ -1290,18 +1290,72 @@ cmd_alerts() {
     fi
 }
 
+# OpenClaw belongs to a user, not to root: its config is ~/.openclaw, its
+# gateway is usually a `systemctl --user` unit, and nvm installs the
+# command under ~/.nvm, which sudo's secure_path drops. A packaged install
+# needs sudo to read the env file, so under sudo every openclaw step runs
+# as the user who ran sudo. Run as root, `openclaw mcp set` would have
+# registered the server in /root/.openclaw, which no gateway reads.
+openclaw_user() {
+    [ "$(id -u)" = 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] \
+        && echo "$SUDO_USER" || true
+}
+
+# The openclaw command that user runs: PATH first, then nvm's default
+# version, then any nvm version (newest first), then the usual per-user
+# bin directories. Empty if there is none.
+openclaw_bin() {
+    local user home alias f
+    command -v openclaw 2>/dev/null && return 0
+    user="$(openclaw_user)"
+    home="$HOME"
+    [ -n "$user" ] && home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6)"
+    [ -n "$home" ] || return 0
+    alias="$(cat "$home/.nvm/alias/default" 2>/dev/null || true)"
+    case "$alias" in
+        v[0-9]*|[0-9]*)
+            f="$(ls -d "$home/.nvm/versions/node/v${alias#v}"*/bin/openclaw 2>/dev/null | sort -V | tail -1)"
+            [ -n "$f" ] && { echo "$f"; return 0; } ;;
+    esac
+    f="$(ls -d "$home"/.nvm/versions/node/*/bin/openclaw 2>/dev/null | sort -V | tail -1)"
+    [ -n "$f" ] && { echo "$f"; return 0; }
+    for f in "$home/.local/bin/openclaw" "$home/.npm-global/bin/openclaw" \
+             "$home/.volta/bin/openclaw" "$home/.bun/bin/openclaw"; do
+        [ -x "$f" ] && { echo "$f"; return 0; }
+    done
+    return 0
+}
+
+# Run "$@" as the OpenClaw user, with the directory of $OPENCLAW_BIN first
+# on PATH (nvm keeps `node` beside it) and that user's session bus, so
+# `systemctl --user restart openclaw-gateway` reaches their gateway.
+as_openclaw_user() {
+    local user uid path
+    user="$(openclaw_user)"
+    path="$(dirname "$OPENCLAW_BIN"):$PATH"
+    if [ -z "$user" ]; then
+        PATH="$path" "$@"
+        return
+    fi
+    uid="$(id -u "$user")"
+    sudo -u "$user" -H env PATH="$path" XDG_RUNTIME_DIR="/run/user/$uid" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" "$@"
+}
+
 openclaw_evidence() {
     # docs/openclaw-integration.md, "Verify with evidence, not with the
     # answer". A well-primed agent answers fluently from its own shell
     # while the MCP server sits untouched, so the reply proves nothing;
     # the server's own tool= lines are the only thing that does.
-    if ! command -v openclaw >/dev/null; then
-        echo "openclaw is not on PATH here, so there is nothing to ask." >&2
+    OPENCLAW_BIN="$(openclaw_bin)"
+    if [ -z "$OPENCLAW_BIN" ]; then
+        local who; who="$(openclaw_user)"
+        echo "No openclaw command for ${who:-$(id -un)} here, so there is nothing to ask." >&2
         return 2
     fi
     echo "Asking the agent one question, then reading the MCP server's log."
     echo "(The answer is not the test -- the log is.)"
-    openclaw agent --agent main --session-key smoking-pi-check \
+    as_openclaw_user "$OPENCLAW_BIN" agent --agent main --session-key smoking-pi-check \
         -m "how has my connection been in the last 6 hours?" >/dev/null 2>&1 || true
     local seen
     seen="$(compose logs mcp-server --since 3m 2>/dev/null | grep 'tool=' || true)"
@@ -1351,7 +1405,8 @@ cmd_openclaw() {
 
     [ "$check" = 1 ] && { openclaw_evidence; return $?; }
 
-    if ! command -v openclaw >/dev/null; then
+    OPENCLAW_BIN="$(openclaw_bin)"
+    if [ -z "$OPENCLAW_BIN" ]; then
         # Not an error, and not a reason to stop: the stack is already
         # measuring. Two different situations, and the remote one has its
         # own guide -- saying "install OpenClaw" to someone whose gateway
@@ -1370,6 +1425,8 @@ cmd_openclaw() {
     fi
 
     echo "Connecting this stack to the OpenClaw gateway on this machine."
+    local who; who="$(openclaw_user)"
+    echo "Using $OPENCLAW_BIN as ${who:-$(id -un)}."
     echo
 
     # 1. The credential. The MCP server exposes mutations (add/remove
@@ -1431,7 +1488,7 @@ cmd_openclaw() {
 
     # 4. Register, then the skill. Registering alone is the documented
     #    half-install: the agent keeps answering from its shell.
-    openclaw mcp set smokeping "{
+    as_openclaw_user "$OPENCLAW_BIN" mcp set smokeping "{
   \"url\": \"http://127.0.0.1:8090/mcp\",
   \"transport\": \"streamable-http\",
   \"headers\": {\"Authorization\": \"Bearer $token\"},
@@ -1442,7 +1499,7 @@ cmd_openclaw() {
              echo "     docs/openclaw-integration.md and re-run this." >&2; return 1; }
 
     if [ -x "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" ]; then
-        "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" --reload >/dev/null 2>&1 \
+        as_openclaw_user "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" --reload >/dev/null 2>&1 \
             && echo "5/5  Installed the smokeping-monitoring skill and reloaded the gateway." \
             || echo "5/5  WARNING: the skill did not install; run shared/scripts/install-openclaw-skill.sh --reload" >&2
     else

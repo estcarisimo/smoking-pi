@@ -52,6 +52,19 @@ needs no org. The architecture diagram is redrawn.
 
 ### Fixed
 
+- **`sudo smoking-pi openclaw` could not connect OpenClaw on a package
+  install.** A package install needs `sudo` to read `/etc/smoking-pi/env`,
+  but `sudo` drops nvm's `~/.nvm/.../bin` from PATH. So the command said
+  "No 'openclaw' command on this machine" on a Pi where OpenClaw was
+  running, and `sudo smoking-pi install` gave the same answer when you
+  chose "OpenClaw runs on this Pi". Had it found the command, it would have
+  run it as root: the registration would have gone to `/root/.openclaw`,
+  which no gateway reads. The workaround was `sudo env PATH=$PATH`. The
+  command now finds the invoking user's `openclaw` (PATH, then nvm's
+  default version, then the usual per-user bin directories). It runs the
+  registration, the skill install and `--check`'s question as that user,
+  with their session bus so `systemctl --user` reaches the gateway.
+
 - **`sync-influx-token.sh` called a working token rejected.** v2.13.8's
   check asked InfluxDB `influx bucket list --token`, which also needs an
   org. The InfluxDB container keeps no CLI config (it is not in the data
