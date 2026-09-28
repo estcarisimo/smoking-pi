@@ -61,6 +61,16 @@
   "refresh": "1m",
   "links": [
     {
+      "title": "Target detail",
+      "type": "link",
+      "url": "/d/target-detail-v1?var-target=${site}",
+      "icon": "dashboard",
+      "tooltip": "Every layer measured for this target (ICMP, TCP, HTTP by version, DNS) on one page",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
+    {
       "title": "SmokePing dashboards",
       "type": "dashboards",
       "tags": [

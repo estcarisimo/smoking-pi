@@ -1,0 +1,1368 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "purple",
+        "name": "Uplink changed",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"host_uplink\" and (r._field == \"previous\" or r._field == \"interface\" or r._field == \"kind\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => exists r.previous) |> map(fn: (r) => ({_time: r._time, text: \"Uplink \" + r.previous + \" → \" + (if r.interface == \"\" then \"none\" else r.interface + \" (\" + r.kind + \")\"), tags: \"uplink\"}))"
+        }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "orange",
+        "name": "Resolver changed",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolver\" and (r._field == \"previous\" or r._field == \"owner\")) |> pivot(rowKey: [\"_time\", \"path\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => exists r.previous) |> map(fn: (r) => ({_time: r._time, text: \"Resolver via \" + r.path + \": \" + r.previous + \" → \" + r.owner, tags: \"resolver\"}))"
+        }
+      }
+    ]
+  },
+  "uid": "target-detail-v1",
+  "id": null,
+  "title": "Target Detail – every layer for one target",
+  "description": "Pick a target and see everything measured for it: ICMP, the TCP handshake, HTTP/1.1, /2 and /3, and DNS when the target is a resolver. Targets pair by name across probes (Google, Google_h2, Google_tcp443; W_<service>_icmp, _tcp, _h1–_h3 for the DNS wizard). A layer the target has no probe for says \"not measured\".",
+  "schemaVersion": 37,
+  "version": 1,
+  "tags": [
+    "smokeping",
+    "target"
+  ],
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "graphTooltip": 1,
+  "links": [
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": [
+        "smokeping"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "target",
+        "label": "Target",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "query": "import \"regexp\"\nimport \"strings\"\nimport \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -7d, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r._value, t: \"\") })) |> map(fn: (r) => ({ r with key: strings.toLower(v: r._value) })) |> group(columns: [\"key\"]) |> sort(columns: [\"_value\"]) |> first() |> group() |> keep(columns: [\"_value\"]) |> sort()",
+        "current": {},
+        "options": [],
+        "includeAll": false,
+        "multi": false,
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "allowCustomValue": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "${target} – what is measured, over the selected range",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": [],
+      "id": 1,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "ICMP",
+      "description": "Ping (FPing): the network path, no application. \"not measured\": this target has no such probe (or it wrote nothing in the range).",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field == \"median\") |> group(columns:[\"_measurement\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field == \"loss\") |> group(columns:[\"_measurement\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 1,
+          "noValue": "not measured",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "displayName": "${__field.labels._field}"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*(loss|failed).*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "id": 2,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "TCP handshake",
+      "description": "SYN / SYN-ACK to port 443: the transport floor under HTTP. \"not measured\": this target has no such probe (or it wrote nothing in the range).",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 5,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field == \"median\") |> group(columns:[\"_measurement\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field == \"loss\") |> group(columns:[\"_measurement\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 1,
+          "noValue": "not measured",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "displayName": "${__field.labels._field}"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*(loss|failed).*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "id": 3,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "HTTP",
+      "description": "The page fetched over HTTP/1.1, HTTP/2 and HTTP/3 (connect + TLS + request + first byte, minus DNS). \"not measured\": this target has no such probe (or it wrote nothing in the range).",
+      "gridPos": {
+        "h": 5,
+        "w": 9,
+        "x": 10,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ re and r._field == \"median\") |> group(columns:[\"probe_type\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> map(fn:(r)=> ({ r with _field: \"median \" + r.probe_type }))  |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ re and r._field == \"loss\") |> group(columns:[\"probe_type\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> map(fn:(r)=> ({ r with _field: \"failed \" + r.probe_type })) |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 1,
+          "noValue": "not measured",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "displayName": "${__field.labels._field}"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*(loss|failed).*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "id": 4,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "DNS",
+      "description": "A DNS query answered by this target, when it is a resolver. \"not measured\": this target has no such probe (or it wrote nothing in the range).",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 19,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field == \"median\") |> group(columns:[\"_measurement\"]) |> median() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field == \"loss\") |> group(columns:[\"_measurement\"]) |> mean() |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 1,
+          "noValue": "not measured",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "displayName": "${__field.labels._field}"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*(loss|failed).*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "id": 5,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "row",
+      "title": "ICMP",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "panels": [],
+      "id": 6,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "ICMP – ${target} – latency (ms)",
+      "description": "Ping (FPing): the network path, no application. Line: median of each cycle; shade: 10th–90th percentile of that cycle's pings.",
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.1, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p10\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.9, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p90\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "median"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "Median"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p90"
+            },
+            "properties": [
+              {
+                "id": "custom.fillBelowTo",
+                "value": "p10"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 25
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "p90"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p10"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "p10"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 7,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "ICMP – ${target} – loss (%)",
+      "description": "Share of the cycle's probes that got no answer.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"latency\" and r.target =~ re and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "drawStyle": "bars"
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "displayName": "loss"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "id": 8,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "row",
+      "title": "TCP handshake",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "panels": [],
+      "id": 9,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "TCP handshake – ${target} – latency (ms)",
+      "description": "SYN / SYN-ACK to port 443: the transport floor under HTTP. Line: median of each cycle; shade: 10th–90th percentile of that cycle's pings.",
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.1, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p10\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.9, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p90\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "median"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "Median"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p90"
+            },
+            "properties": [
+              {
+                "id": "custom.fillBelowTo",
+                "value": "p10"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 25
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "p90"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p10"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "p10"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 10,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "TCP handshake – ${target} – loss (%)",
+      "description": "Share of the cycle's probes that got no answer.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"tcp_latency\" and r.target =~ re and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "drawStyle": "bars"
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "displayName": "loss"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "id": 11,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "row",
+      "title": "HTTP by version",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "panels": [],
+      "id": 12,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP – ${target} – fetch time by version, median (ms)",
+      "description": "The page fetched over HTTP/1.1, HTTP/2 and HTTP/3 (connect + TLS + request + first byte, minus DNS). One line per version; a downgraded fetch counts as a failure, not as the lower version.",
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 25
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ re and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns:[\"_time\",\"_value\",\"probe_type\"]) |> group(columns:[\"probe_type\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "http1"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "HTTP/1.1"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "http2"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "HTTP/2"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "http3"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "HTTP/3"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 13,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP – ${target} – failed fetches (%)",
+      "description": "Fetches that failed or did not use the version they were asked to.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 25
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"http_latency\" and r.target =~ re and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns:[\"_time\",\"_value\",\"probe_type\"]) |> group(columns:[\"probe_type\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "drawStyle": "bars"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "http1"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "HTTP/1.1"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "http2"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "HTTP/2"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "http3"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "HTTP/3"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 14,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "row",
+      "title": "DNS",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "panels": [],
+      "id": 15,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "DNS – ${target} – latency (ms)",
+      "description": "A DNS query answered by this target, when it is a resolver. Line: median of each cycle; shade: 10th–90th percentile of that cycle's pings.",
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field == \"median\") |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"median\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.1, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p10\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field =~ /^ping[0-9]+$/) |> group(columns:[\"_time\"]) |> quantile(q:0.9, method:\"exact_mean\") |> group() |> map(fn:(r)=> ({ r with _value: r._value * 1000.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"p90\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "median"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "Median"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p90"
+            },
+            "properties": [
+              {
+                "id": "custom.fillBelowTo",
+                "value": "p10"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 25
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "p90"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p10"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "p10"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 16,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "DNS – ${target} – loss (%)",
+      "description": "Share of the cycle's probes that got no answer.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> r._measurement == \"dns_latency\" and r.target =~ re and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: r._value * 100.0 })) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> set(key:\"_field\", value:\"loss\") |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "drawStyle": "bars"
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "displayName": "loss"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "id": 17,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    }
+  ]
+}
