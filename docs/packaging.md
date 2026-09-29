@@ -588,8 +588,10 @@ expect `docker-ce`.)
 
 Every command in that table that reads the env file runs as root on a
 packaged install: `/etc/smoking-pi` is `0750` and root-owned, which is the
-point of keeping the secrets there, so `smoking-pi status` as an ordinary
-user stops at `permission denied` on the env file rather than degrading.
+point of keeping the secrets there. Run by an ordinary user, every command
+that reads it stops and names the `sudo` command to run, rather than
+answering from an empty file; `version`, `--help`, `doctor`, `discover`
+and `link` still work.
 `sudo` throughout, and none of it from a clone, where the env file is the
 user's own.
 

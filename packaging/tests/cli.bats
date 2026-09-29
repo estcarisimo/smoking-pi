@@ -1816,8 +1816,13 @@ lock_env() {
 
 unlock_env() { chmod 700 "$BATS_TEST_TMPDIR/etc" 2>/dev/null || true; }
 
+# A failed assertion before unlock_env would leave a 000 directory that
+# bats cannot remove.
+teardown() { chmod -R u+rwx "$BATS_TEST_TMPDIR" 2>/dev/null || true; }
+
 @test "an env file this user cannot read: config, passwords, dns and status say sudo, never 'unset'" {
     for shape in file dir; do
+        : > "$DOCKER_LOG"
         lock_env "$shape"
         for cmd in "config list" "config get POSTGRES_USER" passwords "dns status" links status up; do
             run $CLI $cmd
@@ -1827,20 +1832,22 @@ unlock_env() { chmod 700 "$BATS_TEST_TMPDIR/etc" 2>/dev/null || true; }
             [[ "$output" != *"unset"* ]]
         done
         # Nothing reached docker: no command ran on a guess.
-        [ ! -s "$DOCKER_LOG" ] || ! grep -q '^docker ' "$DOCKER_LOG"
+        ! grep -q '^docker ' "$DOCKER_LOG"
         unlock_env
         chmod 600 "$SMOKING_PI_ENV_FILE"
     done
 }
 
 @test "an env file this user cannot read: the bare command says installed, not 'install it'" {
-    lock_env dir
-    run "$CLI"
-    unlock_env
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Installed"* ]]
-    [[ "$output" == *"sudo smoking-pi"* ]]
-    [[ "$output" != *"Not installed"* ]]
+    for shape in file dir; do
+        lock_env "$shape"
+        run "$CLI"
+        unlock_env
+        [ "$status" -eq 0 ]
+        [[ "$output" == *"Installed"* ]]
+        [[ "$output" == *"sudo smoking-pi"* ]]
+        [[ "$output" != *"Not installed"* ]]
+    done
 }
 
 @test "an env file this user cannot read: version and help still answer" {
