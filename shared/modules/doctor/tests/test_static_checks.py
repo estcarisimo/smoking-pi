@@ -816,3 +816,72 @@ def test_a_field_named_before_the_pivot_is_still_a_tag_filter():
         '|> map(fn:(r)=> ({ r with _value: r.loss * float(v: r.pings) }))'
     )
     assert sources.tag_refs_in(query) == {"loss"}
+
+
+# ---------------------------------------------------------------------------
+# text-stats-name-their-field
+# ---------------------------------------------------------------------------
+
+
+def _stat(title, query, fields=""):
+    return {
+        "type": "stat",
+        "title": title,
+        "datasource": {"uid": "influxdb"},
+        "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": fields}},
+        "targets": [{"refId": "A", "query": query}],
+    }
+
+
+UPLINK_QUERY = (
+    'from(bucket:"smokeping") |> range(start:-1h) '
+    '|> filter(fn:(r) => r._measurement == "cpe_latency" and r._field == "median") '
+    '|> map(fn:(r) => ({_time: r._time, _value: if r.target == "" then "no route" '
+    'else r.target + " (" + r.protocol + ")"})) |> keep(columns:["_time","_value"])'
+)
+SSID_QUERY = (
+    'from(bucket:"smokeping") |> range(start:-5m) '
+    '|> filter(fn:(r) => r._measurement == "cpe_latency") '
+    '|> group() |> last() |> keep(columns:["_time","target"])'
+)
+
+
+@pytest.mark.parametrize("query", [UPLINK_QUERY, SSID_QUERY])
+def test_catches_a_text_stat_that_reduces_numbers_only(repo, query):
+    """The Overview's first row and the Wi-Fi SSID/BSSID: the query answered,
+    the stat showed noValue, because fields "" means numeric fields only."""
+    data = _dashboard("text-v1", "Text", GOOD_QUERY)
+    data["panels"] = [_stat("Uplink", query)]
+    _write_dashboard(repo, "text.json", data)
+    check = run(repo)["text-stats-name-their-field"]
+    assert check.status is Status.FAIL
+    assert "Uplink" in check.findings[0].render()
+
+
+def test_a_text_stat_naming_its_field_passes(repo):
+    data = _dashboard("text-v1", "Text", GOOD_QUERY)
+    data["panels"] = [
+        _stat("Uplink", UPLINK_QUERY, fields="/^Value$/"),
+        _stat("SSID", SSID_QUERY, fields="/^ssid$/"),
+    ]
+    _write_dashboard(repo, "text.json", data)
+    check = run(repo)["text-stats-name-their-field"]
+    assert check.status is Status.OK
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # numbers: a scaled value, a count, a keep of value columns only
+        'map(fn:(r) => ({r with _value: r._value * 1000.0}))',
+        'group() |> count() |> keep(columns:["_value"])',
+        'count() |> rename(columns:{_value:"ICMP ping"}) |> keep(columns:["ICMP ping"])',
+        'map(fn:(r) => ({_time: r._time, _value: if r._value > 1.0 then 1.0 else 0.0}))',
+    ],
+)
+def test_numeric_stats_are_left_alone(repo, query):
+    data = _dashboard("num-v1", "Num", GOOD_QUERY)
+    data["panels"] = [_stat("Latency", 'filter(fn:(r)=> r._measurement == "latency") |> ' + query)]
+    _write_dashboard(repo, "num.json", data)
+    check = run(repo)["text-stats-name-their-field"]
+    assert check.status is Status.OK

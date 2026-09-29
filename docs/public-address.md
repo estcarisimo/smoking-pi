@@ -1,18 +1,31 @@
 # The Overview page and the public address
 
 Grafana opens on **Smoking Pi – Overview** (Pro, InfluxDB). It answers, in a
-few seconds, where the Pi is connected and what it is measuring:
+few seconds, where the Pi is connected, whether the link is healthy, and
+which targets need a look:
 
 - **Where it is connected:** the uplink (interface and whether it is
   wireless), the Wi-Fi network (SSID), the public address the Internet
   sees, the network (AS) that announces it, an approximate location, and
   who resolves DNS for the house ([Which resolver answers](public-resolver.md)).
-- **What it is measuring:** how many targets answered in the last 15
-  minutes on each layer (ICMP ping, DNS, TCP handshake, HTTP/1.1–3), how
-  many are losing packets, and how many measurements were written in the
-  last hour. The DNS wizard's targets are counted apart: many CDNs drop
-  ICMP, so a silent wizard target is usually a probe choice rather than an
-  outage, as in [alerting](alerting.md).
+- **Right now:** how many targets answered in the last 15 minutes on each
+  layer (ICMP ping, DNS, TCP handshake, HTTP/1.1–3), how many are losing
+  packets, the Wi-Fi signal, the round trip to the home gateway, and how
+  many measurements were written in the last hour. The DNS wizard's
+  targets are counted apart: many CDNs drop ICMP, so a silent wizard
+  target is usually a probe choice rather than an outage, as in
+  [alerting](alerting.md).
+- **Over the selected range** (24 hours by default): ICMP latency and loss
+  per category of destination, the gateway's latency against the Wi-Fi
+  signal, and counts of gateway cut windows, Wi-Fi drops, uplink changes
+  and resolver changes. Uplink and resolver changes are marked on the
+  charts. A jump in every category at once is the house or the ISP; one
+  category alone is its destinations.
+- **Targets that need a look:** every target and layer, the lossiest first
+  and then the ones furthest above their own usual latency (their 24-hour
+  median). Comparing each target with itself is what lets a ping and an
+  HTTP fetch sort together. A click opens [Target
+  Detail](target-detail.md) for that target.
 - **Links** to the detailed dashboards.
 
 With ClickHouse, Grafana keeps its own home page: this one reads InfluxDB.
