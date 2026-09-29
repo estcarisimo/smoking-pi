@@ -412,8 +412,13 @@ def check_overrides_match_a_series(influx) -> CheckResult:
     for dashboard in influx:
         for panel in sources.iter_panels(dashboard):
             config = panel.get("fieldConfig") or {}
-            if (config.get("defaults") or {}).get("displayName"):
-                continue  # names come from displayName; not knowable here
+            renamed = panel.get("transformations") or any(
+                prop.get("id") == "displayName"
+                for override in config.get("overrides") or []
+                for prop in (override or {}).get("properties") or []
+            )
+            if (config.get("defaults") or {}).get("displayName") or renamed:
+                continue  # names come from displayName or a transformation
             queries = [
                 t.get("query")
                 for t in panel.get("targets") or []

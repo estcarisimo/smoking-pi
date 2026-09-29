@@ -494,7 +494,9 @@ def series_names_in(query: str) -> set[str]:
     names = set(re.findall(r'r\._field\s*==\s*"([^"]+)"', query))
     names |= set(re.findall(r'set\(\s*key:\s*"_field",\s*value:\s*"([^"]+)"', query))
     names |= set(re.findall(r'_value:\s*"([^"]+)"', query))
-    names |= set(re.findall(r'[({,]\s*([A-Za-z_][A-Za-z0-9_]*)\s*:', query))
+    for record in re.findall(r"\(\{([^{}]*)\}\)", query):
+        record = re.sub(r"^\s*r\s+with\b", "", record)
+        names |= set(re.findall(r"(?:^|,)\s*([A-Za-z_][A-Za-z0-9_]*)\s*:", record))
     return names
 
 
