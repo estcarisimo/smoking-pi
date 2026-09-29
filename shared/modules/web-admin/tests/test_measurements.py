@@ -188,4 +188,17 @@ def test_dashboard_says_which_measured_target_nobody_added(client, monkeypatch):
     login(client)
     html = client.get("/").get_data(as_text=True)
     assert "2 of 2 targets updated" in html
-    assert "1 of them measured automatically" in html
+    assert "(1 of them is measured automatically: the ISP's first hop, found" in html
+
+
+def test_both_first_hops_read_as_plural(client, monkeypatch):
+    hop = {"section": "CPE", "probe": "FPing", "step": 300, "age_seconds": 40,
+           "state": "fresh"}
+    _stub_dashboard(monkeypatch, {
+        "available": True, "measuring": True, "total": 3,
+        "counts": {"fresh": 3, "stale": 0, "pending": 0, "missing": 0},
+        "targets": [{**hop, "name": "CPE_IPv4"}, {**hop, "name": "CPE_IPv6"},
+                    {**hop, "section": "Custom", "name": "CPE_lookalike"}]})
+    login(client)
+    html = client.get("/").get_data(as_text=True)
+    assert "(2 of them are measured automatically: the ISP's first hops, over IPv4 and IPv6" in html
