@@ -168,7 +168,7 @@ clean install there is the missing half — until then the record says
   DNS Wizard's *Queries (last hour)* includes them although AdGuard,
   which writes its log every 1,000 queries, still holds them in memory.
   Then send more than 1,000, which makes AdGuard write them, and check
-  that the `dns_resolution` counts include them. Names SmokePing measures
+  that the `count` field of `dns_resolution` includes them. Names SmokePing measures
   and the Pi's own traffic are left out by design, so count what should
   remain. One data point is not a check.
 

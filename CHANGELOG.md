@@ -14,10 +14,10 @@ version gets a matching GitHub release and git tag.
 - **The release acceptance checks the two things 2.15.0 got wrong.** The
   checklist asked for "one question through OpenClaw" but never for
   `smoking-pi openclaw` itself, and nothing about the DNS observer's
-  numbers. So 2.15.0 shipped a registration OpenClaw 2026.8 refuses, and
-  resolution times and a last-hour count that missed most queries. Each
-  was found only on the Pi after release, and each cost a patch release
-  (2.15.1, 2.15.2). `docs/release-acceptance.md` now asks for
+  numbers. So 2.15.0 shipped a registration OpenClaw 2026.8 refuses,
+  resolution times that dropped late-written queries, and a last-hour
+  count that read low and fell to zero every hour. All three were found
+  on the Pi after release and cost two patch releases (2.15.1, 2.15.2). `docs/release-acceptance.md` now asks for
   `smoking-pi openclaw` against the OpenClaw the host runs, with its
   version recorded. It also asks for the observer's counts after queries
   sent from another machine: fewer than 1,000, which AdGuard still holds
