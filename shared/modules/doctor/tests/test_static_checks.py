@@ -972,3 +972,20 @@ def test_a_yield_named_like_a_flux_keyword_is_still_caught(repo, name):
 )
 def test_overrides_that_do_match_pass(repo, panel):
     assert _run_one(repo, panel).status is Status.OK
+
+
+def test_patterns_compile_on_python_310():
+    """The doctor runs on the host's python3 (3.10 on Ubuntu 22.04): a
+    possessive quantifier or an atomic group (3.11+) made v2.15.7-rc.1's
+    doctor crash on import there. No module-level pattern may use them."""
+    import re
+
+    from doctor import live_checks, sources
+
+    py311_only = re.compile(r"(?<!\\)[*+?}]\+|\(\?>")
+    for module in (sources, static_checks, live_checks):
+        for name, value in vars(module).items():
+            if isinstance(value, re.Pattern):
+                assert not py311_only.search(value.pattern), (
+                    f"{module.__name__}.{name} uses 3.11-only regex syntax"
+                )

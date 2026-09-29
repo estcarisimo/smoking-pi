@@ -34,6 +34,15 @@ panel mistakes behind these.
 
 ### Fixed
 
+- **The doctor must run on Python 3.10.** The package runs it on the
+  host's own `python3`, which is 3.10 on Ubuntu 22.04. This release's first
+  candidate used a regex possessive quantifier (`\w*+`, Python 3.11+) in
+  the new `text-stats-name-their-field` check, and its doctor crashed on
+  import there; the release's install test caught it before anything
+  shipped. The pattern uses `\b` instead. A test fails on 3.11-only regex
+  syntax in the doctor, CI runs the doctor on Python 3.10 as well as 3.14,
+  and the doctor's `requires-python` and lint target say 3.10.
+
 - **The ISP gateway's ICMP target charted as "unknown".** CPE discovery
   writes its own SmokePing section (`CPE`, holding `CPE_IPv4`/`CPE_IPv6`),
   which the exporters' directory-to-category map did not know, so its
