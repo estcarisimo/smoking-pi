@@ -17,70 +17,38 @@ logs a notice and exits cleanly, and the web-admin AI pages render a
 ## Enabling
 
 1. Get an API key from <https://console.anthropic.com/> .
-2. Add it to the edition's `.env` (next to the generated passwords):
+2. On the Pi, set it. It is asked for at a prompt, never typed on the
+   command line, and only the services that read it are recreated:
 
    ```bash
-   ANTHROPIC_API_KEY=sk-ant-api03-...
-   # optional overrides
-   AI_MODEL=claude-haiku-4-5-20251001
-   REPORT_INTERVAL=86400        # seconds between reports (daily)
-   AI_REPORTS_PER_DAY=8         # hard cap on API calls per day
-   AI_MAX_INPUT_CHARS=20000     # prompt-size guardrail
+   sudo smoking-pi config set ANTHROPIC_API_KEY
    ```
 
-3. Add the compose snippet below and start with the `ai` profile:
+3. Turn on the `ai` profile: add `ai` to the profiles already enabled.
 
    ```bash
-   COMPOSE_PROFILES=ai docker compose up -d
+   sudo smoking-pi config get COMPOSE_PROFILES
+   sudo smoking-pi config set COMPOSE_PROFILES influxdb,mcp,alerts,ai
    ```
 
-## Docker Compose snippet
+   `config set` replaces the whole list, so use what the first command
+   printed, plus `ai`. A new install can choose it directly: `sudo
+   smoking-pi install --profiles ai`.
 
-> The `editions/*/docker-compose.yml` files are owned by an in-flight PR, so
-> this snippet is documented here rather than committed. Merge it into the
-> edition compose file (Pro shown; adjust build path per edition), and pass
-> the same `ANTHROPIC_API_KEY`/`AI_MODEL`/`REPORTS_DIR` env vars to the
-> existing `web-admin` service plus the read-only `reports` mount.
+Optional settings, each with `sudo smoking-pi config set KEY VALUE`:
 
-```yaml
-services:
-  ai-insights:
-    build: ../../shared/modules/ai-insights
-    container_name: ai-insights
-    profiles: [ai]
-    restart: unless-stopped
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - AI_MODEL=${AI_MODEL:-claude-haiku-4-5-20251001}
-      - REPORT_INTERVAL=${REPORT_INTERVAL:-86400}
-      - AI_REPORTS_PER_DAY=${AI_REPORTS_PER_DAY:-8}
-      - REPORTS_DIR=/reports
-      - INFLUX_URL=http://influxdb:8086
-      - INFLUX_TOKEN=${INFLUX_TOKEN}
-      - INFLUX_ORG=${INFLUX_ORG:-smokeping}
-      - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
-    volumes:
-      - reports:/reports
-    networks:
-      - smokeping-net
+| Key | Default | What it does |
+|---|---|---|
+| `AI_MODEL` | `claude-haiku-4-5-20251001` | The model that writes reports and answers chat |
+| `REPORT_INTERVAL` | `86400` | Seconds between reports (daily) |
+| `AI_REPORTS_PER_DAY` | `8` | Hard cap on report API calls per day |
+| `AI_MAX_INPUT_CHARS` | `20000` | Prompt-size guardrail |
 
-  web-admin:
-    # ... existing definition; ADD:
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - AI_MODEL=${AI_MODEL:-claude-haiku-4-5-20251001}
-      - REPORTS_DIR=/reports
-    volumes:
-      - reports:/reports:ro
-
-volumes:
-  reports:
-```
-
-**Post-merge step:** once the compose PR lands, also add
-`ANTHROPIC_API_KEY=`, `AI_MODEL=`, and (optionally) `REPORT_INTERVAL=` /
-`AI_REPORTS_PER_DAY=` placeholders to `editions/*/.env.template` so
-`setup.sh` carries them into generated `.env` files.
+From a clone instead of the package, the same keys go in the edition's
+`.env`, and so does the profile: add `ai` to its `COMPOSE_PROFILES` line,
+then `docker compose up -d` from `editions/pro`. A profile given only on
+the command line is not in the file, so the next `down` and `up` would
+leave the service out.
 
 ## What the reporter does
 
