@@ -9,32 +9,45 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.15.4] — 2026-09-29
+
+The DNS wizard stops measuring what a host does not serve.
+
+Many hosts do not answer every layer the wizard measures: some drop
+ping, many have no HTTP/3, some names serve no web at all. Each such
+layer charted a permanent outage (72 of 265 on the reference Pi).
+`smoking-pi dns adopt` now tries each new layer first and skips one that
+does not answer. It also deactivates adopted layers silent for a day,
+keeping their history. It deactivates nothing while most of the network
+is down, nor when a whole layer (QUIC, ping) is blocked. The doctor's
+new `silent-series` check names every series that answered nothing for a
+day. After upgrading, `sudo smoking-pi dns adopt --dry-run` shows what
+it would deactivate.
+
 ### Fixed
 
 - **The DNS wizard measured layers the host does not serve, forever.** It
   adopts each service with the whole suite (ICMP, TCP 443, HTTP/1.1, /2,
-  /3), and many hosts do not serve every layer. Some drop ping, many have
-  no HTTP/3, and some names (a CDN's fallback, Apple's Private Relay) have
-  no web server at all. On the reference Pi, 72 of the 265 adopted series
-  answered nothing for a whole day: 33 HTTP/3, 26 other HTTP, 10 ICMP and
-  3 TCP. Among them was one of the Pi's own containers, adopted before the
+  /3), and many hosts do not serve every layer. Some drop ping, many have no
+  HTTP/3, and some names (a CDN's fallback, Apple's Private Relay) have no
+  web server at all. On the reference Pi, 72 of the 265 adopted series
+  answered nothing for a whole day: 33 HTTP/3, 26 other HTTP, 10 ICMP and 3
+  TCP. Among them was one of the Pi's own containers, adopted before the
   filter that now refuses bare names. Each charted a permanent outage, and
-  the assistant could report "hbo.com at 100% loss". Nothing flagged it:
-  it was found by counting silent series by hand. `smoking-pi dns adopt`
-  now tries each new layer once, from the SmokePing container and the way
-  its probe does, and skips a layer the host does not answer. It also
+  the assistant could report "hbo.com at 100% loss". Nothing flagged it: it
+  was found by counting silent series by hand. `smoking-pi dns adopt` now
+  tries each new layer once, from the SmokePing container and the way its
+  probe does, and skips a layer the host does not answer. It also
   deactivates adopted layers that answered nothing for a day, provided at
-  least half of the others did, and at least a fifth of the same layer
-  type: a day-long outage deactivates nothing, nor does a block of one
-  layer (QUIC or ping dropped everywhere). Both changes are made in one
-  transaction. A
+  least half of the others did, and at least a fifth of the same layer type:
+  a day-long outage deactivates nothing, nor does a block of one layer (QUIC
+  or ping dropped everywhere). Both changes are made in one transaction. A
   deactivated layer keeps its row and history, stops being probed, and can
   be turned back on in the web admin. The rest of the service is still
   measured, and services are still only added. A new doctor check,
-  `silent-series`, names every series (configured or adopted) that
-  answered nothing for a day. It would also have caught the seed's bare
-  `amazon.com`. `docs/dns-observer.md`, `docs/doctor.md`.
-
+  `silent-series`, names every series (configured or adopted) that answered
+  nothing for a day. It would also have caught the seed's bare `amazon.com`.
+  `docs/dns-observer.md`, `docs/doctor.md`.
 ## [2.15.3] — 2026-09-29
 
 Standard and Pro stop shipping a target that can never answer.
