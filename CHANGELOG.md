@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.15.5] — 2026-09-29
+
+Deactivating the DNS wizard's silent layers, on its own.
+
+`smoking-pi dns adopt --retire-only` deactivates the layers that answered
+nothing for a day and adopts nothing new. Until now that came only
+together with adopting whatever the wizard had selected since the last
+run. And a CDN endpoint that embeds a customer's domain
+(`www.x.com.cdn.cloudflare.net`) now counts as the CDN's service, not as
+a service named after a top-level domain.
+
 ### Added
 
 - **`smoking-pi dns adopt --retire-only`.** Deactivating the silent layers
