@@ -84,7 +84,7 @@
           "uid": "influxdb"
         },
         "query": "import \"regexp\"\nimport \"strings\"\nimport \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -7d, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r._value, t: \"\") })) |> map(fn: (r) => ({ r with key: strings.toLower(v: r._value) })) |> group(columns: [\"key\"]) |> sort(columns: [\"_value\"]) |> first() |> group() |> keep(columns: [\"_value\"]) |> sort()",
-        "current": {},
+        "current": { "text": "Google", "value": "Google" },
         "options": [],
         "includeAll": false,
         "multi": false,
