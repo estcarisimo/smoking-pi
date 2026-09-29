@@ -621,11 +621,19 @@
     // Per-target SmokePing graph links and per-category Grafana links.
     // Built client-side from the browser's hostname so they work no matter
     // how the Pi is reached (IP, mDNS name, tunnel...).
+    // Wider on purpose than common/links.py COMPARE_BY_DB_CATEGORY, which
+    // lists only dashboards with a per-target peer comparison. Uids are the
+    // InfluxDB tree's; ClickHouse installs provision other uids.
     const GRAFANA_DASHBOARD_UIDS = {
         'top_sites': 'top_sites-side-by-side-v1',
         'netflix_oca': 'netflix_oca-side-by-side-v1',
         'custom': 'custom-side-by-side-v1',
         'dns_resolvers': 'dns-resolvers-v1',
+        // HTTP and TCP targets have no ICMP pings to show on the default;
+        // both are on the HTTP-by-version dashboard (TCP at the bottom).
+        'http': 'http-by-version-v1',
+        'tcp': 'http-by-version-v1',
+        'dns_wizard': 'dns-wizard-v1',
     };
     const GRAFANA_DEFAULT_UID = 'individual-pings-v1';
 

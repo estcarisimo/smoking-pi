@@ -80,6 +80,12 @@
                             <i class="bi bi-stars"></i> AI
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="grafana-home-link" href="#" target="_blank" rel="noopener"
+                           title="Grafana's home: the Overview (where the Pi is connected, how the link is doing)">
+                            <i class="bi bi-graph-up"></i> Grafana
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>
@@ -134,6 +140,10 @@
                 showToast('Error', 'Error applying configuration: ' + error.message, 'danger');
             }
         }
+        // Built from the browser's hostname, like the dashboard's Grafana
+        // links, so it works however the Pi is reached (IP, mDNS, tunnel).
+        document.getElementById('grafana-home-link').href =
+            `http://${window.location.hostname}:3000/`;
         document.getElementById('apply-config-btn').addEventListener('click', applyConfiguration);
     </script>
 
