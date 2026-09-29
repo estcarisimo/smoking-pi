@@ -746,8 +746,8 @@
     {
       "id": 21,
       "type": "stat",
-      "title": "Gateway latency",
-      "description": "Median round trip to the home gateway (CPE) in the last probe window, IPv4 (cpe_latency, milliseconds). This is the first hop: if it is high, everything behind it is too. Loss is left out on purpose: gateways rate-limit ICMP, so some loss is normal (see CPE microcuts).",
+      "title": "ISP gateway latency",
+      "description": "Median round trip to the first hop past the home router that answers, in the last probe window, IPv4 (cpe_latency, milliseconds). CPE discovery skips hop 1, so this is usually the ISP's gateway; behind a mesh node or a second router it can still be in the house. Loss is left out on purpose: gateways rate-limit ICMP, so some loss is normal (see CPE microcuts).",
       "datasource": {
         "uid": "influxdb"
       },
@@ -976,8 +976,8 @@
     {
       "id": 33,
       "type": "timeseries",
-      "title": "Home link: gateway latency and Wi-Fi signal",
-      "description": "The two things between the Pi and the ISP. Gateway latency (cpe_latency, ms, left axis) rising with the Wi-Fi signal (dBm, right axis) falling points at the radio; gateway latency rising on a steady signal points at the gateway or its load.",
+      "title": "Toward the ISP: gateway latency and Wi-Fi signal",
+      "description": "The two stretches between the Pi and the Internet. ISP gateway latency (cpe_latency, ms, left axis) rising with the Wi-Fi signal (dBm, right axis) falling points at the radio; gateway latency rising on a steady signal points at the home router, the access line or the ISP's edge.",
       "datasource": {
         "uid": "influxdb"
       },
@@ -1056,8 +1056,8 @@
     {
       "id": 34,
       "type": "stat",
-      "title": "Gateway cut windows",
-      "description": "10-second gateway probe windows that lost more than half their pings in the selected range: the raw material of a microcut (common/microcuts.py; 50% is MICROCUT_LOSS_PCT's default). The gateway's rate-limit floor stays below it. Details: CPE microcuts.",
+      "title": "ISP gateway cut windows",
+      "description": "10-second ISP gateway probe windows that lost more than half their pings in the selected range: the raw material of a microcut (common/microcuts.py; 50% is MICROCUT_LOSS_PCT's default). The gateway's rate-limit floor stays below it. Details: CPE microcuts.",
       "datasource": {
         "uid": "influxdb"
       },

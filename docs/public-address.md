@@ -10,15 +10,15 @@ which targets need a look:
   who resolves DNS for the house ([Which resolver answers](public-resolver.md)).
 - **Right now:** how many targets answered in the last 15 minutes on each
   layer (ICMP ping, DNS, TCP handshake, HTTP/1.1–3), how many are losing
-  packets, the Wi-Fi signal, the round trip to the home gateway, and how
-  many measurements were written in the last hour. The DNS wizard's
-  targets are counted apart: many CDNs drop ICMP, so a silent wizard
-  target is usually a probe choice rather than an outage, as in
-  [alerting](alerting.md).
+  packets, the Wi-Fi signal, the round trip to the ISP's gateway (the
+  first hop past the home router that answers), and how many measurements
+  were written in the last hour. The DNS wizard's targets are counted
+  apart: many CDNs drop ICMP, so a silent wizard target is usually a probe
+  choice rather than an outage, as in [alerting](alerting.md).
 - **Over the selected range** (24 hours by default): ICMP latency and loss
-  per category of destination, the gateway's latency against the Wi-Fi
-  signal, and counts of gateway cut windows, Wi-Fi drops, uplink changes
-  and resolver changes. Uplink and resolver changes are marked on the
+  per category of destination, the ISP gateway's latency against the Wi-Fi
+  signal, and counts of ISP gateway cut windows, Wi-Fi drops, uplink
+  changes and resolver changes. Uplink and resolver changes are marked on the
   charts. A jump in every category at once is the house or the ISP; one
   category alone is its destinations.
 - **Targets that need a look:** every target and layer, the lossiest first

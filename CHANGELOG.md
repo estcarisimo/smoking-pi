@@ -27,10 +27,11 @@ version gets a matching GitHub release and git tag.
 ### Added
 
 - **The Overview says how the link is doing, not only where it is.** A
-  *Right now* row adds the Wi-Fi signal and the gateway's round trip. An
+  *Right now* row adds the Wi-Fi signal and the round trip to the ISP's
+  gateway (the first hop past the home router that answers). An
   *Over the selected range* row (24 h by default) adds ICMP latency and
-  loss per category, the gateway's latency against the Wi-Fi signal, and
-  counts of gateway cut windows, Wi-Fi drops, uplink changes and changes of
+  loss per category, the ISP gateway's latency against the Wi-Fi signal, and
+  counts of ISP gateway cut windows, Wi-Fi drops, uplink changes and changes of
   the router's resolver,
   with uplink and resolver changes marked on the charts. A *Targets that
   need a look* table lists every target and layer, the lossiest first and
