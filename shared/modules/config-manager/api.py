@@ -1211,10 +1211,12 @@ def wizard_adopt_route():
     dry_run = request.args.get('dry_run') in ('1', 'true', 'yes')
     retire_only = request.args.get('retire_only') in ('1', 'true', 'yes')
     snapshot = None
-    if not retire_only:  # deactivating needs the RRDs, not the wizard's selection
-        try:
-            snapshot = wizard_adopt.read_snapshot()
-        except wizard_adopt.Unavailable as e:
+    try:
+        snapshot = wizard_adopt.read_snapshot()
+    except wizard_adopt.Unavailable as e:
+        # Deactivating silent layers needs the RRDs, not the wizard's
+        # selection; without a snapshot only the consolidation is skipped.
+        if not retire_only:
             return jsonify({'error': wizard_adopt.UNAVAILABLE.get(e.code, 'unavailable'),
                             'code': e.code}), 409
     try:
@@ -1236,6 +1238,7 @@ def wizard_adopt_route():
         # too, so the database never differs from what SmokePing is told.
         retired = wizard_adopt.retire_silent(
             session, models, None if report is None else report.get('silence', {}))
+        merged = wizard_adopt.consolidate(session, models, snapshot)
         if retire_only:
             result = {'targets_added': 0, 'services_added': 0, 'targets': [],
                       'not_served': [], 'over_cap': [], 'preflight': 'not run',
@@ -1244,6 +1247,7 @@ def wizard_adopt_route():
             result = wizard_adopt.adopt(
                 session, models, snapshot,
                 max_services=max_services, dry_run=dry_run, checker=checker, commit=False,
+                released=merged['released'],
             )
         if dry_run:
             session.rollback()
@@ -1251,6 +1255,7 @@ def wizard_adopt_route():
             session.commit()
         result['retired'] = retired['retired']
         result['retire_held'] = retired['held']
+        result['consolidated'] = merged['consolidated']
     except wizard_adopt.Unavailable as e:
         session.rollback()
         return jsonify({'error': wizard_adopt.UNAVAILABLE.get(e.code, 'unavailable'),
@@ -1265,8 +1270,13 @@ def wizard_adopt_route():
         # CLI's output is gone once the terminal closes.
         logger.info("DNS wizard: deactivated %d layer(s) that answered nothing for a "
                     "day: %s", len(result['retired']), ", ".join(result['retired']))
+    if not dry_run:
+        for c in result['consolidated']:
+            logger.info("DNS wizard: kept %s for %s; deactivated %d layer(s) of the "
+                        "others: %s", c['kept'], c['service'], len(c['deactivated']),
+                        ", ".join(c['deactivated']))
     result['reloaded'] = None
-    if not dry_run and (result['targets_added'] or result['retired']):
+    if not dry_run and (result['targets_added'] or result['retired'] or result['consolidated']):
         try:
             result['reloaded'] = api._regenerate_smokeping_config()
         except Exception as e:

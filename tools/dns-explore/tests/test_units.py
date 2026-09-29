@@ -15,6 +15,12 @@ from dns_explore.logread import parse_line
         ("e1.x.com.akadns.net", "akadns.net"),
         ("x.app.cdn.cloudflare.net", "cloudflare.net"),
         ("www.ab.github.io", "ab.github.io"),
+        # An edge network's endpoints are one service (as in the observer).
+        ("d3p8zr0ffa9t17.cloudfront.net", "cloudfront.net"),
+        ("twitter.map.fastly.net", "fastly.net"),
+        ("oauthaccountmanager.googleapis.com", "googleapis.com"),
+        ("web-123.us-east-1.elb.amazonaws.com", "us-east-1.elb.amazonaws.com"),
+        ("notcloudfront.net", "notcloudfront.net"),
     ],
 )
 def test_service_is_etld_plus_one(name, service):

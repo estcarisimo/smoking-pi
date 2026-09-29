@@ -50,6 +50,26 @@ version gets a matching GitHub release and git tag.
 
 ### Changed
 
+- **An edge network's endpoints are one service, measured through one
+  host.** The DNS wizard counted every CloudFront distribution, Fastly
+  customer, Akamai edge and Google API host as a service of its own. On
+  the reference Pi, three days of lookups gave 84 googleapis.com hosts, 52
+  CloudFront distributions, 38 Fastly customers and 47 Akamai edges. Four
+  googleapis.com hosts were adopted as 20 targets, all reaching the same
+  Google front end. Measuring many endpoints of one edge multiplies the
+  targets without measuring anything new, and crowds real services out of
+  the ranking and the cap. Endpoints under a listed edge suffix
+  (`cloudfront.net`, `fastly.net`, the Akamai and Azure edges,
+  `googleapis.com`, …) are now one service, measured through its busiest
+  stable host. AWS load balancers stay one service per region, and sites
+  under a shared suffix (`github.io`, `myshopify.com`) stay their own.
+  `tools/dns-explore` uses the same rule. For targets adopted before,
+  `dns adopt` (and `--retire-only`) now recognizes a service measured
+  under an older name, and does not adopt it again. Where several adopted
+  targets are now one service, it keeps one and deactivates the others,
+  with their history kept. On the reference Pi that is googleapis.com:
+  one of four kept, and three places freed under the cap.
+
 - **Changing a probe's cycle: the missing point, and how to switch
   back.** The first end-to-end test of the Probes page (on a test Pi:
   DNS to 10 queries every 2 minutes and back, through the web form) found
