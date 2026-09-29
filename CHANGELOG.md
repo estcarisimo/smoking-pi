@@ -44,8 +44,12 @@ version gets a matching GitHub release and git tag.
   microcuts, the override that puts TX failures/s on a right-hand axis as
   red bars matched a series name Grafana never produced, so failures were
   drawn in dBm next to the signal and flattened it. The series are now
-  named per interface ("signal wlan0", "tx failed/s wlan0"), and the
-  override matches the failures' query.
+  named per interface ("signal wlan0", "tx failed/s wlan0", which changes
+  that legend), and the override matches the failures' query. The Wi-Fi
+  Link dashboard had six overrides of the same kind that never applied: the
+  average signal's dashed line, the noise and SNR units and axis, the
+  modulation's width axis, channel busy's 0-100 % scale and link quality's
+  right axis. They now match their queries too.
 
 - **The Overview's first row said "unknown" and "not collected yet" over
   data that was there.** Uplink, Wi-Fi network, public address, network,

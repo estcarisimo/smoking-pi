@@ -621,8 +621,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byName",
-              "options": "signal avg"
+              "id": "byFrameRefID",
+              "options": "B"
             },
             "properties": [
               {
@@ -693,8 +693,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byName",
-              "options": "noise"
+              "id": "byFrameRefID",
+              "options": "A"
             },
             "properties": [
               {
@@ -705,8 +705,8 @@
           },
           {
             "matcher": {
-              "id": "byName",
-              "options": "snr"
+              "id": "byFrameRefID",
+              "options": "B"
             },
             "properties": [
               {
@@ -851,8 +851,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byName",
-              "options": "width MHz"
+              "id": "byFrameRefID",
+              "options": "C"
             },
             "properties": [
               {
@@ -1165,8 +1165,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byName",
-              "options": "busy %"
+              "id": "byFrameRefID",
+              "options": "A"
             },
             "properties": [
               {
@@ -1185,8 +1185,8 @@
           },
           {
             "matcher": {
-              "id": "byName",
-              "options": "link quality"
+              "id": "byFrameRefID",
+              "options": "B"
             },
             "properties": [
               {
