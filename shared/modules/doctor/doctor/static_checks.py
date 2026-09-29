@@ -73,6 +73,7 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_dashboards_are_scanned(repo, influx, clickhouse),
         check_panel_measurements_are_written(repo, influx),
         check_panel_tags_are_written(repo, influx),
+        check_text_stats_name_their_field(influx),
         check_alerter_env_defaults_match(repo),
         check_alerter_env_declared(repo),
         check_mcp_tools_documented(repo),
@@ -362,6 +363,41 @@ def check_panel_tags_are_written(repo: Repo, influx) -> CheckResult:
         "panel-tags-written",
         findings,
         f"{checked} tag references match {', '.join(vocab.sources)}",
+    )
+
+
+def check_text_stats_name_their_field(influx) -> CheckResult:
+    """A stat reduces numeric fields only, unless ``reduceOptions.fields``
+    names one: a query answering with text (an SSID, an address, a network)
+    then shows its ``noValue`` ("unknown", "not collected yet") over data
+    that is there. The Overview's whole first row did that from v2.14.0 to
+    v2.15.6; the query answered correctly the entire time."""
+    findings = []
+    checked = 0
+    for dashboard in influx:
+        for panel in sources.iter_stat_panels(dashboard):
+            queries = [
+                t.get("query")
+                for t in panel.get("targets") or []
+                if isinstance(t, dict) and isinstance(t.get("query"), str)
+            ]
+            if not any(sources.shows_text(q) for q in queries):
+                continue
+            checked += 1
+            reduce = (panel.get("options") or {}).get("reduceOptions") or {}
+            if not reduce.get("fields"):
+                findings.append(
+                    Finding(
+                        "stat answers with text but reduceOptions.fields is "
+                        "empty, so it shows noValue; name the field "
+                        '(e.g. "/^Value$/")',
+                        where=f"{dashboard.rel} / {panel.get('title')}",
+                    )
+                )
+    return result(
+        "text-stats-name-their-field",
+        findings,
+        f"{checked} text stats name the field they show",
     )
 
 

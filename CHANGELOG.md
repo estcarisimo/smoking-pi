@@ -9,6 +9,35 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Overview's first row said "unknown" and "not collected yet" over
+  data that was there.** Uplink, Wi-Fi network, public address, network,
+  location, resolver and IPv6 were all written and their queries answered,
+  but a Grafana stat reduces numeric fields only unless told which field
+  to show, so every text answer fell through to its "no value" text. Since
+  v2.14.0 the landing page has told every installation it was not
+  connected anywhere. The Wi-Fi dashboard's SSID and BSSID said "No data"
+  for the same reason. Both now name their field, and a new doctor check,
+  `text-stats-name-their-field`, fails on a text stat that does not.
+- **"Targets answering, by layer" printed each layer's name as an
+  unreadable string of timestamps.** The query's window columns rode along
+  as labels; it now keeps the count alone.
+
+### Added
+
+- **The Overview says how the link is doing, not only where it is.** A
+  *Right now* row adds the Wi-Fi signal and the gateway's round trip. An
+  *Over the selected range* row (24 h by default) adds ICMP latency and
+  loss per category, the gateway's latency against the Wi-Fi signal, and
+  counts of gateway cut windows, Wi-Fi drops, uplink changes and changes of
+  the router's resolver,
+  with uplink and resolver changes marked on the charts. A *Targets that
+  need a look* table lists every target and layer, the lossiest first and
+  then the furthest above its own 24-hour median, each linking to Target
+  Detail. Before, the page could not answer "is my Internet OK?" without
+  opening another dashboard.
+
 ## [2.15.6] — 2026-09-29
 
 One target per edge network, and a command that says when it needs sudo.

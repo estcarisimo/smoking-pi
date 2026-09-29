@@ -42,6 +42,7 @@ instrumentation doctor — static checks against /home/smokingpi/smoking-pi
 [ok  ] dashboards-are-scanned        17 dashboards sit under a scanned path
 [ok  ] panel-measurements-written    90 measurement predicates match …
 [ok  ] panel-tags-written            98 tag references match …
+[ok  ] text-stats-name-their-field   7 text stats name the field they show
 
 9 ok, 0 warn, 0 fail, 0 skipped
 ```
@@ -61,6 +62,7 @@ Each one exists because the corresponding failure actually happened here.
 | `dashboards-are-scanned` | Dashboard JSON in a directory no provider walks | The entire ClickHouse dashboard set, on disk and never loaded |
 | `panel-measurements-written` | `r._measurement == "X"` where no exporter writes `X` | — |
 | `panel-tags-written` | `r.measurement_type` and friends — a filter that can never match | DNS panels filtered on `measurement_type='latency'` / `category='DNS_Resolvers'`, where the exporter writes `dns_latency` / `dns` |
+| `text-stats-name-their-field` | A stat panel whose query answers with text (a tag kept, or `_value` built from a tag or a string) and whose `reduceOptions.fields` is empty: Grafana reduces numeric fields only, so the panel shows its "no value" text over data that is there | The Overview's whole first row ("unknown", "not collected yet") and the Wi-Fi dashboard's SSID and BSSID ("No data"), v2.14.0–v2.15.6. Recognized from the query alone: a string *field* shown as-is (`r._field == "owner"`) looks like any number and is not caught |
 
 ### Where the vocabulary comes from
 

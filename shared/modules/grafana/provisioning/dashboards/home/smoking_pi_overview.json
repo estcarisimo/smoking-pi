@@ -12,13 +12,41 @@
         "iconColor": "rgba(0, 211, 255, 1)",
         "name": "Annotations & Alerts",
         "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "purple",
+        "name": "Uplink changed",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"host_uplink\" and (r._field == \"previous\" or r._field == \"interface\" or r._field == \"kind\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => exists r.previous) |> map(fn: (r) => ({_time: r._time, text: \"Uplink \" + r.previous + \" → \" + (if r.interface == \"\" then \"none\" else r.interface + \" (\" + r.kind + \")\"), tags: \"uplink\"}))"
+        }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "orange",
+        "name": "Resolver changed",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolver\" and (r._field == \"previous\" or r._field == \"owner\")) |> pivot(rowKey: [\"_time\", \"path\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => exists r.previous) |> map(fn: (r) => ({_time: r._time, text: \"Resolver via \" + r.path + \": \" + r.previous + \" → \" + r.owner, tags: \"resolver\"}))"
+        }
       }
     ]
   },
   "uid": "smoking-pi-overview-v1",
   "id": null,
   "title": "Smoking Pi – Overview",
-  "description": "The landing page: where the Pi is connected (uplink, Wi-Fi, public address, network, approximate place, resolver), what it is measuring, and links to the detailed dashboards.",
+  "description": "The landing page: where the Pi is connected (uplink, Wi-Fi, public address, network, approximate place, resolver), how the link is doing right now and over the selected range, the targets that need a look, and links to the detailed dashboards.",
   "schemaVersion": 37,
   "version": 1,
   "tags": [
@@ -26,7 +54,7 @@
     "overview"
   ],
   "time": {
-    "from": "now-6h",
+    "from": "now-24h",
     "to": "now"
   },
   "refresh": "1m",
@@ -91,7 +119,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^Value$/",
           "values": false
         },
         "textMode": "value",
@@ -144,7 +172,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^Value$/",
           "values": false
         },
         "textMode": "value",
@@ -197,7 +225,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^Value$/",
           "values": false
         },
         "textMode": "value",
@@ -250,7 +278,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^Value$/",
           "values": false
         },
         "textMode": "value",
@@ -303,7 +331,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^Value$/",
           "values": false
         },
         "textMode": "value",
@@ -356,7 +384,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^Value$/",
           "values": false
         },
         "textMode": "value",
@@ -412,7 +440,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^Value$/",
           "values": false
         },
         "textMode": "value",
@@ -446,154 +474,6 @@
             "uid": "influxdb"
           },
           "query": "from(bucket:\"smokeping\") |> range(start:-2h) |> filter(fn:(r) => r._measurement == \"public_ip\" and r.family == \"ipv6\" and r._field == \"ip\") |> last() |> group() |> keep(columns:[\"_time\",\"_value\"])"
-        }
-      ]
-    },
-    {
-      "id": 9,
-      "type": "row",
-      "title": "What it is measuring (last 15 minutes)",
-      "collapsed": false,
-      "panels": [],
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 8
-      }
-    },
-    {
-      "id": 10,
-      "type": "stat",
-      "title": "Targets answering, by layer",
-      "description": "Targets with a measurement in the last 15 minutes, per layer. The welcome tour and the Targets page say what each layer tells you.",
-      "datasource": {
-        "uid": "influxdb"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 12,
-        "x": 0,
-        "y": 9
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name",
-        "graphMode": "none",
-        "colorMode": "value",
-        "justifyMode": "auto",
-        "orientation": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "0",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\") |> group() |> distinct(column:\"target\") |> count() |> rename(columns:{_value:\"ICMP ping\"})"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => r._measurement == \"dns_latency\" and r._field == \"loss\") |> group() |> distinct(column:\"target\") |> count() |> rename(columns:{_value:\"DNS resolution\"})"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => r._measurement == \"tcp_latency\" and r._field == \"loss\") |> group() |> distinct(column:\"target\") |> count() |> rename(columns:{_value:\"TCP handshake\"})"
-        },
-        {
-          "refId": "D",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => r._measurement == \"http_latency\" and r._field == \"loss\") |> group() |> distinct(column:\"target\") |> count() |> rename(columns:{_value:\"HTTP/1.1–3\"})"
-        }
-      ]
-    },
-    {
-      "id": 11,
-      "type": "stat",
-      "title": "Targets losing packets",
-      "description": "Targets whose last measurement lost at least one probe, all layers. The DNS wizard's targets are left out, as in alerting: many CDNs drop ICMP (see the next panel).",
-      "datasource": {
-        "uid": "influxdb"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 9
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value",
-        "graphMode": "none",
-        "colorMode": "value",
-        "justifyMode": "auto",
-        "orientation": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "0",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and r._field == \"loss\") |> group(columns:[\"_measurement\",\"target\",\"category\"]) |> last() |> group() |> filter(fn:(r) => r.category != \"dns_wizard\" and r._value > 0.0) |> count() |> keep(columns:[\"_value\"])"
         }
       ]
     },
@@ -654,17 +534,290 @@
       ]
     },
     {
+      "id": 9,
+      "type": "row",
+      "title": "Right now (last 15 minutes)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Targets answering, by layer",
+      "description": "Targets with a measurement in the last 15 minutes, per layer. The welcome tour and the Targets page say what each layer tells you.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\") |> group() |> distinct(column:\"target\") |> count() |> rename(columns:{_value:\"ICMP ping\"}) |> keep(columns:[\"ICMP ping\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => r._measurement == \"dns_latency\" and r._field == \"loss\") |> group() |> distinct(column:\"target\") |> count() |> rename(columns:{_value:\"DNS resolution\"}) |> keep(columns:[\"DNS resolution\"])"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => r._measurement == \"tcp_latency\" and r._field == \"loss\") |> group() |> distinct(column:\"target\") |> count() |> rename(columns:{_value:\"TCP handshake\"}) |> keep(columns:[\"TCP handshake\"])"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => r._measurement == \"http_latency\" and r._field == \"loss\") |> group() |> distinct(column:\"target\") |> count() |> rename(columns:{_value:\"HTTP/1.1–3\"}) |> keep(columns:[\"HTTP/1.1–3\"])"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Losing packets",
+      "description": "Targets whose last measurement lost at least one probe, all layers. The DNS wizard's targets are left out, as in alerting: many CDNs drop ICMP (see the next panel).",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 9
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and r._field == \"loss\") |> group(columns:[\"_measurement\",\"target\",\"category\"]) |> last() |> group() |> filter(fn:(r) => r.category != \"dns_wizard\" and r._value > 0.0) |> count() |> keep(columns:[\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Wi-Fi signal",
+      "description": "Received signal strength at the Pi (wifi_link). Above -67 dBm is comfortable for real-time traffic, below -75 dBm expect retries. Empty on a wired Pi.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 9
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "no Wi-Fi",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": -75
+              },
+              {
+                "color": "green",
+                "value": -67
+              }
+            ]
+          },
+          "unit": "suffix: dBm"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r._field == \"signal_dbm\") |> group() |> last() |> keep(columns:[\"_time\",\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Gateway latency",
+      "description": "Median round trip to the home gateway (CPE) in the last probe window, IPv4 (cpe_latency, milliseconds). This is the first hop: if it is high, everything behind it is too. Loss is left out on purpose: gateways rate-limit ICMP, so some loss is normal (see CPE microcuts).",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 9
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "not probed",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          },
+          "unit": "ms",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.protocol == \"ipv4\" and r._field == \"median\") |> group() |> last() |> keep(columns:[\"_time\",\"_value\"])"
+        }
+      ]
+    },
+    {
       "id": 12,
       "type": "stat",
-      "title": "Measurements in the last hour",
+      "title": "Measurements (1 h)",
       "description": "Measurement rounds written in the last hour, all layers (each is several probes).",
       "datasource": {
         "uid": "influxdb"
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 18,
+        "w": 4,
+        "x": 20,
         "y": 9
       },
       "options": {
@@ -707,9 +860,9 @@
       ]
     },
     {
-      "id": 13,
+      "id": 30,
       "type": "row",
-      "title": "Dashboards",
+      "title": "Over the selected range",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -720,18 +873,671 @@
       }
     },
     {
+      "id": 31,
+      "type": "timeseries",
+      "title": "ICMP latency by category, median across targets",
+      "description": "The median of every target's median ping in each window, per category (latency, seconds). One line per kind of destination: a jump in one line is that kind of destination; a jump in all of them is the house or the ISP. The DNS wizard's targets are left out.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      },
+      "interval": "5m",
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": 600000,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "displayName": "${__field.labels.category}"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"median\" and r.category != \"dns_wizard\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false)"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "ICMP loss by category, mean across targets",
+      "description": "Share of pings lost, averaged over the category's targets in each window (latency, 0-1). A short spike in every category at once is the link; one category alone is its destinations. The DNS wizard's targets are left out: many CDNs drop ICMP.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
+      "interval": "5m",
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": 600000,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "max": 1,
+          "displayName": "${__field.labels.category}"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Home link: gateway latency and Wi-Fi signal",
+      "description": "The two things between the Pi and the ISP. Gateway latency (cpe_latency, ms, left axis) rising with the Wi-Fi signal (dBm, right axis) falling points at the radio; gateway latency rising on a steady signal points at the gateway or its load.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "interval": "1m",
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": 600000,
+            "showPoints": "never"
+          },
+          "displayName": "${__field.labels.series}"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Wi-Fi signal"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: dBm"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r._field == \"median\") |> group(columns:[\"protocol\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> map(fn:(r) => ({_time: r._time, _value: r._value, series: \"gateway \" + r.protocol})) |> group(columns:[\"series\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r._field == \"signal_dbm\") |> group() |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> map(fn:(r) => ({_time: r._time, _value: r._value, series: \"Wi-Fi signal\"})) |> group(columns:[\"series\"])"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "Gateway cut windows",
+      "description": "10-second gateway probe windows that lost more than half their pings in the selected range: the raw material of a microcut (common/microcuts.py; 50% is MICROCUT_LOSS_PCT's default). The gateway's rate-limit floor stays below it. Details: CPE microcuts.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 23
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r._field == \"loss\") |> group() |> filter(fn:(r) => r._value > 50.0) |> count() |> keep(columns:[\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "Wi-Fi drops",
+      "description": "Times the Wi-Fi link lost carrier in the selected range (wifi_link carrier_down_count). Each one is a disconnect, however short.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 23
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "no Wi-Fi",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r._field == \"carrier_down_count\") |> group(columns:[\"interface\"]) |> increase() |> last() |> group() |> sum() |> keep(columns:[\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "stat",
+      "title": "Uplink changes",
+      "description": "Times the interface the Pi measures through changed in the selected range (host_uplink). Marked on the charts as \"Uplink changed\".",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 27
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"host_uplink\" and r._field == \"previous\") |> group() |> count() |> keep(columns:[\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "type": "stat",
+      "title": "Router resolver changes",
+      "description": "Times the network answering the house's DNS through the router changed in the selected range (dns_resolver). The \"Resolver changed\" marks on the charts also include the Pi's own DNS observer.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 27
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"dns_resolver\" and r.path == \"router\" and r._field == \"previous\") |> group() |> count() |> keep(columns:[\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Targets that need a look (last 15 minutes)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      }
+    },
+    {
+      "id": 41,
+      "type": "table",
+      "title": "Most loss first, then slowest against their own usual",
+      "description": "Every measured target and layer from its last measurement in the last 15 minutes: the lossiest first, then the ones furthest above their own usual (the median of their medians over the last 24 hours). Comparing a target with itself is what makes an HTTP fetch and a ping sortable together. Click a target for every layer on one page. The DNS wizard's targets are left out.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "Target": 0,
+              "Layer": 1,
+              "Loss": 2,
+              "Median": 3,
+              "Usual": 4,
+              "Ratio": 5
+            },
+            "renameByName": {
+              "Median": "Median now",
+              "Usual": "Usual (24 h)",
+              "Ratio": "Against usual"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Every layer for ${__value.raw}",
+                    "url": "/d/target-detail-v1?var-target=${__value.raw}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Loss"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.01
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.2
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Median now"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Usual (24 h)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Against usual"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: ×"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "-1": {
+                        "text": "—",
+                        "color": "text"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1.5
+                    },
+                    {
+                      "color": "red",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"join\"\nnow = from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and (r._field == \"loss\" or r._field == \"median\") and r.category != \"dns_wizard\") |> group(columns:[\"_measurement\",\"target\",\"category\",\"_field\"]) |> last() |> group() |> pivot(rowKey:[\"_measurement\",\"target\",\"category\"], columnKey:[\"_field\"], valueColumn:\"_value\")\nusual = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and r._field == \"median\" and r.category != \"dns_wizard\") |> group(columns:[\"_measurement\",\"target\"]) |> median() |> group() |> keep(columns:[\"_measurement\",\"target\",\"_value\"])\njoin.left(left: now, right: usual, on: (l, r) => l._measurement == r._measurement and l.target == r.target, as: (l, r) => ({Target: l.target, Layer: if l._measurement == \"latency\" then \"ICMP\" else if l._measurement == \"dns_latency\" then \"DNS\" else if l._measurement == \"tcp_latency\" then \"TCP\" else \"HTTP\", Loss: l.loss, Median: l.median, Usual: r._value, Ratio: if exists l.median and exists r._value and r._value > 0.0 then l.median / r._value else -1.0})) |> sort(columns:[\"Loss\",\"Ratio\"], desc:true) |> limit(n:15)"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Dashboards",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      }
+    },
+    {
       "id": 14,
       "type": "text",
       "title": "",
       "gridPos": {
-        "h": 8,
+        "h": 10,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 42
       },
       "options": {
         "mode": "markdown",
-        "content": "Where to look next:\n\n- [SmokePing Latency & Loss](/d/smokeping-lat-pct-v28)\n- [Individual pings](/d/individual-pings-v1)\n- [HTTP by version](/d/http-by-version-v1)\n- [DNS resolvers](/d/dns-resolvers-v1)\n- [Wi-Fi link](/d/wifi-link-v1)\n- [CPE microcuts](/d/cpe-microcut-v1)\n- [Top sites side by side](/d/top_sites-side-by-side-v1)\n- [Netflix OCA](/d/netflix_oca-side-by-side-v1)\n- [DNS wizard](/d/dns-wizard-v1)\n\nThe web admin (port 8080) holds the targets, the probes and the DNS observer's state."
+        "content": "Where to look next:\n\n- [Target detail](/d/target-detail-v1): one target, every layer\n- [SmokePing Latency & Loss](/d/smokeping-lat-pct-v28)\n- [Individual pings](/d/individual-pings-v1)\n- [HTTP by version](/d/http-by-version-v1)\n- [DNS resolvers](/d/dns-resolvers-v1)\n- [Wi-Fi link](/d/wifi-link-v1)\n- [CPE microcuts](/d/cpe-microcut-v1)\n- [Top sites side by side](/d/top_sites-side-by-side-v1)\n- [Netflix OCA](/d/netflix_oca-side-by-side-v1)\n- [DNS wizard](/d/dns-wizard-v1)\n\nThe web admin (port 8080) holds the targets, the probes and the DNS observer's state."
       }
     }
   ]

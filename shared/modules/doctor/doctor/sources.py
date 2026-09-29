@@ -451,6 +451,44 @@ def tag_refs_in(query: str) -> set[str]:
     return {name for name in before | after if name not in FLUX_BUILTIN_COLUMNS}
 
 
+_KEEP_RE = re.compile(r"keep\(\s*columns:\s*\[([^\]]*)\]\s*\)")
+_RENAME_RE = re.compile(r"rename\(\s*columns:\s*\{[^}]*\}\s*\)")
+_VALUE_COLUMNS = {"_time", "_value", "_start", "_stop", "_field", "_measurement"}
+# ``_value:`` built from a tag or a string: ``_value: r.ip``,
+# ``_value: "a" + r.b``, ``_value: if r.x == "" then "none" else ...``.
+_TEXT_VALUE_RE = re.compile(
+    # A column followed by arithmetic (``r.loss * 100.0``) is a number;
+    # ``+`` stays text, it is how Flux joins strings.
+    r'_value:\s*(?:"|r\.(?!_value\b)[A-Za-z_]\w*+(?!\s*[-*/%])'
+    r'|if\b[^)]*?\bthen\s*")'
+)
+
+
+def shows_text(query: str) -> bool:
+    """Whether a Flux query's value column is text, as far as the query says.
+
+    Two shapes are recognizable without the data: the last ``keep()`` names a
+    column that is not a Flux value column (a tag such as ``ssid``), or a
+    ``map()`` builds ``_value`` from a tag or a string literal. A string
+    *field* selected as-is (``r._field == "owner"``) is not recognizable.
+    """
+    keeps = _KEEP_RE.findall(query)
+    if keeps:
+        kept = set(re.findall(r'"([^"]+)"', keeps[-1]))
+        # rename(columns:{_value:"ICMP ping"}) keeps a number under a name.
+        renamed = set(re.findall(r'_value:\s*"([^"]+)"', query))
+        if kept - _VALUE_COLUMNS - renamed:
+            return True
+    return bool(_TEXT_VALUE_RE.search(_RENAME_RE.sub("", query)))
+
+
+def iter_stat_panels(dashboard: Dashboard):
+    """Yield every stat panel, including those nested in collapsed rows."""
+    for panel in _iter_panels(dashboard.data):
+        if panel.get("type") == "stat":
+            yield panel
+
+
 # ---------------------------------------------------------------------------
 # What a module reads from the environment, and what Compose supplies
 # ---------------------------------------------------------------------------

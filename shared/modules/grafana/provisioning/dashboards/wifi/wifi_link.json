@@ -125,7 +125,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^ssid$/",
           "values": false
         },
         "textMode": "value",
@@ -177,7 +177,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^bssid$/",
           "values": false
         },
         "textMode": "value",
