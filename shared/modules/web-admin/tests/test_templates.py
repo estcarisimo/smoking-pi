@@ -87,6 +87,7 @@ def test_every_linked_dashboard_is_provisioned():
     ('dns_resolvers', 'DNS Resolvers'),
     ('netflix_oca', 'Netflix OCA'),
     ('top_sites', 'Top Sites'),
+    ('ipv6_websites', 'IPv6 Websites'),
     ('custom', 'Custom'),
     ('some_new_thing', 'Some New Thing'),
 ])
