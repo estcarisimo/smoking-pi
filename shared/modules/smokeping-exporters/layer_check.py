@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import socket
 import subprocess
@@ -44,7 +45,7 @@ WORKERS = 32
 # config-manager waits for this inside an HTTP request that gunicorn ends at
 # 120 s. A layer not tried within the budget is left out of the report, and
 # config-manager adopts what it has no answer for, as before this check.
-BUDGET = 80
+BUDGET = 60
 # layer -> (curl flag, the http_version curl must report)
 HTTP = {"h1": ("--http1.1", "1.1"), "h2": ("--http2", "2"), "h3": ("--http3-only", "3")}
 _HOST = re.compile(r"^[A-Za-z0-9.:_-]{1,253}$")
@@ -147,4 +148,7 @@ def main(argv: list[str], run: Runner = _run, budget: float = BUDGET) -> dict[st
 
 
 if __name__ == "__main__":
-    print(json.dumps(main(sys.argv[1:])))
+    print(json.dumps(main(sys.argv[1:])), flush=True)
+    # A check still running past the budget must not hold the exec open:
+    # the interpreter would otherwise join its thread before exiting.
+    os._exit(0)

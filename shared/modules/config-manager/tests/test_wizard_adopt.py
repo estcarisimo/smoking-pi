@@ -280,3 +280,28 @@ def test_a_layer_the_check_had_no_time_for_is_adopted(env):
     assert sorted(body["not_served"]) == ["W_example_shop_org_h1", "W_example_shop_org_icmp",
                                           "W_example_shop_org_tcp"]
     assert sorted(_active(env)) == ["W_example_shop_org_h2", "W_example_shop_org_h3"]
+
+
+def test_a_layer_silent_everywhere_is_a_block_and_is_left_alone(env):
+    # QUIC dropped by a firewall for a day: every h3 silent, the rest answer.
+    silence = {f"W_{s}_org_{x}": DAY for s in ("alpha", "beta") for x in ("icmp", "tcp", "h1", "h2")}
+    silence.update({f"W_{s}_org_h3": SILENT for s in ("alpha", "beta")})
+    silence["W_alpha_org_icmp"] = SILENT  # one host that really drops ping
+    _adopted_with(env, silence)
+    body = env.client.post("/wizard/adopt").get_json()
+    assert body["retired"] == ["W_alpha_org_icmp"]
+    assert body["retire_held"] == "layer:h3"
+    assert _active(env)["W_alpha_org_h3"] is True
+
+
+def test_a_failed_adoption_undoes_the_deactivations(env, monkeypatch):
+    silence = {f"W_{s}_org_{x}": DAY for s in ("alpha", "beta") for x in ("icmp", "tcp", "h1", "h2", "h3")}
+    silence["W_beta_org_h3"] = SILENT
+    _adopted_with(env, silence)
+
+    def broken(*a, **kw):
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(wizard_adopt, "adopt", broken)
+    assert env.client.post("/wizard/adopt").status_code == 500
+    assert _active(env)["W_beta_org_h3"] is True  # not half-applied

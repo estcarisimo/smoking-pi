@@ -1229,13 +1229,18 @@ def wizard_adopt_route():
         silent_request = wizard_adopt.silence_request(session, models)
         report = api._layer_check({'silence': silent_request,
                                    'window': wizard_adopt.SILENT_WINDOW}) if silent_request else {}
+        # One transaction: a failure while adopting undoes the deactivations
+        # too, so the database never differs from what SmokePing is told.
         retired = wizard_adopt.retire_silent(
-            session, models, None if report is None else report.get('silence', {}),
-            dry_run=dry_run)
+            session, models, None if report is None else report.get('silence', {}))
         result = wizard_adopt.adopt(
             session, models, snapshot,
-            max_services=max_services, dry_run=dry_run, checker=checker,
+            max_services=max_services, dry_run=dry_run, checker=checker, commit=False,
         )
+        if dry_run:
+            session.rollback()
+        else:
+            session.commit()
         result['retired'] = retired['retired']
         result['retire_held'] = retired['held']
     except wizard_adopt.Unavailable as e:

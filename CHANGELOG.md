@@ -24,7 +24,10 @@ version gets a matching GitHub release and git tag.
   now tries each new layer once, from the SmokePing container and the way
   its probe does, and skips a layer the host does not answer. It also
   deactivates adopted layers that answered nothing for a day, provided at
-  least half of the others did: a day-long outage deactivates nothing. A
+  least half of the others did, and at least a fifth of the same layer
+  type: a day-long outage deactivates nothing, nor does a block of one
+  layer (QUIC or ping dropped everywhere). Both changes are made in one
+  transaction. A
   deactivated layer keeps its row and history, stops being probed, and can
   be turned back on in the web admin. The rest of the service is still
   measured, and services are still only added. A new doctor check,

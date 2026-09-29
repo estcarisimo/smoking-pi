@@ -75,6 +75,12 @@ RRD_SECTION = "DNS_Wizard"
 SILENT_WINDOW = 86400
 SILENT_MIN_ROWS = 259
 NETWORK_UP_SHARE = 0.5
+# And per layer type: a firewall that drops QUIC, or a network that drops
+# ping, silences one layer everywhere while the rest answer. A layer type
+# is judged only if at least this share of its own series answered; a
+# layer-wide block leaves ~0%, the hosts that just lack it far more (on the
+# reference Pi, HTTP/3 answered for 41%).
+LAYER_UP_SHARE = 0.2
 # Private TLDs an observer before 2.13.8 could still select (it only knew
 # .lan, .local, .home.arpa, .arpa, .test, .invalid, .localhost as own).
 PRIVATE_TLDS = (".internal", ".lan", ".local", ".localdomain", ".home", ".corp",
@@ -215,13 +221,15 @@ def layer_of(name: str) -> str:
 
 
 def adopt(session, models, snapshot: dict, *, max_services: int, dry_run: bool = False,
-          checker=None) -> dict:
+          checker=None, commit: bool = True) -> dict:
     """Create the missing targets for the wizard's selection.
 
     ``models`` is (Target, TargetCategory, Probe). Commits unless ``dry_run``.
     ``checker`` takes [{"name", "host", "layer"}] and returns {name: bool}
     (None when it could not run): a layer that does not answer is not
-    adopted. Without a checker, or when it cannot run, every layer is.
+    adopted, and is tried again on the next adoption. One it has no answer
+    for (not tried within its time budget) is adopted, as is every layer
+    without a checker. ``commit=False`` leaves the commit to the caller.
     """
     target_model, category_model, probe_model = models
     existing = {t.name: t for t in session.query(target_model).all()}
@@ -232,13 +240,15 @@ def adopt(session, models, snapshot: dict, *, max_services: int, dry_run: bool =
     to_create, over_cap = plan(snapshot, set(existing), adopted, max_services)
     not_served: list[str] = []
     preflight = "not run"
+    untried = 0
     if checker is not None and to_create:
         answered = checker([{"name": t["name"], "host": t["host"], "layer": layer_of(t["name"])}
                             for t in to_create])
         if answered is None:
             preflight = "unavailable"
         else:
-            preflight = "ran"
+            untried = sum(1 for t in to_create if t["name"] not in answered)
+            preflight = "partial" if untried else "ran"
             not_served = [t["name"] for t in to_create if answered.get(t["name"]) is False]
             to_create = [t for t in to_create if t["name"] not in set(not_served)]
     result = {
@@ -248,12 +258,15 @@ def adopt(session, models, snapshot: dict, *, max_services: int, dry_run: bool =
         "targets_added": len(to_create),
         "over_cap": over_cap,
         "preflight": preflight,
+        "untried": untried if preflight == "partial" else 0,
         "not_served": not_served,
         "dry_run": dry_run,
         "targets": [{k: t[k] for k in ("name", "host", "probe", "reason")} for t in to_create],
     }
-    if dry_run or not to_create:
+    if dry_run:
         session.rollback()
+        return result
+    if not to_create:
         return result
     cat = ensure_category(session, category_model)
     probes = ensure_probes(session, probe_model)
@@ -262,7 +275,8 @@ def adopt(session, models, snapshot: dict, *, max_services: int, dry_run: bool =
             name=t["name"], host=t["host"], title=t["title"],
             category_id=cat.id, probe_id=probes[t["probe"]].id, is_active=True,
         ))
-    session.commit()
+    if commit:
+        session.commit()
     return result
 
 
@@ -276,13 +290,15 @@ def silence_request(session, models) -> list[dict]:
             for t in session.query(target_model).filter_by(category_id=cat.id, is_active=True)]
 
 
-def retire_silent(session, models, silence: dict | None, *, dry_run: bool = False) -> dict:
-    """Deactivate the adopted layers that answered nothing for a day.
+def retire_silent(session, models, silence: dict | None) -> dict:
+    """Mark inactive the adopted layers that answered nothing for a day.
 
     ``silence`` is layer_check's {name: {"rows", "answered"}}. Only layers
     with a full day measured count; if fewer than NETWORK_UP_SHARE of those
     answered, the network (not the layers) was the problem and nothing is
-    touched. Commits unless ``dry_run``.
+    touched, and a layer type is judged only where LAYER_UP_SHARE of its
+    own series answered. Changes the session; the caller commits (with the
+    adoption, so a failure there undoes both) or rolls back.
     """
     result = {"retired": [], "held": None}
     if silence is None:
@@ -302,16 +318,19 @@ def retire_silent(session, models, silence: dict | None, *, dry_run: bool = Fals
     if answering < NETWORK_UP_SHARE * len(measured):
         result["held"] = "network"
         return result
-    silent = sorted(n for n, s in measured.items() if s.get("answered", 0) == 0)
+    by_layer: dict[str, list[int]] = {}
+    for n, s in measured.items():
+        counts = by_layer.setdefault(layer_of(n), [0, 0])
+        counts[0] += 1
+        counts[1] += s.get("answered", 0) > 0
+    blocked = sorted(layer for layer, (n, up) in by_layer.items() if up < LAYER_UP_SHARE * n)
+    if blocked:
+        result["held"] = "layer:" + ",".join(blocked)
+    silent = sorted(n for n, s in measured.items()
+                    if s.get("answered", 0) == 0 and layer_of(n) not in blocked)
     result["retired"] = silent
-    if dry_run or not silent:
-        session.rollback()
-        return result
     for name in silent:
         active[name].is_active = False
-    session.commit()
-    logger.info("DNS wizard: deactivated %d layers that answered nothing for a day: %s",
-                len(silent), ", ".join(silent))
     return result
 
 
@@ -354,6 +373,9 @@ def main(argv: list[str]) -> int:
         print(f"Not adopted, the host does not answer that layer: {', '.join(body['not_served'])}")
     if body.get("preflight") == "unavailable":
         print("Could not try the new layers first (SmokePing not answering): all were adopted.")
+    if body.get("untried"):
+        print(f"{body['untried']} new layers were not tried within the time allowed and were "
+              "adopted; any that stays silent for a day is deactivated by a later run.")
     retired = body.get("retired") or []
     if retired:
         verb_r = "Would deactivate" if dry else "Deactivated"
@@ -361,6 +383,9 @@ def main(argv: list[str]) -> int:
               f"(history kept; turn one back on in the web admin): {', '.join(retired)}")
     if body.get("retire_held") == "network":
         print("Deactivated nothing: most layers were silent too, which is the network, not them.")
+    elif str(body.get("retire_held") or "").startswith("layer:"):
+        print(f"Left alone, silent almost everywhere (a block, not the hosts): "
+              f"{body['retire_held'][6:]}")
     for t in body.get("targets", [])[:15]:
         print(f"  {t['name']:<30} {t['host']:<40} {t['probe']:<12} {t['reason']}")
     if len(body.get("targets", [])) > 15:
