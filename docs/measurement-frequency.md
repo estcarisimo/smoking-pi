@@ -113,10 +113,12 @@ What this means for history:
 
   Only a file whose step and pings match the probe's current cycle
   stays. Any other is archived again on that reload, so a wrong move
-  never stops SmokePing, though the file it replaced is gone. The minutes the file spent in the archive are recorded
-  as no data (longer than the RRD's 600 s heartbeat), both in
-  SmokePing's graphs and in InfluxDB. What the replaced file measured in
-  the meantime is still in InfluxDB.
+  never stops SmokePing, though the file it replaced is gone.
+
+  A file away for longer than its heartbeat, two steps (600 s on a
+  300 s step), resumes with a gap. SmokePing's graphs show no data for
+  that time, and InfluxDB has no points for it. What the replaced file
+  measured in the meantime is still in InfluxDB.
 - The archive is a dot directory, so neither exporter treats it as a
   target. Nothing prunes it. Remove old stamps by hand when they are no
   longer wanted:
