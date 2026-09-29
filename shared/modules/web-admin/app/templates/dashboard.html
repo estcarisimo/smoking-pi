@@ -626,6 +626,11 @@
         'netflix_oca': 'netflix_oca-side-by-side-v1',
         'custom': 'custom-side-by-side-v1',
         'dns_resolvers': 'dns-resolvers-v1',
+        // HTTP and TCP targets have no ICMP pings to show on the default;
+        // both are on the HTTP-by-version dashboard (TCP at the bottom).
+        'http': 'http-by-version-v1',
+        'tcp': 'http-by-version-v1',
+        'dns_wizard': 'dns-wizard-v1',
     };
     const GRAFANA_DEFAULT_UID = 'individual-pings-v1';
 

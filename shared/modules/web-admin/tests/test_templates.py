@@ -39,3 +39,41 @@ def test_template_has_no_cdn_references(template_path):
             f"{template_path.name} references {forbidden}; assets must be "
             "vendored under app/static/vendor/"
         )
+
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+SEED_TARGETS = REPO_ROOT / 'shared/modules/config-manager/templates/targets.yaml'
+PROVISIONING = REPO_ROOT / 'shared/modules/grafana/provisioning/dashboards'
+
+
+def _dashboard_uid_map():
+    """The category -> Grafana uid map the dashboard's per-category links use."""
+    import re
+
+    source = (TEMPLATES_DIR / 'dashboard.html').read_text(encoding='utf-8')
+    block = re.search(r'GRAFANA_DASHBOARD_UIDS = \{(.*?)\};', source, re.S).group(1)
+    return dict(re.findall(r"'([a-z_]+)':\s*'([A-Za-z0-9_-]+)'", block))
+
+
+@pytest.mark.skipif(not SEED_TARGETS.exists(), reason='seed not in this checkout')
+def test_every_seed_category_links_to_its_own_dashboard():
+    """HTTP and TCP targets fell through to the ICMP-only default and opened
+    an empty page; every category the seed ships must be mapped."""
+    import yaml
+
+    seed = yaml.safe_load(SEED_TARGETS.read_text(encoding='utf-8'))
+    uids = _dashboard_uid_map()
+    missing = set(seed['active_targets']) - set(uids)
+    assert not missing, f'categories without a Grafana dashboard: {sorted(missing)}'
+
+
+@pytest.mark.skipif(not PROVISIONING.exists(), reason='dashboards not in this checkout')
+def test_every_linked_dashboard_is_provisioned():
+    import json
+
+    provisioned = {
+        json.loads(p.read_text(encoding='utf-8')).get('uid')
+        for p in PROVISIONING.rglob('*.json')
+    }
+    unknown = set(_dashboard_uid_map().values()) - provisioned
+    assert not unknown, f'links to dashboards nobody provisions: {sorted(unknown)}'
