@@ -25,10 +25,24 @@ from scripts.config_generator import probe_options
 
 logger = logging.getLogger(__name__)
 
+# Shipped defaults that were wrong, corrected once on installs that seeded
+# them. Each fix matches the row exactly as the seed wrote it, so a target
+# someone edited is left alone, and leaves a marker, so a deliberate change
+# back later is never undone. The name is kept: its RRD, and so its
+# history, continue.
+SEED_FIXES = (
+    # Bare amazon.com never answers ICMP: a flat 100% loss from the first
+    # day and a critical target_down that never clears. www. answers.
+    ("seed_fix_amazon_www", {"name": "Amazon", "host": "amazon.com"},
+     {"host": "www.amazon.com"}),
+)
+
+
 class YAMLToDBMigrator:
     """Migrates YAML configuration to PostgreSQL database"""
     
     def __init__(self, config_dir: Path, database_url: Optional[str] = None):
+        self.corrected = 0  # targets fix_shipped_defaults changed
         self.config_dir = Path(config_dir)
         self.db_manager = DatabaseManager(database_url)
         
@@ -244,6 +258,33 @@ class YAMLToDBMigrator:
         session.commit()
         logger.info(f"Migrated {metadata_added} metadata entries")
 
+    def fix_shipped_defaults(self, session) -> int:
+        """Apply each SEED_FIXES entry not applied before; returns how many
+        targets changed. A failure is logged and rolled back, never raised:
+        the migration it follows has completed, and the next start retries.
+        """
+        changed = 0
+        try:
+            for key, match, change in SEED_FIXES:
+                if session.query(SystemMetadata).filter(
+                        SystemMetadata.key == key).first():
+                    continue
+                rows = session.query(Target).filter_by(**match).all()
+                for row in rows:
+                    for column, value in change.items():
+                        setattr(row, column, value)
+                    logger.info("Corrected a shipped default: target %s -> %s",
+                                row.name, change)
+                session.add(SystemMetadata(key=key, value=f"{len(rows)} target(s)"))
+                changed += len(rows)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.warning("Could not correct the shipped defaults (retried at "
+                           "the next start): %s", type(e).__name__)
+            return 0
+        return changed
+
     def migration_completed(self, session) -> bool:
         """Check whether the migration completion marker exists"""
         return session.query(SystemMetadata).filter(
@@ -281,6 +322,7 @@ class YAMLToDBMigrator:
                     if new_categories:
                         self.migrate_targets(session, configs['targets'],
                                              only_categories=new_categories)
+                    self.corrected = self.fix_shipped_defaults(session)
                     return True
 
                 logger.info("Starting YAML to PostgreSQL migration...")
@@ -292,6 +334,7 @@ class YAMLToDBMigrator:
                 self.migrate_sources(session, configs['sources'])
                 self.migrate_targets(session, configs['targets'])
                 self.migrate_system_metadata(session, configs)
+                self.corrected = self.fix_shipped_defaults(session)
 
                 logger.info("Migration completed successfully!")
                 return True
@@ -341,6 +384,11 @@ class YAMLToDBMigrator:
         finally:
             session.close()
 
+# Targets the last run_migration() corrected (SEED_FIXES): the caller
+# regenerates, and then SmokePing must reload to measure the new host.
+corrected_on_start = 0
+
+
 def run_migration(config_dir=None, database_url: Optional[str] = None,
                   backup_yaml: bool = False) -> bool:
     """Importable, idempotent migration entry point.
@@ -349,9 +397,12 @@ def run_migration(config_dir=None, database_url: Optional[str] = None,
     subprocess. Safe to run on every startup: when the migration marker is
     already present it only upserts missing probes.
     """
+    global corrected_on_start
     config_dir = Path(config_dir or os.environ.get('CONFIG_DIR', '/app/config'))
     migrator = YAMLToDBMigrator(config_dir, database_url)
-    return migrator.run_migration(backup_yaml=backup_yaml)
+    ok = migrator.run_migration(backup_yaml=backup_yaml)
+    corrected_on_start = migrator.corrected
+    return ok
 
 
 def main():

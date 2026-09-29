@@ -9,6 +9,24 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Standard and Pro shipped a target that can never answer.** The seed's
+  *Amazon* target was bare `amazon.com`, which does not answer ICMP. Every
+  new Standard or Pro install charted a flat 100% loss for it from the
+  first day and carried a critical *Amazon down* incident that never
+  cleared: the alerter keeps such a target out of its verdict, but the
+  incident stays. Basic already used `www.amazon.com`. Found by a network
+  outage test on a fresh package install, where it was the one incident
+  left after recovery. The seed now uses `www.amazon.com`. An install with
+  the seed's row unchanged (named *Amazon*, host `amazon.com`) has it
+  corrected once at the next start, and SmokePing is told to reload so
+  it measures the new host at once. The name is kept, so the target's
+  history continues. If the correction fails, it is logged, the start
+  goes on, and the next start retries. A target someone edited is left alone, and a change
+  back to the bare name is not undone. An install in YAML mode (no
+  database) keeps its file: change the host in `targets.yaml`.
+
 ### Changed
 
 - **The release acceptance checks the two things 2.15.0 got wrong.** The

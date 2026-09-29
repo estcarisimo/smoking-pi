@@ -268,3 +268,108 @@ def test_database_url_names_the_driver_the_image_has():
     assert normalize_database_url("postgres://u:p@h/db") == "postgresql+psycopg2://u:p@h/db"
     assert normalize_database_url("postgresql+psycopg://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
     assert normalize_database_url("sqlite:///x.db") == "sqlite:///x.db"
+
+
+def _amazon(db_url):
+    session = _session(db_url)
+    try:
+        return {t.name: t.host for t in session.query(Target).all()}
+    finally:
+        session.close()
+
+
+def _set_host(db_url, name, host):
+    session = _session(db_url)
+    try:
+        session.query(Target).filter_by(name=name).one().host = host
+        session.commit()
+    finally:
+        session.close()
+
+
+def test_the_seeded_bare_amazon_is_corrected_once(config_dir, db_url):
+    # An install seeded before the fix: bare amazon.com, which never
+    # answers ICMP, so a permanent 100% and a target_down that never clears.
+    old = yaml.safe_load((config_dir / "targets.yaml").read_text())
+    old["active_targets"]["top_sites"].append(
+        {"name": "Amazon", "host": "amazon.com", "title": "Amazon",
+         "probe": "FPing", "category": "top_sites"})
+    (config_dir / "targets.yaml").write_text(yaml.dump(old))
+    assert run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert _amazon(db_url)["Amazon"] == "www.amazon.com"
+    # Someone wants the bare name back: the next start leaves it alone.
+    _set_host(db_url, "Amazon", "amazon.com")
+    assert run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert _amazon(db_url)["Amazon"] == "amazon.com"
+
+
+def test_an_install_migrated_before_the_fix_is_corrected_on_start(config_dir, db_url):
+    assert run_migration(config_dir=config_dir, database_url=db_url) is True
+    session = _session(db_url)
+    try:
+        # As a release before the fix left it: the seed's row, no marker.
+        google = session.query(Target).filter_by(name="Google").one()
+        session.add(Target(name="Amazon", host="amazon.com", title="Amazon",
+                           category_id=google.category_id, probe_id=google.probe_id))
+        session.query(SystemMetadata).filter(
+            SystemMetadata.key == "seed_fix_amazon_www").delete()
+        session.commit()
+    finally:
+        session.close()
+    assert run_migration(config_dir=config_dir, database_url=db_url) is True
+    hosts = _amazon(db_url)
+    assert hosts["Amazon"] == "www.amazon.com"
+    assert hosts["Google"] == "google.com" and hosts["MyHost"] == "myhost.example"
+
+
+def test_an_edited_amazon_target_is_left_alone(config_dir, db_url):
+    edited = yaml.safe_load((config_dir / "targets.yaml").read_text())
+    edited["active_targets"]["custom"].append(
+        {"name": "AmazonUK", "host": "amazon.com", "title": "Amazon UK",
+         "probe": "FPing", "category": "custom"})
+    (config_dir / "targets.yaml").write_text(yaml.dump(edited))
+    assert run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert _amazon(db_url)["AmazonUK"] == "amazon.com"
+
+
+def test_the_shipped_seed_has_no_host_that_ignores_icmp():
+    seed = yaml.safe_load(
+        (Path(__file__).parent.parent / "templates" / "targets.yaml").read_text())
+    hosts = [t["host"] for group in seed["active_targets"].values() for t in group or []
+             if t.get("probe") == "FPing"]
+    # Counted, not `in`: CodeQL reads a host `in` a list as URL sanitizing.
+    assert hosts.count("www.amazon.com") == 1
+    assert hosts.count("amazon.com") == 0
+
+
+def _seeded_with_bare_amazon(config_dir):
+    old = yaml.safe_load((config_dir / "targets.yaml").read_text())
+    old["active_targets"]["top_sites"].append(
+        {"name": "Amazon", "host": "amazon.com", "title": "Amazon",
+         "probe": "FPing", "category": "top_sites"})
+    (config_dir / "targets.yaml").write_text(yaml.dump(old))
+
+
+def test_the_caller_learns_a_target_was_corrected(config_dir, db_url):
+    import scripts.migrate_yaml_to_db as migration
+
+    _seeded_with_bare_amazon(config_dir)
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert migration.corrected_on_start == 1
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert migration.corrected_on_start == 0
+
+
+def test_a_failing_fix_never_fails_the_migration(config_dir, db_url, monkeypatch):
+    import scripts.migrate_yaml_to_db as migration
+
+    _seeded_with_bare_amazon(config_dir)
+    monkeypatch.setattr(migration, "SEED_FIXES", (
+        ("seed_fix_amazon_www", {"no_such_column": "x"}, {"host": "www.amazon.com"}),))
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert migration.corrected_on_start == 0
+    assert _amazon(db_url)["Amazon"] == "amazon.com"
+    # Nothing was recorded, so the next start (with a working fix) applies it.
+    monkeypatch.undo()
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert _amazon(db_url)["Amazon"] == "www.amazon.com"

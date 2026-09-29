@@ -377,3 +377,32 @@ def test_a_guard_that_cannot_run_does_not_stop_the_reload(
     fake_docker({"python3": (2, b"can't open file"), "killall": (0, b"")})
     assert api_module.api._signal_smokeping_reload() is True
     assert api_module.api.last_rrd_guard == {"ran": False, "reason": "rrd_guard exit 2"}
+
+
+def _start(monkeypatch, corrected):
+    import scripts.migrate_yaml_to_db as migration
+
+    def fake_migration(config_dir=None, **kw):
+        migration.corrected_on_start = corrected
+        return True
+
+    reloads = []
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    monkeypatch.setattr(api_module, "_initialized", False)
+    monkeypatch.setattr(api_module, "run_bootstrap", lambda: True)
+    monkeypatch.setattr(migration, "run_migration", fake_migration)
+    monkeypatch.setattr(api_module.api, "refresh_ipv6_status", lambda: {})
+    monkeypatch.setattr(api_module.api.generator, "run", lambda: True)
+    monkeypatch.setattr(api_module.api, "_signal_smokeping_reload",
+                        lambda: reloads.append(1) or True)
+    monkeypatch.setattr(api_module, "_start_ipv6_recheck_thread", lambda: None)
+    api_module.initialize()
+    return reloads
+
+
+def test_a_corrected_target_reloads_smokeping_at_start(monkeypatch):
+    assert _start(monkeypatch, corrected=1) == [1]
+
+
+def test_an_ordinary_start_does_not_signal_smokeping(monkeypatch):
+    assert _start(monkeypatch, corrected=0) == []
