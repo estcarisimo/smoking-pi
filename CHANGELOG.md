@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.15.6] — 2026-09-29
+
+One target per edge network, and a command that says when it needs sudo.
+
+The DNS wizard counted every CloudFront distribution, Fastly customer,
+Akamai edge and Google API host as a service of its own. An edge
+network's endpoints are now one service, measured through one host. And
+`smoking-pi dns adopt` keeps one target per service, deactivating the
+others it adopted before (history kept). Old names in the wizard's
+three-day memory merge into today's instead of ranking twice. Run
+without sudo on a package install, the command now says to use sudo,
+instead of reporting that nothing is installed. And the docs for
+changing a probe's cycle now say that about one point goes missing at the
+change, and that switching back needs a manual restore to keep
+SmokePing's own graphs.
+
 ### Fixed
 
 - **config-manager did not log which layers it deactivated.** The list
