@@ -18,6 +18,8 @@ version gets a matching GitHub release and git tag.
   TCP and DNS Wizard, from one table of display names, with a test; the
   delete dialog shows the same name instead of the raw key. The navigation
   bar's "Custom Targets" is now "Targets": the page lists every category.
+  The welcome tour's step 4 headed its groups with the raw keys
+  (`top_sites`, `dns_resolvers`, `http`); it uses the same names now.
 
 - **The web admin's Grafana buttons for HTTP, TCP and DNS wizard targets
   opened an empty page, and nothing linked to Grafana's home.** The
