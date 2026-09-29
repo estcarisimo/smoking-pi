@@ -94,6 +94,29 @@ What this means for history:
   sudo docker exec pro-smokeping-1 rrdtool info /data/.archive/<time>/websites/Google.rrd
   ```
 
+- **About one measurement is missing at the change.** The cycle that was
+  due when the file moved is never exported. On a test Pi, changing DNS
+  from 5 queries every 5 minutes to 10 every 2 minutes gave points at
+  16:35 (300 s) and then 16:42 (120 s): the 16:40 point is missing.
+- **Switching back does not bring the old file back.** Returning to the
+  previous cycle is a change like any other: the guard archives the file
+  of the new cycle under a second stamp, and SmokePing starts again from
+  empty. The earlier file stays under the first stamp. To see its graphs
+  again, move it back over the new one, then reload by saving anything in
+  the web admin (or `POST /generate`):
+
+  ```bash
+  sudo docker exec pro-smokeping-1 mv \
+    /data/.archive/<first time>/DNS_Resolvers/GoogleDNS.rrd \
+    /data/DNS_Resolvers/GoogleDNS.rrd
+  ```
+
+  Only a file whose step and pings match the probe's current cycle
+  stays. Any other is archived again on that reload, so a wrong move
+  never stops SmokePing, though the file it replaced is gone. The minutes the file spent in the archive are recorded
+  as no data (longer than the RRD's 600 s heartbeat), both in
+  SmokePing's graphs and in InfluxDB. What the replaced file measured in
+  the meantime is still in InfluxDB.
 - The archive is a dot directory, so neither exporter treats it as a
   target. Nothing prunes it. Remove old stamps by hand when they are no
   longer wanted:
