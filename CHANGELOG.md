@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.15.3] — 2026-09-29
+
+Standard and Pro stop shipping a target that can never answer.
+
+The seed's *Amazon* target was bare `amazon.com`, which does not answer
+ping: a flat 100% loss from the first day and a critical *Amazon down*
+that never cleared. The seed now uses `www.amazon.com`, and an install
+with the seed's row unchanged has it corrected once at start, keeping its
+history. The release checklist now also runs `smoking-pi openclaw` against
+a real OpenClaw and checks the DNS observer's counts.
+
 ### Fixed
 
 - **Standard and Pro shipped a target that can never answer.** The seed's
