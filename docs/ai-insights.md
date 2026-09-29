@@ -31,8 +31,9 @@ logs a notice and exits cleanly, and the web-admin AI pages render a
    sudo smoking-pi config set COMPOSE_PROFILES influxdb,mcp,alerts,ai
    ```
 
-   (Use what the first command printed, plus `ai`. A new install can
-   choose it directly: `sudo smoking-pi install --profiles ai`.)
+   `config set` replaces the whole list, so use what the first command
+   printed, plus `ai`. A new install can choose it directly: `sudo
+   smoking-pi install --profiles ai`.
 
 Optional settings, each with `sudo smoking-pi config set KEY VALUE`:
 
@@ -44,8 +45,10 @@ Optional settings, each with `sudo smoking-pi config set KEY VALUE`:
 | `AI_MAX_INPUT_CHARS` | `20000` | Prompt-size guardrail |
 
 From a clone instead of the package, the same keys go in the edition's
-`.env`, and the profile is started with the other profiles that are on:
-`COMPOSE_PROFILES=influxdb,ai docker compose up -d` (from `editions/pro`).
+`.env`, and so does the profile: add `ai` to its `COMPOSE_PROFILES` line,
+then `docker compose up -d` from `editions/pro`. A profile given only on
+the command line is not in the file, so the next `down` and `up` would
+leave the service out.
 
 ## What the reporter does
 
