@@ -506,7 +506,7 @@ class State:
         as "com.cdn.cloudflare.net"; its hours kept ranking under that name,
         beside the new "cloudflare.net", until they aged out of the window
         three days later. The key alone cannot say which it was
-        (play.googleapis.com is a name of its own when looked up directly),
+        (shop.pages.dev is a name of its own when looked up directly),
         so today's name comes from the hosts it kept (its 20 busiest,
         random-looking labels never stored): renamed only when they all
         agree on one other name. A key with none kept, or none in ``meta``,
