@@ -766,7 +766,7 @@ install_followups() {
     [ "$yes" = 0 ] && [ -t 0 ] && interactive=1
     if [[ ",$profiles," == *,alerts,* ]]; then
         if [ "$interactive" = 1 ]; then
-            echo >&2; echo "Alerts: where should they go?" >&2
+            echo >&2
             cmd_alerts >&2 || echo "  alerts: $cli alerts   (until then they are evaluated and only logged)"
         else
             echo "  alerts: $cli alerts   (until then they are evaluated and only logged)"
@@ -2227,7 +2227,7 @@ cmd_dns() {
     done
     if [ "$up" = 0 ]; then
         echo "The DNS observer did not start answering within a minute; do not point the router at it yet." >&2
-        echo "See: smoking-pi dns status; smoking-pi logs dns-observer" >&2
+        echo "See: $(cli_name) dns status; $(cli_name) logs dns-observer" >&2
         return 1
     fi
     local lan; lan="$(lan_address)"; lan="${lan:-<the LAN address of this machine>}"
@@ -2243,9 +2243,9 @@ cmd_dns() {
     echo "  - reserve $lan for this Pi in the router's DHCP settings, or a new lease"
     echo "    leaves the router forwarding the house's DNS to nothing;"
     echo "  - from a laptop, check it answers: dig @$lan example.com"
-    echo "After: smoking-pi dns test     (checks the whole path in seconds)"
-    echo "       smoking-pi dns status   (the canary keeps checking it every 5 min)"
-    echo "Step by step, per router: docs/dns-observer.md, \"Setup guide\""
+    echo "After: $(cli_name) dns test     (checks the whole path in seconds)"
+    echo "       $(cli_name) dns status   (the canary keeps checking it every 5 min)"
+    echo "Step by step, per router: $SMOKING_PI_HOME/docs/dns-observer.md, \"Setup guide\""
 }
 
 # Every command but these reads the env file. One that cannot must say so,
