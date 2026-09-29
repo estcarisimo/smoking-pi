@@ -19,7 +19,8 @@ add up on a first visit:
   Wizard", and the welcome tour headed its groups with raw keys such as
   `top_sites`;
 - the Grafana buttons for those categories opened a dashboard with nothing
-  on it, and nothing linked to Grafana's home;
+  on it (now fixed on InfluxDB installs), and nothing linked to Grafana's
+  home;
 - the dashboard counted one more measured target than it listed, without
   saying that it is the ISP's first hop;
 - the AI page and its guide gave instructions from before the package.
