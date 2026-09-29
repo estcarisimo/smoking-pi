@@ -918,7 +918,7 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"median\" and r.category != \"dns_wizard\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false)"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"median\" and r.category != \"dns_wizard\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false)"
         }
       ]
     },
@@ -969,7 +969,7 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
         }
       ]
     },
