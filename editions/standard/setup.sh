@@ -43,17 +43,19 @@ sleep 15
 
 # Check service health
 echo -e "${BLUE}🔍 Checking service status...${NC}"
-docker compose "${COMPOSE_ARGS[@]}" ps
+docker compose "${COMPOSE_ARGS[@]}" ps --format "table {{.Service}}\t{{.Status}}"
+
+# Run by `smoking-pi install`, which ends on its own summary and on the
+# address that works from the computer you are on: stop here.
+if [ -n "${SMOKING_PI_INSTALL:-}" ]; then
+    echo -e "${GREEN}✅ The Standard edition is up.${NC}"
+    exit 0
+fi
 
 echo -e "${GREEN}✅ SmokePing Standard Edition is ready!${NC}"
 echo ""
-echo -e "${CYAN}📊 Access Points:${NC}"
-echo -e "  🌐 Web Admin: http://localhost:$(grep WEB_ADMIN_PORT "$ENV_FILE" | cut -d= -f2 || echo 8080)"
-echo -e "     Username: $(grep WEB_ADMIN_USERNAME "$ENV_FILE" | cut -d= -f2 || echo admin)"
-echo -e "     Password: run smoking-pi passwords --show-secrets"
-echo ""
-echo -e "  📈 SmokePing: http://localhost:$(grep SMOKEPING_PORT "$ENV_FILE" | cut -d= -f2 || echo 8081)"
-echo -e "     No authentication required"
+echo -e "${CYAN}📊 The address to open, and its user:${NC} smoking-pi url"
+echo -e "     Password: smoking-pi passwords --show-secrets"
 echo ""
 # The command, on the PATH from any directory (a clone only; the package
 # and Homebrew install their own). Never fails the setup.

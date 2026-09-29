@@ -32,8 +32,15 @@ docker compose --env-file "$ENV_FILE" up -d
 echo -e "${YELLOW}⏳ Waiting for services to be ready...${NC}"
 sleep 10
 
+# Run by `smoking-pi install`, which ends on its own summary and on the
+# address that works from the computer you are on: stop here.
+if [ -n "${SMOKING_PI_INSTALL:-}" ]; then
+    echo -e "${GREEN}✅ The Basic edition is up.${NC}"
+    exit 0
+fi
+
 echo -e "${GREEN}✅ SmokePing Basic Edition is ready!${NC}"
-echo -e "🌐 Web Interface: http://localhost:$(grep SMOKEPING_PORT "$ENV_FILE" | cut -d= -f2 || echo 8080)"
+echo -e "🌐 The address to open: smoking-pi url"
 echo -e "📁 Configuration: Edit config/Targets to add monitoring targets"
 echo -e "📊 View graphs and statistics through the web interface"
 # The command, on the PATH from any directory (a clone only; the package

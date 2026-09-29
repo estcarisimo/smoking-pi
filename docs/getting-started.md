@@ -165,10 +165,12 @@ sudo smoking-pi install
 This asks three questions (with `whiptail` menus if it is installed,
 `--edition`/`--database`/`--profiles` flags if you prefer, `--yes` for
 nothing at all), then generates every password and API token, detects your
-timezone, starts the containers and prints what to open. The passwords
-are never printed; the end of this step says how to read them.
+timezone and starts the containers. Then it sets up each optional service
+you picked, enables the service that starts Smoking Pi at boot, and prints
+what to open. The passwords are never printed; the end of this step says
+how to read them.
 
-**Which edition?**
+**Which edition?** Pro is preselected.
 
 | Edition | For | What you get |
 |---|---|---|
@@ -182,16 +184,20 @@ move up later with `shared/scripts/migrate-to-edition.sh`.
 **Which time-series backend?** InfluxDB, unless you have a reason —
 ClickHouse works but is the [less traveled path](clickhouse.md).
 
-**Which optional services?** All three are off by default and all three
-need something from you before they are useful:
+**Which optional services?** All four are off unless you pick them. Each
+one needs something only you can give, and install asks for it right after
+the containers start, with the command that owns that service:
 
-| Profile | What it adds | Needs |
+| Profile | What it adds | What install asks |
 |---|---|---|
-| `mcp` | An MCP server, so an assistant can query your history | nothing; step 7 |
-| `alerts` | Downtime, microcut and Wi-Fi alerts | `NOTIFY_MODE` and its keys ([Alerting](alerting.md)) |
-| `ai` | Written health reports | `ANTHROPIC_API_KEY` ([AI reports](ai-insights.md)) |
+| `mcp` | An MCP server, so an assistant can query your history | whether OpenClaw runs on this Pi; step 7 |
+| `alerts` | Downtime, microcut and Wi-Fi alerts | where they go: OpenClaw, a webhook or nowhere (`smoking-pi alerts`, [Alerting](alerting.md)) |
+| `ai` | Written health reports | an Anthropic API key, typed, not shown ([AI reports](ai-insights.md)) |
+| `dns` | The DNS observer: what this house actually uses | nothing; it prints the DNS setting to change on your router ([DNS observer](dns-observer.md)) |
 
-You can turn any of them on afterwards:
+Skip a question, or install with `--yes`, and the end of the install lists
+the same commands under *Still to do*. You can turn any service on
+afterwards:
 
 ```bash
 sudo smoking-pi config set COMPOSE_PROFILES influxdb,mcp,alerts
@@ -209,10 +215,15 @@ sudo smoking-pi config set ANTHROPIC_API_KEY
 Expected, at the end: what to open, as the last thing on the screen.
 
 ```text
+Starts at boot: the smoking-pi service is enabled.
+
+Installed: the pro edition. The first measurements arrive after one
+300-second step; then 'sudo smoking-pi doctor --live' checks that they do.
+
 Open Smoking Pi:
   Web admin  http://192.168.1.27:8080/   (user admin)
   Grafana    http://192.168.1.27:3000/   (user admin)
-  Passwords: smoking-pi passwords --show-secrets (on this machine)
+  Passwords: sudo smoking-pi passwords --show-secrets (on this machine)
 Open it on the computer you are connected from (192.168.1.30), not in this terminal.
 Also, from most computers on this network: http://raspberrypi.local:8080/
 ```
@@ -252,17 +263,16 @@ by `install`, `up` and `upgrade` when they run as root (the systemd unit
 does at every boot), withdrawn by `down`, and removed when the package is
 uninstalled.
 
-Above it is a banner with every service's status. The
-secrets are set but **not printed** — an install transcript is the last
+The secrets are set but **not printed**: an install transcript is the last
 place a password should live. Read them when you need them:
 
 ```bash
 sudo smoking-pi passwords --show-secrets
 ```
 
-Without `--show-secrets` the same banner shows every secret as
-`set (hidden)`, which is still the answer to "did the token get
-generated?". `--show-secrets` refuses to write into a pipe or a file
+Without `--show-secrets` it shows every service's address and status,
+and every secret as `set (hidden)`, which is still the answer to "did the
+token get generated?". `--show-secrets` refuses to write into a pipe or a file
 unless you add `--force`, so a password does not end up in a log or a
 pasted issue by accident.
 
@@ -275,23 +285,21 @@ pasted issue by accident.
 
 ---
 
-## Step 4 — Start it at boot
+## Step 4 — Check that it starts at boot
 
-```bash
-sudo systemctl enable --now smoking-pi
-```
-
-Expected:
+A package install enables the `smoking-pi` service itself (*Starts at
+boot* above). Check it:
 
 ```bash
 systemctl is-enabled smoking-pi   # enabled
 systemctl is-active smoking-pi    # active
 ```
 
-The unit is a `oneshot` that runs `smoking-pi up` and stays "active": it
-brings the stack up after a reboot and hands the rest to Docker's own
-restart policies. From a clone there is no unit — use `smoking-pi up`, or
-install one from `packaging/systemd/`.
+If it says `disabled`, install could not enable it (it said so):
+`sudo systemctl enable --now smoking-pi`. The unit is a `oneshot` that runs
+`smoking-pi up` and stays "active": it brings the stack up after a reboot
+and hands the rest to Docker's own restart policies. From a clone there is
+no unit — use `smoking-pi up`, or install one from `packaging/systemd/`.
 
 ---
 

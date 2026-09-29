@@ -246,6 +246,8 @@ if [ -n "$START" ]; then
     else
         smoking-pi install --edition "$START" --yes
         [ "$(cat /etc/smoking-pi/edition)" = "$START" ] || fail "install did not record the edition"
+        # Enabled by install itself: the guide no longer has a step for it.
+        [ ! -d /run/systemd/system ] || systemctl is-enabled --quiet smoking-pi || fail "install did not enable the unit"
         wait_web
     fi
     smoking-pi status

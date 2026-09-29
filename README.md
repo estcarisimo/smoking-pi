@@ -41,11 +41,10 @@ sudo install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://estcarisimo.github.io/smoking-pi/apt/smoking-pi.gpg | sudo tee /etc/apt/keyrings/smoking-pi.gpg >/dev/null
 echo "deb [signed-by=/etc/apt/keyrings/smoking-pi.gpg] https://estcarisimo.github.io/smoking-pi/apt ./" | sudo tee /etc/apt/sources.list.d/smoking-pi.list
 sudo apt update && sudo apt install smoking-pi
-sudo smoking-pi install            # edition, backend, optional services; then the stack
-sudo systemctl enable --now smoking-pi
+sudo smoking-pi install            # edition, backend, optional services; then the stack, at every boot
 ```
 
-`smoking-pi install` generates every password and API token, detects your timezone, starts the containers, and prints the URLs and credentials. The step-by-step version of all of this — requirements, what each answer means, how to check it is really measuring, and what to do when it is not — is **[Getting started](https://estcarisimo.github.io/smoking-pi/getting-started/)**.
+`smoking-pi install` generates every password and API token (and never prints them), detects your timezone, starts the containers, sets up the optional services you picked, enables the boot service, and ends on the address to open. The step-by-step version of all of this — requirements, what each answer means, how to check it is really measuring, and what to do when it is not — is **[Getting started](https://estcarisimo.github.io/smoking-pi/getting-started/)**.
 
 **Or from a clone** (the development path, and the way to run an unreleased branch):
 

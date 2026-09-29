@@ -722,7 +722,7 @@ cmd_url() {
         printf '  %-10s %s   (user %s)\n' "Grafana" "http://$host:3000/" "$(env_value GF_SECURITY_ADMIN_USER | grep . || echo admin)"
     fi
     if [ "$SMOKING_PI_EDITION" != basic ]; then
-        echo "  Passwords: smoking-pi passwords --show-secrets (on this machine)"
+        echo "  Passwords: $(cli_name) passwords --show-secrets (on this machine)"
     fi
     if [ -n "$client" ]; then
         echo "Open it on the computer you are connected from ($client), not in this terminal."
@@ -737,7 +737,7 @@ cmd_url() {
     if ! http_answers "$url"; then
         echo
         echo "Nothing answers at $url yet. The first start can take minutes;"
-        echo "'smoking-pi status' shows what is up, 'smoking-pi logs' why not."
+        echo "'$(cli_name) status' shows what is up, '$(cli_name) logs' why not."
         return 1
     fi
     if [ -n "$client" ]; then
@@ -745,6 +745,73 @@ cmd_url() {
         # ssh takes a bare v6 address after the @, not the URL's brackets.
         local h="${host#[}"; h="${h%]}"
         echo "  ssh -L $port:localhost:$port ${SUDO_USER:-$USER}@$h   then open http://localhost:$port/"
+    fi
+}
+
+# How to name this command in advice: a package install keeps its env file
+# root-only, so every command that reads it needs sudo.
+cli_name() {
+    if [ "${SMOKING_PI_PACKAGED:-0}" = 1 ]; then echo "sudo smoking-pi"; else echo smoking-pi; fi
+}
+
+# Each optional Pro service needs one more thing from the person installing:
+# where alerts go, an API key, a router setting. Interactive, it is asked
+# now, through the command that owns it and its checks; with --yes (or no
+# terminal), the command is named instead. What is left goes to stdout,
+# one line each, for the caller's "Still to do"; everything else goes to
+# stderr, so the caller's $( ) captures only that list.
+install_followups() {
+    local profiles="$1" yes="$2" interactive=0 cli
+    cli="$(cli_name)"
+    [ "$yes" = 0 ] && [ -t 0 ] && interactive=1
+    if [[ ",$profiles," == *,alerts,* ]]; then
+        if [ "$interactive" = 1 ]; then
+            echo >&2; echo "Alerts: where should they go?" >&2
+            cmd_alerts >&2 || echo "  alerts: $cli alerts   (until then they are evaluated and only logged)"
+        else
+            echo "  alerts: $cli alerts   (until then they are evaluated and only logged)"
+        fi
+    fi
+    if [[ ",$profiles," == *,ai,* ]] && [ -z "$(env_get ANTHROPIC_API_KEY)" ]; then
+        local a=n
+        if [ "$interactive" = 1 ]; then
+            echo >&2
+            echo "AI reports need an Anthropic API key (console.anthropic.com, API keys)." >&2
+            read -r -p "Enter it now? It is typed, not shown. [Y/n] " a
+            a="${a:-y}"
+        fi
+        case "$a" in
+            y|Y|yes) cmd_config set ANTHROPIC_API_KEY >&2 \
+                         || echo "  AI reports: $cli config set ANTHROPIC_API_KEY" ;;
+            *) echo "  AI reports: $cli config set ANTHROPIC_API_KEY   (until then no report is written)" ;;
+        esac
+    fi
+    if [[ ",$profiles," == *,dns,* ]]; then
+        # No question to ask: enable waits until the observer answers and
+        # prints the router setting, which only the person can change.
+        echo >&2
+        if cmd_dns enable >&2; then
+            echo "  DNS observer: set the router's DNS as shown above, then $cli dns test"
+        else
+            echo "  DNS observer: $cli dns status   (it did not answer yet)"
+        fi
+    fi
+}
+
+# A package install is started at boot by its unit. Enabled here, not left
+# as a step of the guide: nobody wants an install that is gone after a
+# reboot. Started without waiting (--no-block): its ExecStart is
+# `smoking-pi up`, which takes the stack lock this install holds until it
+# exits -- `enable --now` would wait for a unit that waits for us.
+enable_unit() {
+    [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] || return 0
+    command -v systemctl >/dev/null 2>&1 || return 0
+    systemctl cat smoking-pi >/dev/null 2>&1 || return 0
+    if systemctl enable smoking-pi >/dev/null 2>&1 && systemctl start --no-block smoking-pi >/dev/null 2>&1; then
+        echo "Starts at boot: the smoking-pi service is enabled."
+    else
+        echo "Could not enable the smoking-pi service. To start it at boot:" >&2
+        echo "  sudo systemctl enable --now smoking-pi" >&2
     fi
 }
 
@@ -766,19 +833,23 @@ cmd_install() {
         case "$pr" in mcp|alerts|ai|dns) ;; *) echo "unknown profile: $pr (mcp, alerts, ai, dns)" >&2; exit 2 ;; esac
     done
     if [ "$yes" = 0 ] && command -v whiptail >/dev/null; then
-        edition=$(whiptail --title "Smoking Pi" --menu "Which edition?" 15 60 3 \
+        # Pro preselected: the guide recommends it, and Enter should agree.
+        edition=$(whiptail --title "Smoking Pi" --default-item pro --menu "Which edition?" 15 70 3 \
             basic "SmokePing only" standard "+ web admin and PostgreSQL" \
-            pro "+ Grafana, InfluxDB, alerts, MCP" 3>&1 1>&2 2>&3) || exit 1
+            pro "+ Grafana, InfluxDB, alerts, MCP (recommended)" 3>&1 1>&2 2>&3) || exit 1
         if [ "$edition" = pro ]; then
             database=$(whiptail --title "Smoking Pi" --menu "Time-series backend?" 12 60 2 \
                 influxdb "InfluxDB 2 (recommended)" clickhouse "ClickHouse (experimental)" 3>&1 1>&2 2>&3) || exit 1
             # Optional services are Compose profiles; the choice is written
             # into the env file so a plain `up` keeps it (setup.sh explains).
-            profiles=$(whiptail --title "Smoking Pi" --checklist "Optional services (space toggles)" 15 70 4 \
-                mcp "MCP server: a chat assistant can ask about your network" OFF \
-                alerts "Alerter: downtime, microcut and Wi-Fi alerts (needs NOTIFY_MODE)" OFF \
-                ai "AI reports (needs ANTHROPIC_API_KEY in the env file)" OFF \
-                dns "DNS observer on port 53 (then point the router at it)" OFF 3>&1 1>&2 2>&3) || exit 1
+            # Each one chosen is set up after the stack starts, by the
+            # command that owns it (install_followups): no env file to edit.
+            profiles=$(whiptail --title "Smoking Pi" --checklist \
+                "Optional services. Space toggles; each one you pick is set up after the stack starts." 16 78 4 \
+                mcp "Assistant: a chat assistant can read your history" OFF \
+                alerts "Alerts: outages, microcuts, Wi-Fi (asks where to send)" OFF \
+                ai "AI reports: written summaries (asks for an API key)" OFF \
+                dns "DNS observer: what this house uses (router change)" OFF 3>&1 1>&2 2>&3) || exit 1
             profiles=$(echo "$profiles" | tr -d '"' | tr ' ' ',')
         fi
     fi
@@ -813,21 +884,20 @@ cmd_install() {
         printf '%s\n' "$edition" > "$EDITION_FILE"
     fi
     if [ "$edition" = pro ]; then
-        ( cd "$EDITION_DIR" && ./setup.sh --database "$database" --env-file "$ENV_FILE" )
+        ( cd "$EDITION_DIR" && SMOKING_PI_INSTALL=1 ./setup.sh --database "$database" --env-file "$ENV_FILE" )
         if [ -n "$profiles" ]; then
             # setup.sh records the backend profile; append the optional ones
             # and start them. `ai` and `alerts` need keys the env file does
             # not have yet. Neither crash-loops without one -- ai-insights
             # logs and exits 0, the alerter's NOTIFY_MODE defaults to `off`
             # -- which is worse to leave unsaid, not better: the container
-            # stays up and healthy while nothing is ever delivered.
+            # stays up and healthy while nothing is ever delivered. So
+            # install_followups asks for them below, or lists them.
             sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$database,$profiles/" "$ENV_FILE"
-            if [[ ",$profiles," == *,ai,* ]]; then echo "note: the ai profile needs ANTHROPIC_API_KEY in $ENV_FILE"; fi
-            if [[ ",$profiles," == *,alerts,* ]]; then echo "note: the alerts profile needs NOTIFY_MODE (and its keys) in $ENV_FILE"; fi
             compose up -d
         fi
     else
-        ( cd "$EDITION_DIR" && ./setup.sh )
+        ( cd "$EDITION_DIR" && SMOKING_PI_INSTALL=1 ./setup.sh )
     fi
     # The assistant is optional and stays optional: the stack is already
     # measuring by this point, so every branch here ends with a working
@@ -848,16 +918,24 @@ cmd_install() {
                     echo "before anything else works:"
                     echo "  $SMOKING_PI_HOME/docs/remote-openclaw.md"
                     echo "Then run 'smoking-pi openclaw' on the machine the gateway is on." ;;
-            *)      echo "Skipping the assistant. When you want it: 'smoking-pi openclaw'." ;;
+            *)      echo "Skipping the assistant. When you want it: '$(cli_name) openclaw'." ;;
         esac
     elif [ "$edition" = pro ] && [ "$yes" = 1 ]; then
-        echo; echo "To connect a chat assistant later: 'smoking-pi openclaw'."
+        echo; echo "To connect a chat assistant later: '$(cli_name) openclaw'."
     fi
-    echo; ( cd "$EDITION_DIR" && ./show-passwords.sh 2>/dev/null || true )
+    local todo=""
+    [ "$edition" != pro ] || todo="$(install_followups "$profiles" "$yes")"
+    enable_unit
+    # Short on purpose: the full banner (`passwords`) is a reference, and
+    # at the end of an install it buried the one line that matters, the
+    # address, under a hundred lines of troubleshooting.
     echo
-    echo "Your passwords are set but not printed above -- an install transcript"
-    echo "is the last place they should live. To read them, on this machine:"
-    echo "  smoking-pi passwords --show-secrets"
+    echo "Installed: the $edition edition. The first measurements arrive after one"
+    echo "300-second step; then '$(cli_name) doctor --live' checks that they do."
+    if [ -n "$todo" ]; then
+        echo "Still to do:"
+        printf '%s\n' "$todo"
+    fi
     # From a clone, the command those lines name must exist by name
     # (setup.sh links it too; this one is for whoever skipped it).
     link_cli --quiet
@@ -1743,8 +1821,11 @@ brief() {
     elif env_locked; then
         # Packaged: /etc/smoking-pi is root's, secrets included, and the
         # edition file with it, so the edition is not named here.
-        echo "Installed, with its settings in $(dirname "$ENV_FILE"), which only root can read."
+        # Nor can this user tell a set-up install from a package that was
+        # never set up: the edition file is in there too. Name both.
+        echo "The package is installed. Its settings are in $(dirname "$ENV_FILE"), which only root can read."
         echo "Run it with sudo to see its state: sudo smoking-pi"
+        echo "Not set up yet? sudo smoking-pi install"
     elif [ ! -f "$ENV_FILE" ]; then
         echo "Not installed on this machine yet. Start with:"
         echo "  smoking-pi install        choose the edition, then start it"
