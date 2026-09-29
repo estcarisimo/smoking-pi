@@ -348,4 +348,4 @@ def test_deactivations_are_logged_once_committed(env, caplog):
         env.client.post("/wizard/adopt?retire_only=1&dry_run=1")
         assert "deactivated" not in caplog.text  # a dry run changes nothing
         env.client.post("/wizard/adopt?retire_only=1")
-    assert "deactivated 1 layers that answered nothing for a day: W_beta_org_h3" in caplog.text
+    assert "deactivated 1 layer(s) that answered nothing for a day: W_beta_org_h3" in caplog.text

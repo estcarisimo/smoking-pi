@@ -1249,12 +1249,6 @@ def wizard_adopt_route():
             session.rollback()
         else:
             session.commit()
-            if retired['retired']:
-                # The record of what stopped being measured, and why: the
-                # CLI's output is gone once the terminal closes.
-                logger.info("DNS wizard: deactivated %d layers that answered nothing "
-                            "for a day: %s", len(retired['retired']),
-                            ", ".join(retired['retired']))
         result['retired'] = retired['retired']
         result['retire_held'] = retired['held']
     except wizard_adopt.Unavailable as e:
@@ -1266,6 +1260,11 @@ def wizard_adopt_route():
         return error_response(500, "Failed to adopt the DNS wizard's selection", e)
     finally:
         session.close()
+    if not dry_run and result['retired']:
+        # Committed: the record of what stopped being measured, and why. The
+        # CLI's output is gone once the terminal closes.
+        logger.info("DNS wizard: deactivated %d layer(s) that answered nothing for a "
+                    "day: %s", len(result['retired']), ", ".join(result['retired']))
     result['reloaded'] = None
     if not dry_run and (result['targets_added'] or result['retired']):
         try:
