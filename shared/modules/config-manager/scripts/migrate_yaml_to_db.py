@@ -25,6 +25,19 @@ from scripts.config_generator import probe_options
 
 logger = logging.getLogger(__name__)
 
+# Shipped defaults that were wrong, corrected once on installs that seeded
+# them. Each fix matches the row exactly as the seed wrote it, so a target
+# someone edited is left alone, and leaves a marker, so a deliberate change
+# back later is never undone. The name is kept: its RRD, and so its
+# history, continue.
+SEED_FIXES = (
+    # Bare amazon.com never answers ICMP: a flat 100% loss from the first
+    # day and a critical target_down that never clears. www. answers.
+    ("seed_fix_amazon_www", {"name": "Amazon", "host": "amazon.com"},
+     {"host": "www.amazon.com"}),
+)
+
+
 class YAMLToDBMigrator:
     """Migrates YAML configuration to PostgreSQL database"""
     
@@ -244,6 +257,24 @@ class YAMLToDBMigrator:
         session.commit()
         logger.info(f"Migrated {metadata_added} metadata entries")
 
+    def fix_shipped_defaults(self, session) -> List[str]:
+        """Apply each SEED_FIXES entry not applied before; returns their keys."""
+        applied = []
+        for key, match, change in SEED_FIXES:
+            if session.query(SystemMetadata).filter(
+                    SystemMetadata.key == key).first():
+                continue
+            rows = session.query(Target).filter_by(**match).all()
+            for row in rows:
+                for column, value in change.items():
+                    setattr(row, column, value)
+                logger.info("Corrected a shipped default: target %s -> %s",
+                            row.name, change)
+            session.add(SystemMetadata(key=key, value=f"{len(rows)} target(s)"))
+            applied.append(key)
+        session.commit()
+        return applied
+
     def migration_completed(self, session) -> bool:
         """Check whether the migration completion marker exists"""
         return session.query(SystemMetadata).filter(
@@ -281,6 +312,7 @@ class YAMLToDBMigrator:
                     if new_categories:
                         self.migrate_targets(session, configs['targets'],
                                              only_categories=new_categories)
+                    self.fix_shipped_defaults(session)
                     return True
 
                 logger.info("Starting YAML to PostgreSQL migration...")
@@ -292,6 +324,7 @@ class YAMLToDBMigrator:
                 self.migrate_sources(session, configs['sources'])
                 self.migrate_targets(session, configs['targets'])
                 self.migrate_system_metadata(session, configs)
+                self.fix_shipped_defaults(session)
 
                 logger.info("Migration completed successfully!")
                 return True

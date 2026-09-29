@@ -17,7 +17,7 @@ active_targets:
       probe: FPing
       category: top_sites
     - name: Amazon
-      host: amazon.com
+      host: www.amazon.com  # bare amazon.com never answers ICMP
       title: Amazon
       probe: FPing
       category: top_sites
