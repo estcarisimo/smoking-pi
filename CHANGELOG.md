@@ -9,6 +9,28 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`smoking-pi dns adopt --retire-only`.** Deactivating the silent layers
+  (2.15.4) came only with adopting whatever the wizard had selected since
+  the last run. On the reference Pi that was 7 new services the maintainer
+  had not asked for, one of them bogus (below). `--retire-only`
+  deactivates the silent layers and adopts nothing. It does not need the
+  wizard's selection, so it works while the observer is stopped.
+
+### Fixed
+
+- **A CDN endpoint became a "service" named after a top-level domain.**
+  The wizard names a service by its registrable domain, private suffixes
+  included, so `user.github.io` is a site of its own. But a CDN endpoint
+  that embeds a customer's domain in front of a private suffix, such as
+  `www.x.com.cdn.cloudflare.net` or `x.com.akadns.net`, became the service
+  `com.cdn.cloudflare.net`. It was selected on the reference Pi and would
+  have been adopted as `W_com_cdn_cloudflare_net`. When the label before a
+  private suffix is a registry label (`com`, `net`, `org`, `co`, `io` …)
+  or a country code, the service is now the CDN (`cloudflare.net`).
+  `tools/dns-explore` names services the same way.
+
 ## [2.15.4] — 2026-09-29
 
 The DNS wizard stops measuring what a host does not serve.

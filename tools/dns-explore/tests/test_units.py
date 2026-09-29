@@ -10,6 +10,9 @@ from dns_explore.logread import parse_line
         ("nrdp.logs.netflix.com", "netflix.com"),
         ("www.bbc.co.uk", "bbc.co.uk"),
         ("netflix.com", "netflix.com"),
+        ("abc.github.io", "abc.github.io"),
+        ("www.x.com.cdn.cloudflare.net", "cloudflare.net"),
+        ("e1.x.com.akadns.net", "akadns.net"),
     ],
 )
 def test_service_is_etld_plus_one(name, service):

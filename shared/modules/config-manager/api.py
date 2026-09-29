@@ -1209,11 +1209,14 @@ def wizard_adopt_route():
     if not api.use_database:
         return jsonify({'error': 'Database not available'}), 400
     dry_run = request.args.get('dry_run') in ('1', 'true', 'yes')
-    try:
-        snapshot = wizard_adopt.read_snapshot()
-    except wizard_adopt.Unavailable as e:
-        return jsonify({'error': wizard_adopt.UNAVAILABLE.get(e.code, 'unavailable'),
-                        'code': e.code}), 409
+    retire_only = request.args.get('retire_only') in ('1', 'true', 'yes')
+    snapshot = None
+    if not retire_only:  # deactivating needs the RRDs, not the wizard's selection
+        try:
+            snapshot = wizard_adopt.read_snapshot()
+        except wizard_adopt.Unavailable as e:
+            return jsonify({'error': wizard_adopt.UNAVAILABLE.get(e.code, 'unavailable'),
+                            'code': e.code}), 409
     try:
         max_services = int(os.environ.get('DNS_WIZARD_MAX') or 60)
     except ValueError:
@@ -1233,10 +1236,15 @@ def wizard_adopt_route():
         # too, so the database never differs from what SmokePing is told.
         retired = wizard_adopt.retire_silent(
             session, models, None if report is None else report.get('silence', {}))
-        result = wizard_adopt.adopt(
-            session, models, snapshot,
-            max_services=max_services, dry_run=dry_run, checker=checker, commit=False,
-        )
+        if retire_only:
+            result = {'targets_added': 0, 'services_added': 0, 'targets': [],
+                      'not_served': [], 'over_cap': [], 'preflight': 'not run',
+                      'dry_run': dry_run, 'retire_only': True}
+        else:
+            result = wizard_adopt.adopt(
+                session, models, snapshot,
+                max_services=max_services, dry_run=dry_run, checker=checker, commit=False,
+            )
         if dry_run:
             session.rollback()
         else:

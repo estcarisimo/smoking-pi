@@ -1552,6 +1552,9 @@ STUB
     [ "$status" -eq 0 ]
     grep -q 'exec -T config-manager python wizard_adopt.py --dry-run' "$DOCKER_LOG"
     [[ "$output" == *"46 services"* ]]
+    run "$CLI" dns adopt --retire-only --dry-run
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python wizard_adopt.py --retire-only --dry-run' "$DOCKER_LOG"
     run "$CLI" dns adopt --force
     [ "$status" -eq 2 ]
     [[ "$output" == *"unknown option --force"* ]]

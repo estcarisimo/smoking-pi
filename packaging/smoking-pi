@@ -200,7 +200,7 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      in the dns_wizard category. Adds services; tries each
                      new layer first and skips one the host does not
                      answer, and deactivates layers silent for a day.
-                     --dry-run lists.
+                     --dry-run lists; --retire-only only deactivates.
                      'disable' asks you to point the router back first.
                      docs/dns-observer.md.
   discover           Every Smoking Pi on this network and where to open it, from
@@ -2049,7 +2049,8 @@ dns_adopt() {
     # stays in the container's environment.
     local a
     for a in "$@"; do
-        case "$a" in --dry-run) ;; *) echo "unknown option $a (--dry-run)" >&2; return 2 ;; esac
+        case "$a" in --dry-run|--retire-only) ;;
+            *) echo "unknown option $a (--dry-run, --retire-only)" >&2; return 2 ;; esac
     done
     if [ -z "$(compose ps -q --status running config-manager 2>/dev/null)" ]; then
         echo "config-manager is not running: smoking-pi up" >&2

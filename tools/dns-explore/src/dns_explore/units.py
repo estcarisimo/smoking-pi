@@ -88,6 +88,9 @@ _psl_icann = PublicSuffixList(only_icann=True)
 # Unknown TLDs are not suffixes here: "config-manager" or "nas.internal" is
 # not an Internet service, whatever the default list's "*" rule says.
 _psl_known = PublicSuffixList(accept_unknown=False)
+# Labels that end a customer's own domain; two-letter labels are country
+# codes (see service_of).
+_REGISTRY_LABELS = frozenset({"com", "net", "org", "edu", "gov", "co", "io", "info", "biz"})
 _HEX_OR_LONG = re.compile(r"^(?=.*\d)[a-z0-9-]{20,}$|^[0-9a-f]{12,}$")
 
 
@@ -100,8 +103,18 @@ def service_of(name: str) -> str:
     'netflix.com'
     >>> service_of("www.bbc.co.uk")
     'bbc.co.uk'
+    >>> service_of("www.x.com.cdn.cloudflare.net")
+    'cloudflare.net'
+
+    A private suffix is a site of its own (user.github.io), unless a CDN
+    endpoint embeds a customer's domain in front of it: then the service is
+    the CDN. Same rule as the observer (dns-observer/wizard.py).
     """
-    return _psl.privatesuffix(name) or name
+    service = _psl.privatesuffix(name) or name
+    first = service.split(".", 1)[0]
+    if service != name and (first in _REGISTRY_LABELS or len(first) == 2):
+        return _psl_icann.privatesuffix(name) or service
+    return service
 
 
 @lru_cache(maxsize=65536)
