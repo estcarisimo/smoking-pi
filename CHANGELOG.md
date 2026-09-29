@@ -9,6 +9,14 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **config-manager did not log which layers it deactivated.** The list
+  (2.15.4) was only in `smoking-pi dns adopt`'s output, which is gone
+  once the terminal closes. On the reference Pi the first real run
+  deactivated 72, with nothing in the logs to say which. They are now
+  logged, once the change is committed (not on a dry run).
+
 ## [2.15.5] — 2026-09-29
 
 Deactivating the DNS wizard's silent layers, on its own.
