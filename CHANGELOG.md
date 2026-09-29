@@ -24,8 +24,9 @@ version gets a matching GitHub release and git tag.
 - **The Overview's "Targets that need a look" listed a target twice after
   its category changed.** The table took each target's last measurement
   per category, so for 15 minutes after v2.15.7 retagged the ISP gateway
-  from `unknown` to `cpe`, `CPE_IPv4` appeared twice. It now takes one row
-  per target and layer.
+  from `unknown` to `cpe`, `CPE_IPv4` appeared twice, one row already 15
+  minutes stale, for anyone reading the table then. It now takes one row per
+  target and layer, from the newest point by time.
 
 ## [2.15.7] — 2026-09-29
 
