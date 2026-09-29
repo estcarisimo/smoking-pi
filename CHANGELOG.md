@@ -22,6 +22,20 @@ version gets a matching GitHub release and git tag.
   before the upgrade keep `unknown`: a chart grouped by category shows the
   switch as one line ending and another beginning.
 
+- **"SmokePing Latency & Loss" opened on the ISP gateway's probe, drawn
+  in the wrong units.** Its target list, and those of the side-by-side,
+  individual-pings, Custom and Netflix dashboards, took every measurement
+  except DNS. That included `cpe_latency`, whose target is an IP address,
+  so it sorted first and became the default. `cpe_latency` is in
+  milliseconds and percent, while these panels expect seconds and a 0-1
+  ratio. The latency panel multiplied it by a thousand and drew nothing
+  useful; the loss panel pinned at 100%. The "all but DNS" filter also made
+  every query scan every measurement: the main dashboard was still loading
+  after 18 seconds. They now name what they chart (`latency`,
+  `http_latency`, `tcp_latency`), so the main dashboard opens on a real
+  target, and its target lists cover the last 24 hours instead of a year of
+  retired names. The gateway probe keeps its own dashboard, CPE microcuts.
+
 - **The Overview's first row said "unknown" and "not collected yet" over
   data that was there.** Uplink, Wi-Fi network, public address, network,
   location, resolver and IPv6 were all written and their queries answered,
