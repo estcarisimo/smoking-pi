@@ -36,6 +36,17 @@ version gets a matching GitHub release and git tag.
   target, and its target lists cover the last 24 hours instead of a year of
   retired names. The gateway probe keeps its own dashboard, CPE microcuts.
 
+- **Target Detail opened on a target measured one way, and the CPE
+  microcuts' Wi-Fi panel drew failures on the signal's axis.** Target
+  Detail defaulted to the first name alphabetically (Amazon on the seed),
+  which only pings, so three of its four layers opened empty. It now opens
+  on Google, which the seed measures over ICMP, TCP and HTTP/1.1-3. On CPE
+  microcuts, the override that puts TX failures/s on a right-hand axis as
+  red bars matched a series name Grafana never produced, so failures were
+  drawn in dBm next to the signal and flattened it. The series are now
+  named per interface ("signal wlan0", "tx failed/s wlan0"), and the
+  override matches the failures' query.
+
 - **The Overview's first row said "unknown" and "not collected yet" over
   data that was there.** Uplink, Wi-Fi network, public address, network,
   location, resolver and IPv6 were all written and their queries answered,
