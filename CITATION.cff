@@ -17,7 +17,7 @@ authors:
 repository-code: "https://github.com/estcarisimo/smoking-pi"
 url: "https://github.com/estcarisimo/smoking-pi"
 license: MIT
-version: 2.15.7
+version: 2.15.8
 date-released: "2026-09-29"
 keywords:
   - network-monitoring

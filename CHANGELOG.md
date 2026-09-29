@@ -9,6 +9,26 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.15.8] — 2026-09-29
+
+The web admin reads right and points to the right places.
+
+Going through every web admin page in a browser found small things that
+add up on a first visit:
+- HTTP, TCP and DNS wizard targets were titled "Http", "Tcp" and "Dns
+  Wizard", and the welcome tour headed its groups with raw keys such as
+  `top_sites`;
+- the Grafana buttons for those categories opened a dashboard with nothing
+  on it (now fixed on InfluxDB installs), and nothing linked to Grafana's
+  home;
+- the dashboard counted one more measured target than it listed, without
+  saying that it is the ISP's first hop;
+- the AI page and its guide gave instructions from before the package.
+
+Each is fixed, and there is now a Grafana link in the navigation bar. The
+Overview's "Targets that need a look" no longer lists a target twice after
+its category changes.
+
 ### Fixed
 
 - **The web admin counted one more measured target than it listed.** The
