@@ -2,7 +2,7 @@
 name = "smokingpi-doctor"
 version = "0.1.0"
 description = "Verify the SmokePing instrumentation, not the network"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",
 ]
@@ -25,11 +25,11 @@ packages = ["doctor"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py310"
 
 [tool.black]
 line-length = 88
-target-version = ["py311"]
+target-version = ["py310"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"

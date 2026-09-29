@@ -458,8 +458,10 @@ _VALUE_COLUMNS = {"_time", "_value", "_start", "_stop", "_field", "_measurement"
 # ``_value: "a" + r.b``, ``_value: if r.x == "" then "none" else ...``.
 _TEXT_VALUE_RE = re.compile(
     # A column followed by arithmetic (``r.loss * 100.0``) is a number;
-    # ``+`` stays text, it is how Flux joins strings.
-    r'_value:\s*(?:"|r\.(?!_value\b)[A-Za-z_]\w*+(?!\s*[-*/%])'
+    # ``+`` stays text, it is how Flux joins strings. ``\b`` pins the whole
+    # name before the lookahead (a possessive ``\w*+`` would too, but the
+    # doctor runs on the host's python3, 3.10 on Ubuntu 22.04).
+    r'_value:\s*(?:"|r\.(?!_value\b)[A-Za-z_]\w*\b(?!\s*[-*/%])'
     r'|if\b[^)]*?\bthen\s*")'
 )
 
