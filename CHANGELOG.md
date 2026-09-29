@@ -22,13 +22,13 @@ The page also gains:
   counts of cuts, drops and uplink and resolver changes;
 - a table of the targets that need a look, each linking to Target Detail.
 
-A pass over every dashboard in a browser found more. "SmokePing Latency &
+A pass over the dashboards in a browser found more. "SmokePing Latency &
 Loss" opened on the ISP gateway's probe, drawn in the wrong units. It and
 four other dashboards now chart only the measurements they are for, which
-also makes them load quickly. Target Detail opens on a target measured every
+also speeds them up. Target Detail opens on a target measured every
 way. The Wi-Fi Link and CPE microcuts dashboards had seven overrides that
 never applied, and those now apply too. The ISP gateway's ping target is no
-longer categorized "unknown". Two new doctor checks,
+longer categorized "unknown" from the upgrade on. Two new doctor checks,
 `text-stats-name-their-field` and `overrides-match-a-series`, fail on the
 panel mistakes behind these.
 
