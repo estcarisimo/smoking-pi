@@ -15,28 +15,29 @@ Standard and Pro stop shipping a target that can never answer.
 
 The seed's *Amazon* target was bare `amazon.com`, which does not answer
 ping: a flat 100% loss from the first day and a critical *Amazon down*
-that never cleared. The seed now uses `www.amazon.com`, and an install
-with the seed's row unchanged has it corrected once at start, keeping its
-history. The release checklist now also runs `smoking-pi openclaw` against
-a real OpenClaw and checks the DNS observer's counts.
+incident that stayed open. The seed now uses `www.amazon.com`. An
+install whose seeded row is unchanged has it corrected once at start,
+keeping its history; an edited target, or an install in YAML mode, is
+left alone. The release checklist now also runs `smoking-pi openclaw`
+against a real OpenClaw and checks the DNS observer's counts.
 
 ### Fixed
 
 - **Standard and Pro shipped a target that can never answer.** The seed's
   *Amazon* target was bare `amazon.com`, which does not answer ICMP. Every
-  new Standard or Pro install charted a flat 100% loss for it from the
-  first day and carried a critical *Amazon down* incident that never
-  cleared: the alerter keeps such a target out of its verdict, but the
-  incident stays. Basic already used `www.amazon.com`. Found by a network
-  outage test on a fresh package install, where it was the one incident
-  left after recovery. The seed now uses `www.amazon.com`. An install with
-  the seed's row unchanged (named *Amazon*, host `amazon.com`) has it
-  corrected once at the next start, and SmokePing is told to reload so
-  it measures the new host at once. The name is kept, so the target's
-  history continues. If the correction fails, it is logged, the start
-  goes on, and the next start retries. A target someone edited is left alone, and a change
-  back to the bare name is not undone. An install in YAML mode (no
-  database) keeps its file: change the host in `targets.yaml`.
+  new Standard or Pro install charted a flat 100% loss for it from the first
+  day and carried a critical *Amazon down* incident that never cleared: the
+  alerter keeps such a target out of its verdict, but the incident stays.
+  Basic already used `www.amazon.com`. Found by a network outage test on a
+  fresh package install, where it was the one incident left after recovery.
+  The seed now uses `www.amazon.com`. An install with the seed's row
+  unchanged (named *Amazon*, host `amazon.com`) has it corrected once at the
+  next start, and SmokePing is told to reload so it measures the new host at
+  once. The name is kept, so the target's history continues. If the
+  correction fails, it is logged, the start goes on, and the next start
+  retries. A target someone edited is left alone, and a change back to the
+  bare name is not undone. An install in YAML mode (no database) keeps its
+  file: change the host in `targets.yaml`.
 
 ### Changed
 
@@ -44,14 +45,13 @@ a real OpenClaw and checks the DNS observer's counts.
   checklist asked for "one question through OpenClaw" but never for
   `smoking-pi openclaw` itself, and nothing about the DNS observer's
   numbers. So 2.15.0 shipped a registration OpenClaw 2026.8 refuses,
-  resolution times that dropped late-written queries, and a last-hour
-  count that read low and fell to zero every hour. All three were found
-  on the Pi after release and cost two patch releases (2.15.1, 2.15.2). `docs/release-acceptance.md` now asks for
-  `smoking-pi openclaw` against the OpenClaw the host runs, with its
-  version recorded. It also asks for the observer's counts after queries
-  sent from another machine: fewer than 1,000, which AdGuard still holds
-  in memory, then more, which it writes.
-
+  resolution times that dropped late-written queries, and a last-hour count
+  that read low and fell to zero every hour. All three were found on the Pi
+  after release and cost two patch releases (2.15.1, 2.15.2).
+  `docs/release-acceptance.md` now asks for `smoking-pi openclaw` against
+  the OpenClaw the host runs, with its version recorded. It also asks for
+  the observer's counts after queries sent from another machine: fewer than
+  1,000, which AdGuard still holds in memory, then more, which it writes.
 ## [2.15.2] — 2026-09-28
 
 One fix: the DNS Wizard's *Queries (last hour)* counts the last hour.
