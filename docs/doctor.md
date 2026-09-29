@@ -146,6 +146,22 @@ Inside the config-manager container, with the app's own code and
 - **warn** when the probe itself did not answer;
 - **skip** without Docker or without the container.
 
+### `silent-series`
+
+Every series that answered nothing for a whole day: at least 200 rounds
+measured (a target added this morning is new, not silent), and every one
+lost every ping. Covers ICMP, DNS, HTTP and TCP, from InfluxDB. A host that
+does not serve a probe's layer charts a flat 100% loss forever: an outage
+that never ends, on a dashboard and to the assistant. The Standard and Pro
+seed shipped one, bare `amazon.com`, which drops ping, and the DNS wizard
+had adopted 72 such layers on the reference Pi before anything said so.
+
+- **warn**, naming configured targets and the DNS wizard's layers apart.
+  For the wizard's, `sudo smoking-pi dns adopt` deactivates them (history
+  kept). For a configured target, check that the host answers that probe;
+- **ok** when every series answered;
+- **skip** without Docker or without InfluxDB (ClickHouse mode).
+
 ### `uplink-interface`
 
 Names the interface every measurement actually crosses, and says what kind it

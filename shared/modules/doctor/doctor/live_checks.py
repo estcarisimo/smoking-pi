@@ -478,12 +478,84 @@ def check_config_manager_database(docker: Docker | None = None) -> CheckResult:
     return result(name, [], "using the database" if mode == "db" else "no database configured")
 
 
+# Per series over the last day: points measured, and whether every one of
+# them lost every ping. Loss is a 0-1 ratio in these four measurements
+# (cpe_latency is percent, and its gateway has a loss floor by design).
+_SILENT_FLUX = """
+from(bucket: "BUCKET")
+  |> range(start: -24h)
+  |> filter(fn: (r) => r._field == "loss" and (r._measurement == "latency"
+       or r._measurement == "dns_latency" or r._measurement == "http_latency"
+       or r._measurement == "tcp_latency"))
+  |> map(fn: (r) => ({r with _value: if r._value >= 0.999 then 1 else 0}))
+  |> group(columns: ["_measurement", "target"])
+  |> reduce(identity: {n: 0, dead: 0},
+            fn: (r, accumulator) => ({n: accumulator.n + 1, dead: accumulator.dead + r._value}))
+  |> filter(fn: (r) => r.n >= MIN_POINTS and r.dead == r.n)
+  |> group()
+  |> keep(columns: ["target"])
+"""
+# Most of a day of 300 s rounds (288): a target added this morning is not
+# silent yet, it is new.
+SILENT_MIN_POINTS = 200
+SILENT_SHOWN = 12
+
+
+def check_silent_series(docker: Docker | None = None) -> CheckResult:
+    """Series that answered nothing for a whole day.
+
+    A host that does not serve a probe's layer -- bare amazon.com drops ICMP,
+    many sites have no HTTP/3, a CDN fallback name has no web server -- charts
+    a flat 100% loss forever. On a dashboard, and to the assistant, that is an
+    outage that never ends. The Standard/Pro seed shipped one (Amazon), and
+    the DNS wizard adopted 72 on the reference Pi, before anything said so.
+    """
+    name = "silent-series"
+    docker = docker or Docker()
+    if not docker.available():
+        return skipped(name, "docker is not available here")
+    container = docker.container_for_service("influxdb")
+    if not container:
+        return skipped(name, "no InfluxDB here (ClickHouse, or not running)")
+    flux = _SILENT_FLUX.replace("MIN_POINTS", str(SILENT_MIN_POINTS))
+    # The token and names stay in the container: $VARS expand there, never on
+    # this host's command line.
+    script = ('influx query --raw --org "$DOCKER_INFLUXDB_INIT_ORG" '
+              '--token "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" '
+              '"$(printf %s "$1" | sed "s/BUCKET/$DOCKER_INFLUXDB_INIT_BUCKET/")"')
+    code, out = docker.run(["exec", container, "sh", "-c", script, "sh", flux])
+    if code != 0:
+        return result(name, [Finding("could not query InfluxDB for silent series")], "",
+                      status=Status.WARN)
+    silent = sorted({row.split(",")[-1].strip() for row in out.splitlines()
+                     if row.startswith(",,") and row.split(",")[-1].strip()})
+    if not silent:
+        return result(name, [], "every series answered in the last day")
+    adopted = [t for t in silent if t.startswith("W_")]
+    others = [t for t in silent if not t.startswith("W_")]
+    findings = []
+    if others:
+        findings.append(Finding(
+            f"{len(others)} target(s) answered nothing for a day: "
+            f"{', '.join(others[:SILENT_SHOWN])}{' ...' if len(others) > SILENT_SHOWN else ''}. "
+            "Their charts show a permanent outage. Check that the host answers that probe "
+            "(bare amazon.com does not answer ping; www.amazon.com does)"))
+    if adopted:
+        findings.append(Finding(
+            f"{len(adopted)} layer(s) the DNS wizard adopted answered nothing for a day "
+            f"({', '.join(adopted[:SILENT_SHOWN])}{' ...' if len(adopted) > SILENT_SHOWN else ''}): "
+            "their hosts do not serve that layer. `sudo smoking-pi dns adopt` deactivates "
+            "them (history kept)"))
+    return result(name, findings, "", status=Status.WARN)
+
+
 def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
     docker = docker or Docker()
     return [
         check_deployed_code_current(repo, docker),
         check_container_dns_fresh(repo, docker),
         check_config_manager_database(docker),
+        check_silent_series(docker),
         check_uplink_interface(),
     ]
 

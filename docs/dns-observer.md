@@ -389,10 +389,37 @@ timing out, and with the curated probes' 5 forks and 10 s timeout only about
 50 services take at most 3 batches × 5 pings × 5 s = 75 s. The curated
 targets' probes are untouched.
 
-**Adoption only adds.** A service stays measured once adopted, even if it
-drops out of the selection later, so its history has no holes. Removing
-services, with hysteresis so the list does not churn, comes later, from a
-week of data. `DNS_WIZARD_MAX` caps the total.
+**Adoption only adds services.** A service stays measured once adopted,
+even if it drops out of the selection later, so its history has no holes.
+Removing services, with hysteresis so the list does not churn, comes later,
+from a week of data. `DNS_WIZARD_MAX` caps the total.
+
+**Layers are judged one by one.** Many hosts do not serve every layer. Some
+drop ICMP, many have no HTTP/3, and some names (a CDN's fallback, a privacy
+relay) have no web server at all. Such a layer would chart 100% loss
+forever, which reads as an outage to you and to the assistant. So
+`smoking-pi dns adopt`:
+
+- **tries each new layer once** before adopting it, the way its probe
+  does (fping; a TCP handshake on 443; curl with that HTTP version), from
+  the SmokePing container. A layer that does not answer is not adopted
+  (the output names it) and is tried again at the next adoption. If
+  SmokePing cannot run the check, every layer is adopted, as before, and it
+  says so. The check takes at most 60 s; a first adoption of many services
+  may not try every layer in that time, and the ones it did not try are
+  adopted (the output counts them);
+- **deactivates the adopted layers that answered nothing for a day**, as
+  long as at least half of the others did: a day-long outage is the
+  network, not the layers, and deactivates nothing. The same holds for one
+  layer type: if a firewall drops QUIC, or the network drops ping, that
+  layer goes silent almost everywhere, so a layer type is judged only where
+  at least a fifth of its own series answered. A deactivated layer
+  keeps its row and its history, stops being probed, and can be turned back
+  on in the web admin. It is not adopted again.
+
+The rest of the service keeps being measured: a host that drops ping but
+answers on 443 loses only its `_icmp` layer. The doctor's `silent-series`
+check names the layers to deactivate.
 
 **Kept apart from the rest.** Many CDNs do not answer ICMP, so their ICMP
 targets would read as "down". The alerter, the daily digest and the

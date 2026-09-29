@@ -197,7 +197,10 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      'adopt' measures what the DNS wizard selected (the
                      services behind 80% of the house's activity, plus one
                      per network and CDN): ICMP, TCP 443, HTTP/1.1, /2, /3,
-                     in the dns_wizard category. Add only; --dry-run lists.
+                     in the dns_wizard category. Adds services; tries each
+                     new layer first and skips one the host does not
+                     answer, and deactivates layers silent for a day.
+                     --dry-run lists.
                      'disable' asks you to point the router back first.
                      docs/dns-observer.md.
   discover           Every Smoking Pi on this network and where to open it, from

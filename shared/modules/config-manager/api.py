@@ -351,6 +351,28 @@ class ConfigManagerAPI:
         ipv6_check.set_status(status)
         return status
 
+    def _layer_check(self, request_doc: Dict[str, Any]):
+        """Run layer_check.py (in the SmokePing image) with ``request_doc``.
+
+        Returns its report, or None when it cannot run (SmokePing down, an
+        older image without the script): callers then decide nothing.
+        """
+        try:
+            container = docker.from_env().containers.get(resolve_container_name('smokeping'))
+            ran = container.exec_run(
+                ['python3', '/exporters/layer_check.py', json.dumps(request_doc)], demux=True)
+            stdout = (ran.output[0] or b'').decode(errors='replace')
+            if ran.exit_code != 0:
+                logger.warning(f"layer_check failed (exit {ran.exit_code})")
+                return None
+            report = json.loads(stdout)
+            for error in report.get('errors', []):
+                logger.warning("layer_check: %s: %s", error.get('name'), error.get('error'))
+            return report
+        except Exception as e:
+            logger.warning(f"layer_check could not run: {type(e).__name__}")
+            return None
+
     def _guard_rrds(self, container) -> Dict[str, Any]:
         """Archive every RRD the new configuration would make SmokePing die on.
 
@@ -1196,12 +1218,31 @@ def wizard_adopt_route():
         max_services = int(os.environ.get('DNS_WIZARD_MAX') or 60)
     except ValueError:
         max_services = 60
+    models = (Target, TargetCategory, Probe)
+
+    def checker(layers):
+        report = api._layer_check({'preflight': layers})
+        return None if report is None else report.get('preflight', {})
+
     session = get_db_session()
     try:
+        silent_request = wizard_adopt.silence_request(session, models)
+        report = api._layer_check({'silence': silent_request,
+                                   'window': wizard_adopt.SILENT_WINDOW}) if silent_request else {}
+        # One transaction: a failure while adopting undoes the deactivations
+        # too, so the database never differs from what SmokePing is told.
+        retired = wizard_adopt.retire_silent(
+            session, models, None if report is None else report.get('silence', {}))
         result = wizard_adopt.adopt(
-            session, (Target, TargetCategory, Probe), snapshot,
-            max_services=max_services, dry_run=dry_run,
+            session, models, snapshot,
+            max_services=max_services, dry_run=dry_run, checker=checker, commit=False,
         )
+        if dry_run:
+            session.rollback()
+        else:
+            session.commit()
+        result['retired'] = retired['retired']
+        result['retire_held'] = retired['held']
     except wizard_adopt.Unavailable as e:
         session.rollback()
         return jsonify({'error': wizard_adopt.UNAVAILABLE.get(e.code, 'unavailable'),
@@ -1212,7 +1253,7 @@ def wizard_adopt_route():
     finally:
         session.close()
     result['reloaded'] = None
-    if not dry_run and result['targets_added']:
+    if not dry_run and (result['targets_added'] or result['retired']):
         try:
             result['reloaded'] = api._regenerate_smokeping_config()
         except Exception as e:
