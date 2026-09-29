@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The web admin's Grafana buttons for HTTP, TCP and DNS wizard targets
+  opened an empty page, and nothing linked to Grafana's home.** The
+  per-category buttons knew four categories and sent every other one to
+  Individual Pings, which charts ICMP only, so HTTP and TCP targets opened on
+  nothing. They now open HTTP by version (TCP handshakes are at its bottom)
+  and the DNS wizard dashboard. A test checks that every category the seed
+  ships has a dashboard, and that every linked dashboard is provisioned. The
+  navigation bar gains a **Grafana** link to Grafana's home, which on
+  InfluxDB installs is the Overview.
+
 ## [2.15.7] — 2026-09-29
 
 Grafana's dashboards show what they measure.
