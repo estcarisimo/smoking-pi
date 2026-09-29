@@ -32,7 +32,7 @@ import re
 import socket
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any, Callable
 
@@ -40,7 +40,11 @@ DATADIR = Path("/data")
 FPING = "/usr/sbin/fping"
 CURL = "/usr/local/bin/curl-h3"
 TIMEOUT = 5  # seconds per attempt: the wizard's HTTP probes use 5 too
-WORKERS = 24
+WORKERS = 32
+# config-manager waits for this inside an HTTP request that gunicorn ends at
+# 120 s. A layer not tried within the budget is left out of the report, and
+# config-manager adopts what it has no answer for, as before this check.
+BUDGET = 80
 # layer -> (curl flag, the http_version curl must report)
 HTTP = {"h1": ("--http1.1", "1.1"), "h2": ("--http2", "2"), "h3": ("--http3-only", "3")}
 _HOST = re.compile(r"^[A-Za-z0-9.:_-]{1,253}$")
@@ -65,7 +69,7 @@ def answers(host: str, layer: str, run: Runner = _run,
         if layer == "tcp":
             for _ in range(2):
                 try:
-                    connect((host, 443), timeout=TIMEOUT).close()
+                    connect((host, 443), timeout=3).close()
                     return True
                 except OSError:
                     continue
@@ -112,15 +116,20 @@ def silence(rrd: Path, window: int, run: Runner = _run) -> dict[str, int]:
     return {"rows": rows, "answered": answered}
 
 
-def main(argv: list[str], run: Runner = _run) -> dict[str, Any]:
+def main(argv: list[str], run: Runner = _run, budget: float = BUDGET) -> dict[str, Any]:
     request = json.loads(argv[0]) if argv else {}
     report: dict[str, Any] = {"preflight": {}, "silence": {}, "errors": []}
     checks = [c for c in request.get("preflight", []) if isinstance(c, dict)]
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        results = pool.map(lambda c: answers(str(c.get("host", "")), str(c.get("layer", "")), run),
-                           checks)
-        for check, ok in zip(checks, results):
-            report["preflight"][str(check.get("name"))] = ok
+    if checks:
+        pool = ThreadPoolExecutor(max_workers=WORKERS)
+        futures = {pool.submit(answers, str(c.get("host", "")), str(c.get("layer", "")), run):
+                   str(c.get("name")) for c in checks}
+        finished, pending = wait(futures, timeout=budget)
+        for future in finished:
+            report["preflight"][futures[future]] = future.result()
+        if pending:
+            report["untried"] = len(pending)
+        pool.shutdown(wait=False, cancel_futures=True)
     window = int(request.get("window", 86400))
     for item in request.get("silence", []):
         name, rel = str(item.get("name")), str(item.get("rrd", ""))

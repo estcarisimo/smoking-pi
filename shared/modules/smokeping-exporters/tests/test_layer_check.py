@@ -98,3 +98,17 @@ def test_main_reports_both_and_refuses_paths_outside_the_datadir(tmp_path, monke
     assert report["preflight"] == {"W_x_h1": True}
     assert report["silence"] == {"W_x_h1": {"rows": 1, "answered": 0}}  # W_new: no file yet
     assert [e["name"] for e in report["errors"]] == ["evil"]
+
+
+def test_layers_not_tried_within_the_budget_are_left_out():
+    import time as _time
+
+    def slow(cmd, timeout):
+        _time.sleep(0.5)
+        return done(stdout="1.1")
+
+    report = layer_check.main([json.dumps({"preflight": [
+        {"name": f"W_{i}_h1", "host": f"h{i}.example", "layer": "h1"} for i in range(40)]})],
+        slow, budget=0.2)
+    assert report["preflight"] == {}  # nothing finished in time: no answer, not a "no"
+    assert report["untried"] == 40

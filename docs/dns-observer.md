@@ -404,7 +404,9 @@ forever, which reads as an outage to you and to the assistant. So
   does (fping; a TCP handshake on 443; curl with that HTTP version), from
   the SmokePing container. A layer that does not answer is not adopted, and
   the output names it. If SmokePing cannot run the check, every layer is
-  adopted, as before, and it says so;
+  adopted, as before, and it says so. The check takes at most 80 s; a
+  first adoption of many services may not try every layer in that time,
+  and the ones it did not try are adopted;
 - **deactivates the adopted layers that answered nothing for a day**, as
   long as at least half of the others did: a day-long outage is the
   network, not the layers, and deactivates nothing. A deactivated layer

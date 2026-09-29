@@ -256,3 +256,27 @@ def test_less_than_a_day_measured_is_no_evidence(env):
     silence["W_beta_org_h3"] = {"rows": 100, "answered": 0}  # adopted this morning
     _adopted_with(env, silence)
     assert env.client.post("/wizard/adopt").get_json()["retired"] == []
+
+
+def test_a_layer_the_check_had_no_time_for_is_adopted(env):
+    # layer_check leaves out what it could not try within its budget: no
+    # answer is not a "no".
+    real = api_module.api._layer_check
+
+    def partial(doc):
+        report = real(doc)
+        if report and doc.get("preflight"):
+            report["preflight"] = {k: v for k, v in report["preflight"].items()
+                                   if not k.endswith(("_h2", "_h3"))}
+        return report
+
+    env.layer["answers"] = lambda c: False
+    api_module.api._layer_check = partial
+    try:
+        env.write(snapshot(["example-shop.org"]))
+        body = env.client.post("/wizard/adopt").get_json()
+    finally:
+        api_module.api._layer_check = real
+    assert sorted(body["not_served"]) == ["W_example_shop_org_h1", "W_example_shop_org_icmp",
+                                          "W_example_shop_org_tcp"]
+    assert sorted(_active(env)) == ["W_example_shop_org_h2", "W_example_shop_org_h3"]
