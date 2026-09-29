@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.15.7] — 2026-09-29
+
+Grafana's dashboards show what they measure.
+
+Since v2.14.0 the Overview's first row said "unknown" and "not collected
+yet" on every Pro installation, over data that was there. Its text panels
+now show their text, and its per-layer counts are labeled by layer again.
+The page also gains:
+- the Wi-Fi signal and the round trip to the ISP's gateway right now;
+- latency and loss per kind of destination over the selected range, with
+  counts of cuts, drops and uplink and resolver changes;
+- a table of the targets that need a look, each linking to Target Detail.
+
+A pass over every dashboard in a browser found more. "SmokePing Latency &
+Loss" opened on the ISP gateway's probe, drawn in the wrong units. It and
+four other dashboards now chart only the measurements they are for, which
+also makes them load quickly. Target Detail opens on a target measured every
+way. The Wi-Fi Link and CPE microcuts dashboards had seven overrides that
+never applied, and those now apply too. The ISP gateway's ping target is no
+longer categorized "unknown". Two new doctor checks,
+`text-stats-name-their-field` and `overrides-match-a-series`, fail on the
+panel mistakes behind these.
+
 ### Fixed
 
 - **The ISP gateway's ICMP target charted as "unknown".** CPE discovery
