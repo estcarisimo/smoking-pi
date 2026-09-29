@@ -440,9 +440,50 @@ class State:
         try:
             with open(path) as fh:
                 raw = json.load(fh)
-            return cls(**{k: raw[k] for k in cls.__dataclass_fields__ if k in raw})
+            state = cls(**{k: raw[k] for k in cls.__dataclass_fields__ if k in raw})
         except (OSError, ValueError, TypeError):
             return cls()
+        state.rename_services()
+        return state
+
+    def rename_services(self) -> None:
+        """Merge every service counted under a name ``service_of`` no longer
+        gives into today's name.
+
+        A state saved before 2.15.5 counted dynamic.x.com.cdn.cloudflare.net
+        as "com.cdn.cloudflare.net"; its hours kept ranking under that name,
+        beside the new "cloudflare.net", until they aged out of the window
+        three days later. The key alone cannot say which it was
+        (play.googleapis.com is a name of its own when looked up directly),
+        so today's name comes from the hosts it counted: renamed only when
+        they all agree on one other name. Counts add up, hosts merge, a
+        day's top ten keeps its order without the duplicate."""
+        renames = {}
+        for svc, meta in self.meta.items():
+            now = {service_of(h) for h in meta.get("hosts", {})}
+            if len(now) == 1 and svc not in now:
+                renames[svc] = now.pop()
+        if not renames:
+            return
+        for table in (*self.hours.values(), *self.recent.values()):
+            for old in [s for s in table if s in renames]:
+                count, new = table.pop(old), renames[old]
+                if isinstance(count, list):
+                    have = table.get(new, [0] * len(count))
+                    table[new] = [a + b for a, b in zip(have, count)]
+                else:
+                    table[new] = table.get(new, 0) + count
+        for old, new in renames.items():
+            meta = self.meta.pop(old)
+            into = self.meta.setdefault(new, {"hosts": {}})
+            hosts = into.setdefault("hosts", {})
+            for host, n in meta.get("hosts", {}).items():
+                hosts[host] = hosts.get(host, 0) + n
+            for key, value in meta.items():
+                into.setdefault(key, value)
+        for day, top in self.top_by_day.items():
+            names = [renames.get(s, s) for s in top]
+            self.top_by_day[day] = list(dict.fromkeys(names))
 
     def save(self, path: str) -> None:
         tmp = f"{path}.tmp"
