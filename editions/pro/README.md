@@ -120,6 +120,7 @@ If you prefer manual control:
 ```bash
 # 1. Generate passwords and environment
 ../../shared/scripts/generate-passwords.sh --edition pro --target-dir .
+# (writes .env, mode 600, and prints no secret: ./show-passwords.sh --show-secrets)
 
 # 2. Choose your compose file
 # For InfluxDB:

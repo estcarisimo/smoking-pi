@@ -246,7 +246,7 @@ refute_sentinels() {
     [[ "$output" == *"ssh -L 3053:localhost:3053 <user>@"* ]]
 }
 
-@test "piped, the output carries no colour codes" {
+@test "piped, the output carries no color codes" {
     run_sp
     [ "$status" -eq 0 ]
     ! printf '%s' "$output" | grep -q $'\x1b\['

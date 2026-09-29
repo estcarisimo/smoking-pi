@@ -26,8 +26,11 @@ version gets a matching GitHub release and git tag.
   created 0600 before any secret goes into it. A `cp` of the template used
   to leave it 0644 until the last line of the script. A new bats suite
   (`packaging/tests/generate-passwords.bats`, in CI) fails if any generated
-  value reaches the output, for every edition. An install made before this
-  one still has its credentials in whatever recorded that terminal.
+  value reaches the output, on Standard and Pro (Basic generates none). An
+  install made before this one still has its credentials in whatever
+  recorded that terminal. `editions/pro/init-passwords-docker.sh` is gone
+  too. Nothing had called it for several releases, and it printed the first
+  eight characters of each secret and wrote them all to a plaintext file.
 
 ## [2.15.8] — 2026-09-29
 

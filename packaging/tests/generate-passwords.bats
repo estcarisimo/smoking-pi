@@ -32,7 +32,7 @@ check_edition() {
     [ "$status" -eq 0 ]
     [ -f "$env" ]
     # 0600 from the start is not observable here; 0600 at the end is.
-    [ "$(stat -c %a "$env")" = 600 ]
+    [ "$(stat -c %a "$env" 2>/dev/null || stat -f %Lp "$env")" = 600 ]
     local value found=0
     while IFS= read -r value; do
         # Short values (UTC, a port) are not secrets and could match text.
@@ -46,7 +46,7 @@ check_edition() {
     echo "$found"
 }
 
-@test "pro: no generated secret is printed, and the output says how to read them" {
+@test "pro: no generated secret is printed" {
     run check_edition pro
     [ "$status" -eq 0 ]
     # Nine secrets on InfluxDB: a count of zero would mean the check
