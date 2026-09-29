@@ -74,6 +74,7 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_panel_measurements_are_written(repo, influx),
         check_panel_tags_are_written(repo, influx),
         check_text_stats_name_their_field(influx),
+        check_overrides_match_a_series(influx),
         check_alerter_env_defaults_match(repo),
         check_alerter_env_declared(repo),
         check_mcp_tools_documented(repo),
@@ -398,6 +399,55 @@ def check_text_stats_name_their_field(influx) -> CheckResult:
         "text-stats-name-their-field",
         findings,
         f"{checked} text stats name the field they show",
+    )
+
+
+def check_overrides_match_a_series(influx) -> CheckResult:
+    """An override matched ``byName`` on a ``yield(name:)`` value never
+    applies: Grafana names a Flux series by its field and tags. The CPE
+    microcuts' failures axis and six Wi-Fi Link overrides (units, axes, a
+    0-100 scale) were dead this way; the panels drew, just wrongly."""
+    findings = []
+    checked = 0
+    for dashboard in influx:
+        for panel in sources.iter_panels(dashboard):
+            config = panel.get("fieldConfig") or {}
+            renamed = panel.get("transformations") or any(
+                prop.get("id") == "displayName"
+                for override in config.get("overrides") or []
+                for prop in (override or {}).get("properties") or []
+            )
+            if (config.get("defaults") or {}).get("displayName") or renamed:
+                continue  # names come from displayName or a transformation
+            queries = [
+                t.get("query")
+                for t in panel.get("targets") or []
+                if isinstance(t, dict) and isinstance(t.get("query"), str)
+            ]
+            yielded: set[str] = set()
+            produced: set[str] = set()
+            for query in queries:
+                yielded |= sources.yield_names_in(query)
+                produced |= sources.series_names_in(query)
+            for override in config.get("overrides") or []:
+                matcher = (override or {}).get("matcher") or {}
+                if matcher.get("id") != "byName":
+                    continue
+                name = matcher.get("options")
+                checked += 1
+                if name in yielded and name not in produced:
+                    findings.append(
+                        Finding(
+                            f"override byName {name!r} matches a yield(name:), "
+                            "which Grafana never uses as a series name; match "
+                            "the query instead (byFrameRefID)",
+                            where=f"{dashboard.rel} / {panel.get('title')}",
+                        )
+                    )
+    return result(
+        "overrides-match-a-series",
+        findings,
+        f"{checked} byName overrides name a series a query can produce",
     )
 
 

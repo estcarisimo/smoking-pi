@@ -66,6 +66,13 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **A doctor check for overrides that can never apply.**
+  `overrides-match-a-series` fails on a Grafana override matched `byName`
+  on a `yield(name:)` value, which Grafana never uses as a series name. Seven
+  such overrides sat in the CPE microcuts and Wi-Fi Link dashboards, drawing
+  failures in dBm and dropping units, axes and a 0-100 % scale, and nothing
+  noticed: the panels rendered, just wrongly.
+
 - **The Overview says how the link is doing, not only where it is.** A
   *Right now* row adds the Wi-Fi signal and the round trip to the ISP's
   gateway (the first hop past the home router that answers). An
