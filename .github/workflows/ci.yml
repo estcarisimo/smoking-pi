@@ -206,6 +206,9 @@ jobs:
       # only real if it is tested.
       - name: Run the show-passwords suite
         run: bats packaging/tests/show-passwords.bats
+      # generate-passwords.sh writes them at install and must not print them.
+      - name: Run the generate-passwords suite
+        run: bats packaging/tests/generate-passwords.bats
       # Which tags release.yml accepts and what each publishes: a pushed
       # tag publishes images at once, so the shapes are proven here.
       - name: Run the release-version suite

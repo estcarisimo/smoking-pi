@@ -61,8 +61,9 @@ create_env_file() {
     
     echo -e "${CYAN}🔐 Generating passwords for $edition edition...${NC}"
     
-    # Start with template
-    cp "$template_file" "$env_file"
+    # Start with the template, created 0600 before any secret is written
+    # into it: a cp leaves the template's 0644 for as long as the seds run.
+    install -m 600 "$template_file" "$env_file"
     
     # Detect timezone
     local detected_tz=$(detect_timezone)
@@ -139,70 +140,6 @@ create_env_file() {
     echo -e "${GREEN}✅ Passwords generated and saved to $env_file${NC}"
 }
 
-# Function to display generated credentials
-show_credentials() {
-    local edition=$1
-    local env_file=$2
-    
-    if [ ! -f "$env_file" ]; then
-        echo -e "${RED}Error: $env_file not found${NC}"
-        return 1
-    fi
-    
-    echo -e "\n${PURPLE}📋 Generated Credentials for $edition Edition:${NC}"
-    echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    
-    source "$env_file"
-    
-    case $edition in
-        "basic")
-            echo -e "${CYAN}🌐 SmokePing Web Interface:${NC}"
-            echo -e "  URL: http://localhost:${SMOKEPING_PORT:-8080}"
-            echo -e "  No authentication required"
-            ;;
-        "standard")
-            echo -e "${CYAN}🌐 Web Admin Interface:${NC}"
-            echo -e "  URL: http://localhost:${WEB_ADMIN_PORT:-8080}"
-            echo -e "  Username: ${WEB_ADMIN_USERNAME:-admin}"
-            echo -e "  Password: ${WEB_ADMIN_PASSWORD}"
-            echo -e "\n${CYAN}📊 SmokePing Interface:${NC}"
-            echo -e "  URL: http://localhost:${SMOKEPING_PORT:-8081}"
-            echo -e "\n${CYAN}🗄️ PostgreSQL Database:${NC}"
-            echo -e "  Database: ${POSTGRES_DB:-smokeping_targets}"
-            echo -e "  Username: ${POSTGRES_USER:-smokeping}"
-            echo -e "  Password: ${POSTGRES_PASSWORD}"
-            ;;
-        "pro")
-            echo -e "${CYAN}🌐 Web Admin Interface:${NC}"
-            echo -e "  URL: http://localhost:${WEB_ADMIN_PORT:-8080}"
-            echo -e "  Username: ${WEB_ADMIN_USERNAME:-admin}"
-            echo -e "  Password: ${WEB_ADMIN_PASSWORD}"
-            echo -e "\n${CYAN}📊 Grafana Dashboard:${NC}"
-            echo -e "  URL: http://localhost:${GRAFANA_PORT:-3000}"
-            echo -e "  Username: ${GF_SECURITY_ADMIN_USER:-admin}"
-            echo -e "  Password: ${GF_SECURITY_ADMIN_PASSWORD}"
-            
-            # Show database-specific credentials
-            if [ "${TSDB_TYPE:-influxdb}" = "influxdb" ]; then
-                echo -e "\n${CYAN}📈 InfluxDB:${NC}"
-                echo -e "  URL: http://localhost:${INFLUXDB_PORT:-8086}"
-                echo -e "  Token: ${INFLUX_TOKEN}"
-                echo -e "  Admin Password: ${DOCKER_INFLUXDB_INIT_PASSWORD}"
-            elif [ "${TSDB_TYPE:-influxdb}" = "clickhouse" ]; then
-                echo -e "\n${CYAN}📈 ClickHouse:${NC}"
-                echo -e "  URL: http://localhost:${CLICKHOUSE_PORT:-8123}"
-                echo -e "  Username: ${CLICKHOUSE_USER:-smokeping}"
-                echo -e "  Password: ${CLICKHOUSE_PASSWORD}"
-            fi
-            
-            echo -e "\n${CYAN}🎯 SmokePing Interface:${NC}"
-            echo -e "  URL: http://localhost:${SMOKEPING_PORT:-8081}"
-            ;;
-    esac
-    
-    echo -e "\n${YELLOW}💡 Tip: Save these credentials securely!${NC}"
-}
-
 # Main function
 main() {
     local edition=""
@@ -274,14 +211,11 @@ main() {
     # Generate passwords
     create_env_file "$edition" "$env_file" "$template_file"
     
-    # Show credentials
-    show_credentials "$edition" "$env_file"
-    
-    echo -e "\n${GREEN}✅ Password generation complete!${NC}"
-    echo -e "${YELLOW}Next steps:${NC}"
-    echo -e "  1. Review the generated env file: $env_file"
-    echo -e "  2. Run: docker compose up -d"
-    echo -e "  3. Access your services using the credentials above"
+    # The values are never printed: an install transcript, a terminal
+    # scrollback or a pasted issue is the last place a password should
+    # live. `smoking-pi passwords --show-secrets` reads them on request,
+    # and refuses a pipe or a file (see show-passwords.sh).
+    echo -e "   Not printed here. To read them: smoking-pi passwords --show-secrets"
 }
 
 # Run main function with all arguments

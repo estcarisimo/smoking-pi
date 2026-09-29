@@ -165,7 +165,8 @@ sudo smoking-pi install
 This asks three questions (with `whiptail` menus if it is installed,
 `--edition`/`--database`/`--profiles` flags if you prefer, `--yes` for
 nothing at all), then generates every password and API token, detects your
-timezone, starts the containers and prints the URLs and credentials.
+timezone, starts the containers and prints what to open. The passwords
+are never printed; the end of this step says how to read them.
 
 **Which edition?**
 
