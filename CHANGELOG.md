@@ -60,7 +60,7 @@ SmokePing's own graphs.
   a retired name could be adopted. The state now renames a key when all
   the hosts it counted get one other name today, merging its counts.
   A key that is still a name of its own stays, for example
-  `play.googleapis.com` looked up directly. Checked on a copy of that
+  `shop.pages.dev` looked up directly. Checked on a copy of that
   Pi's state: 17 keys merged, `cloudflare.net` 1 → 45 h, `akadns.net`
   1 → 70 h.
 
