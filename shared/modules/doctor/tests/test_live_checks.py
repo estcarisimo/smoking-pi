@@ -313,6 +313,7 @@ def test_run_all_returns_every_check(repo, host_resolv):
         "deployed-code-current",
         "container-dns-fresh",
         "config-manager-database",
+        "silent-series",
         "uplink-interface",
     ]
     # Without a daemon the two Docker checks skip rather than report a broken
@@ -650,3 +651,42 @@ def test_unanswered_probe_warns_and_missing_docker_skips():
     assert live_checks.check_config_manager_database(
         FakeDocker({}, present=False)).status == Status.SKIP
     assert live_checks.check_config_manager_database(FakeDocker({PS_CM: (0, "")})).status == Status.SKIP
+
+
+# -- silent-series ------------------------------------------------------------------
+
+PS_INFLUX = "ps --filter label=com.docker.compose.service=influxdb --format {{.Names}}"
+EXEC_INFLUX = "exec pro-influxdb-1 sh -c"
+CSV_HEAD = "#group,false,false,false\n#datatype,string,long,string\n#default,_result,,\n,result,table,target\n"
+
+
+def _influx(targets, rc=0):
+    body = CSV_HEAD + "".join(f",,0,{t}\n" for t in targets)
+    return FakeDocker({PS_INFLUX: (0, "pro-influxdb-1\n"), EXEC_INFLUX: (rc, body)})
+
+
+def test_every_series_answering_is_ok():
+    res = live_checks.check_silent_series(_influx([]))
+    assert res.status == Status.OK and "every series answered" in res.summary
+
+
+def test_silent_targets_and_adopted_layers_are_named_apart():
+    res = live_checks.check_silent_series(_influx(["Amazon", "W_hbo_com_h1", "W_hbo_com_h3"]))
+    assert res.status == Status.WARN
+    configured, adopted = (f.message for f in res.findings)
+    assert "1 target(s)" in configured and "Amazon" in configured and "www.amazon.com" in configured
+    assert "2 layer(s)" in adopted and "smoking-pi dns adopt" in adopted
+
+
+def test_the_token_never_reaches_this_hosts_command_line():
+    docker = _influx([])
+    live_checks.check_silent_series(docker)
+    call = docker.calls[-1]
+    assert "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" in call  # expanded inside the container
+    assert "r.n >= 200" in call  # a target added this morning is new, not silent
+
+
+def test_no_influx_skips_and_a_failed_query_warns():
+    assert live_checks.check_silent_series(FakeDocker({PS_INFLUX: (0, "")})).status == Status.SKIP
+    assert live_checks.check_silent_series(FakeDocker({}, present=False)).status == Status.SKIP
+    assert live_checks.check_silent_series(_influx([], rc=1)).status == Status.WARN

@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The DNS wizard measured layers the host does not serve, forever.** It
+  adopts each service with the whole suite (ICMP, TCP 443, HTTP/1.1, /2,
+  /3), and many hosts do not serve every layer. Some drop ping, many have
+  no HTTP/3, and some names (a CDN's fallback, Apple's Private Relay) have
+  no web server at all. On the reference Pi, 72 of the 265 adopted series
+  answered nothing for a whole day: 33 HTTP/3, 26 other HTTP, 10 ICMP and
+  3 TCP. Among them was one of the Pi's own containers, adopted before the
+  filter that now refuses bare names. Each charted a permanent outage, and
+  the assistant could report "hbo.com at 100% loss". Nothing flagged it:
+  it was found by counting silent series by hand. `smoking-pi dns adopt`
+  now tries each new layer once, from the SmokePing container and the way
+  its probe does, and skips a layer the host does not answer. It also
+  deactivates adopted layers that answered nothing for a day, provided at
+  least half of the others did: a day-long outage deactivates nothing. A
+  deactivated layer keeps its row and history, stops being probed, and can
+  be turned back on in the web admin. The rest of the service is still
+  measured, and services are still only added. A new doctor check,
+  `silent-series`, names every series (configured or adopted) that
+  answered nothing for a day. It would also have caught the seed's bare
+  `amazon.com`. `docs/dns-observer.md`, `docs/doctor.md`.
+
 ## [2.15.3] — 2026-09-29
 
 Standard and Pro stop shipping a target that can never answer.
