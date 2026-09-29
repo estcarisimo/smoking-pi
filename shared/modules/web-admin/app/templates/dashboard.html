@@ -82,6 +82,7 @@
             {% if measurements.measuring %}
             <span class="badge bg-success">Measuring</span>
             {{ measurements.fresh }} of {{ measurements.total }} targets updated in the last two measurement steps.
+            {% if measurements.automatic %}<span class="text-muted">({{ measurements.automatic }} of them measured automatically: the ISP's first hop, found by traceroute, which is not in the target list.)</span>{% endif %}
             {% else %}
             <span class="badge bg-danger">Not measuring everything</span>
             {% if measurements.stale %}{{ measurements.stale }} stopped updating. {% endif %}

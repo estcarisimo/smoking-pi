@@ -13,7 +13,7 @@
         {% if not measurements.available %}
         <p class="mb-0 text-muted">Could not check yet: {{ measurements.reason }}. The first data point of every target arrives one probe step after the start (five minutes, unless its probe was changed).</p>
         {% elif measurements.measuring %}
-        <p class="mb-0"><span class="badge bg-success">Measuring</span> {{ measurements.fresh }} of {{ measurements.total }} targets updated in the last two measurement steps.</p>
+        <p class="mb-0"><span class="badge bg-success">Measuring</span> {{ measurements.fresh }} of {{ measurements.total }} targets updated in the last two measurement steps.{% if measurements.automatic %} <span class="text-muted">({{ measurements.automatic }} of them measured automatically: the ISP's first hop, found by traceroute, which is not in the target list.)</span>{% endif %}</p>
         {% else %}
         <p class="mb-0">
             <span class="badge bg-warning text-dark">Not everything yet</span>

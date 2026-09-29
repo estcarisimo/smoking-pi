@@ -163,3 +163,29 @@ def test_assistant_add_target_note_does_not_claim_an_unconfirmed_reload(monkeypa
                         lambda data: {"success": True, "reloaded": True, "target": {}})
     assert "regenerated automatically" in ai_tools._add_target(
         {"name": "Example", "host": "example.com"})["note"]
+
+
+def test_the_isp_first_hop_is_counted_as_automatic():
+    """"78 of 78 targets updated" sat beside "Total Targets 77": the 78th is
+    cpe_discovery's CPE section, which nobody added."""
+    body = {**BODY, "targets": BODY["targets"] + [
+        {"section": "CPE", "name": "CPE_IPv4", "probe": "FPing", "step": 300,
+         "age_seconds": 30, "state": "fresh"}]}
+    assert dashboard_module.summarize_measurements(body)["automatic"] == 1
+    assert dashboard_module.summarize_measurements(BODY)["automatic"] == 0
+
+
+def test_dashboard_says_which_measured_target_nobody_added(client, monkeypatch):
+    _stub_dashboard(monkeypatch, {
+        "available": True, "measuring": True, "total": 2,
+        "counts": {"fresh": 2, "stale": 0, "pending": 0, "missing": 0},
+        "targets": [
+            {"section": "websites", "name": "Google", "probe": "FPing", "step": 300,
+             "age_seconds": 40, "state": "fresh"},
+            {"section": "CPE", "name": "CPE_IPv4", "probe": "FPing", "step": 300,
+             "age_seconds": 40, "state": "fresh"},
+        ]})
+    login(client)
+    html = client.get("/").get_data(as_text=True)
+    assert "2 of 2 targets updated" in html
+    assert "1 of them measured automatically" in html

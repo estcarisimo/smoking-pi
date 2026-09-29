@@ -57,6 +57,9 @@ def summarize_measurements(body):
         'stale': counts.get('stale', 0),
         'missing': counts.get('missing', 0),
         'pending': counts.get('pending', 0),
+        # cpe_discovery.py's section: the ISP's first hop, not a target
+        # anyone added, so "78 of 78" beside "Total Targets 77" is explained.
+        'automatic': sum(1 for t in body.get('targets', []) if t.get('section') == 'CPE'),
         'problems': problems,
     }
 
