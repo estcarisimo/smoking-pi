@@ -173,18 +173,17 @@ def create_app(config_name='production'):
     @app.template_filter('format_category_name')
     def format_category_name(category):
         """Format category names for display"""
-        # Special cases for better display
-        if category == 'netflix_oca':
-            return 'Netflix OCA'
-        elif category == 'dns_resolvers':
-            return 'DNS Resolvers'
-        elif category == 'top_sites':
-            return 'Top Sites'
-        elif category == 'ipv6_websites':
-            return 'IPv6 Websites'
-        else:
-            # Default transformation
-            return category.replace('_', ' ').title()
+        # Acronyms .title() would spell "Dns", "Http", "Tcp".
+        names = {
+            'netflix_oca': 'Netflix OCA',
+            'dns_resolvers': 'DNS Resolvers',
+            'top_sites': 'Top Sites',
+            'ipv6_websites': 'IPv6 Websites',
+            'http': 'HTTP',
+            'tcp': 'TCP',
+            'dns_wizard': 'DNS Wizard',
+        }
+        return names.get(category, category.replace('_', ' ').title())
 
     # Add login requirement to all routes except auth, health and static files
     @app.before_request

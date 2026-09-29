@@ -11,6 +11,11 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The web admin titled HTTP, TCP and DNS wizard targets "Http", "Tcp"
+  and "Dns Wizard".** Category names without a special case went through
+  `.title()`, which lowercases acronyms. They now read HTTP, TCP and DNS
+  Wizard, from one table of display names, with a test.
+
 - **The web admin's Grafana buttons for HTTP, TCP and DNS wizard targets
   opened an empty page, and nothing linked to Grafana's home.** The
   per-category buttons knew four categories and sent every other one to
