@@ -158,20 +158,20 @@ _psl_known = PublicSuffixList(accept_unknown=False)
 _HEX_OR_LONG = re.compile(r"^(?=.*\d)[a-z0-9-]{20,}$|^[0-9a-f]{12,}$")
 
 
-# Labels that end a customer's own domain. A CDN endpoint name embeds it in
-# front of the CDN's private suffix (x.com.cdn.cloudflare.net,
-# x.com.akadns.net), and the full list would call the service
-# "com.cdn.cloudflare.net". Two-letter labels are country codes.
-_REGISTRY_LABELS = frozenset({"com", "net", "org", "edu", "gov", "co", "io", "info", "biz"})
+# Real top-level domains only (com, uk, app), not any unknown label.
+_psl_tld = PublicSuffixList(only_icann=True, accept_unknown=False)
 
 
 def service_of(name: str) -> str:
     """The registrable domain, with private suffixes (user.github.io is a
     site of its own), unless it is a CDN endpoint that embeds a customer's
-    domain: that is the CDN's (cloudflare.net), from the ICANN rules."""
+    domain in front of the CDN's private suffix (x.com.cdn.cloudflare.net,
+    x.com.akadns.net): the label there is a real TLD with a name before it,
+    and the service is the CDN's (cloudflare.net), from the ICANN rules.
+    A site whose own name is a TLD (www.io.github.io) is taken for one too."""
     service = _psl.privatesuffix(name) or name
     first = service.split(".", 1)[0]
-    if service != name and (first in _REGISTRY_LABELS or len(first) == 2):
+    if service != name and _psl_tld.publicsuffix(first) == first:
         return _psl_icann.privatesuffix(name) or service
     return service
 

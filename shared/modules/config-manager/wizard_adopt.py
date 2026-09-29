@@ -387,6 +387,8 @@ def main(argv: list[str]) -> int:
         verb_r = "Would deactivate" if dry else "Deactivated"
         print(f"{verb_r} {len(retired)} layers that answered nothing for a day "
               f"(history kept; turn one back on in the web admin): {', '.join(retired)}")
+    if body.get("retire_only") and not retired and not body.get("retire_held"):
+        print("Deactivated nothing: every adopted layer measured for a day answered.")
     if body.get("retire_held") == "network":
         print("Deactivated nothing: most layers were silent too, which is the network, not them.")
     elif str(body.get("retire_held") or "").startswith("layer:"):

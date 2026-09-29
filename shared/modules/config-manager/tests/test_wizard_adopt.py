@@ -329,3 +329,12 @@ def test_retire_only_needs_no_snapshot(env):
     assert env.client.post("/wizard/adopt").status_code == 409
     body = env.client.post("/wizard/adopt?retire_only=1").get_json()
     assert body["retired"] == ["W_alpha_org_tcp"]
+
+
+def test_retire_only_dry_run_changes_nothing(env):
+    silence = {f"W_{s}_org_{x}": DAY for s in ("alpha", "beta") for x in ("icmp", "tcp", "h1", "h2", "h3")}
+    silence["W_beta_org_h3"] = SILENT
+    _adopted_with(env, silence)
+    body = env.client.post("/wizard/adopt?retire_only=1&dry_run=1").get_json()
+    assert body["retired"] == ["W_beta_org_h3"]
+    assert all(_active(env).values()) and not env.reloads[1:]

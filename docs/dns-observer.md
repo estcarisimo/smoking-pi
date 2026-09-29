@@ -285,7 +285,9 @@ hour, how often each **service** was asked for. A service is a registrable
 domain: `nrdp.logs.netflix.com` counts as `netflix.com`, and a site under a
 shared suffix is its own (`user.github.io`). A CDN endpoint that embeds a
 customer's domain (`www.example.com.cdn.cloudflare.net`) counts as the CDN,
-`cloudflare.net`. For each service it also records:
+`cloudflare.net`: the label in front of the shared suffix is a real
+top-level domain with a name before it. A site whose own name is a
+top-level domain (`www.io.github.io`) is taken for one too. For each service it also records:
 
 - the **CDN** that serves it, from the end of the CNAME chain
   (`*.cloudfront.net` is one CDN, whoever the customer);

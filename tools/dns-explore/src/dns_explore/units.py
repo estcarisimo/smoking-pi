@@ -88,9 +88,8 @@ _psl_icann = PublicSuffixList(only_icann=True)
 # Unknown TLDs are not suffixes here: "config-manager" or "nas.internal" is
 # not an Internet service, whatever the default list's "*" rule says.
 _psl_known = PublicSuffixList(accept_unknown=False)
-# Labels that end a customer's own domain; two-letter labels are country
-# codes (see service_of).
-_REGISTRY_LABELS = frozenset({"com", "net", "org", "edu", "gov", "co", "io", "info", "biz"})
+# Real top-level domains only (com, uk, app), not any unknown label.
+_psl_tld = PublicSuffixList(only_icann=True, accept_unknown=False)
 _HEX_OR_LONG = re.compile(r"^(?=.*\d)[a-z0-9-]{20,}$|^[0-9a-f]{12,}$")
 
 
@@ -112,7 +111,7 @@ def service_of(name: str) -> str:
     """
     service = _psl.privatesuffix(name) or name
     first = service.split(".", 1)[0]
-    if service != name and (first in _REGISTRY_LABELS or len(first) == 2):
+    if service != name and _psl_tld.publicsuffix(first) == first:
         return _psl_icann.privatesuffix(name) or service
     return service
 

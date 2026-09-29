@@ -26,10 +26,13 @@ version gets a matching GitHub release and git tag.
   that embeds a customer's domain in front of a private suffix, such as
   `www.x.com.cdn.cloudflare.net` or `x.com.akadns.net`, became the service
   `com.cdn.cloudflare.net`. It was selected on the reference Pi and would
-  have been adopted as `W_com_cdn_cloudflare_net`. When the label before a
-  private suffix is a registry label (`com`, `net`, `org`, `co`, `io` …)
-  or a country code, the service is now the CDN (`cloudflare.net`).
-  `tools/dns-explore` names services the same way.
+  have been adopted as `W_com_cdn_cloudflare_net`, beside the CDN's real
+  service. When the label before a private suffix is a real top-level
+  domain (per the ICANN list: `com`, `uk`, `app` …) with a name before it,
+  the service is now the CDN (`cloudflare.net`). A site whose own name is
+  a top-level domain (`www.io.github.io`) is taken for a CDN endpoint too:
+  a rare case, and a harmless one. `tools/dns-explore` names services the
+  same way.
 
 ## [2.15.4] — 2026-09-29
 
