@@ -11,6 +11,14 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The web admin counted one more measured target than it listed.** The
+  dashboard said "Total Targets 77" beside "78 of 78 targets updated", and
+  the welcome tour said 78 too. The 78th is the ISP's first hop, which CPE
+  discovery adds by itself and which no list shows as a target. Both now
+  say how many of the measured ones were added automatically, and what.
+  (Targets gated out by `IPV6_MODE` still make the measured count the
+  smaller one; that is a different difference.)
+
 - **Turning on the AI reports followed instructions from before the
   package existed.** The web admin's AI page said to edit "the edition's
   `.env`" and run `COMPOSE_PROFILES=ai docker compose up -d`, and

@@ -35,6 +35,10 @@ def humanize_age(seconds):
     return f'{round(seconds / 86400)} d'
 
 
+# The SmokePing section cpe_discovery.py writes its targets into.
+CPE_SECTION = 'CPE'
+
+
 def summarize_measurements(body):
     """What the dashboard's Measurements card needs from /measurements.
 
@@ -57,6 +61,10 @@ def summarize_measurements(body):
         'stale': counts.get('stale', 0),
         'missing': counts.get('missing', 0),
         'pending': counts.get('pending', 0),
+        # Measured but in no target list: the ISP's first hop(s).
+        'automatic': sum(
+            1 for t in body.get('targets', []) if t.get('section') == CPE_SECTION
+        ),
         'problems': problems,
     }
 

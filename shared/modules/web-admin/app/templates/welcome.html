@@ -13,13 +13,14 @@
         {% if not measurements.available %}
         <p class="mb-0 text-muted">Could not check yet: {{ measurements.reason }}. The first data point of every target arrives one probe step after the start (five minutes, unless its probe was changed).</p>
         {% elif measurements.measuring %}
-        <p class="mb-0"><span class="badge bg-success">Measuring</span> {{ measurements.fresh }} of {{ measurements.total }} targets updated in the last two measurement steps.</p>
+        <p class="mb-0"><span class="badge bg-success">Measuring</span> {{ measurements.fresh }} of {{ measurements.total }} targets updated in the last two measurement steps. {% if measurements.automatic %}<span class="text-muted">({{ measurements.automatic }} of them {{ 'is' if measurements.automatic == 1 else 'are' }} measured automatically: the ISP's first hop{{ '' if measurements.automatic == 1 else 's, over IPv4 and IPv6' }}, found by traceroute and not in the target list.)</span>{% endif %}</p>
         {% else %}
         <p class="mb-0">
             <span class="badge bg-warning text-dark">Not everything yet</span>
             {{ measurements.fresh }} of {{ measurements.total }} targets have data.
             {% if measurements.pending %}{{ measurements.pending }} are waiting for their first measurement (each probe measures on its own step, every five minutes unless changed on the Probes page).{% endif %}
             The dashboard's Measurements card names the rest.
+            {% if measurements.automatic %}<span class="text-muted">({{ measurements.automatic }} of them {{ 'is' if measurements.automatic == 1 else 'are' }} measured automatically: the ISP's first hop{{ '' if measurements.automatic == 1 else 's, over IPv4 and IPv6' }}, found by traceroute and not in the target list.)</span>{% endif %}
         </p>
         {% endif %}
     </div>
