@@ -40,6 +40,7 @@ class TestCategory:
         assert ch.category_for(BASE / "Custom/Thing.rrd", BASE) == "custom"
         assert ch.category_for(BASE / "HTTP/Google_h1.rrd", BASE) == "http"
         assert ch.category_for(BASE / "TCP/Google_tcp443.rrd", BASE) == "tcp"
+        assert ch.category_for(BASE / "CPE/CPE_IPv4.rrd", BASE) == "cpe"
 
     def test_legacy_directory_names(self):
         assert ch.category_for(BASE / "TopSites/Google.rrd", BASE) == "topsites"

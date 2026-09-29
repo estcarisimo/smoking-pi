@@ -74,6 +74,7 @@ CATEGORY_MAP = {
     "Custom": "custom",
     "HTTP": "http",
     "TCP": "tcp",
+    "CPE": "cpe",
     # legacy directory names
     "TopSites": "topsites",
     "resolvers": "dns",

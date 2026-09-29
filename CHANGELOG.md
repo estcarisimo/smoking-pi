@@ -11,6 +11,16 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The ISP gateway's ICMP target charted as "unknown".** CPE discovery
+  writes its own SmokePing section (`CPE`, holding `CPE_IPv4`/`CPE_IPv6`),
+  which the exporters' directory-to-category map did not know, so its
+  pings were tagged `category=unknown`. Grafana's per-category charts drew
+  an "Uncategorized" line with nothing to say what it was. It is now tagged
+  `cpe`, like the high-frequency gateway probe (`cpe_latency`). A test
+  checks every section CPE discovery writes has a category. Points written
+  before the upgrade keep `unknown`: a chart grouped by category shows the
+  switch as one line ending and another beginning.
+
 - **The Overview's first row said "unknown" and "not collected yet" over
   data that was there.** Uplink, Wi-Fi network, public address, network,
   location, resolver and IPv6 were all written and their queries answered,
