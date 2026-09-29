@@ -11,6 +11,19 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Turning on the AI reports followed instructions from before the
+  package existed.** The web admin's AI page said to edit "the edition's
+  `.env`" and run `COMPOSE_PROFILES=ai docker compose up -d`, and
+  docs/ai-insights.md said to paste a Compose snippet "not committed yet".
+  On a package install neither applies: the env file is
+  `/etc/smoking-pi/env`, the Compose project lives under `/opt`, and that
+  command names only `ai`, not the profiles already on. Both
+  now give the package's commands (`sudo smoking-pi config set
+  ANTHROPIC_API_KEY`, then `ai` added to `COMPOSE_PROFILES`), with the clone
+  route in the docs. `AI_MAX_INPUT_CHARS`, documented and read by the
+  reporter, never reached its container; Compose and `.env.template` now
+  pass it.
+
 - **The web admin titled HTTP, TCP and DNS wizard targets "Http", "Tcp"
   and "Dns Wizard".** Category names without a special case went through
   `.title()`, which lowercases acronyms: the dashboard's cards, the Targets
