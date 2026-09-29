@@ -17,6 +17,20 @@ version gets a matching GitHub release and git tag.
   deactivated 72, with nothing in the logs to say which. They are now
   logged, once the change is committed (not on a dry run).
 
+### Changed
+
+- **Changing a probe's cycle: the missing point, and how to switch
+  back.** The first end-to-end test of the Probes page (on a test Pi:
+  DNS to 10 queries every 2 minutes and back, through the web form) found
+  it working: files archived, SmokePing reloaded and alive, the new
+  cycle in InfluxDB, and the alerter and MCP server reading it. But
+  `measurement-frequency.md` did not say two things a user would hit.
+  About one point goes missing at each change. Going back to the old
+  cycle starts SmokePing's graphs from empty again, rather than returning
+  the old file. Someone who changed a probe by mistake would have lost
+  SmokePing's graphs twice, not knowing the first file was one `mv` away.
+  The page now describes both, with the restore tested on that Pi.
+
 ## [2.15.5] — 2026-09-29
 
 Deactivating the DNS wizard's silent layers, on its own.
