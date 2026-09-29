@@ -102,7 +102,7 @@
         {% else %}
         <p>Turn off anything you do not care about. A paused target keeps its history and can be turned back on from the Targets page.</p>
         {% for category, intro, targets in groups %}
-        <h6 class="mt-3 mb-1">{{ category }}</h6>
+        <h6 class="mt-3 mb-1">{{ category|format_category_name }}</h6>
         {% if intro %}<p class="small text-muted mb-1">{{ intro }}</p>{% endif %}
         {% for t in targets %}
         <div class="form-check form-switch">

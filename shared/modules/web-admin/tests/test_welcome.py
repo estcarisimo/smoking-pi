@@ -84,8 +84,11 @@ def test_the_tour_shows_its_steps(client, monkeypatch):
     # Step 2: the suggestion is checked by default, carrying the form's fields.
     assert 'data-target-type="icmp"' in html and 'data-hostname="192.168.86.1"' in html
     assert "as CloudflareDNS" in html
-    # Step 4: seeded targets by category, known ones first, a paused one off.
-    assert html.index("top_sites") < html.index("dns_resolvers") < html.index(">lab<")
+    # Step 4: seeded targets by category, known ones first, a paused one off,
+    # headed by display names, not keys ("top_sites" read as a typo).
+    assert (html.index(">Top Sites<") < html.index(">DNS Resolvers<")
+            < html.index(">Lab<"))
+    assert ">top_sites<" not in html
     switches = {m.group(1): "checked" in m.group(0)
                 for m in re.finditer(r'<input[^>]*class="form-check-input seeded"[^>]*'
                                      r'data-name="(\w+)"[^>]*>', html)}
