@@ -82,6 +82,9 @@ CATEGORY_MAP = {
     "HTTP": "http",
     "TCP": "tcp",
     "DNS_Wizard": "dns_wizard",
+    # cpe_discovery.py's own section (CPE_Targets, @included by Targets):
+    # the ISP gateway over ICMP. Unmapped, it charted as "unknown".
+    "CPE": "cpe",
     # legacy directory names
     "TopSites": "topsites",
     "resolvers": "dns",

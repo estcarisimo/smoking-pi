@@ -40,10 +40,21 @@ class TestCategory:
         assert ch.category_for(BASE / "Custom/Thing.rrd", BASE) == "custom"
         assert ch.category_for(BASE / "HTTP/Google_h1.rrd", BASE) == "http"
         assert ch.category_for(BASE / "TCP/Google_tcp443.rrd", BASE) == "tcp"
+        assert ch.category_for(BASE / "CPE/CPE_IPv4.rrd", BASE) == "cpe"
 
     def test_legacy_directory_names(self):
         assert ch.category_for(BASE / "TopSites/Google.rrd", BASE) == "topsites"
         assert ch.category_for(BASE / "resolvers/Google.rrd", BASE) == "dns"
+
+    def test_every_section_cpe_discovery_writes_has_a_category(self):
+        import cpe_discovery
+
+        fragment = cpe_discovery.build_cpe_targets("192.0.2.1", "2001:db8::1")
+        sections = [line[2:].strip() for line in fragment.splitlines()
+                    if line.startswith("+ ")]
+        assert sections
+        for section in sections:
+            assert section in ch.CATEGORY_MAP
 
     def test_unmapped_directory(self):
         assert ch.category_for(BASE / "whatever/Google.rrd", BASE) == "unknown"
