@@ -113,6 +113,22 @@ export SMOKING_PI_ENV_FILE="$ENV_FILE"
 export SMOKING_PI_CONFIG_DIR="${SMOKING_PI_CONFIG_DIR:-}"
 export SMOKING_PI_OUTPUT_DIR="${SMOKING_PI_OUTPUT_DIR:-}"
 
+env_locked() {
+    # The env file is there, but this user cannot read it. A packaged
+    # install keeps it in /etc/smoking-pi, root's and 0750 because it holds
+    # the passwords, so without sudo the file cannot even be seen: `-f` and
+    # `-e` are false, and every reader here took that for "not installed"
+    # (the bare command said to run install; config said every key was
+    # unset; dns status said the observer was down). The edition file sits
+    # beside it, so the edition is unknown too.
+    [ "$(id -u)" != 0 ] || return 1
+    [ -r "$ENV_FILE" ] && return 1
+    [ -e "$ENV_FILE" ] && return 0
+    local dir
+    dir="$(dirname "$ENV_FILE")"
+    [ -d "$dir" ] && [ ! -x "$dir" ]
+}
+
 usage() {
     cat <<'USAGE'
 smoking-pi — SmokePing on a Raspberry Pi, with the trimmings
@@ -1724,9 +1740,11 @@ brief() {
     echo
     if [ ! -d "$EDITION_DIR" ]; then
         echo "No $SMOKING_PI_EDITION edition at $EDITION_DIR."
-    elif [ -e "$ENV_FILE" ] && [ ! -r "$ENV_FILE" ]; then
-        # Packaged: /etc/smoking-pi is root's, secrets included.
-        echo "Installed ($SMOKING_PI_EDITION edition). Run it with sudo to see its state: sudo smoking-pi"
+    elif env_locked; then
+        # Packaged: /etc/smoking-pi is root's, secrets included, and the
+        # edition file with it, so the edition is not named here.
+        echo "Installed, with its settings in $(dirname "$ENV_FILE"), which only root can read."
+        echo "Run it with sudo to see its state: sudo smoking-pi"
     elif [ ! -f "$ENV_FILE" ]; then
         echo "Not installed on this machine yet. Start with:"
         echo "  smoking-pi install        choose the edition, then start it"
@@ -2148,6 +2166,18 @@ cmd_dns() {
     echo "       smoking-pi dns status   (the canary keeps checking it every 5 min)"
     echo "Step by step, per router: docs/dns-observer.md, \"Setup guide\""
 }
+
+# Every command but these reads the env file. One that cannot must say so,
+# not answer from an empty file (see env_locked).
+case "${1:-}" in
+    ""|version|link|doctor|discover|-h|--help|help) ;;
+    *)
+        if env_locked; then
+            echo "Cannot read $ENV_FILE: only root can, because it holds the passwords." >&2
+            echo "Run it with sudo: sudo smoking-pi $*" >&2
+            exit 1
+        fi ;;
+esac
 
 case "${1:-}" in
     install) shift; cmd_install "$@" ;;

@@ -17,6 +17,20 @@ version gets a matching GitHub release and git tag.
   deactivated 72, with nothing in the logs to say which. They are now
   logged, once the change is committed (not on a dry run).
 
+- **Without sudo, a package install's command answered as if nothing
+  were installed.** `/etc/smoking-pi` is root's (0750) because the env
+  file holds the passwords, so an ordinary user cannot even see the file,
+  and every reader took that for "absent". On the staging Pi, as the
+  normal user: the bare `smoking-pi` said "Not installed on this machine
+  yet. Start with: smoking-pi install", `config list` and `config get`
+  said every key was unset, `passwords` said the file was not found, and
+  `dns status` said the observer was not running. It was running. Someone
+  debugging would have been told to reinstall a working install, or that
+  a setting was at its default when it was not. Every command that reads
+  the env file now stops and says so, naming the `sudo` command to run;
+  the bare command says it is installed. `version`, `--help`, `doctor`,
+  `discover` and `link` work as before. With sudo nothing changes.
+
 ### Changed
 
 - **Changing a probe's cycle: the missing point, and how to switch

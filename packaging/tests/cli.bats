@@ -1796,3 +1796,59 @@ STUB
     [ "$status" -eq 0 ]
     [ ! -e "$SMOKING_PI_AVAHI_FILE" ]
 }
+
+# A packaged install keeps the env file in /etc/smoking-pi, root's and 0750.
+# Without sudo the command could not read it and answered as if nothing
+# were installed: "Not installed ... smoking-pi install", every key "unset",
+# the DNS observer "not running". Both shapes of locked: a file this user
+# cannot read, and a directory it cannot enter (where -e is false too).
+lock_env() {
+    [ "$(id -u)" != 0 ] || skip "root reads everything"
+    case "$1" in
+        file) chmod 000 "$SMOKING_PI_ENV_FILE" ;;
+        dir)
+            mkdir -p "$BATS_TEST_TMPDIR/etc"
+            mv "$SMOKING_PI_ENV_FILE" "$BATS_TEST_TMPDIR/etc/env"
+            export SMOKING_PI_ENV_FILE="$BATS_TEST_TMPDIR/etc/env"
+            chmod 000 "$BATS_TEST_TMPDIR/etc" ;;
+    esac
+}
+
+unlock_env() { chmod 700 "$BATS_TEST_TMPDIR/etc" 2>/dev/null || true; }
+
+@test "an env file this user cannot read: config, passwords, dns and status say sudo, never 'unset'" {
+    for shape in file dir; do
+        lock_env "$shape"
+        for cmd in "config list" "config get POSTGRES_USER" passwords "dns status" links status up; do
+            run $CLI $cmd
+            [ "$status" -eq 1 ]
+            [[ "$output" == *"only root can"* ]]
+            [[ "$output" == *"sudo smoking-pi $cmd"* ]]
+            [[ "$output" != *"unset"* ]]
+        done
+        # Nothing reached docker: no command ran on a guess.
+        [ ! -s "$DOCKER_LOG" ] || ! grep -q '^docker ' "$DOCKER_LOG"
+        unlock_env
+        chmod 600 "$SMOKING_PI_ENV_FILE"
+    done
+}
+
+@test "an env file this user cannot read: the bare command says installed, not 'install it'" {
+    lock_env dir
+    run "$CLI"
+    unlock_env
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Installed"* ]]
+    [[ "$output" == *"sudo smoking-pi"* ]]
+    [[ "$output" != *"Not installed"* ]]
+}
+
+@test "an env file this user cannot read: version and help still answer" {
+    lock_env dir
+    run "$CLI" version
+    [ "$status" -eq 0 ]
+    [ "$output" = 9.9.9 ]
+    run "$CLI" --help
+    unlock_env
+    [ "$status" -eq 0 ]
+}
