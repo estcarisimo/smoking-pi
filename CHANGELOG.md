@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`smoking-pi install` printed every password and token of the new
+  install.** Found by a clean install on the staging Pi, following the
+  getting-started guide. Each edition's `setup.sh` runs
+  `generate-passwords.sh`, which listed the web admin, Grafana, PostgreSQL,
+  InfluxDB and ClickHouse credentials on the terminal. That was a few
+  screens above install's own "Your passwords are set but not printed
+  above". The secrets ended up in scrollback, in any transcript of the
+  session, and in anything pasted from it. It also ended with "Next steps:
+  review the env file, run `docker compose up -d`", which is wrong for a
+  package install, where install has already done both. The script now
+  writes the secrets and says only how to read them (`smoking-pi passwords
+  --show-secrets`, which refuses a pipe or a file). The env file is also
+  created 0600 before any secret goes into it. A `cp` of the template used
+  to leave it 0644 until the last line of the script. A new bats suite
+  (`packaging/tests/generate-passwords.bats`, in CI) fails if any generated
+  value reaches the output, on Standard and Pro (Basic generates none). An
+  install made before this one still has its credentials in whatever
+  recorded that terminal. `editions/pro/init-passwords-docker.sh` is gone
+  too. Nothing had called it for several releases, and it printed the first
+  eight characters of each secret and wrote them all to a plaintext file.
+
 ## [2.15.8] — 2026-09-29
 
 The web admin reads right and points to the right places.

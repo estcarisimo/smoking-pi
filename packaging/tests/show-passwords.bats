@@ -246,13 +246,13 @@ refute_sentinels() {
     [[ "$output" == *"ssh -L 3053:localhost:3053 <user>@"* ]]
 }
 
-@test "piped, the output carries no colour codes" {
+@test "piped, the output carries no color codes" {
     run_sp
     [ "$status" -eq 0 ]
     ! printf '%s' "$output" | grep -q $'\x1b\['
 }
 
-@test "on a terminal it is coloured, unless NO_COLOR is set" {
+@test "on a terminal it is colored, unless NO_COLOR is set" {
     command -v script >/dev/null || skip "no script(1) for a pseudo-terminal"
     cd "$EDITION_DIR"
     run script -qec "bash '$SCRIPT'" /dev/null
