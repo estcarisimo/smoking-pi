@@ -747,7 +747,7 @@
       "id": 21,
       "type": "stat",
       "title": "ISP gateway latency",
-      "description": "Median round trip to the ISP's gateway in the last probe window, IPv4 (cpe_latency, milliseconds). CPE discovery skips the home router and probes the first hop past it that answers, so this is the edge of the ISP: if it is high, everything behind it is too. Loss is left out on purpose: gateways rate-limit ICMP, so some loss is normal (see CPE microcuts).",
+      "description": "Median round trip to the first hop past the home router that answers, in the last probe window, IPv4 (cpe_latency, milliseconds). CPE discovery skips hop 1, so this is usually the ISP's gateway; behind a mesh node or a second router it can still be in the house. Loss is left out on purpose: gateways rate-limit ICMP, so some loss is normal (see CPE microcuts).",
       "datasource": {
         "uid": "influxdb"
       },

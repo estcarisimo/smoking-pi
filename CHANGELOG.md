@@ -31,7 +31,7 @@ version gets a matching GitHub release and git tag.
   gateway (the first hop past the home router that answers). An
   *Over the selected range* row (24 h by default) adds ICMP latency and
   loss per category, the ISP gateway's latency against the Wi-Fi signal, and
-  counts of gateway cut windows, Wi-Fi drops, uplink changes and changes of
+  counts of ISP gateway cut windows, Wi-Fi drops, uplink changes and changes of
   the router's resolver,
   with uplink and resolver changes marked on the charts. A *Targets that
   need a look* table lists every target and layer, the lossiest first and
