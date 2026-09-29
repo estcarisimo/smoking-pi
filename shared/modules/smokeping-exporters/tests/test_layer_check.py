@@ -42,7 +42,7 @@ def test_icmp_counts_any_reply():
 def test_http_needs_zero_status_and_the_version_asked_for():
     h3 = fake({"--http3-only": done(stdout="3")})
     assert layer_check.answers("x.example", "h3", h3)
-    assert "https://x.example/" in h3.calls[0]
+    assert h3.calls[0][-1] == "https://x.example/"  # the URL is curl's last argument
     # curl fell back or the server does not speak it: not an answer for h3.
     assert not layer_check.answers("x.example", "h3", fake({"--http3-only": done(stdout="2")}))
     # No TLS at all (a relay or CDN fallback name): curl fails.

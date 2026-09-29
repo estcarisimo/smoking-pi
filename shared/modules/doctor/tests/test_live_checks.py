@@ -674,7 +674,9 @@ def test_silent_targets_and_adopted_layers_are_named_apart():
     res = live_checks.check_silent_series(_influx(["Amazon", "W_hbo_com_h1", "W_hbo_com_h3"]))
     assert res.status == Status.WARN
     configured, adopted = (f.message for f in res.findings)
-    assert "1 target(s)" in configured and "Amazon" in configured and "www.amazon.com" in configured
+    assert "1 target(s)" in configured and "Amazon" in configured
+    # Counted, not `in`: CodeQL reads a host `in` a string as URL sanitizing.
+    assert configured.count("www.amazon.com") == 1
     assert "2 layer(s)" in adopted and "smoking-pi dns adopt" in adopted
 
 
