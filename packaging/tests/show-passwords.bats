@@ -252,7 +252,7 @@ refute_sentinels() {
     ! printf '%s' "$output" | grep -q $'\x1b\['
 }
 
-@test "on a terminal it is coloured, unless NO_COLOR is set" {
+@test "on a terminal it is colored, unless NO_COLOR is set" {
     command -v script >/dev/null || skip "no script(1) for a pseudo-terminal"
     cd "$EDITION_DIR"
     run script -qec "bash '$SCRIPT'" /dev/null
