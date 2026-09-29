@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.15.4] — 2026-09-29
+
+The DNS wizard stops measuring what a host does not serve.
+
+Many hosts do not answer every layer the wizard measures: some drop ping,
+many have no HTTP/3, some names serve no web at all. Each such layer
+charted a permanent outage (72 of 265 on the reference Pi). `smoking-pi
+dns adopt` now tries each new layer first and skips one that does not
+answer, and deactivates adopted layers silent for a day, keeping their
+history, never during an outage or a block of one layer. The doctor's new
+`silent-series` check names every series that answered nothing for a day.
+After upgrading, `sudo smoking-pi dns adopt --dry-run` shows what it would
+deactivate.
+
 ### Fixed
 
 - **The DNS wizard measured layers the host does not serve, forever.** It
