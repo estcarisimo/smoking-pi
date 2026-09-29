@@ -529,3 +529,82 @@ def test_a_state_from_before_the_last_hour_buckets_loads(wiz):
     # Counts from the upgrade on: the hour already read is not in the buckets.
     write(wiz.log, [line("www.bbc.co.uk", T0 + 70)])
     assert wiz().run_once(now=T0 + 120)["queries_1h"] == 1
+
+
+def test_a_state_saved_under_old_names_merges_into_todays(tmp_path):
+    # 2.15.4 counted x.com.cdn.cloudflare.net as "com.cdn.cloudflare.net";
+    # on the reference Pi that name kept 44 of its hours after 2.15.5 and
+    # ranked beside "cloudflare.net", which had one.
+    path = tmp_path / "wizard-state.json"
+    path.write_text(json.dumps({
+        "hours": {"100": {"com.cdn.cloudflare.net": [3, 1], "netflix.com": [2, 2]},
+                  "101": {"com.cdn.cloudflare.net": [1, 0], "cloudflare.net": [4, 2]}},
+        "recent": {"0": {"com.cdn.cloudflare.net": 2, "cloudflare.net": 1}},
+        "meta": {"com.cdn.cloudflare.net": {"cdn": "cloudflare.net", "host": "dynamic.x.com.cdn.cloudflare.net",
+                                            "hosts": {"dynamic.x.com.cdn.cloudflare.net": 5}},
+                 "cloudflare.net": {"hosts": {"dynamic.x.com.cdn.cloudflare.net": 1, "a.b.cdn.cloudflare.net": 2}}},
+        "top_by_day": {"2026-09-29": ["netflix.com", "com.cdn.cloudflare.net", "cloudflare.net"]},
+    }))
+    st = wizard.State.load(str(path))
+    assert st.hours == {"100": {"cloudflare.net": [3, 1], "netflix.com": [2, 2]},
+                        "101": {"cloudflare.net": [5, 2]}}
+    assert st.recent == {"0": {"cloudflare.net": 3}}
+    assert list(st.meta) == ["cloudflare.net"]
+    assert st.meta["cloudflare.net"]["hosts"] == {"dynamic.x.com.cdn.cloudflare.net": 6,
+                                                   "a.b.cdn.cloudflare.net": 2}
+    # What only the old entry knew is kept; the new one's own values win.
+    assert st.meta["cloudflare.net"]["cdn"] == "cloudflare.net"
+    assert st.top_by_day == {"2026-09-29": ["netflix.com", "cloudflare.net"]}
+
+
+def test_the_ranking_after_an_upgrade_has_one_name_per_service(wiz):
+    # Two passes; between them the state is rewritten as 2.15.4 saved it.
+    write(wiz.log, [line("dynamic.x.com.cdn.cloudflare.net", T0 + 10)])
+    wiz().run_once(now=T0 + 60)
+    doc_path = wiz.state / "wizard-state.json"
+    # Only the service key is exactly "cloudflare.net"; hosts are longer.
+    doc = doc_path.read_text().replace('"cloudflare.net"', '"com.cdn.cloudflare.net"')
+    doc_path.write_text(doc)
+    write(wiz.log, [line("dynamic.x.com.cdn.cloudflare.net", T0 + 3700)])
+    snap = wiz().run_once(now=T0 + 3760)
+    services = [t["service"] for t in snap["top"]]
+    assert "com.cdn.cloudflare.net" not in services
+    assert services.count("cloudflare.net") == 1
+
+
+def test_a_key_whose_hosts_still_give_it_is_not_renamed(tmp_path):
+    # "play" is a TLD, but play.googleapis.com looked up directly is a name
+    # of its own today too; and a key whose hosts disagree cannot be split.
+    path = tmp_path / "wizard-state.json"
+    path.write_text(json.dumps({
+        "hours": {"100": {"play.googleapis.com": [1, 1], "com.akadns.net": [2, 1]}},
+        "meta": {"play.googleapis.com": {"hosts": {"play.googleapis.com": 1}},
+                 "com.akadns.net": {"hosts": {"com.akadns.net": 1, "e1.x.com.akadns.net": 1}}},
+    }))
+    st = wizard.State.load(str(path))
+    assert st.hours == {"100": {"play.googleapis.com": [1, 1], "com.akadns.net": [2, 1]}}
+    assert set(st.meta) == {"play.googleapis.com", "com.akadns.net"}
+
+
+def test_a_state_of_an_unexpected_shape_loads_as_saved(tmp_path):
+    path = tmp_path / "wizard-state.json"
+    doc = {"hours": {"100": {"com.cdn.cloudflare.net": [1, 1]}},
+           "meta": {"com.cdn.cloudflare.net": {"hosts": {"x.com.cdn.cloudflare.net": 1}},
+                    "b.com": []}}
+    path.write_text(json.dumps(doc))
+    st = wizard.State.load(str(path))
+    assert st.hours == doc["hours"] and st.meta == doc["meta"]
+
+
+def test_chained_renames_end_where_the_chain_does():
+    st = wizard.State(
+        hours={"1": {"a.example": [1, 0], "b.example": [2, 0]}},
+        meta={"a.example": {"hosts": {"h": 1}}, "b.example": {"hosts": {"i": 1}}})
+    names = {"h": "b.example", "i": "c.example"}
+    real = wizard.service_of
+    wizard.service_of = names.get
+    try:
+        st.rename_services()
+    finally:
+        wizard.service_of = real
+    assert st.hours == {"1": {"c.example": [3, 0]}}

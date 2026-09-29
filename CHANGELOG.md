@@ -31,6 +31,23 @@ version gets a matching GitHub release and git tag.
   the bare command says it is installed. `version`, `--help`, `doctor`,
   `discover` and `link` work as before. With sudo nothing changes.
 
+- **The DNS wizard kept ranking services under names 2.15.5 had
+  retired.** 2.15.5 names a CDN endpoint after the CDN
+  (`dynamic.x.com.cdn.cloudflare.net` is `cloudflare.net`, not
+  `com.cdn.cloudflare.net`), but only for new lookups. The observer keeps
+  72 h of presence per service under the name computed at the time. On
+  the reference Pi, after the upgrade, `sudo smoking-pi dns adopt` still
+  listed `com.cdn.cloudflare.net` (44 h present) as a candidate, while
+  `cloudflare.net` had 1 h. The same happened to 16 more: `com.akadns.net`,
+  `com.edgekey.net`, `tv.map.fastly.net`, and others. Each CDN ranked
+  twice, both times too low, for three days after every such change, and
+  a retired name could be adopted. The state now renames a key when all
+  the hosts it counted get one other name today, merging its counts.
+  A key that is still a name of its own stays, for example
+  `play.googleapis.com` looked up directly. Checked on a copy of that
+  Pi's state: 17 keys merged, `cloudflare.net` 1 → 45 h, `akadns.net`
+  1 → 70 h.
+
 ### Changed
 
 - **Changing a probe's cycle: the missing point, and how to switch
