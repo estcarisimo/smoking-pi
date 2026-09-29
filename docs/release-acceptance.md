@@ -157,6 +157,20 @@ clean install there is the missing half — until then the record says
 - [ ] Every profile the Pi runs answers: the MCP server (`get_chart`, one
   question through OpenClaw), the alerter (`NOTIFY_MODE` as configured, a
   dry-run notification if the mode allows), AI insights if enabled.
+- [ ] `smoking-pi openclaw` (with `sudo` on a package install) completes
+  all five steps against the OpenClaw version the host really runs, and
+  `openclaw mcp probe smokeping` lists the tools. The tests stub
+  `openclaw`, so only a real one catches a change in its configuration
+  schema (2.15.0 shipped a registration OpenClaw 2026.8 refused). Record
+  the OpenClaw version.
+- [ ] The DNS observer (`dns` profile): send a few hundred queries through
+  it from another machine. After the next wizard pass (10 minutes), the
+  DNS Wizard's *Queries (last hour)* includes them although AdGuard,
+  which writes its log every 1,000 queries, still holds them in memory.
+  Then send more than 1,000, which makes AdGuard write them, and check
+  that the `count` field of `dns_resolution` includes them. Names SmokePing measures
+  and the Pi's own traffic are left out by design, so count what should
+  remain. One data point is not a check.
 
 ## Editions and backends
 
