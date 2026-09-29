@@ -93,6 +93,48 @@ _psl_tld = PublicSuffixList(only_icann=True, accept_unknown=False)
 _HEX_OR_LONG = re.compile(r"^(?=.*\d)[a-z0-9-]{20,}$|^[0-9a-f]{12,}$")
 
 
+# Edge networks whose leftmost labels name a customer, a distribution or a
+# load balancer, not a service of its own: every one reaches the same edge,
+# so measuring one measures them all. Counted separately they crowd the
+# ranking: on the reference Pi, three days of lookups made 84 googleapis.com
+# hosts, 52 CloudFront distributions, 38 Fastly customers and 47 Akamai
+# edges into "services", and four googleapis.com hosts were adopted as 20
+# targets. The value is how many labels in front of the suffix still name
+# the service: AWS load balancers keep their region (us-east-1 and
+# us-west-2 are different places). Sites under a shared suffix (github.io,
+# myshopify.com, a.run.app) stay sites of their own.
+EDGE_SUFFIXES = {
+    "cloudfront.net": 0, "fastly.net": 0, "fastly-edge.com": 0,
+    "akamai.net": 0, "akamaiedge.net": 0, "akamaihd.net": 0, "akamaized.net": 0,
+    "edgekey.net": 0, "edgesuite.net": 0, "akadns.net": 0,
+    "azureedge.net": 0, "azurefd.net": 0, "trafficmanager.net": 0,
+    "awsglobalaccelerator.com": 0, "googleapis.com": 0,
+    "elb.amazonaws.com": 1,
+}
+
+
+# The newer AWS load balancer form puts the region after "elb"
+# (name.elb.eu-west-2.amazonaws.com): the list alone grouped it by region
+# only where the region happens to be a public suffix (us-east-1), and
+# into all of amazonaws.com elsewhere.
+_ELB_REGIONAL = re.compile(r"(?:^|\.)(elb\.[a-z0-9-]+\.amazonaws\.com)$")
+
+
+def edge_service(name: str) -> str | None:
+    """The service of an edge network's endpoint (``EDGE_SUFFIXES``), or
+    None for any other name."""
+    m = _ELB_REGIONAL.search(name)
+    if m:
+        return m.group(1)
+    for suffix, keep in EDGE_SUFFIXES.items():
+        if name == suffix or name.endswith("." + suffix):
+            front = name[: -len(suffix)].split(".")[:-1]
+            if keep and len(front) >= keep:
+                return ".".join(front[-keep:] + [suffix])
+            return suffix
+    return None
+
+
 def service_of(name: str) -> str:
     """eTLD+1 of ``name`` (``name`` itself for a bare suffix or IP).
 
@@ -107,8 +149,12 @@ def service_of(name: str) -> str:
 
     A private suffix is a site of its own (user.github.io), unless a CDN
     endpoint embeds a customer's domain in front of it: then the service is
-    the CDN. Same rule as the observer (dns-observer/wizard.py).
+    the CDN. An edge network's endpoint (EDGE_SUFFIXES) is the edge
+    network's. Same rule as the observer (dns-observer/wizard.py).
     """
+    edge = edge_service(name)
+    if edge:
+        return edge
     service = _psl.privatesuffix(name) or name
     first = service.split(".", 1)[0]
     if service != name and _psl_tld.publicsuffix(first) == first:

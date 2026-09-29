@@ -3,6 +3,7 @@ import datetime
 import json
 import math
 import os
+from pathlib import Path
 
 import dns.message
 import dns.rrset
@@ -573,17 +574,18 @@ def test_the_ranking_after_an_upgrade_has_one_name_per_service(wiz):
 
 
 def test_a_key_whose_hosts_still_give_it_is_not_renamed(tmp_path):
-    # "play" is a TLD, but play.googleapis.com looked up directly is a name
-    # of its own today too; and a key whose hosts disagree cannot be split.
+    # "shop" is a TLD, but shop.pages.dev looked up directly is a name of
+    # its own today too; and a key whose hosts disagree cannot be split.
     path = tmp_path / "wizard-state.json"
     path.write_text(json.dumps({
-        "hours": {"100": {"play.googleapis.com": [1, 1], "com.akadns.net": [2, 1]}},
-        "meta": {"play.googleapis.com": {"hosts": {"play.googleapis.com": 1}},
-                 "com.akadns.net": {"hosts": {"com.akadns.net": 1, "e1.x.com.akadns.net": 1}}},
+        "hours": {"100": {"shop.pages.dev": [1, 1], "com.cdn.cloudflare.net": [2, 1]}},
+        "meta": {"shop.pages.dev": {"hosts": {"shop.pages.dev": 1}},
+                 "com.cdn.cloudflare.net": {"hosts": {"com.cdn.cloudflare.net": 1,
+                                                      "x.com.cdn.cloudflare.net": 1}}},
     }))
     st = wizard.State.load(str(path))
-    assert st.hours == {"100": {"play.googleapis.com": [1, 1], "com.akadns.net": [2, 1]}}
-    assert set(st.meta) == {"play.googleapis.com", "com.akadns.net"}
+    assert st.hours == {"100": {"shop.pages.dev": [1, 1], "com.cdn.cloudflare.net": [2, 1]}}
+    assert set(st.meta) == {"shop.pages.dev", "com.cdn.cloudflare.net"}
 
 
 def test_a_state_of_an_unexpected_shape_loads_as_saved(tmp_path):
@@ -608,3 +610,65 @@ def test_chained_renames_end_where_the_chain_does():
     finally:
         wizard.service_of = real
     assert st.hours == {"1": {"c.example": [3, 0]}}
+
+
+@pytest.mark.parametrize(("name", "svc"), [
+    ("d3p8zr0ffa9t17.cloudfront.net", "cloudfront.net"),
+    ("dogvgb9ujhybx.cloudfront.net", "cloudfront.net"),
+    ("twitter.map.fastly.net", "fastly.net"), ("a1.w10.akamai.net", "akamai.net"),
+    ("e123.dsce9.akamaiedge.net", "akamaiedge.net"),
+    ("oauthaccountmanager.googleapis.com", "googleapis.com"),
+    ("www.googleapis.com", "googleapis.com"),
+    ("configuration-lb.ls-apple.com.akadns.net", "akadns.net"),
+    # An AWS load balancer keeps its region: a different place.
+    ("web-123.us-east-1.elb.amazonaws.com", "us-east-1.elb.amazonaws.com"),
+    ("api-9.us-west-2.elb.amazonaws.com", "us-west-2.elb.amazonaws.com"),
+    # The newer form, whether or not its region is a public suffix.
+    ("my-alb-1.elb.us-east-1.amazonaws.com", "elb.us-east-1.amazonaws.com"),
+    ("my-nlb-2.elb.eu-west-2.amazonaws.com", "elb.eu-west-2.amazonaws.com"),
+    # Sites under a shared suffix stay their own, and so do look-alikes.
+    ("estcarisimo.github.io", "estcarisimo.github.io"), ("shops.myshopify.com", "shops.myshopify.com"),
+    ("notcloudfront.net", "notcloudfront.net"), ("cloudfront.net.example.com", "example.com")])
+def test_an_edge_networks_endpoints_are_one_service(name, svc):
+    assert wizard.service_of(name) == svc
+
+
+def test_an_edge_network_is_measured_through_its_busiest_named_host(wiz):
+    # 52 distributions on the reference Pi were 52 "services"; now one, and
+    # the host to measure is the busiest name that is not generated.
+    write(wiz.log, [line("dogvgb9ujhybx.cloudfront.net", T0 + i) for i in range(1, 4)]
+          + [line("d3p8zr0ffa9t17.cloudfront.net", T0 + 10 + i) for i in range(5)]
+          + [line("assets.cloudfront.net", T0 + 20)])
+    snap = wiz().run_once(now=T0 + 60)
+    cf = [t for t in snap["top"] if t["service"] == "cloudfront.net"]
+    assert len(cf) == 1
+    assert not [t for t in snap["top"] if t["service"].endswith(".cloudfront.net")]
+    picked = [s for s in snap["selection"]["services"] if s["service"] == "cloudfront.net"]
+    assert picked and picked[0]["host"] == "dogvgb9ujhybx.cloudfront.net"
+
+
+def test_the_snapshot_says_which_service_each_measured_host_is_today(wiz, tmp_path):
+    targets = tmp_path / "Targets"
+    targets.write_text("++ W_a\nhost = oauthaccountmanager.googleapis.com\n"
+                       "++ W_b\nhost = configuration-lb.ls-apple.com.akadns.net\n"
+                       "++ G\nhost = 8.8.8.8\n")
+    write(wiz.log, [line("www.netflix.com", T0 + 10)])
+    snap = wiz(targets_path=str(targets)).run_once(now=T0 + 60)
+    assert snap["measured_services"] == {
+        "configuration-lb.ls-apple.com.akadns.net": "akadns.net",
+        "oauthaccountmanager.googleapis.com": "googleapis.com"}
+
+
+def test_tools_dns_explore_names_services_by_the_same_rule():
+    # tools/dns-explore feeds the removal policy with the observer's units;
+    # it cannot import this module, so it keeps a copy. Not in the image.
+    here = Path(wizard.__file__).read_text()
+    tool = Path(wizard.__file__).parents[3] / "tools/dns-explore/src/dns_explore/units.py"
+    if not tool.exists():
+        pytest.skip("not a checkout")
+
+    def rule(text):
+        start = text.index("# Edge networks whose leftmost labels")
+        return text[start:text.index("def service_of", start)]
+
+    assert rule(here) == rule(tool.read_text())
