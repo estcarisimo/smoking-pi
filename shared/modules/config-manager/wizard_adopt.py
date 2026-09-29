@@ -37,6 +37,8 @@ as 20 targets. The snapshot says which service each measured host is today
 (``measured_services``): a selected service measured under another name is
 not adopted again, and where several adopted targets are now one service,
 one is kept and the others are deactivated (``consolidate``), history kept.
+One turned back on in the web admin is a second target of that service
+again, and the next adoption deactivates it again.
 
 Everything happens in one transaction and one regeneration, not one
 SmokePing reload per target.
@@ -142,9 +144,14 @@ def read_snapshot(path: Path | None = None, now: float | None = None) -> dict:
         raise Unavailable("no_snapshot") from None
     except ValueError:
         raise Unavailable("bad_snapshot") from None
-    if (now or time.time()) - float(snap.get("generated", 0)) > MAX_AGE_S:
+    try:
+        age = (now or time.time()) - float(snap.get("generated", 0))
+        selected = (snap.get("selection") or {}).get("services")
+    except (AttributeError, TypeError, ValueError):
+        raise Unavailable("bad_snapshot") from None
+    if age > MAX_AGE_S:
         raise Unavailable("stale_snapshot")
-    if not (snap.get("selection") or {}).get("services"):
+    if not selected:
         raise Unavailable("no_selection")
     return snap
 
@@ -194,15 +201,18 @@ def ensure_category(session, category_model):
 
 
 def plan(snapshot: dict, existing_names: set[str], adopted: set[str],
-         max_services: int, covered: frozenset[str] = frozenset()) -> tuple[list[dict], list[str]]:
+         max_services: int, covered: frozenset[str] = frozenset(),
+         active: set[str] | None = None) -> tuple[list[dict], list[str]]:
     """Which targets to create (add only), and which services are left out
     because the cap is reached. ``adopted`` holds the name stems
     (target_base) of the services already in the category; ``covered`` the
     services their targets measure today, whatever name they were adopted
-    under."""
+    under. The cap counts ``active`` stems (every adopted one if not
+    given): a service whose every layer is deactivated takes no place."""
     to_create: list[dict] = []
     over_cap: list[str] = []
     stems = set(adopted)
+    counted = set(adopted if active is None else active)
     for s in snapshot["selection"]["services"]:
         # A bare name is one of the Pi's own containers (config-manager), a
         # private TLD a LAN device; observers before 2.13.8 could select both.
@@ -211,10 +221,11 @@ def plan(snapshot: dict, existing_names: set[str], adopted: set[str],
         base = target_base(s["service"])
         if base not in stems and s["service"] in covered:
             continue  # measured already, by a target adopted under another name
-        if base not in stems:
-            if len(stems) >= max_services:
+        if base not in counted:
+            if len(counted) >= max_services:
                 over_cap.append(s["service"])
                 continue
+            counted.add(base)
             stems.add(base)
         for suffix, probe, label in SUITE:
             name = f"{base}_{suffix}"
@@ -234,7 +245,7 @@ def layer_of(name: str) -> str:
 
 
 def adopt(session, models, snapshot: dict, *, max_services: int, dry_run: bool = False,
-          checker=None, commit: bool = True, released: frozenset[str] = frozenset()) -> dict:
+          checker=None, commit: bool = True) -> dict:
     """Create the missing targets for the wizard's selection.
 
     ``models`` is (Target, TargetCategory, Probe). Commits unless ``dry_run``.
@@ -243,21 +254,24 @@ def adopt(session, models, snapshot: dict, *, max_services: int, dry_run: bool =
     adopted, and is tried again on the next adoption. One it has no answer
     for (not tried within its time budget) is adopted, as is every layer
     without a checker. ``commit=False`` leaves the commit to the caller.
-    ``released`` holds the stems ``consolidate`` deactivated: they no longer
-    take a place under the cap.
     """
     target_model, category_model, probe_model = models
     existing = {t.name: t for t in session.query(target_model).all()}
     cat = session.query(category_model).filter_by(name=CATEGORY).first()
-    adopted = set()
+    adopted: set[str] = set()
+    active: set[str] = set()
     covered: frozenset[str] = frozenset()
     if cat is not None:
-        adopted = {t.name.rsplit("_", 1)[0] for t in existing.values() if t.category_id == cat.id}
+        # is_active as this session sees it: retire_silent and consolidate
+        # change it in memory before this runs (the session does not
+        # autoflush, so a query filtering on it would read the old value).
+        mine = [t for t in existing.values() if t.category_id == cat.id]
+        adopted = {t.name.rsplit("_", 1)[0] for t in mine}
+        active = {t.name.rsplit("_", 1)[0] for t in mine if t.is_active}
         measured = snapshot.get("measured_services") or {}
-        covered = frozenset(measured[t.host] for t in existing.values()
-                            if t.category_id == cat.id and t.is_active and t.host in measured)
-    adopted -= released
-    to_create, over_cap = plan(snapshot, set(existing), adopted, max_services, covered)
+        covered = frozenset(measured[h] for h in (host_key(t.host) for t in mine if t.is_active)
+                            if h in measured)
+    to_create, over_cap = plan(snapshot, set(existing), adopted, max_services, covered, active)
     not_served: list[str] = []
     preflight = "not run"
     untried = 0
@@ -300,6 +314,11 @@ def adopt(session, models, snapshot: dict, *, max_services: int, dry_run: bool =
     return result
 
 
+def host_key(host: str | None) -> str:
+    """A target's host as the observer writes names: lowercase, no final dot."""
+    return (host or "").strip().rstrip(".").lower()
+
+
 def consolidate(session, models, snapshot: dict | None) -> dict:
     """Keep one adopted target per service; deactivate the others.
 
@@ -309,10 +328,10 @@ def consolidate(session, models, snapshot: dict | None) -> dict:
     named after the service, else the one measuring the host the wizard
     picks for it, else the one with the most active layers (then by name).
     The others' layers are marked inactive: the rows and their history
-    stay, and the web admin can turn one back on. Changes the session; the
-    caller commits or rolls back.
+    stay. One turned back on in the web admin is deactivated again by the
+    next adoption. Changes the session; the caller commits or rolls back.
     """
-    result: dict = {"consolidated": [], "released": frozenset()}
+    result: dict = {"consolidated": []}
     measured = (snapshot or {}).get("measured_services") or {}
     if not measured:
         return result
@@ -320,30 +339,34 @@ def consolidate(session, models, snapshot: dict | None) -> dict:
     cat = session.query(category_model).filter_by(name=CATEGORY).first()
     if cat is None:
         return result
+    # Active as this session sees it: retire_silent has just deactivated
+    # layers in memory, and the session does not autoflush, so filtering on
+    # is_active in the query would count them (and could keep a base whose
+    # every layer just went silent, leaving the service measured by none).
     by_base: dict[str, list] = {}
-    for t in session.query(target_model).filter_by(category_id=cat.id, is_active=True):
-        by_base.setdefault(t.name.rsplit("_", 1)[0], []).append(t)
+    for t in session.query(target_model).filter_by(category_id=cat.id).order_by(target_model.name):
+        if t.is_active:
+            by_base.setdefault(t.name.rsplit("_", 1)[0], []).append(t)
     groups: dict[str, list[str]] = {}
     for base, layers in by_base.items():
-        svc = measured.get(layers[0].host)
-        if svc:
-            groups.setdefault(svc, []).append(base)
-    picked = {s["service"]: s["host"] for s in (snapshot.get("selection") or {}).get("services", [])}
-    released = set()
+        services = {measured.get(host_key(t.host)) for t in layers} - {None}
+        if len(services) == 1:
+            groups.setdefault(services.pop(), []).append(base)
+    picked = {s["service"]: host_key(s["host"])
+              for s in (snapshot.get("selection") or {}).get("services", [])}
     for svc, bases in sorted(groups.items()):
         if len(bases) < 2:
             continue
         own = target_base(svc)
-        keep = min(bases, key=lambda b: (b != own, by_base[b][0].host != picked.get(svc),
-                                         -len(by_base[b]), b))
+        keep = min(bases, key=lambda b: (
+            b != own, not any(host_key(t.host) == picked.get(svc) for t in by_base[b]),
+            -len(by_base[b]), b))
         off = sorted(t.name for b in bases if b != keep for t in by_base[b])
         for b in bases:
             if b != keep:
-                released.add(b)
                 for t in by_base[b]:
                     t.is_active = False
         result["consolidated"].append({"service": svc, "kept": keep, "deactivated": off})
-    result["released"] = frozenset(released)
     return result
 
 
@@ -458,7 +481,8 @@ def main(argv: list[str]) -> int:
         verb_c = "Would keep" if dry else "Kept"
         print(f"{verb_c} one target for {c['service']} ({c['kept']}); "
               f"{'would deactivate' if dry else 'deactivated'} {len(c['deactivated'])} layers "
-              f"of the others (history kept): {', '.join(c['deactivated'])}")
+              f"of the others (history kept; one turned back on is deactivated again "
+              f"by the next adopt): {', '.join(c['deactivated'])}")
     if (body.get("retire_only") and not retired and not body.get("retire_held")
             and not body.get("consolidated")):
         print("Deactivated nothing: every adopted layer measured for a day answered.")

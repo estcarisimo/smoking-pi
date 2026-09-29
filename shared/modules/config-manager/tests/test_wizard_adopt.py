@@ -421,13 +421,53 @@ def test_the_target_named_after_the_service_is_the_one_kept(env):
     assert c["kept"] == "W_googleapis_com"
 
 
-def test_consolidation_frees_places_under_the_cap(env, monkeypatch):
+def test_consolidation_frees_places_under_the_cap_for_good(env, monkeypatch):
     monkeypatch.setenv("DNS_WIZARD_MAX", "3")
     _adopt_old_names(env, GOOGLE_HOSTS)
     measured = {h: "googleapis.com" for h in GOOGLE_HOSTS.values()}
     env.write(_today(["googleapis.com", "netflix.com", "bbc.co.uk"], measured))
     body = env.client.post("/wizard/adopt").get_json()
     assert body["over_cap"] == [] and body["services_added"] == 2
+    # The next run still counts only what is measured: 3 of 3, none over.
+    body = env.client.post("/wizard/adopt").get_json()
+    assert body["over_cap"] == [] and body["targets_added"] == 0
+
+
+def test_a_base_that_just_went_silent_is_never_the_one_kept(env):
+    # The one named after the service is silent for a day; its sibling is
+    # healthy. Keeping the silent one would leave the service unmeasured.
+    env.write(snapshot(["googleapis.com"]))
+    env.client.post("/wizard/adopt")
+    _adopt_old_names(env, {"home": "home-devices.googleapis.com"})
+    home = wizard_adopt.target_base("home-devices.googleapis.com")
+    env.layer["silence"] = {**{f"W_googleapis_com_{x}": SILENT for x in ("icmp", "tcp", "h1", "h2", "h3")},
+                            **{f"{home}_{x}": DAY for x in ("icmp", "tcp", "h1", "h2", "h3")}}
+    env.write(_today(["googleapis.com"], {"www.googleapis.com": "googleapis.com",
+                                          "home-devices.googleapis.com": "googleapis.com"}))
+    body = env.client.post("/wizard/adopt").get_json()
+    assert sorted(body["retired"]) == sorted(f"W_googleapis_com_{x}"
+                                             for x in ("icmp", "tcp", "h1", "h2", "h3"))
+    assert body["consolidated"] == []  # one active base left: nothing to merge
+    active = {n for n, on in _active(env).items() if on}
+    assert {n.rsplit("_", 1)[0] for n in active} == {home}
+
+
+def test_a_host_written_differently_still_matches(env):
+    _adopt_old_names(env, {"a": "Home-Devices.GoogleAPIs.com.", "b": "oauthaccountmanager.googleapis.com"})
+    env.write(_today(["googleapis.com"], {"home-devices.googleapis.com": "googleapis.com",
+                                          "oauthaccountmanager.googleapis.com": "googleapis.com"}))
+    assert len(env.client.post("/wizard/adopt").get_json()["consolidated"]) == 1
+
+
+def test_retire_only_with_a_broken_snapshot_still_retires(env):
+    silence = {f"W_{s}_org_{x}": DAY for s in ("alpha", "beta") for x in ("icmp", "tcp", "h1", "h2", "h3")}
+    silence["W_alpha_org_tcp"] = SILENT
+    _adopted_with(env, silence)
+    for broken in ('["not", "an", "object"]', '{"generated": "soon"}'):
+        wizard_adopt.SNAPSHOT.write_text(broken)
+        assert env.client.post("/wizard/adopt").status_code == 409
+        body = env.client.post("/wizard/adopt?retire_only=1&dry_run=1").get_json()
+        assert body["retired"] == ["W_alpha_org_tcp"] and body["consolidated"] == []
 
 
 def test_an_older_snapshot_without_measured_services_touches_nothing(env):

@@ -67,8 +67,10 @@ version gets a matching GitHub release and git tag.
   `dns adopt` (and `--retire-only`) now recognizes a service measured
   under an older name, and does not adopt it again. Where several adopted
   targets are now one service, it keeps one and deactivates the others,
-  with their history kept. On the reference Pi that is googleapis.com:
-  one of four kept, and three places freed under the cap.
+  with their history kept. One turned back on in the web admin is
+  deactivated again by the next `dns adopt`. The cap now counts only
+  services with an active layer. On the reference Pi that is
+  googleapis.com: one of four kept, and three places freed under the cap.
 
 - **Changing a probe's cycle: the missing point, and how to switch
   back.** The first end-to-end test of the Probes page (on a test Pi:

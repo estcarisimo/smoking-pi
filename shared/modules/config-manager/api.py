@@ -1247,7 +1247,6 @@ def wizard_adopt_route():
             result = wizard_adopt.adopt(
                 session, models, snapshot,
                 max_services=max_services, dry_run=dry_run, checker=checker, commit=False,
-                released=merged['released'],
             )
         if dry_run:
             session.rollback()

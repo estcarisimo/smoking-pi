@@ -182,9 +182,19 @@ EDGE_SUFFIXES = {
 }
 
 
+# The newer AWS load balancer form puts the region after "elb"
+# (name.elb.eu-west-2.amazonaws.com): the list alone grouped it by region
+# only where the region happens to be a public suffix (us-east-1), and
+# into all of amazonaws.com elsewhere.
+_ELB_REGIONAL = re.compile(r"(?:^|\.)(elb\.[a-z0-9-]+\.amazonaws\.com)$")
+
+
 def edge_service(name: str) -> str | None:
     """The service of an edge network's endpoint (``EDGE_SUFFIXES``), or
     None for any other name."""
+    m = _ELB_REGIONAL.search(name)
+    if m:
+        return m.group(1)
     for suffix, keep in EDGE_SUFFIXES.items():
         if name == suffix or name.endswith("." + suffix):
             front = name[: -len(suffix)].split(".")[:-1]

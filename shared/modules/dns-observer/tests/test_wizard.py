@@ -3,6 +3,7 @@ import datetime
 import json
 import math
 import os
+from pathlib import Path
 
 import dns.message
 import dns.rrset
@@ -622,6 +623,9 @@ def test_chained_renames_end_where_the_chain_does():
     # An AWS load balancer keeps its region: a different place.
     ("web-123.us-east-1.elb.amazonaws.com", "us-east-1.elb.amazonaws.com"),
     ("api-9.us-west-2.elb.amazonaws.com", "us-west-2.elb.amazonaws.com"),
+    # The newer form, whether or not its region is a public suffix.
+    ("my-alb-1.elb.us-east-1.amazonaws.com", "elb.us-east-1.amazonaws.com"),
+    ("my-nlb-2.elb.eu-west-2.amazonaws.com", "elb.eu-west-2.amazonaws.com"),
     # Sites under a shared suffix stay their own, and so do look-alikes.
     ("estcarisimo.github.io", "estcarisimo.github.io"), ("shops.myshopify.com", "shops.myshopify.com"),
     ("notcloudfront.net", "notcloudfront.net"), ("cloudfront.net.example.com", "example.com")])
@@ -653,3 +657,18 @@ def test_the_snapshot_says_which_service_each_measured_host_is_today(wiz, tmp_pa
     assert snap["measured_services"] == {
         "configuration-lb.ls-apple.com.akadns.net": "akadns.net",
         "oauthaccountmanager.googleapis.com": "googleapis.com"}
+
+
+def test_tools_dns_explore_names_services_by_the_same_rule():
+    # tools/dns-explore feeds the removal policy with the observer's units;
+    # it cannot import this module, so it keeps a copy. Not in the image.
+    here = Path(wizard.__file__).read_text()
+    tool = Path(wizard.__file__).parents[3] / "tools/dns-explore/src/dns_explore/units.py"
+    if not tool.exists():
+        pytest.skip("not a checkout")
+
+    def rule(text):
+        start = text.index("# Edge networks whose leftmost labels")
+        return text[start:text.index("def service_of", start)]
+
+    assert rule(here) == rule(tool.read_text())
