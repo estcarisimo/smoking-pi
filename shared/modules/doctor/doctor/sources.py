@@ -457,7 +457,10 @@ _VALUE_COLUMNS = {"_time", "_value", "_start", "_stop", "_field", "_measurement"
 # ``_value:`` built from a tag or a string: ``_value: r.ip``,
 # ``_value: "a" + r.b``, ``_value: if r.x == "" then "none" else ...``.
 _TEXT_VALUE_RE = re.compile(
-    r'_value:\s*(?:"|r\.(?!_value\b)[A-Za-z_]|if\b[^)]*?\bthen\s*")'
+    # A column followed by arithmetic (``r.loss * 100.0``) is a number;
+    # ``+`` stays text, it is how Flux joins strings.
+    r'_value:\s*(?:"|r\.(?!_value\b)[A-Za-z_]\w*+(?!\s*[-*/%])'
+    r'|if\b[^)]*?\bthen\s*")'
 )
 
 

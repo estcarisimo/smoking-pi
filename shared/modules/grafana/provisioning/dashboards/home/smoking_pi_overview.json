@@ -1171,7 +1171,7 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r._field == \"carrier_down_count\") |> group() |> increase() |> last() |> keep(columns:[\"_value\"])"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r._field == \"carrier_down_count\") |> group(columns:[\"interface\"]) |> increase() |> last() |> group() |> sum() |> keep(columns:[\"_value\"])"
         }
       ]
     },
@@ -1235,8 +1235,8 @@
     {
       "id": 37,
       "type": "stat",
-      "title": "Resolver changes",
-      "description": "Times the network answering the house's DNS through the router changed in the selected range (dns_resolver). Marked on the charts as \"Resolver changed\".",
+      "title": "Router resolver changes",
+      "description": "Times the network answering the house's DNS through the router changed in the selected range (dns_resolver). The \"Resolver changed\" marks on the charts also include the Pi's own DNS observer.",
       "datasource": {
         "uid": "influxdb"
       },
@@ -1465,6 +1465,20 @@
                 }
               },
               {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "-1": {
+                        "text": "—",
+                        "color": "text"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
                 "id": "thresholds",
                 "value": {
                   "mode": "absolute",
@@ -1494,7 +1508,7 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "import \"join\"\nnow = from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and (r._field == \"loss\" or r._field == \"median\") and r.category != \"dns_wizard\") |> group(columns:[\"_measurement\",\"target\",\"category\",\"_field\"]) |> last() |> group() |> pivot(rowKey:[\"_measurement\",\"target\",\"category\"], columnKey:[\"_field\"], valueColumn:\"_value\")\nusual = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and r._field == \"median\" and r.category != \"dns_wizard\") |> group(columns:[\"_measurement\",\"target\"]) |> median() |> group() |> keep(columns:[\"_measurement\",\"target\",\"_value\"])\njoin.left(left: now, right: usual, on: (l, r) => l._measurement == r._measurement and l.target == r.target, as: (l, r) => ({Target: l.target, Layer: if l._measurement == \"latency\" then \"ICMP\" else if l._measurement == \"dns_latency\" then \"DNS\" else if l._measurement == \"tcp_latency\" then \"TCP\" else \"HTTP\", Loss: l.loss, Median: l.median, Usual: r._value, Ratio: if exists l.median and exists r._value and r._value > 0.0 then l.median / r._value else 0.0})) |> sort(columns:[\"Loss\",\"Ratio\"], desc:true) |> limit(n:15)"
+          "query": "import \"join\"\nnow = from(bucket:\"smokeping\") |> range(start:-15m) |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and (r._field == \"loss\" or r._field == \"median\") and r.category != \"dns_wizard\") |> group(columns:[\"_measurement\",\"target\",\"category\",\"_field\"]) |> last() |> group() |> pivot(rowKey:[\"_measurement\",\"target\",\"category\"], columnKey:[\"_field\"], valueColumn:\"_value\")\nusual = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and r._field == \"median\" and r.category != \"dns_wizard\") |> group(columns:[\"_measurement\",\"target\"]) |> median() |> group() |> keep(columns:[\"_measurement\",\"target\",\"_value\"])\njoin.left(left: now, right: usual, on: (l, r) => l._measurement == r._measurement and l.target == r.target, as: (l, r) => ({Target: l.target, Layer: if l._measurement == \"latency\" then \"ICMP\" else if l._measurement == \"dns_latency\" then \"DNS\" else if l._measurement == \"tcp_latency\" then \"TCP\" else \"HTTP\", Loss: l.loss, Median: l.median, Usual: r._value, Ratio: if exists l.median and exists r._value and r._value > 0.0 then l.median / r._value else -1.0})) |> sort(columns:[\"Loss\",\"Ratio\"], desc:true) |> limit(n:15)"
         }
       ]
     },

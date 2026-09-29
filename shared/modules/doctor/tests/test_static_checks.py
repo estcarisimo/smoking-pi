@@ -877,6 +877,8 @@ def test_a_text_stat_naming_its_field_passes(repo):
         'group() |> count() |> keep(columns:["_value"])',
         'count() |> rename(columns:{_value:"ICMP ping"}) |> keep(columns:["ICMP ping"])',
         'map(fn:(r) => ({_time: r._time, _value: if r._value > 1.0 then 1.0 else 0.0}))',
+        'map(fn:(r) => ({_time: r._time, _value: r.loss * 100.0}))',
+        'map(fn:(r) => ({_time: r._time, _value: r.median / r.usual}))',
     ],
 )
 def test_numeric_stats_are_left_alone(repo, query):

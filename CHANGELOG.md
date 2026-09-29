@@ -30,7 +30,8 @@ version gets a matching GitHub release and git tag.
   *Right now* row adds the Wi-Fi signal and the gateway's round trip. An
   *Over the selected range* row (24 h by default) adds ICMP latency and
   loss per category, the gateway's latency against the Wi-Fi signal, and
-  counts of gateway cut windows, Wi-Fi drops, uplink and resolver changes,
+  counts of gateway cut windows, Wi-Fi drops, uplink changes and changes of
+  the router's resolver,
   with uplink and resolver changes marked on the charts. A *Targets that
   need a look* table lists every target and layer, the lossiest first and
   then the furthest above its own 24-hour median, each linking to Target
