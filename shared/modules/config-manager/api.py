@@ -875,10 +875,13 @@ def initialize() -> None:
 
         # 2. Migrate YAML -> PostgreSQL (idempotent; upserts missing probes
         #    on already-migrated deployments)
+        corrected = 0
         if os.environ.get('DATABASE_URL'):
             try:
-                from scripts.migrate_yaml_to_db import run_migration
-                if run_migration(config_dir=CONFIG_DIR):
+                import scripts.migrate_yaml_to_db as migration
+                ok = migration.run_migration(config_dir=CONFIG_DIR)
+                corrected = migration.corrected_on_start
+                if ok:
                     logger.info("Database migration check completed")
                 else:
                     logger.error("Database migration failed - continuing in YAML mode")
@@ -899,10 +902,15 @@ def initialize() -> None:
         except Exception as e:
             logger.warning(f"Initial IPv6 check failed: {e}")
 
-        # 4. Generate SmokePing config once at startup
+        # 4. Generate SmokePing config once at startup. SmokePing reads its
+        #    Targets only when it starts or is signaled, and on an upgrade it
+        #    may have started first: a corrected shipped default (step 2)
+        #    is measured only after a reload.
         try:
             if api.generator.run():
                 logger.info("Initial SmokePing configuration generated")
+                if corrected:
+                    api._signal_smokeping_reload()
             else:
                 logger.error("Initial SmokePing configuration generation failed")
         except Exception as e:

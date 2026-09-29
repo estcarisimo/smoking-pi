@@ -20,8 +20,10 @@ version gets a matching GitHub release and git tag.
   outage test on a fresh package install, where it was the one incident
   left after recovery. The seed now uses `www.amazon.com`. An install with
   the seed's row unchanged (named *Amazon*, host `amazon.com`) has it
-  corrected once at the next start. The name is kept, so the target's
-  history continues. A target someone edited is left alone, and a change
+  corrected once at the next start, and SmokePing is told to reload so
+  it measures the new host at once. The name is kept, so the target's
+  history continues. If the correction fails, it is logged, the start
+  goes on, and the next start retries. A target someone edited is left alone, and a change
   back to the bare name is not undone. An install in YAML mode (no
   database) keeps its file: change the host in `targets.yaml`.
 

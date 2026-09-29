@@ -338,3 +338,36 @@ def test_the_shipped_seed_has_no_host_that_ignores_icmp():
     hosts = [t["host"] for group in seed["active_targets"].values() for t in group or []
              if t.get("probe") == "FPing"]
     assert "www.amazon.com" in hosts and "amazon.com" not in hosts
+
+
+def _seeded_with_bare_amazon(config_dir):
+    old = yaml.safe_load((config_dir / "targets.yaml").read_text())
+    old["active_targets"]["top_sites"].append(
+        {"name": "Amazon", "host": "amazon.com", "title": "Amazon",
+         "probe": "FPing", "category": "top_sites"})
+    (config_dir / "targets.yaml").write_text(yaml.dump(old))
+
+
+def test_the_caller_learns_a_target_was_corrected(config_dir, db_url):
+    import scripts.migrate_yaml_to_db as migration
+
+    _seeded_with_bare_amazon(config_dir)
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert migration.corrected_on_start == 1
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert migration.corrected_on_start == 0
+
+
+def test_a_failing_fix_never_fails_the_migration(config_dir, db_url, monkeypatch):
+    import scripts.migrate_yaml_to_db as migration
+
+    _seeded_with_bare_amazon(config_dir)
+    monkeypatch.setattr(migration, "SEED_FIXES", (
+        ("seed_fix_amazon_www", {"no_such_column": "x"}, {"host": "www.amazon.com"}),))
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert migration.corrected_on_start == 0
+    assert _amazon(db_url)["Amazon"] == "amazon.com"
+    # Nothing was recorded, so the next start (with a working fix) applies it.
+    monkeypatch.undo()
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert _amazon(db_url)["Amazon"] == "www.amazon.com"
