@@ -78,3 +78,20 @@ def test_every_linked_dashboard_is_provisioned():
     }
     unknown = set(_dashboard_uid_map().values()) - provisioned
     assert not unknown, f'links to dashboards nobody provisions: {sorted(unknown)}'
+
+
+@pytest.mark.parametrize('category, shown', [
+    ('http', 'HTTP'),
+    ('tcp', 'TCP'),
+    ('dns_wizard', 'DNS Wizard'),
+    ('dns_resolvers', 'DNS Resolvers'),
+    ('netflix_oca', 'Netflix OCA'),
+    ('top_sites', 'Top Sites'),
+    ('ipv6_websites', 'IPv6 Websites'),
+    ('custom', 'Custom'),
+    ('some_new_thing', 'Some New Thing'),
+])
+def test_category_names_keep_their_acronyms(app, category, shown):
+    """The dashboard titled HTTP, TCP and DNS wizard targets "Http", "Tcp"
+    and "Dns Wizard"."""
+    assert app.jinja_env.filters['format_category_name'](category) == shown

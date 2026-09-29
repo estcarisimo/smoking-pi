@@ -240,6 +240,7 @@
                                     </a>
                                     <button class="btn btn-outline-danger delete-target-btn"
                                             data-category="{{ category }}"
+                                            data-category-label="{{ category|format_category_name }}"
                                             data-name="{{ target.name }}"
                                             data-host="{{ target.host }}"
                                             title="Delete target">
@@ -656,10 +657,10 @@
     document.addEventListener('click', function (event) {
         const btn = event.target.closest('.delete-target-btn');
         if (!btn) return;
-        deleteTarget(btn.dataset.category, btn.dataset.name, btn.dataset.host);
+        deleteTarget(btn.dataset.category, btn.dataset.name, btn.dataset.host, btn.dataset.categoryLabel);
     });
 
-    function deleteTarget(category, targetName, targetHost) {
+    function deleteTarget(category, targetName, targetHost, categoryLabel) {
         // Store the target info for deletion
         currentDeleteTarget = {
             category: category,
@@ -670,7 +671,7 @@
         // Update modal content
         document.getElementById('delete-target-name').textContent = targetName;
         document.getElementById('delete-target-host').textContent = targetHost;
-        document.getElementById('delete-target-category').textContent = category;
+        document.getElementById('delete-target-category').textContent = categoryLabel || category;
 
         // Show the modal
         const modal = new bootstrap.Modal(document.getElementById('deleteTargetModal'));

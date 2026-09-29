@@ -170,21 +170,21 @@ def create_app(config_name='production'):
         })
 
     # Add custom Jinja2 filters
+    # Acronyms .title() would spell "Dns", "Http", "Tcp".
+    category_names = {
+        'netflix_oca': 'Netflix OCA',
+        'dns_resolvers': 'DNS Resolvers',
+        'top_sites': 'Top Sites',
+        'ipv6_websites': 'IPv6 Websites',
+        'http': 'HTTP',
+        'tcp': 'TCP',
+        'dns_wizard': 'DNS Wizard',
+    }
+
     @app.template_filter('format_category_name')
     def format_category_name(category):
         """Format category names for display"""
-        # Special cases for better display
-        if category == 'netflix_oca':
-            return 'Netflix OCA'
-        elif category == 'dns_resolvers':
-            return 'DNS Resolvers'
-        elif category == 'top_sites':
-            return 'Top Sites'
-        elif category == 'ipv6_websites':
-            return 'IPv6 Websites'
-        else:
-            # Default transformation
-            return category.replace('_', ' ').title()
+        return category_names.get(category, category.replace('_', ' ').title())
 
     # Add login requirement to all routes except auth, health and static files
     @app.before_request
