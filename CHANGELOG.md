@@ -16,8 +16,9 @@ version gets a matching GitHub release and git tag.
   which the exporters' directory-to-category map did not know, so its
   pings were tagged `category=unknown`. Grafana's per-category charts drew
   an "Uncategorized" line with nothing to say what it was. It is now tagged
-  `cpe`, like the high-frequency gateway probe (`cpe_latency`). A test
-  checks every section CPE discovery writes has a category. Points written
+  `cpe` by both exporters (InfluxDB and ClickHouse), like the
+  high-frequency gateway probe (`cpe_latency`). A test checks that every
+  section CPE discovery writes has a category. Points written
   before the upgrade keep `unknown`: a chart grouped by category shows the
   switch as one line ending and another beginning.
 

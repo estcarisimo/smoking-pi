@@ -51,8 +51,9 @@ class TestCategoryMapping:
                     if line.startswith("+ ")]
         assert sections
         for section in sections:
+            assert section in rrd2influx.CATEGORY_MAP
             rrd = f"/var/lib/smokeping/{section}/CPE_IPv4.rrd"
-            assert rrd2influx.category_for(rrd, "/var/lib/smokeping") != "unknown"
+            assert rrd2influx.category_for(rrd, "/var/lib/smokeping") == "cpe"
 
     def test_rrd_at_root_is_unknown(self):
         rrd = "/var/lib/smokeping/Target.rrd"

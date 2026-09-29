@@ -46,6 +46,16 @@ class TestCategory:
         assert ch.category_for(BASE / "TopSites/Google.rrd", BASE) == "topsites"
         assert ch.category_for(BASE / "resolvers/Google.rrd", BASE) == "dns"
 
+    def test_every_section_cpe_discovery_writes_has_a_category(self):
+        import cpe_discovery
+
+        fragment = cpe_discovery.build_cpe_targets("192.0.2.1", "2001:db8::1")
+        sections = [line[2:].strip() for line in fragment.splitlines()
+                    if line.startswith("+ ")]
+        assert sections
+        for section in sections:
+            assert section in ch.CATEGORY_MAP
+
     def test_unmapped_directory(self):
         assert ch.category_for(BASE / "whatever/Google.rrd", BASE) == "unknown"
 
