@@ -132,9 +132,20 @@ case "$1" in
             echo "  the file holds their credentials. To delete the measurements too, reinstall and"
             echo "  run 'smoking-pi purge --config', or 'docker volume rm' them and remove the file."
         else
+            # The edition record goes with the env file it describes.
+            rm -f /etc/smoking-pi/edition
             rmdir /etc/smoking-pi 2>/dev/null || true
         fi ;;
 esac
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+    # What dpkg does not own and so leaves under /opt: bytecode from older
+    # doctor runs under sudo, and directories Docker created for a bind
+    # mount. Only empty directories go; a file someone put there stays.
+    if [ -d /opt/smoking-pi ]; then
+        find /opt/smoking-pi -depth -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+        find /opt/smoking-pi -depth -type d -empty -delete 2>/dev/null || true
+    fi
+fi
 if [ "$1" = remove ] || [ "$1" = purge ]; then
     systemctl daemon-reload >/dev/null 2>&1 || true
     # The LAN announcement smoking-pi wrote: nothing answers there any more.

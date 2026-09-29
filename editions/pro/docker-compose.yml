@@ -293,7 +293,6 @@ services:
       # smoking-pi dns adopt. Empty while the dns profile is off.
       - dns-observer-state:/dns-observer:ro
       - ${SMOKING_PI_OUTPUT_DIR:-./config-manager/output}:/app/output
-      - ./smokeping/config:/app/smokeping-config
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro

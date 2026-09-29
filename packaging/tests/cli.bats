@@ -430,6 +430,39 @@ make_backup_dir() {
     [ -d "$SMOKING_PI_OUTPUT_DIR" ]
 }
 
+@test "packaged purge --config stops and disables the unit first, and removes the edition record" {
+    export SMOKING_PI_DEFAULTS="$BATS_TEST_TMPDIR/defaults"
+    printf 'SMOKING_PI_PACKAGED=1\n' > "$SMOKING_PI_DEFAULTS"
+    printf 'pro\n' > "$BATS_TEST_TMPDIR/edition"
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"
+    run "$CLI" purge --config --yes
+    [ "$status" -eq 0 ]
+    [ ! -e "$BATS_TEST_TMPDIR/edition" ]
+    # Before the env file goes: the unit's ExecStop (`down`) reads it.
+    first_down=$(grep -n 'compose .* down' "$DOCKER_LOG" | head -1 | cut -d: -f1)
+    disabled=$(grep -n '^systemctl disable --now smoking-pi$' "$DOCKER_LOG" | cut -d: -f1)
+    [ -n "$disabled" ] && [ -n "$first_down" ] && [ "$disabled" -lt "$first_down" ]
+}
+
+@test "purge without --config leaves the unit and the edition record alone" {
+    export SMOKING_PI_DEFAULTS="$BATS_TEST_TMPDIR/defaults"
+    printf 'SMOKING_PI_PACKAGED=1\n' > "$SMOKING_PI_DEFAULTS"
+    printf 'pro\n' > "$BATS_TEST_TMPDIR/edition"
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"
+    run "$CLI" purge --yes
+    [ "$status" -eq 0 ]
+    [ -e "$BATS_TEST_TMPDIR/edition" ]
+    ! grep -q '^systemctl disable' "$DOCKER_LOG"
+}
+
+@test "doctor runs without writing bytecode (under sudo it would be root's, inside /opt)" {
+    printf '#!/bin/sh\necho "PY dontwrite=$PYTHONDONTWRITEBYTECODE $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/python3"
+    chmod +x "$BATS_TEST_TMPDIR/bin/python3"
+    run "$CLI" doctor
+    [ "$status" -eq 0 ]
+    grep -q '^PY dontwrite=1 -m doctor' "$DOCKER_LOG"
+}
+
 @test "passwords forwards its flags, so --show-secrets reaches the script" {
     run "$CLI" passwords --show-secrets --force
     [ "$status" -eq 0 ]
