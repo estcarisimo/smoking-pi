@@ -15,8 +15,8 @@ version gets a matching GitHub release and git tag.
   opened an empty page, and nothing linked to Grafana's home.** The
   per-category buttons knew four categories and sent every other one to
   Individual Pings, which charts ICMP only, so HTTP and TCP targets opened on
-  nothing. They now open HTTP by version (TCP handshakes are at its bottom)
-  and the DNS wizard dashboard. A test checks that every category the seed
+  nothing. On InfluxDB installs they now open HTTP by version (TCP
+  handshakes are at its bottom) and the DNS wizard dashboard. A test checks that every category the seed
   ships has a dashboard, and that every linked dashboard is provisioned. The
   navigation bar gains a **Grafana** link to Grafana's home, which on
   InfluxDB installs is the Overview.

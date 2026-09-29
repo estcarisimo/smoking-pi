@@ -140,11 +140,11 @@
                 showToast('Error', 'Error applying configuration: ' + error.message, 'danger');
             }
         }
-        document.getElementById('apply-config-btn').addEventListener('click', applyConfiguration);
         // Built from the browser's hostname, like the dashboard's Grafana
         // links, so it works however the Pi is reached (IP, mDNS, tunnel).
         document.getElementById('grafana-home-link').href =
             `http://${window.location.hostname}:3000/`;
+        document.getElementById('apply-config-btn').addEventListener('click', applyConfiguration);
     </script>
 
     {% block extra_js %}{% endblock %}

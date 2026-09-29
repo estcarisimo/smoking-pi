@@ -621,6 +621,9 @@
     // Per-target SmokePing graph links and per-category Grafana links.
     // Built client-side from the browser's hostname so they work no matter
     // how the Pi is reached (IP, mDNS name, tunnel...).
+    // Wider on purpose than common/links.py COMPARE_BY_DB_CATEGORY, which
+    // lists only dashboards with a per-target peer comparison. Uids are the
+    // InfluxDB tree's; ClickHouse installs provision other uids.
     const GRAFANA_DASHBOARD_UIDS = {
         'top_sites': 'top_sites-side-by-side-v1',
         'netflix_oca': 'netflix_oca-side-by-side-v1',

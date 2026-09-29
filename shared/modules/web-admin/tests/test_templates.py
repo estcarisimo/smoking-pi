@@ -51,8 +51,9 @@ def _dashboard_uid_map():
     import re
 
     source = (TEMPLATES_DIR / 'dashboard.html').read_text(encoding='utf-8')
-    block = re.search(r'GRAFANA_DASHBOARD_UIDS = \{(.*?)\};', source, re.S).group(1)
-    return dict(re.findall(r"'([a-z_]+)':\s*'([A-Za-z0-9_-]+)'", block))
+    match = re.search(r'GRAFANA_DASHBOARD_UIDS = \{(.*?)\};', source, re.S)
+    assert match, 'dashboard.html no longer defines GRAFANA_DASHBOARD_UIDS'
+    return dict(re.findall(r"'([\w-]+)':\s*'([\w-]+)'", match.group(1)))
 
 
 @pytest.mark.skipif(not SEED_TARGETS.exists(), reason='seed not in this checkout')
