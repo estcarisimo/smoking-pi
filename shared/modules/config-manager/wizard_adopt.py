@@ -335,7 +335,8 @@ def retire_silent(session, models, silence: dict | None) -> dict:
 
 
 def main(argv: list[str]) -> int:
-    """``python wizard_adopt.py [--dry-run]``: ask the running API to adopt.
+    """``python wizard_adopt.py [--dry-run] [--retire-only]``: ask the running
+    API to adopt; ``--retire-only`` only deactivates silent layers.
 
     Runs inside the config-manager container (smoking-pi dns adopt), so the
     API token comes from the container's own environment.
@@ -344,7 +345,9 @@ def main(argv: list[str]) -> int:
     import urllib.request
 
     dry = "--dry-run" in argv
-    url = "http://127.0.0.1:5000/wizard/adopt" + ("?dry_run=1" if dry else "")
+    retire_only = "--retire-only" in argv
+    query = "&".join(q for q, on in (("dry_run=1", dry), ("retire_only=1", retire_only)) if on)
+    url = "http://127.0.0.1:5000/wizard/adopt" + (f"?{query}" if query else "")
     req = urllib.request.Request(url, method="POST", data=b"{}",
                                  headers={"Content-Type": "application/json"})
     token = os.environ.get("CONFIG_API_TOKEN", "")
@@ -365,8 +368,11 @@ def main(argv: list[str]) -> int:
         print(f"the config-manager API did not answer: {type(exc).__name__}", file=sys.stderr)
         return 1
     verb = "Would add" if dry else "Added"
-    print(f"{verb} {body['targets_added']} targets for {body['services_added']} services "
-          f"(selected now: {body['selected']}; already measured: {body['already_adopted']}).")
+    if body.get("retire_only"):
+        print("Adopting nothing (--retire-only).")
+    else:
+        print(f"{verb} {body['targets_added']} targets for {body['services_added']} services "
+              f"(selected now: {body['selected']}; already measured: {body['already_adopted']}).")
     if body.get("over_cap"):
         print(f"Left out, cap reached (DNS_WIZARD_MAX): {', '.join(body['over_cap'])}")
     if body.get("not_served"):
@@ -381,6 +387,8 @@ def main(argv: list[str]) -> int:
         verb_r = "Would deactivate" if dry else "Deactivated"
         print(f"{verb_r} {len(retired)} layers that answered nothing for a day "
               f"(history kept; turn one back on in the web admin): {', '.join(retired)}")
+    if body.get("retire_only") and not retired and not body.get("retire_held"):
+        print("Deactivated nothing: every adopted layer measured for a day answered.")
     if body.get("retire_held") == "network":
         print("Deactivated nothing: most layers were silent too, which is the network, not them.")
     elif str(body.get("retire_held") or "").startswith("layer:"):

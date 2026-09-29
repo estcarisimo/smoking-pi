@@ -64,7 +64,16 @@ def write(path, lines, mode="a"):
 
 
 @pytest.mark.parametrize(("name", "svc"), [
-    ("nrdp.logs.netflix.com", "netflix.com"), ("www.bbc.co.uk", "bbc.co.uk")])
+    ("nrdp.logs.netflix.com", "netflix.com"), ("www.bbc.co.uk", "bbc.co.uk"),
+    # A private suffix is a site of its own ...
+    ("abc.github.io", "abc.github.io"), ("a.b.s3.amazonaws.com", "b.s3.amazonaws.com"),
+    # ... unless a CDN endpoint embeds a customer's domain: the service is
+    # the CDN, not "com.cdn.cloudflare.net" (adopted on the reference Pi).
+    ("www.x.com.cdn.cloudflare.net", "cloudflare.net"), ("e1.x.com.akadns.net", "akadns.net"),
+    ("www.shop.co.uk.cdn.cloudflare.net", "cloudflare.net"),
+    ("x.app.cdn.cloudflare.net", "cloudflare.net"),
+    # A two-letter site name is not a TLD: still its own site.
+    ("www.ab.github.io", "ab.github.io")])
 def test_service_is_etld_plus_one(name, svc):
     assert wizard.service_of(name) == svc
 

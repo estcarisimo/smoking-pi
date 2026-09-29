@@ -305,3 +305,36 @@ def test_a_failed_adoption_undoes_the_deactivations(env, monkeypatch):
     monkeypatch.setattr(wizard_adopt, "adopt", broken)
     assert env.client.post("/wizard/adopt").status_code == 500
     assert _active(env)["W_beta_org_h3"] is True  # not half-applied
+
+
+def test_retire_only_deactivates_and_adopts_nothing(env):
+    silence = {f"W_{s}_org_{x}": DAY for s in ("alpha", "beta") for x in ("icmp", "tcp", "h1", "h2", "h3")}
+    silence["W_beta_org_h3"] = SILENT
+    _adopted_with(env, silence)
+    env.write(snapshot(["alpha.org", "beta.org", "gamma.org"]))  # a new service selected
+    before = len(env.layer["calls"])
+    body = env.client.post("/wizard/adopt?retire_only=1").get_json()
+    assert body["retire_only"] is True and body["targets_added"] == 0
+    assert body["retired"] == ["W_beta_org_h3"]
+    active = _active(env)
+    assert not any(n.startswith("W_gamma") for n in active) and active["W_beta_org_h3"] is False
+    assert not any("preflight" in c for c in env.layer["calls"][before:])  # nothing tried
+
+
+def test_retire_only_needs_no_snapshot(env):
+    silence = {f"W_{s}_org_{x}": DAY for s in ("alpha", "beta") for x in ("icmp", "tcp", "h1", "h2", "h3")}
+    silence["W_alpha_org_tcp"] = SILENT
+    _adopted_with(env, silence)
+    wizard_adopt.SNAPSHOT.unlink()  # the observer stopped
+    assert env.client.post("/wizard/adopt").status_code == 409
+    body = env.client.post("/wizard/adopt?retire_only=1").get_json()
+    assert body["retired"] == ["W_alpha_org_tcp"]
+
+
+def test_retire_only_dry_run_changes_nothing(env):
+    silence = {f"W_{s}_org_{x}": DAY for s in ("alpha", "beta") for x in ("icmp", "tcp", "h1", "h2", "h3")}
+    silence["W_beta_org_h3"] = SILENT
+    _adopted_with(env, silence)
+    body = env.client.post("/wizard/adopt?retire_only=1&dry_run=1").get_json()
+    assert body["retired"] == ["W_beta_org_h3"]
+    assert all(_active(env).values()) and not env.reloads[1:]

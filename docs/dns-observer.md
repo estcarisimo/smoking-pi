@@ -282,14 +282,18 @@ silence as "nothing matters in this house".
 What the house uses, from its DNS. Every `DNS_WIZARD_INTERVAL` (10 min), the
 observer reads what the query log gained since the last pass and keeps, per
 hour, how often each **service** was asked for. A service is a registrable
-domain: `nrdp.logs.netflix.com` counts as `netflix.com`. For each service it
-also records:
+domain: `nrdp.logs.netflix.com` counts as `netflix.com`, and a site under a
+shared suffix is its own (`user.github.io`). A CDN endpoint that embeds a
+customer's domain (`www.example.com.cdn.cloudflare.net`) counts as the CDN,
+`cloudflare.net`: the label in front of the shared suffix is a real
+top-level domain with a name before it. A site whose own name is a
+top-level domain (`www.io.github.io`) is taken for one too. For each service it also records:
 
 - the **CDN** that serves it, from the end of the CNAME chain
   (`*.cloudfront.net` is one CDN, whoever the customer);
 - the **network** (origin AS) of its address, from Team Cymru's DNS
   service. That lookup goes to `1.1.1.1` directly, never through the
-  router: otherwise the lookups would land in the log being summarised.
+  router: otherwise the lookups would land in the log being summarized.
 
 Services are ranked by **presence**, the number of hours in the last week in
 which they were seen. A burst of telemetry counts as one hour, and a cache
@@ -419,7 +423,13 @@ forever, which reads as an outage to you and to the assistant. So
 
 The rest of the service keeps being measured: a host that drops ping but
 answers on 443 loses only its `_icmp` layer. The doctor's `silent-series`
-check names the layers to deactivate.
+check names the layers to deactivate. To deactivate them without adopting
+the services the wizard selected since the last run:
+
+```bash
+smoking-pi dns adopt --retire-only --dry-run   # what it would deactivate
+smoking-pi dns adopt --retire-only
+```
 
 **Kept apart from the rest.** Many CDNs do not answer ICMP, so their ICMP
 targets would read as "down". The alerter, the daily digest and the
