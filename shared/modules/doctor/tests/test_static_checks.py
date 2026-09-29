@@ -887,3 +887,66 @@ def test_numeric_stats_are_left_alone(repo, query):
     _write_dashboard(repo, "num.json", data)
     check = run(repo)["text-stats-name-their-field"]
     assert check.status is Status.OK
+
+
+# ---------------------------------------------------------------------------
+# overrides-match-a-series
+# ---------------------------------------------------------------------------
+
+
+def _timeseries(queries, overrides, display_name=None):
+    defaults = {"displayName": display_name} if display_name else {}
+    return {
+        "type": "timeseries",
+        "title": "Wi-Fi",
+        "datasource": {"uid": "influxdb"},
+        "fieldConfig": {"defaults": defaults, "overrides": overrides},
+        "targets": [
+            {"refId": chr(65 + i), "query": q} for i, q in enumerate(queries)
+        ],
+    }
+
+
+FAILURES_QUERY = (
+    'from(bucket:"smokeping") |> filter(fn:(r) => r._measurement == "cpe_latency" '
+    'and r._field == "loss") |> derivative(unit: 1s) |> yield(name:"tx failed/s")'
+)
+
+
+def _override(matcher_id, options):
+    return {"matcher": {"id": matcher_id, "options": options},
+            "properties": [{"id": "custom.axisPlacement", "value": "right"}]}
+
+
+def test_catches_an_override_on_a_yield_name(repo):
+    """The CPE failures axis and six Wi-Fi Link overrides never applied."""
+    data = _dashboard("ov-v1", "Ov", GOOD_QUERY)
+    data["panels"] = [_timeseries([FAILURES_QUERY], [_override("byName", "tx failed/s")])]
+    _write_dashboard(repo, "ov.json", data)
+    check = run(repo)["overrides-match-a-series"]
+    assert check.status is Status.FAIL
+    assert "tx failed/s" in check.findings[0].render()
+
+
+@pytest.mark.parametrize(
+    "panel",
+    [
+        # matched by query
+        _timeseries([FAILURES_QUERY], [_override("byFrameRefID", "A")]),
+        # names come from displayName, which the check cannot evaluate
+        _timeseries([FAILURES_QUERY], [_override("byName", "tx failed/s")],
+                    display_name="${__field.labels.series}"),
+        # the yield name is also the field it selects ("max", "loss")
+        _timeseries([FAILURES_QUERY.replace('yield(name:"tx failed/s")', 'yield(name:"loss")')],
+                    [_override("byName", "loss")]),
+        # a set(key:"_field") names the series
+        _timeseries([FAILURES_QUERY.replace('|> yield(name:"tx failed/s")',
+                     '|> set(key:"_field", value:"p10") |> yield(name:"p10")')],
+                    [_override("byName", "p10")]),
+    ],
+)
+def test_overrides_that_do_match_pass(repo, panel):
+    data = _dashboard("ov-v1", "Ov", GOOD_QUERY)
+    data["panels"] = [panel]
+    _write_dashboard(repo, "ov.json", data)
+    assert run(repo)["overrides-match-a-series"].status is Status.OK

@@ -63,6 +63,7 @@ Each one exists because the corresponding failure actually happened here.
 | `panel-measurements-written` | `r._measurement == "X"` where no exporter writes `X` | — |
 | `panel-tags-written` | `r.measurement_type` and friends — a filter that can never match | DNS panels filtered on `measurement_type='latency'` / `category='DNS_Resolvers'`, where the exporter writes `dns_latency` / `dns` |
 | `text-stats-name-their-field` | A stat panel whose query answers with text (a tag kept, or `_value` built from a tag or a string) and whose `reduceOptions.fields` is empty: Grafana reduces numeric fields only, so the panel shows its "no value" text over data that is there | The Overview's whole first row ("unknown", "not collected yet") and the Wi-Fi dashboard's SSID and BSSID ("No data"), v2.14.0–v2.15.6. Recognized from the query alone: a string *field* shown as-is (`r._field == "owner"`) looks like any number and is not caught |
+| `overrides-match-a-series` | A field override matched `byName` on a `yield(name:)` value the query does not otherwise produce: Grafana names a Flux series by its field and tags, so the override never applies and the panel draws with the wrong unit, axis or scale. Panels that set `displayName` are skipped | The CPE microcuts' TX failures drawn in dBm on the signal's axis, and six Wi-Fi Link overrides (noise/SNR units, channel busy's 0–100 % scale, link quality's axis) |
 
 ### Where the vocabulary comes from
 

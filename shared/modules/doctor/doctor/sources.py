@@ -482,6 +482,31 @@ def shows_text(query: str) -> bool:
     return bool(_TEXT_VALUE_RE.search(_RENAME_RE.sub("", query)))
 
 
+_YIELD_NAME_RE = re.compile(r'yield\(\s*name:\s*"([^"]+)"\s*\)')
+
+
+def series_names_in(query: str) -> set[str]:
+    """Names a Flux query can give a Grafana series: the fields it selects
+    (``r._field == "max"``), fields it sets (``set(key: "_field", value:
+    "p10")``), columns it renames ``_value`` to, and record keys it builds
+    (``({Target: r.target})``). ``yield(name:)`` is not among them: Grafana
+    names Flux series by field and tags, never by the yield."""
+    names = set(re.findall(r'r\._field\s*==\s*"([^"]+)"', query))
+    names |= set(re.findall(r'set\(\s*key:\s*"_field",\s*value:\s*"([^"]+)"', query))
+    names |= set(re.findall(r'_value:\s*"([^"]+)"', query))
+    names |= set(re.findall(r'[({,]\s*([A-Za-z_][A-Za-z0-9_]*)\s*:', query))
+    return names
+
+
+def yield_names_in(query: str) -> set[str]:
+    return set(_YIELD_NAME_RE.findall(query))
+
+
+def iter_panels(dashboard: Dashboard):
+    """Every panel, including those nested in collapsed rows."""
+    yield from _iter_panels(dashboard.data)
+
+
 def iter_stat_panels(dashboard: Dashboard):
     """Yield every stat panel, including those nested in collapsed rows."""
     for panel in _iter_panels(dashboard.data):
