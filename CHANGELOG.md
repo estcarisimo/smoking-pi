@@ -20,8 +20,10 @@ network's endpoints are now one service, measured through one host. And
 others it adopted before (history kept). Old names in the wizard's
 three-day memory merge into today's instead of ranking twice. Run
 without sudo on a package install, the command now says to use sudo,
-instead of reporting that nothing is installed. The Probes page is
-documented as tested end to end.
+instead of reporting that nothing is installed. And the docs for
+changing a probe's cycle now say that about one point goes missing at the
+change, and that switching back needs a manual restore to keep
+SmokePing's own graphs.
 
 ### Fixed
 
