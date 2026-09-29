@@ -562,6 +562,7 @@ def test_the_ranking_after_an_upgrade_has_one_name_per_service(wiz):
     write(wiz.log, [line("dynamic.x.com.cdn.cloudflare.net", T0 + 10)])
     wiz().run_once(now=T0 + 60)
     doc_path = wiz.state / "wizard-state.json"
+    # Only the service key is exactly "cloudflare.net"; hosts are longer.
     doc = doc_path.read_text().replace('"cloudflare.net"', '"com.cdn.cloudflare.net"')
     doc_path.write_text(doc)
     write(wiz.log, [line("dynamic.x.com.cdn.cloudflare.net", T0 + 3700)])
@@ -583,3 +584,27 @@ def test_a_key_whose_hosts_still_give_it_is_not_renamed(tmp_path):
     st = wizard.State.load(str(path))
     assert st.hours == {"100": {"play.googleapis.com": [1, 1], "com.akadns.net": [2, 1]}}
     assert set(st.meta) == {"play.googleapis.com", "com.akadns.net"}
+
+
+def test_a_state_of_an_unexpected_shape_loads_as_saved(tmp_path):
+    path = tmp_path / "wizard-state.json"
+    doc = {"hours": {"100": {"com.cdn.cloudflare.net": [1, 1]}},
+           "meta": {"com.cdn.cloudflare.net": {"hosts": {"x.com.cdn.cloudflare.net": 1}},
+                    "b.com": []}}
+    path.write_text(json.dumps(doc))
+    st = wizard.State.load(str(path))
+    assert st.hours == doc["hours"] and st.meta == doc["meta"]
+
+
+def test_chained_renames_end_where_the_chain_does():
+    st = wizard.State(
+        hours={"1": {"a.example": [1, 0], "b.example": [2, 0]}},
+        meta={"a.example": {"hosts": {"h": 1}}, "b.example": {"hosts": {"i": 1}}})
+    names = {"h": "b.example", "i": "c.example"}
+    real = wizard.service_of
+    wizard.service_of = names.get
+    try:
+        st.rename_services()
+    finally:
+        wizard.service_of = real
+    assert st.hours == {"1": {"c.example": [3, 0]}}

@@ -443,8 +443,14 @@ class State:
             state = cls(**{k: raw[k] for k in cls.__dataclass_fields__ if k in raw})
         except (OSError, ValueError, TypeError):
             return cls()
-        state.rename_services()
-        return state
+        # A rewrite of persisted data must never make a state worse than it
+        # was: on a shape it does not expect, the state stays as saved.
+        try:
+            renamed = cls(**json.loads(json.dumps(state.__dict__)))
+            renamed.rename_services()
+        except (AttributeError, TypeError, ValueError):
+            return state
+        return renamed
 
     def rename_services(self) -> None:
         """Merge every service counted under a name ``service_of`` no longer
@@ -455,14 +461,28 @@ class State:
         beside the new "cloudflare.net", until they aged out of the window
         three days later. The key alone cannot say which it was
         (play.googleapis.com is a name of its own when looked up directly),
-        so today's name comes from the hosts it counted: renamed only when
-        they all agree on one other name. Counts add up, hosts merge, a
-        day's top ten keeps its order without the duplicate."""
+        so today's name comes from the hosts it kept (its 20 busiest,
+        random-looking labels never stored): renamed only when they all
+        agree on one other name. A key with none kept, or none in ``meta``,
+        stays until it ages out. Counts add up, hosts merge, a day's top
+        ten keeps its order without the duplicate (so the first churn
+        after an upgrade compares like names)."""
         renames = {}
         for svc, meta in self.meta.items():
             now = {service_of(h) for h in meta.get("hosts", {})}
             if len(now) == 1 and svc not in now:
                 renames[svc] = now.pop()
+        # A -> B where B is renamed too ends where B does, whatever the
+        # order the tables are walked in; a cycle renames nothing.
+        for svc in list(renames):
+            seen, new = {svc}, renames[svc]
+            while new in renames and new not in seen:
+                seen.add(new)
+                new = renames[new]
+            if new in seen:
+                del renames[svc]
+            else:
+                renames[svc] = new
         if not renames:
             return
         for table in (*self.hours.values(), *self.recent.values()):
