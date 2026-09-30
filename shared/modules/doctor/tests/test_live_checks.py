@@ -660,9 +660,18 @@ EXEC_INFLUX = "exec pro-influxdb-1 sh -c"
 CSV_HEAD = "#group,false,false,false\n#datatype,string,long,string\n#default,_result,,\n,result,table,target\n"
 
 
-def _influx(targets, rc=0):
-    body = CSV_HEAD + "".join(f",,0,{t}\n" for t in targets)
+def _influx(targets, rc=0, written=True):
+    rows = list(targets) + ([live_checks.ANY_POINT] if written else [])
+    body = CSV_HEAD + "".join(f",,0,{t}\n" for t in rows)
     return FakeDocker({PS_INFLUX: (0, "pro-influxdb-1\n"), EXEC_INFLUX: (rc, body)})
+
+
+def test_nothing_written_in_a_day_is_not_every_series_answering():
+    """An empty answer used to read as all clear: nothing silent, nothing written."""
+    res = live_checks.check_silent_series(_influx([], written=False))
+    assert res.status == Status.WARN
+    assert "no latency point" in res.findings[0].message
+    assert "every series answered" not in res.summary
 
 
 def test_every_series_answering_is_ok():

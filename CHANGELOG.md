@@ -62,8 +62,13 @@ version gets a matching GitHub release and git tag.
   no `exporter_stale` incident is open, so an open stall stays open.
   Nothing depends on when the alerter started, so a restart changes
   nothing. A failed query leaves the rule as it was. A stack that has
-  never measured anything is not reported by this rule. The web admin's
-  Measurements card and `doctor --live` report it.
+  never measured anything is not reported by this rule. The review asked
+  what does report it, and the answer was: nothing. The web admin's
+  Measurements card reads the RRD files, which were fine, and the doctor's
+  `silent-series` said "every series answered in the last day" about an
+  empty bucket. That check now warns when no latency point was written in
+  the day. Its query gained one marker row, and on the reference Pi it
+  returned the same silent series as before.
 
 - **`smoking-pi openclaw --check` blamed the wrong thing when the agent
   could not answer.** On the staging Pi, OpenClaw's gateway was not

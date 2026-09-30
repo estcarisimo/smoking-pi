@@ -162,6 +162,11 @@ had adopted 72 such layers on the reference Pi before anything said so.
 - **warn**, naming configured targets and the DNS wizard's layers apart.
   For the wizard's, `sudo smoking-pi dns adopt` deactivates them (history
   kept). For a configured target, check that the host answers that probe;
+- **warn** when InfluxDB holds no latency point from the last day at all:
+  the exporter is not writing. Nothing is silent then because nothing was
+  written, which this check used to report as "every series answered". The
+  web admin's Measurements card reads SmokePing's RRD files, so it still
+  says *Measuring*;
 - **ok** when every series answered;
 - **skip** without Docker or without InfluxDB (ClickHouse mode).
 
