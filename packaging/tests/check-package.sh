@@ -246,6 +246,8 @@ if [ -n "$START" ]; then
     else
         smoking-pi install --edition "$START" --yes
         [ "$(cat /etc/smoking-pi/edition)" = "$START" ] || fail "install did not record the edition"
+        # Enabled by install itself: the guide no longer has a step for it.
+        [ ! -d /run/systemd/system ] || systemctl is-enabled --quiet smoking-pi || fail "install did not enable the unit"
         wait_web
     fi
     smoking-pi status
@@ -286,6 +288,9 @@ if [ -n "$START" ]; then
     rm -rf "$(dirname "$backup_dir")"
 
     if [ -d /run/systemd/system ]; then
+        # Install left it enabled and active, which would make the next line
+        # a no-op: stopped first, so this still proves it starts from cold.
+        systemctl stop smoking-pi || fail "the unit did not stop"
         systemctl enable --now smoking-pi || fail "the unit did not start"
         systemctl is-active smoking-pi || fail "the unit is not active"
         # 6c. The Docker engine going away under a running stack, the two

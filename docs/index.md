@@ -33,8 +33,7 @@ passwords, doctor, purge.
 
 ```bash
 sudo apt install smoking-pi     # after adding the repository
-sudo smoking-pi install         # edition, backend, optional services
-sudo systemctl enable --now smoking-pi
+sudo smoking-pi install         # edition, backend, optional services; starts at boot
 ```
 
 The repository lines, the requirements and what to check afterwards are in

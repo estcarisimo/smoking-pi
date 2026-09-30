@@ -16,7 +16,7 @@ setup() {
     mkdir -p "$STUB_HOME/editions/pro" "$STUB_HOME/editions/basic" "$STUB_HOME/shared/modules/doctor"
     cp "$REPO/editions/pro/docker-compose.yml" "$REPO/editions/pro/docker-compose.clickhouse.yml" \
        "$REPO/editions/pro/docker-compose.packaged.yml" "$STUB_HOME/editions/pro/"
-    printf '#!/bin/sh\necho SETUP "$@" >> "%s"\nprintf "COMPOSE_PROFILES=%%s\\n" "${2:-influxdb}" > "$SMOKING_PI_ENV_FILE"\n' "$DOCKER_LOG" > "$STUB_HOME/editions/pro/setup.sh"
+    printf '#!/bin/sh\necho SETUP "$@" >> "%s"\necho SETUP_INSTALL=$SMOKING_PI_INSTALL >> "%s"\nprintf "COMPOSE_PROFILES=%%s\\n" "${2:-influxdb}" > "$SMOKING_PI_ENV_FILE"\n' "$DOCKER_LOG" "$DOCKER_LOG" > "$STUB_HOME/editions/pro/setup.sh"
     printf '#!/bin/sh\necho PASSWORDS "$@" >> "%s"\n' "$DOCKER_LOG" > "$STUB_HOME/editions/pro/show-passwords.sh"
     cp "$STUB_HOME/editions/pro/setup.sh" "$STUB_HOME/editions/pro/show-passwords.sh" "$STUB_HOME/editions/basic/"
     chmod +x "$STUB_HOME/editions/"*/*.sh
@@ -240,10 +240,11 @@ fail_docker_on() {
     [ "$status" -eq 0 ]
     grep -q 'SETUP --database influxdb --env-file' "$DOCKER_LOG"
     grep -qx 'COMPOSE_PROFILES=influxdb,mcp,alerts' "$SMOKING_PI_ENV_FILE"
-    [[ "$output" == *"alerts profile needs NOTIFY_MODE"* ]]
+    # --yes asks nothing: what the alerter still needs is named, by command.
+    [[ "$output" == *"Still to do:"* ]]
+    [[ "$output" == *"alerts: smoking-pi alerts"* ]]
     run compose_calls
     [[ "$output" == *" up -d"* ]]
-    grep -q PASSWORDS "$DOCKER_LOG"
 }
 
 @test "upgrade from a clone rebuilds with fresh base images, then recreates what changed" {
@@ -437,13 +438,115 @@ make_backup_dir() {
 
 # An install transcript is pasted into issues and photographed. It ends on
 # the hidden view, and says in one line where the values are.
-@test "install ends on the masked view and points at --show-secrets without passing it" {
+@test "install ends short: no passwords banner, and points at --show-secrets without passing it" {
     rm -f "$SMOKING_PI_ENV_FILE"
     run "$CLI" install --edition pro --yes
     [ "$status" -eq 0 ]
-    grep -qx 'PASSWORDS' "$DOCKER_LOG"
-    ! grep -q 'PASSWORDS .*--show-secrets' "$DOCKER_LOG"
+    # The banner is `passwords`' job; at the end of an install it buried
+    # the address under a hundred lines.
+    ! grep -q PASSWORDS "$DOCKER_LOG"
     [[ "$output" == *"smoking-pi passwords --show-secrets"* ]]
+    [[ "$output" == *"doctor --live"* ]]
+    [[ "$output" != *"Still to do"* ]]
+    # setup.sh is told it runs under install, and skips its own ending.
+    grep -q 'SETUP_INSTALL=1' "$DOCKER_LOG"
+}
+
+# whiptail as a person would answer it: the menus by their text, the
+# answer on stderr (install reads it through 3>&1 1>&2 2>&3).
+stub_whiptail() {
+    cat > "$BATS_TEST_TMPDIR/bin/whiptail" <<'STUB'
+#!/bin/sh
+echo "whiptail $*" >> "$DOCKER_LOG"
+case "$*" in
+    *"Which edition?"*) echo pro >&2 ;;
+    *"Time-series backend?"*) echo influxdb >&2 ;;
+    *"Optional services"*) printf '%s' "${STUB_PICKS:-}" >&2 ;;
+    *"chat assistant"*) echo later >&2 ;;
+esac
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/whiptail"
+}
+
+@test "install menus: Pro is preselected, and the services chosen are set up or listed, never 'edit the env file'" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    stub_whiptail
+    STUB_PICKS='"alerts" "ai"' run "$CLI" install
+    [ "$status" -eq 0 ]
+    grep -q 'whiptail .*--default-item pro --menu Which edition?' "$DOCKER_LOG"
+    grep -qx 'COMPOSE_PROFILES=influxdb,alerts,ai' "$SMOKING_PI_ENV_FILE"
+    # No terminal here (bats pipes stdin), so nothing is asked: listed.
+    [[ "$output" == *"alerts: smoking-pi alerts"* ]]
+    [[ "$output" == *"AI reports: smoking-pi config set ANTHROPIC_API_KEY"* ]]
+    [[ "$output" != *"in $SMOKING_PI_ENV_FILE"* ]]
+    [[ "$output" != *"NOTIFY_MODE"* ]]
+}
+
+# The follow-ups ask only on a terminal, which bats never gives: script(1)
+# runs install on a pty, fed the answers a person would type.
+install_on_a_tty() {
+    command -v script >/dev/null || skip "no script(1) for a pty"
+    cp "$REPO/editions/pro/.env.template" "$STUB_HOME/editions/pro/"
+    # A prompt nobody answers waits forever on a pty (script(1) passes end
+    # of input once): a regression then fails here instead of hanging CI.
+    printf '%b' "$1" | SHELL=/bin/bash timeout 60 script -qec "$CLI install" /dev/null | tr -d '\r'
+}
+
+@test "install on a terminal asks each follow-up: alerts nowhere, AI key declined" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    stub_whiptail
+    export STUB_PICKS='"alerts" "ai"'
+    run install_on_a_tty '3\nn\n'
+    [[ "$output" == *"Where should alerts go?"* ]]
+    [[ "$output" == *"Enter it now?"* ]]
+    # Answered, so not left to do; declined, so listed.
+    [[ "$output" != *"alerts: smoking-pi alerts"* ]]
+    [[ "$output" == *"AI reports: smoking-pi config set ANTHROPIC_API_KEY"* ]]
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    # One question, not a heading and then the question.
+    [ "$(printf '%s' "$output" | grep -c 'alerts go')" -eq 1 ]
+}
+
+@test "install on a terminal: end of input at the AI key prompt is a no, not the default yes" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    stub_whiptail
+    export STUB_PICKS='"ai"'
+    run install_on_a_tty ''
+    [[ "$output" == *"AI reports: smoking-pi config set ANTHROPIC_API_KEY"* ]]
+    [[ "$output" != *"ANTHROPIC_API_KEY:"* ]]
+}
+
+@test "install with the dns profile starts the observer and says what to set on the router" {
+    dns_setup
+    rm -f "$SMOKING_PI_ENV_FILE"
+    STUB_DNS_RUNNING=1 run "$CLI" install --yes --database influxdb --profiles dns
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"primary:   192.0.2.10"* ]]
+    [[ "$output" == *"DNS observer: set the router's DNS as shown above, then smoking-pi dns test"* ]]
+}
+
+@test "packaged install enables the unit and starts it without waiting (it would wait for our lock)" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    export SMOKING_PI_DEFAULTS="$BATS_TEST_TMPDIR/defaults"
+    printf 'SMOKING_PI_PACKAGED=1\n' > "$SMOKING_PI_DEFAULTS"
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"
+    run "$CLI" install --yes --edition pro
+    [ "$status" -eq 0 ]
+    grep -qx 'systemctl enable smoking-pi' "$DOCKER_LOG"
+    grep -qx 'systemctl start --no-block smoking-pi' "$DOCKER_LOG"
+    ! grep -q 'systemctl enable --now' "$DOCKER_LOG"
+    [[ "$output" == *"Starts at boot"* ]]
+    # A package install's env file is root's: the advice says sudo.
+    [[ "$output" == *"sudo smoking-pi passwords --show-secrets"* ]]
+    [[ "$output" == *"sudo smoking-pi doctor --live"* ]]
+}
+
+@test "install from a clone touches no unit" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"
+    run "$CLI" install --yes --edition pro
+    [ "$status" -eq 0 ]
+    ! grep -q 'systemctl enable' "$DOCKER_LOG"
 }
 
 # The URL an install ends on. It used to be http://localhost:8080 -- which,
@@ -1844,8 +1947,10 @@ teardown() { chmod -R u+rwx "$BATS_TEST_TMPDIR" 2>/dev/null || true; }
         run "$CLI"
         unlock_env
         [ "$status" -eq 0 ]
-        [[ "$output" == *"Installed"* ]]
+        [[ "$output" == *"The package is installed"* ]]
         [[ "$output" == *"sudo smoking-pi"* ]]
+        # It cannot tell whether install ran, so it names install too.
+        [[ "$output" == *"Not set up yet? sudo smoking-pi install"* ]]
         [[ "$output" != *"Not installed"* ]]
     done
 }

@@ -9,6 +9,42 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **`smoking-pi install` finishes what it starts.** A clean install on the
+  staging Pi, following the getting-started guide, worked (about 3.5
+  minutes, eight containers, the doctor all green). What it said and asked
+  along the way made a first install harder than it needed to be:
+  - The edition menu opened on Basic, while the guide says to pick Pro.
+    Pro is now preselected.
+  - The optional-services list was too narrow for its own text, and it
+    spoke in jargon ("needs NOTIFY_MODE", "ANTHROPIC_API_KEY in the env
+    file").
+  - A service chosen there was switched on and left unconfigured: an
+    alerter evaluating into the log, an AI reporter with no key. The only
+    notice was a line that the next menu drew over. Install now sets up
+    each one after the stack starts, through the command that owns it:
+    `smoking-pi alerts` asks where alerts go, the AI key is typed at a
+    hidden prompt, and `smoking-pi dns enable` waits for the observer and
+    prints the router setting. With `--yes`, or a question skipped, the end
+    of the install lists those commands under *Still to do*.
+  - Starting at boot was a separate manual step (step 4 of the guide). A
+    package install now enables the `smoking-pi` service itself. It is
+    started without waiting (`--no-block`), because its `smoking-pi up`
+    would wait for the stack lock that install holds.
+  - Install ended on the whole `smoking-pi passwords` banner, about 130
+    lines, with each edition's `setup.sh` summary before it. These listed
+    `localhost` URLs (on a laptop connected over SSH, that is the laptop).
+    It now ends on a short summary, when to run `doctor --live`, anything
+    left to do, and the address to open, with `sudo` in the commands where
+    a package install needs it. Run on its own, `setup.sh` points to
+    `smoking-pi url` instead of `localhost`.
+  - `smoking-pi` without sudo, on a package nobody has set up yet, said
+    "Installed, with its settings in /etc/smoking-pi". It cannot tell, so
+    it now also says `sudo smoking-pi install`.
+
+  The release host test now also checks that install enabled the unit.
+
 ### Fixed
 
 - **`smoking-pi install` printed every password and token of the new

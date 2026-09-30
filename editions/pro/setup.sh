@@ -184,7 +184,7 @@ fi
 
 # Check service health
 echo -e "${BLUE}🔍 Checking service status...${NC}"
-docker compose "${COMPOSE_ARGS[@]}" ps
+docker compose "${COMPOSE_ARGS[@]}" ps --format "table {{.Service}}\t{{.Status}}"
 
 # Verify PostgreSQL connection
 echo -e "${BLUE}🔗 Verifying PostgreSQL connection...${NC}"
@@ -206,19 +206,16 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}✅ SmokePing Pro Edition is ready!${NC}"
-echo ""
-echo -e "${CYAN}📊 Access Points:${NC}"
-echo -e "  🌐 Web Admin: http://localhost:8080"
-echo -e "  📊 Grafana: http://localhost:3000"
-echo -e "  📈 SmokePing: http://localhost:80"
-
-if [ "$DATABASE" = "influxdb" ]; then
-    echo -e "  💾 InfluxDB: http://localhost:8086"
-elif [ "$DATABASE" = "clickhouse" ]; then
-    echo -e "  💾 ClickHouse: http://localhost:8123"
+# Run by `smoking-pi install`, which ends on its own summary and on the
+# address that works from the computer you are on: stop here.
+if [ -n "${SMOKING_PI_INSTALL:-}" ]; then
+    echo -e "${GREEN}✅ The Pro edition is up.${NC}"
+    exit 0
 fi
 
+echo -e "${GREEN}✅ SmokePing Pro Edition is ready!${NC}"
+echo ""
+echo -e "${CYAN}📊 The address to open:${NC} smoking-pi url"
 echo ""
 # The command, on the PATH from any directory (a clone only; the package
 # and Homebrew install their own). Never fails the setup.

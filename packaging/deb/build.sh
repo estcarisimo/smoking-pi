@@ -101,7 +101,7 @@ if [ "$1" = configure ]; then
     if systemctl is-enabled --quiet smoking-pi 2>/dev/null; then
         systemctl reenable smoking-pi >/dev/null 2>&1 || true
     fi
-    echo "smoking-pi installed. Next: sudo smoking-pi install   (then: systemctl enable --now smoking-pi)"
+    echo "smoking-pi installed. Next: sudo smoking-pi install"
 fi
 POST
 cat > "$PKG/DEBIAN/prerm" <<'PRE'
