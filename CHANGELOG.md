@@ -47,6 +47,19 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **A new install's first alert was a false "critical: the monitor, not the
+  network".** `exporter_stale` fires when the last `STALE_WINDOW` (20 min)
+  holds no latency point. On a fresh install that is true for the first
+  minutes, because nothing has been measured yet and the first point comes
+  after the first 300 s step. The staging Pi's new install logged it one
+  minute after the alerter started. It stayed in the log only because
+  delivery was off. Since `smoking-pi install` now asks where alerts go
+  during the install, the first message a new user got would have been
+  that one. The rule now waits until the alerter's loop has run for one
+  whole window. After an upgrade the window still holds the points from
+  before, so nothing changes there. An exporter that never writes is still
+  reported, one window in. A single `--once` run has no hold.
+
 - **`smoking-pi openclaw --check` blamed the wrong thing when the agent
   could not answer.** On the staging Pi, OpenClaw's gateway was not
   running. `openclaw agent` exited 1 with "gateway agent requires

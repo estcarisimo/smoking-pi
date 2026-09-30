@@ -14,6 +14,7 @@ tested without an InfluxDB — only :func:`evaluate` touches the network.
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timezone
 
 import flux
@@ -438,14 +439,30 @@ def rule_microcut_burst(
     return incidents
 
 
+# When the loop in main.py started (time.monotonic()), or None for a single
+# `--once` run. rule_exporter_stale reads it through evaluate_with_context.
+running_since: float | None = None
+
+
 def rule_exporter_stale(
-    stale_rows: list[dict], window_s: int | None = None
+    stale_rows: list[dict],
+    window_s: int | None = None,
+    uptime_s: float | None = None,
 ) -> list[dict]:
     """critical: zero ``latency`` points written in ``window_s`` (global).
 
     ``window_s`` is reported in the message rather than hardcoded, so the
     text cannot drift from the window actually queried the way the old
     literal "10m" did after STALE_WINDOW was introduced.
+
+    Not before the alerter has been up for one whole window (``uptime_s``,
+    None = no such hold). On a fresh install the window is empty because
+    nothing has been measured yet: the first point arrives after the first
+    300 s step. The staging Pi's new install logged "critical: RRD exporter
+    appears stalled" one minute after it started, and an alert delivery
+    configured during install would have sent it. After an upgrade the
+    window still holds the points from before, so the hold changes nothing
+    there; an exporter that never writes is still reported, one window in.
     """
     total = 0
     for row in stale_rows:
@@ -456,6 +473,8 @@ def rule_exporter_stale(
         return []
     if window_s is None:
         window_s = _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
+    if uptime_s is not None and uptime_s < window_s:
+        return []
     return [
         {
             "rule": "exporter_stale",
@@ -784,7 +803,8 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
         down_rows, step_s=windows["step"], cadences=cadences
     )
     incidents = widespread + suppress_widespread(incidents, widespread)
-    incidents += rule_exporter_stale(stale_rows, windows["stale"])
+    uptime_s = None if running_since is None else time.monotonic() - running_since
+    incidents += rule_exporter_stale(stale_rows, windows["stale"], uptime_s)
     incidents += rule_ipv6_down(mean_rows, windows["mean"])
     context = {
         "down_rows": down_rows,

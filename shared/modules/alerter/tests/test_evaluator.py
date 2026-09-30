@@ -455,6 +455,35 @@ def test_exporter_stale_quiet_when_points_exist():
     assert evaluator.rule_exporter_stale([{"_value": 42}]) == []
 
 
+def test_exporter_stale_held_until_the_alerter_has_been_up_one_window():
+    """A fresh install has no points yet: that is not a stalled exporter."""
+    assert evaluator.rule_exporter_stale([], window_s=1200, uptime_s=60) == []
+    assert evaluator.rule_exporter_stale([], window_s=1200, uptime_s=1199) == []
+    # One whole window with nothing: an exporter that never writes.
+    fired = evaluator.rule_exporter_stale([], window_s=1200, uptime_s=1200)
+    assert [i["key"] for i in fired] == ["exporter_stale"]
+    # No uptime (a --once run): no hold.
+    assert len(evaluator.rule_exporter_stale([], window_s=1200)) == 1
+
+
+def test_evaluate_passes_the_loop_uptime_to_exporter_stale(monkeypatch):
+    seen = {}
+
+    def fake_stale(rows, window_s=None, uptime_s=None):
+        seen["uptime_s"] = uptime_s
+        return []
+
+    monkeypatch.setattr(evaluator, "_query", lambda *_a, **_k: [])
+    monkeypatch.setattr(evaluator, "rule_exporter_stale", fake_stale)
+    monkeypatch.setattr(evaluator.time, "monotonic", lambda: 1000.0)
+    monkeypatch.setattr(evaluator, "running_since", 400.0)
+    evaluator.evaluate_with_context()
+    assert seen["uptime_s"] == 600.0
+    monkeypatch.setattr(evaluator, "running_since", None)
+    evaluator.evaluate_with_context()
+    assert seen["uptime_s"] is None
+
+
 def test_exporter_stale_message_reports_the_window_it_queried():
     """The message must not carry a hardcoded duration.
 

@@ -238,6 +238,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
 
+    # The loop's start, for the exporter_stale hold (evaluator.py): a single
+    # --once run keeps None and reports a stall at once.
+    evaluator.running_since = time.monotonic()
     while True:
         try:
             run_iteration()
