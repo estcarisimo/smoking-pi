@@ -126,7 +126,12 @@ def _env_int(name: str, default: int) -> int:
 
 
 def run_iteration() -> None:
-    incidents, context = evaluator.evaluate_with_context()
+    # Loaded first: which incidents are open changes what exporter_stale
+    # may conclude from an empty window (evaluator.rule_exporter_stale).
+    current = state.load_state()
+    incidents, context = evaluator.evaluate_with_context(
+        open_keys=current.get("incidents", {}).keys()
+    )
     if incidents:
         log.info("%d active incident(s):", len(incidents))
         for incident in incidents:
@@ -139,7 +144,6 @@ def run_iteration() -> None:
     else:
         log.info("No active incidents")
 
-    current = state.load_state()
     # Classified BEFORE reconcile so the verdict describes the same moment the
     # incidents were measured in, and from records that still hold first_seen
     # for anything reconcile is about to clear.

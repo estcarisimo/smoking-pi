@@ -14,6 +14,7 @@ tested without an InfluxDB — only :func:`evaluate` touches the network.
 from __future__ import annotations
 
 import os
+from collections.abc import Collection
 from datetime import datetime, timezone
 
 import flux
@@ -236,6 +237,27 @@ def _stale_flux(window: int | None = None) -> str:
     )
 
 
+def _ever_measured_flux() -> str:
+    """Whether the bucket holds any latency point at all, over its retention.
+
+    One point per series (``first()``, which InfluxDB pushes down to the
+    storage engine), then one count. Asked only when the stale window came
+    back empty and no exporter_stale incident is open, so a healthy stack
+    never runs it.
+    """
+    return (
+        flux.base_flux(["latency"], "1970-01-01T00:00:00Z")
+        + '|> filter(fn: (r) => r._field == "loss") '
+        + "|> first() "
+        + "|> group() "
+        + "|> count()"
+    )
+
+
+def _point_count(rows: list[dict]) -> int:
+    return sum(int(row["_value"]) for row in rows if row.get("_value") is not None)
+
+
 # ---------------------------------------------------------------------------
 # Rules (pure)
 # ---------------------------------------------------------------------------
@@ -439,20 +461,25 @@ def rule_microcut_burst(
 
 
 def rule_exporter_stale(
-    stale_rows: list[dict], window_s: int | None = None
+    stale_rows: list[dict],
+    window_s: int | None = None,
+    never_measured: bool = False,
 ) -> list[dict]:
     """critical: zero ``latency`` points written in ``window_s`` (global).
 
     ``window_s`` is reported in the message rather than hardcoded, so the
     text cannot drift from the window actually queried the way the old
     literal "10m" did after STALE_WINDOW was introduced.
+
+    ``never_measured``: the bucket holds no latency point at all. That is a
+    stack that has not measured yet, not an exporter that stopped: a fresh
+    install has nothing before its first 300 s step, and the staging Pi's
+    new install logged "critical: RRD exporter appears stalled" a minute
+    in. evaluate_with_context decides it, and never while an exporter_stale
+    incident is open (retention could otherwise expire a long stall into a
+    "recovery").
     """
-    total = 0
-    for row in stale_rows:
-        value = row.get("_value")
-        if value is not None:
-            total += int(value)
-    if total > 0:
+    if _point_count(stale_rows) > 0 or never_measured:
         return []
     if window_s is None:
         window_s = _env_int("STALE_WINDOW", DEFAULT_STALE_WINDOW)
@@ -722,7 +749,7 @@ def _windows(cadences: dict[str, cadence.Cadence]) -> dict[str, int]:
 UPLINK_CHANGE_WINDOW_S = 3600
 
 
-def evaluate_with_context() -> tuple[list[dict], dict]:
+def evaluate_with_context(open_keys: Collection[str] = ()) -> tuple[list[dict], dict]:
     """Run all rules and ALSO return the rows they were derived from.
 
     The verdict ("is it me or the internet?") needs breadth across every
@@ -784,7 +811,16 @@ def evaluate_with_context() -> tuple[list[dict], dict]:
         down_rows, step_s=windows["step"], cadences=cadences
     )
     incidents = widespread + suppress_widespread(incidents, widespread)
-    incidents += rule_exporter_stale(stale_rows, windows["stale"])
+    # Nothing in the window: a stall, or a stack that has never measured.
+    # Asked only then, and not while exporter_stale is open (``open_keys``,
+    # from the alerter's state); a failed query leaves the rule as it was.
+    never_measured = False
+    if _point_count(stale_rows) == 0 and "exporter_stale" not in open_keys:
+        try:
+            never_measured = _point_count(_query(_ever_measured_flux())) == 0
+        except Exception:  # influx client raises many exception types
+            never_measured = False
+    incidents += rule_exporter_stale(stale_rows, windows["stale"], never_measured)
     incidents += rule_ipv6_down(mean_rows, windows["mean"])
     context = {
         "down_rows": down_rows,

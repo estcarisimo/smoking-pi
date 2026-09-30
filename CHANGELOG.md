@@ -47,6 +47,29 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **A new install's first alert was a false "critical: the monitor, not the
+  network".** `exporter_stale` fires when the last `STALE_WINDOW` (20 min)
+  holds no latency point. On a fresh install that is true for the first
+  minutes, because nothing has been measured yet and the first point comes
+  after the first 300 s step. The staging Pi's new install logged it one
+  minute after the alerter started. It stayed in the log only because
+  delivery was off. Since `smoking-pi install` now asks where alerts go
+  during the install, the first message a new user got would have been
+  that one. Now, when the window is empty, the alerter first asks whether
+  the bucket holds any latency point at all (one `first()` per series,
+  0.18 s on the reference Pi's months of history). If it holds none, the
+  stack has not measured yet, which is not a stall. It asks only when
+  no `exporter_stale` incident is open, so an open stall stays open.
+  Nothing depends on when the alerter started, so a restart changes
+  nothing. A failed query leaves the rule as it was. A stack that has
+  never measured anything is not reported by this rule, and nothing else
+  reported it either. The web admin's
+  Measurements card reads the RRD files, which were fine, and the doctor's
+  `silent-series` said "every series answered in the last day" about an
+  empty bucket. That check now warns when no latency point was written in
+  the day. Its query gained one marker row, and on the reference Pi it
+  returned the same silent series as before.
+
 - **`smoking-pi openclaw --check` blamed the wrong thing when the agent
   could not answer.** On the staging Pi, OpenClaw's gateway was not
   running. `openclaw agent` exited 1 with "gateway agent requires

@@ -482,7 +482,7 @@ def check_config_manager_database(docker: Docker | None = None) -> CheckResult:
 # them lost every ping. Loss is a 0-1 ratio in these four measurements
 # (cpe_latency is percent, and its gateway has a loss floor by design).
 _SILENT_FLUX = """
-from(bucket: "BUCKET")
+silent = from(bucket: "BUCKET")
   |> range(start: -24h)
   |> filter(fn: (r) => r._field == "loss" and (r._measurement == "latency"
        or r._measurement == "dns_latency" or r._measurement == "http_latency"
@@ -494,7 +494,21 @@ from(bucket: "BUCKET")
   |> filter(fn: (r) => r.n >= MIN_POINTS and r.dead == r.n)
   |> group()
   |> keep(columns: ["target"])
+any = from(bucket: "BUCKET")
+  |> range(start: -24h)
+  |> filter(fn: (r) => r._measurement == "latency" and r._field == "loss")
+  |> first()
+  |> group()
+  |> limit(n: 1)
+  |> map(fn: (r) => ({r with target: "ANY_POINT"}))
+  |> keep(columns: ["target"])
+union(tables: [silent, any])
 """
+# The marker row `any` adds when a single latency point was written in the
+# day. Without it the answer above is empty for the wrong reason: nothing is
+# silent because nothing was written, and "every series answered" was the
+# doctor's verdict on an exporter that never wrote a point.
+ANY_POINT = "__any_latency_point__"
 # Most of a day of 300 s rounds (288): a target added this morning is not
 # silent yet, it is new.
 SILENT_MIN_POINTS = 200
@@ -517,7 +531,8 @@ def check_silent_series(docker: Docker | None = None) -> CheckResult:
     container = docker.container_for_service("influxdb")
     if not container:
         return skipped(name, "no InfluxDB here (ClickHouse, or not running)")
-    flux = _SILENT_FLUX.replace("MIN_POINTS", str(SILENT_MIN_POINTS))
+    flux = (_SILENT_FLUX.replace("MIN_POINTS", str(SILENT_MIN_POINTS))
+            .replace("ANY_POINT", ANY_POINT))
     # The token and names stay in the container: $VARS expand there, never on
     # this host's command line.
     script = ('influx query --raw --org "$DOCKER_INFLUXDB_INIT_ORG" '
@@ -527,8 +542,14 @@ def check_silent_series(docker: Docker | None = None) -> CheckResult:
     if code != 0:
         return result(name, [Finding("could not query InfluxDB for silent series")], "",
                       status=Status.WARN)
-    silent = sorted({row.split(",")[-1].strip() for row in out.splitlines()
-                     if row.startswith(",,") and row.split(",")[-1].strip()})
+    rows = {row.split(",")[-1].strip() for row in out.splitlines()
+            if row.startswith(",,") and row.split(",")[-1].strip()}
+    if ANY_POINT not in rows:
+        return result(name, [Finding(
+            "InfluxDB holds no latency point from the last day: the exporter is not "
+            "writing, whatever the dashboards' age says. Its log: "
+            "`sudo smoking-pi logs smokeping`")], "", status=Status.WARN)
+    silent = sorted(rows - {ANY_POINT})
     if not silent:
         return result(name, [], "every series answered in the last day")
     adopted = [t for t in silent if t.startswith("W_")]

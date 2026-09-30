@@ -455,6 +455,79 @@ def test_exporter_stale_quiet_when_points_exist():
     assert evaluator.rule_exporter_stale([{"_value": 42}]) == []
 
 
+def test_exporter_stale_quiet_when_nothing_was_ever_measured():
+    """A fresh install has no points yet: that is not a stalled exporter."""
+    assert evaluator.rule_exporter_stale([], window_s=1200, never_measured=True) == []
+    assert len(evaluator.rule_exporter_stale([], window_s=1200, never_measured=False)) == 1
+
+
+def _stale_scenario(monkeypatch, ever_rows, fail_ever=False):
+    """Every query empty (a quiet stack) except the ever-measured one."""
+    asked = []
+
+    def fake_query(flux_src):
+        if "1970-01-01" in flux_src:
+            asked.append(flux_src)
+            if fail_ever:
+                raise RuntimeError("influx down")
+            return ever_rows
+        return []
+
+    monkeypatch.setattr(evaluator, "_query", fake_query)
+    return asked
+
+
+def test_evaluate_fresh_install_is_not_a_stall(monkeypatch):
+    asked = _stale_scenario(monkeypatch, ever_rows=[])
+    incidents, _ = evaluator.evaluate_with_context()
+    assert incidents == []
+    assert len(asked) == 1
+
+
+def test_evaluate_a_stack_that_measured_before_is_a_stall(monkeypatch):
+    _stale_scenario(monkeypatch, ever_rows=[{"_value": 180}])
+    incidents, _ = evaluator.evaluate_with_context()
+    assert [i["key"] for i in incidents] == ["exporter_stale"]
+
+
+def test_evaluate_a_failed_ever_query_leaves_the_rule_as_it_was(monkeypatch):
+    _stale_scenario(monkeypatch, ever_rows=[], fail_ever=True)
+    incidents, _ = evaluator.evaluate_with_context()
+    assert [i["key"] for i in incidents] == ["exporter_stale"]
+
+
+def test_evaluate_an_open_stall_is_never_reconsidered_as_never_measured(monkeypatch):
+    """The review's scenario: a long stall whose points retention expired.
+
+    With exporter_stale open, an empty bucket must keep it open, not turn it
+    into a recovery (and a fresh critical later).
+    """
+    asked = _stale_scenario(monkeypatch, ever_rows=[])
+    incidents, _ = evaluator.evaluate_with_context(open_keys={"exporter_stale"})
+    assert [i["key"] for i in incidents] == ["exporter_stale"]
+    assert asked == []  # not even asked
+
+
+def test_an_open_stall_across_a_restart_sends_no_false_recovery(monkeypatch):
+    """Reconcile, fed what evaluate returns, keeps an open stall open."""
+    import state
+
+    _stale_scenario(monkeypatch, ever_rows=[])
+    current = {"incidents": {}}
+    first, _ = evaluator.evaluate_with_context(open_keys=())
+    assert first == []  # nothing measured, nothing open: quiet
+    # Opened earlier by a stack that did measure, then the alerter restarts
+    # (state persists) and retention has since emptied the bucket.
+    stall = evaluator.rule_exporter_stale([], window_s=1200)
+    state.reconcile(current, stall, now=1000.0)
+    for now in (2000.0, 3000.0, 5000.0):
+        incidents, _ = evaluator.evaluate_with_context(
+            open_keys=current["incidents"].keys())
+        actions = state.reconcile(current, incidents, now=now)
+        assert actions["recoveries"] == []
+    assert "exporter_stale" in current["incidents"]
+
+
 def test_exporter_stale_message_reports_the_window_it_queried():
     """The message must not carry a hardcoded duration.
 
