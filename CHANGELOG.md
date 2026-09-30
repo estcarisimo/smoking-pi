@@ -47,6 +47,19 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **`smoking-pi openclaw --check` blamed the wrong thing when the agent
+  could not answer.** On the staging Pi, OpenClaw's gateway was not
+  running. `openclaw agent` exited 1 with "gateway agent requires
+  credentials before opening a websocket", but the check threw its output
+  away. It reported "the agent answered without calling the MCP server"
+  and told the user to reload the tool set and check the skill, which is
+  the wrong direction when the gateway is simply stopped. The check now keeps the
+  agent's exit code and output. When the agent did not answer, it says so,
+  shows the last lines OpenClaw printed, and points to `openclaw gateway
+  status`. The answered-from-its-shell advice is unchanged, but it now names
+  the skill check and the guide by their full paths instead of paths that
+  only work from inside a checkout.
+
 - **Starting over left pieces behind.** On the staging Pi, `smoking-pi
   purge --config` followed by `apt purge smoking-pi` should have left
   nothing. It left `/etc/smoking-pi` (the edition record install writes

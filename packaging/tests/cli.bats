@@ -831,6 +831,43 @@ stub_nvm_openclaw() {
     [[ "$output" == *"its own shell"* ]]
 }
 
+@test "openclaw --check, agent failed: says what OpenClaw said, not 'reload the tools'" {
+    stub_openclaw
+    # The staging Pi's case: the gateway was not running.
+    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\necho "gateway agent requires credentials before opening a websocket" >&2\nexit 1\n' \
+        "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/openclaw"
+    run "$CLI" openclaw --check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"did not answer (openclaw exited 1)"* ]]
+    [[ "$output" == *"| gateway agent requires credentials"* ]]
+    [[ "$output" == *"openclaw gateway status"* ]]
+    [[ "$output" != *"cached tool set"* ]]
+}
+
+@test "openclaw --check: a tool call in the server's log is Connected, even if the agent then failed" {
+    stub_openclaw 1
+    cat > "$BATS_TEST_TMPDIR/bin/docker" <<'STUB'
+#!/bin/sh
+echo "docker $*" >> "$DOCKER_LOG"
+case "$*" in
+    *"logs mcp-server"*) echo "tool=system_status args=- -> ok" ;;
+esac
+exit 0
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/docker"
+    run "$CLI" openclaw --check
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Connected"* ]]
+    [[ "$output" != *"did not answer"* ]]
+}
+
+@test "openclaw --check, agent answered from its shell: the advice names the skill check by its full path" {
+    stub_openclaw
+    run "$CLI" openclaw --check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"$STUB_HOME/shared/scripts/install-openclaw-skill.sh --check"* ]]
+}
+
 @test "openclaw --check passes only on a tool= line from the server" {
     stub_openclaw
     cat > "$BATS_TEST_TMPDIR/bin/docker" <<'STUB'
