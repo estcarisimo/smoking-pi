@@ -254,8 +254,8 @@ if [ -n "$START" ]; then
 
     # 6b. Recovery, on the real stack: what a dead SD card costs. A marker
     # in the data volume, `backup` (offline: down, tar, up), then `purge
-    # --config` -- volumes, env file and config gone; with the edition file
-    # removed by hand below (purge keeps it, a recorded choice), a card with
+    # --config` -- volumes, env file, config and the edition record gone
+    # (the `rm -f` below stays, in case anything wrote it again), a card with
     # only the package on it -- then `restore` from the backup. The secrets, the
     # config and the marker must come back, and the web UI must answer.
     # Until now backup/restore ran only against a stubbed docker (cli.bats).

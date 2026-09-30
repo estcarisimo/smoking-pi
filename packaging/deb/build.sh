@@ -145,8 +145,6 @@ if [ "$1" = remove ] || [ "$1" = purge ]; then
         find /opt/smoking-pi -depth -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
         find /opt/smoking-pi -depth -type d -empty -delete 2>/dev/null || true
     fi
-fi
-if [ "$1" = remove ] || [ "$1" = purge ]; then
     systemctl daemon-reload >/dev/null 2>&1 || true
     # The LAN announcement smoking-pi wrote: nothing answers there any more.
     rm -f /etc/avahi/services/smoking-pi.service
