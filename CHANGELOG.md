@@ -55,10 +55,15 @@ version gets a matching GitHub release and git tag.
   minute after the alerter started. It stayed in the log only because
   delivery was off. Since `smoking-pi install` now asks where alerts go
   during the install, the first message a new user got would have been
-  that one. The rule now waits until the alerter's loop has run for one
-  whole window. After an upgrade the window still holds the points from
-  before, so nothing changes there. An exporter that never writes is still
-  reported, one window in. A single `--once` run has no hold.
+  that one. Now, when the window is empty, the alerter first asks whether
+  the bucket holds any latency point at all (one `first()` per series,
+  0.18 s on the reference Pi's months of history). If it holds none, the
+  stack has not measured yet, which is not a stall. It asks only when
+  no `exporter_stale` incident is open, so an open stall stays open.
+  Nothing depends on when the alerter started, so a restart changes
+  nothing. A failed query leaves the rule as it was. A stack that has
+  never measured anything is not reported by this rule. The web admin's
+  Measurements card and `doctor --live` report it.
 
 - **`smoking-pi openclaw --check` blamed the wrong thing when the agent
   could not answer.** On the staging Pi, OpenClaw's gateway was not
