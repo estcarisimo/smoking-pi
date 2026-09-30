@@ -52,8 +52,8 @@ version gets a matching GitHub release and git tag.
   running. `openclaw agent` exited 1 with "gateway agent requires
   credentials before opening a websocket", but the check threw its output
   away. It reported "the agent answered without calling the MCP server"
-  and told the user to reload the tool set and check the skill: an hour's
-  detour for a gateway that was simply stopped. The check now keeps the
+  and told the user to reload the tool set and check the skill, which is
+  the wrong direction when the gateway is simply stopped. The check now keeps the
   agent's exit code and output. When the agent did not answer, it says so,
   shows the last lines OpenClaw printed, and points to `openclaw gateway
   status`. The answered-from-its-shell advice is unchanged, but it now names
