@@ -47,6 +47,24 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Starting over left pieces behind.** On the staging Pi, `smoking-pi
+  purge --config` followed by `apt purge smoking-pi` should have left
+  nothing. It left `/etc/smoking-pi` (the edition record install writes
+  beside the env file, which purge did not remove, so the postrm's
+  `rmdir` failed quietly), root's `__pycache__` from `sudo smoking-pi
+  doctor` inside `/opt/smoking-pi`, and an empty
+  `/opt/smoking-pi/editions/pro/smokeping/config`. That last one was
+  created by Docker for a config-manager bind mount
+  (`./smokeping/config:/app/smokeping-config`) that nothing has read since
+  the multi-edition refactor. The unit was also left `failed`: purge
+  removed the env file while it was active, and its stop then ran `down`
+  without one. Now `purge --config` stops and disables the unit while the
+  env file is still there (install enables it again), and removes the
+  edition record. The doctor runs without writing bytecode. The postrm
+  removes the edition record with the env file, and on remove or purge it
+  clears bytecode and empty directories that dpkg does not own under
+  `/opt/smoking-pi`. The dead mount is gone.
+
 - **`smoking-pi install` printed every password and token of the new
   install.** Found by a clean install on the staging Pi, following the
   getting-started guide. Each edition's `setup.sh` runs

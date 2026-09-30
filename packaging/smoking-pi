@@ -480,7 +480,9 @@ run_doctor() {
     local py=python3
     [ -x "$SMOKING_PI_HOME/shared/modules/doctor/.venv/bin/python" ] && py="$SMOKING_PI_HOME/shared/modules/doctor/.venv/bin/python"
     if [ -d "$SMOKING_PI_HOME/shared/modules/doctor" ] && "$py" -c 'import yaml' 2>/dev/null; then
-        ( cd "$SMOKING_PI_HOME" && PYTHONPATH="$SMOKING_PI_HOME/shared/modules/doctor${PYTHONPATH:+:$PYTHONPATH}" "$py" -m doctor --repo-root . "$@" )
+        # No bytecode: under sudo it would be root's __pycache__ inside the
+        # package's /opt tree, which dpkg does not own and never removes.
+        ( cd "$SMOKING_PI_HOME" && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SMOKING_PI_HOME/shared/modules/doctor${PYTHONPATH:+:$PYTHONPATH}" "$py" -m doctor --repo-root . "$@" )
     else
         echo "(doctor skipped: PyYAML not installed -- apt install python3-yaml)"
     fi
@@ -2084,6 +2086,13 @@ cmd_purge() {
     # --yes is for scripts (the bats suite, an automated teardown); a person
     # types the project name.
     [ "$yes" = 1 ] || confirm_typed "$proj"
+    if [ "$config" = 1 ] && [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] && command -v systemctl >/dev/null 2>&1 \
+        && systemctl cat smoking-pi >/dev/null 2>&1; then
+        # Stopped while its env file is still there (its ExecStop is
+        # `smoking-pi down`, which needs it), and disabled: without the env
+        # file every boot would fail it. Install enables it again.
+        systemctl disable --now smoking-pi >/dev/null 2>&1 || true
+    fi
     compose down
     if [ -n "$vols" ]; then
         # Report and carry on to the --config cleanup: a volume still held
@@ -2093,6 +2102,10 @@ cmd_purge() {
     fi
     if [ "$config" = 1 ]; then
         rm -f "$ENV_FILE"
+        # The edition install recorded beside it (packaged): install
+        # writes it again, and left behind it kept /etc/smoking-pi from
+        # ever being removed by apt purge.
+        [ -z "$EDITION_FILE" ] || rm -f "$EDITION_FILE"
         rm -rf "$(config_dir)" "$(output_dir)"
         # From a clone the directories are tracked as .gitkeep placeholders.
         mkdir -p "$(config_dir)" "$(output_dir)"
