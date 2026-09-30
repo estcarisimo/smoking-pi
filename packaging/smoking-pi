@@ -1590,9 +1590,13 @@ openclaw_evidence() {
     echo "Asking the agent one question, then reading the MCP server's log."
     echo "(The answer is not the test -- the log is.)"
     # Its output is kept, not shown: the answer proves nothing (above), but
-    # when the agent could not answer at all, what it said is the reason.
-    local said rc=0
-    said="$(as_openclaw_user "$OPENCLAW_BIN" agent --agent main --session-key smoking-pi-check \
+    # when the agent could not answer at all, what it said is the reason --
+    # its last lines only, which is where an error is, not a whole reply.
+    # Bounded: a gateway that accepts and never answers would otherwise
+    # hold this check forever (no timeout(1) on macOS: unbounded there).
+    local said rc=0 bound=()
+    command -v timeout >/dev/null 2>&1 && bound=(timeout 180)
+    said="$(as_openclaw_user ${bound[@]+"${bound[@]}"} "$OPENCLAW_BIN" agent --agent main --session-key smoking-pi-check \
         -m "how has my connection been in the last 6 hours?" 2>&1)" || rc=$?
     local seen
     seen="$(compose logs mcp-server --since 3m 2>/dev/null | grep 'tool=' || true)"
@@ -1607,7 +1611,11 @@ openclaw_evidence() {
         # Not the trap below: the agent never answered, so the tool set and
         # the skill were never in play. Blaming them sent people the wrong
         # way (a stopped gateway read as "reload the MCP tools").
-        echo "NOT connected: the agent did not answer (openclaw exited $rc). It said:" >&2
+        if [ "$rc" = 124 ] && [ ${#bound[@]} -gt 0 ]; then
+            echo "NOT connected: the agent did not answer within 3 minutes. It said:" >&2
+        else
+            echo "NOT connected: the agent did not answer (openclaw exited $rc). It said:" >&2
+        fi
         printf '%s\n' "${said:-(nothing)}" | tail -6 | sed 's/^/  | /' >&2
         echo "Is the gateway running and set up? 'openclaw gateway status' says;" >&2
         echo "then run this check again." >&2

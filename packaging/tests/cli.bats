@@ -844,6 +844,23 @@ stub_nvm_openclaw() {
     [[ "$output" != *"cached tool set"* ]]
 }
 
+@test "openclaw --check: a tool call in the server's log is Connected, even if the agent then failed" {
+    stub_openclaw 1
+    cat > "$BATS_TEST_TMPDIR/bin/docker" <<'STUB'
+#!/bin/sh
+echo "docker $*" >> "$DOCKER_LOG"
+case "$*" in
+    *"logs mcp-server"*) echo "tool=system_status args=- -> ok" ;;
+esac
+exit 0
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/docker"
+    run "$CLI" openclaw --check
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Connected"* ]]
+    [[ "$output" != *"did not answer"* ]]
+}
+
 @test "openclaw --check, agent answered from its shell: the advice names the skill check by its full path" {
     stub_openclaw
     run "$CLI" openclaw --check
