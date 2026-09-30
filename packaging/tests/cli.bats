@@ -482,6 +482,40 @@ STUB
     [[ "$output" != *"NOTIFY_MODE"* ]]
 }
 
+# The follow-ups ask only on a terminal, which bats never gives: script(1)
+# runs install on a pty, fed the answers a person would type.
+install_on_a_tty() {
+    command -v script >/dev/null || skip "no script(1) for a pty"
+    cp "$REPO/editions/pro/.env.template" "$STUB_HOME/editions/pro/"
+    # A prompt nobody answers waits forever on a pty (script(1) passes end
+    # of input once): a regression then fails here instead of hanging CI.
+    printf '%b' "$1" | SHELL=/bin/bash timeout 60 script -qec "$CLI install" /dev/null | tr -d '\r'
+}
+
+@test "install on a terminal asks each follow-up: alerts nowhere, AI key declined" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    stub_whiptail
+    export STUB_PICKS='"alerts" "ai"'
+    run install_on_a_tty '3\nn\n'
+    [[ "$output" == *"Where should alerts go?"* ]]
+    [[ "$output" == *"Enter it now?"* ]]
+    # Answered, so not left to do; declined, so listed.
+    [[ "$output" != *"alerts: smoking-pi alerts"* ]]
+    [[ "$output" == *"AI reports: smoking-pi config set ANTHROPIC_API_KEY"* ]]
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    # One question, not a heading and then the question.
+    [ "$(printf '%s' "$output" | grep -c 'alerts go')" -eq 1 ]
+}
+
+@test "install on a terminal: end of input at the AI key prompt is a no, not the default yes" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    stub_whiptail
+    export STUB_PICKS='"ai"'
+    run install_on_a_tty ''
+    [[ "$output" == *"AI reports: smoking-pi config set ANTHROPIC_API_KEY"* ]]
+    [[ "$output" != *"ANTHROPIC_API_KEY:"* ]]
+}
+
 @test "install with the dns profile starts the observer and says what to set on the router" {
     dns_setup
     rm -f "$SMOKING_PI_ENV_FILE"

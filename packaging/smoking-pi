@@ -758,8 +758,9 @@ cli_name() {
 # where alerts go, an API key, a router setting. Interactive, it is asked
 # now, through the command that owns it and its checks; with --yes (or no
 # terminal), the command is named instead. What is left goes to stdout,
-# one line each, for the caller's "Still to do"; everything else goes to
-# stderr, so the caller's $( ) captures only that list.
+# one line each, for the caller's "Still to do"; everything else, prompts
+# included, goes to stderr, so the caller's $( ) captures only that list.
+# (An install run with 2>file therefore asks in that file: run it plainly.)
 install_followups() {
     local profiles="$1" yes="$2" interactive=0 cli
     cli="$(cli_name)"
@@ -777,8 +778,8 @@ install_followups() {
         if [ "$interactive" = 1 ]; then
             echo >&2
             echo "AI reports need an Anthropic API key (console.anthropic.com, API keys)." >&2
-            read -r -p "Enter it now? It is typed, not shown. [Y/n] " a
-            a="${a:-y}"
+            # End of input is a no, not the default yes.
+            read -r -p "Enter it now? It is typed, not shown. [Y/n] " a && a="${a:-y}" || a=n
         fi
         case "$a" in
             y|Y|yes) cmd_config set ANTHROPIC_API_KEY >&2 \
@@ -807,11 +808,14 @@ enable_unit() {
     [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] || return 0
     command -v systemctl >/dev/null 2>&1 || return 0
     systemctl cat smoking-pi >/dev/null 2>&1 || return 0
-    if systemctl enable smoking-pi >/dev/null 2>&1 && systemctl start --no-block smoking-pi >/dev/null 2>&1; then
-        echo "Starts at boot: the smoking-pi service is enabled."
-    else
+    if ! systemctl enable smoking-pi >/dev/null 2>&1; then
         echo "Could not enable the smoking-pi service. To start it at boot:" >&2
         echo "  sudo systemctl enable --now smoking-pi" >&2
+    elif ! systemctl start --no-block smoking-pi >/dev/null 2>&1; then
+        echo "Starts at boot: the smoking-pi service is enabled (systemd did not start it now;"
+        echo "the stack is running without it)."
+    else
+        echo "Starts at boot: the smoking-pi service is enabled."
     fi
 }
 

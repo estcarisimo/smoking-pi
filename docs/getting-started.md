@@ -195,8 +195,10 @@ the containers start, with the command that owns that service:
 | `ai` | Written health reports | an Anthropic API key, typed, not shown ([AI reports](ai-insights.md)) |
 | `dns` | The DNS observer: what this house actually uses | nothing; it prints the DNS setting to change on your router ([DNS observer](dns-observer.md)) |
 
-Skip a question, or install with `--yes`, and the end of the install lists
-the same commands under *Still to do*. You can turn any service on
+Skip a question, or install with `--yes` (which asks nothing), and the end
+of the install lists the same commands under *Still to do*. The DNS
+observer asks nothing either way: it starts, and the router setting is
+listed. You can turn any service on
 afterwards:
 
 ```bash
@@ -295,7 +297,8 @@ systemctl is-enabled smoking-pi   # enabled
 systemctl is-active smoking-pi    # active
 ```
 
-If it says `disabled`, install could not enable it (it said so):
+On a package install, `disabled` means install could not enable it (it
+said so):
 `sudo systemctl enable --now smoking-pi`. The unit is a `oneshot` that runs
 `smoking-pi up` and stays "active": it brings the stack up after a reboot
 and hands the rest to Docker's own restart policies. From a clone there is
