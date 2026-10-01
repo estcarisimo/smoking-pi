@@ -62,6 +62,8 @@ is used now. A step in the stack is a change in targets or cadence, such
 as a DNS wizard adoption, a new target or a shorter step. That is how you
 see when the cost moved and why.
 
+![The Measurement budget row on a staging Pi after a DNS wizard adoption](img/budget-overview.png)
+
 The series comes from `measurement_budget.py` in the SmokePing container.
 Every five minutes it reads config-manager's `/budget` (the same report as
 the command and the card) and writes `measurement_budget` (the totals and

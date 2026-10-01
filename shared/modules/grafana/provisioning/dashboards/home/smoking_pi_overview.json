@@ -1564,7 +1564,7 @@
               "group": "A"
             },
             "spanNulls": 600000,
-            "showPoints": "never"
+            "showPoints": "auto"
           }
         },
         "overrides": [
@@ -1670,7 +1670,7 @@
               "group": "A"
             },
             "spanNulls": 600000,
-            "showPoints": "never"
+            "showPoints": "auto"
           }
         },
         "overrides": [
