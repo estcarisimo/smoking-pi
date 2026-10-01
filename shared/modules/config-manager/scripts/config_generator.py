@@ -508,9 +508,16 @@ class ConfigGenerator:
             # inside that container, and a probe that leaves step or pings
             # to the Database defaults is not known here: neither is in the
             # map, and the guard leaves an RRD it has no expectation for alone.
-            cadence = freshness.explicit_cadence(targets_content, probes_content)
-            atomic_write_text(OUTPUT_DIR / CADENCE_FILE,
-                              json.dumps({"expected": cadence}, sort_keys=True) + "\n")
+            # Targets and Probes are on disk by now: a map that cannot be
+            # written must not turn this into a failed generation, which
+            # would skip the reload. The start-time guard then has an older
+            # map or none, and can only check less, never move more.
+            try:
+                cadence = freshness.explicit_cadence(targets_content, probes_content)
+                atomic_write_text(OUTPUT_DIR / CADENCE_FILE,
+                                  json.dumps({"expected": cadence}, sort_keys=True) + "\n")
+            except Exception as e:
+                logger.warning("Could not write %s: %s", CADENCE_FILE, type(e).__name__)
 
             return True
 

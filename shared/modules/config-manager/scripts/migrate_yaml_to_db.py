@@ -358,10 +358,10 @@ class YAMLToDBMigrator:
         logger.info(f"Migrated {metadata_added} metadata entries")
 
     def fix_shipped_defaults(self, session) -> int:
-        """Apply each SEED_FIXES, PROBE_SEED_FIXES and PROBE_PINGS_FIXES entry not applied
-        before; returns how many targets and probes changed. A failure is
-        logged and rolled back, never raised: the migration it follows has
-        completed, and the next start retries.
+        """Apply each SEED_FIXES, PROBE_SEED_FIXES and PROBE_PINGS_FIXES
+        entry not applied before; returns how many targets and probes
+        changed. A failure is logged and rolled back, never raised: the
+        migration it follows has completed, and the next start retries.
         """
         changed = 0
         try:

@@ -431,3 +431,19 @@ def test_generation_writes_the_guards_map_next_to_targets_and_probes(tmp_path, m
     assert config_generator.ConfigGenerator().write_output_files(targets, probes)
     body = json.loads((tmp_path / "cadence.json").read_text())
     assert body == {"expected": {"websites/Google.rrd": {"step": 300, "pings": 10}}}
+
+
+def test_a_map_that_cannot_be_written_does_not_fail_the_generation(tmp_path, monkeypatch):
+    from scripts import config_generator
+
+    def boom(*args):
+        raise ValueError("cannot compute")
+    monkeypatch.setattr(config_generator, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(config_generator.freshness, "explicit_cadence", boom)
+    targets = "*** Targets ***\nprobe = FPing\n+ websites\n++ Google\nhost = g\n"
+    probes = "*** Probes ***\n+ FPing\nstep = 300\npings = 10\n"
+    # Still a success, so the caller reloads SmokePing on the new files.
+    assert config_generator.ConfigGenerator().write_output_files(targets, probes)
+    assert (tmp_path / "Targets").read_text() == targets
+    assert (tmp_path / "Probes").read_text() == probes
+    assert not (tmp_path / "cadence.json").exists()

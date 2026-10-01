@@ -124,8 +124,10 @@ def test_file_mode_archives_what_the_cadence_file_says_changed(tmp_path, capsys,
     # guard() binds rrd_info as a default argument, so inject it there.
     real_guard = rrd_guard.guard
     monkeypatch.setattr(rrd_guard, "guard", lambda *a, **k: real_guard(*a, info=info, **k))
+    monkeypatch.setattr(rrd_guard, "DATADIR", data)
     cadence = tmp_path / "cadence.json"
-    cadence.write_text(json.dumps({"datadir": str(data), "expected": {
+    # A file only says what is expected: its datadir and dry_run are ignored.
+    cadence.write_text(json.dumps({"datadir": "/elsewhere", "dry_run": True, "expected": {
         "HTTP/Google_h2.rrd": {"step": 300, "pings": 3},
         "websites/Google.rrd": {"step": 300, "pings": 10}}}))
     assert rrd_guard.main(["rrd_guard.py", "--file", str(cadence)]) == 0

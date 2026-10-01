@@ -138,7 +138,10 @@ def main(argv: list[str]) -> int:
     # ``--file PATH``: the same JSON, from the cadence.json config-manager
     # writes next to Targets and Probes. The container's start runs it that
     # way (custom-cont-init.d/06-rrd-guard.sh), before SmokePing loads.
-    if len(argv) == 3 and argv[1] == "--file":
+    # The file names only what is expected: where the data lives and
+    # whether to move anything are this container's to decide, not a file's.
+    from_file = len(argv) == 3 and argv[1] == "--file"
+    if from_file:
         try:
             argv = [argv[0], Path(argv[2]).read_text()]
         except OSError as exc:
@@ -146,6 +149,8 @@ def main(argv: list[str]) -> int:
             return 2
     try:
         payload = json.loads(argv[1])
+        if from_file:
+            payload = {"expected": payload["expected"]}
         expected = payload["expected"]
         if not isinstance(expected, dict):
             raise TypeError("expected must be an object")
