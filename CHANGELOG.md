@@ -31,13 +31,14 @@ really carried, and (Pro) which service carried it.
   container stops; `NETMETER=off` loads nothing. Two minutes on the test
   Pi: SmokePing ~943 MB/day against its ~410 MB/day estimate.
 - Two new images, `mdns` and `netmeter`: twelve in all. `smoking-pi
-  upgrade` starts both.
+  upgrade` starts `mdns` in every edition and `netmeter` in Pro.
 
 ### Added
 
 - **The Pi answers for `smoking-pi.local`, from its own container.** The
   only name the Pi had on the network was the host's `<hostname>.local`,
-  from Avahi, and on the reference Pi it broke twice: eight seconds after
+  from Avahi, and on the reference Pi it broke twice (2026-09-29 and
+  2026-10-01): eight seconds after
   a boot Avahi logged `Host name conflict, retrying with smokingpi-2` and
   from then on answered only for `smokingpi-2.local`. Nothing else held
   the name; Avahi took its own echoed announcement for another host.
