@@ -180,3 +180,20 @@ def test_a_new_meter_says_minutes():
     m = dashboard_module.summarize_budget(
         {**SEED, "measured": {**MEASURED, "hours": 0.1, "minutes": 5}})["measured"]
     assert m["covered"] == "5 min"
+
+
+def test_minutes_of_data_are_shown_but_not_judged(client, monkeypatch):
+    young = {**MEASURED, "hours": 0.1, "minutes": 5, "provisional": True,
+             "pct_of_ceiling": None, "mb_per_day": 432000.0}
+    m = dashboard_module.summarize_budget({**SEED, "measured": young})["measured"]
+    assert (m["badge"], m["width"], m["pct"]) == ("secondary", 0, None)
+    html = _dashboard(client, monkeypatch, {**SEED, "measured": young})
+    card = html[html.index('id="budget-measured"'):]
+    assert "(under an hour of data)" in card and "of the ceiling)" not in card[:600]
+    assert 'aria-valuetext="not yet a daily figure"' in card
+
+
+def test_a_stopped_meter_is_marked_stale_on_the_top_card(client, monkeypatch):
+    html = _dashboard(client, monkeypatch, {**SEED, "measured": {**MEASURED, "stale": True}})
+    top = html[html.index('id="top-measured"'):]
+    assert ">stale<" in top[:300]

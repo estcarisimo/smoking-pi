@@ -101,39 +101,60 @@ def ceilings(env: Optional[Dict[str, str]] = None) -> Dict[str, float]:
 MEASURED_STALE_SECONDS = 900
 
 
+# Less than this much data is not yet a daily figure: shown, but not
+# judged against the ceiling (an image pull in the first five minutes
+# would read as hundreds of times the budget).
+MEASURED_MIN_SECONDS = 3600
+
+
 def measured(state_text: str, now: float, mb_ceiling: float) -> Optional[dict]:
     """What the uplink actually carried over the last 24 h, from the
     smokeping-exporters uplink_traffic.py state file; None without one.
 
     Everything on the interface, not only the measurements. ``mb_per_day``
     scales the covered time to a day, so a meter that started an hour ago
-    still reads as a daily figure (``hours`` says how much it rests on).
+    still reads as a daily figure (``hours`` says how much it rests on;
+    ``provisional`` says it is under an hour, and then there is no
+    percentage of the ceiling).
     """
     try:
         state = json.loads(state_text) if state_text else None
-    except ValueError:
+        if not isinstance(state, dict):
+            return None
+        rows = []
+        for i in state.get("intervals") or []:
+            if not isinstance(i, dict):
+                continue
+            row = (float(i.get("t") or 0), float(i.get("seconds") or 0),
+                   int(i.get("rx") or 0), int(i.get("tx") or 0), i.get("interface"))
+            if now - row[0] <= 86_400:
+                rows.append(row)
+    except (TypeError, ValueError):
+        # A damaged state file costs the measured line, never the report.
         return None
-    if not isinstance(state, dict):
-        return None
-    rows = [i for i in state.get("intervals") or []
-            if isinstance(i, dict) and now - float(i.get("t") or 0) <= 86_400]
-    seconds = sum(float(i.get("seconds") or 0) for i in rows)
+    seconds = sum(r[1] for r in rows)
     if not rows or seconds <= 0:
         return None
-    rx = sum(int(i.get("rx") or 0) for i in rows)
-    tx = sum(int(i.get("tx") or 0) for i in rows)
+    rx = sum(r[2] for r in rows)
+    tx = sum(r[3] for r in rows)
     per_day = (rx + tx) / seconds * 86_400 / 1e6
-    newest = max(float(i.get("t") or 0) for i in rows)
+    newest = max(r[0] for r in rows)
+    interfaces = sorted({r[4] for r in rows if r[4]})
+    provisional = seconds < MEASURED_MIN_SECONDS
     return {
         "scope": "uplink",
-        "interface": rows[-1].get("interface"),
+        # An uplink change within the day: both, since the sum spans both.
+        "interface": ", ".join(interfaces) or None,
+        "interfaces": interfaces,
         "mb_per_day": round(per_day, 2),
         "rx_mb": round(rx / 1e6, 2),
         "tx_mb": round(tx / 1e6, 2),
         "hours": round(seconds / 3600, 1),
         "minutes": round(seconds / 60),
         "kbps": round((rx + tx) * 8 / seconds / 1000, 1),
-        "pct_of_ceiling": round(100 * per_day / mb_ceiling, 1) if mb_ceiling else None,
+        "provisional": provisional,
+        "pct_of_ceiling": (round(100 * per_day / mb_ceiling, 1)
+                           if mb_ceiling and not provisional else None),
         "stale": now - newest > MEASURED_STALE_SECONDS,
     }
 
@@ -228,9 +249,10 @@ def render(body: dict) -> str:
     m = body.get("measured")
     if m:
         lines.append(
-            f"Measured on {m['interface']}: ~{m['mb_per_day']:.0f} MB/day "
+            f"Measured on {m.get('interface') or 'the uplink'}: ~{m['mb_per_day']:.0f} MB/day "
             f"({_mb(m['rx_mb'])} MB in, {_mb(m['tx_mb'])} MB out over the last {covered(m)}), "
             "everything the Pi sent and received there, not only the measurements."
+            + (" Under an hour of data: not yet a daily figure." if m.get("provisional") else "")
             + (" Stale: the meter has stopped." if m.get("stale") else ""))
     if body["unpriced"]:
         lines.append("No byte estimate for: " + ", ".join(body["unpriced"])

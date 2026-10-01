@@ -6,7 +6,9 @@ configured probes times a per-sample cost measured once. This is the
 meter beside it: the kernel's byte counters for the interface the default
 route leaves through (wifi_link.uplink_interface), read from /proc/net/dev.
 The smokeping container runs on the host network, so those are the Pi's
-own counters.
+own counters. When a VPN owns the default route (a Tailscale exit node,
+WireGuard), the interface is the tunnel and the figure is the traffic
+inside it, not what leaves the radio.
 
 It counts everything the Pi does on that interface, not only the
 measurements: the DNS observer, the microcut detector's pings to the
@@ -89,23 +91,38 @@ def save_state(path: str, state: dict) -> None:
 
 
 def step(state: dict, interface: str | None, counters: tuple[int, int] | None,
-         now: float) -> tuple[dict, dict | None]:
+         now: float, mono: float | None = None) -> tuple[dict, dict | None]:
     """Advance the state by one reading; return it and the new interval
-    (``{"t", "interface", "rx", "tx", "seconds"}``) or None."""
+    (``{"t", "interface", "rx", "tx", "seconds"}``) or None.
+
+    ``mono`` is CLOCK_MONOTONIC, which is system-wide and survives a
+    container restart (not a reboot, which resets the counters anyway).
+    Elapsed time comes from it when both readings have it, so NTP stepping
+    the clock of a Pi without an RTC does not stretch or shrink an
+    interval; the wall clock only stamps it."""
     last = state.get("last")
     interval = None
     if interface and counters:
-        if (last and last.get("interface") == interface
-                and 0 < now - last.get("t", 0) <= MAX_GAP):
+        elapsed = None
+        if last and last.get("interface") == interface:
+            if mono is not None and last.get("mono") is not None:
+                elapsed = mono - last["mono"]
+            else:
+                elapsed = now - last.get("t", 0)
+        if elapsed is not None and 0 < elapsed <= MAX_GAP:
             rx = counters[0] - last.get("rx", 0)
             tx = counters[1] - last.get("tx", 0)
             if rx >= 0 and tx >= 0:
                 interval = {"t": int(now), "interface": interface, "rx": rx, "tx": tx,
-                            "seconds": round(now - last["t"], 1)}
-        new_last = {"t": now, "interface": interface, "rx": counters[0], "tx": counters[1]}
+                            "seconds": round(elapsed, 1)}
+        new_last = {"t": now, "mono": mono, "interface": interface,
+                    "rx": counters[0], "tx": counters[1]}
     else:
         new_last = None
-    kept = [i for i in state.get("intervals", []) if now - i.get("t", 0) <= KEEP_SECONDS]
+    # The last day, and nothing stamped in the future: a clock stepped
+    # back would otherwise keep those rows until it caught up.
+    kept = [i for i in state.get("intervals", [])
+            if -INTERVAL <= now - i.get("t", 0) <= KEEP_SECONDS]
     if interval:
         kept.append(interval)
     return {"last": new_last, "intervals": kept, "updated": int(now)}, interval
@@ -124,7 +141,9 @@ def point_for(interval: dict):
             .field("tx_bytes", int(interval["tx"]))
             .field("seconds", float(interval["seconds"]))
             .field("mb_per_day", mb_per_day(interval))
-            .time(interval["t"] // INTERVAL * INTERVAL, WritePrecision.S))
+            # Its own end, not the five-minute slot: after a restart mid-slot
+            # a short interval would otherwise overwrite the previous one.
+            .time(interval["t"], WritePrecision.S))
 
 
 def influx_writer():
@@ -155,7 +174,7 @@ def main() -> int:
         started = time.time()
         interface = wifi_link.uplink_interface()
         counters = read_counters(interface) if interface else None
-        state, interval = step(state, interface, counters, started)
+        state, interval = step(state, interface, counters, started, time.monotonic())
         try:
             save_state(path, state)
         except OSError as exc:

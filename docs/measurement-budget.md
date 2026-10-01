@@ -154,7 +154,14 @@ the Pi spends on other things. It includes:
 
 `mb_per_day` scales the hours covered to a day, so a meter that started an
 hour ago already reads as a daily figure; the card and the command say how
-many hours it rests on. An interval is dropped, not guessed, when a
+many hours it rests on. Under an hour it is shown but not judged: no
+percentage of the ceiling and a gray bar, since one image pull in the
+first five minutes would read as hundreds of times the budget. When the
+uplink changed interface during the day, both are named.
+
+When a VPN owns the default route (a Tailscale exit node, WireGuard),
+the interface metered is the tunnel: the figure is the traffic inside it,
+not what leaves the radio. An interval is dropped, not guessed, when a
 counter went backwards (a reboot), the uplink changed interface, or the
 exporter was stopped for more than 15 minutes. A meter that stopped writing
 for 15 minutes is shown as stale. Basic and Standard have no meter.

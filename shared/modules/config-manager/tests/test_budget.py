@@ -191,8 +191,31 @@ def test_measured_keeps_only_the_last_day_and_flags_a_stopped_meter():
     assert m["stale"] is True
 
 
+def test_under_an_hour_is_provisional_and_not_judged():
+    now = 1_000_000.0
+    # An image pull in the first five minutes: 1.5 GB.
+    rows = [{"t": now - 10, "interface": "wlan0", "rx": 1_500_000_000, "tx": 0,
+             "seconds": 300}]
+    m = budget.measured(_traffic(rows), now, 1000)
+    assert m["provisional"] is True and m["pct_of_ceiling"] is None
+    assert m["minutes"] == 5
+    assert "not yet a daily figure" in budget.render(
+        budget.report(TARGETS, CPE, PROBES, traffic_text=_traffic(rows), now=now))
+
+
+def test_an_uplink_change_names_both_interfaces():
+    now = 1_000_000.0
+    rows = [{"t": now - 600 - 300 * k, "interface": "wlan0", "rx": 1, "tx": 1,
+             "seconds": 300} for k in range(12)]
+    rows.append({"t": now - 10, "interface": "eth0", "rx": 1, "tx": 1, "seconds": 300})
+    m = budget.measured(_traffic(rows), now, 1000)
+    assert m["interface"] == "eth0, wlan0" and m["interfaces"] == ["eth0", "wlan0"]
+
+
 @pytest.mark.parametrize("text", ["", "not json", "[]", _traffic([]),
-                                  _traffic([{"t": 1, "rx": 5, "tx": 5, "seconds": 0}])])
+                                  _traffic([{"t": 1, "rx": 5, "tx": 5, "seconds": 0}]),
+                                  _traffic([{"t": "x", "rx": 5, "tx": 5, "seconds": 300}]),
+                                  _traffic([{"t": 999_990, "rx": "a", "tx": 5, "seconds": 300}])])
 def test_measured_is_none_without_a_usable_meter(text):
     assert budget.measured(text, 1_000_000.0, 1000) is None
 

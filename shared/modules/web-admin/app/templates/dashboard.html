@@ -51,7 +51,7 @@
                     <span class="badge bg-{{ budget.bandwidth.badge }}">{{ budget.bandwidth.pct }}% of budget</span><br>
                     <small>(~{{ budget.kbps }} Kbps on average)</small>
                     {% if budget.measured %}<br>
-                    <small id="top-measured">Measured on {{ budget.measured.interface }}: ~{{ '%.0f' % budget.measured.mb_per_day }} MB/day</small>
+                    <small id="top-measured">Measured on {{ budget.measured.interface }}: ~{{ '%.0f' % budget.measured.mb_per_day }} MB/day{% if budget.measured.stale %} <span class="badge bg-secondary">stale</span>{% endif %}</small>
                     {% endif %}
                     {% else %}
                     <span class="text-muted">unknown</span>
@@ -161,9 +161,10 @@
         {% if budget.measured %}
         <div class="mb-3" id="budget-measured">
             <div class="d-flex justify-content-between"><span>Measured on {{ budget.measured.interface }}{% if budget.measured.stale %} <span class="badge bg-secondary">stale</span>{% endif %}</span>
-                <span>~{{ '%.0f' % budget.measured.mb_per_day }} MB/day{% if budget.measured.pct is not none %} ({{ budget.measured.pct }}% of the ceiling){% endif %}</span></div>
+                <span>~{{ '%.0f' % budget.measured.mb_per_day }} MB/day{% if budget.measured.pct is not none %} ({{ budget.measured.pct }}% of the ceiling){% elif budget.measured.provisional %} (under an hour of data){% endif %}</span></div>
             <div class="progress" role="progressbar" aria-label="Measured traffic against the bandwidth ceiling"
-                 aria-valuenow="{{ budget.measured.width }}" aria-valuemin="0" aria-valuemax="100">
+                 aria-valuenow="{{ budget.measured.width }}" aria-valuemin="0" aria-valuemax="100"
+                 aria-valuetext="{% if budget.measured.pct is not none %}{{ budget.measured.pct }}% of the ceiling{% else %}not yet a daily figure{% endif %}">
                 <div class="progress-bar bg-{{ budget.measured.badge }}" style="width: {{ budget.measured.width }}%"></div>
             </div>
             <small class="text-muted">{{ ('%.1f' if budget.measured.rx_mb < 10 else '%.0f') % budget.measured.rx_mb }} MB in, {{ ('%.1f' if budget.measured.tx_mb < 10 else '%.0f') % budget.measured.tx_mb }} MB out over the last {{ budget.measured.covered }} (~{{ budget.measured.kbps }} Kbps):

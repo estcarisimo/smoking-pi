@@ -211,6 +211,12 @@ def summarize_measured(measured, mb_ceiling):
         return None
     mb = measured.get('mb_per_day') or 0
     pct = measured.get('pct_of_ceiling')
+    provisional = bool(measured.get('provisional'))
+    if provisional:
+        badge = 'secondary'  # minutes of data: shown, not judged
+    else:
+        badge = ('danger' if (pct or 0) > 100 else
+                 'warning' if (pct or 0) >= BUDGET_WARN_PCT else 'info')
     return {
         'interface': measured.get('interface') or 'the uplink',
         'mb_per_day': mb,
@@ -219,13 +225,15 @@ def summarize_measured(measured, mb_ceiling):
         'tx_mb': measured.get('tx_mb') or 0,
         'hours': measured.get('hours'),
         # What it rests on, as a person says it: a new meter has minutes.
+        # Kept in step with config-manager's budget.covered() (containers
+        # cannot import across each other).
         'covered': (f"{measured.get('hours')} h" if (measured.get('hours') or 0) >= 1
                     else f"{measured.get('minutes') or 0} min"),
         'stale': bool(measured.get('stale')),
         'pct': pct,
+        'provisional': provisional,
         'width': min(pct or 0, 100),
-        'badge': ('danger' if (pct or 0) > 100 else
-                  'warning' if (pct or 0) >= BUDGET_WARN_PCT else 'info'),
+        'badge': badge,
     }
 
 

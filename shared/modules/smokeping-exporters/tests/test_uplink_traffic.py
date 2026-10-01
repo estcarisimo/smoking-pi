@@ -28,7 +28,8 @@ def test_read_counters(tmp_path):
 def test_first_reading_is_only_a_baseline():
     state, interval = ut.step({"intervals": []}, "wlan0", (100, 50), 1000.0)
     assert interval is None
-    assert state["last"] == {"t": 1000.0, "interface": "wlan0", "rx": 100, "tx": 50}
+    assert state["last"] == {"t": 1000.0, "mono": None, "interface": "wlan0",
+                             "rx": 100, "tx": 50}
 
 
 def test_next_reading_is_an_interval():
@@ -79,9 +80,24 @@ def test_state_round_trip_and_a_broken_file(tmp_path):
     assert ut.load_state(path) == {"intervals": []}
 
 
-def test_point_is_stamped_on_the_five_minute_boundary():
+def test_point_is_stamped_at_the_interval_end():
+    # Not the 5-minute slot: a short interval after a restart mid-slot
+    # must not overwrite the full one already written for that slot.
     pt = ut.point_for({"t": 1301, "interface": "wlan0", "rx": 10, "tx": 20, "seconds": 300.0})
     line = pt.to_line_protocol()
     assert line.startswith("uplink_traffic,interface=wlan0 ")
     assert "rx_bytes=10i" in line and "tx_bytes=20i" in line
-    assert line.endswith(" 1200")
+    assert line.endswith(" 1301")
+
+
+def test_elapsed_time_comes_from_the_monotonic_clock():
+    state, _ = ut.step({"intervals": []}, "wlan0", (0, 0), 1000.0, mono=50.0)
+    # NTP stepped the wall clock forward ten minutes in between.
+    _, interval = ut.step(state, "wlan0", (300, 0), 1900.0, mono=350.0)
+    assert interval["seconds"] == 300.0 and interval["t"] == 1900
+
+
+def test_rows_stamped_in_the_future_are_dropped():
+    future = {"t": 10_000, "interface": "wlan0", "rx": 1, "tx": 1, "seconds": 300}
+    state, _ = ut.step({"intervals": [future]}, "wlan0", (1, 1), 1000.0)
+    assert state["intervals"] == []
