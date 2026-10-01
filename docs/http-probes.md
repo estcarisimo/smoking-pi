@@ -12,9 +12,9 @@ container — no fork of SmokePing, no fork of the LinuxServer image.
 | `CurlHTTP3` | `Curl` | the same over **HTTP/3** (QUIC, `--http3-only`) | static curl |
 | `TCPPing` | `TCPPing` | SYN → SYN/ACK to port 443, nothing above the transport | `tcpping` / `tcptraceroute` |
 
-Each runs 5 samples per 5-minute cycle (`pings = 5`, `step = 300`), five
-targets in parallel. Nine HTTP targets plus three TCP targets cost about 60
-requests per 5 minutes. Each HTTP sample is a `HEAD` request: a TLS
+The HTTP probes take 3 samples per 5-minute cycle (`pings = 3`,
+`step = 300`), the TCP probe 5, five targets in parallel. Nine HTTP targets
+plus three TCP targets cost about 40 requests per 5 minutes. Each HTTP sample is a `HEAD` request: a TLS
 handshake and the response headers, a few KB. Keep `pings` low all the
 same; 20 requests per cycle is unfriendly to the server.
 
@@ -89,7 +89,7 @@ probes:
     module: Curl                       # the SmokePing class; name is ours
     binary: /usr/local/bin/curl-h3
     step: 300
-    pings: 5
+    pings: 3
     forks: 5
     timeout: 10
     urlformat: https://%host%/

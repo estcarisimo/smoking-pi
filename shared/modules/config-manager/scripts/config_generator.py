@@ -10,6 +10,7 @@ subprocesses.
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -24,6 +25,7 @@ from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from file_ops import atomic_write_text, get_config_lock
+import freshness
 from scripts import ipv6_check
 
 # Import database models if available
@@ -43,6 +45,8 @@ BASE_DIR = Path(__file__).parent.parent
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", BASE_DIR / "config"))
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", BASE_DIR / "output"))
+# The RRD guard's map, next to Targets and Probes (see write_output_files).
+CADENCE_FILE = "cadence.json"
 
 # Presentation defaults for the known categories. These match the sections
 # SmokePing has always generated, so existing RRD paths are preserved.
@@ -494,6 +498,26 @@ class ConfigGenerator:
             probes_file = OUTPUT_DIR / "Probes"
             atomic_write_text(probes_file, probes_content)
             logger.info(f"Written Probes file to {probes_file}")
+
+            # What these files require of each RRD, for the guard SmokePing's
+            # container runs at start (custom-cont-init.d/06-rrd-guard.sh).
+            # config-manager guards every reload itself, but it cannot reach
+            # a SmokePing that is not running yet: on an upgrade that
+            # recreates both, SmokePing could start on a changed step or ping
+            # count and die on every restart. The CPE targets are written
+            # inside that container, and a probe that leaves step or pings
+            # to the Database defaults is not known here: neither is in the
+            # map, and the guard leaves an RRD it has no expectation for alone.
+            # Targets and Probes are on disk by now: a map that cannot be
+            # written must not turn this into a failed generation, which
+            # would skip the reload. The start-time guard then has an older
+            # map or none, and can only check less, never move more.
+            try:
+                cadence = freshness.explicit_cadence(targets_content, probes_content)
+                atomic_write_text(OUTPUT_DIR / CADENCE_FILE,
+                                  json.dumps({"expected": cadence}, sort_keys=True) + "\n")
+            except Exception as e:
+                logger.warning("Could not write %s: %s", CADENCE_FILE, type(e).__name__)
 
             return True
 

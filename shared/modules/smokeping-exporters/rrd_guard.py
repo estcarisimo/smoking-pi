@@ -10,8 +10,9 @@ one whose file disagrees. That happens whenever a probe's step or pings
 change, and also when a paused target comes back, or a deleted one is added
 again under the same name, after its probe changed.
 
-config-manager runs this with ``docker exec`` before every reload, passing
-what the NEW configuration expects as one JSON argument:
+config-manager runs this with ``docker exec`` before every reload, and the
+container runs it at start (``--file``, see main), passing what the NEW
+configuration expects as one JSON argument:
 
     {"expected": {"websites/Google.rrd": {"step": 300, "pings": 10}, ...}}
 
@@ -134,8 +135,22 @@ def guard(
 
 
 def main(argv: list[str]) -> int:
+    # ``--file PATH``: the same JSON, from the cadence.json config-manager
+    # writes next to Targets and Probes. The container's start runs it that
+    # way (custom-cont-init.d/06-rrd-guard.sh), before SmokePing loads.
+    # The file names only what is expected: where the data lives and
+    # whether to move anything are this container's to decide, not a file's.
+    from_file = len(argv) == 3 and argv[1] == "--file"
+    if from_file:
+        try:
+            argv = [argv[0], Path(argv[2]).read_text()]
+        except OSError as exc:
+            print(json.dumps({"error": f"cannot read {argv[2]}: {type(exc).__name__}"}))
+            return 2
     try:
         payload = json.loads(argv[1])
+        if from_file:
+            payload = {"expected": payload["expected"]}
         expected = payload["expected"]
         if not isinstance(expected, dict):
             raise TypeError("expected must be an object")

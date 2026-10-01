@@ -22,14 +22,14 @@ Basic has no config-manager). On the shipped seed:
 
 ```
 probe          class    targets  step pings  samples/h    MB/day
-CurlHTTP1      Curl           3   300     5        180      51.8
-CurlHTTP2      Curl           3   300     5        180      51.8
-CurlHTTP3      Curl           3   300     5        180      51.8
+CurlHTTP1      Curl           3   300     3        108      31.1
+CurlHTTP2      Curl           3   300     3        108      31.1
+CurlHTTP3      Curl           3   300     3        108      31.1
 FPing          FPing          6   300    10        720       2.9
 DNS            DNS            3   300     5        180       1.3
 TCPPing        TCPPing        3   300     5        180       0.9
 
-21 targets: 1620 samples/h of 20000 (8.1%), ~161 MB/day of 1000 (16.1%).
+21 targets: 1404 samples/h of 20000 (7.0%), ~98 MB/day of 1000 (9.8%).
 Approximate: SmokePing measurements only, from the generated config.
 ```
 
@@ -80,9 +80,9 @@ switch the check off. Over either ceiling, the report says so and what
 brings it back: fewer targets, fewer pings, or a longer step
 ([Measurement frequency](measurement-frequency.md)).
 
-The defaults are deliberately generous: the seed uses 16% of the bandwidth
-and 8% of the samples. A DNS wizard adoption of 60 services over HTTP/1.1,
-2 and 3 alone is about 3 GB a day, and shows as over budget.
+The defaults are deliberately generous: the seed uses 10% of the bandwidth
+and 7% of the samples. A DNS wizard adoption of 60 services over HTTP/1.1,
+2 and 3 alone is about 1.9 GB a day, and shows as over budget.
 
 ## What it does not count yet
 

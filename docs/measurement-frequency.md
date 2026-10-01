@@ -76,8 +76,19 @@ to:
 /data/.archive/<UTC time>/<section>/<target>.rrd
 ```
 
-SmokePing then creates a fresh file and keeps measuring. The config-manager
-log says what moved and why:
+SmokePing then creates a fresh file and keeps measuring.
+
+The same guard also runs when the SmokePing container starts, before the
+daemon loads (`custom-cont-init.d/06-rrd-guard.sh`), against
+`cadence.json`, which config-manager writes next to `Targets` and `Probes`.
+That covers what a reload cannot: an upgrade that recreates both
+containers and changes a probe's cadence, where SmokePing could otherwise
+start on the new files before config-manager reaches it, and die on every
+restart. The map holds only RRDs whose probe sets its step and pings
+itself; one left to the `Database` defaults, or a CPE target, is not
+touched at start. The container log says what it did (`[rrd-guard] ...`).
+
+The config-manager log says what moved and why:
 
 ```text
 Archived websites/Google.rrd (step 300, 10 pings) -> .archive/20260924T150000Z/websites/Google.rrd: the probe now wants step 60, 10 pings
