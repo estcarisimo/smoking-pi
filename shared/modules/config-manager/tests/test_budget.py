@@ -1,6 +1,7 @@
 """The measurement budget: pure accounting over the generated SmokePing
 config (budget.py), and GET /budget against a fake Docker client."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -161,6 +162,76 @@ def test_the_shipped_probes_all_have_a_cost():
         assert probe.get("module", name) in budget.BYTES_PER_SAMPLE, name
 
 
+# --- measured: the uplink meter beside the estimate ---------------------------
+
+def _traffic(intervals):
+    return json.dumps({"intervals": intervals})
+
+
+def test_measured_scales_the_covered_time_to_a_day():
+    now = 1_000_000.0
+    # Two hours of 5-minute intervals, 1 MB in and 0.5 MB out each.
+    rows = [{"t": now - 300 * k, "interface": "wlan0", "rx": 1_000_000, "tx": 500_000,
+             "seconds": 300} for k in range(24)]
+    m = budget.measured(_traffic(rows), now, 1000)
+    assert m["interface"] == "wlan0" and m["hours"] == 2.0
+    assert m["rx_mb"] == 24.0 and m["tx_mb"] == 12.0
+    assert m["mb_per_day"] == 432.0          # 36 MB in 2 h -> x12
+    assert m["pct_of_ceiling"] == 43.2
+    assert m["kbps"] == 40.0
+    assert m["stale"] is False
+
+
+def test_measured_keeps_only_the_last_day_and_flags_a_stopped_meter():
+    now = 1_000_000.0
+    rows = [{"t": now - 90_000, "interface": "wlan0", "rx": 9e9, "tx": 9e9, "seconds": 300},
+            {"t": now - 1_000, "interface": "wlan0", "rx": 1e6, "tx": 0, "seconds": 300}]
+    m = budget.measured(_traffic(rows), now, 1000)
+    assert m["rx_mb"] == 1.0 and m["hours"] == 0.1
+    assert m["stale"] is True
+
+
+def test_under_an_hour_is_provisional_and_not_judged():
+    now = 1_000_000.0
+    # An image pull in the first five minutes: 1.5 GB.
+    rows = [{"t": now - 10, "interface": "wlan0", "rx": 1_500_000_000, "tx": 0,
+             "seconds": 300}]
+    m = budget.measured(_traffic(rows), now, 1000)
+    assert m["provisional"] is True and m["pct_of_ceiling"] is None
+    assert m["minutes"] == 5
+    assert "not yet a daily figure" in budget.render(
+        budget.report(TARGETS, CPE, PROBES, traffic_text=_traffic(rows), now=now))
+
+
+def test_an_uplink_change_names_both_interfaces():
+    now = 1_000_000.0
+    rows = [{"t": now - 600 - 300 * k, "interface": "wlan0", "rx": 1, "tx": 1,
+             "seconds": 300} for k in range(12)]
+    rows.append({"t": now - 10, "interface": "eth0", "rx": 1, "tx": 1, "seconds": 300})
+    m = budget.measured(_traffic(rows), now, 1000)
+    assert m["interface"] == "eth0, wlan0" and m["interfaces"] == ["eth0", "wlan0"]
+
+
+@pytest.mark.parametrize("text", ["", "not json", "[]", _traffic([]),
+                                  _traffic([{"t": 1, "rx": 5, "tx": 5, "seconds": 0}]),
+                                  _traffic([{"t": "x", "rx": 5, "tx": 5, "seconds": 300}]),
+                                  _traffic([{"t": 999_990, "rx": "a", "tx": 5, "seconds": 300}])])
+def test_measured_is_none_without_a_usable_meter(text):
+    assert budget.measured(text, 1_000_000.0, 1000) is None
+
+
+def test_report_and_render_carry_the_measured_figure():
+    now = 1_000_000.0
+    rows = [{"t": now - 60, "interface": "eth0", "rx": 3_000_000, "tx": 1_000_000,
+             "seconds": 300}]
+    body = budget.report(TARGETS, CPE, PROBES, traffic_text=_traffic(rows), now=now)
+    assert body["measured"]["mb_per_day"] == 1152.0
+    text = budget.render(body)
+    assert "Measured on eth0: ~1152 MB/day" in text
+    assert "over the last 5 min" in text
+    assert budget.report(TARGETS, CPE, PROBES)["measured"] is None
+
+
 # --- GET /budget ------------------------------------------------------------
 
 class FakeContainer:
@@ -205,6 +276,8 @@ def test_budget_endpoint_includes_the_cpe_targets(client, monkeypatch, tmp_path)
     assert body["available"] is True and body["complete"] is True
     assert body["targets"] == 7
     assert ["cat", "/config/Database"] in container.calls
+    assert ["cat", "/config/uplink_traffic.json"] in container.calls
+    assert body["measured"] is None  # no meter state yet
 
 
 def test_budget_without_smokeping_still_answers(client, monkeypatch, tmp_path):

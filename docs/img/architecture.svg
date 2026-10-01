@@ -114,6 +114,7 @@
 <text x="454" y="559" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">public_ip</tspan>: the public address and its network</text>
 <text x="454" y="579" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">dns_wizard</tspan>: the wizard&#x27;s snapshot</text>
 <text x="454" y="599" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">measurement_budget</tspan>: config-manager&#x27;s budget</text>
+<text x="454" y="619" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">uplink_traffic</tspan>: what the uplink really carries</text>
 <rect x="700" y="680" width="210" height="92" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
 <g transform="translate(718,695) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0M12 19.5v.1"/></g>
 <text x="748" y="711" font-size="17" font-weight="700" fill="#1e40af">mdns</text>

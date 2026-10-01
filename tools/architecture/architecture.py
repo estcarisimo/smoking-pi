@@ -157,9 +157,11 @@ NODES: tuple[Node, ...] = (
         "· public_ip: the public address and its network",
         "· dns_wizard: the wizard's snapshot",
         "· measurement_budget: config-manager's budget",
+        "· uplink_traffic: what the uplink really carries",
     ), 430, 330, 480, 330, "core", icon="pulse", services=("smokeping",), exporters=(
         "rrd2influx", "rrd2clickhouse", "microcut_detector", "cpe_discovery",
         "wifi_link", "resolver_identity", "public_ip", "dns_wizard", "measurement_budget",
+        "uplink_traffic",
     )),
     Node("mdns", "mdns",
          ("the name smoking-pi.local,", "by multicast DNS"),

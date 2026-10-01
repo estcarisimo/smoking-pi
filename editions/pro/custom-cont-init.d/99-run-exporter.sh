@@ -138,3 +138,12 @@ case "${TSDB_TYPE}" in
         echo "No exporter configured for TSDB_TYPE: ${TSDB_TYPE}"
         ;;
 esac
+
+# What the uplink actually carries, beside the budget's estimate
+# (docs/measurement-budget.md, "Measured traffic"). Any backend: its state
+# file feeds config-manager's /budget; with InfluxDB it also writes the
+# uplink_traffic series the Overview charts.
+if [ -f "/exporters/uplink_traffic.py" ]; then
+    echo "Starting uplink traffic meter..."
+    run_detached supervise_loop "Uplink traffic" python3 /exporters/uplink_traffic.py
+fi

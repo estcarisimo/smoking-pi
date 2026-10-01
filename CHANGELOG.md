@@ -32,6 +32,22 @@ version gets a matching GitHub release and git tag.
   (Docker bridges, veths and VPNs are never used). It is the eleventh
   published image. `docs/mdns.md`.
 
+- **Measured traffic beside the budget's estimate.** The measurement
+  budget only ever estimated: configured probes times a per-sample cost
+  measured once. Nothing said what the Pi really sent and received. On
+  the reference Pi the estimate read 1263 MB/day and nothing could confirm
+  or refute it. A wrong per-sample cost, or traffic outside SmokePing (the
+  microcut detector, the DNS observer, image pulls, an assistant), would
+  stay invisible until a metered connection's bill showed it. A new
+  exporter in the SmokePing container (Pro), `uplink_traffic`, reads the
+  uplink interface's own byte counters every five minutes. It writes them
+  to InfluxDB (`uplink_traffic`) and keeps the last 24 hours on the config
+  volume. `/budget`, `smoking-pi budget` and the dashboard's budget card
+  show the measured MB/day, in and out, against the same ceiling. The
+  Overview draws it as a solid line over the stacked estimate. It counts
+  everything on the interface, so the gap between the two is what the Pi
+  spends on other things. `docs/measurement-budget.md`, "Measured traffic".
+
 ## [2.17.0] — 2026-10-01
 
 What the measurements cost is on the dashboard and in Grafana, and two
