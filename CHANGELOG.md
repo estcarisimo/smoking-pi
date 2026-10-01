@@ -27,9 +27,14 @@ is visible.
   `CHART_THEME` or `ALERT_IMAGE_AS_DOCUMENT` change look on upgrade**; the
   entry below says how to keep the old one.
 - The assistant no longer draws charts of its own.
+- **`smoking-pi install` no longer prints the new install's passwords and
+  tokens.** An install made before this release still has them in whatever
+  recorded that terminal (scrollback, transcripts, anything pasted from it).
 - `smoking-pi install` sets up the services it switches on, and a new
   install's first alert is no longer a false "critical: the monitor, not
   the network".
+- After upgrading, run `sudo smoking-pi openclaw` so the assistant picks up
+  the new skill text.
 
 ### Added
 
@@ -44,7 +49,7 @@ is visible.
   said how much traffic a target list generates. The DNS wizard can adopt
   60 services over ICMP, TCP and three HTTP versions, and a growing list
   was invisible until it showed up on a metered bill. The HTTP probes had
-  been downloading whole home pages at about 6 GB a day for the seed alone
+  been downloading whole home pages at about 5.7 GB a day for one seed target
   without anyone noticing. The command (and `GET /budget` on
   config-manager) reads the generated SmokePing config. It reports samples
   per hour and approximate MB per day per probe, most expensive first,
@@ -123,8 +128,8 @@ is visible.
   an agent with a shell improvises: matplotlib from scratch, ASCII or
   emoji bars. The results looked worse than either of the two things
   Smoking Pi already offers, and they cost the reader the interactive
-  Grafana view they could have had with one tap. The MCP server instructions and the OpenClaw
-  skill now say it outright: never draw a chart yourself. "How did it
+  Grafana view they could have had with one tap. The MCP server
+  instructions and the OpenClaw skill now say it outright: never draw a chart yourself. "How did it
   look" gets the Grafana link the tool returned, a picture to keep or
   forward comes from `get_chart`, and without either the answer is words
   with times and numbers. After upgrading, `sudo smoking-pi openclaw`
@@ -165,8 +170,9 @@ is visible.
   mismatch, so the old files are moved to `/data/.archive/<time>/` in the
   SmokePing volume (readable with `rrdtool`, not deleted) and new ones
   begin. Grafana reads InfluxDB, where every point records the pings it
-  was measured with, so its history runs straight through. That would have been a
-  crash loop: config-manager runs the RRD guard before every reload, but
+  was measured with, so its history runs straight through.
+  Without a second change this would have been a crash loop:
+  config-manager runs the RRD guard before every reload, but
   it cannot reach a SmokePing that is not running yet. On an upgrade that
   recreates both containers, SmokePing could start on the new Probes file
   and die on every restart, measuring nothing. config-manager now writes
