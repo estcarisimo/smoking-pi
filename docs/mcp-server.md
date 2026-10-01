@@ -83,6 +83,13 @@ What it draws, for one target and one window (1–720 h, default 24):
 - `with_peers=true` adds the target's same-category peers as faint lines, so
   "is it this host or everything?" is visible in one picture.
 
+![get_chart for one target over 24 hours: a congestion episode on the target while its peers stay flat](img/chart-on-request.png)
+
+A 24-hour window with a congestion episode: the median triples, the spread
+widens with it, and loss crosses the threshold, while here the peers stay
+flat. That is the picture "is it this host or everything?" is asked of. (Invented data, drawn
+by the real renderer: `tools/chart-examples/render.py`.)
+
 The PNG comes back as an MCP image block, which Claude Desktop, Claude Code and
 OpenClaw all render, plus a JSON block with what was drawn and the Grafana
 links for the same view. The rendering is matplotlib in-process (about a

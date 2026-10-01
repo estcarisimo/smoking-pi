@@ -11,6 +11,13 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The documentation shows the charts.** The alerting and MCP docs
+  described the alert, digest and `get_chart` images in words only, so
+  nobody could tell what an alert would look like before receiving one.
+  `docs/alerting.md` and `docs/mcp-server.md` now include them, rendered by
+  `tools/chart-examples/render.py`: the real renderer on invented data,
+  rerun whenever the chart code changes.
+
 - **`smoking-pi budget`: what the configured measurements cost.** Nothing
   said how much traffic a target list generates. The DNS wizard can adopt
   60 services over ICMP, TCP and three HTTP versions, and a growing list
@@ -39,7 +46,7 @@ version gets a matching GitHub release and git tag.
     title;
   - a dashed major and dotted minor grid, and a framed legend;
   - matplotlib's tab colors: the subject in a strong line, peers in thin
-    grey, and status in tab red/orange, since the old warning yellow
+    gray, and status in tab red/orange, since the old warning yellow
     vanishes on white;
   - a solid black threshold line, so it never reads as grid, with its
     label at the left where it cannot cover the latest trace;

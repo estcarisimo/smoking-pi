@@ -50,7 +50,7 @@ log = logging.getLogger("charts")
 # --- palette ----------------------------------------------------------------
 # Light by default (CHART_THEME=dark for the dark one). The light palette is
 # matplotlib's own tab colors on white, as in the project author's papers:
-# the subject in tab:blue, peers in thin grey, status in tab:red/orange.
+# the subject in tab:blue, peers in thin gray, status in tab:red/orange.
 SURFACE = "#1a1a19"
 INK = "#ffffff"
 MUTED = "#898781"
@@ -461,7 +461,7 @@ def _render_series_chart(
     # solid hairlines so that dashed means "threshold" and nothing else.
     threshold, threshold_label = _loss_threshold(measurement)
     if 0 < threshold < 100:
-        # Solid ink: the grid is dashed grey and status is colored, so a
+        # Solid ink: the grid is dashed gray and status is colored, so a
         # solid black line is the threshold and nothing else -- even on a
         # critical chart whose trace is already red.
         ax_loss.axhline(threshold, color=theme["INK"], linewidth=1.3,
