@@ -1741,7 +1741,7 @@
       "id": 54,
       "type": "stat",
       "title": "Bandwidth budget used",
-      "description": "Share of MEASUREMENT_BUDGET_MB_PER_DAY the configured measurements use. Yellow from 75%, red over the ceiling; `sudo smoking-pi budget` lists what to cut, most expensive first.",
+      "description": "Share of MEASUREMENT_BUDGET_MB_PER_DAY the configured measurements use. Yellow from 75%, red over the ceiling; `sudo smoking-pi budget` lists what to cut, most expensive first. The last report in the selected range: if the exporter stopped, the Probe traffic chart shows where its line ends.",
       "datasource": {
         "uid": "influxdb"
       },
@@ -1804,7 +1804,7 @@
       "id": 55,
       "type": "stat",
       "title": "Sample budget used",
-      "description": "Share of MEASUREMENT_BUDGET_SAMPLES_PER_HOUR the configured measurements use. Yellow from 75%, red over the ceiling.",
+      "description": "Share of MEASUREMENT_BUDGET_SAMPLES_PER_HOUR the configured measurements use. Yellow from 75%, red over the ceiling. The last report in the selected range: if the exporter stopped, the Probe traffic chart shows where its line ends.",
       "datasource": {
         "uid": "influxdb"
       },

@@ -1,5 +1,6 @@
 """Unit tests for measurement_budget.py -- no config-manager, no InfluxDB."""
 
+import http.client
 import io
 import json
 import logging
@@ -107,3 +108,19 @@ def test_a_failure_logs_the_type_only(caplog):
 def test_an_answer_that_is_not_json_or_not_an_object_is_none():
     assert mb.fetch_budget("http://x", "", lambda r, timeout: FakeResponse(b"<html>")) is None
     assert mb.fetch_budget("http://x", "", lambda r, timeout: FakeResponse(b"[1]")) is None
+
+
+def test_a_refusal_logs_its_status_and_nothing_else(caplog):
+    def refused(req, timeout):
+        raise urllib.error.HTTPError("http://127.0.0.1:5000/budget", 401,
+                                     "token=secret-xyz", None, None)
+    with caplog.at_level(logging.WARNING, logger="measurement_budget"):
+        assert mb.fetch_budget("http://127.0.0.1:5000", "secret-xyz", refused) is None
+    assert "HTTP 401" in caplog.text
+    assert "secret-xyz" not in caplog.text and "127.0.0.1" not in caplog.text
+
+
+def test_a_broken_response_does_not_escape():
+    def broken(req, timeout):
+        raise http.client.IncompleteRead(b"")
+    assert mb.fetch_budget("http://x", "", broken) is None

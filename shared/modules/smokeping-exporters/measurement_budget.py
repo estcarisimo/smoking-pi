@@ -35,6 +35,7 @@ rewrites the same point. Pro edition only (requires InfluxDB).
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import os
@@ -66,7 +67,12 @@ def fetch_budget(base_url: str, token: str = "",
     try:
         with opener(req, timeout=60) as resp:
             body = json.loads(resp.read())
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    except urllib.error.HTTPError as exc:
+        # It answered and said no; the status (401: a wrong or missing
+        # CONFIG_API_TOKEN) is the useful part, and it is not secret.
+        log.warning("budget not read this cycle: HTTP %s", exc.code)
+        return None
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
         log.warning("budget not read this cycle: %s", type(exc).__name__)
         return None
     if not isinstance(body, dict):
