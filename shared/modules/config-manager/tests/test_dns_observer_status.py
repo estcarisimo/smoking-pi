@@ -51,4 +51,13 @@ def test_partial_is_live_as_in_the_observer(tmp_path):
 def test_unreadable_status_is_down(tmp_path):
     (tmp_path / "status.json").write_text("{not json")
     card = dos.read(tmp_path, now=NOW)
-    assert card["state"] == "down" and "Unreadable" in card["reason"]
+    assert card["state"] == "down" and card["reason"] == dos.UNREADABLE
+
+
+def test_unreadable_status_keeps_the_exception_out_of_the_card(tmp_path, caplog):
+    """The card is an API response: no path, errno or parse position in it."""
+    (tmp_path / "status.json").mkdir()  # read_text() raises IsADirectoryError
+    card = dos.read(tmp_path, now=NOW)
+    assert card["reason"] == dos.UNREADABLE and card["fix"] == dos.UNREADABLE_FIX
+    assert str(tmp_path) not in json.dumps(card)
+    assert str(tmp_path) in caplog.text  # ...the operator still gets it

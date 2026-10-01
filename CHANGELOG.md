@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Security
+
+- **The DNS observer card no longer returns exception text.** When
+  `status.json` could not be read, config-manager's `/dns/observer` put the
+  exception into the card's `reason` (`Unreadable status file: [Errno 13]
+  Permission denied: '/dns-observer/status.json'`), and the web admin showed
+  it. That broke the rule that error responses never come from the exception
+  object (CodeQL alert #80, `py/stack-trace-exposure`, open since #161). The
+  leak was small: an internal path or a JSON parse position, behind the API
+  token. The card now says the status file is unreadable and points to the
+  logs, and the exception goes to the config-manager log with its traceback.
+
 ## [2.16.0] — 2026-10-01
 
 The HTTP probes measure what they claim to, and what the measurements cost

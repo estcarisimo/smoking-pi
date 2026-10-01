@@ -16,10 +16,13 @@ Pure apart from reading the file; ``now`` is injectable for tests.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 STATE_DIR = Path(os.environ.get("DNS_OBSERVER_DIR", "/dns-observer"))
 
@@ -29,6 +32,10 @@ LIVE_STATES = frozenset(
 )
 
 DOWN_FIX = "smoking-pi up; then smoking-pi logs dns-observer"
+# The card's text is fixed: the exception (a path, an errno, a JSON parse
+# position) goes to the config-manager log, not to the API response.
+UNREADABLE = "The DNS observer's status file is unreadable."
+UNREADABLE_FIX = "smoking-pi logs config-manager; then smoking-pi logs dns-observer"
 
 
 def read(state_dir: Path = STATE_DIR, now: Optional[float] = None) -> Dict[str, Any]:
@@ -39,8 +46,11 @@ def read(state_dir: Path = STATE_DIR, now: Optional[float] = None) -> Dict[str, 
         status = json.loads((state_dir / "status.json").read_text())
     except FileNotFoundError:
         return {"available": True, "enabled": False}
-    except (OSError, ValueError) as exc:
-        return _card({"state": "down", "reason": f"Unreadable status file: {exc}"}, live=False)
+    except (OSError, ValueError):
+        logger.exception("Unreadable DNS observer status file in %s", state_dir)
+        return _card(
+            {"state": "down", "reason": UNREADABLE, "fix": UNREADABLE_FIX}, live=False
+        )
     if status.get("state") == "stopped":
         return _card(status, live=False)
     if now > (status.get("stale_after") or 0):
