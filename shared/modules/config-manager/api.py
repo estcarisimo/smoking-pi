@@ -31,6 +31,7 @@ from scripts import ipv6_check
 # Shared file lock / atomic write helpers
 from file_ops import get_config_lock, atomic_write_yaml
 import freshness
+import budget
 import assistant
 import recommendations
 import wizard_adopt
@@ -502,6 +503,41 @@ class ConfigManagerAPI:
             started_at=_container_started_at(container),
         )
         return {'available': True, 'checked_at': datetime.now().isoformat(), **body}
+
+    def measurement_budget(self) -> Dict[str, Any]:
+        """What the configured measurements cost, against the ceilings.
+        See budget.py. The CPE targets and the Database defaults live in
+        the SmokePing container; when it cannot be read, the budget is
+        still computed from the generated files, and says so.
+        """
+        targets_file = OUTPUT_DIR / "Targets"
+        probes_file = OUTPUT_DIR / "Probes"
+        if not targets_file.exists():
+            return {'available': False,
+                    'reason': 'no generated Targets file yet'}
+        cpe_text = database_text = ''
+        complete = True
+        try:
+            container = docker.from_env().containers.get(
+                resolve_container_name('smokeping'))
+            cpe = container.exec_run(['cat', '/config/CPE_Targets'])
+            database = container.exec_run(['cat', '/config/Database'])
+            if cpe.exit_code == 0:
+                cpe_text = cpe.output.decode(errors='replace')
+            if database.exit_code == 0:
+                database_text = database.output.decode(errors='replace')
+        except Exception as e:
+            logger.info("Budget without the SmokePing container's files: %s",
+                        type(e).__name__)
+            complete = False
+        body = budget.report(
+            targets_text=targets_file.read_text(),
+            cpe_text=cpe_text,
+            probes_text=probes_file.read_text() if probes_file.exists() else '',
+            database_text=database_text,
+        )
+        return {'available': True, 'complete': complete,
+                'checked_at': datetime.now().isoformat(), **body}
 
     def assistant_status(self) -> Dict[str, Any]:
         """Whether an assistant is calling the MCP server; see assistant.py.
@@ -1103,6 +1139,16 @@ def measurements():
         return jsonify(api.measurement_freshness())
     except Exception as e:
         return error_response(500, "Failed to check measurement freshness", e)
+
+
+@app.route('/budget', methods=['GET'])
+@require_api_token
+def measurement_budget():
+    """What the configured measurements cost, against the ceilings. See budget.py."""
+    try:
+        return jsonify(api.measurement_budget())
+    except Exception as e:
+        return error_response(500, "Failed to compute the measurement budget", e)
 
 
 @app.route('/recommendations', methods=['GET'])

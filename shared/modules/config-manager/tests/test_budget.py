@@ -1,0 +1,233 @@
+"""The measurement budget: pure accounting over the generated SmokePing
+config (budget.py), and GET /budget against a fake Docker client."""
+
+from types import SimpleNamespace
+
+import pytest
+
+import api as api_module
+import budget
+
+# The generated Probes file's shape: plain probes, then the Curl class with
+# its sub-probes (config_generator.generate_probes_file).
+PROBES = """*** Probes ***
+
++ FPing
+binary = /usr/sbin/fping
+step = 300
+pings = 10
+
++ DNS
+binary = /usr/bin/dig
+step = 300
+pings = 5
+
++ Curl
+
+++ CurlHTTP2
+binary = /usr/local/bin/curl-h3
+step = 300
+pings = 5
+
+++ WizardHTTP2
+binary = /usr/local/bin/curl-h3
+step = 300
+pings = 5
+
++ Mystery
+step = 60
+pings = 3
+"""
+
+TARGETS = """*** Targets ***
+probe = FPing
+
++ websites
+++ Google
+host = google.com
+++ NYT
+host = nytimes.com
+
++ DNS_Resolvers
+probe = DNS
+++ GoogleDNS
+host = 8.8.8.8
+
++ HTTP
+++ Google_h2
+probe = CurlHTTP2
+host = www.google.com
+
++ Services
+++ svc_netflix_h2
+probe = WizardHTTP2
+host = www.netflix.com
+++ odd
+probe = Mystery
+host = example.com
+"""
+
+CPE = """+ CPE
+++ CPE_IPv4
+host = 192.168.1.1
+"""
+
+NO_ENV: dict = {}
+
+
+def test_sub_probes_belong_to_their_parents_class():
+    classes = budget.probe_classes(PROBES)
+    assert classes["CurlHTTP2"] == "Curl"
+    assert classes["WizardHTTP2"] == "Curl"
+    assert classes["FPing"] == "FPing"
+    assert classes["Mystery"] == "Mystery"
+
+
+def test_samples_and_bytes_per_probe():
+    body = budget.report(TARGETS, CPE, PROBES, env=NO_ENV)
+    rows = {r["probe"]: r for r in body["by_probe"]}
+    # FPing: Google, NYT and the CPE (it inherits the file's top probe),
+    # 10 pings every 300 s each = 120 samples an hour per target.
+    assert rows["FPing"]["targets"] == 3
+    assert rows["FPing"]["samples_per_hour"] == 360
+    assert rows["FPing"]["mb_per_day"] == pytest.approx(360 * 24 * 168 / 1e6, abs=0.01)
+    # One HEAD target: 60 samples an hour at 12 KB.
+    assert rows["CurlHTTP2"]["samples_per_hour"] == 60
+    assert rows["CurlHTTP2"]["mb_per_day"] == pytest.approx(60 * 24 * 12_000 / 1e6)
+    # The wizard's copy is priced as the Curl class it belongs to.
+    assert rows["WizardHTTP2"]["bytes_per_sample"] == 12_000
+    # Its own step: 3 pings every 60 s = 180 an hour.
+    assert rows["Mystery"]["samples_per_hour"] == 180
+    assert body["targets"] == 7
+
+
+def test_most_expensive_first():
+    body = budget.report(TARGETS, CPE, PROBES, env=NO_ENV)
+    order = [r["probe"] for r in body["by_probe"]]
+    assert order[:2] == ["CurlHTTP2", "WizardHTTP2"]
+    # Unpriced probes have no bytes: they sort by samples among the rest.
+    assert order.index("Mystery") > order.index("FPing")
+
+
+def test_a_class_without_a_measured_cost_is_named_not_guessed():
+    body = budget.report(TARGETS, CPE, PROBES, env=NO_ENV)
+    assert body["unpriced"] == ["Mystery"]
+    assert {r["probe"]: r for r in body["by_probe"]}["Mystery"]["mb_per_day"] is None
+    # Counted in samples, not in bytes.
+    assert body["samples_per_hour"] == 360 + 60 + 60 + 60 + 180
+    assert "No byte estimate for: Mystery" in budget.render(body)
+
+
+def test_the_database_defaults_apply_to_a_probe_without_its_own():
+    probes = "*** Probes ***\n\n+ FPing\nbinary = /usr/sbin/fping\n"
+    targets = "*** Targets ***\nprobe = FPing\n\n+ a\n++ b\nhost = x\n"
+    database = "*** Database ***\nstep = 60\npings = 20\n"
+    row, = budget.report(targets, "", probes, database, env=NO_ENV)["by_probe"]
+    assert (row["step"], row["pings"], row["samples_per_hour"]) == (60, 20, 1200)
+
+
+def test_usage_against_the_default_ceilings():
+    body = budget.report(TARGETS, CPE, PROBES, env=NO_ENV)
+    assert body["ceiling"] == {"mb_per_day": budget.DEFAULT_MB_PER_DAY,
+                               "samples_per_hour": budget.DEFAULT_SAMPLES_PER_HOUR}
+    assert body["used"]["samples_pct"] == round(
+        100 * body["samples_per_hour"] / budget.DEFAULT_SAMPLES_PER_HOUR, 1)
+    assert body["over"] is False
+
+
+def test_over_either_ceiling_is_over_budget():
+    tight_bytes = {"MEASUREMENT_BUDGET_MB_PER_DAY": "1"}
+    body = budget.report(TARGETS, CPE, PROBES, env=tight_bytes)
+    assert body["over"] is True and body["used"]["bandwidth_pct"] > 100
+    assert "Over budget" in budget.render(body)
+    tight_samples = {"MEASUREMENT_BUDGET_SAMPLES_PER_HOUR": "100"}
+    assert budget.report(TARGETS, CPE, PROBES, env=tight_samples)["over"] is True
+
+
+@pytest.mark.parametrize("value", ["", "lots", "0", "-5"])
+def test_a_bad_ceiling_falls_back_to_the_default(value):
+    env = {"MEASUREMENT_BUDGET_MB_PER_DAY": value}
+    assert budget.ceilings(env)["mb_per_day"] == budget.DEFAULT_MB_PER_DAY
+
+
+def test_the_shipped_probes_all_have_a_cost():
+    """Every probe the seed ships is priced, so the seed's figure is whole."""
+    import pathlib
+    import yaml
+
+    seed = yaml.safe_load((pathlib.Path(budget.__file__).parent / "templates"
+                           / "probes.yaml").read_text())["probes"]
+    for name, probe in seed.items():
+        assert probe.get("module", name) in budget.BYTES_PER_SAMPLE, name
+
+
+# --- GET /budget ------------------------------------------------------------
+
+class FakeContainer:
+    def __init__(self, files):
+        self.files = files
+        self.calls = []
+
+    def exec_run(self, cmd):
+        self.calls.append(cmd)
+        path = cmd[-1]
+        if path in self.files:
+            return SimpleNamespace(exit_code=0, output=self.files[path].encode())
+        return SimpleNamespace(exit_code=1, output=b"No such file")
+
+
+@pytest.fixture()
+def client(monkeypatch):
+    for var in ("CONFIG_API_TOKEN", "MEASUREMENT_BUDGET_MB_PER_DAY",
+                "MEASUREMENT_BUDGET_SAMPLES_PER_HOUR"):
+        monkeypatch.delenv(var, raising=False)
+    api_module.app.config["TESTING"] = True
+    with api_module.app.test_client() as c:
+        yield c
+
+
+def _docker(monkeypatch, container=None, error=None):
+    def from_env():
+        if error:
+            raise error
+        return SimpleNamespace(containers=SimpleNamespace(get=lambda name: container))
+    monkeypatch.setattr(api_module.docker, "from_env", from_env)
+    monkeypatch.setattr(api_module, "resolve_container_name", lambda svc: "pro-smokeping-1")
+
+
+def test_budget_endpoint_includes_the_cpe_targets(client, monkeypatch, tmp_path):
+    (tmp_path / "Targets").write_text(TARGETS)
+    (tmp_path / "Probes").write_text(PROBES)
+    monkeypatch.setattr(api_module, "OUTPUT_DIR", tmp_path)
+    container = FakeContainer({"/config/CPE_Targets": CPE})
+    _docker(monkeypatch, container)
+    body = client.get("/budget").get_json()
+    assert body["available"] is True and body["complete"] is True
+    assert body["targets"] == 7
+    assert ["cat", "/config/Database"] in container.calls
+
+
+def test_budget_without_smokeping_still_answers(client, monkeypatch, tmp_path):
+    (tmp_path / "Targets").write_text(TARGETS)
+    (tmp_path / "Probes").write_text(PROBES)
+    monkeypatch.setattr(api_module, "OUTPUT_DIR", tmp_path)
+    _docker(monkeypatch, error=RuntimeError("no docker socket"))
+    body = client.get("/budget").get_json()
+    assert body["available"] is True
+    # Without the CPE target, and saying it is incomplete.
+    assert body["complete"] is False
+    assert body["targets"] == 6
+
+
+def test_budget_before_the_first_generation(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(api_module, "OUTPUT_DIR", tmp_path)
+    body = client.get("/budget").get_json()
+    assert body == {"available": False, "reason": "no generated Targets file yet"}
+
+
+def test_budget_needs_the_token_when_one_is_set(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("CONFIG_API_TOKEN", "sekrit")
+    monkeypatch.setattr(api_module, "OUTPUT_DIR", tmp_path)
+    assert client.get("/budget").status_code == 401
+    ok = client.get("/budget", headers={"X-API-Token": "sekrit"})
+    assert ok.status_code == 200

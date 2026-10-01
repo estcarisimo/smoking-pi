@@ -201,6 +201,12 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      server's log, which is the only thing that proves the
                      agent is using your history instead of its own shell.
                      Pro only; OpenClaw elsewhere: docs/remote-openclaw.md.
+  budget [--json]
+                     What the configured measurements cost (Standard, Pro):
+                     samples per hour and approximate MB per day per probe,
+                     most expensive first, against MEASUREMENT_BUDGET_MB_PER_DAY
+                     and MEASUREMENT_BUDGET_SAMPLES_PER_HOUR. Accounting only:
+                     nothing is throttled. See docs/measurement-budget.md.
   dns [status [--json] | test [--via ROUTER] [--json] | adopt [--dry-run] | enable [--yes] | disable [--yes]]
                      The DNS observer (Pro): AdGuard Home on port 53, for the
                      router to forward the house's DNS to. 'enable' turns on
@@ -2196,6 +2202,27 @@ dns_adopt() {
     compose exec -T config-manager python wizard_adopt.py "$@"
 }
 
+cmd_budget() {
+    # What the configured measurements cost against the ceilings
+    # (config-manager/budget.py), asked of the running API from inside its
+    # container: the API token stays in the container's environment.
+    local a
+    for a in "$@"; do
+        case "$a" in --json) ;; -h|--help) usage; return 0 ;;
+            *) echo "unknown option $a (--json)" >&2; return 2 ;; esac
+    done
+    need_edition
+    if ! grep -q '^  config-manager:' "$EDITION_DIR/docker-compose.yml"; then
+        echo "The measurement budget reads config-manager's generated config; the $SMOKING_PI_EDITION edition does not ship it." >&2
+        return 1
+    fi
+    if [ -z "$(compose ps -q --status running config-manager 2>/dev/null)" ]; then
+        echo "config-manager is not running: $(cli_name) up" >&2
+        return 1
+    fi
+    compose exec -T config-manager python budget.py "$@"
+}
+
 port53_holder() {
     # Whatever already listens on port 53 (systemd-resolved's stub listens
     # on 127.0.0.53 only and does not conflict with 0.0.0.0 on Linux, but
@@ -2309,6 +2336,7 @@ case "${1:-}" in
     links) shift; cmd_links "$@" ;;
     alerts) shift; cmd_alerts "$@" ;;
     dns) shift; cmd_dns "$@" ;;
+    budget) shift; cmd_budget "$@" ;;
     up) shift; compose up -d "$@"; remove_disabled; publish_avahi ;;
     down) shift; compose down "$@"; unpublish_avahi ;;
     discover) shift; cmd_discover "$@" ;;

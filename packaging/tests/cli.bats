@@ -2034,3 +2034,38 @@ teardown() { chmod -R u+rwx "$BATS_TEST_TMPDIR" 2>/dev/null || true; }
     unlock_env
     [ "$status" -eq 0 ]
 }
+
+# --- budget: what the configured measurements cost -----------------------------
+
+budget_setup() {
+    mkdir -p "$BATS_TEST_TMPDIR/bin4"
+    cat > "$BATS_TEST_TMPDIR/bin4/docker" <<STUB
+#!/bin/sh
+case "\$*" in
+    *"ps -q --status running config-manager"*) echo "docker \$*" >> "\$DOCKER_LOG"; [ -z "\${STUB_CM_RUNNING:-}" ] || echo cm123; exit 0 ;;
+    *"exec -T config-manager python budget.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "21 targets: 1620 samples/h of 20000 (8.1%)"; exit 0 ;;
+esac
+exec "$BATS_TEST_TMPDIR/bin/docker" "\$@"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin4/docker"
+    export PATH="$BATS_TEST_TMPDIR/bin4:$PATH"
+}
+
+@test "budget: runs in config-manager, passes --json, refuses other options and a stopped API" {
+    budget_setup
+    run "$CLI" budget
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"config-manager is not running"* ]]
+    ! grep -q 'budget.py' "$DOCKER_LOG"
+    export STUB_CM_RUNNING=1
+    run "$CLI" budget
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python budget.py$' "$DOCKER_LOG"
+    [[ "$output" == *"1620 samples/h"* ]]
+    run "$CLI" budget --json
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python budget.py --json' "$DOCKER_LOG"
+    run "$CLI" budget --all
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown option --all"* ]]
+}

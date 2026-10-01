@@ -66,6 +66,7 @@ COPY wsgi.py ./
 COPY models.py ./
 COPY file_ops.py ./
 COPY freshness.py ./
+COPY budget.py ./
 COPY recommendations.py ./
 COPY assistant.py ./
 COPY pydantic_models.py ./

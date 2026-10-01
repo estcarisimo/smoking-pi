@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`smoking-pi budget`: what the configured measurements cost.** Nothing
+  said how much traffic a target list generates. The DNS wizard can adopt
+  60 services over ICMP, TCP and three HTTP versions, and a growing list
+  was invisible until it showed up on a metered bill. The HTTP probes had
+  been downloading whole home pages at about 6 GB a day for the seed alone
+  without anyone noticing. The command (and `GET /budget` on
+  config-manager) reads the generated SmokePing config. It reports samples
+  per hour and approximate MB per day per probe, most expensive first,
+  against two ceilings: `MEASUREMENT_BUDGET_MB_PER_DAY` (default 1000) and
+  `MEASUREMENT_BUDGET_SAMPLES_PER_HOUR` (default 20000). The bytes per
+  sample were measured, not derived: 168 for ICMP, 300 for DNS, 200 for
+  TCP, 12 KB for an HTTPS HEAD. The seed comes to ~161 MB/day, 16% of the
+  default. This is accounting only; nothing is throttled yet.
+  Standard and Pro. See `docs/measurement-budget.md`.
+
 ### Changed
 
 - **`smoking-pi install` finishes what it starts.** A clean install on the

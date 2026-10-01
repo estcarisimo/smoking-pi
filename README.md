@@ -339,6 +339,7 @@ Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](ht
 | [docs/openclaw-integration.md](docs/openclaw-integration.md) | Registering the MCP server and installing the skill for a chat assistant |
 | [docs/remote-openclaw.md](docs/remote-openclaw.md) | OpenClaw on another machine: SSH tunnel, Tailscale/WireGuard, or Cloudflare Access — ranked by exposure |
 | [docs/wifi.md](docs/wifi.md) | Wi-Fi uplink stats: what is recorded, from where, and how to query it |
+| [docs/measurement-budget.md](docs/measurement-budget.md) | What the configured measurements cost (samples/h, MB/day per probe) against a ceiling: `smoking-pi budget` |
 | [docs/http-probes.md](docs/http-probes.md) | HTTP/1.1 vs 2 vs 3 fetch time and TCP handshake probes: how the version is enforced, where the data lands |
 | [docs/cpe-last-mile.md](docs/cpe-last-mile.md) | Reading the physical last mile (optical/DSL/DOCSIS levels) from the CPE: what the gateway exposes, why it is parked |
 | [docs/doctor.md](docs/doctor.md) | The instrumentation doctor: static and live checks |
