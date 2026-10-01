@@ -28,8 +28,9 @@ really carried, and (Pro) which service carried it.
 - Pro: a new `netmeter` service attributes the uplink's bytes to each
   container with a counter-only nftables table (`inet smoking_pi_meter`)
   that never drops, accepts or rewrites a packet, and is removed when the
-  container stops; `NETMETER=off` loads nothing. Two minutes on the test
-  Pi: SmokePing ~943 MB/day against its ~410 MB/day estimate.
+  container stops; `NETMETER=off` loads nothing. Ten minutes on the test
+  Pi: the uplink ~524 MB/day, SmokePing ~464 MB/day of it, against a
+  ~410 MB/day estimate.
 - Two new images, `mdns` and `netmeter`: twelve in all. `smoking-pi
   upgrade` starts `mdns` in every edition and `netmeter` in Pro.
 
@@ -58,9 +59,8 @@ really carried, and (Pro) which service carried it.
   published image. `docs/mdns.md`.
 
 - **Measured traffic by service.** The uplink meter says how much the Pi
-  sends and receives, not who. On the test Pi it read about twice the
-  budget's estimate, and the only way to find the difference was to
-  guess: SmokePing, the DNS observer, an image pull, an assistant on the
+  sends and receives, not who. On the test Pi it read above the budget's
+  estimate, and the only way to find the difference was to guess: SmokePing, the DNS observer, an image pull, an assistant on the
   host. Getting an outlier wrong means cutting the wrong thing. A new Pro
   service, `netmeter`, attributes the uplink's bytes to each container
   with a counter-only nftables table (`inet smoking_pi_meter`).
@@ -73,8 +73,10 @@ really carried, and (Pro) which service carried it.
   `GET /meter/containers`) instead of holding the Docker socket, and
   writes `service_traffic` to InfluxDB. `smoking-pi budget`, the web
   admin's budget card and a new Overview panel list the services, most
-  traffic first. Two minutes on the test Pi: SmokePing ~943 MB/day
-  against its ~410 MB/day estimate. `NETMETER=off` loads nothing. It is
+  traffic first. Ten minutes on the test Pi: the uplink ~524 MB/day,
+  the services ~506 MB/day between them, SmokePing ~464 MB/day of it
+  against its ~410 MB/day estimate (a two-minute reading had said ~943:
+  short windows catch probe bursts). `NETMETER=off` loads nothing. It is
   the twelfth published image. `docs/measurement-budget.md`, "By
   service".
 
