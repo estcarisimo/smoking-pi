@@ -67,7 +67,8 @@ version gets a matching GitHub release and git tag.
 - **The assistant drew charts of its own.** Nothing told it not to, and
   an agent with a shell improvises: matplotlib from scratch, ASCII or
   emoji bars. The results looked worse than either of the two things
-  Smoking Pi already offers. The MCP server instructions and the OpenClaw
+  Smoking Pi already offers, and they cost the reader the interactive
+  Grafana view they could have had with one tap. The MCP server instructions and the OpenClaw
   skill now say it outright: never draw a chart yourself. "How did it
   look" gets the Grafana link the tool returned, a picture to keep or
   forward comes from `get_chart`, and without either the answer is words
