@@ -23,14 +23,21 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "shared" / "modules"))
 os.environ["TZ"] = "UTC"  # the axis and footer name a zone; keep it stable
 time.tzset()
+os.environ["CHART_THEME"] = "light"  # whatever the shell exports
 
 from common import charts  # noqa: E402
 
 OUT = ROOT / "docs" / "img"
-# Anchored to the render time, because the footer says when it was drawn
-# and the data should end there; the shapes depend only on the offsets.
-NOW = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-NOW -= timedelta(minutes=NOW.minute % 5)
+# A fixed clock, so a rerun with unchanged chart code writes identical
+# files: the data ends here, and the footer's "generated" stamp is pinned
+# to it too (see _FixedClock).
+NOW = datetime(2026, 10, 1, 14, 40, tzinfo=timezone.utc)
+
+
+class _FixedClock(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return NOW if tz else NOW.replace(tzinfo=None)
 STEP = timedelta(minutes=5)
 
 # Baseline median latency in seconds, and an episode 3h50m to 2h30m before
@@ -74,6 +81,7 @@ def _fetch_spread(target, measurement, hours):
 def main() -> int:
     charts._fetch = _fetch
     charts._fetch_spread = _fetch_spread
+    charts.datetime = _FixedClock
     peers = ["Cloudflare", "Netflix"]
     first_seen = (EPISODE[0] + timedelta(minutes=15)).timestamp()
     images = {

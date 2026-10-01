@@ -335,12 +335,12 @@ telegram:<id> --digest 08:30`.
 
 When any target lost packets in the window, the digest carries a chart of
 the worst ones: mean loss as bars, one color for all of them, with the value
-and the p95 latency next to each. A target over the alert threshold is marked
-with ▲ and its value in the status color, so the color never carries the
-meaning alone. On a day with no loss there is no chart; the text says all
+and the p95 latency next to each. A target whose mean loss is over
+`HIGH_LOSS_PCT` (20) is marked with ▲ and its value in orange (warning), so
+the color never carries the meaning alone. On a day with no loss there is no chart; the text says all
 clear.
 
-![The daily digest chart: the worst targets by mean loss](img/chart-digest.png)
+![The daily digest chart: the worst targets by mean loss, one of them marked over the threshold](img/chart-digest.png)
 
 ### Fires once, however the clock behaves
 
@@ -418,13 +418,15 @@ Every interpolated value is escaped. Target names are user-editable, and
 An incident alert carries a chart of the last `CHART_HOURS` (6) of the
 target, drawn to be read in a chat on a phone and sent as an inline photo:
 
-![An incident chart: latency over loss for one target, the alert marked](img/chart-alert.png)
+![An incident chart for one target: latency triples and loss rises above the 20% threshold where the alert is marked](img/chart-alert.png)
 
 - **Latency on top**: the median as the line, the spread of the individual
   pings as two shaded bands (min–max, and the inner quartiles), the
-  same-category peers as thin grey lines, and the last value labeled.
+  same-category peers as thin gray lines, and the last value labeled.
 - **Loss underneath**, on an axis pinned to 0–100, with the alert threshold
-  as a solid line. Two panels, never two y-axes on one.
+  (`HIGH_LOSS_PCT`, 20) as a solid line; on the CPE gateway's chart it is
+  the microcut threshold (`MICROCUT_LOSS_PCT`, 50) instead. Two panels,
+  never two y-axes on one.
 - **The alert** as a vertical line at the moment the incident opened. The
   series wears the severity's color (red for critical, orange for
   warning); a chart someone asks for (`get_chart`) wears plain blue.

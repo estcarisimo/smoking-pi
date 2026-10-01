@@ -46,7 +46,7 @@ version gets a matching GitHub release and git tag.
     title;
   - a dashed major and dotted minor grid, and a framed legend;
   - matplotlib's tab colors: the subject in a strong line, peers in thin
-    grey, and status in tab red/orange, since the old warning yellow
+    gray, and status in tab red/orange, since the old warning yellow
     vanishes on white;
   - a solid black threshold line, so it never reads as grid, with its
     label at the left where it cannot cover the latest trace;
