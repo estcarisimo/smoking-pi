@@ -48,7 +48,9 @@ def read(state_dir: Path = STATE_DIR, now: Optional[float] = None) -> Dict[str, 
         return {"available": True, "enabled": False}
     except (OSError, ValueError):
         logger.exception("Unreadable DNS observer status file in %s", state_dir)
-        return _card({"state": "down", "reason": UNREADABLE, "fix": UNREADABLE_FIX}, live=False)
+        return _card(
+            {"state": "down", "reason": UNREADABLE, "fix": UNREADABLE_FIX}, live=False
+        )
     if status.get("state") == "stopped":
         return _card(status, live=False)
     if now > (status.get("stale_after") or 0):
