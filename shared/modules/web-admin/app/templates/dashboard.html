@@ -46,8 +46,13 @@
             <div class="card-body">
                 <h5 class="card-title">Bandwidth Usage</h5>
                 <div class="bandwidth-info">
-                    <strong>{{ bandwidth_kbps }} Kbps</strong><br>
-                    <small>({{ bandwidth_mbps }} Mbps)</small>
+                    {% if budget.available %}
+                    <strong>~{{ '%.0f' % budget.mb_per_day }} MB/day</strong>
+                    <span class="badge bg-{{ budget.bandwidth.badge }}">{{ budget.bandwidth.pct }}% of budget</span><br>
+                    <small>(~{{ budget.kbps }} Kbps on average)</small>
+                    {% else %}
+                    <span class="text-muted">unknown</span>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -112,6 +117,67 @@
             </tbody>
         </table>
         {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<!-- Measurement budget: what the configured measurements cost -->
+<div class="card mb-4" id="budget-card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-speedometer2"></i> Measurement budget</h5>
+    </div>
+    <div class="card-body">
+        {% if not budget.available %}
+        <p class="mb-0 text-muted">Could not check: {{ budget.reason }}</p>
+        {% else %}
+        {% if budget.over %}
+        <p class="mb-2" id="budget-over"><span class="badge bg-danger">Over budget</span>
+            Fewer targets, fewer pings or a longer step brings it back
+            (<a href="{{ url_for('probes.index') }}">Probes</a>).</p>
+        {% endif %}
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <div class="d-flex justify-content-between"><span>Bandwidth</span>
+                    <span>~{{ '%.0f' % budget.mb_per_day }} of {{ '%.0f' % budget.mb_ceiling }} MB/day ({{ budget.bandwidth.pct }}%)</span></div>
+                <div class="progress" role="progressbar" aria-label="Bandwidth budget used"
+                     aria-valuenow="{{ budget.bandwidth.width }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar bg-{{ budget.bandwidth.badge }}" style="width: {{ budget.bandwidth.width }}%"></div>
+                </div>
+                <small class="text-muted">{{ budget.mb_headroom }} MB/day of headroom</small>
+            </div>
+            <div class="col-md-6">
+                <div class="d-flex justify-content-between"><span>Samples</span>
+                    <span>{{ '%.0f' % budget.samples_per_hour }} of {{ '%.0f' % budget.samples_ceiling }} per hour ({{ budget.samples.pct }}%)</span></div>
+                <div class="progress" role="progressbar" aria-label="Sample budget used"
+                     aria-valuenow="{{ budget.samples.width }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar bg-{{ budget.samples.badge }}" style="width: {{ budget.samples.width }}%"></div>
+                </div>
+                <small class="text-muted">{{ budget.samples_headroom }} samples/h of headroom</small>
+            </div>
+        </div>
+        {% if budget.by_probe %}
+        <table class="table table-sm mb-2">
+            <thead><tr><th>Probe</th><th class="text-end">Targets</th><th class="text-end">Samples/h</th><th class="text-end">MB/day</th></tr></thead>
+            <tbody>
+            {% for r in budget.by_probe %}
+            <tr>
+                <td>{{ r.probe }}</td>
+                <td class="text-end">{{ r.targets }}</td>
+                <td class="text-end">{{ '%.0f' % r.samples_per_hour }}</td>
+                <td class="text-end">{% if r.mb_per_day is none %}?{% else %}{{ '%.1f' % r.mb_per_day }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        {% if budget.unpriced %}
+        <p class="mb-1 text-muted small">No byte estimate for {{ budget.unpriced | join(', ') }}: counted in samples only, so the MB/day figure is low.</p>
+        {% endif %}
+        {% if not budget.complete %}
+        <p class="mb-1 text-muted small" id="budget-incomplete">The SmokePing container could not be read: the ISP's first hops are not counted, and SmokePing's default step and pings may be assumed.</p>
+        {% endif %}
+        <p class="mb-0 text-muted small">The configured cost of SmokePing's measurements, not metered traffic; most expensive first.
+            <code>sudo smoking-pi budget</code> prints the same report.</p>
         {% endif %}
     </div>
 </div>

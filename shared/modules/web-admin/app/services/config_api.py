@@ -5,6 +5,7 @@ Handles communication with the config-manager REST API
 
 import logging
 import os
+import time
 import requests
 from typing import Dict, Any
 from datetime import datetime
@@ -342,6 +343,13 @@ class ConfigManagerClient:
             return response.json()
         raise RuntimeError(f"Failed to get DNS observer state: {response.status_code}")
 
+    def get_budget(self) -> Dict[str, Any]:
+        """What the configured measurements cost (config-manager /budget)"""
+        response = self._make_request('GET', '/budget')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get measurement budget: {response.status_code}")
+
     def get_assistant(self) -> Dict[str, Any]:
         """Is a chat assistant calling the MCP server? (config-manager /assistant)"""
         response = self._make_request('GET', '/assistant')
@@ -512,6 +520,33 @@ class ConfigAPIGateway:
         except Exception:
             logger.error("Failed to get the DNS observer state", exc_info=True)
             return {'available': False}
+
+    # /budget reads two files out of the SmokePing container on every call,
+    # and both the dashboard and the Probes page ask for it. The generated
+    # config changes only when someone applies a change, so a minute-old
+    # report is as good as a new one.
+    BUDGET_TTL_SECONDS = 60
+
+    def get_budget(self) -> Dict[str, Any]:
+        """The measurement budget card's report. Never raises: the
+        dashboard renders without it. A report is reused for a minute;
+        a failure is not, so the next page load asks again."""
+        cached = getattr(self, '_budget_cache', None)
+        if cached and time.monotonic() - cached[0] < self.BUDGET_TTL_SECONDS:
+            return cached[1]
+        try:
+            body = self.client.get_budget()
+            if not isinstance(body, dict):
+                raise ValueError("budget body is not an object")
+            if body.get('available'):
+                self._budget_cache = (time.monotonic(), body)
+            return body
+        except Exception:
+            logger.error("Failed to get the measurement budget", exc_info=True)
+            return {
+                'available': False,
+                'reason': 'config-manager unreachable; see web-admin log',
+            }
 
     def tour_pending(self) -> bool:
         """Should the dashboard send this login to the welcome tour? Only when

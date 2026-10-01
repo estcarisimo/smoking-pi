@@ -37,6 +37,22 @@ Most expensive first: what to cut is at the top. `--json` prints the
 same report as JSON, which is also what the API returns:
 `GET /budget` on config-manager (token-protected like the rest of it).
 
+## On the dashboard
+
+The web admin's dashboard (Standard and Pro) shows the same report as the
+*Measurement budget* card: how much of each ceiling is used, the headroom
+left, and every probe, most expensive first. The bar turns yellow at 75%
+of a ceiling and red over it, and an over-budget card says what brings it
+back. The *Bandwidth Usage* card at the top shows the daily total and its
+average rate, and the Probes page shows each probe's MB/day, both from
+this report.
+
+![The Measurement budget card on the shipped seed](img/budget-card.png)
+
+Both figures are the configured cost of what SmokePing runs, not metered
+traffic. When config-manager cannot be asked, the card says so instead of
+guessing.
+
 ## What it counts
 
 What SmokePing runs, read from the same files SmokePing loads: the
@@ -104,8 +120,8 @@ Measurements outside SmokePing, which do not grow with the target list:
 
 From the roadmap, in order:
 
-1. The budget on the landing page and in Grafana: usage against a dashed
-   ceiling line, broken down by probe type.
+1. The budget in Grafana: usage over time against a dashed ceiling line,
+   broken down by probe type. (On the dashboard since the card above.)
 2. Admission: when the requested set exceeds the budget, reduce cadence,
    samples or targets, with deterministic rotation so the whole set is
    eventually covered, and report requested vs admitted vs deferred.

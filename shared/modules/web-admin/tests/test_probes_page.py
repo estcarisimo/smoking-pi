@@ -16,10 +16,22 @@ PROBES = [
 ]
 
 
-def _stub(monkeypatch, result=None, error=None):
+# config-manager /budget for PROBES: a priced row per running probe.
+BUDGET = {
+    "available": True,
+    "by_probe": [
+        {"probe": "CurlHTTP2", "mb_per_day": 69.12},
+        {"probe": "FPing", "mb_per_day": 8.71},
+        {"probe": "DNS", "mb_per_day": 1.3},
+    ],
+}
+
+
+def _stub(monkeypatch, result=None, error=None, budget=None):
     gw = probes_module.config_api
     monkeypatch.setattr(gw, "get_probes_from_db",
                         lambda: {"probes": [dict(p) for p in PROBES]})
+    monkeypatch.setattr(gw, "get_budget", lambda: BUDGET if budget is None else budget)
     calls = []
 
     def update(name, changes):
@@ -40,6 +52,32 @@ def test_the_list_says_each_probes_cycle_in_its_own_words(client, monkeypatch):
     assert "5 queries every 5 minutes" in html
     assert "5 fetches every 5 minutes" in html
     assert "(20 with paused)" in html
+
+
+def test_traffic_is_the_budgets_measured_cost(client, monkeypatch):
+    # It used to count 64 bytes a sample: an HTTPS HEAD is ~12 KB.
+    _stub(monkeypatch)
+    login(client)
+    html = client.get("/probes/").get_data(as_text=True)
+    assert "~69.1 MB/day" in html and "~8.7 MB/day" in html
+    assert "kbit/s" not in html
+
+
+def test_a_probe_with_nothing_running_costs_nothing(client, monkeypatch):
+    # In /probes but not in the budget: no target of it is in the
+    # generated config (all paused, or IPv6-gated). Known, and zero.
+    _stub(monkeypatch, budget={**BUDGET, "by_probe": BUDGET["by_probe"][:2]})
+    login(client)
+    html = client.get("/probes/").get_data(as_text=True)
+    assert ">0 MB/day<" in html and "—" not in html
+
+
+def test_traffic_without_a_budget_is_a_dash_not_a_guess(client, monkeypatch):
+    _stub(monkeypatch, budget={"available": False, "reason": "stubbed"})
+    login(client)
+    html = client.get("/probes/").get_data(as_text=True)
+    assert "10 pings every 5 minutes" in html
+    assert "MB/day" not in html and "—" in html
 
 
 def test_the_form_warns_before_anything_is_saved(client, monkeypatch):

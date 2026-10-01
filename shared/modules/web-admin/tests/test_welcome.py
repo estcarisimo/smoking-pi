@@ -45,6 +45,7 @@ def _stub(monkeypatch, pending=True, recorded=None):
                                  "counts": {"fresh": 3}, "targets": []})
     monkeypatch.setattr(gw, "get_recommendations", lambda: CONNECTION)
     monkeypatch.setattr(gw, "get_dns_observer", lambda: {"available": False})
+    monkeypatch.setattr(gw, "get_budget", lambda: {"available": False, "reason": "stubbed"})
     monkeypatch.setattr(gw, "is_database_available", lambda: True)
     monkeypatch.setattr(gw, "get_all_targets_from_db", lambda: {"targets": TARGETS})
     monkeypatch.setattr(gw, "tour_pending", lambda: pending)
