@@ -1528,8 +1528,8 @@
     {
       "id": 52,
       "type": "timeseries",
-      "title": "Probe traffic against the budget (MB/day)",
-      "description": "What the configured SmokePing measurements cost a day, per probe, stacked (decimal MB, both directions, from the per-sample costs in docs/measurement-budget.md). The dashed line is the ceiling, MEASUREMENT_BUDGET_MB_PER_DAY. The configured cost, not metered traffic: a step means targets or cadence changed.",
+      "title": "Traffic against the budget (MB/day)",
+      "description": "What the configured SmokePing measurements cost a day, per probe, stacked (decimal MB, both directions, from the per-sample costs in docs/measurement-budget.md): the estimate, so a step means targets or cadence changed. The solid line is the meter: what the Pi's uplink really carried, as MB/day, from the interface's own counters, everything on it and not only the measurements. The dashed line is the ceiling, MEASUREMENT_BUDGET_MB_PER_DAY.",
       "datasource": {
         "uid": "influxdb"
       },
@@ -1611,6 +1611,40 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "measured on the uplink (whole Pi)"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
           }
         ]
       },
@@ -1628,6 +1662,13 @@
             "uid": "influxdb"
           },
           "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"measurement_budget\" and r._field == \"ceiling_mb_per_day\") |> group() |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"uplink_traffic\" and r._field == \"mb_per_day\") |> group() |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
         }
       ]
     },

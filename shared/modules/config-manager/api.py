@@ -515,7 +515,7 @@ class ConfigManagerAPI:
         if not targets_file.exists():
             return {'available': False,
                     'reason': 'no generated Targets file yet'}
-        cpe_text = database_text = ''
+        cpe_text = database_text = traffic_text = ''
         complete = True
         try:
             container = docker.from_env().containers.get(
@@ -526,6 +526,11 @@ class ConfigManagerAPI:
                 cpe_text = cpe.output.decode(errors='replace')
             if database.exit_code == 0:
                 database_text = database.output.decode(errors='replace')
+            # The uplink meter (smokeping-exporters/uplink_traffic.py);
+            # absent before its first interval and on Basic/Standard.
+            traffic = container.exec_run(['cat', '/config/uplink_traffic.json'])
+            if traffic.exit_code == 0:
+                traffic_text = traffic.output.decode(errors='replace')
         except Exception as e:
             logger.info("Budget without the SmokePing container's files: %s",
                         type(e).__name__)
@@ -535,6 +540,7 @@ class ConfigManagerAPI:
             cpe_text=cpe_text,
             probes_text=probes_file.read_text() if probes_file.exists() else '',
             database_text=database_text,
+            traffic_text=traffic_text,
         )
         return {'available': True, 'complete': complete,
                 'checked_at': datetime.now().isoformat(), **body}

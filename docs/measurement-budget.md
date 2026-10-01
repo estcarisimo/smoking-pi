@@ -119,9 +119,52 @@ The defaults are deliberately generous: the seed uses 10% of the bandwidth
 and 7% of the samples. A DNS wizard adoption of 60 services over HTTP/1.1,
 2 and 3 alone is about 1.9 GB a day, and shows as over budget.
 
+## Measured traffic
+
+Everything above is an **estimate**: the configured probes times a cost per
+sample measured once. Pro also runs a **meter**. Every five minutes the
+`uplink_traffic` exporter reads the kernel's byte counters
+(`/proc/net/dev`) for the interface the default route leaves through, the
+same uplink the Wi-Fi panels use, and keeps the last 24 hours.
+
+- `smoking-pi budget` adds a line:
+  `Measured on wlan0: ~1450 MB/day (1200 MB in, 250 MB out over the last 24.0 h), ...`
+- The dashboard's budget card shows it as a bar against the same ceiling,
+  and the top *Bandwidth Usage* card adds it under the estimate.
+- Grafana's Overview draws it as the solid line on *Traffic against the
+  budget (MB/day)*, over the stacked estimate and under the dashed
+  ceiling. The series is `uplink_traffic` (tag `interface`; fields
+  `rx_bytes`, `tx_bytes`, `seconds`, `mb_per_day`).
+
+![The budget card with the measured line: about 410 MB/day estimated, about 813 MB/day measured on wlan0](img/budget-card-measured.png)
+
+*A test Pi with the DNS wizard's HTTP targets: the estimate says 410
+MB/day, and the meter (here only a minute old) says about twice that.*
+
+The meter counts **everything on that interface**, not only the
+measurements. That is its point: the gap between the two lines is what
+the Pi spends on other things. It includes:
+
+- LAN traffic on the same link: the microcut detector's pings to the
+  router (about 50 MB a day), you opening Grafana or the web admin, and
+  the DNS observer answering the house when the router forwards DNS to it;
+- the stack's own downloads: image pulls on an upgrade, `apt`;
+- anything else on the host: an assistant, the Cloudflare tunnels, a
+  VPN's encapsulated traffic.
+
+`mb_per_day` scales the hours covered to a day, so a meter that started an
+hour ago already reads as a daily figure; the card and the command say how
+many hours it rests on. An interval is dropped, not guessed, when a
+counter went backwards (a reboot), the uplink changed interface, or the
+exporter was stopped for more than 15 minutes. A meter that stopped writing
+for 15 minutes is shown as stale. Basic and Standard have no meter.
+Exactly which service sends what is the next step: per-container
+accounting.
+
 ## What it does not count yet
 
-Measurements outside SmokePing, which do not grow with the target list:
+The estimate leaves out measurements outside SmokePing, which do not grow
+with the target list (the meter above sees them):
 
 - **The CPE microcut detector** (Pro, InfluxDB): 50 pings to the router
   every 30 seconds, per address family, about 144,000 a day each, or

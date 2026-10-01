@@ -199,6 +199,33 @@ def summarize_budget(body):
         'samples': gauge(used.get('samples_pct')),
         'unpriced': body.get('unpriced') or [],
         'by_probe': body.get('by_probe') or [],
+        'measured': summarize_measured(body.get('measured'), mb_ceiling),
+    }
+
+
+def summarize_measured(measured, mb_ceiling):
+    """The uplink meter beside the estimate (budget.py measured()): what
+    the Pi's uplink really carried, whole-Pi, over the last 24 h. None
+    before the meter's first interval, and on Basic/Standard."""
+    if not isinstance(measured, dict) or measured.get('mb_per_day') is None:
+        return None
+    mb = measured.get('mb_per_day') or 0
+    pct = measured.get('pct_of_ceiling')
+    return {
+        'interface': measured.get('interface') or 'the uplink',
+        'mb_per_day': mb,
+        'kbps': measured.get('kbps'),
+        'rx_mb': measured.get('rx_mb') or 0,
+        'tx_mb': measured.get('tx_mb') or 0,
+        'hours': measured.get('hours'),
+        # What it rests on, as a person says it: a new meter has minutes.
+        'covered': (f"{measured.get('hours')} h" if (measured.get('hours') or 0) >= 1
+                    else f"{measured.get('minutes') or 0} min"),
+        'stale': bool(measured.get('stale')),
+        'pct': pct,
+        'width': min(pct or 0, 100),
+        'badge': ('danger' if (pct or 0) > 100 else
+                  'warning' if (pct or 0) >= BUDGET_WARN_PCT else 'info'),
     }
 
 
