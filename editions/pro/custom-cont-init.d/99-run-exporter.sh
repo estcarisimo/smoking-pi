@@ -109,6 +109,13 @@ case "${TSDB_TYPE}" in
             echo "Starting DNS wizard exporter..."
             run_detached supervise_loop "DNS wizard" python3 /exporters/dns_wizard.py
         fi
+
+        # The measurement budget (config-manager /budget) over time, for the
+        # Overview's budget panels (docs/measurement-budget.md).
+        if [ -f "/exporters/measurement_budget.py" ]; then
+            echo "Starting measurement budget exporter..."
+            run_detached supervise_loop "Measurement budget" python3 /exporters/measurement_budget.py
+        fi
         ;;
 
     "clickhouse")

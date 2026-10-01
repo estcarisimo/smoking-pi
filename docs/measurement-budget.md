@@ -53,6 +53,25 @@ Both figures are the configured cost of what SmokePing runs, not metered
 traffic. When config-manager cannot be asked, the card says so instead of
 guessing.
 
+## In Grafana
+
+On Pro with InfluxDB, the Overview dashboard (Grafana's home page) has a
+*Measurement budget* row. It shows MB/day and samples per hour per probe,
+stacked, with the ceiling as a dashed line, plus how much of each ceiling
+is used now. A step in the stack is a change in targets or cadence, such
+as a DNS wizard adoption, a new target or a shorter step. That is how you
+see when the cost moved and why.
+
+![The Measurement budget row on a staging Pi after a DNS wizard adoption](img/budget-overview.png)
+
+The series comes from `measurement_budget.py` in the SmokePing container.
+Every five minutes it reads config-manager's `/budget` (the same report as
+the command and the card) and writes `measurement_budget` (the totals and
+the ceilings) and `measurement_budget_probe` (one point per probe, tagged
+`probe` and `probe_class`). A probe with no measured cost has no
+`mb_per_day` field rather than a zero. ClickHouse installs have no
+Overview dashboard and get the web admin card only.
+
 ## What it counts
 
 What SmokePing runs, read from the same files SmokePing loads: the
@@ -120,12 +139,10 @@ Measurements outside SmokePing, which do not grow with the target list:
 
 From the roadmap, in order:
 
-1. The budget in Grafana: usage over time against a dashed ceiling line,
-   broken down by probe type. (On the dashboard since the card above.)
-2. Admission: when the requested set exceeds the budget, reduce cadence,
+1. Admission: when the requested set exceeds the budget, reduce cadence,
    samples or targets, with deterministic rotation so the whole set is
    eventually covered, and report requested vs admitted vs deferred.
-3. Per-destination limits (service, prefix, ASN) so a large discovered
+2. Per-destination limits (service, prefix, ASN) so a large discovered
    target set does not turn into concentrated probing of one operator.
-4. The DNS wizard and future traceroute measurements asking this budget
+3. The DNS wizard and future traceroute measurements asking this budget
    instead of keeping limits of their own.

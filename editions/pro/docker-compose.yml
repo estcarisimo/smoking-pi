@@ -76,6 +76,10 @@ services:
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG}
       - INFLUX_BUCKET=${INFLUX_BUCKET}
+      # measurement_budget.py reads config-manager's /budget (published on
+      # the host's loopback) and writes it to InfluxDB for the Overview.
+      - CONFIG_API_URL=http://127.0.0.1:5000
+      - CONFIG_API_TOKEN=${CONFIG_API_TOKEN:-}
       - CLICKHOUSE_URL=http://localhost:8123
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-smokeping}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
