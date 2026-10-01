@@ -101,8 +101,25 @@ def test_a_cycle_that_could_outrun_the_step_is_refused(client):
     assert client.put("/probes/CurlHTTP2", json={"step_seconds": 60}).status_code == 200
     r = client.put("/probes/CurlHTTP2", json={"pings": 10})
     assert r.status_code == 400
+    answer = r.get_json()
     assert "can take up to 100 s when they time out, longer than a 60 s step" in (
-        r.get_json()["error"])
+        answer["error"])
+    assert (answer["reason"], answer["pings"], answer["worst_seconds"],
+            answer["step_seconds"]) == ("cycle_outruns_step", 10, 100.0, 60)
+
+
+@pytest.mark.parametrize("probe, body, reason", [
+    ("FPing", {"step_seconds": 45}, "step_not_allowed"),
+    ("FPing", {"pings": 21}, "pings_out_of_range"),
+    ("FPing", {}, "nothing_to_change"),
+    ("FPing", {"binary_path": "/bin/sh", "pings": 5}, "field_not_editable"),
+    ("Nope", {"pings": 5}, "probe_not_found"),
+])
+def test_every_refusal_names_a_reason_a_client_can_word(client, probe, body, reason):
+    # web-admin shows its own text for the reason, never the error string.
+    r = client.put(f"/probes/{probe}", json=body)
+    assert r.status_code in (400, 404)
+    assert r.get_json()["reason"] == reason
 
 
 def test_the_outrun_rule_uses_smokepings_defaults_and_batches():

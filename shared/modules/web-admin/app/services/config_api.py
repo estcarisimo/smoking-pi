@@ -11,6 +11,24 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# The numbers a probe refusal may carry (config-manager's
+# probe_cadence_problem); anything else in the body is not kept.
+PROBE_REFUSAL_NUMBERS = ('pings', 'worst_seconds', 'step_seconds')
+
+
+class ProbeChangeRefused(Exception):
+    """config-manager refused a probe change (400/404).
+
+    Carries config-manager's ``reason`` code and the numbers that go with
+    it, never its ``error`` text: the page picks its own wording from the
+    code (app.routes.probes.REFUSALS), so nothing the answer says is shown.
+    """
+
+    def __init__(self, reason: str, numbers: Dict[str, float]):
+        super().__init__(reason)
+        self.reason = reason
+        self.numbers = numbers
+
 
 class ConfigManagerClient:
     """Client for config-manager REST API"""
@@ -248,15 +266,28 @@ class ConfigManagerClient:
     def update_probe(self, name: str, changes: Dict[str, Any]) -> Dict[str, Any]:
         """Change a probe's step_seconds and/or pings (PUT /probes/<name>).
 
-        Raises ValueError with config-manager's own message on a refusal
-        (400/404): it says which value is not allowed and why.
+        Raises ProbeChangeRefused on a refusal (400/404), with the reason
+        code and its numbers; RuntimeError on anything else, including an
+        answer that is not JSON.
         """
         response = self._make_request('PUT', f'/probes/{name}', json=changes)
-        body = response.json() if response.text else {}
+        try:
+            body = response.json() if response.text else {}
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            raise RuntimeError(
+                f"Failed to update probe: HTTP {response.status_code}, not a JSON object")
         if response.status_code == 200:
             return body
         if response.status_code in (400, 404):
-            raise ValueError(body.get('error', 'Probe change refused'))
+            logger.warning("config-manager refused the change to probe %s: %s (%s)",
+                           name, body.get('error'), body.get('error_id'))
+            reason = body.get('reason')
+            numbers = {k: body[k] for k in PROBE_REFUSAL_NUMBERS
+                       if isinstance(body.get(k), (int, float))
+                       and not isinstance(body.get(k), bool)}
+            raise ProbeChangeRefused(reason if isinstance(reason, str) else '', numbers)
         raise RuntimeError(f"Failed to update probe: {body.get('error', response.status_code)}")
 
     def toggle_target(self, target_id: int) -> Dict[str, Any]:

@@ -13,6 +13,7 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 
 from app.routes.dashboard import PACKET_BYTES, config_api
 from app.routes.targets import describe_cadence, probe_unit
+from app.services.config_api import ProbeChangeRefused
 
 probes_bp = Blueprint('probes', __name__)
 
@@ -20,6 +21,31 @@ probes_bp = Blueprint('probes', __name__)
 # which are what is enforced; these only build the form.
 STEP_CHOICES = (60, 120, 300, 600, 900, 1800, 3600)
 MIN_PINGS, MAX_PINGS = 3, 20
+
+# What the page says when config-manager refuses a change, by the reason
+# code it answers with. The page never shows config-manager's own text.
+REFUSALS = {
+    'step_not_allowed': 'That step is not allowed; choose one from the list.',
+    'pings_out_of_range': f'The number of pings must be between {MIN_PINGS} and {MAX_PINGS}.',
+    'cycle_outruns_step': ('That many pings can take longer than the step when they '
+                           'time out; choose fewer pings or a longer step.'),
+    'probe_not_found': 'config-manager has no probe by that name.',
+    'database_unavailable': ('config-manager is running without its database, '
+                             'so probes cannot be changed.'),
+}
+REFUSED = 'config-manager refused the change; see the config-manager log.'
+
+
+def refusal_message(refusal):
+    """The page's words for a refusal: a literal, plus numbers it checked."""
+    numbers = refusal.numbers
+    if (refusal.reason == 'cycle_outruns_step'
+            and {'pings', 'worst_seconds', 'step_seconds'} <= numbers.keys()):
+        return (f"{int(numbers['pings'])} pings can take up to "
+                f"{float(numbers['worst_seconds']):g} s when they time out, longer "
+                f"than a {int(numbers['step_seconds'])} s step; choose fewer pings "
+                "or a longer step.")
+    return REFUSALS.get(refusal.reason, REFUSED)
 
 
 def step_label(step):
@@ -78,8 +104,8 @@ def edit(name):
                                    **_form(probe, step, pings))
         try:
             result = config_api.update_probe(name, {'step_seconds': step, 'pings': pings})
-        except ValueError as e:
-            flash(str(e), 'error')
+        except ProbeChangeRefused as refusal:
+            flash(refusal_message(refusal), 'error')
             return render_template('probes/edit.html', probe=probe,
                                    **_form(probe, step, pings))
         except Exception as e:

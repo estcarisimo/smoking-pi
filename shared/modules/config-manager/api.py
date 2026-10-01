@@ -1659,17 +1659,26 @@ def probe_cadence_problem(step: Any, pings: Any, worst=None):
     ``worst`` is a callable giving how long a cycle of ``pings`` can take
     (probe_worst_seconds): a cycle longer than the step would overlap the
     next, and SmokePing would fall behind on every target of the probe.
+
+    The answer is the response's extra fields: ``error`` for a human,
+    ``reason`` (a fixed code) and its numbers for a client, which picks its
+    own wording from the code instead of echoing ``error``.
     """
     if not isinstance(step, int) or isinstance(step, bool) or step not in PROBE_STEPS:
         allowed = ', '.join(str(s) for s in PROBE_STEPS)
-        return f"step_seconds must be one of {allowed}"
+        return {'error': f"step_seconds must be one of {allowed}",
+                'reason': 'step_not_allowed', 'allowed_steps': list(PROBE_STEPS)}
     if (not isinstance(pings, int) or isinstance(pings, bool)
             or not PROBE_MIN_PINGS <= pings <= PROBE_MAX_PINGS):
-        return f"pings must be between {PROBE_MIN_PINGS} and {PROBE_MAX_PINGS}"
+        return {'error': f"pings must be between {PROBE_MIN_PINGS} and {PROBE_MAX_PINGS}",
+                'reason': 'pings_out_of_range',
+                'min_pings': PROBE_MIN_PINGS, 'max_pings': PROBE_MAX_PINGS}
     seconds = worst(pings) if worst is not None else 0.0
     if seconds > step:
-        return (f"{pings} pings can take up to {seconds:g} s when they time out, "
-                f"longer than a {step} s step")
+        return {'error': (f"{pings} pings can take up to {seconds:g} s when they "
+                          f"time out, longer than a {step} s step"),
+                'reason': 'cycle_outruns_step', 'pings': pings,
+                'worst_seconds': seconds, 'step_seconds': step}
     return None
 
 
@@ -1684,20 +1693,24 @@ def update_probe(name):
     response says how many targets that concerns and what the guard did.
     """
     if not api.use_database:
-        return jsonify({'error': 'Database not available'}), 400
+        return jsonify({'error': 'Database not available',
+                        'reason': 'database_unavailable'}), 400
     body = request.get_json(silent=True)
     if not isinstance(body, dict) or not any(k in body for k in PROBE_EDITABLE):
-        return error_response(400, "Send step_seconds and/or pings")
+        return error_response(400, "Send step_seconds and/or pings",
+                              reason='nothing_to_change')
     unknown = sorted(k for k in body if k not in PROBE_EDITABLE)
     if unknown:
         return error_response(
-            400, "Only step_seconds and pings can be changed here", fields=unknown)
+            400, "Only step_seconds and pings can be changed here",
+            reason='field_not_editable', fields=unknown)
     try:
         session = get_db_session()
         try:
             probe = ProbeRepository(session).get_by_name(name)
             if probe is None:
-                return jsonify({'error': 'Probe not found'}), 404
+                return jsonify({'error': 'Probe not found',
+                                'reason': 'probe_not_found'}), 404
             previous = {'step_seconds': probe.step_seconds, 'pings': probe.pings}
             wanted = {**previous, **{k: body[k] for k in PROBE_EDITABLE if k in body}}
             targets = session.query(Target).filter(Target.probe_id == probe.id)
@@ -1707,7 +1720,7 @@ def update_probe(name):
                 wanted['step_seconds'], wanted['pings'],
                 lambda n: probe_worst_seconds(probe, n, counts['active_targets']))
             if problem:
-                return error_response(400, problem)
+                return error_response(400, problem.pop('error'), **problem)
             if wanted == previous:
                 return jsonify({'success': True, 'changed': False, 'probe': name,
                                 'previous': previous, **counts})
