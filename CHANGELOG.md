@@ -47,8 +47,12 @@ version gets a matching GitHub release and git tag.
 
   They are sent as inline photos (`ALERT_IMAGE_AS_DOCUMENT` now defaults to
   `false`); at this size Telegram's JPEG re-encoding leaves them legible.
-  `CHART_THEME=dark` keeps the dark palette at the new sizes, and
-  `ALERT_IMAGE_AS_DOCUMENT=true` brings back the file card.
+  **This changes on upgrade for every install that never set these two**
+  (the `.env.template` ships them empty, so the new compose defaults apply).
+  To keep the old look, set them before upgrading:
+  `sudo smoking-pi config set CHART_THEME dark` and
+  `sudo smoking-pi config set ALERT_IMAGE_AS_DOCUMENT true`. The dark
+  palette keeps the new sizes.
 
 - **`smoking-pi install` finishes what it starts.** A clean install on the
   staging Pi, following the getting-started guide, worked (about 3.5

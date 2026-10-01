@@ -54,7 +54,7 @@ log = logging.getLogger("charts")
 SURFACE = "#1a1a19"
 INK = "#ffffff"
 MUTED = "#898781"
-GRID = "#2c2c2a"
+GRID = "#6b6a66"  # drawn dashed at 50% alpha, so lighter than a solid hairline
 SPINE = "#383835"
 SERIES = "#3987e5"  # categorical slot 1 (dark)
 STATUS = {"critical": "#d03b3b", "warning": "#fab219", "info": "#3987e5"}
@@ -92,13 +92,18 @@ def _theme() -> dict:
     }
 
 
+def _status_color(severity: str) -> str:
+    status = _theme()["STATUS"]
+    return status.get(severity, status["warning"])
+
+
 def _style(fig, axes, theme):
     fig.patch.set_facecolor(theme["SURFACE"])
     for ax in axes:
         ax.set_facecolor(theme["SURFACE"])
         # Dashed major, dotted minor (see _minor_grid). The threshold is a
         # solid colored line, so it never reads as grid.
-        ax.grid(True, which="major", linestyle="--", color="darkgrey",
+        ax.grid(True, which="major", linestyle="--", color=theme["GRID"],
                 linewidth=1, alpha=0.5)
         ax.set_axisbelow(True)
         for side in ("top", "right"):
@@ -260,9 +265,9 @@ def _minor_grid(ax, theme):
     ax.yaxis.set_minor_locator(AutoMinorLocator())
     # One minor line between the hour ticks; more is a mesh on a phone.
     ax.xaxis.set_minor_locator(AutoMinorLocator(2))
-    ax.grid(True, which="major", linestyle="--", color="darkgrey",
+    ax.grid(True, which="major", linestyle="--", color=theme["GRID"],
             linewidth=1, alpha=0.5)
-    ax.grid(True, which="minor", linestyle=":", color="grey", alpha=0.5)
+    ax.grid(True, which="minor", linestyle=":", color=theme["GRID"], alpha=0.5)
     ax.tick_params(which="minor", length=0)
 
 
@@ -320,7 +325,7 @@ def render_incident_chart(
     try:
         return _render_series_chart(
             target, measurement, hours, peers or [],
-            accent=_theme()["STATUS"].get(severity, _theme()["STATUS"]["warning"]),
+            accent=_status_color(severity),
             first_seen=first_seen,
         )
     except Exception:  # noqa: BLE001 - a chart must never cost the alert
@@ -504,6 +509,12 @@ def _render_series_chart(
             handles=handles, loc="upper left", frameon=True, fontsize=14,
             handletextpad=0.4, handlelength=1.75, framealpha=0.9,
         )
+        # The frame and text follow the theme: matplotlib's default is a
+        # white box, which is right on the light page and a glare on dark.
+        legend.get_frame().set_facecolor(theme["SURFACE"])
+        legend.get_frame().set_edgecolor(theme["SPINE"])
+        for text in legend.get_texts():
+            text.set_color(theme["INK"])
 
     # matplotlib formats dates with rcParams["timezone"] (UTC) regardless of
     # each datetime's own tzinfo, so the locator AND the formatter both need
@@ -517,9 +528,6 @@ def _render_series_chart(
     # The footer names the date and zone; the formatter's own corner stamp
     # would say it a second time, smaller.
     ax_loss.xaxis.get_offset_text().set_visible(False)
-    # A 24h+ window crosses midnight, so bare "%H:%M" ticks would repeat
-    # without saying which day; add the date once the window is long enough
-    # for that to matter.
 
     when = stamp.strftime("%a %d %b %Y %H:%M %Z")
     fig.supxlabel(
