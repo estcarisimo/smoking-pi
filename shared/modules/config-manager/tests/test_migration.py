@@ -478,3 +478,40 @@ def test_an_edited_http_probe_is_left_alone(config_dir, db_url):
     assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
     assert migration.corrected_on_start == 5
     assert "-I" not in _extraargs(db_url)["CurlHTTP2"].split(";")
+
+
+def _old_probes_yaml(config_dir):
+    """The config dir's probes.yaml as a release before the fix seeded it."""
+    path = config_dir / "probes.yaml"
+    path.write_text(TEMPLATE_PROBES.read_text().replace(";-s;-I;-o;", ";-s;-o;"))
+    return path
+
+
+def test_yaml_mode_probes_become_head_once(config_dir):
+    from scripts.migrate_yaml_to_db import fix_probes_yaml
+
+    path = _old_probes_yaml(config_dir)
+    assert fix_probes_yaml(config_dir) == 3
+    # Text, not a YAML round trip: the file is the template, comments and all.
+    assert path.read_text() == TEMPLATE_PROBES.read_text()
+    # Applied once: a probe set back to GET by hand stays GET.
+    _old_probes_yaml(config_dir)
+    assert fix_probes_yaml(config_dir) == 0
+    assert ";-s;-I;" not in path.read_text()
+
+
+def test_an_edited_probes_yaml_is_left_alone(config_dir):
+    from scripts.migrate_yaml_to_db import fix_probes_yaml
+
+    path = _old_probes_yaml(config_dir)
+    path.write_text(path.read_text().replace(
+        "--http2;-s;-o;", "--http2;--compressed;-s;-o;"))
+    assert fix_probes_yaml(config_dir) == 2
+    assert "--http2;--compressed;-s;-o;" in path.read_text()
+
+
+def test_a_missing_probes_yaml_is_not_an_error(tmp_path):
+    from scripts.migrate_yaml_to_db import fix_probes_yaml
+
+    assert fix_probes_yaml(tmp_path) == 0
+    assert list(tmp_path.iterdir()) == []

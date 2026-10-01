@@ -59,7 +59,8 @@ version gets a matching GitHub release and git tag.
   byte. The probes now send `HEAD` (`-I`): the handshake and the response
   headers, a few KB per sample. On upgrade, config-manager switches the
   installed CurlHTTP1/2/3 probes and the wizard's copies to `HEAD` once,
-  then reloads SmokePing. A probe whose `extraargs` you edited is left
+  in PostgreSQL and in the config dir's `probes.yaml` (what YAML mode
+  reads), then reloads SmokePing. A probe whose `extraargs` you edited is left
   alone. **The HTTP series steps down at the upgrade**, most for sites with
   heavy home pages; it is the same measurement done the way it was
   described, not a network change. Some servers answer `HEAD` with a `405`

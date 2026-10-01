@@ -896,13 +896,20 @@ def initialize() -> None:
             logger.info("Bootstrap completed successfully")
 
         # 2. Migrate YAML -> PostgreSQL (idempotent; upserts missing probes
-        #    on already-migrated deployments)
+        #    on already-migrated deployments). Before it, the shipped probe
+        #    defaults that were wrong are corrected in probes.yaml too: YAML
+        #    mode reads that file, and the migration seeds new probes from it.
         corrected = 0
+        try:
+            from scripts.migrate_yaml_to_db import fix_probes_yaml
+            corrected += fix_probes_yaml(CONFIG_DIR)
+        except Exception as e:
+            logger.warning("Could not correct probes.yaml: %s", type(e).__name__)
         if os.environ.get('DATABASE_URL'):
             try:
                 import scripts.migrate_yaml_to_db as migration
                 ok = migration.run_migration(config_dir=CONFIG_DIR)
-                corrected = migration.corrected_on_start
+                corrected += migration.corrected_on_start
                 if ok:
                     logger.info("Database migration check completed")
                 else:

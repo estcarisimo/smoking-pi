@@ -1,9 +1,9 @@
 # HTTP/1.1, HTTP/2, HTTP/3 and TCP probes
 
 ICMP tells you the path is up. It does not tell you whether a web server
-answers, or whether HTTP/3 is buying anything over HTTP/2 on your link. Four probes
-answer that, all of them shipped inside the SmokePing container — no fork
-of SmokePing, no fork of the LinuxServer image.
+answers, or whether HTTP/3 is buying anything over HTTP/2 on your link.
+Four probes answer that, all of them shipped inside the SmokePing
+container — no fork of SmokePing, no fork of the LinuxServer image.
 
 | probe | class | what one sample is | tool |
 | --- | --- | --- | --- |
@@ -38,8 +38,9 @@ error, a timeout, or the wrong version (below).
 sample.** That cost 1.3 MB per sample for www.cloudflare.com, about 5.7 GB
 a day for that one seed target over three versions, and the time recorded
 was mostly the download: 1.85 s for www.netflix.com against 0.56 s to the
-first byte. An upgrade switches installed probes to `HEAD` once (a probe
-whose `extraargs` you edited is left alone), so the HTTP series steps down
+first byte. An upgrade switches installed probes to `HEAD` once, in the
+database and in the config dir's `probes.yaml` (a probe whose `extraargs`
+you edited is left alone), so the HTTP series steps down
 at the upgrade. A full page load is a different measurement, of the
 application rather than the protocol, and does not belong on a 5-minute
 step.
@@ -141,7 +142,7 @@ Grafana dashboard groups the three versions of one site by stripping it.
 The web-admin add form appends the suffix for you when you pick *HTTPS
 fetch* and a version; it also offers *TCP connect (port 443)*.
 
-`host` is a hostname, not a URL: the probe fetches `https://<host>/`. To
+`host` is a hostname, not a URL: the probe asks for `https://<host>/`. To
 probe a path or a different port, change `urlformat` on the probe (it
 applies to every target of that probe) or add another sub-probe.
 

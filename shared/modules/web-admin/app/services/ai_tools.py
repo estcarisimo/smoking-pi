@@ -218,8 +218,9 @@ TOOLS = [
         "name": "get_latency_stats",
         "description": (
             "Per-target latency and loss statistics over a time window: "
-            "median_ms, p95_ms, avg_loss_pct for ICMP, DNS, HTTP (the "
-            "whole fetch, not comparable with a ping) and TCP connect "
+            "median_ms, p95_ms, avg_loss_pct for ICMP, DNS, HTTP (a HEAD "
+            "request: connect, TLS and response headers, not comparable "
+            "with a ping) and TCP connect "
             "targets."
         ),
         "input_schema": {
