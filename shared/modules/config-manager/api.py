@@ -1670,15 +1670,19 @@ def probe_cadence_problem(step: Any, pings: Any, worst=None):
                 'reason': 'step_not_allowed', 'allowed_steps': list(PROBE_STEPS)}
     if (not isinstance(pings, int) or isinstance(pings, bool)
             or not PROBE_MIN_PINGS <= pings <= PROBE_MAX_PINGS):
-        return {'error': f"pings must be between {PROBE_MIN_PINGS} and {PROBE_MAX_PINGS}",
-                'reason': 'pings_out_of_range',
-                'min_pings': PROBE_MIN_PINGS, 'max_pings': PROBE_MAX_PINGS}
+        return {
+            'error': f"pings must be between {PROBE_MIN_PINGS} and {PROBE_MAX_PINGS}",
+            'reason': 'pings_out_of_range',
+            'min_pings': PROBE_MIN_PINGS, 'max_pings': PROBE_MAX_PINGS,
+        }
     seconds = worst(pings) if worst is not None else 0.0
     if seconds > step:
-        return {'error': (f"{pings} pings can take up to {seconds:g} s when they "
-                          f"time out, longer than a {step} s step"),
-                'reason': 'cycle_outruns_step', 'pings': pings,
-                'worst_seconds': seconds, 'step_seconds': step}
+        return {
+            'error': (f"{pings} pings can take up to {seconds:g} s when they "
+                      f"time out, longer than a {step} s step"),
+            'reason': 'cycle_outruns_step', 'pings': pings,
+            'worst_seconds': seconds, 'step_seconds': step,
+        }
     return None
 
 

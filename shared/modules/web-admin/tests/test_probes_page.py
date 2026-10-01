@@ -92,6 +92,8 @@ def test_a_refusal_says_why_in_the_pages_own_words(client, monkeypatch):
 @pytest.mark.parametrize("reason, needle", [
     ("pings_out_of_range", "between 3 and 20"),
     ("step_not_allowed", "That step is not allowed"),
+    ("nothing_to_change", "Choose a step and a number of pings."),
+    ("field_not_editable", "Only the step and the number of pings"),
     ("probe_not_found", "has no probe by that name"),
     ("cycle_outruns_step", "choose fewer pings or a longer step"),  # no numbers
     ("http://config-manager:5000/secret", "config-manager refused the change"),

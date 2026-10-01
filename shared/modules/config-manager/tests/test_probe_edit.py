@@ -122,6 +122,13 @@ def test_every_refusal_names_a_reason_a_client_can_word(client, probe, body, rea
     assert r.get_json()["reason"] == reason
 
 
+def test_without_the_database_the_refusal_says_so(client, monkeypatch):
+    monkeypatch.setattr(type(api_module.api), "use_database", property(lambda _: False))
+    r = client.put("/probes/FPing", json={"pings": 5})
+    assert r.status_code == 400
+    assert r.get_json()["reason"] == "database_unavailable"
+
+
 def test_the_outrun_rule_uses_smokepings_defaults_and_batches():
     from types import SimpleNamespace as P
     fping = P(name="FPing", module=None, options=None, forks=None)
@@ -133,7 +140,12 @@ def test_the_outrun_rule_uses_smokepings_defaults_and_batches():
     assert api_module.probe_worst_seconds(dns, 5, 3) == 25
     assert api_module.probe_worst_seconds(dns, 5, 12) == 75
     assert api_module.probe_worst_seconds(curl, 5, 4) == 50
-    assert api_module.probe_cadence_problem(60, 5, lambda n: 75.0) is not None
+    assert api_module.probe_cadence_problem(60, 5, lambda n: 75.0) == {
+        "error": "5 pings can take up to 75 s when they time out, longer than a 60 s step",
+        "reason": "cycle_outruns_step", "pings": 5, "worst_seconds": 75.0,
+        "step_seconds": 60}
+    assert api_module.probe_cadence_problem(45, 5)["reason"] == "step_not_allowed"
+    assert api_module.probe_cadence_problem(60, 2)["reason"] == "pings_out_of_range"
     assert api_module.probe_cadence_problem(120, 5, lambda n: 75.0) is None
 
 

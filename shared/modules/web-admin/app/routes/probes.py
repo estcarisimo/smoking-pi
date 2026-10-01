@@ -26,12 +26,15 @@ MIN_PINGS, MAX_PINGS = 3, 20
 # code it answers with. The page never shows config-manager's own text.
 REFUSALS = {
     'step_not_allowed': 'That step is not allowed; choose one from the list.',
-    'pings_out_of_range': f'The number of pings must be between {MIN_PINGS} and {MAX_PINGS}.',
+    'pings_out_of_range': (f'The number of pings must be between {MIN_PINGS} '
+                           f'and {MAX_PINGS}.'),
     'cycle_outruns_step': ('That many pings can take longer than the step when they '
                            'time out; choose fewer pings or a longer step.'),
     'probe_not_found': 'config-manager has no probe by that name.',
     'database_unavailable': ('config-manager is running without its database, '
                              'so probes cannot be changed.'),
+    'nothing_to_change': 'Choose a step and a number of pings.',
+    'field_not_editable': 'Only the step and the number of pings can be changed here.',
 }
 REFUSED = 'config-manager refused the change; see the config-manager log.'
 
