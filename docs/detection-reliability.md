@@ -131,7 +131,8 @@ clear pattern"*, which is honest if not helpful. Backlog below.
 
 1. **Turn off Wi-Fi power save on the reference Pi.** Not a detector change
    and not done by the PR that added this page — it is a host setting and
-   the operator's call. **Decided 2026-09-20: documented, not applied.**
+   the operator's call. Decided 2026-09-20: documented, not applied.
+   **Applied 2026-10-01 17:15:07 UTC** after a third outage.
    What is known, what is only suspected, why the change is sensitive on a
    headless Pi that measures through the same radio, and how to try it so
    that it undoes itself are in [When the radio hangs](wifi.md#when-the-radio-hangs).

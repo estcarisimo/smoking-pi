@@ -36,7 +36,7 @@ version gets a matching GitHub release and git tag.
   change."), and config-manager's own text goes to the web-admin log.
   Found while reviewing PR #232.
 
-### Documentation
+### Changed
 
 - **The Wi-Fi power save advice covers netplan hosts and the journal.**
   `docs/wifi.md` named a NetworkManager profile by SSID and assumed `iw` was
@@ -48,8 +48,8 @@ version gets a matching GitHub release and git tag.
   profile name, the shorter path when `iw` already switched power save off
   (no link drop, no revert timer), and a capped persistent-journal override.
   It also dates the change on the reference Pi: power save off since
-  2026-10-01 17:15:07 UTC. A latency-floor shift after that instant is this
-  change, not the network.
+  2026-10-01 17:15:07 UTC. A latency-floor shift after that instant is most
+  likely this change.
 
 ## [2.16.0] — 2026-10-01
 
