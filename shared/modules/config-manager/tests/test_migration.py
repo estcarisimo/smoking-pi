@@ -373,3 +373,108 @@ def test_a_failing_fix_never_fails_the_migration(config_dir, db_url, monkeypatch
     monkeypatch.undo()
     assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
     assert _amazon(db_url)["Amazon"] == "www.amazon.com"
+
+
+# --- HTTP probes: GET of the whole page -> HEAD (seed_fix_http_head) ---
+
+TEMPLATE_PROBES = Path(__file__).parent.parent / "templates" / "probes.yaml"
+
+
+def _shipped_curl_extraargs():
+    probes = yaml.safe_load(TEMPLATE_PROBES.read_text())["probes"]
+    return {name: p["extraargs"] for name, p in probes.items()
+            if p.get("module") == "Curl"}
+
+
+def test_the_seed_asks_for_headers_not_the_page():
+    shipped = _shipped_curl_extraargs()
+    assert set(shipped) == {"CurlHTTP1", "CurlHTTP2", "CurlHTTP3"}
+    for args in shipped.values():
+        assert args.split(";").count("-I") == 1
+
+
+def test_a_corrected_probe_ends_up_exactly_as_a_new_install_seeds_it():
+    import scripts.migrate_yaml_to_db as migration
+
+    (_, rewrites), = migration.PROBE_SEED_FIXES
+    assert set(rewrites.values()) == set(_shipped_curl_extraargs().values())
+    for old, new in rewrites.items():
+        # The only difference is the HEAD flag; the -w format the probe's
+        # regex parses, and the version `expect` checks, are untouched.
+        assert old.split(";") == [a for a in new.split(";") if a != "-I"]
+
+
+def _seeded_with_get_probes(db_url, edited=None):
+    """An install migrated before the fix: the curated Curl probes and the
+    wizard's copies, as GET, and no marker."""
+    import scripts.migrate_yaml_to_db as migration
+
+    (key, rewrites), = migration.PROBE_SEED_FIXES
+    old = sorted(rewrites)  # --http1.1, --http2, --http3-only
+    session = _session(db_url)
+    try:
+        for i, name in enumerate(("CurlHTTP1", "CurlHTTP2", "CurlHTTP3")):
+            for probe_name in (name, name.replace("Curl", "Wizard")):
+                args = old[i]
+                if probe_name == edited:
+                    args = args + ";--compressed"
+                session.add(Probe(
+                    name=probe_name, binary_path="/usr/local/bin/curl-h3",
+                    step_seconds=300, pings=5, forks=5, module="Curl",
+                    options={"timeout": 10, "extraargs": args, "expect": "HTTPv=x"}))
+        session.query(SystemMetadata).filter(SystemMetadata.key == key).delete()
+        session.commit()
+    finally:
+        session.close()
+
+
+def _extraargs(db_url):
+    session = _session(db_url)
+    try:
+        return {p.name: (p.options or {}).get("extraargs")
+                for p in session.query(Probe).all() if p.module == "Curl"}
+    finally:
+        session.close()
+
+
+def test_get_probes_become_head_once_on_start(config_dir, db_url):
+    import scripts.migrate_yaml_to_db as migration
+
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    _seeded_with_get_probes(db_url)
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    # Six probes changed, so the caller regenerates and reloads SmokePing.
+    assert migration.corrected_on_start == 6
+    args = _extraargs(db_url)
+    assert len(args) == 6
+    assert all(a.split(";").count("-I") == 1 for a in args.values())
+    # The other options survive the rewrite.
+    session = _session(db_url)
+    try:
+        wizard = session.query(Probe).filter_by(name="WizardHTTP2").one()
+        assert wizard.options["timeout"] == 10
+        assert wizard.options["expect"] == "HTTPv=x"
+    finally:
+        session.close()
+    # Applied once: a probe set back to GET by hand stays GET.
+    session = _session(db_url)
+    try:
+        probe = session.query(Probe).filter_by(name="CurlHTTP1").one()
+        probe.options = {**probe.options,
+                         "extraargs": probe.options["extraargs"].replace(";-I", "")}
+        session.commit()
+    finally:
+        session.close()
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert migration.corrected_on_start == 0
+    assert "-I" not in _extraargs(db_url)["CurlHTTP1"].split(";")
+
+
+def test_an_edited_http_probe_is_left_alone(config_dir, db_url):
+    import scripts.migrate_yaml_to_db as migration
+
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    _seeded_with_get_probes(db_url, edited="CurlHTTP2")
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert migration.corrected_on_start == 5
+    assert "-I" not in _extraargs(db_url)["CurlHTTP2"].split(";")

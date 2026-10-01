@@ -1,29 +1,48 @@
 # HTTP/1.1, HTTP/2, HTTP/3 and TCP probes
 
-ICMP tells you the path is up. It does not tell you whether a page loads, or
-whether HTTP/3 is buying anything over HTTP/2 on your link. Four probes
+ICMP tells you the path is up. It does not tell you whether a web server
+answers, or whether HTTP/3 is buying anything over HTTP/2 on your link. Four probes
 answer that, all of them shipped inside the SmokePing container — no fork
 of SmokePing, no fork of the LinuxServer image.
 
 | probe | class | what one sample is | tool |
 | --- | --- | --- | --- |
-| `CurlHTTP1` | `Curl` | one `GET https://<host>/` over **HTTP/1.1**, DNS excluded | static curl |
+| `CurlHTTP1` | `Curl` | one `HEAD https://<host>/` over **HTTP/1.1**, DNS excluded | static curl |
 | `CurlHTTP2` | `Curl` | the same over **HTTP/2** (TLS + ALPN `h2`) | static curl |
 | `CurlHTTP3` | `Curl` | the same over **HTTP/3** (QUIC, `--http3-only`) | static curl |
 | `TCPPing` | `TCPPing` | SYN → SYN/ACK to port 443, nothing above the transport | `tcpping` / `tcptraceroute` |
 
 Each runs 5 samples per 5-minute cycle (`pings = 5`, `step = 300`), five
 targets in parallel. Nine HTTP targets plus three TCP targets cost about 60
-requests per 5 minutes; keep `pings` low, fetching a page 20 times per cycle
-is unfriendly to the server.
+requests per 5 minutes. Each HTTP sample is a `HEAD` request: a TLS
+handshake and the response headers, a few KB. Keep `pings` low all the
+same; 20 requests per cycle is unfriendly to the server.
 
 ## What the Curl sample measures
 
-SmokePing's `Curl` probe records `time_total − time_namelookup`: TCP or
-QUIC connect, TLS handshake, request, and the response to the last byte
-of `/`. DNS is excluded, so a slow resolver does not show up as a slow site
-(the DNS probes are for that). Redirects are not followed; a `301` is timed
-as a `301`.
+This is the HTTP *protocol* layer: does the server answer over this
+version, and how fast. SmokePing's `Curl` probe records
+`time_total − time_namelookup`, and the request is a `HEAD` (`-I`), so
+that is TCP or QUIC connect, TLS handshake, request, and the response
+headers. DNS is excluded, so a slow resolver does not show up as a slow
+site (the DNS probes are for that). Redirects are not followed; a `301` is
+timed as a `301`.
+
+The status code is not checked. Some servers answer `HEAD /` with a `405`
+(www.netflix.com) or a `503` (www.amazon.com's bot protection); that is
+still the server answering over that version, after a full handshake, and
+it is timed like a `200`. A failure is curl failing: no connection, a TLS
+error, a timeout, or the wrong version (below).
+
+**Before this was a `HEAD`, it was a `GET` of the whole home page, every
+sample.** That cost 1.3 MB per sample for www.cloudflare.com, about 5.7 GB
+a day for that one seed target over three versions, and the time recorded
+was mostly the download: 1.85 s for www.netflix.com against 0.56 s to the
+first byte. An upgrade switches installed probes to `HEAD` once (a probe
+whose `extraargs` you edited is left alone), so the HTTP series steps down
+at the upgrade. A full page load is a different measurement, of the
+application rather than the protocol, and does not belong on a 5-minute
+step.
 
 The three HTTP probes share one binary, `/usr/local/bin/curl-h3`, a static
 [stunnel/static-curl](https://github.com/stunnel/static-curl) build with
@@ -42,7 +61,7 @@ probes close that hole with two `Curl` probe variables and no custom code:
 
 ```
 extrare  = /;/
-extraargs = --http2;-s;-o;/dev/null;-w;Time: %{time_total} DNS time: %{time_namelookup} Redirect time: %{time_redirect} HTTPv=%{http_version}\n
+extraargs = --http2;-s;-I;-o;/dev/null;-w;Time: %{time_total} DNS time: %{time_namelookup} Redirect time: %{time_redirect} HTTPv=%{http_version}\n
 expect   = HTTPv=2
 require_zero_status = yes
 ```
@@ -75,7 +94,7 @@ probes:
     urlformat: https://%host%/
     require_zero_status: 'yes'
     extrare: '/;/'
-    extraargs: '--http2;-s;-o;/dev/null;-w;Time: ... HTTPv=%{http_version}\n'
+    extraargs: '--http2;-s;-I;-o;/dev/null;-w;Time: ... HTTPv=%{http_version}\n'
     expect: HTTPv=2
   TCPPing:
     binary: /usr/bin/tcpping
@@ -140,7 +159,7 @@ section name `config_generator.CATEGORY_PRESENTATION` emits — renaming one
 means renaming the other.
 
 The dashboard *HTTP by Version – Side-by-Side* (InfluxDB and ClickHouse
-variants) shows, per site, the median fetch time of the three versions on
+variants) shows, per site, the median response time of the three versions on
 one panel, the failed-fetch share next to it, and the TCP handshake floor
 for all targets underneath. The ClickHouse variant was checked on
 2026-09-19 against a ClickHouse 24.1 fed by the exporter from the reference

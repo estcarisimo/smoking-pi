@@ -37,6 +37,24 @@ SEED_FIXES = (
      {"host": "www.amazon.com"}),
 )
 
+# The same for probes: (marker, {shipped extraargs: corrected extraargs}).
+# A probe matches on its extraargs exactly as the seed wrote them, whatever
+# its name, so the wizard's copies (WizardHTTP1/2/3) are corrected with the
+# curated ones they were copied from, and an edited probe is left alone.
+_CURL_W = (r"-w;Time: %{time_total} DNS time: %{time_namelookup} "
+           r"Redirect time: %{time_redirect} HTTPv=%{http_version}\n")
+PROBE_SEED_FIXES = (
+    # The HTTP probes were meant to ask whether a server answers over each
+    # HTTP version, and how fast. A GET downloaded the whole home page on
+    # every sample instead -- 1.3 MB for www.cloudflare.com, about 5.7 GB a
+    # day for that one seed target -- and timed the download. HEAD keeps
+    # connect + TLS + request + response, and a few KB.
+    ("seed_fix_http_head", {
+        f"{flag};-s;-o;/dev/null;{_CURL_W}": f"{flag};-s;-I;-o;/dev/null;{_CURL_W}"
+        for flag in ("--http1.1", "--http2", "--http3-only")
+    }),
+)
+
 
 class YAMLToDBMigrator:
     """Migrates YAML configuration to PostgreSQL database"""
@@ -259,9 +277,10 @@ class YAMLToDBMigrator:
         logger.info(f"Migrated {metadata_added} metadata entries")
 
     def fix_shipped_defaults(self, session) -> int:
-        """Apply each SEED_FIXES entry not applied before; returns how many
-        targets changed. A failure is logged and rolled back, never raised:
-        the migration it follows has completed, and the next start retries.
+        """Apply each SEED_FIXES and PROBE_SEED_FIXES entry not applied
+        before; returns how many targets and probes changed. A failure is
+        logged and rolled back, never raised: the migration it follows has
+        completed, and the next start retries.
         """
         changed = 0
         try:
@@ -277,6 +296,24 @@ class YAMLToDBMigrator:
                                 row.name, change)
                 session.add(SystemMetadata(key=key, value=f"{len(rows)} target(s)"))
                 changed += len(rows)
+            for key, rewrites in PROBE_SEED_FIXES:
+                if session.query(SystemMetadata).filter(
+                        SystemMetadata.key == key).first():
+                    continue
+                fixed = 0
+                for probe in session.query(Probe).all():
+                    options = probe.options or {}
+                    new = rewrites.get(options.get('extraargs'))
+                    if new is None:
+                        continue
+                    # A new dict, not an in-place edit: the JSON column
+                    # only notices an assignment.
+                    probe.options = {**options, 'extraargs': new}
+                    logger.info("Corrected a shipped default: probe %s (%s)",
+                                probe.name, key)
+                    fixed += 1
+                session.add(SystemMetadata(key=key, value=f"{fixed} probe(s)"))
+                changed += fixed
             session.commit()
         except Exception as e:
             session.rollback()
@@ -384,8 +421,9 @@ class YAMLToDBMigrator:
         finally:
             session.close()
 
-# Targets the last run_migration() corrected (SEED_FIXES): the caller
-# regenerates, and then SmokePing must reload to measure the new host.
+# Targets and probes the last run_migration() corrected (SEED_FIXES,
+# PROBE_SEED_FIXES): the caller regenerates, and then SmokePing must reload
+# to measure the new host or run the new probe.
 corrected_on_start = 0
 
 

@@ -47,6 +47,26 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The HTTP probes downloaded the whole home page on every sample.** They
+  were meant to answer two questions: does the server respond over
+  HTTP/1.1, /2 and /3, and how fast. Instead each sample was a `GET` of
+  `https://<host>/` with the body thrown away. That body was 1.3 MB for
+  www.cloudflare.com, so the seed's Cloudflare target alone (three
+  versions × 5 samples × 288 steps) cost about 5.7 GB a day. Sites the DNS
+  wizard adopted could cost more (www.netflix.com is 3.2 MB). The recorded
+  time was mostly that download, not the documented "connect + TLS +
+  request + first byte": 1.85 s for Netflix against 0.56 s to its first
+  byte. The probes now send `HEAD` (`-I`): the handshake and the response
+  headers, a few KB per sample. On upgrade, config-manager switches the
+  installed CurlHTTP1/2/3 probes and the wizard's copies to `HEAD` once,
+  then reloads SmokePing. A probe whose `extraargs` you edited is left
+  alone. **The HTTP series steps down at the upgrade**, most for sites with
+  heavy home pages; it is the same measurement done the way it was
+  described, not a network change. Some servers answer `HEAD` with a `405`
+  or `503`; that is still the server answering, and it is timed. A full
+  page load is a separate, application-layer measurement and is not run on
+  a 5-minute step; it is on the roadmap.
+
 - **A new install's first alert was a false "critical: the monitor, not the
   network".** `exporter_stale` fires when the last `STALE_WINDOW` (20 min)
   holds no latency point. On a fresh install that is true for the first

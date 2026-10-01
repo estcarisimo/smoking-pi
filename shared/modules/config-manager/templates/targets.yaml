@@ -64,7 +64,7 @@ active_targets:
       probe: FPing
       category: custom
 
-  # HTTPS fetch time per protocol version. Three sites that serve all of
+  # HTTPS response time per protocol version (a HEAD request). Three sites that serve all of
   # HTTP/1.1, 2 and 3; the _h1/_h2/_h3 suffix is how the exporters tag
   # the version (probe_type), so keep it when adding your own.
   http:

@@ -74,7 +74,7 @@ CATEGORY_PRESENTATION = {
     'http': {
         'section': 'HTTP',
         'menu': 'HTTP by version',
-        'title': 'HTTPS fetch time by protocol version (curl, HTTP/1.1 vs 2 vs 3)',
+        'title': 'HTTPS response time by protocol version (curl HEAD, HTTP/1.1 vs 2 vs 3)',
     },
     'tcp': {
         'section': 'TCP',
