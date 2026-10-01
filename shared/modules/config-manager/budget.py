@@ -1,0 +1,218 @@
+"""What the configured measurements cost, against a ceiling.
+
+The first step of the measurement budget: accounting, not admission. It
+reads the same generated files SmokePing loads (Targets, CPE_Targets,
+Probes, the Database defaults), so what it counts is what runs, and
+reports samples per hour and approximate bytes per day per probe, the
+totals, and how much of each ceiling they use. Nothing is throttled yet;
+the point is that a target list that grows (the DNS wizard, a future
+discovery step) is visible before it is expensive.
+
+Deliberately approximate: the purpose is guardrails and capacity planning,
+not byte-perfect accounting. The per-sample costs below were measured, not
+derived from a spec, and are rounded up.
+
+Everything here is pure, so it is tested without Docker; api.py and the
+command line below supply the file contents.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from collections import Counter
+from typing import Dict, Optional
+
+import freshness
+
+# Bytes on the wire per sample, both directions, IP headers included,
+# measured 2026-09-30:
+# - FPing / FPing6: one echo request and its reply; fping's default 56
+#   data bytes make an 84-byte IPv4 packet (104 over IPv6).
+# - DNS: one dig lookup, about 80 bytes up and 80-165 down with dig's
+#   EDNS cookie; rounded up.
+# - TCPPing: tcptraceroute's SYN, the SYN/ACK and the kernel's RST.
+# - Curl: one HEAD over TLS 1.3. The handshake (certificate chain) and the
+#   response headers: 8-12 KB across eight popular sites, so 12 KB.
+#   HTTP/3's padded QUIC Initials add a little; it stays within this.
+BYTES_PER_SAMPLE: Dict[str, int] = {
+    "FPing": 168,
+    "FPing6": 208,
+    "DNS": 300,
+    "TCPPing": 200,
+    "Curl": 12_000,
+}
+
+# Default ceilings, about 30 GB a month. The shipped seed uses 16% of the
+# bandwidth (~161 MB/day, nearly all of it TLS handshakes) and 8% of the
+# samples; a DNS wizard adoption of 60 services over HTTP/1.1, 2 and 3
+# alone is ~3 GB/day. So they flag a target list that grew several-fold,
+# not normal use. MEASUREMENT_BUDGET_MB_PER_DAY and
+# MEASUREMENT_BUDGET_SAMPLES_PER_HOUR override them.
+DEFAULT_MB_PER_DAY = 1000
+DEFAULT_SAMPLES_PER_HOUR = 20_000
+
+_SECTION = re.compile(r"^(\+{1,2})\s*(\S+)\s*$")
+
+
+def probe_classes(probes_text: str) -> Dict[str, str]:
+    """SmokePing class per probe name. A top-level ``+ Name`` is its own
+    class; a ``++ Sub`` under it (config_generator's sub-probes, e.g.
+    ``+ Curl`` / ``++ CurlHTTP2``) belongs to the parent's class."""
+    classes: Dict[str, str] = {}
+    parent: Optional[str] = None
+    for raw in probes_text.splitlines():
+        m = _SECTION.match(raw.strip())
+        if not m:
+            continue
+        if len(m.group(1)) == 1:
+            parent = m.group(2)
+            classes[parent] = parent
+        elif parent is not None:
+            classes[m.group(2)] = parent
+    return classes
+
+
+def ceilings(env: Optional[Dict[str, str]] = None) -> Dict[str, float]:
+    """The configured ceilings; an empty, malformed or non-positive value
+    falls back to the default rather than disabling the check."""
+    env = os.environ if env is None else env
+
+    def read(name: str, default: float) -> float:
+        try:
+            value = float(env.get(name, "") or default)
+        except ValueError:
+            return default
+        return value if value > 0 else default
+
+    return {
+        "mb_per_day": read("MEASUREMENT_BUDGET_MB_PER_DAY", DEFAULT_MB_PER_DAY),
+        "samples_per_hour": read("MEASUREMENT_BUDGET_SAMPLES_PER_HOUR",
+                                 DEFAULT_SAMPLES_PER_HOUR),
+    }
+
+
+def report(
+    targets_text: str,
+    cpe_text: str,
+    probes_text: str,
+    database_text: str = "",
+    env: Optional[Dict[str, str]] = None,
+) -> dict:
+    """The JSON body of GET /budget."""
+    step, pings = freshness.parse_database_defaults(database_text)
+    steps = freshness.parse_probe_var(probes_text, "step", step)
+    counts = freshness.parse_probe_var(probes_text, "pings", pings)
+    classes = probe_classes(probes_text)
+    per_probe = Counter(e.probe for e in freshness.parse_targets(targets_text, cpe_text))
+
+    rows = []
+    for probe, targets in sorted(per_probe.items()):
+        p_step = steps.get(probe, step)
+        p_pings = counts.get(probe, pings)
+        cls = classes.get(probe, probe)
+        per_sample = BYTES_PER_SAMPLE.get(cls)
+        samples_h = targets * p_pings * 3600 / p_step
+        rows.append({
+            "probe": probe,
+            "class": cls,
+            "targets": targets,
+            "step": p_step,
+            "pings": p_pings,
+            "samples_per_hour": round(samples_h, 1),
+            "bytes_per_sample": per_sample,
+            "mb_per_day": (None if per_sample is None
+                           else round(samples_h * 24 * per_sample / 1e6, 2)),
+        })
+    # Most expensive first: what to cut is at the top.
+    rows.sort(key=lambda r: (-(r["mb_per_day"] or 0), -r["samples_per_hour"], r["probe"]))
+
+    samples = sum(r["samples_per_hour"] for r in rows)
+    mb = sum(r["mb_per_day"] or 0 for r in rows)
+    ceiling = ceilings(env)
+    used = {
+        "samples_pct": round(100 * samples / ceiling["samples_per_hour"], 1),
+        "bandwidth_pct": round(100 * mb / ceiling["mb_per_day"], 1),
+    }
+    return {
+        "targets": sum(per_probe.values()),
+        "samples_per_hour": round(samples, 1),
+        "mb_per_day": round(mb, 2),
+        "ceiling": ceiling,
+        "used": used,
+        "over": used["samples_pct"] > 100 or used["bandwidth_pct"] > 100,
+        # Probes whose class has no measured cost: counted in samples, not
+        # in bytes, and named so the bandwidth figure is not read as whole.
+        "unpriced": sorted(r["probe"] for r in rows if r["bytes_per_sample"] is None),
+        "by_probe": rows,
+    }
+
+
+def render(body: dict) -> str:
+    """The report as text, for ``smoking-pi budget``."""
+    lines = [f"{'probe':<14} {'class':<8} {'targets':>7} {'step':>5} {'pings':>5} "
+             f"{'samples/h':>10} {'MB/day':>9}"]
+    for r in body["by_probe"]:
+        mb = "?" if r["mb_per_day"] is None else f"{r['mb_per_day']:.1f}"
+        lines.append(f"{r['probe']:<14} {r['class']:<8} {r['targets']:>7} {r['step']:>5} "
+                     f"{r['pings']:>5} {r['samples_per_hour']:>10.0f} {mb:>9}")
+    c, u = body["ceiling"], body["used"]
+    lines += [
+        "",
+        f"{body['targets']} targets: {body['samples_per_hour']:.0f} samples/h of "
+        f"{c['samples_per_hour']:.0f} ({u['samples_pct']}%), "
+        f"~{body['mb_per_day']:.0f} MB/day of {c['mb_per_day']:.0f} ({u['bandwidth_pct']}%).",
+    ]
+    if body["unpriced"]:
+        lines.append("No byte estimate for: " + ", ".join(body["unpriced"])
+                     + " (counted in samples only).")
+    if body["over"]:
+        lines.append("Over budget: fewer targets, fewer pings or a longer step brings it "
+                     "back; the ceilings are MEASUREMENT_BUDGET_MB_PER_DAY and "
+                     "MEASUREMENT_BUDGET_SAMPLES_PER_HOUR.")
+    lines.append("Approximate: SmokePing measurements only, from the generated config.")
+    return "\n".join(lines)
+
+
+def main(argv=None) -> int:
+    """``python budget.py [--json]``: ask the running API (GET /budget).
+
+    Runs inside the config-manager container (smoking-pi budget), so the
+    API token comes from the container's own environment.
+    """
+    import urllib.error
+    import urllib.request
+
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--json", action="store_true", help="print the JSON report")
+    args = parser.parse_args(argv)
+    req = urllib.request.Request("http://127.0.0.1:5000/budget")
+    token = os.environ.get("CONFIG_API_TOKEN", "")
+    if token:
+        req.add_header("X-API-Token", token)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        # It answered, and said no (a wrong token, a failure): say what.
+        try:
+            reason = json.loads(exc.read() or b"{}").get("error", exc.reason)
+        except ValueError:
+            reason = exc.reason
+        print(f"refused: {reason}", file=sys.stderr)
+        return 1
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        print(f"the config-manager API did not answer: {type(exc).__name__}", file=sys.stderr)
+        return 1
+    if not body.get("available"):
+        print(f"No budget yet: {body.get('reason')}", file=sys.stderr)
+        return 1
+    print(json.dumps(body, indent=2) if args.json else render(body))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

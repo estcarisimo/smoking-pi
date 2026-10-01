@@ -310,6 +310,9 @@ services:
       IPV6_MODE: ${IPV6_MODE:-auto}
       IPV6_PROBE_HOSTS: ${IPV6_PROBE_HOSTS:-}
       IPV6_RECHECK_INTERVAL: ${IPV6_RECHECK_INTERVAL:-900}
+      # Measurement budget ceilings (docs/measurement-budget.md); empty = defaults
+      MEASUREMENT_BUDGET_MB_PER_DAY: ${MEASUREMENT_BUDGET_MB_PER_DAY:-}
+      MEASUREMENT_BUDGET_SAMPLES_PER_HOUR: ${MEASUREMENT_BUDGET_SAMPLES_PER_HOUR:-}
       # The most services `smoking-pi dns adopt` keeps measuring (add only).
       DNS_WIZARD_MAX: ${DNS_WIZARD_MAX:-60}
       # PostgreSQL connection

@@ -57,6 +57,9 @@ services:
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-standard}
       # Optional shared API token (empty = auth disabled)
       CONFIG_API_TOKEN: ${CONFIG_API_TOKEN:-}
+      # Measurement budget ceilings (docs/measurement-budget.md); empty = defaults
+      MEASUREMENT_BUDGET_MB_PER_DAY: ${MEASUREMENT_BUDGET_MB_PER_DAY:-}
+      MEASUREMENT_BUDGET_SAMPLES_PER_HOUR: ${MEASUREMENT_BUDGET_SAMPLES_PER_HOUR:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Persist YAML configs on the host so bootstrap output survives
