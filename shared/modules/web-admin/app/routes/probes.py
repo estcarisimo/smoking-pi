@@ -59,9 +59,10 @@ def traffic(budget):
     """Each probe's approximate MB/day, from config-manager's /budget: the
     measured cost per sample (an HTTPS HEAD is ~70 ICMP echoes), over what
     the generated config runs. A probe the budget does not price, or does
-    not list because none of its targets run, has no figure."""
+    not list because none of its targets run, costs nothing: 0. Without a
+    budget, None for every probe (unknown, not free)."""
     if not budget.get('available'):
-        return {}
+        return None
     return {r.get('probe'): r.get('mb_per_day') for r in budget.get('by_probe') or []}
 
 
@@ -72,7 +73,10 @@ def _probes():
         probe['unit'] = probe_unit(probe.get('name'), probe.get('module'))
         probe['cadence'] = describe_cadence(
             probe['pings'], probe['step_seconds'], probe['unit'])
-        probe['mb_per_day'] = mb_per_day.get(probe.get('name'))
+        if mb_per_day is None:
+            probe['mb_per_day'] = None
+        else:
+            probe['mb_per_day'] = mb_per_day.get(probe.get('name'), 0)
     return probes
 
 

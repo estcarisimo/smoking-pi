@@ -174,7 +174,7 @@
         <p class="mb-1 text-muted small">No byte estimate for {{ budget.unpriced | join(', ') }}: counted in samples only, so the MB/day figure is low.</p>
         {% endif %}
         {% if not budget.complete %}
-        <p class="mb-1 text-muted small" id="budget-incomplete">The ISP's first hops are not counted: the SmokePing container could not be read.</p>
+        <p class="mb-1 text-muted small" id="budget-incomplete">The SmokePing container could not be read: the ISP's first hops are not counted, and SmokePing's default step and pings may be assumed.</p>
         {% endif %}
         <p class="mb-0 text-muted small">The configured cost of SmokePing's measurements, not metered traffic; most expensive first.
             <code>sudo smoking-pi budget</code> prints the same report.</p>

@@ -4,6 +4,7 @@ against the ceilings, most expensive probe first."""
 from conftest import login
 
 from app.routes import dashboard as dashboard_module
+from app.services import config_api as config_api_module
 from test_connection import _stub_dashboard
 
 # config-manager /budget on the shipped seed (docs/measurement-budget.md).
@@ -95,6 +96,7 @@ def test_unpriced_and_incomplete_are_named(client, monkeypatch):
 def test_unreachable_says_so_without_the_exception(client, monkeypatch):
     _stub_dashboard(monkeypatch, {"available": False, "reason": "stubbed"})
     monkeypatch.delattr(dashboard_module.config_api, "get_budget", raising=False)
+    monkeypatch.setattr(dashboard_module.config_api, "_budget_cache", None, raising=False)
 
     def unreachable():
         raise RuntimeError("http://config-manager:5000 secret-token-xyz")
@@ -105,3 +107,36 @@ def test_unreachable_says_so_without_the_exception(client, monkeypatch):
     assert "Could not check: config-manager unreachable" in card
     assert "secret-token-xyz" not in html and "config-manager:5000" not in html
     assert "unknown" in html
+
+
+def test_a_report_is_reused_for_a_minute_and_a_failure_is_not(monkeypatch):
+    gw = dashboard_module.config_api
+    monkeypatch.setattr(gw, "_budget_cache", None, raising=False)
+    answers = [RuntimeError("down"), SEED, {**SEED, "targets": 99}]
+    calls = []
+
+    def ask():
+        calls.append(1)
+        a = answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return a
+    monkeypatch.setattr(gw.client, "get_budget", ask)
+    now = [1000.0]
+    monkeypatch.setattr(config_api_module.time, "monotonic", lambda: now[0])
+    assert gw.get_budget()["available"] is False      # failure: not kept
+    assert gw.get_budget()["targets"] == 21           # asked again
+    now[0] += 59
+    assert gw.get_budget()["targets"] == 21           # reused
+    assert len(calls) == 2
+    now[0] += 2
+    assert gw.get_budget()["targets"] == 99           # a minute later: asked
+    assert len(calls) == 3
+
+
+def test_a_body_that_is_not_an_object_is_unavailable(monkeypatch):
+    gw = dashboard_module.config_api
+    monkeypatch.setattr(gw, "_budget_cache", None, raising=False)
+    monkeypatch.setattr(gw.client, "get_budget", lambda: ["not", "a", "dict"])
+    body = gw.get_budget()
+    assert body["available"] is False and "see web-admin log" in body["reason"]

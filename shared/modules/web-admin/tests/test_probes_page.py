@@ -63,6 +63,15 @@ def test_traffic_is_the_budgets_measured_cost(client, monkeypatch):
     assert "kbit/s" not in html
 
 
+def test_a_probe_with_nothing_running_costs_nothing(client, monkeypatch):
+    # In /probes but not in the budget: no target of it is in the
+    # generated config (all paused, or IPv6-gated). Known, and zero.
+    _stub(monkeypatch, budget={**BUDGET, "by_probe": BUDGET["by_probe"][:2]})
+    login(client)
+    html = client.get("/probes/").get_data(as_text=True)
+    assert ">0 MB/day<" in html and "—" not in html
+
+
 def test_traffic_without_a_budget_is_a_dash_not_a_guess(client, monkeypatch):
     _stub(monkeypatch, budget={"available": False, "reason": "stubbed"})
     login(client)

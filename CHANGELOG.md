@@ -11,20 +11,20 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
-- **The dashboard shows the measurement budget, and its bandwidth figures
-  are the measured ones.** The *Bandwidth Usage* card counted every sample
-  as 64 bytes. An HTTPS HEAD is about 12 KB, so on the shipped seed it
-  showed 0.2 Kbps, about 2 MB a day, when the budget says about 98: some
-  45× low.
-  The Probes page's *Traffic* column used the same formula, which put an
-  HTTP probe at about 1/190 of its cost. Anyone deciding what to add on a
+- **The dashboard shows the measurement budget, and its bandwidth figures are
+  the measured ones.** The *Bandwidth Usage* card counted every sample as 64
+  bytes. An HTTPS HEAD is about 12 KB, so on the shipped seed it showed 0.2
+  Kbps, about 2 MB a day, when the budget says about 98 MB a day: some 45×
+  low. The Probes page's *Traffic* column used the same formula, which put
+  an HTTP probe at about 1/190 of its cost. Anyone deciding what to add on a
   metered link was reading the wrong number. Both now come from
   config-manager's `/budget` (`smoking-pi budget`'s report). A new
-  *Measurement budget* card shows MB/day and samples per hour against
-  their ceilings, the headroom, and every probe, most expensive first. It
-  turns yellow at 75% and red over the ceiling, and says when
-  config-manager cannot be asked instead of guessing. The old 64-byte
-  estimate (`calculate_bandwidth`) is gone.
+  *Measurement budget* card shows MB/day and samples per hour against their
+  ceilings, the headroom, and every probe, most expensive first. It turns
+  yellow at 75% and red over the ceiling, and says when config-manager
+  cannot be asked instead of guessing. The report is reused for a minute,
+  since each one reads two files out of the SmokePing container. The old
+  64-byte estimate (`calculate_bandwidth`) is gone.
 
 ### Security
 
