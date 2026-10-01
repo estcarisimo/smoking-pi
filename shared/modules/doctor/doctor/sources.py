@@ -317,12 +317,13 @@ class _PointVisitor(ast.NodeVisitor):
         return set()
 
 
-def exporter_vocabulary(exporter_dir: pathlib.Path) -> ExporterVocabulary:
-    """Measurements and tag names the exporters write, read from their source."""
+def exporter_vocabulary(*exporter_dirs: pathlib.Path) -> ExporterVocabulary:
+    """Measurements and tag names the exporters write, read from their
+    source: the SmokePing container's exporters, and any other module that
+    writes InfluxDB points (the traffic meter)."""
     vocab = ExporterVocabulary()
-    if not exporter_dir.is_dir():
-        return vocab
-    for path in sorted(exporter_dir.glob("*.py")):
+    paths = sorted(p for d in exporter_dirs if d.is_dir() for p in d.glob("*.py"))
+    for path in paths:
         # ClickHouse support is parked and writes a different schema.
         if "clickhouse" in path.name:
             continue

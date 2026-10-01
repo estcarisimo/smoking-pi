@@ -165,8 +165,80 @@ not what leaves the radio. An interval is dropped, not guessed, when a
 counter went backwards (a reboot), the uplink changed interface, or the
 exporter was stopped for more than 15 minutes. A meter that stopped writing
 for 15 minutes is shown as stale. Basic and Standard have no meter.
-Exactly which service sends what is the next step: per-container
-accounting.
+Which service sends what is the next section.
+
+## By service
+
+The meter above says how much; Pro also says **who**. The `netmeter`
+container counts the same uplink per service, exactly, with nftables
+counters keyed on each container:
+
+- **Host-network services** (SmokePing and its exporters, the DNS
+  observer, the alerter, the MCP server, mdns) by the cgroup of the socket
+  that sends or receives. A connection's first packet also stamps it (one
+  byte of the conntrack mark, bits 24-30, clear of Tailscale's), so the
+  replies, ICMP echo replies included, count for the same service.
+- **Bridged containers** (Grafana, the web admin, ai-insights, InfluxDB,
+  PostgreSQL, config-manager) by their address, where their traffic is
+  forwarded to the uplink.
+- **host**: everything else on the uplink that no container sent or
+  received (apt, an assistant, sshd, Docker pulling an image).
+- **other_containers**: forwarded traffic of containers this stack does
+  not name, such as a tunnel started by hand with `docker run`.
+
+`smoking-pi budget` lists them after the measured line, most traffic
+first. The dashboard's budget card has a *Measured by service* table,
+and Grafana's Overview has *Measured traffic by service (MB/day)*,
+stacked. The series is `service_traffic` (tags `service` and `kind`:
+`host_network`, `bridge` or `rest`; fields `rx_bytes`, `tx_bytes`,
+`seconds`, `mb_per_day`).
+
+On a test Pi, two minutes of it read:
+
+```text
+smokeping          host_network  in    925642 B  out    384017 B  ~   943.0 MB/day
+host               rest          in      3898 B  out     13103 B  ~    12.2 MB/day
+grafana            bridge        in      5310 B  out      2417 B  ~     5.6 MB/day
+dns-observer       host_network  in      3923 B  out      3382 B  ~     5.3 MB/day
+```
+
+**What it changes on the host.** It adds one table, `inet
+smoking_pi_meter`, with three chains (output, input, forward) at
+priority -150. They hold counters and a conntrack mark and nothing else:
+no rule drops, accepts, rejects or rewrites a packet, so whatever the
+host's firewall (Docker's, Tailscale's, yours) decided before, it still
+decides. Stopping the container removes the table. `NETMETER=off` in the
+env file loads nothing. To look at it: `sudo nft list table inet
+smoking_pi_meter`.
+
+The container runs with `CAP_NET_ADMIN` and no other capability, on the
+host network and in the host's cgroup namespace (nft resolves a cgroup
+by its path), on a read-only filesystem. It asks config-manager which
+container is which (`GET /meter/containers`) rather than holding the
+Docker socket. A container that restarts gets a new cgroup, even with
+the same container id (`docker restart`), and nft keys a rule on the
+cgroup itself, not its path; the meter watches each cgroup's identity
+and reloads the table within a minute, keeping what the counters held.
+Each host-network service keeps its own mark number across reloads, so a
+long-lived connection is never credited to another service.
+
+Limits worth knowing:
+
+- **The uplink is a physical interface** (one with a device: `wlan0`,
+  `eth0`) unless `NETMETER_INTERFACES` names it. An uplink that is a
+  bridge, a bond, a VLAN or PPPoE needs that setting; without it the
+  meter says so in its status and counts nothing.
+- **A VPN's encrypted packets** leaving the uplink (tailscaled, WireGuard)
+  are counted as `host`, not as the service whose traffic they carry.
+- **Inbound multicast** (mDNS questions to the mdns service) is not tied
+  to a socket on the way in and is counted as `host`; what mdns sends is
+  counted as mdns.
+- **The conntrack mark bits 24-30 stay** on the connections that carried
+  them until those connections end, even after the table is removed. A
+  firewall of your own that copies the whole conntrack mark into the
+  packet mark without a mask (some multi-WAN or policy-routing setups)
+  would see them; Docker and Tailscale do not do this. `NETMETER=off`
+  if yours does.
 
 ## What it does not count yet
 

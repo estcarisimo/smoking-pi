@@ -989,3 +989,17 @@ def test_patterns_compile_on_python_310():
                 assert not py311_only.search(value.pattern), (
                     f"{module.__name__}.{name} uses 3.11-only regex syntax"
                 )
+
+
+def test_exporter_vocabulary_reads_every_writer(tmp_path):
+    from doctor.sources import exporter_vocabulary
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    (a / "x.py").write_text('from influxdb_client import Point\nPoint("first")\n')
+    (b / "y.py").write_text('def f():\n    from influxdb_client import Point\n'
+                            '    return Point("second").tag("service", "s")\n')
+    vocab = exporter_vocabulary(a, b, tmp_path / "missing")
+    assert vocab.measurements == {"first", "second"}
+    assert "service" in vocab.tag_names

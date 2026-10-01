@@ -32,6 +32,8 @@ class Repo:
         self.provisioning = self.grafana / "provisioning"
         self.datasources_dir = self.provisioning / "datasources"
         self.exporters = root / "shared/modules/smokeping-exporters"
+        # Other modules that write InfluxDB points of their own.
+        self.writers = (self.exporters, root / "shared/modules/netmeter")
         self.alerter = root / "shared/modules/alerter"
         # Shared code copied into the alerter image; it reads env too.
         self.common = root / "shared/modules/common"
@@ -311,7 +313,7 @@ def check_dashboards_are_scanned(repo: Repo, influx, clickhouse) -> CheckResult:
 
 def check_panel_measurements_are_written(repo: Repo, influx) -> CheckResult:
     """A panel filtering on a measurement nothing writes charts nothing, silently."""
-    vocab = sources.exporter_vocabulary(repo.exporters)
+    vocab = sources.exporter_vocabulary(*repo.writers)
     if not vocab.measurements:
         return skipped(
             "panel-measurements-written",
@@ -341,7 +343,7 @@ def check_panel_measurements_are_written(repo: Repo, influx) -> CheckResult:
 
 def check_panel_tags_are_written(repo: Repo, influx) -> CheckResult:
     """Same for tag names: `r.measurement_type` is a filter that can never match."""
-    vocab = sources.exporter_vocabulary(repo.exporters)
+    vocab = sources.exporter_vocabulary(*repo.writers)
     if not vocab.tag_names:
         return skipped(
             "panel-tags-written", f"no .tag() literals found under {repo.exporters}"

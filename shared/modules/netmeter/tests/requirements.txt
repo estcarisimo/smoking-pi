@@ -1,0 +1,3 @@
+# Dependencies needed to run the netmeter tests in CI.
+pytest
+influxdb-client

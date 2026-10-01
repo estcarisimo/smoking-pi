@@ -115,11 +115,16 @@
 <text x="454" y="579" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">dns_wizard</tspan>: the wizard&#x27;s snapshot</text>
 <text x="454" y="599" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">measurement_budget</tspan>: config-manager&#x27;s budget</text>
 <text x="454" y="619" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">uplink_traffic</tspan>: what the uplink really carries</text>
-<rect x="700" y="680" width="210" height="92" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
-<g transform="translate(718,695) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0M12 19.5v.1"/></g>
-<text x="748" y="711" font-size="17" font-weight="700" fill="#1e40af">mdns</text>
-<text x="718" y="737" font-size="14" fill="#1f2937">the name smoking-pi.local,</text>
-<text x="718" y="758" font-size="14" fill="#1f2937">by multicast DNS</text>
+<rect x="725" y="680" width="185" height="92" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(743,695) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0M12 19.5v.1"/></g>
+<text x="773" y="711" font-size="17" font-weight="700" fill="#1e40af">mdns</text>
+<text x="743" y="737" font-size="14" fill="#1f2937">smoking-pi.local</text>
+<text x="743" y="758" font-size="14" fill="#1f2937">by multicast DNS</text>
+<rect x="430" y="680" width="185" height="92" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(448,695) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-5 4 10 2-5h6"/></g>
+<text x="478" y="711" font-size="17" font-weight="700" fill="#1e40af">netmeter</text>
+<text x="448" y="737" font-size="14" fill="#1f2937">uplink bytes</text>
+<text x="448" y="758" font-size="14" fill="#1f2937">per service (nft)</text>
 <rect x="430" y="790" width="480" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
 <g transform="translate(448,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l5 5M4.5 10.5a6 6 0 1 0 12 0 6 6 0 1 0-12 0"/></g>
 <text x="478" y="821" font-size="17" font-weight="700" fill="#c2410c">DNS observer</text>
@@ -177,7 +182,7 @@
 <rect x="1583" y="659" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="674" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">asks</text>
 <rect x="1586" y="824" width="38" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="840" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">MCP</text>
 <rect x="1420" y="599" width="66" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1453" y="614" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reports</text>
-<rect x="552" y="714" width="95" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="600" y="730" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json</text>
+<rect x="622" y="715" width="95" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="670" y="730" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json</text>
 <rect x="296" y="679" width="167" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="380" y="694" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json / Targets</text>
 <rect x="313" y="949" width="124" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="375" y="964" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">the house&#x27;s DNS</text>
 <rect x="799" y="1019" width="153" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="875" y="1034" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">encrypted upstreams</text>

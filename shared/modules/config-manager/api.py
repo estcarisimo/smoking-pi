@@ -32,6 +32,7 @@ from scripts import ipv6_check
 from file_ops import get_config_lock, atomic_write_yaml
 import freshness
 import budget
+import meter_containers
 import assistant
 import recommendations
 import wizard_adopt
@@ -535,12 +536,24 @@ class ConfigManagerAPI:
             logger.info("Budget without the SmokePing container's files: %s",
                         type(e).__name__)
             complete = False
+        # The per-service meter (netmeter/); absent on Basic/Standard, when
+        # NETMETER=off, and before its first interval.
+        services_text = ''
+        try:
+            netmeter = docker.from_env().containers.get(
+                resolve_container_name('netmeter'))
+            found = netmeter.exec_run(['cat', '/var/lib/netmeter/state.json'])
+            if found.exit_code == 0:
+                services_text = found.output.decode(errors='replace')
+        except Exception as e:
+            logger.debug("Budget without the per-service meter: %s", type(e).__name__)
         body = budget.report(
             targets_text=targets_file.read_text(),
             cpe_text=cpe_text,
             probes_text=probes_file.read_text() if probes_file.exists() else '',
             database_text=database_text,
             traffic_text=traffic_text,
+            services_text=services_text,
         )
         return {'available': True, 'complete': complete,
                 'checked_at': datetime.now().isoformat(), **body}
@@ -1162,6 +1175,23 @@ def measurement_budget():
         return jsonify(api.measurement_budget())
     except Exception as e:
         return error_response(500, "Failed to compute the measurement budget", e)
+
+
+@app.route('/meter/containers', methods=['GET'])
+@require_api_token
+def meter_containers_route():
+    """The stack's running containers as the traffic meter keys them: host-
+    network ones by cgroup, bridged ones by address. See meter_containers.py."""
+    try:
+        client = docker.from_env()
+        driver = (client.info() or {}).get('CgroupDriver', '')
+        attrs = [c.attrs for c in client.containers.list()]
+        return jsonify({
+            'cgroup_driver': driver,
+            'containers': meter_containers.describe(attrs, compose_project_name(), driver),
+        })
+    except Exception as e:
+        return error_response(500, "Failed to list the containers", e)
 
 
 @app.route('/recommendations', methods=['GET'])

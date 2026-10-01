@@ -232,6 +232,41 @@ def test_report_and_render_carry_the_measured_figure():
     assert budget.report(TARGETS, CPE, PROBES)["measured"] is None
 
 
+def _services_state(now, hours=2):
+    rows = []
+    for k in range(hours * 12):
+        rows.append({"t": now - 300 * k, "seconds": 300, "services": {
+            "smokeping": {"rx": 400_000, "tx": 400_000, "kind": "host_network"},
+            "host": {"rx": 100_000, "tx": 50_000, "kind": "rest"},
+            "grafana": {"rx": 1_000, "tx": 1_000, "kind": "bridge"}}})
+    return json.dumps({"intervals": rows})
+
+
+def test_by_service_most_traffic_first():
+    now = 1_000_000.0
+    b = budget.by_service(_services_state(now), now)
+    assert [r["service"] for r in b["services"]] == ["smokeping", "host", "grafana"]
+    smokeping = b["services"][0]
+    assert smokeping["mb_per_day"] == 230.4   # 0.8 MB / 5 min
+    assert smokeping["kind"] == "host_network" and smokeping["rx_mb"] == 9.6
+    assert b["hours"] == 2.0 and b["provisional"] is False and b["stale"] is False
+
+
+@pytest.mark.parametrize("text", ["", "junk", "[]", json.dumps({"intervals": [
+    {"t": "x", "seconds": 300, "services": {}}]}), json.dumps({"intervals": [
+    {"t": 999_999, "seconds": 300, "services": {"a": {"rx": "no"}}}]})])
+def test_by_service_none_on_junk(text):
+    assert budget.by_service(text, 1_000_000.0) is None
+
+
+def test_render_lists_the_services():
+    now = 1_000_000.0
+    body = budget.report(TARGETS, CPE, PROBES, services_text=_services_state(now), now=now)
+    text = budget.render(body)
+    assert "By service, over the last 2.0 h:" in text
+    assert "smokeping" in text and "230.4 MB/day" in text
+
+
 # --- GET /budget ------------------------------------------------------------
 
 class FakeContainer:

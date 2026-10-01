@@ -73,6 +73,7 @@ DEPLOYED_MODULES = {
     "alerter": ("alerter", "/app", True),
     "dns-observer": ("dns-observer", "/app", False),
     "mdns": ("mdns", "/app", False),
+    "netmeter": ("netmeter", "/app", False),
     "mcp-server": ("mcp-server", "/app", True),
     "smokeping-exporters": ("smokeping", "/exporters", False),
 }

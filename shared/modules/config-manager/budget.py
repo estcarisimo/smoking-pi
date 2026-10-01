@@ -159,6 +159,55 @@ def measured(state_text: str, now: float, mb_ceiling: float) -> Optional[dict]:
     }
 
 
+def by_service(state_text: str, now: float) -> Optional[dict]:
+    """What each service sent and received on the uplink over the last
+    24 h, from the netmeter container's state file (netmeter/meter.py);
+    None without one. Exact attribution, not an estimate: nftables counters
+    keyed on each container. ``host`` is everything on the uplink that no
+    container sent (apt, an assistant, sshd); ``other_containers`` are
+    containers this stack does not name. Most traffic first."""
+    try:
+        state = json.loads(state_text) if state_text else None
+        if not isinstance(state, dict):
+            return None
+        rows = []
+        for i in state.get("intervals") or []:
+            if not isinstance(i, dict) or now - float(i.get("t") or 0) > 86_400:
+                continue
+            services = i.get("services") if isinstance(i.get("services"), dict) else {}
+            rows.append((float(i.get("t") or 0), float(i.get("seconds") or 0), {
+                str(k): (int(v.get("rx") or 0), int(v.get("tx") or 0), str(v.get("kind") or ""))
+                for k, v in services.items() if isinstance(v, dict)}))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    seconds = sum(r[1] for r in rows)
+    if not rows or seconds <= 0:
+        return None
+    totals: Dict[str, list] = {}
+    for _t, _s, services in rows:
+        for name, (rx, tx, kind) in services.items():
+            acc = totals.setdefault(name, [0, 0, kind])
+            acc[0] += rx
+            acc[1] += tx
+            acc[2] = kind or acc[2]
+    services = [{
+        "service": name,
+        "kind": kind,
+        "rx_mb": round(rx / 1e6, 2),
+        "tx_mb": round(tx / 1e6, 2),
+        "mb_per_day": round((rx + tx) / seconds * 86_400 / 1e6, 2),
+    } for name, (rx, tx, kind) in totals.items()]
+    services.sort(key=lambda r: (-r["mb_per_day"], r["service"]))
+    return {
+        "hours": round(seconds / 3600, 1),
+        "minutes": round(seconds / 60),
+        "provisional": seconds < MEASURED_MIN_SECONDS,
+        "stale": now - max(r[0] for r in rows) > MEASURED_STALE_SECONDS,
+        "mb_per_day": round(sum(r["mb_per_day"] for r in services), 2),
+        "services": services,
+    }
+
+
 def report(
     targets_text: str,
     cpe_text: str,
@@ -167,6 +216,7 @@ def report(
     env: Optional[Dict[str, str]] = None,
     traffic_text: str = "",
     now: Optional[float] = None,
+    services_text: str = "",
 ) -> dict:
     """The JSON body of GET /budget."""
     step, pings = freshness.parse_database_defaults(database_text)
@@ -217,6 +267,9 @@ def report(
         # The meter beside the estimate: what the uplink really carried.
         "measured": measured(traffic_text, time.time() if now is None else now,
                              ceiling["mb_per_day"]),
+        # The same uplink, attributed per service (the netmeter container).
+        "measured_by_service": by_service(services_text,
+                                          time.time() if now is None else now),
     }
 
 
@@ -254,6 +307,14 @@ def render(body: dict) -> str:
             "everything the Pi sent and received there, not only the measurements."
             + (" Under an hour of data: not yet a daily figure." if m.get("provisional") else "")
             + (" Stale: the meter has stopped." if m.get("stale") else ""))
+    b = body.get("measured_by_service")
+    if b and b.get("services"):
+        lines.append(f"By service, over the last {covered(b)}"
+                     + (" (not yet a daily figure)" if b.get("provisional") else "")
+                     + (" (stale: the meter has stopped)" if b.get("stale") else "") + ":")
+        for r in b["services"]:
+            lines.append(f"  {r['service']:<18} ~{r['mb_per_day']:>8.1f} MB/day  "
+                         f"({_mb(r['rx_mb'])} MB in, {_mb(r['tx_mb'])} MB out)")
     if body["unpriced"]:
         lines.append("No byte estimate for: " + ", ".join(body["unpriced"])
                      + " (counted in samples only).")
