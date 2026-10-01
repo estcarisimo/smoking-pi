@@ -9,6 +9,30 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.18.0] — 2026-10-01
+
+The Pi answers for `smoking-pi.local` from its own container, and the
+measurement budget now has a meter beside its estimate: what the uplink
+really carried, and (Pro) which service carried it.
+
+- A new `mdns` service, in every edition, answers for `smoking-pi.local`
+  (`MDNS_NAME`). On the reference Pi the host's Avahi renamed itself to
+  `smokingpi-2.local` eight seconds after a boot, so the only `.local`
+  name it had stopped resolving. A second Smoking Pi on the same network
+  takes `smoking-pi-2.local`; give each its own `MDNS_NAME`.
+  `smoking-pi url` prints the name the service holds.
+- Pro: a new exporter in the SmokePing container reads the uplink
+  interface's byte counters every five minutes. `/budget`,
+  `smoking-pi budget`, the dashboard's budget card and the Overview show
+  the measured MB/day against the same ceiling as the estimate.
+- Pro: a new `netmeter` service attributes the uplink's bytes to each
+  container with a counter-only nftables table (`inet smoking_pi_meter`)
+  that never drops, accepts or rewrites a packet, and is removed when the
+  container stops; `NETMETER=off` loads nothing. Two minutes on the test
+  Pi: SmokePing ~943 MB/day against its ~410 MB/day estimate.
+- Two new images, `mdns` and `netmeter`: twelve in all. `smoking-pi
+  upgrade` starts both.
+
 ### Added
 
 - **The Pi answers for `smoking-pi.local`, from its own container.** The
