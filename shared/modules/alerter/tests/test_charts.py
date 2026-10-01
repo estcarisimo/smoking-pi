@@ -102,15 +102,33 @@ def test_renders_a_png(fake_influx):
     assert png and png.startswith(PNG_MAGIC)
 
 
-def test_the_canvas_is_not_white(fake_influx):
+def test_the_default_is_a_light_paper_figure(fake_influx):
+    """Light by default: a white page, read in a chat on a phone."""
+    r, g, b = _first_pixel(charts.render_incident_chart("subject", severity="critical"))
+    assert min(r, g, b) > 240, f"default theme is not light: {(r, g, b)}"
+
+
+def test_sized_for_a_phone_and_not_rescaled_by_telegram(fake_influx):
+    """Telegram rescales photos above 1280 px; under it, what is drawn is
+    what is shown. Wide enough that 16 pt type is still legible scaled down."""
+    import struct
+
+    png = charts.render_target_chart("subject")
+    width, height = struct.unpack(">II", png[16:24])
+    assert 1000 <= width <= 1280 and height <= 1280
+    assert height / width > 0.7  # closer to a phone screen than to 16:9
+
+
+def test_the_canvas_is_not_white(fake_influx, monkeypatch):
     """The dark theme must actually render dark."""
+    monkeypatch.setenv("CHART_THEME", "dark")
     png = charts.render_incident_chart("subject", severity="critical")
     r, g, b = _first_pixel(png)
     assert (r, g, b) != (255, 255, 255), "chart saved on a white canvas"
     assert max(r, g, b) < 80, f"surface too light for the dark theme: {(r, g, b)}"
 
 
-def test_a_white_savefig_default_cannot_leak_through(fake_influx):
+def test_a_white_savefig_default_cannot_leak_through(fake_influx, monkeypatch):
     """REINTRODUCTION TEST for the explicit facecolor= argument.
 
     rcParams["savefig.facecolor"] is a global, and was "w" by default before
@@ -120,6 +138,7 @@ def test_a_white_savefig_default_cannot_leak_through(fake_influx):
     """
     import matplotlib
 
+    monkeypatch.setenv("CHART_THEME", "dark")
     original = matplotlib.rcParams["savefig.facecolor"]
     matplotlib.rcParams["savefig.facecolor"] = "w"
     try:

@@ -406,16 +406,17 @@ def test_text_only_uses_the_4096_budget(posts, openclaw):
     assert len(args["message"]) <= 4096
 
 
-def test_force_document_is_on_by_default(posts, openclaw):
-    """Telegram re-encodes photos as JPEG, which wrecks thin chart lines."""
-    notifier.notify(_event(), image=PNG)
-    assert posts["calls"][0]["json"]["args"]["forceDocument"] is True
-
-
-def test_force_document_can_be_disabled(posts, openclaw, monkeypatch):
-    monkeypatch.setenv("ALERT_IMAGE_AS_DOCUMENT", "false")
+def test_charts_go_inline_by_default(posts, openclaw):
+    """A document is a file card to tap open; the charts are drawn large
+    enough to survive Telegram's JPEG re-encoding as a photo."""
     notifier.notify(_event(), image=PNG)
     assert "forceDocument" not in posts["calls"][0]["json"]["args"]
+
+
+def test_force_document_can_be_enabled(posts, openclaw, monkeypatch):
+    monkeypatch.setenv("ALERT_IMAGE_AS_DOCUMENT", "true")
+    notifier.notify(_event(), image=PNG)
+    assert posts["calls"][0]["json"]["args"]["forceDocument"] is True
 
 
 def test_a_failed_image_send_retries_exactly_once_as_text(posts, openclaw):

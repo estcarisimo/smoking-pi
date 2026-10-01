@@ -27,8 +27,13 @@ Design follows the project's data-viz method:
   bars over the alert threshold take the status color, and every bar carries
   its value as text, so color never carries meaning alone.
 
-Colors are the project palette's dark chrome and status steps, validated
-against the dark surface (critical 3.62:1, warning 9.49:1, muted 4.85:1).
+The look is a paper figure, not a dashboard, in the conventions of the
+project author's published figures: white surface, large type (16-20 pt
+on a 10 x 8 in figure, so it is still legible scaled down to a phone),
+dashed major and dotted minor grid, a framed legend, matplotlib's tab
+colors. The size is for a phone first: it is mostly read in a chat.
+CHART_THEME=dark keeps the earlier dark palette (validated against its
+surface: critical 3.62:1, warning 9.49:1, muted 4.85:1) at the same sizes.
 """
 
 from __future__ import annotations
@@ -42,7 +47,10 @@ from common import tsdb
 
 log = logging.getLogger("charts")
 
-# --- palette: dark surface, validated steps -------------------------------
+# --- palette ----------------------------------------------------------------
+# Light by default (CHART_THEME=dark for the dark one). The light palette is
+# matplotlib's own tab colors on white, as in the project author's papers:
+# the subject in tab:blue, peers in thin grey, status in tab:red/orange.
 SURFACE = "#1a1a19"
 INK = "#ffffff"
 MUTED = "#898781"
@@ -50,14 +58,19 @@ GRID = "#2c2c2a"
 SPINE = "#383835"
 SERIES = "#3987e5"  # categorical slot 1 (dark)
 STATUS = {"critical": "#d03b3b", "warning": "#fab219", "info": "#3987e5"}
-PEER = "#898781"  # muted, drawn at low alpha so it recedes
+PEER = "grey"  # muted, drawn at low alpha so it recedes
 
 LIGHT = {
-    "SURFACE": "#fcfcfb", "INK": "#0b0b0b", "MUTED": "#898781",
-    "GRID": "#e1e0d9", "SPINE": "#c3c2b7", "SERIES": "#2a78d6",
+    "SURFACE": "#ffffff", "INK": "#000000", "MUTED": "#3d3d3d",
+    "GRID": "darkgrey", "SPINE": "#000000", "SERIES": "#1f77b4",
+    # tab:red, tab:orange (the dark theme's yellow is unreadable on white),
+    # tab:blue.
+    "STATUS": {"critical": "#d62728", "warning": "#ff7f0e", "info": "#1f77b4"},
 }
 
-DPI = 140
+# 10 x 8 in at 110 dpi = 1100 x 880 px: under Telegram's 1280 px photo
+# limit, so it is not rescaled, and close enough to square to fill a phone.
+DPI = 110
 MAX_PEERS = 4
 DEFAULT_MAX_BYTES = 700_000  # ~933 KB base64, inside the 2 MB invoke cap
 
@@ -71,11 +84,11 @@ def _env_int(name: str, default: int) -> int:
 
 def _theme() -> dict:
     """Static images cannot follow the reader's theme, so one is chosen."""
-    if (os.environ.get("CHART_THEME") or "dark").strip().lower() == "light":
+    if (os.environ.get("CHART_THEME") or "light").strip().lower() == "light":
         return LIGHT
     return {
         "SURFACE": SURFACE, "INK": INK, "MUTED": MUTED,
-        "GRID": GRID, "SPINE": SPINE, "SERIES": SERIES,
+        "GRID": GRID, "SPINE": SPINE, "SERIES": SERIES, "STATUS": STATUS,
     }
 
 
@@ -83,16 +96,17 @@ def _style(fig, axes, theme):
     fig.patch.set_facecolor(theme["SURFACE"])
     for ax in axes:
         ax.set_facecolor(theme["SURFACE"])
-        # Solid hairlines only: dashed grid reads as "threshold" when it is
-        # just a grid.
-        ax.grid(True, color=theme["GRID"], linewidth=0.6, linestyle="-")
+        # Dashed major, dotted minor (see _minor_grid). The threshold is a
+        # solid colored line, so it never reads as grid.
+        ax.grid(True, which="major", linestyle="--", color="darkgrey",
+                linewidth=1, alpha=0.5)
         ax.set_axisbelow(True)
         for side in ("top", "right"):
             ax.spines[side].set_visible(False)
         for side in ("left", "bottom"):
             ax.spines[side].set_color(theme["SPINE"])
-            ax.spines[side].set_linewidth(0.8)
-        ax.tick_params(colors=theme["MUTED"], labelsize=8, length=0)
+            ax.spines[side].set_linewidth(1.0)
+        ax.tick_params(colors=theme["INK"], labelsize=15, length=4)
 
 
 def _series_flux(target: str, measurement: str, field: str, hours: int) -> str:
@@ -244,11 +258,11 @@ def _minor_grid(ax, theme):
     from matplotlib.ticker import AutoMinorLocator
 
     ax.yaxis.set_minor_locator(AutoMinorLocator())
-    ax.xaxis.set_minor_locator(AutoMinorLocator())
-    ax.grid(True, which="major", color=theme["GRID"], linewidth=0.6,
-            linestyle="-")
-    ax.grid(True, which="minor", color=theme["GRID"], linewidth=0.3,
-            linestyle="-", alpha=0.6)
+    # One minor line between the hour ticks; more is a mesh on a phone.
+    ax.xaxis.set_minor_locator(AutoMinorLocator(2))
+    ax.grid(True, which="major", linestyle="--", color="darkgrey",
+            linewidth=1, alpha=0.5)
+    ax.grid(True, which="minor", linestyle=":", color="grey", alpha=0.5)
     ax.tick_params(which="minor", length=0)
 
 
@@ -306,7 +320,7 @@ def render_incident_chart(
     try:
         return _render_series_chart(
             target, measurement, hours, peers or [],
-            accent=STATUS.get(severity, STATUS["warning"]),
+            accent=_theme()["STATUS"].get(severity, _theme()["STATUS"]["warning"]),
             first_seen=first_seen,
         )
     except Exception:  # noqa: BLE001 - a chart must never cost the alert
@@ -361,8 +375,8 @@ def _render_series_chart(
         return None
 
     fig, (ax_lat, ax_loss) = plt.subplots(
-        2, 1, sharex=True, figsize=(8, 4.5), dpi=DPI,
-        height_ratios=[2, 1], layout="constrained",
+        2, 1, sharex=True, figsize=(10, 8), dpi=DPI,
+        height_ratios=[2.2, 1], layout="constrained",
     )
     _style(fig, (ax_lat, ax_loss), theme)
     for ax in (ax_lat, ax_loss):
@@ -388,7 +402,7 @@ def _render_series_chart(
             p_ms = _to_ms(p_vals, measurement)
             peers_ms.extend(p_ms)
             ax_lat.plot(p_times, p_ms, color=PEER,
-                        alpha=0.45, linewidth=1.0, zorder=2)
+                        alpha=0.6, linewidth=1.0, zorder=2)
             drew_peer = True
 
     ms: list[float] = []
@@ -399,12 +413,12 @@ def _render_series_chart(
         # the band is exactly where the median lives).
         ax_lat.plot(times, ms, color=theme["SURFACE"], linewidth=4.0,
                     alpha=0.7, zorder=3, solid_capstyle="round")
-        ax_lat.plot(times, ms, color=accent, linewidth=2.0, zorder=3,
+        ax_lat.plot(times, ms, color=accent, linewidth=2.5, zorder=3,
                     label=target)
         # Direct-label the last point only -- a number on every point is chaos.
         ax_lat.annotate(
             f"{ms[-1]:.0f} ms", (times[-1], ms[-1]), textcoords="offset points",
-            xytext=(6, 0), va="center", color=accent, fontsize=8.5,
+            xytext=(8, 0), va="center", color=accent, fontsize=16, fontweight="bold",
         )
     ceiling, clipped, peak = _latency_ceiling(s_hi, s_q3, ms, peers_ms)
     if ceiling > 0:
@@ -417,17 +431,17 @@ def _render_series_chart(
             f"{ceiling:.0f} ms (max {peak:.0f} ms)",
             (1.0, 1.0), xycoords="axes fraction", xytext=(-4, -4),
             textcoords="offset points", ha="right", va="top",
-            color=theme["MUTED"], fontsize=7.5,
+            color=theme["MUTED"], fontsize=13,
         )
-    ax_lat.set_ylabel("median latency (ms)", color=theme["MUTED"], fontsize=8.5)
+    ax_lat.set_ylabel("latency (ms)", color=theme["INK"], fontsize=16)
     ax_lat.set_title(
-        f"{target} — last {hours}h", color=theme["INK"], fontsize=11,
+        f"{target} — last {hours}h", color=theme["INK"], fontsize=20, fontweight="bold",
         loc="left", pad=10,
     )
 
     if loss_times:
         pct = _loss_pct(losses, measurement)
-        ax_loss.plot(loss_times, pct, color=accent, linewidth=1.6, zorder=3)
+        ax_loss.plot(loss_times, pct, color=accent, linewidth=2.0, zorder=3)
         ax_loss.fill_between(loss_times, pct, 0, color=accent, alpha=0.25,
                              linewidth=0, zorder=2)
         # An all-zero panel is a large empty box. Say what it means instead --
@@ -436,24 +450,31 @@ def _render_series_chart(
             ax_loss.annotate(
                 "no loss in this window", (0.5, 0.5),
                 xycoords="axes fraction", ha="center", va="center",
-                color=theme["MUTED"], fontsize=9,
+                color=theme["MUTED"], fontsize=15,
             )
     # The line the trace is judged against. Dashed on purpose: the grid is
     # solid hairlines so that dashed means "threshold" and nothing else.
     threshold, threshold_label = _loss_threshold(measurement)
     if 0 < threshold < 100:
-        ax_loss.axhline(threshold, color=theme["MUTED"], linewidth=0.9,
-                        linestyle=(0, (4, 3)), zorder=2)
+        # Solid ink: the grid is dashed grey and status is colored, so a
+        # solid black line is the threshold and nothing else -- even on a
+        # critical chart whose trace is already red.
+        ax_loss.axhline(threshold, color=theme["INK"], linewidth=1.3,
+                        linestyle="-", alpha=0.75, zorder=2)
+        # At the left, boxed: the right edge is where the latest trace is,
+        # and a label there sits on top of the most recent loss.
         ax_loss.annotate(
-            f"{threshold_label} {threshold:.0f}%", (1.0, threshold),
-            xycoords=("axes fraction", "data"), xytext=(-4, 3),
-            textcoords="offset points", ha="right", va="bottom",
-            color=theme["MUTED"], fontsize=7.5,
+            f"{threshold_label} {threshold:.0f}%", (0.0, threshold),
+            xycoords=("axes fraction", "data"), xytext=(6, 4),
+            textcoords="offset points", ha="left", va="bottom",
+            color=theme["INK"], fontsize=13,
+            bbox={"boxstyle": "round,pad=0.2", "facecolor": theme["SURFACE"],
+                  "edgecolor": "none", "alpha": 0.85},
         )
     # Pinned: an autoscaled loss axis makes 4% look catastrophic.
     ax_loss.set_ylim(0, 100)
     ax_loss.set_yticks([0, 50, 100])
-    ax_loss.set_ylabel("loss (%)", color=theme["MUTED"], fontsize=8.5)
+    ax_loss.set_ylabel("loss (%)", color=theme["INK"], fontsize=16)
 
     if first_seen:
         # Local, to match the axis the series are drawn on.
@@ -462,7 +483,7 @@ def _render_series_chart(
             ax.axvline(when, color=theme["MUTED"], linewidth=1.0, zorder=4)
         ax_lat.annotate(
             "alert", (when, ax_lat.get_ylim()[1]), textcoords="offset points",
-            xytext=(4, -10), color=theme["MUTED"], fontsize=8,
+            xytext=(6, -18), color=theme["INK"], fontsize=14,
         )
 
     if drew_peer or drew_spread:
@@ -480,10 +501,9 @@ def _render_series_chart(
                                       linewidth=1.0,
                                       label="peers in the same category"))
         legend = ax_lat.legend(
-            handles=handles, loc="upper left", frameon=False, fontsize=8,
+            handles=handles, loc="upper left", frameon=True, fontsize=14,
+            handletextpad=0.4, handlelength=1.75, framealpha=0.9,
         )
-        for text in legend.get_texts():
-            text.set_color(theme["MUTED"])
 
     # matplotlib formats dates with rcParams["timezone"] (UTC) regardless of
     # each datetime's own tzinfo, so the locator AND the formatter both need
@@ -491,22 +511,21 @@ def _render_series_chart(
     # local zone, and the two disagree by an hour without saying so.
     stamp = datetime.now().astimezone()
     local_tz = stamp.tzinfo
-    ax_loss.xaxis.set_major_locator(mdates.AutoDateLocator(tz=local_tz))
-    ax_loss.xaxis.set_major_formatter(
-        mdates.DateFormatter("%H:%M", tz=local_tz)
-    )
+    _loc = mdates.AutoDateLocator(tz=local_tz, maxticks=6)
+    ax_loss.xaxis.set_major_locator(_loc)
+    ax_loss.xaxis.set_major_formatter(mdates.ConciseDateFormatter(_loc, tz=local_tz))
+    # The footer names the date and zone; the formatter's own corner stamp
+    # would say it a second time, smaller.
+    ax_loss.xaxis.get_offset_text().set_visible(False)
     # A 24h+ window crosses midnight, so bare "%H:%M" ticks would repeat
     # without saying which day; add the date once the window is long enough
     # for that to matter.
-    if hours > 24:
-        ax_loss.xaxis.set_major_formatter(
-            mdates.DateFormatter("%d %b %H:%M", tz=local_tz)
-        )
+
     when = stamp.strftime("%a %d %b %Y %H:%M %Z")
     fig.supxlabel(
         f"{footer} · generated {when}" if footer else
         stamp.strftime("%a %d %b %Y · times %Z"),
-        color=theme["MUTED"], fontsize=7.5,
+        color=theme["MUTED"], fontsize=13,
     )
     data = _save(fig, _env_int("CHART_MAX_BYTES", DEFAULT_MAX_BYTES))
     plt.close(fig)
@@ -548,7 +567,7 @@ def _render_digest_chart(payload: dict, threshold_pct: float | None = None):
     p95s = [t.get("p95_ms") for t in top][::-1]
 
     fig, ax = plt.subplots(
-        figsize=(8, 0.34 * len(top) + 1.6), dpi=DPI, layout="constrained"
+        figsize=(10, 0.55 * len(top) + 2.4), dpi=DPI, layout="constrained"
     )
     _style(fig, (ax,), theme)
     ax.grid(axis="y", visible=False)
@@ -572,8 +591,8 @@ def _render_digest_chart(payload: dict, threshold_pct: float | None = None):
         loss_label = f"{'▲ ' if over else ''}{value:.1f}%"
         ax.annotate(
             loss_label, (value, index), textcoords="offset points",
-            xytext=(6, 0), va="center", fontsize=8.5,
-            color=STATUS["warning"] if over else theme["MUTED"],
+            xytext=(6, 0), va="center", fontsize=15,
+            color=theme["STATUS"]["warning"] if over else theme["MUTED"],
         )
         # p95 latency is NOT the thing in status -- it wears the muted text
         # token, so the status color keeps meaning "this loss is over the
@@ -582,18 +601,18 @@ def _render_digest_chart(payload: dict, threshold_pct: float | None = None):
             ax.annotate(
                 f"p95 {float(p95):.0f} ms", (value, index),
                 textcoords="offset points",
-                xytext=(6 + 9.0 * len(loss_label), 0),
-                va="center", fontsize=8.5, color=theme["MUTED"],
+                xytext=(14 + 9.5 * len(loss_label), 0),
+                va="center", fontsize=14, color=theme["MUTED"],
             )
     ax.set_xlim(0, span * 1.5)
-    ax.set_xlabel("mean loss (%)", color=theme["MUTED"], fontsize=8.5)
+    ax.set_xlabel("mean loss (%)", color=theme["INK"], fontsize=16)
     ax.set_title(
         f"Worst targets — last {payload.get('window_hours', 24)}h",
-        color=theme["INK"], fontsize=11, loc="left", pad=10,
+        color=theme["INK"], fontsize=20, fontweight="bold", loc="left", pad=10,
     )
     for label in ax.get_yticklabels():
         label.set_color(theme["INK"])
-        label.set_fontsize(9)
+        label.set_fontsize(15)
 
     data = _save(fig, _env_int("CHART_MAX_BYTES", DEFAULT_MAX_BYTES))
     plt.close(fig)
