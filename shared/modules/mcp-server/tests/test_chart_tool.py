@@ -205,7 +205,7 @@ def test_delivery_posts_the_png_as_a_document(api, renderer, monkeypatch):
     assert sent["payload"]["name"] == "message"
     assert args["to"] == "12345"
     assert args["mimeType"] == "image/png"
-    assert args["forceDocument"] is True
+    assert "forceDocument" not in args  # an inline photo, not a file card
     assert args["filename"].startswith("smokeping-google_dns-6h-")
     assert "google_dns" in args["caption"] and "6h" in args["caption"]
     assert args["silent"] is True  # a chart someone asked for need not buzz

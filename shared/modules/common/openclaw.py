@@ -84,9 +84,11 @@ def invoke_payload(
 
     With an image the bytes ride as base64 in ``buffer`` and the text becomes
     ``caption``; there is no filesystem in this path, so nothing has to be
-    shared between the container and the gateway host. ``forceDocument``
-    defaults on because Telegram re-encodes photos as JPEG, and thin chart
-    lines with small tick text are the worst case for JPEG.
+    shared between the container and the gateway host. Charts go as inline
+    photos: Telegram re-encodes them as JPEG, but they are drawn at 16-20 pt
+    with 2.5 pt lines, which JPEG keeps legible, and a document is a file
+    card the reader has to tap open. ``ALERT_IMAGE_AS_DOCUMENT=true`` sends
+    them as documents instead.
 
     ``silent`` is per-message and wins over ``ALERT_SILENT``, because
     "notify quietly" is a property of *this* message rather than of the
@@ -110,7 +112,7 @@ def invoke_payload(
     args["filename"] = filename or "smokeping.png"
     args["mimeType"] = "image/png"
     args["caption"] = text
-    if _env_bool("ALERT_IMAGE_AS_DOCUMENT", True):
+    if _env_bool("ALERT_IMAGE_AS_DOCUMENT", False):
         args["forceDocument"] = True
     if quiet:
         args["silent"] = True

@@ -414,12 +414,12 @@ services:
       - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN:-}
       - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-telegram}
       - OPENCLAW_TO=${OPENCLAW_TO:-}
-      - ALERT_IMAGE_AS_DOCUMENT=${ALERT_IMAGE_AS_DOCUMENT:-true}
+      - ALERT_IMAGE_AS_DOCUMENT=${ALERT_IMAGE_AS_DOCUMENT:-false}
       # Chart rendering knobs, shared with the alerter (see .env.template).
       # TZ matters: the chart's time axis and footer are drawn in local time,
       # and a chart in UTC under an alert in local time is an hour of
       # confusion that says nothing about itself.
-      - CHART_THEME=${CHART_THEME:-dark}
+      - CHART_THEME=${CHART_THEME:-light}
       - CHART_MAX_BYTES=${CHART_MAX_BYTES:-700000}
       # The loss panel draws the alert threshold that applies, so the chart
       # says the same thing the alerter would. Same defaults as the alerter.
@@ -552,10 +552,10 @@ services:
       # so nothing is written to disk and no renderer service is needed.
       - ALERT_CHARTS=${ALERT_CHARTS:-true}
       - CHART_HOURS=${CHART_HOURS:-6}
-      - CHART_THEME=${CHART_THEME:-dark}
+      - CHART_THEME=${CHART_THEME:-light}
       - CHART_MAX_BYTES=${CHART_MAX_BYTES:-700000}
       # Telegram re-encodes photos as JPEG, which wrecks thin chart lines.
-      - ALERT_IMAGE_AS_DOCUMENT=${ALERT_IMAGE_AS_DOCUMENT:-true}
+      - ALERT_IMAGE_AS_DOCUMENT=${ALERT_IMAGE_AS_DOCUMENT:-false}
       - ALERT_SILENT=${ALERT_SILENT:-false}
       # "Is it me or the internet?" thresholds. Derived from rows the rules
       # already fetch, so tuning these costs no extra queries.

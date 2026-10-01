@@ -28,6 +28,32 @@ version gets a matching GitHub release and git tag.
 
 ### Changed
 
+- **Charts are drawn to be read on a phone, as paper figures.** The PNGs
+  Smoking Pi sends were dark, 8 × 4.5 in with 7.5–11 pt type, and went to
+  Telegram as documents. A document is a file card to tap open, and once
+  opened the text was a few pixels tall on a phone. Alert, digest and
+  `get_chart` charts now follow the conventions of the author's published
+  figures:
+  - a white page, 10 × 8 in (1100 × 880 px, under Telegram's 1280 px
+    photo limit, so it is not rescaled), with 16–20 pt type and a bold
+    title;
+  - a dashed major and dotted minor grid, and a framed legend;
+  - matplotlib's tab colors: the subject in a strong line, peers in thin
+    grey, and status in tab red/orange, since the old warning yellow
+    vanishes on white;
+  - a solid black threshold line, so it never reads as grid, with its
+    label at the left where it cannot cover the latest trace;
+  - concise date ticks.
+
+  They are sent as inline photos (`ALERT_IMAGE_AS_DOCUMENT` now defaults to
+  `false`); at this size Telegram's JPEG re-encoding leaves them legible.
+  **This changes on upgrade for every install that never set these two**
+  (the `.env.template` ships them empty, so the new compose defaults apply).
+  To keep the old look, set them before upgrading:
+  `sudo smoking-pi config set CHART_THEME dark` and
+  `sudo smoking-pi config set ALERT_IMAGE_AS_DOCUMENT true`. The dark
+  palette keeps the new sizes.
+
 - **`smoking-pi install` finishes what it starts.** A clean install on the
   staging Pi, following the getting-started guide, worked (about 3.5
   minutes, eight containers, the doctor all green). What it said and asked

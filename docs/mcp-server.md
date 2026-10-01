@@ -52,7 +52,7 @@ you an outage, are in
 | `MCP_HOST` | `0.0.0.0` | Bind address for the http transport. Compose sets `127.0.0.1` unless `.env` overrides it (the service runs on the host network); the only supported override is a tailnet address, see [remote-openclaw.md](remote-openclaw.md) |
 | `MCP_PORT` | `8090` | Listen port for the http transport |
 | `OPENCLAW_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_CHANNEL`, `OPENCLAW_TO` | *(unset)* | Where `get_chart(deliver=true)` posts the PNG — the alerter's delivery settings, reused verbatim (see `docs/alerting.md`) |
-| `CHART_THEME`, `CHART_MAX_BYTES` | `dark`, `700000` | Chart rendering, shared with the alerter |
+| `CHART_THEME`, `CHART_MAX_BYTES` | `light`, `700000` | Chart rendering, shared with the alerter |
 | `PUBLIC_BASE_HOST` | *(unset)* | Host the *reader* reaches this Pi on; enables deep links (below) |
 | `GRAFANA_PUBLIC_URL` | *(unset)* | Full Grafana base URL; wins over `PUBLIC_BASE_HOST` |
 | `WEB_ADMIN_PUBLIC_URL` | *(unset)* | Full web-admin base URL; wins over `PUBLIC_BASE_HOST` |
