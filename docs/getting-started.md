@@ -227,7 +227,7 @@ Open Smoking Pi:
   Grafana    http://192.168.1.27:3000/   (user admin)
   Passwords: sudo smoking-pi passwords --show-secrets (on this machine)
 Open it on the computer you are connected from (192.168.1.30), not in this terminal.
-Also, from most computers on this network: http://raspberrypi.local:8080/
+Also, from most computers on this network: http://smoking-pi.local:8080/
 ```
 
 If you installed over SSH, the address is the one your computer reached
@@ -237,7 +237,14 @@ and says so if it still doesn't: the first start can take longer while
 images download. `sudo smoking-pi url` prints the same block, and checks
 again, whenever you need it.
 
-**Finding it later without its address.** When Avahi runs on the Pi (it
+**Finding it later without its address.** Every edition answers for
+`smoking-pi.local` on the local network: `http://smoking-pi.local:8080/`
+(Basic: `http://smoking-pi.local/`). A second Smoking Pi on the same
+network gets `smoking-pi-2.local`; `sudo smoking-pi url` prints the name
+it holds, and `MDNS_NAME` changes it ([The Pi's name on the
+network](mdns.md)).
+
+When Avahi runs on the Pi (it
 does on Raspberry Pi OS), `install`, `up` and `upgrade` announce the stack
 on the local network with DNS-SD. From any Linux machine on the same
 network that has the command:

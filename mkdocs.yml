@@ -34,6 +34,7 @@ nav:
       - OpenClaw on another machine: remote-openclaw.md
       - AI health reports: ai-insights.md
   - Remote access:
+      - The Pi's name on the network: mdns.md
       - Quick tunnels: quick-tunnels.md
       - Permanent Cloudflare tunnels: cloudflare-tunnel-setup.md
   - Operating:

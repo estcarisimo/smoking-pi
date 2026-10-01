@@ -153,6 +153,30 @@ services:
     networks:
       - smokeping-net
 
+  # The Pi's name on the LAN: answers for <MDNS_NAME>.local (default
+  # smoking-pi.local) over multicast DNS, whatever the hostname is and
+  # whether or not the host runs Avahi. A second Smoking Pi on the same
+  # network takes smoking-pi-2.local; `smoking-pi url` prints the name held.
+  # network_mode: host: multicast DNS is the LAN's, not a Docker bridge's.
+  # See docs/mdns.md.
+  mdns:
+    build: ../../shared/modules/mdns
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/mdns:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
+    network_mode: host
+    restart: unless-stopped
+    # It needs no capability and writes only its status.
+    user: nobody
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/run/mdns:mode=1777]
+    environment:
+      # off = answer for no name. MDNS_INTERFACES narrows the interfaces
+      # (default: every LAN one with IPv4; Docker and VPNs never).
+      - MDNS_NAME=${MDNS_NAME:-smoking-pi}
+      - MDNS_INTERFACES=${MDNS_INTERFACES:-}
+
 networks:
   smokeping-net:
     driver: bridge

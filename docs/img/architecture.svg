@@ -7,7 +7,7 @@
 <rect width="1920" height="1120" rx="18" fill="#ffffff"/>
 <text x="40" y="60" font-size="28" font-weight="800" fill="#0f172a">Smoking Pi</text>
 <text x="40" y="86" font-size="14.5" fill="#64748b">How the Pro edition fits together: every container, what it reads and writes,</text>
-<text x="40" y="106" font-size="14.5" fill="#64748b">and what sits outside the Pi. Basic runs SmokePing alone; Standard adds the Configure column.</text>
+<text x="40" y="106" font-size="14.5" fill="#64748b">and what sits outside the Pi. Basic runs SmokePing and mdns; Standard adds the Configure column.</text>
 <rect x="1010" y="44" width="26" height="18" rx="5" fill="#eff6ff" stroke="#1e40af" stroke-width="1.75"/>
 <text x="1044" y="58" font-size="13" fill="#1f2937">always on</text>
 <rect x="1138.8" y="44" width="26" height="18" rx="5" fill="#fff7ed" stroke="#c2410c" stroke-width="1.75" stroke-dasharray="5 3"/>
@@ -114,6 +114,11 @@
 <text x="454" y="559" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">public_ip</tspan>: the public address and its network</text>
 <text x="454" y="579" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">dns_wizard</tspan>: the wizard&#x27;s snapshot</text>
 <text x="454" y="599" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">measurement_budget</tspan>: config-manager&#x27;s budget</text>
+<rect x="700" y="680" width="210" height="92" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(718,695) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0M12 19.5v.1"/></g>
+<text x="748" y="711" font-size="17" font-weight="700" fill="#1e40af">mdns</text>
+<text x="718" y="737" font-size="14" fill="#1f2937">the name smoking-pi.local,</text>
+<text x="718" y="758" font-size="14" fill="#1f2937">by multicast DNS</text>
 <rect x="430" y="790" width="480" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
 <g transform="translate(448,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l5 5M4.5 10.5a6 6 0 1 0 12 0 6 6 0 1 0-12 0"/></g>
 <text x="478" y="821" font-size="17" font-weight="700" fill="#c2410c">DNS observer</text>
@@ -171,7 +176,7 @@
 <rect x="1583" y="659" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="674" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">asks</text>
 <rect x="1586" y="824" width="38" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="840" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">MCP</text>
 <rect x="1420" y="599" width="66" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1453" y="614" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reports</text>
-<rect x="680" y="714" width="95" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="728" y="730" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json</text>
+<rect x="552" y="714" width="95" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="600" y="730" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json</text>
 <rect x="296" y="679" width="167" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="380" y="694" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json / Targets</text>
 <rect x="313" y="949" width="124" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="375" y="964" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">the house&#x27;s DNS</text>
 <rect x="799" y="1019" width="153" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="875" y="1034" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">encrypted upstreams</text>

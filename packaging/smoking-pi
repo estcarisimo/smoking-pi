@@ -692,6 +692,15 @@ cmd_discover() {
     printf '%s\n' "$found"
 }
 
+# The .local name the mdns service holds (docs/mdns.md); empty when it is
+# off, not running, or still probing.
+mdns_name() {
+    local body
+    body="$(compose exec -T mdns python status.py --json 2>/dev/null)" || return 0
+    printf '%s\n' "$body" | grep -q '"state": "announced"' || return 0
+    printf '%s\n' "$body" | sed -n 's/^ *"name": "\([a-z0-9.-]*\)",\{0,1\}$/\1/p' | head -n 1
+}
+
 cmd_url() {
     # What to open, where, and with which username. Printed at the end of
     # `install` and on demand: the single most useful thing an install can
@@ -737,10 +746,16 @@ cmd_url() {
     elif [ "$host" != localhost ]; then
         echo "Open it on this machine or any computer on the same network."
     fi
-    # Raspberry Pi OS runs avahi by default: the name survives a DHCP
-    # lease changing the address, which the IP above does not.
-    if command -v systemctl >/dev/null && systemctl is-active --quiet avahi-daemon 2>/dev/null; then
-        echo "Also, from most computers on this network: http://$(hostname -s).local$([ "$port" = 80 ] || echo ":$port")/"
+    # A .local name survives a DHCP lease changing the address, which the
+    # IP above does not. The mdns service's name first: it says which name
+    # it holds. `hostname`.local is only a guess -- Avahi renames itself to
+    # <hostname>-2 on a conflict, and the reference Pi did, twice.
+    local name; name="$(mdns_name)"
+    if [ -z "$name" ] && command -v systemctl >/dev/null && systemctl is-active --quiet avahi-daemon 2>/dev/null; then
+        name="$(hostname -s).local"
+    fi
+    if [ -n "$name" ]; then
+        echo "Also, from most computers on this network: http://$name$([ "$port" = 80 ] || echo ":$port")/"
     fi
     if ! http_answers "$url"; then
         echo

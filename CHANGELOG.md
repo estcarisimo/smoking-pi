@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The Pi answers for `smoking-pi.local`, from its own container.** The
+  only name the Pi had on the network was the host's `<hostname>.local`,
+  from Avahi, and on the reference Pi it broke twice: eight seconds after
+  a boot Avahi logged `Host name conflict, retrying with smokingpi-2` and
+  from then on answered only for `smokingpi-2.local`. Nothing else held
+  the name; Avahi took its own echoed announcement for another host.
+  `smoking-pi url` kept printing `smokingpi.local`, which no longer
+  resolved, and the fix was a manual Avahi restart until the next boot.
+  The new `mdns` service, in every edition, is a small multicast DNS
+  responder on the host network that claims `MDNS_NAME` (default
+  `smoking-pi`) after probing for it, ignores packets from its own
+  addresses and records identical to its own, falls back to
+  `smoking-pi-2.local` only when another host really answers with other
+  addresses (and only to packets from the LAN, with IP TTL 255, from
+  port 5353), and says goodbye (TTL 0) when it stops. It needs no Avahi
+  on the host, runs as `nobody` with no capabilities on a read-only
+  filesystem. `smoking-pi url` now prints the name the service holds.
+  `MDNS_NAME=off` turns it off; `MDNS_INTERFACES` narrows the interfaces
+  (Docker bridges, veths and VPNs are never used). It is the eleventh
+  published image. `docs/mdns.md`.
+
 ## [2.17.0] — 2026-10-01
 
 What the measurements cost is on the dashboard and in Grafana, and two

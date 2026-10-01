@@ -2,7 +2,7 @@
 
 How the Pro edition fits together: every container, what it reads and
 writes, and what sits outside the Pi. Basic and Standard are subsets. Basic
-runs SmokePing alone, and Standard adds web-admin, config-manager and
+runs SmokePing and mdns, and Standard adds web-admin, config-manager and
 PostgreSQL.
 
 ![Smoking Pi architecture: containers, what each reads and writes](img/architecture.svg)
@@ -46,11 +46,15 @@ reads the reports volume.
 
 **The house's DNS (optional).** When the router forwards the house's DNS to
 the Pi, the [DNS observer](dns-observer.md) resolves it through encrypted
-upstreams and its wizard summarises which services the house uses. The
+upstreams and its wizard summarizes which services the house uses. The
 wizard's `wizard.json` feeds an exporter in the SmokePing container and
 `smoking-pi dns adopt` in config-manager. In the other direction, the
 observer reads SmokePing's generated `Targets`, so the Pi's own lookups of
 what it measures are not counted as the house's.
+
+**The Pi's name.** The [mdns](mdns.md) container answers for
+`smoking-pi.local` on the LAN, so the two `you` badges are reachable by
+name as well as by address.
 
 **The host.** The `smoking-pi` command runs all of it with Docker Compose;
 a `.deb` install adds a systemd unit that brings it back after a reboot.

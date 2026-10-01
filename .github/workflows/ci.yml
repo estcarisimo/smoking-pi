@@ -312,6 +312,7 @@ jobs:
           - grafana
           - influxdb
           - mcp-server
+          - mdns
           - postgres
           - smokeping
           - web-admin
