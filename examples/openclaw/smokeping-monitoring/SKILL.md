@@ -104,6 +104,12 @@ would help (sharing with someone who has no login here)
 - Do not attach a chart to ordinary answers. Text first; the picture is by
   request. The CPE gateway is addressed by its IP (as `get_microcut_stats`
   reports it), not a target name.
+- **Never draw a chart yourself** — no Python or matplotlib, no ASCII or
+  emoji bar charts, no table dressed up as a graph. To *look at* how
+  something behaved, give the Grafana link from the tool's `links` (it is
+  interactive and already scoped to the target and window). To *keep or
+  forward* a picture, call `get_chart`. If there is no link and
+  `get_chart` cannot deliver, answer in words, with times and numbers.
 
 **Writing** (confirm with the user in chat before calling)
 
