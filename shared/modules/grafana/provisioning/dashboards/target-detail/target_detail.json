@@ -320,7 +320,7 @@
     {
       "type": "stat",
       "title": "HTTP",
-      "description": "The page fetched over HTTP/1.1, HTTP/2 and HTTP/3 (connect + TLS + request + first byte, minus DNS). \"not measured\": this target has no such probe (or it wrote nothing in the range).",
+      "description": "A HEAD request over HTTP/1.1, HTTP/2 and HTTP/3 (connect + TLS + request + response headers, minus DNS). \"not measured\": this target has no such probe (or it wrote nothing in the range).",
       "gridPos": {
         "h": 5,
         "w": 9,
@@ -977,7 +977,7 @@
     {
       "type": "timeseries",
       "title": "HTTP – ${target} – fetch time by version, median (ms)",
-      "description": "The page fetched over HTTP/1.1, HTTP/2 and HTTP/3 (connect + TLS + request + first byte, minus DNS). One line per version; a downgraded fetch counts as a failure, not as the lower version.",
+      "description": "A HEAD request over HTTP/1.1, HTTP/2 and HTTP/3 (connect + TLS + request + response headers, minus DNS). One line per version; a downgraded fetch counts as a failure, not as the lower version.",
       "gridPos": {
         "h": 8,
         "w": 16,

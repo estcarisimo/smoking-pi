@@ -771,8 +771,9 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
       - p95_ms: 95th-percentile latency in milliseconds
       - avg_loss_pct: mean packet loss as a percentage (0-100)
 
-    For HTTP targets the median is the whole fetch (DNS, connect, TLS and
-    the response), so it is not comparable with an ICMP round trip.
+    For HTTP targets the median is a HEAD request (connect, TLS, request
+    and the response headers; DNS excluded), so it is not comparable with
+    an ICMP round trip.
 
     Args:
         target: Optional exact target name to filter to a single target

@@ -383,7 +383,7 @@ Each service gets the whole suite, in the **DNS wizard** category
 |---|---|---|
 | `_icmp` | FPing | Network round trip |
 | `_tcp` | TCPPing, port 443 | TCP handshake |
-| `_h1`, `_h2`, `_h3` | WizardHTTP1/2/3 | HTTPS fetch over HTTP/1.1, /2, /3 |
+| `_h1`, `_h2`, `_h3` | WizardHTTP1/2/3 | HTTPS HEAD request over HTTP/1.1, /2, /3 |
 
 The HTTP probes are the wizard's own copies of CurlHTTP1/2/3, with 20
 requests in parallel (`forks`) and a 5 s timeout. A request usually takes

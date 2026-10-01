@@ -46,7 +46,7 @@ LAYERS = [
      ('DNS',)),
     ('TCP handshake', 'Connect time to port 443 with nothing on top: the floor under the HTTP times.',
      ('TCPPing',)),
-    ('HTTP/1.1, HTTP/2, HTTP/3', 'The same page fetched over each version, the version enforced. '
+    ('HTTP/1.1, HTTP/2, HTTP/3', 'A HEAD request over each version, the version enforced. '
      'The TLS handshake is inside these times; there is no separate TLS probe.',
      ('CurlHTTP1', 'CurlHTTP2', 'CurlHTTP3')),
 ]

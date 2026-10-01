@@ -22,6 +22,7 @@ from models import (
     TargetRepository, CategoryRepository, ProbeRepository
 )
 from scripts.config_generator import probe_options
+from file_ops import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,59 @@ SEED_FIXES = (
     ("seed_fix_amazon_www", {"name": "Amazon", "host": "amazon.com"},
      {"host": "www.amazon.com"}),
 )
+
+# The same for probes: (marker, {shipped extraargs: corrected extraargs}).
+# A probe matches on its extraargs exactly as the seed wrote them, whatever
+# its name, so the wizard's copies (WizardHTTP1/2/3) are corrected with the
+# curated ones they were copied from, and an edited probe is left alone.
+_CURL_W = (r"-w;Time: %{time_total} DNS time: %{time_namelookup} "
+           r"Redirect time: %{time_redirect} HTTPv=%{http_version}\n")
+PROBE_SEED_FIXES = (
+    # The HTTP probes were meant to ask whether a server answers over each
+    # HTTP version, and how fast. A GET downloaded the whole home page on
+    # every sample instead -- 1.3 MB for www.cloudflare.com, about 5.7 GB a
+    # day for that one seed target -- and timed the download. HEAD keeps
+    # connect + TLS + request + response, and a few KB.
+    ("seed_fix_http_head", {
+        f"{flag};-s;-o;/dev/null;{_CURL_W}": f"{flag};-s;-I;-o;/dev/null;{_CURL_W}"
+        for flag in ("--http1.1", "--http2", "--http3-only")
+    }),
+)
+
+
+def fix_probes_yaml(config_dir: Path) -> int:
+    """PROBE_SEED_FIXES applied to the config dir's probes.yaml, once each.
+
+    In YAML mode (no DATABASE_URL, or the database unreachable at start)
+    the probes come from that file, a copy of the template made on the
+    first start, which no upgrade rewrites. The shipped value is replaced
+    as text, so comments and layout survive, and only where it is exactly
+    what the seed wrote. A marker file next to it records each fix, so a
+    deliberate change back is never undone. Returns how many values
+    changed; never raises.
+    """
+    path = Path(config_dir) / "probes.yaml"
+    changed = 0
+    for key, rewrites in PROBE_SEED_FIXES:
+        marker = path.with_name(f".{key}")
+        try:
+            if marker.exists() or not path.exists():
+                continue
+            text = path.read_text()
+            fixed = 0
+            for old, new in rewrites.items():
+                fixed += text.count(old)
+                text = text.replace(old, new)
+            if fixed:
+                atomic_write_text(path, text)
+                logger.info("Corrected a shipped default in %s: %d probe(s) (%s)",
+                            path, fixed, key)
+            marker.write_text(f"{fixed} probe(s)\n")
+            changed += fixed
+        except OSError as e:
+            logger.warning("Could not correct %s (retried at the next start): %s",
+                           path, type(e).__name__)
+    return changed
 
 
 class YAMLToDBMigrator:
@@ -259,9 +313,10 @@ class YAMLToDBMigrator:
         logger.info(f"Migrated {metadata_added} metadata entries")
 
     def fix_shipped_defaults(self, session) -> int:
-        """Apply each SEED_FIXES entry not applied before; returns how many
-        targets changed. A failure is logged and rolled back, never raised:
-        the migration it follows has completed, and the next start retries.
+        """Apply each SEED_FIXES and PROBE_SEED_FIXES entry not applied
+        before; returns how many targets and probes changed. A failure is
+        logged and rolled back, never raised: the migration it follows has
+        completed, and the next start retries.
         """
         changed = 0
         try:
@@ -277,6 +332,24 @@ class YAMLToDBMigrator:
                                 row.name, change)
                 session.add(SystemMetadata(key=key, value=f"{len(rows)} target(s)"))
                 changed += len(rows)
+            for key, rewrites in PROBE_SEED_FIXES:
+                if session.query(SystemMetadata).filter(
+                        SystemMetadata.key == key).first():
+                    continue
+                fixed = 0
+                for probe in session.query(Probe).all():
+                    options = probe.options or {}
+                    new = rewrites.get(options.get('extraargs'))
+                    if new is None:
+                        continue
+                    # A new dict, not an in-place edit: the JSON column
+                    # only notices an assignment.
+                    probe.options = {**options, 'extraargs': new}
+                    logger.info("Corrected a shipped default: probe %s (%s)",
+                                probe.name, key)
+                    fixed += 1
+                session.add(SystemMetadata(key=key, value=f"{fixed} probe(s)"))
+                changed += fixed
             session.commit()
         except Exception as e:
             session.rollback()
@@ -384,8 +457,9 @@ class YAMLToDBMigrator:
         finally:
             session.close()
 
-# Targets the last run_migration() corrected (SEED_FIXES): the caller
-# regenerates, and then SmokePing must reload to measure the new host.
+# Targets and probes the last run_migration() corrected (SEED_FIXES,
+# PROBE_SEED_FIXES): the caller regenerates, and then SmokePing must reload
+# to measure the new host or run the new probe.
 corrected_on_start = 0
 
 

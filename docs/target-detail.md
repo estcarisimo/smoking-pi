@@ -8,7 +8,7 @@ Smoking Pi measures for it, layer by layer:
 | --- | --- | --- |
 | ICMP | `latency` | The network path, with no application in the way |
 | TCP handshake | `tcp_latency` | SYN / SYN-ACK to port 443: the transport floor under HTTP |
-| HTTP/1.1, HTTP/2, HTTP/3 | `http_latency` | The page fetched with each version, and how often a fetch failed |
+| HTTP/1.1, HTTP/2, HTTP/3 | `http_latency` | A HEAD request over each version, and how often one failed |
 | DNS | `dns_latency` | A query answered by this target, when the target is a resolver |
 
 The tiles at the top give the median and the loss for each layer over the

@@ -2,7 +2,7 @@
   "uid": "http-by-version-clickhouse-v1",
   "id": null,
   "title": "HTTP by Version \u2013 Side-by-Side (1.1 vs 2 vs 3, fetch time & failures)",
-  "description": "The same page fetched over HTTP/1.1, HTTP/2 and HTTP/3 by three separate Curl probes, one per version, version enforced (a downgrade counts as a failure). The sample is time_total minus DNS lookup: connect + TLS + request + first byte. The TCP row underneath is the bare SYN/SYN-ACK handshake to port 443 \u2014 the transport floor the HTTP numbers sit on.",
+  "description": "A HEAD request to / over HTTP/1.1, HTTP/2 and HTTP/3 by three separate Curl probes, one per version, version enforced (a downgrade counts as a failure). The sample is time_total minus DNS lookup: connect + TLS + request + response headers. Earlier releases sent a GET and timed the whole home page; the series steps down where an install upgraded (see the CHANGELOG). The TCP row underneath is the bare SYN/SYN-ACK handshake to port 443 \u2014 the transport floor the HTTP numbers sit on.",
   "schemaVersion": 37,
   "version": 1,
   "tags": [
