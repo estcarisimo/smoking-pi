@@ -113,6 +113,7 @@
 <text x="454" y="539" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">resolver_identity</tspan>: which resolver answers</text>
 <text x="454" y="559" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">public_ip</tspan>: the public address and its network</text>
 <text x="454" y="579" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">dns_wizard</tspan>: the wizard&#x27;s snapshot</text>
+<text x="454" y="599" font-size="13" fill="#1f2937"><tspan fill="#64748b">•</tspan> <tspan font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5">measurement_budget</tspan>: config-manager&#x27;s budget</text>
 <rect x="430" y="790" width="480" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
 <g transform="translate(448,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l5 5M4.5 10.5a6 6 0 1 0 12 0 6 6 0 1 0-12 0"/></g>
 <text x="478" y="821" font-size="17" font-weight="700" fill="#c2410c">DNS observer</text>
