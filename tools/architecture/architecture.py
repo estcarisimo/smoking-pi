@@ -97,7 +97,7 @@ class Column:
 
 TITLE = "Smoking Pi"
 SUBTITLE = ("How the Pro edition fits together: every container, what it reads and writes,",
-            ("and what sits outside the Pi. Basic runs SmokePing alone; Standard adds the "
+            ("and what sits outside the Pi. Basic runs SmokePing and mdns; Standard adds the "
              "Configure column."))
 
 PI = (40, 230, 1560, 720)  # the Raspberry Pi boundary: x, y, w, h
@@ -161,6 +161,9 @@ NODES: tuple[Node, ...] = (
         "rrd2influx", "rrd2clickhouse", "microcut_detector", "cpe_discovery",
         "wifi_link", "resolver_identity", "public_ip", "dns_wizard", "measurement_budget",
     )),
+    Node("mdns", "mdns",
+         ("the name smoking-pi.local,", "by multicast DNS"),
+         700, 680, 210, 92, "core", icon="wifi", services=("mdns",)),
     Node("dns-observer", "DNS observer",
          ("AdGuard Home on :53, and the wizard", "what the house resolves, by service"),
          430, 790, 480, 120, "optional", icon="search", services=("dns-observer",),
@@ -210,7 +213,8 @@ EDGES: tuple[Edge, ...] = (
     Edge("ai-insights", "anthropic", "asks", "r", "l", src_at=685, dst_at=685),
     Edge("assistants", "mcp-server", "MCP", "l", "r", src_at=850, dst_at=850, both=True),
     Edge("ai-insights", "alerter", "reports", "t", "b", src_at=1410, dst_at=1410),
-    Edge("dns-observer", "smokeping", "wizard.json", "t", "b", src_at=670, dst_at=670),
+    Edge("dns-observer", "smokeping", "wizard.json", "t", "b", src_at=670, dst_at=670,
+         label_at=(600, 725)),
     Edge("dns-observer", "config-manager", "wizard.json / Targets", "l", "r",
          src_at=850, dst_at=620, bend=380, both=True, label_at=(380, 690)),
     Edge("router", "dns-observer", "the house's DNS", "t", "b", src_at=200, dst_at=550,

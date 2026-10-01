@@ -1,0 +1,2 @@
+# Dependencies needed to run the mdns tests in CI.
+pytest

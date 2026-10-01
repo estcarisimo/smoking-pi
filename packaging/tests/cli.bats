@@ -53,6 +53,8 @@ case "$*" in
     # \n-separated; unset = none).
     *"ps -a --filter label=com.docker.compose.project=pro "*) printf '%b' "${STUB_CONTAINERS:-}" ;;
     *"ps --status running --services"*) printf 'postgres\n' ;;
+    # The mdns service's status (STUB_MDNS; unset = not running).
+    *"exec -T mdns python status.py --json"*) [ -n "${STUB_MDNS:-}" ] || exit 1; printf '%b' "$STUB_MDNS" ;;
     *"exec -T postgres pg_dumpall"*) echo "-- dump" ;;
     *"system df -v"*) printf 'VOLUME NAME LINKS SIZE\npro_postgres-data 1 48MB\npro_grafana-data 1 240MB\n' ;;
     *"tar czf /to/"*)
@@ -593,6 +595,21 @@ install_on_a_tty() {
     [[ "$output" != *localhost* ]]
     # Asked the address it prints, not loopback: proves the bind is reachable.
     grep -q '^curl .*http://192.0.2.10:8080/' "$DOCKER_LOG"
+}
+
+@test "url names the .local name the mdns service holds, not the hostname's" {
+    STUB_MDNS='{\n "name": "smoking-pi-2.local",\n "state": "announced"\n}\n' run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Also, from most computers on this network: http://smoking-pi-2.local:8080/"* ]]
+}
+
+@test "url prints no .local name while mdns is still probing or not running" {
+    STUB_MDNS='{\n "name": "smoking-pi.local",\n "state": "probing"\n}\n' run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"smoking-pi.local"* ]]
+    run "$CLI" url
+    [ "$status" -eq 0 ]
+    [[ "$output" != *".local"* ]]
 }
 
 @test "url over SSH: the address the client connected to, named as theirs, with a tunnel fallback" {
