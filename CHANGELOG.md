@@ -25,6 +25,19 @@ version gets a matching GitHub release and git tag.
   cannot be asked instead of guessing. The report is reused for a minute,
   since each one reads two files out of the SmokePing container. The old
   64-byte estimate (`calculate_bandwidth`) is gone.
+- **Grafana's Overview charts the measurement budget over time.** The budget
+  was a snapshot: `smoking-pi budget` and the dashboard card say what the
+  configured measurements cost now. Nothing showed when it changed. On
+  staging, the DNS wizard's HTTP probes are 300 of its 410 MB a day (41% of
+  the ceiling), and nothing recorded when they were added. A new exporter,
+  `measurement_budget.py` in the SmokePing container, writes
+  config-manager's `/budget` report to InfluxDB every five minutes
+  (`measurement_budget`, `measurement_budget_probe`). A *Measurement budget*
+  row on the Overview stacks MB/day and samples per hour per probe against
+  the ceiling as a dashed line, with the share of each ceiling in use. The
+  SmokePing container now gets `CONFIG_API_URL` and `CONFIG_API_TOKEN` to
+  ask config-manager; it already held the InfluxDB token. InfluxDB only:
+  ClickHouse mode has no Overview.
 
 ### Security
 
