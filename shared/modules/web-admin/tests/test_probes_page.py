@@ -1,8 +1,10 @@
 """The Probes page: each probe's cycle, and changing it with a warning."""
 
+import pytest
 from conftest import login
 
 from app.routes import probes as probes_module
+from app.services.config_api import ProbeChangeRefused
 
 PROBES = [
     {"name": "FPing", "step_seconds": 300, "pings": 10, "module": None,
@@ -76,12 +78,46 @@ def test_a_confirmed_change_is_sent_and_reported(client, monkeypatch):
     assert "2 old SmokePing files were moved to /data/.archive/" in html
 
 
-def test_a_refusal_shows_config_managers_reason(client, monkeypatch):
-    _stub(monkeypatch, error=ValueError("5 pings with a 10 s timeout can take 50 s"))
+def test_a_refusal_says_why_in_the_pages_own_words(client, monkeypatch):
+    refusal = ProbeChangeRefused(
+        "cycle_outruns_step", {"pings": 10, "worst_seconds": 100.0, "step_seconds": 60})
+    _stub(monkeypatch, error=refusal)
     login(client)
     r = client.post("/probes/CurlHTTP2/edit",
-                    data={"step_seconds": "60", "pings": "5", "confirm": "yes"})
-    assert "can take 50 s" in r.get_data(as_text=True)
+                    data={"step_seconds": "60", "pings": "10", "confirm": "yes"})
+    assert ("10 pings can take up to 100 s when they time out, "
+            "longer than a 60 s step") in r.get_data(as_text=True)
+
+
+@pytest.mark.parametrize("reason, needle", [
+    ("pings_out_of_range", "between 3 and 20"),
+    ("step_not_allowed", "That step is not allowed"),
+    ("nothing_to_change", "Choose a step and a number of pings."),
+    ("field_not_editable", "Only the step and the number of pings"),
+    ("probe_not_found", "has no probe by that name"),
+    ("cycle_outruns_step", "choose fewer pings or a longer step"),  # no numbers
+    ("http://config-manager:5000/secret", "config-manager refused the change"),
+    ("", "config-manager refused the change"),
+])
+def test_a_refusal_is_one_of_the_pages_literals(client, monkeypatch, reason, needle):
+    _stub(monkeypatch, error=ProbeChangeRefused(reason, {}))
+    login(client)
+    html = client.post("/probes/FPing/edit",
+                       data={"step_seconds": "60", "pings": "10", "confirm": "yes"}
+                       ).get_data(as_text=True)
+    assert needle in html
+    assert "secret" not in html
+
+
+def test_any_other_failure_shows_no_exception_text(client, monkeypatch):
+    # requests' JSONDecodeError is a ValueError: it used to be flashed as is.
+    _stub(monkeypatch, error=ValueError("Expecting value: /var/lib/x line 1"))
+    login(client)
+    html = client.post("/probes/FPing/edit",
+                       data={"step_seconds": "60", "pings": "10", "confirm": "yes"}
+                       ).get_data(as_text=True)
+    assert "config-manager did not save the change." in html
+    assert "/var/lib/x" not in html
 
 
 def test_a_guard_that_did_not_run_is_said(client, monkeypatch):

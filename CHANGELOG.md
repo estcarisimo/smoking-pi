@@ -20,6 +20,21 @@ version gets a matching GitHub release and git tag.
   leak was small: an internal path or a JSON parse position, behind the API
   token. The card now says the status file is unreadable and points to the
   logs, and the exception goes to the config-manager log with its traceback.
+- **A refused probe change no longer shows exception text.** The Probes
+  page showed whatever text came with a `ValueError` when a
+  probe change failed. That was config-manager's `error` string for any
+  400/404 answer, from whatever answered at `CONFIG_MANAGER_URL`. It was
+  also the parser's text when the answer was not JSON, because `requests`'
+  `JSONDecodeError` is a `ValueError`. That broke the rule that error text
+  never derives from an exception, and an HTML error page from a proxy
+  would have been described on the page. config-manager's probe refusals
+  now carry a fixed `reason` code (`step_not_allowed`,
+  `pings_out_of_range`, `cycle_outruns_step`, `probe_not_found`, …) and
+  their numbers. The page picks its own text from a literal table by that
+  code, and fills in only numbers the client checked. An answer that is
+  not JSON is now an ordinary failure ("config-manager did not save the
+  change."), and config-manager's own text goes to the web-admin log.
+  Found while reviewing PR #232.
 
 ## [2.16.0] — 2026-10-01
 
