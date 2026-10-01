@@ -196,6 +196,14 @@ def main(argv=None) -> int:
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             body = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        # It answered, and said no (a wrong token, a failure): say what.
+        try:
+            reason = json.loads(exc.read() or b"{}").get("error", exc.reason)
+        except ValueError:
+            reason = exc.reason
+        print(f"refused: {reason}", file=sys.stderr)
+        return 1
     except (urllib.error.URLError, OSError, ValueError) as exc:
         print(f"the config-manager API did not answer: {type(exc).__name__}", file=sys.stderr)
         return 1

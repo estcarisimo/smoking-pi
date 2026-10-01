@@ -231,3 +231,75 @@ def test_budget_needs_the_token_when_one_is_set(client, monkeypatch, tmp_path):
     assert client.get("/budget").status_code == 401
     ok = client.get("/budget", headers={"X-API-Token": "sekrit"})
     assert ok.status_code == 200
+
+
+# --- the command line: python budget.py (smoking-pi budget) -------------------
+
+class _Resp:
+    def __init__(self, body):
+        self.body = body
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _urlopen(monkeypatch, reply):
+    import urllib.request
+    seen = []
+
+    def fake(req, timeout=None):
+        seen.append(req)
+        if isinstance(reply, Exception):
+            raise reply
+        return _Resp(reply)
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    return seen
+
+
+def test_render_names_the_totals_and_the_way_back_under_budget():
+    body = budget.report(TARGETS, CPE, PROBES, env={"MEASUREMENT_BUDGET_MB_PER_DAY": "1"})
+    text = budget.render(body)
+    first_row = text.splitlines()[1]
+    assert first_row.split()[:3] == ["CurlHTTP2", "Curl", "1"]
+    assert "7 targets: 720 samples/h of 20000 (3.6%)" in text
+    assert "of 1 (" in text and "Over budget" in text
+
+
+def test_main_prints_the_report_and_sends_the_token(monkeypatch, capsys):
+    import json
+    monkeypatch.setenv("CONFIG_API_TOKEN", "sekrit")
+    body = {"available": True, **budget.report(TARGETS, CPE, PROBES, env=NO_ENV)}
+    seen = _urlopen(monkeypatch, json.dumps(body).encode())
+    assert budget.main([]) == 0
+    assert "7 targets:" in capsys.readouterr().out
+    assert seen[0].full_url == "http://127.0.0.1:5000/budget"
+    assert seen[0].get_header("X-api-token") == "sekrit"
+    assert budget.main(["--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["targets"] == 7
+
+
+def test_main_says_the_api_refused_rather_than_did_not_answer(monkeypatch, capsys):
+    import io
+    import urllib.error
+    refusal = urllib.error.HTTPError(
+        "http://127.0.0.1:5000/budget", 401, "UNAUTHORIZED", {},
+        io.BytesIO(b'{"error": "Unauthorized"}'))
+    _urlopen(monkeypatch, refusal)
+    assert budget.main([]) == 1
+    assert capsys.readouterr().err.strip() == "refused: Unauthorized"
+
+
+def test_main_when_the_api_is_down_or_has_no_budget_yet(monkeypatch, capsys):
+    import urllib.error
+    _urlopen(monkeypatch, urllib.error.URLError("connection refused"))
+    assert budget.main([]) == 1
+    assert "did not answer" in capsys.readouterr().err
+    _urlopen(monkeypatch, b'{"available": false, "reason": "no generated Targets file yet"}')
+    assert budget.main([]) == 1
+    assert "No budget yet: no generated Targets file yet" in capsys.readouterr().err

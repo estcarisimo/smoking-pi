@@ -2056,7 +2056,9 @@ STUB
     run "$CLI" budget
     [ "$status" -eq 1 ]
     [[ "$output" == *"config-manager is not running"* ]]
-    ! grep -q 'budget.py' "$DOCKER_LOG"
+    # Not run: `! grep` alone would not fail the test here, so assert it.
+    run grep -q 'budget.py' "$DOCKER_LOG"
+    [ "$status" -ne 0 ]
     export STUB_CM_RUNNING=1
     run "$CLI" budget
     [ "$status" -eq 0 ]
@@ -2068,4 +2070,15 @@ STUB
     run "$CLI" budget --all
     [ "$status" -eq 2 ]
     [[ "$output" == *"unknown option --all"* ]]
+}
+
+@test "budget: Basic has no config-manager, and says so instead of trying" {
+    budget_setup
+    cp "$REPO/editions/basic/docker-compose.yml" "$STUB_HOME/editions/basic/"
+    export STUB_CM_RUNNING=1
+    SMOKING_PI_EDITION=basic run "$CLI" budget
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"the basic edition does not ship it"* ]]
+    run grep -q 'budget.py' "$DOCKER_LOG"
+    [ "$status" -ne 0 ]
 }
