@@ -422,7 +422,9 @@ def _seeded_with_get_probes(db_url, edited=None):
                     name=probe_name, binary_path="/usr/local/bin/curl-h3",
                     step_seconds=300, pings=5, forks=5, module="Curl",
                     options={"timeout": 10, "extraargs": args, "expect": "HTTPv=x"}))
-        session.query(SystemMetadata).filter(SystemMetadata.key == key).delete()
+        # A release before the fixes recorded neither marker.
+        keys = [key] + [k for k, *_ in migration.PROBE_PINGS_FIXES]
+        session.query(SystemMetadata).filter(SystemMetadata.key.in_(keys)).delete()
         session.commit()
     finally:
         session.close()
@@ -443,8 +445,9 @@ def test_get_probes_become_head_once_on_start(config_dir, db_url):
     assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
     _seeded_with_get_probes(db_url)
     assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
-    # Six probes changed, so the caller regenerates and reloads SmokePing.
-    assert migration.corrected_on_start == 6
+    # Six probes to HEAD and the same six from 5 pings to 3, so the caller
+    # regenerates and reloads SmokePing.
+    assert migration.corrected_on_start == 12
     args = _extraargs(db_url)
     assert len(args) == 6
     assert all(a.split(";").count("-I") == 1 for a in args.values())
@@ -476,7 +479,7 @@ def test_an_edited_http_probe_is_left_alone(config_dir, db_url):
     assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
     _seeded_with_get_probes(db_url, edited="CurlHTTP2")
     assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
-    assert migration.corrected_on_start == 5
+    assert migration.corrected_on_start == 10
     assert "-I" not in _extraargs(db_url)["CurlHTTP2"].split(";")
 
 
@@ -515,3 +518,81 @@ def test_a_missing_probes_yaml_is_not_an_error(tmp_path):
 
     assert fix_probes_yaml(tmp_path) == 0
     assert list(tmp_path.iterdir()) == []
+
+
+# --- HTTP probes: 5 pings -> 3 (seed_fix_http_pings3) ---
+
+def _shipped_curl_pings():
+    probes = yaml.safe_load(TEMPLATE_PROBES.read_text())["probes"]
+    return {name: p["pings"] for name, p in probes.items()}
+
+
+def test_the_seed_takes_three_http_samples_and_leaves_the_rest():
+    pings = _shipped_curl_pings()
+    assert [pings[n] for n in ("CurlHTTP1", "CurlHTTP2", "CurlHTTP3")] == [3, 3, 3]
+    assert (pings["FPing"], pings["DNS"], pings["TCPPing"]) == (10, 5, 5)
+
+
+def _pings(db_url):
+    session = _session(db_url)
+    try:
+        return {p.name: p.pings for p in session.query(Probe).all() if p.module == "Curl"}
+    finally:
+        session.close()
+
+
+def _set_pings(db_url, name, pings):
+    session = _session(db_url)
+    try:
+        session.query(Probe).filter_by(name=name).one().pings = pings
+        session.commit()
+    finally:
+        session.close()
+
+
+def test_http_probes_drop_to_three_pings_once(config_dir, db_url):
+    import scripts.migrate_yaml_to_db as migration
+
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    _seeded_with_get_probes(db_url)
+    # Someone chose 4 for one of them: kept.
+    _set_pings(db_url, "CurlHTTP3", 4)
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    pings = _pings(db_url)
+    assert pings.pop("CurlHTTP3") == 4
+    assert set(pings.values()) == {3}
+    # Applied once: set back to 5 by hand, it stays 5.
+    _set_pings(db_url, "CurlHTTP1", 5)
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert _pings(db_url)["CurlHTTP1"] == 5
+
+
+def test_a_probe_with_its_own_extraargs_keeps_its_pings(config_dir, db_url):
+    import scripts.migrate_yaml_to_db as migration
+
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    _seeded_with_get_probes(db_url, edited="WizardHTTP1")
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert _pings(db_url)["WizardHTTP1"] == 5
+    assert _pings(db_url)["WizardHTTP2"] == 3
+
+
+def test_a_yaml_seeded_before_both_fixes_ends_up_as_the_template(config_dir):
+    from scripts.migrate_yaml_to_db import fix_probes_yaml
+
+    path = config_dir / "probes.yaml"
+    lines, probe = [], None
+    for line in TEMPLATE_PROBES.read_text().replace(";-s;-I;-o;", ";-s;-o;").splitlines(True):
+        if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":"):
+            probe = line.strip()[:-1]
+        if probe and probe.startswith("CurlHTTP") and line == "    pings: 3\n":
+            line = "    pings: 5\n"
+        lines.append(line)
+    old = "".join(lines)
+    # The three HTTP probes, DNS and TCPPing.
+    assert old.count("    pings: 5\n") == 5
+    path.write_text(old)
+    # Three to HEAD, three to 3 pings; DNS and TCPPing keep their 5.
+    assert fix_probes_yaml(config_dir) == 6
+    assert path.read_text() == TEMPLATE_PROBES.read_text()
+    assert fix_probes_yaml(config_dir) == 0

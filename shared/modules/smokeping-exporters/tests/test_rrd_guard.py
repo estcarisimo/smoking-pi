@@ -114,3 +114,27 @@ def test_a_malformed_entry_is_an_error_not_a_traceback(tmp_path):
                            "websites/NYT.rrd": None}, tmp_path, info, stamp="S")
     assert [e["rrd"] for e in got["errors"]] == ["websites/Google.rrd", "websites/NYT.rrd"]
     assert (tmp_path / "websites/Google.rrd").exists()
+
+
+def test_file_mode_archives_what_the_cadence_file_says_changed(tmp_path, capsys, monkeypatch):
+    # At container start: config-manager's cadence.json says HTTP is now 3
+    # pings; the file on disk still has 5, so SmokePing would die on it.
+    data = tmp_path / "data"
+    info = _rrds(data, {"HTTP/Google_h2.rrd": (300, 5), "websites/Google.rrd": (300, 10)})
+    # guard() binds rrd_info as a default argument, so inject it there.
+    real_guard = rrd_guard.guard
+    monkeypatch.setattr(rrd_guard, "guard", lambda *a, **k: real_guard(*a, info=info, **k))
+    cadence = tmp_path / "cadence.json"
+    cadence.write_text(json.dumps({"datadir": str(data), "expected": {
+        "HTTP/Google_h2.rrd": {"step": 300, "pings": 3},
+        "websites/Google.rrd": {"step": 300, "pings": 10}}}))
+    assert rrd_guard.main(["rrd_guard.py", "--file", str(cadence)]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert [a["rrd"] for a in report["archived"]] == ["HTTP/Google_h2.rrd"]
+    assert not (data / "HTTP/Google_h2.rrd").exists()
+    assert (data / "websites/Google.rrd").exists()
+
+
+def test_file_mode_without_the_file_is_an_error_not_a_traceback(tmp_path, capsys):
+    assert rrd_guard.main(["rrd_guard.py", "--file", str(tmp_path / "none.json")]) == 2
+    assert "cannot read" in json.loads(capsys.readouterr().out)["error"]

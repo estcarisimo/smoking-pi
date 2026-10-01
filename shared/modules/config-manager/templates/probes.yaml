@@ -39,7 +39,7 @@ probes:
     module: Curl
     binary: /usr/local/bin/curl-h3
     step: 300
-    pings: 5
+    pings: 3
     forks: 5
     timeout: 10
     urlformat: https://%host%/
@@ -52,7 +52,7 @@ probes:
     module: Curl
     binary: /usr/local/bin/curl-h3
     step: 300
-    pings: 5
+    pings: 3
     forks: 5
     timeout: 10
     urlformat: https://%host%/
@@ -65,7 +65,7 @@ probes:
     module: Curl
     binary: /usr/local/bin/curl-h3
     step: 300
-    pings: 5
+    pings: 3
     forks: 5
     timeout: 10
     urlformat: https://%host%/

@@ -7,6 +7,7 @@ Migrates existing YAML configuration files to PostgreSQL database
 import argparse
 import logging
 import os
+import re
 import sys
 import yaml
 from datetime import datetime
@@ -56,9 +57,48 @@ PROBE_SEED_FIXES = (
     }),
 )
 
+# Ping counts: (marker, shipped extraargs, shipped pings, corrected pings).
+# A probe matches when its extraargs are one the seed wrote (GET or HEAD)
+# and its pings are still the seed's, so a count someone chose is kept.
+# SmokePing stores the ping count in each RRD and dies on a mismatch: the
+# reload that follows runs the RRD guard, and so does the SmokePing
+# container's start (custom-cont-init.d/06-rrd-guard.sh), which archives
+# the old files and lets SmokePing start new ones.
+_SHIPPED_CURL_ARGS = frozenset(
+    arg for _, rewrites in PROBE_SEED_FIXES for pair in rewrites.items() for arg in pair)
+PROBE_PINGS_FIXES = (
+    # Five HEAD requests per version per round bought little over three, at
+    # five TLS handshakes: three keep a median, a spread and loss in thirds,
+    # for 40% less traffic.
+    ("seed_fix_http_pings3", _SHIPPED_CURL_ARGS, 5, 3),
+)
+
+_YAML_PROBE = re.compile(r"^  (\w+):\s*$")
+_YAML_ARGS = re.compile(r"^    extraargs: '(.*)'\s*$")
+
+
+def _fix_yaml_pings(text: str, shipped, old: int, new: int) -> tuple[str, int]:
+    """``pings: old`` -> ``pings: new`` in each probe block of probes.yaml
+    whose extraargs are one of ``shipped``; returns the text and the count."""
+    lines = text.splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if _YAML_PROBE.match(line)]
+    fixed = 0
+    for n, start in enumerate(starts):
+        end = starts[n + 1] if n + 1 < len(starts) else len(lines)
+        block = range(start + 1, end)
+        args = [m.group(1) for i in block if (m := _YAML_ARGS.match(lines[i]))]
+        if not args or args[0] not in shipped:
+            continue
+        for i in block:
+            if lines[i].rstrip("\n") == f"    pings: {old}":
+                lines[i] = f"    pings: {new}\n"
+                fixed += 1
+    return "".join(lines), fixed
+
 
 def fix_probes_yaml(config_dir: Path) -> int:
-    """PROBE_SEED_FIXES applied to the config dir's probes.yaml, once each.
+    """PROBE_SEED_FIXES and PROBE_PINGS_FIXES applied to the config dir's
+    probes.yaml, once each.
 
     In YAML mode (no DATABASE_URL, or the database unreachable at start)
     the probes come from that file, a copy of the template made on the
@@ -70,16 +110,21 @@ def fix_probes_yaml(config_dir: Path) -> int:
     """
     path = Path(config_dir) / "probes.yaml"
     changed = 0
-    for key, rewrites in PROBE_SEED_FIXES:
+    fixes = [(key, rewrites, None) for key, rewrites in PROBE_SEED_FIXES]
+    fixes += [(key, None, (shipped, old, new))
+              for key, shipped, old, new in PROBE_PINGS_FIXES]
+    for key, rewrites, pings in fixes:
         marker = path.with_name(f".{key}")
         try:
             if marker.exists() or not path.exists():
                 continue
             text = path.read_text()
             fixed = 0
-            for old, new in rewrites.items():
+            for old, new in (rewrites or {}).items():
                 fixed += text.count(old)
                 text = text.replace(old, new)
+            if pings:
+                text, fixed = _fix_yaml_pings(text, *pings)
             if fixed:
                 atomic_write_text(path, text)
                 logger.info("Corrected a shipped default in %s: %d probe(s) (%s)",
@@ -313,7 +358,7 @@ class YAMLToDBMigrator:
         logger.info(f"Migrated {metadata_added} metadata entries")
 
     def fix_shipped_defaults(self, session) -> int:
-        """Apply each SEED_FIXES and PROBE_SEED_FIXES entry not applied
+        """Apply each SEED_FIXES, PROBE_SEED_FIXES and PROBE_PINGS_FIXES entry not applied
         before; returns how many targets and probes changed. A failure is
         logged and rolled back, never raised: the migration it follows has
         completed, and the next start retries.
@@ -348,6 +393,20 @@ class YAMLToDBMigrator:
                     logger.info("Corrected a shipped default: probe %s (%s)",
                                 probe.name, key)
                     fixed += 1
+                session.add(SystemMetadata(key=key, value=f"{fixed} probe(s)"))
+                changed += fixed
+            for key, shipped, old, new in PROBE_PINGS_FIXES:
+                if session.query(SystemMetadata).filter(
+                        SystemMetadata.key == key).first():
+                    continue
+                fixed = 0
+                for probe in session.query(Probe).all():
+                    if ((probe.options or {}).get('extraargs') in shipped
+                            and probe.pings == old):
+                        probe.pings = new
+                        logger.info("Corrected a shipped default: probe %s pings "
+                                    "%d -> %d (%s)", probe.name, old, new, key)
+                        fixed += 1
                 session.add(SystemMetadata(key=key, value=f"{fixed} probe(s)"))
                 changed += fixed
             session.commit()

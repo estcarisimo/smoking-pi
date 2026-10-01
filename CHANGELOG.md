@@ -22,7 +22,7 @@ version gets a matching GitHub release and git tag.
   against two ceilings: `MEASUREMENT_BUDGET_MB_PER_DAY` (default 1000) and
   `MEASUREMENT_BUDGET_SAMPLES_PER_HOUR` (default 20000). The bytes per
   sample were measured, not derived: 168 for ICMP, 300 for DNS, 200 for
-  TCP, 12 KB for an HTTPS HEAD. The seed comes to ~161 MB/day, 16% of the
+  TCP, 12 KB for an HTTPS HEAD. The seed comes to ~98 MB/day, 10% of the
   default. This is accounting only; nothing is throttled yet.
   Standard and Pro. See `docs/measurement-budget.md`.
 
@@ -84,6 +84,30 @@ version gets a matching GitHub release and git tag.
   or `503`; that is still the server answering, and it is timed. A full
   page load is a separate, application-layer measurement and is not run on
   a 5-minute step; it is on the roadmap.
+
+- **HTTP probes take 3 samples per round instead of 5, and SmokePing
+  checks its files before it starts.** With HEAD each sample is cheap,
+  but every sample is a full TLS handshake, about 12 KB. Five per HTTP
+  version per round bought little over three. Three keep a median, a
+  spread and loss in thirds. The seed's HTTP traffic drops from ~155 to
+  ~93 MB/day, and the whole seed from ~161 to ~98 MB/day. On upgrade the
+  installed CurlHTTP1/2/3 probes and the wizard's copies go from 5 to 3
+  once, in PostgreSQL and in `probes.yaml`. A count you chose yourself, or
+  a probe with your own `extraargs`, is kept.
+  **SmokePing's own HTTP graphs restart at this upgrade; Grafana's do
+  not.** SmokePing stores the sample count in each RRD and dies on a
+  mismatch, so the old files are moved to `/data/.archive/<time>/` in the
+  SmokePing volume (readable with `rrdtool`, not deleted) and new ones
+  begin. Grafana reads InfluxDB, where every point records the pings it
+  was measured with, so its history runs straight through. That would have been a
+  crash loop: config-manager runs the RRD guard before every reload, but
+  it cannot reach a SmokePing that is not running yet. On an upgrade that
+  recreates both containers, SmokePing could start on the new Probes file
+  and die on every restart, measuring nothing. config-manager now writes
+  `cadence.json` (what each RRD must look like) next to `Targets` and
+  `Probes`. SmokePing's container runs the same guard against it at start
+  (`custom-cont-init.d/06-rrd-guard.sh`), before the daemon loads. That
+  also covers any later change of a probe's step or pings.
 
 - **A new install's first alert was a false "critical: the monitor, not the
   network".** `exporter_stale` fires when the last `STALE_WINDOW` (20 min)

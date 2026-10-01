@@ -147,6 +147,22 @@ def expected_cadence(
     }
 
 
+def explicit_cadence(targets_text: str, probes_text: str) -> Dict[str, Dict[str, int]]:
+    """``expected_cadence`` for the RRDs whose probe sets both ``step`` and
+    ``pings`` itself (or inherits them from its ``+`` parent), without the
+    Database section. A probe that leaves either to the Database defaults
+    is left out rather than guessed: an RRD archived on a wrong guess is
+    history moved away for nothing."""
+    steps = parse_probe_var(probes_text, "step", -1)
+    counts = parse_probe_var(probes_text, "pings", -1)
+    out: Dict[str, Dict[str, int]] = {}
+    for e in parse_targets(targets_text):
+        step, pings = steps.get(e.probe, -1), counts.get(e.probe, -1)
+        if step > 0 and pings > 0:
+            out[e.rrd] = {"step": step, "pings": pings}
+    return out
+
+
 def parse_mtimes(find_output: str) -> Dict[str, float]:
     """``find /data -name '*.rrd' -printf '%T@ %P\\n'`` → {relative path: mtime}."""
     out: Dict[str, float] = {}

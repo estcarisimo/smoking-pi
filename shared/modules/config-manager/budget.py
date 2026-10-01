@@ -46,10 +46,10 @@ BYTES_PER_SAMPLE: Dict[str, int] = {
     "Curl": 12_000,
 }
 
-# Default ceilings, about 30 GB a month. The shipped seed uses 16% of the
-# bandwidth (~161 MB/day, nearly all of it TLS handshakes) and 8% of the
+# Default ceilings, about 30 GB a month. The shipped seed uses 10% of the
+# bandwidth (~98 MB/day, nearly all of it TLS handshakes) and 7% of the
 # samples; a DNS wizard adoption of 60 services over HTTP/1.1, 2 and 3
-# alone is ~3 GB/day. So they flag a target list that grew several-fold,
+# alone is ~1.9 GB/day. So they flag a target list that grew several-fold,
 # not normal use. MEASUREMENT_BUDGET_MB_PER_DAY and
 # MEASUREMENT_BUDGET_SAMPLES_PER_HOUR override them.
 DEFAULT_MB_PER_DAY = 1000

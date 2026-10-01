@@ -406,3 +406,28 @@ def test_a_corrected_target_reloads_smokeping_at_start(monkeypatch):
 
 def test_an_ordinary_start_does_not_signal_smokeping(monkeypatch):
     assert _start(monkeypatch, corrected=0) == []
+
+
+def test_explicit_cadence_leaves_out_what_the_database_section_decides():
+    probes = ("*** Probes ***\n+ FPing\nstep = 300\npings = 10\n"
+              "+ DNS\nstep = 300\n"            # pings from Database: unknown here
+              "+ Curl\nstep = 300\npings = 3\n++ CurlHTTP2\n")  # inherits both
+    targets = ("*** Targets ***\nprobe = FPing\n+ websites\n++ Google\nhost = g\n"
+               "+ DNS_Resolvers\nprobe = DNS\n++ GoogleDNS\nhost = 8.8.8.8\n"
+               "+ HTTP\n++ Google_h2\nprobe = CurlHTTP2\nhost = www.google.com\n")
+    assert freshness.explicit_cadence(targets, probes) == {
+        "websites/Google.rrd": {"step": 300, "pings": 10},
+        "HTTP/Google_h2.rrd": {"step": 300, "pings": 3},
+    }
+
+
+def test_generation_writes_the_guards_map_next_to_targets_and_probes(tmp_path, monkeypatch):
+    import json
+    from scripts import config_generator
+
+    monkeypatch.setattr(config_generator, "OUTPUT_DIR", tmp_path)
+    targets = "*** Targets ***\nprobe = FPing\n+ websites\n++ Google\nhost = g\n"
+    probes = "*** Probes ***\n+ FPing\nstep = 300\npings = 10\n"
+    assert config_generator.ConfigGenerator().write_output_files(targets, probes)
+    body = json.loads((tmp_path / "cadence.json").read_text())
+    assert body == {"expected": {"websites/Google.rrd": {"step": 300, "pings": 10}}}
