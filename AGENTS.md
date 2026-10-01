@@ -40,7 +40,7 @@ tests, the strict docs build, CodeQL, and **every image built for arm64 and
 amd64** (not pushed; `Images build (all)` is the required check). All must be
 green; CodeQL on a PR is diff-only, so "0 results" on a PR means *no new
 alerts*, not "fixed". The release adds what only a release can prove:
-`release.yml` publishes the eleven images to GHCR from the tag, builds the
+`release.yml` publishes the twelve images to GHCR from the tag, builds the
 `.deb` and installs it across the OS matrix, and `docs.yml` deploys the site.
 Where each image builds from is `packaging/image-context.sh`, read by both
 workflows. A Dockerfile change is still deployed on the reference Pi before
@@ -59,6 +59,7 @@ merge: CI proves it builds, the Pi proves it runs.
 | `shared/modules/doctor/` | Static + live checks that the pieces agree |
 | `shared/modules/dns-observer/` | AdGuard Home (pinned binary) + supervisor: canary through the router, self-test restarts, `status.json` heartbeat |
 | `shared/modules/mdns/` | Multicast DNS responder (stdlib only, host network): claims `smoking-pi.local`, probes, falls back to `-2` |
+| `shared/modules/netmeter/` | Pro: uplink bytes per service via a counter-only nftables table (CAP_NET_ADMIN, host cgroupns); container map from config-manager `/meter/containers` |
 | `shared/modules/common/` | The only code shared between images: Flux, charts, links, mutes, OpenClaw client |
 | `shared/modules/grafana/provisioning/` | Dashboards as JSON; separate trees for InfluxDB and ClickHouse |
 | `docs/` | getting-started, alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, http-probes, doctor, clickhouse, ipv6-gating, dns-observer, upgrades, packaging, release-acceptance |
@@ -173,7 +174,7 @@ checks they match); merge; a candidate tag `vX.Y.Z-rc.N` with a GitHub
 section + the Validation section). Tags other than `vX.Y.Z`,
 `vX.Y.Z-rc.N` (N from 1) and `test-*` are refused
 (`packaging/release-version.sh`, tested in `release-version.bats`). The tag
-triggers `release.yml` — eleven images × two architectures to
+triggers `release.yml` — twelve images × two architectures to
 `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` (it refuses a tag that
 disagrees with `CITATION.cff`), then the `.deb` built from the tagged tree
 and installed with each supported host's own `apt` (Ubuntu 22.04/24.04

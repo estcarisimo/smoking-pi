@@ -52,6 +52,10 @@ wizard's `wizard.json` feeds an exporter in the SmokePing container and
 observer reads SmokePing's generated `Targets`, so the Pi's own lookups of
 what it measures are not counted as the house's.
 
+**What the uplink carries.** The [netmeter](measurement-budget.md#by-service)
+container counts the uplink's bytes per service with a counter-only
+nftables table, and asks config-manager which container is which.
+
 **The Pi's name.** The [mdns](mdns.md) container answers for
 `smoking-pi.local` on the LAN, so the two `you` badges are reachable by
 name as well as by address.

@@ -200,6 +200,38 @@ def summarize_budget(body):
         'unpriced': body.get('unpriced') or [],
         'by_probe': body.get('by_probe') or [],
         'measured': summarize_measured(body.get('measured'), mb_ceiling),
+        'by_service': summarize_by_service(body.get('measured_by_service')),
+    }
+
+
+# How the card names the meter's buckets that are not containers.
+SERVICE_LABELS = {
+    'host': 'the host, outside the stack',
+    'other_containers': 'other containers',
+}
+
+
+def summarize_by_service(body):
+    """The per-service meter (netmeter): what each service really sent and
+    received on the uplink. None without it (Basic, Standard, off)."""
+    if not isinstance(body, dict) or not body.get('services'):
+        return None
+    rows = []
+    for r in body['services']:
+        if not isinstance(r, dict):
+            continue
+        rows.append({
+            'service': SERVICE_LABELS.get(r.get('service'), r.get('service')),
+            'mb_per_day': r.get('mb_per_day') or 0,
+            'rx_mb': r.get('rx_mb') or 0,
+            'tx_mb': r.get('tx_mb') or 0,
+        })
+    hours = body.get('hours') or 0
+    return {
+        'rows': rows,
+        'stale': bool(body.get('stale')),
+        'provisional': bool(body.get('provisional')),
+        'covered': f"{hours} h" if hours >= 1 else f"{body.get('minutes') or 0} min",
     }
 
 

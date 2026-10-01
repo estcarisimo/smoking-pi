@@ -197,3 +197,27 @@ def test_a_stopped_meter_is_marked_stale_on_the_top_card(client, monkeypatch):
     html = _dashboard(client, monkeypatch, {**SEED, "measured": {**MEASURED, "stale": True}})
     top = html[html.index('id="top-measured"'):]
     assert ">stale<" in top[:300]
+
+
+BY_SERVICE = {"hours": 24.0, "minutes": 1440, "provisional": False, "stale": False,
+              "mb_per_day": 900.0, "services": [
+                  {"service": "smokeping", "kind": "host_network", "mb_per_day": 700.0,
+                   "rx_mb": 400.0, "tx_mb": 300.0},
+                  {"service": "host", "kind": "rest", "mb_per_day": 200.0,
+                   "rx_mb": 150.0, "tx_mb": 50.0}]}
+
+
+def test_the_card_lists_measured_services(client, monkeypatch):
+    html = _dashboard(client, monkeypatch,
+                      {**SEED, "measured": MEASURED, "measured_by_service": BY_SERVICE})
+    table = html[html.index('id="budget-by-service"'):]
+    table = table[:table.index("</table>")]
+    assert "Measured by service" in table and "(last 24.0 h)" in table
+    assert "<td>smokeping</td>" in table and "700.0" in table
+    assert "the host, outside the stack" in table
+
+
+def test_no_service_meter_no_table(client, monkeypatch):
+    html = _dashboard(client, monkeypatch, {**SEED, "measured": MEASURED})
+    assert 'id="budget-by-service"' not in html
+    assert dashboard_module.summarize_by_service({"services": []}) is None

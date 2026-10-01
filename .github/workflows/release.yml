@@ -95,6 +95,7 @@ jobs:
           - influxdb
           - mcp-server
           - mdns
+          - netmeter
           - postgres
           - smokeping
           - web-admin
@@ -167,6 +168,7 @@ jobs:
           - influxdb
           - mcp-server
           - mdns
+          - netmeter
           - postgres
           - smokeping
           - web-admin
@@ -399,6 +401,7 @@ jobs:
           - influxdb
           - mcp-server
           - mdns
+          - netmeter
           - postgres
           - smokeping
           - web-admin

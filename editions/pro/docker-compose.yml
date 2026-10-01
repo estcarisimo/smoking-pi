@@ -607,6 +607,42 @@ services:
         condition: service_started
         required: false
 
+  # The per-service traffic meter (docs/measurement-budget.md, "By
+  # service"): one counter-only nftables table that attributes the uplink's
+  # bytes to each container -- host-network ones by cgroup, bridged ones by
+  # address -- and to the rest of the host. It never drops, accepts or
+  # rewrites a packet; stopping it removes the table. NETMETER=off loads
+  # nothing. CAP_NET_ADMIN on the host network and the host's cgroup
+  # namespace are what nft needs; it asks config-manager which container is
+  # which, so it holds no Docker socket.
+  netmeter:
+    build: ../../shared/modules/netmeter
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/netmeter:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
+    network_mode: host
+    cgroup: host
+    restart: unless-stopped
+    logging: *default-logging
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    stop_grace_period: 15s
+    environment:
+      - NETMETER=${NETMETER:-on}
+      - NETMETER_INTERFACES=${NETMETER_INTERFACES:-}
+      - CONFIG_API_URL=http://127.0.0.1:5000
+      - CONFIG_API_TOKEN=${CONFIG_API_TOKEN:-}
+      - TSDB_TYPE=${TSDB_TYPE:-influxdb}
+      - INFLUX_URL=http://localhost:8086
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - netmeter-state:/var/lib/netmeter
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+
   # The Pi's name on the LAN: answers for <MDNS_NAME>.local (default
   # smoking-pi.local) over multicast DNS, whatever the hostname is and
   # whether or not the host runs Avahi. A second Smoking Pi on the same
@@ -736,6 +772,7 @@ volumes:
   dns-observer-conf:
   dns-observer-work:
   dns-observer-state:
+  netmeter-state:
   clickhouse-data:
     name: smokeping-pro-clickhouse-data
   clickhouse-logs:

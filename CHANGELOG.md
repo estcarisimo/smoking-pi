@@ -32,6 +32,27 @@ version gets a matching GitHub release and git tag.
   (Docker bridges, veths and VPNs are never used). It is the eleventh
   published image. `docs/mdns.md`.
 
+- **Measured traffic by service.** The uplink meter says how much the Pi
+  sends and receives, not who. On the test Pi it read about twice the
+  budget's estimate, and the only way to find the difference was to
+  guess: SmokePing, the DNS observer, an image pull, an assistant on the
+  host. Getting an outlier wrong means cutting the wrong thing. A new Pro
+  service, `netmeter`, attributes the uplink's bytes to each container
+  with a counter-only nftables table (`inet smoking_pi_meter`).
+  Host-network services are keyed by their sockets' cgroup and a
+  conntrack mark byte clear of Tailscale's. Bridged containers are keyed
+  by address in the forward hook. The rest goes to `host` and
+  `other_containers`. No rule drops, accepts or rewrites a packet, and
+  stopping the container removes the table. It runs with `CAP_NET_ADMIN`
+  only, asks config-manager which container is which (new
+  `GET /meter/containers`) instead of holding the Docker socket, and
+  writes `service_traffic` to InfluxDB. `smoking-pi budget`, the web
+  admin's budget card and a new Overview panel list the services, most
+  traffic first. Two minutes on the test Pi: SmokePing ~943 MB/day
+  against its ~410 MB/day estimate. `NETMETER=off` loads nothing. It is
+  the twelfth published image. `docs/measurement-budget.md`, "By
+  service".
+
 - **Measured traffic beside the budget's estimate.** The measurement
   budget only ever estimated: configured probes times a per-sample cost
   measured once. Nothing said what the Pi really sent and received. On
