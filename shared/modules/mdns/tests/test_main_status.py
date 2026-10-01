@@ -69,3 +69,30 @@ def test_ipv6_addresses_keep_global_and_ula_only(tmp_path):
 ])
 def test_virtual_interfaces(name, virtual):
     assert net.is_virtual(name) is virtual
+
+
+LAN = {3: "192.168.1.10"}
+
+
+@pytest.mark.parametrize("source,index,ttl,ok", [
+    (("192.168.1.20", 5353), 3, 255, True),
+    (("192.168.1.20", 5353), 3, 64, False),      # routed: not from the link
+    (("192.168.1.20", 5353), 7, 255, False),     # docker0 / tailscale0
+    (("192.168.1.20", 41234), 3, 64, True),      # a legacy one-shot query
+    (("192.168.1.20", 5353), None, None, True),  # no ancillary data
+])
+def test_accept(source, index, ttl, ok):
+    assert main.accept(source, index, ttl, LAN) is ok
+
+
+def test_status_tolerates_a_bad_timestamp(tmp_path):
+    path = tmp_path / "status.json"
+    path.write_text(json.dumps({"state": "announced", "updated": "yesterday"}))
+    assert status.read(str(path))["state"] == "down"
+
+
+def test_invalid_name_reason_is_the_literal_rule(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(main, "idle", lambda path, body: seen.update(body) or 0)
+    assert main.run({"MDNS_NAME": "bad_name", "MDNS_STATE_DIR": str(tmp_path)}) == 0
+    assert seen == {"state": "invalid", "reason": main.NAME_RULE, "setting": "bad_name"}

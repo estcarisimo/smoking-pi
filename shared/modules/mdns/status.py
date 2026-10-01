@@ -27,7 +27,11 @@ def read(path: str, now: float | None = None) -> dict:
     if not isinstance(body, dict):
         return {"state": "down", "reason": "unreadable status"}
     now = time.time() if now is None else now
-    if now - float(body.get("updated") or 0) > STALE_SECONDS:
+    try:
+        updated = float(body.get("updated") or 0)
+    except (TypeError, ValueError):
+        updated = 0.0
+    if now - updated > STALE_SECONDS:
         body = dict(body, state="down", reason="the responder stopped writing its status")
     return body
 

@@ -24,8 +24,10 @@ version gets a matching GitHub release and git tag.
   `smoking-pi`) after probing for it, ignores packets from its own
   addresses and records identical to its own, falls back to
   `smoking-pi-2.local` only when another host really answers with other
-  addresses, and says goodbye (TTL 0) when it stops. It needs no Avahi on
-  the host. `smoking-pi url` now prints the name the service holds.
+  addresses (and only to packets from the LAN, with IP TTL 255, from
+  port 5353), and says goodbye (TTL 0) when it stops. It needs no Avahi
+  on the host, runs as `nobody` with no capabilities on a read-only
+  filesystem. `smoking-pi url` now prints the name the service holds.
   `MDNS_NAME=off` turns it off; `MDNS_INTERFACES` narrows the interfaces
   (Docker bridges, veths and VPNs are never used). It is the eleventh
   published image. `docs/mdns.md`.

@@ -93,8 +93,8 @@ jobs:
           - dns-observer
           - grafana
           - influxdb
-          - mdns
           - mcp-server
+          - mdns
           - postgres
           - smokeping
           - web-admin
@@ -165,8 +165,8 @@ jobs:
           - dns-observer
           - grafana
           - influxdb
-          - mdns
           - mcp-server
+          - mdns
           - postgres
           - smokeping
           - web-admin
@@ -397,8 +397,8 @@ jobs:
           - dns-observer
           - grafana
           - influxdb
-          - mdns
           - mcp-server
+          - mdns
           - postgres
           - smokeping
           - web-admin

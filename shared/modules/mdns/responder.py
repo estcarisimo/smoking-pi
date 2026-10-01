@@ -19,6 +19,8 @@ whole protocol is tested without a network.
 
 from __future__ import annotations
 
+import random
+from collections import deque
 from dataclasses import dataclass
 
 import wire
@@ -27,9 +29,21 @@ PROBE_INTERVAL = 0.25
 PROBES = 3
 ANNOUNCEMENTS = 2
 ANNOUNCE_INTERVAL = 1.0
-# §8.1: after 15 conflicts in 10 s, wait 5 s between probes. Simpler and
-# stricter: stop after this many names and say so in the status.
+# §8.1: after 15 conflicts in 10 s, wait 5 s before probing again.
+RATE_CONFLICTS = 15
+RATE_WINDOW = 10.0
+RATE_PAUSE = 5.0
+# After this many names, stop and say so in the status; start again from
+# the base name this much later (the hosts holding them may have left).
 MAX_SUFFIX = 20
+GIVE_UP_RETRY = 300.0
+# §8.1: the first probe waits a random 0-250 ms, so hosts powered on
+# together do not probe in lockstep.
+PROBE_JITTER = 0.25
+# §6: a record is multicast at most once a second; once per 250 ms when
+# defending the name against a probe.
+ANSWER_INTERVAL = 1.0
+DEFEND_INTERVAL = 0.25
 # §6.7: answers to a legacy (one-shot, not port 5353) query live <= 10 s.
 LEGACY_TTL = 10
 MDNS_PORT = 5353
@@ -43,7 +57,7 @@ class Outgoing:
 
 
 class Responder:
-    def __init__(self, base: str, addresses: list[str]):
+    def __init__(self, base: str, addresses: list[str], jitter=None):
         self.base = base.strip().rstrip(".").lower()
         if self.base.endswith(".local"):
             self.base = self.base[: -len(".local")]
@@ -51,6 +65,9 @@ class Responder:
         self.addresses = sorted(set(addresses))
         self.state = "probing"
         self.conflicts = 0
+        self._jitter = jitter or (lambda: random.uniform(0, PROBE_JITTER))
+        self._recent_conflicts: deque[float] = deque()
+        self._last_multicast: dict[int, float] = {}
         self._probes_sent = 0
         self._announced = 0
         self._next = 0.0
@@ -64,15 +81,27 @@ class Responder:
         self.state = "probing"
         self._probes_sent = 0
         self._announced = 0
-        self._next = now
+        self._next = now + self._jitter()
 
     # --- timers ---------------------------------------------------------------
 
     def tick(self, now: float) -> list[Outgoing]:
         """What is due at ``now``: a probe, the claim, an announcement."""
-        if self.state in ("gave_up", "idle") or now < self._next:
+        if now < self._next:
+            return []
+        if self.state == "gave_up":
+            # Start over from the base name: the squatters may be gone.
+            self.suffix = 1
+            self._recent_conflicts.clear()
+            self.start(now)
             return []
         if self.state == "probing":
+            if not self.addresses:
+                # No address yet (DHCP at boot): a probe would go nowhere,
+                # and silence must not be mistaken for the name being free.
+                self._probes_sent = 0
+                self._next = now + 1.0
+                return []
             if self._probes_sent < PROBES:
                 self._probes_sent += 1
                 self._next = now + PROBE_INTERVAL
@@ -88,7 +117,12 @@ class Responder:
         return []
 
     def next_due(self) -> float | None:
-        return self._next if self.state in ("probing", "announcing") else None
+        return self._next if self.state in ("probing", "announcing", "gave_up") else None
+
+    @property
+    def answering(self) -> bool:
+        """The name is ours: claimed, and announced at least once."""
+        return self.state == "announced" or (self.state == "announcing" and self._announced > 0)
 
     # --- messages ---------------------------------------------------------------
 
@@ -98,8 +132,11 @@ class Responder:
     def probe(self) -> wire.Message:
         # §8.2: the proposed records go in the authority section, so two
         # hosts probing at once can tell who wins.
+        # QU (unicast response) left clear: a unicast reply to port 5353
+        # reaches only one of the sockets bound there, and the host's Avahi
+        # may be the one that gets it. A multicast reply reaches all.
         return wire.Message(
-            questions=[wire.Question(self.name, wire.TYPE_ANY, unicast=True)],
+            questions=[wire.Question(self.name, wire.TYPE_ANY)],
             authority=self.records(flush=False),
         )
 
@@ -111,23 +148,23 @@ class Responder:
 
     def goodbye(self) -> list[Outgoing]:
         """§10.1: TTL 0 tells caches to drop the name now, not in 120 s."""
-        if self.state not in ("announcing", "announced") or not self.addresses:
+        if not self.answering or not self.addresses:
             return []
         return [Outgoing(self.announcement(ttl=0))]
 
     # --- addresses ----------------------------------------------------------------
 
     def set_addresses(self, addresses: list[str], now: float) -> list[Outgoing]:
-        """The host's addresses changed (DHCP, an interface came up)."""
+        """The host's addresses changed (DHCP, an interface came up, another
+        network). §8: probe again, since a host on the new network may hold
+        the name; the claim then announces cache-flush records that replace
+        the old addresses in every cache."""
         new = sorted(set(addresses))
         if new == self.addresses:
             return []
         self.addresses = new
-        if self.state == "announced":
-            # Cache-flush records replace the old set in every cache.
-            self.state = "announcing"
-            self._announced = 0
-            self._next = now
+        if self.state != "gave_up":
+            self.start(now)
         return []
 
     # --- incoming -------------------------------------------------------------------
@@ -137,12 +174,18 @@ class Responder:
         """React to one received message; return what to send back."""
         if source[0] in own:
             return []
+        if msg.is_response:
+            # §6: responses come from port 5353; anything else is not an
+            # mDNS responder, and no reason to give up the name.
+            if source[1] == MDNS_PORT and self._conflicts_with(msg):
+                self._rename(now)
+            return []
         if self._conflicts_with(msg):
             self._rename(now)
             return []
-        if msg.is_response or self.state != "announced":
+        if not self.answering:
             return []
-        return self._answer(msg, source)
+        return self._answer(msg, source, now)
 
     def _ours(self, records: list[wire.Record]) -> list[wire.Record]:
         return [r for r in records
@@ -169,13 +212,20 @@ class Responder:
 
     def _rename(self, now: float) -> None:
         self.conflicts += 1
+        self._recent_conflicts.append(now)
+        while self._recent_conflicts and now - self._recent_conflicts[0] > RATE_WINDOW:
+            self._recent_conflicts.popleft()
         if self.suffix >= MAX_SUFFIX:
             self.state = "gave_up"
+            self._next = now + GIVE_UP_RETRY
             return
         self.suffix += 1
         self.start(now)
+        if len(self._recent_conflicts) >= RATE_CONFLICTS:
+            self._next = now + RATE_PAUSE
 
-    def _answer(self, msg: wire.Message, source: tuple[str, int]) -> list[Outgoing]:
+    def _answer(self, msg: wire.Message, source: tuple[str, int],
+                 now: float) -> list[Outgoing]:
         wanted: set[int] = set()
         asked: list[wire.Question] = []
         for q in msg.questions:
@@ -188,28 +238,47 @@ class Responder:
             else:
                 continue
             asked.append(q)
-        if not wanted:
+        if not wanted or not self.addresses:
             return []
         legacy = source[1] != MDNS_PORT
-        records = [r for r in self.records(LEGACY_TTL if legacy else wire.HOST_TTL,
-                                           flush=not legacy)
-                   if r.rtype in wanted]
+        ttl = LEGACY_TTL if legacy else wire.HOST_TTL
+        records = [r for r in self.records(ttl, flush=not legacy) if r.rtype in wanted]
+        present = {r.rtype for r in self.records()}
+        # §6.1: say which of the asked types do not exist, so the asker
+        # does not wait out a timeout for them.
+        missing = (wanted & {wire.TYPE_A, wire.TYPE_AAAA}) - present
         if not legacy:
             # §7.1: the asker already holds these with at least half their
             # life left; repeating them is noise.
             known = {(r.rtype, r.rdata) for r in self._ours(msg.answers)
                      if r.ttl >= wire.HOST_TTL // 2}
             records = [r for r in records if (r.rtype, r.rdata) not in known]
-        if not records:
+            # §6: at most one multicast of a record a second (a quarter
+            # second when defending against a probe).
+            gap = DEFEND_INTERVAL if msg.authority else ANSWER_INTERVAL
+            records = [r for r in records
+                       if now - self._last_multicast.get(r.rtype, -gap) >= gap]
+            for t in {r.rtype for r in records}:
+                self._last_multicast[t] = now
+            if missing and now - self._last_multicast.get(wire.TYPE_NSEC, -gap) < gap:
+                missing = set()
+            if missing:
+                self._last_multicast[wire.TYPE_NSEC] = now
+        nsec = [wire.nsec_record(self.name, present, ttl)] if missing else []
+        if not records and not nsec:
             return []
+        flags = wire.FLAG_RESPONSE | wire.FLAG_AUTHORITATIVE
+        # The NSEC answers on its own when nothing else does, else it rides
+        # along in the additional section.
+        answers, additional = (records, nsec) if records else (nsec, [])
         if legacy:
             reply = wire.Message(
-                id=msg.id, flags=wire.FLAG_RESPONSE | wire.FLAG_AUTHORITATIVE,
-                questions=[wire.Question(q.name, q.qtype) for q in asked], answers=records,
+                id=msg.id, flags=flags,
+                questions=[wire.Question(q.name, q.qtype) for q in asked],
+                answers=answers, additional=additional,
             )
             return [Outgoing(reply, to=source)]
-        return [Outgoing(wire.Message(
-            flags=wire.FLAG_RESPONSE | wire.FLAG_AUTHORITATIVE, answers=records))]
+        return [Outgoing(wire.Message(flags=flags, answers=answers, additional=additional))]
 
     def status(self) -> dict:
         return {

@@ -55,6 +55,12 @@ services:
     pull_policy: missing
     network_mode: host
     restart: unless-stopped
+    # It needs no capability and writes only its status.
+    user: nobody
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/run/mdns:mode=1777]
     environment:
       # off = answer for no name. MDNS_INTERFACES narrows the interfaces
       # (default: every LAN one with IPv4; Docker and VPNs never).

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 TYPE_A = 1
 TYPE_AAAA = 28
+TYPE_NSEC = 47
 TYPE_ANY = 255
 CLASS_IN = 1
 # The top bit of a record's class is "cache flush" (the record set is
@@ -175,3 +176,16 @@ def address_records(name: str, addresses: list[str], ttl: int = HOST_TTL,
         records.append(Record(name, rtype, ttl, ip.packed, flush))
     records.sort(key=lambda r: (r.rtype, r.rdata))
     return records
+
+
+def nsec_record(name: str, present: set[int], ttl: int = HOST_TTL) -> Record:
+    """§6.1: "this name has these types and no others", so an asker stops
+    waiting for an AAAA (or A) that does not exist. The restricted form:
+    the next name is the name itself, one bitmap window for types < 256."""
+    bitmap = bytearray(32)
+    for t in present:
+        if 0 < t < 256:
+            bitmap[t // 8] |= 0x80 >> (t % 8)
+    length = max((i + 1 for i, b in enumerate(bitmap) if b), default=1)
+    rdata = _name(name) + bytes([0, length]) + bytes(bitmap[:length])
+    return Record(name, TYPE_NSEC, ttl, rdata, True)

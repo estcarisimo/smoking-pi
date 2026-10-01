@@ -1,8 +1,9 @@
 # The Pi's name on the network
 
 Every edition answers for **`smoking-pi.local`** on the local network, so
-the Pi can be opened at `http://smoking-pi.local:8080/` (Basic:
-`http://smoking-pi.local/`) without knowing its address. The name does not
+the Pi can be opened at `http://smoking-pi.local:8080/` (Basic: on
+`SMOKEPING_PORT`, `http://smoking-pi.local/` by default) without knowing
+its address. The name does not
 depend on the Pi's hostname, survives a DHCP lease changing the address,
 and works on hosts that do not run Avahi.
 
@@ -39,8 +40,12 @@ The name is probed before it is used. If another host already answers for
 WARNING smoking-pi.local is taken by another host; trying smoking-pi-2.local
 ```
 
-Which Pi gets the plain name then depends on which started first. Give
-each its own name instead:
+Which Pi gets the plain name then depends on which started first, and a
+Pi on `-2` keeps it while it runs (it does not take the plain name back
+when the other leaves; a restart probes from the plain name again). After
+twenty taken names it stops, says so in its log and status, and starts
+over from the plain name five minutes later. Give each Pi its own name
+instead:
 
 ```bash
 sudo smoking-pi config set MDNS_NAME smoking-pi-lab
@@ -53,9 +58,20 @@ sudo smoking-pi config set MDNS_NAME smoking-pi-lab
 | `MDNS_NAME` | `smoking-pi` | The name to claim, without `.local`: letters, digits and inner hyphens. `off` answers for no name. |
 | `MDNS_INTERFACES` | every LAN interface | Comma-separated interfaces to answer on (`wlan0,eth0`). Docker bridges, veths, VPNs (Tailscale, WireGuard) and the loopback are never used unless listed here. |
 
-`config set` applies the change (the container is recreated). The Pi's
-global and unique-local IPv6 addresses are answered too; link-local ones
-are not (they are useless without a zone).
+`config set` applies the change (the container is recreated). The answer
+carries the IPv4 address and every stable global and unique-local IPv6
+address of those interfaces; link-local and temporary ones are left out.
+A Pi without IPv6 says so (an NSEC record), so a client asking for both
+does not wait for an AAAA that will never come. The responder speaks
+multicast DNS over IPv4 only; that is where every common resolver asks.
+
+Do not set `MDNS_NAME` to the Pi's own hostname: Avahi already answers
+for that name, with a different set of addresses, and the two would
+contend for it.
+
+The name is for **other machines** on the network. The responder ignores
+packets from the Pi's own addresses (that is what keeps it from fighting
+itself), so on the Pi use `localhost` or the address.
 
 ## Checking it
 
@@ -97,6 +113,9 @@ On a Mac, `dns-sd -G v4 smoking-pi.local`. Windows 10 and later resolve
   then `smoking-pi logs mdns`. Probing takes under two seconds.
 - **The name is `smoking-pi-2.local`**: another host holds the plain name;
   see [Two Smoking Pis on one network](#two-smoking-pis-on-one-network).
+- **The client is on another network** (a VPN, a Docker bridge, a
+  routed subnet): multicast DNS stays on the link, and the responder only
+  answers packets that arrived on a LAN interface with IP TTL 255.
 - **A firewall on the Pi** must let UDP 5353 in on the LAN interface. The
   host's Avahi needs the same, so a Pi where `<hostname>.local` resolves
   already allows it.

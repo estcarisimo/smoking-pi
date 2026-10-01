@@ -20,8 +20,13 @@ GROUP = "224.0.0.251"
 PORT = 5353
 
 # Interfaces nobody on the LAN asks through.
-VIRTUAL_PREFIXES = ("lo", "docker", "br-", "veth", "tailscale", "tun", "tap",
+VIRTUAL_PREFIXES = ("docker", "br-", "veth", "tailscale", "tun", "tap",
                     "wg", "virbr", "zt", "cni", "flannel", "podman")
+
+# Linux socket options the socket module may not name.
+IP_MULTICAST_ALL = getattr(socket, "IP_MULTICAST_ALL", 49)
+IP_RECVTTL = getattr(socket, "IP_RECVTTL", 12)
+IP_TTL_CMSG = getattr(socket, "IP_TTL", 2)
 
 SIOCGIFFLAGS = 0x8913
 SIOCGIFADDR = 0x8915
@@ -87,7 +92,7 @@ def ipv6_addresses(path: str = IF_INET6) -> dict[str, list[str]]:
 
 
 def is_virtual(name: str) -> bool:
-    return name.startswith(VIRTUAL_PREFIXES)
+    return name == "lo" or name.startswith(VIRTUAL_PREFIXES)
 
 
 def lan_interfaces(only: list[str] | None = None) -> dict[str, dict]:
@@ -142,6 +147,16 @@ class MulticastSocket:
         s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
         s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
         s.setsockopt(socket.IPPROTO_IP, socket.IP_PKTINFO, 1)
+        # §11: a genuine mDNS packet arrives with IP TTL 255, which no
+        # router can forward; the TTL is checked on every packet.
+        s.setsockopt(socket.IPPROTO_IP, IP_RECVTTL, 1)
+        # Only the groups joined on this socket's own interfaces: by default
+        # Linux delivers 224.0.0.251 from every interface any socket on the
+        # host joined (Docker bridges, VPNs, Avahi's choices).
+        try:
+            s.setsockopt(socket.IPPROTO_IP, IP_MULTICAST_ALL, 0)
+        except OSError:
+            pass
         s.bind(("", PORT))
         s.setblocking(False)
         self.sock = s
@@ -175,17 +190,26 @@ class MulticastSocket:
             log.warning("multicast membership on %s failed: errno %s", addr, e.errno)
             return False
 
-    def receive(self) -> tuple[bytes, tuple[str, int], int | None] | None:
-        """One packet, its source and the index of the interface it came in on."""
+    def receive(self) -> tuple[bytes, tuple[str, int], int | None, int | None] | None:
+        """One packet, its source, the index of the interface it came in on
+        and its IP TTL; None when there is nothing (more) to read."""
         try:
-            data, ancdata, _flags, source = self.sock.recvmsg(9000, socket.CMSG_SPACE(12))
+            data, ancdata, _flags, source = self.sock.recvmsg(
+                9000, socket.CMSG_SPACE(12) + socket.CMSG_SPACE(4))
         except BlockingIOError:
             return None
-        index = None
+        except OSError as e:
+            log.warning("receive failed: errno %s", e.errno)
+            return None
+        index = ttl = None
         for level, ctype, cdata in ancdata:
-            if level == socket.IPPROTO_IP and ctype == socket.IP_PKTINFO and len(cdata) >= 4:
+            if level != socket.IPPROTO_IP:
+                continue
+            if ctype == socket.IP_PKTINFO and len(cdata) >= 4:
                 index = struct.unpack_from("i", cdata, 0)[0]
-        return data, source, index
+            elif ctype == IP_TTL_CMSG and len(cdata) >= 4:
+                ttl = struct.unpack_from("i", cdata, 0)[0]
+        return data, source, index, ttl
 
     def send_multicast(self, data: bytes, interface_addr: str) -> None:
         try:
