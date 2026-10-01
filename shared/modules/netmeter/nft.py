@@ -53,9 +53,13 @@ def parse_counters(text: str) -> dict[str, tuple[int, int]]:
 
 def reset_counters(runner=subprocess.run) -> dict[str, tuple[int, int]]:
     """Read every counter of the table and zero it, atomically per counter:
-    what comes back is exactly what was counted since the last reset."""
-    return parse_counters(_run(["-j", "reset", "counters", "table", ruleset.FAMILY,
-                                ruleset.TABLE], runner=runner))
+    what comes back is exactly what was counted since the last reset.
+    Nothing readable is an error, never an interval of zeros."""
+    found = parse_counters(_run(["-j", "reset", "counters", "table", ruleset.FAMILY,
+                                 ruleset.TABLE], runner=runner))
+    if not found:
+        raise NftError("no counters in nft's answer")
+    return found
 
 
 def teardown(runner=subprocess.run) -> None:

@@ -39,6 +39,8 @@ log = logging.getLogger("netmeter")
 
 SYNC_SECONDS = 60
 SYS_NET = Path("/sys/class/net")
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+FETCH_TIMEOUT = 5  # well inside the 15 s stop grace period
 DEFAULT_URL = "http://127.0.0.1:5000"
 
 
@@ -64,7 +66,7 @@ def fetch_containers(base_url: str, token: str = "",
     if token:
         req.add_header("X-API-Token", token)
     try:
-        with opener(req, timeout=30) as resp:
+        with opener(req, timeout=FETCH_TIMEOUT) as resp:
             body = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         log.warning("containers not read: HTTP %s", exc.code)
@@ -121,16 +123,45 @@ def influx_writer(env: dict):
     return lambda points: api.write(bucket=env["INFLUX_BUCKET"], record=points)
 
 
+def live_cgroups(services: list[ruleset.Service],
+                 root: Path = CGROUP_ROOT) -> tuple[list[ruleset.Service], tuple]:
+    """The services whose cgroup exists, and a fingerprint of them.
+
+    ``socket cgroupv2`` stores the cgroup's kernel id when the rule loads,
+    not its path. ``docker restart`` keeps the container id, so the path,
+    but the cgroup is created anew; the text of the ruleset is unchanged
+    while every rule for that service has stopped matching. The inode of
+    each cgroup directory is that kernel id: a new one means reload.
+    A cgroup that is gone (the container stopped between config-manager's
+    answer and now) is left out, since nft refuses a whole table over one
+    path that does not exist."""
+    kept, fingerprint = [], []
+    for s in services:
+        if s.host_network and s.cgroup:
+            try:
+                inode = (root / s.cgroup).stat().st_ino
+            except OSError:
+                log.info("%s: no cgroup at %s, not counted this time", s.name, s.cgroup)
+                continue
+            fingerprint.append((s.name, inode))
+        kept.append(s)
+    return kept, tuple(sorted(fingerprint))
+
+
 class Meter:
     """The loop's state, separate from the loop so it is testable: what is
     loaded, what was counted before the last reload, the last interval."""
 
-    def __init__(self, env: dict, nft_mod=nft, fetch=fetch_containers):
+    def __init__(self, env: dict, nft_mod=nft, fetch=fetch_containers,
+                 cgroups=live_cgroups):
         self.env = env
         self.nft = nft_mod
         self.fetch = fetch
+        self.cgroups = cgroups
         self.services: list[ruleset.Service] = []
         self.loaded: str | None = None
+        self.loaded_key: tuple | None = None
+        self.counted: list[ruleset.Service] = []
         self.pending: dict[str, tuple[int, int]] = {}
         self.last_mono: float | None = None
         self.state_path = os.path.join(env.get("NETMETER_STATE_DIR") or "/var/lib/netmeter",
@@ -146,21 +177,37 @@ class Meter:
             self.services = ruleset.services_counted(found)
         links = uplinks(self.env)
         if not links:
-            self.error = "no physical interface to count on"
+            self.error = ("no physical interface to count on: set NETMETER_INTERFACES "
+                          "(a bridge, bond, VLAN or PPPoE uplink has no device of its own)")
             return
-        script = ruleset.build(self.services, links)
-        if script == self.loaded:
-            return
-        if self.loaded is not None:
-            # A reload zeroes every counter: keep what they held.
-            self.pending = meter.add_counts(self.pending, self.nft.reset_counters())
+        services, fingerprint = self.cgroups(self.services)
         try:
+            script = ruleset.build(services, links)
+        except ValueError as e:
+            self.error = f"no ruleset: {e}"
+            log.error("%s", self.error)
+            return
+        key = (script, fingerprint)
+        if key == self.loaded_key:
+            return
+        try:
+            if self.loaded is not None:
+                # A reload zeroes every counter: keep what they held.
+                self.pending = meter.add_counts(self.pending, self.nft.reset_counters())
             self.nft.load(script)
         except nft.NftError as e:
             self.error = f"the ruleset was refused: {e}"
             log.error("%s", self.error)
+            self.loaded = self.loaded_key = None
             return
+        dropped = {n for n in self.pending if n.startswith("s_")} - {
+            ruleset.counter_name(s.name) + d for s in services for d in ("_tx", "_rx")}
+        if dropped:
+            log.info("counted before the reload but no longer named, so counted as "
+                     "host or other containers: %s", ", ".join(sorted(dropped)))
         self.loaded = script
+        self.loaded_key = key
+        self.counted = services
         self.error = None
         if self.last_mono is None:
             # Counting starts now: the first interval runs from here.
@@ -177,8 +224,8 @@ class Meter:
         previous, self.last_mono = self.last_mono, mono
         if previous is None or mono <= previous:
             return None
-        attributed = ruleset.attribute(counts, self.services)
-        self.state, interval = meter.record(self.state, attributed, kinds(self.services),
+        attributed = ruleset.attribute(counts, self.counted)
+        self.state, interval = meter.record(self.state, attributed, kinds(self.counted),
                                             now, mono - previous)
         try:
             meter.save_state(self.state_path, self.state)
@@ -195,6 +242,10 @@ def run(env: dict) -> int:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     if (env.get("NETMETER") or "on").strip().lower() in ("off", "0", "no", "false"):
         log.info("NETMETER=off: no table, nothing counted")
+        try:
+            nft.teardown()  # one left behind by a container that was killed
+        except nft.NftError:
+            pass
         while not stop.is_set():
             write_status(status_path, {"state": "off"})
             stop.wait(30)
@@ -205,17 +256,25 @@ def run(env: dict) -> int:
     next_sync = 0.0
     next_collect = 0.0
     while not stop.is_set():
-        now, mono = time.time(), time.monotonic()
+        mono = time.monotonic()
         if mono >= next_sync:
-            m.sync(mono)
-            next_sync = mono + SYNC_SECONDS
+            try:
+                m.sync(mono)
+            except Exception as e:
+                # Never a crash loop: a container restart loses the state.
+                m.error = f"sync failed: {type(e).__name__}"
+                m.loaded = m.loaded_key = None
+                log.error("%s", m.error)
+            next_sync = time.monotonic() + SYNC_SECONDS
+        # Read after the sync, which can wait on config-manager.
+        now, mono = time.time(), time.monotonic()
         if now >= next_collect:
             try:
                 interval = m.collect(now, mono)
             except nft.NftError as e:
                 m.error = f"counters not read: {e}"
                 log.error("%s", m.error)
-                m.loaded = None  # load it again on the next sync
+                m.loaded = m.loaded_key = None  # load it again on the next sync
                 m.last_mono = None
                 interval = None
             if interval and write:
@@ -228,7 +287,7 @@ def run(env: dict) -> int:
         write_status(status_path, {
             "state": "error" if m.error else ("counting" if m.loaded else "starting"),
             "reason": m.error,
-            "services": [s.name for s in m.services],
+            "services": [s.name for s in m.counted],
             "uplinks": uplinks(env),
         })
         stop.wait(max(0.5, min(next_collect - time.time(), next_sync - time.monotonic(), 30)))

@@ -88,6 +88,10 @@ class FakeNft:
         return c
 
 
+def ALL_LIVE(svcs):
+    return svcs, ()
+
+
 def services():
     return [ruleset.Service("smokeping", True, "system.slice/docker-a.scope")]
 
@@ -97,7 +101,7 @@ def test_meter_loads_once_and_counts_across_a_reload(tmp_path, monkeypatch):
     fake = FakeNft()
     found = {"list": services()}
     m = main.Meter({"NETMETER_STATE_DIR": str(tmp_path)}, nft_mod=fake,
-                   fetch=lambda url, token: found["list"])
+                   fetch=lambda url, token: found["list"], cgroups=ALL_LIVE)
     m.sync(mono=0.0)
     m.sync(mono=60.0)
     assert len(fake.loaded) == 1  # unchanged: not reloaded
@@ -118,7 +122,7 @@ def test_meter_keeps_the_last_services_when_config_manager_is_down(tmp_path, mon
     fake = FakeNft()
     answers = iter([services(), None])
     m = main.Meter({"NETMETER_STATE_DIR": str(tmp_path)}, nft_mod=fake,
-                   fetch=lambda url, token: next(answers))
+                   fetch=lambda url, token: next(answers), cgroups=ALL_LIVE)
     m.sync(mono=0.0)
     m.sync(mono=60.0)
     assert [s.name for s in m.services] == ["smokeping"] and len(fake.loaded) == 1
@@ -178,7 +182,7 @@ def test_status_check(tmp_path, monkeypatch, capsys):
     assert status.main(["--check"]) == 1
 
 
-def test_off_loads_nothing(tmp_path, monkeypatch):
+def test_off_loads_nothing_and_removes_a_leftover(tmp_path, monkeypatch):
     import threading
     loaded = []
     monkeypatch.setattr(nft, "load", lambda *a, **k: loaded.append(a))
@@ -186,5 +190,46 @@ def test_off_loads_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(threading.Event, "is_set", lambda self: next(waits))
     monkeypatch.setattr(threading.Event, "wait", lambda self, t=None: True)
     assert main.run({"NETMETER": "off", "NETMETER_STATE_DIR": str(tmp_path)}) == 0
-    assert loaded == []
+    # Only the teardown of a table a killed container left behind.
+    assert [a[0] for a in loaded] == [ruleset.teardown()]
     assert '"state": "off"' in (tmp_path / "status.json").read_text()
+
+
+def test_a_restart_with_the_same_id_reloads(tmp_path, monkeypatch):
+    # docker restart: same path, new cgroup (new inode) -> the rule is dead.
+    monkeypatch.setattr(main, "uplinks", lambda env: ["wlan0"])
+    cg = tmp_path / "cg"
+    (cg / "system.slice" / "docker-a.scope").mkdir(parents=True)
+    fake = FakeNft()
+    fake.counts = {"total_tx": (1, 1)}
+    m = main.Meter({"NETMETER_STATE_DIR": str(tmp_path)}, nft_mod=fake,
+                   fetch=lambda url, token: services(),
+                   cgroups=lambda s: main.live_cgroups(s, cg))
+    m.sync(mono=0.0)
+    m.sync(mono=60.0)
+    assert len(fake.loaded) == 1
+    (cg / "system.slice" / "docker-a.scope").rmdir()
+    (cg / "system.slice" / "keep").mkdir()  # take a different inode number
+    (cg / "system.slice" / "docker-a.scope").mkdir()
+    fake.counts = {"total_tx": (1, 1)}
+    m.sync(mono=120.0)
+    assert len(fake.loaded) == 2
+
+
+def test_a_vanished_cgroup_is_left_out_not_fatal(tmp_path):
+    kept, fp = main.live_cgroups(
+        services() + [ruleset.Service("grafana", False, ipv4=("172.18.0.5",))], tmp_path)
+    assert [s.name for s in kept] == ["grafana"] and fp == ()
+
+
+def test_a_refused_reload_is_an_error_not_a_crash(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "uplinks", lambda env: ["eth0+"])  # not quotable
+    m = main.Meter({"NETMETER_STATE_DIR": str(tmp_path)}, nft_mod=FakeNft(),
+                   fetch=lambda url, token: services(), cgroups=ALL_LIVE)
+    m.sync(mono=0.0)
+    assert m.error.startswith("no ruleset") and m.loaded is None
+
+
+def test_empty_counter_output_is_an_error():
+    with pytest.raises(nft.NftError):
+        nft.reset_counters(runner=runner('{"nftables": []}'))

@@ -215,8 +215,30 @@ The container runs with `CAP_NET_ADMIN` and no other capability, on the
 host network and in the host's cgroup namespace (nft resolves a cgroup
 by its path), on a read-only filesystem. It asks config-manager which
 container is which (`GET /meter/containers`) rather than holding the
-Docker socket. A container that restarts gets a new cgroup; the meter
-reloads the table within a minute and keeps what the counters held.
+Docker socket. A container that restarts gets a new cgroup, even with
+the same container id (`docker restart`), and nft keys a rule on the
+cgroup itself, not its path; the meter watches each cgroup's identity
+and reloads the table within a minute, keeping what the counters held.
+Each host-network service keeps its own mark number across reloads, so a
+long-lived connection is never credited to another service.
+
+Limits worth knowing:
+
+- **The uplink is a physical interface** (one with a device: `wlan0`,
+  `eth0`) unless `NETMETER_INTERFACES` names it. An uplink that is a
+  bridge, a bond, a VLAN or PPPoE needs that setting; without it the
+  meter says so in its status and counts nothing.
+- **A VPN's encrypted packets** leaving the uplink (tailscaled, WireGuard)
+  are counted as `host`, not as the service whose traffic they carry.
+- **Inbound multicast** (mDNS questions to the mdns service) is not tied
+  to a socket on the way in and is counted as `host`; what mdns sends is
+  counted as mdns.
+- **The conntrack mark bits 24-30 stay** on the connections that carried
+  them until those connections end, even after the table is removed. A
+  firewall of your own that copies the whole conntrack mark into the
+  packet mark without a mask (some multi-WAN or policy-routing setups)
+  would see them; Docker and Tailscale do not do this. `NETMETER=off`
+  if yours does.
 
 ## What it does not count yet
 

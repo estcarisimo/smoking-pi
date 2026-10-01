@@ -27,10 +27,10 @@ def test_the_table_only_counts_and_marks():
 
 def test_host_network_services_by_cgroup_with_their_own_mark_byte():
     text = ruleset.build([SP, DNS], ["wlan0"])
-    # dns-observer sorts first: mark 1; smokeping: mark 2. Other ct mark bits kept.
+    # Fixed marks: smokeping 1, dns-observer 2. Other ct mark bits kept.
     assert (f'socket cgroupv2 level 2 "{DNS.cgroup}" ct mark set ct mark and 0x80ffffff '
-            "or 0x1000000 counter name s_dns_observer_tx return") in text
-    assert "ct mark and 0x7f000000 == 0x2000000 counter name s_smokeping_rx return" in text
+            "or 0x2000000 counter name s_dns_observer_tx return") in text
+    assert "ct mark and 0x7f000000 == 0x1000000 counter name s_smokeping_rx return" in text
     # A connection that starts inbound is matched by the receiving socket.
     assert text.count(f'socket cgroupv2 level 2 "{SP.cgroup}"') == 2
 
@@ -82,3 +82,22 @@ def test_attribute_splits_the_totals():
 def test_attribute_never_negative():
     out = ruleset.attribute({"s_smokeping_tx": (5, 500)}, [SP])
     assert out["host"]["tx"] == 0
+
+
+def test_marks_do_not_move_when_services_come_and_go():
+    alone = ruleset.build([DNS], ["wlan0"])
+    together = ruleset.build([SP, DNS, Service("alerter", True, "system.slice/docker-c.scope")],
+                             ["wlan0"])
+    line = "ct mark and 0x7f000000 == 0x2000000 counter name s_dns_observer_rx return"
+    assert line in alone and line in together
+
+
+def test_an_unknown_host_service_gets_a_stable_hashed_mark():
+    m = ruleset.mark_of("something-new")
+    assert m == ruleset.mark_of("something-new") and 16 <= m < ruleset.MAX_MARKED
+
+
+def test_clashing_counter_names_keep_the_first():
+    text = ruleset.build([Service("web-admin", False, ipv4=("172.18.0.2",)),
+                          Service("web_admin", False, ipv4=("172.18.0.3",))], ["wlan0"])
+    assert text.count("counter s_web_admin_tx {}") == 1

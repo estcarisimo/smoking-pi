@@ -42,6 +42,12 @@ MARK_MASK = 0x7F000000
 MARK_SHIFT = 24
 MAX_MARKED = 0x7F
 PRIORITY = -150
+# Marks are fixed per service, never positional: a conntrack entry keeps
+# its mark for as long as the connection lives (hours, for TCP), so a
+# service appearing or leaving must not renumber the others.
+FIXED_MARKS = {"smokeping": 1, "dns-observer": 2, "alerter": 3, "mcp-server": 4,
+               "mdns": 5, "netmeter": 6}
+HASHED_MARKS = range(16, MAX_MARKED)  # for a host-network service not named above
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,15 @@ class Service:
 def counter_name(service: str) -> str:
     """A service name as an nft object name: lowercase, [a-z0-9_]."""
     return "s_" + re.sub(r"[^a-z0-9_]", "_", service.lower())
+
+
+def mark_of(service: str) -> int:
+    """The service's mark byte: fixed for the stack's own services, else
+    derived from its name, so it is the same on every reload."""
+    if service in FIXED_MARKS:
+        return FIXED_MARKS[service]
+    import zlib
+    return HASHED_MARKS[zlib.crc32(service.encode()) % len(HASHED_MARKS)]
 
 
 def _quoted(value: str) -> str:
@@ -90,8 +105,19 @@ def build(services: list[Service], uplinks: list[str]) -> str:
     no table or two."""
     if not uplinks:
         raise ValueError("no uplink interface to count on")
-    counted = services_counted(services)
-    host_net = [s for s in counted if s.host_network][:MAX_MARKED]
+    counted = []
+    names: set[str] = set()
+    marks: set[int] = set()
+    for s in services_counted(services):
+        # Two services may not share a counter (web-admin and web_admin)
+        # or a mark: nft would refuse the whole table for one clash.
+        if counter_name(s.name) in names or (s.host_network and mark_of(s.name) in marks):
+            continue
+        names.add(counter_name(s.name))
+        if s.host_network:
+            marks.add(mark_of(s.name))
+        counted.append(s)
+    host_net = [s for s in counted if s.host_network]
     bridged = [s for s in counted if not s.host_network]
     up = _ifset(sorted(uplinks))
 
@@ -100,8 +126,8 @@ def build(services: list[Service], uplinks: list[str]) -> str:
         counters += [counter_name(s.name) + "_tx", counter_name(s.name) + "_rx"]
 
     out_rules, in_mark_rules, in_sock_rules, fwd_rules = [], [], [], []
-    for i, s in enumerate(host_net, start=1):
-        mark = i << MARK_SHIFT
+    for s in host_net:
+        mark = mark_of(s.name) << MARK_SHIFT
         c = counter_name(s.name)
         sock = f"socket cgroupv2 level {int(s.cgroup_level)} {_quoted(s.cgroup)}"
         out_rules.append(
