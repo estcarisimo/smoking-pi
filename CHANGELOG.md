@@ -64,6 +64,16 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The assistant drew charts of its own.** Nothing told it not to, and
+  an agent with a shell improvises: matplotlib from scratch, ASCII or
+  emoji bars. The results looked worse than either of the two things
+  Smoking Pi already offers. The MCP server instructions and the OpenClaw
+  skill now say it outright: never draw a chart yourself. "How did it
+  look" gets the Grafana link the tool returned, a picture to keep or
+  forward comes from `get_chart`, and without either the answer is words
+  with times and numbers. After upgrading, `sudo smoking-pi openclaw`
+  reinstalls the skill and the gateway picks it up in a new session.
+
 - **The HTTP probes downloaded the whole home page on every sample.** They
   were meant to answer two questions: does the server respond over
   HTTP/1.1, /2 and /3, and how fast. Instead each sample was a `GET` of

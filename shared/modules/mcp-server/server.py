@@ -80,6 +80,11 @@ the target's latency (median with the spread of individual pings) over its
 loss as a PNG, on request only; no other tool attaches images. With
 `deliver=true` the file is also posted into the chat so it can be forwarded.
 
+Never draw a chart yourself (no plotting code, no ASCII or emoji charts):
+a question about how something looked is answered with the Grafana link,
+a picture to keep or forward comes from `get_chart`, and without either,
+answer in words with times and numbers.
+
 Keys ending in `_tunnel` are the same page reached from outside the home
 network. When both are present, offer both — label them for where the reader
 is standing ("at home" / "from anywhere"), because the plain link is faster
