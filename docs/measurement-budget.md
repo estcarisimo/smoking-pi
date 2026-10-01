@@ -140,7 +140,7 @@ same uplink the Wi-Fi panels use, and keeps the last 24 hours.
 
 *A test Pi with the DNS wizard's HTTP targets: the estimate says 410
 MB/day, and the meter, here only a minute old, says about twice that.
-Ten minutes later it read ~524 MB/day: a short window catches the
+Ten minutes after an upgrade it read ~524 MB/day: a short window catches the
 probes' bursts, which is why under an hour of data is gray.*
 
 The meter counts **everything on that interface**, not only the
@@ -208,9 +208,11 @@ By service, over the last 10 min (not yet a daily figure):
   dns-observer       ~     0.7 MB/day  (0.0 MB in, 0.0 MB out)
 ```
 
-The services add up to ~506 MB/day against the interface's ~524: the
-uplink meter's window was a minute longer, and the interface counts each
-frame's link-layer header, which the firewall's counters do not.
+The services add up to ~506 MB/day against the interface's ~524. The two
+were read over slightly different windows (the uplink meter's was a
+minute longer), and the interface also counts link-layer overhead that the
+per-container counters do not, so a few percent of difference is
+expected.
 
 **What it changes on the host.** It adds one table, `inet
 smoking_pi_meter`, with three chains (output, input, forward) at
