@@ -156,42 +156,51 @@ def summarize_public_resolver(paths):
     return out
 
 
-# What SmokePing ships every probe with; a target whose probe is unknown
-# (config-manager did not answer /probes) is counted at this.
-DEFAULT_STEP_SECONDS = 300
-DEFAULT_PINGS = 10
-PACKET_BYTES = 64
+# Share of a ceiling at which the card turns yellow; over 100% it is red.
+BUDGET_WARN_PCT = 75
 
 
-def calculate_bandwidth(targets_data, probes=None):
-    """Estimated probe traffic: each target's pings per step at 64 bytes.
+def summarize_budget(body):
+    """What the dashboard's budget card needs from /budget (budget.py).
 
-    ``probes`` is config-manager's /probes list. The estimate used to assume
-    10 pings every 300 s for every target, which counted a DNS target (5
-    queries) double and ignored any probe on another step.
+    The configured cost, not metered traffic: samples per hour and an
+    approximate MB/day per probe against the two ceilings, most expensive
+    first, so what to cut is at the top.
     """
-    cadence = {
-        p.get('name'): (p.get('pings') or DEFAULT_PINGS,
-                        p.get('step_seconds') or DEFAULT_STEP_SECONDS)
-        for p in (probes or []) if isinstance(p, dict)
-    }
-    total_targets = 0
-    bits_per_second = 0.0
-    for targets in targets_data.get('active_targets', {}).values():
-        if not isinstance(targets, list):
-            continue
-        for target in targets:
-            total_targets += 1
-            probe = target.get('probe') if isinstance(target, dict) else None
-            pings, step = cadence.get(probe, (DEFAULT_PINGS, DEFAULT_STEP_SECONDS))
-            bits_per_second += pings * PACKET_BYTES * 8 / step
-    total_bandwidth_mbps = bits_per_second / 1_000_000
+    if not body.get('available'):
+        return {'available': False, 'reason': body.get('reason', 'unknown')}
+    ceiling = body.get('ceiling') or {}
+    used = body.get('used') or {}
+    mb_ceiling = ceiling.get('mb_per_day') or 0
+    samples_ceiling = ceiling.get('samples_per_hour') or 0
+    mb = body.get('mb_per_day') or 0
+    samples = body.get('samples_per_hour') or 0
+
+    def gauge(pct):
+        pct = pct or 0
+        badge = ('danger' if pct > 100 else
+                 'warning' if pct >= BUDGET_WARN_PCT else 'success')
+        return {'pct': pct, 'width': min(pct, 100), 'badge': badge}
 
     return {
-        'total_targets': total_targets,
-        'bandwidth_mbps': round(total_bandwidth_mbps, 3),
-        'bandwidth_kbps': round(total_bandwidth_mbps * 1000, 1)
+        'available': True,
+        'complete': body.get('complete', True),
+        'over': bool(body.get('over')),
+        'targets': body.get('targets', 0),
+        'mb_per_day': mb,
+        # The same daily volume as an average rate, for the top-row card.
+        'kbps': round(mb * 8e6 / 86400 / 1000, 1),
+        'mb_ceiling': mb_ceiling,
+        'mb_headroom': round(max(mb_ceiling - mb, 0), 1),
+        'samples_per_hour': samples,
+        'samples_ceiling': samples_ceiling,
+        'samples_headroom': round(max(samples_ceiling - samples, 0)),
+        'bandwidth': gauge(used.get('bandwidth_pct')),
+        'samples': gauge(used.get('samples_pct')),
+        'unpriced': body.get('unpriced') or [],
+        'by_probe': body.get('by_probe') or [],
     }
+
 
 @dashboard_bp.route('/')
 def index():
@@ -215,14 +224,6 @@ def index():
         if isinstance(targets, list):
             target_counts[category] = len(targets)
     
-    # Calculate bandwidth from each target's probe
-    try:
-        probes = config_api.get_probes_from_db().get('probes', [])
-    except Exception as e:
-        current_app.logger.warning(f"Failed to get probes via API: {e}")
-        probes = []
-    bandwidth_info = calculate_bandwidth(targets_data, probes)
-    
     # Check SmokePing status
     smokeping_running = get_smokeping_status()
 
@@ -238,12 +239,11 @@ def index():
         'measurements': summarize_measurements(config_api.get_measurements()),
         'connection': summarize_connection(config_api.get_recommendations()),
         'dns_observer': summarize_dns_observer(config_api.get_dns_observer()),
+        'budget': summarize_budget(config_api.get_budget()),
         'using_database': using_database,
         'smokeping_running': smokeping_running,
         'target_counts': target_counts,
-        'total_targets': bandwidth_info['total_targets'],
-        'bandwidth_mbps': bandwidth_info['bandwidth_mbps'],
-        'bandwidth_kbps': bandwidth_info['bandwidth_kbps'],
+        'total_targets': sum(target_counts.values()),
         'last_updated': targets_data.get('metadata', {}).get('last_updated', 'Never'),
         'active_targets': targets_data.get('active_targets', {})
     }

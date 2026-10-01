@@ -342,6 +342,13 @@ class ConfigManagerClient:
             return response.json()
         raise RuntimeError(f"Failed to get DNS observer state: {response.status_code}")
 
+    def get_budget(self) -> Dict[str, Any]:
+        """What the configured measurements cost (config-manager /budget)"""
+        response = self._make_request('GET', '/budget')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get measurement budget: {response.status_code}")
+
     def get_assistant(self) -> Dict[str, Any]:
         """Is a chat assistant calling the MCP server? (config-manager /assistant)"""
         response = self._make_request('GET', '/assistant')
@@ -512,6 +519,18 @@ class ConfigAPIGateway:
         except Exception:
             logger.error("Failed to get the DNS observer state", exc_info=True)
             return {'available': False}
+
+    def get_budget(self) -> Dict[str, Any]:
+        """The measurement budget card's report. Never raises: the
+        dashboard renders without it."""
+        try:
+            return self.client.get_budget()
+        except Exception:
+            logger.error("Failed to get the measurement budget", exc_info=True)
+            return {
+                'available': False,
+                'reason': 'config-manager unreachable; see web-admin log',
+            }
 
     def tour_pending(self) -> bool:
         """Should the dashboard send this login to the welcome tour? Only when

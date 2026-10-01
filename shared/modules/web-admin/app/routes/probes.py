@@ -11,7 +11,7 @@ so before anything is saved, and asks for a confirmation.
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
-from app.routes.dashboard import PACKET_BYTES, config_api
+from app.routes.dashboard import config_api
 from app.routes.targets import describe_cadence, probe_unit
 from app.services.config_api import ProbeChangeRefused
 
@@ -55,19 +55,24 @@ def step_label(step):
     return 'Every ' + describe_cadence(1, step).split(' every ', 1)[1]
 
 
-def kbps(pings, step, targets):
-    """Estimated probe traffic in kbit/s, the dashboard's formula."""
-    return round(pings * PACKET_BYTES * 8 / step * targets / 1000, 2)
+def traffic(budget):
+    """Each probe's approximate MB/day, from config-manager's /budget: the
+    measured cost per sample (an HTTPS HEAD is ~70 ICMP echoes), over what
+    the generated config runs. A probe the budget does not price, or does
+    not list because none of its targets run, has no figure."""
+    if not budget.get('available'):
+        return {}
+    return {r.get('probe'): r.get('mb_per_day') for r in budget.get('by_probe') or []}
 
 
 def _probes():
     probes = config_api.get_probes_from_db().get('probes', [])
+    mb_per_day = traffic(config_api.get_budget())
     for probe in probes:
         probe['unit'] = probe_unit(probe.get('name'), probe.get('module'))
         probe['cadence'] = describe_cadence(
             probe['pings'], probe['step_seconds'], probe['unit'])
-        probe['kbps'] = kbps(probe['pings'], probe['step_seconds'],
-                             probe.get('active_targets', 0))
+        probe['mb_per_day'] = mb_per_day.get(probe.get('name'))
     return probes
 
 
