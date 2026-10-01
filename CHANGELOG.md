@@ -9,6 +9,28 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.16.0] — 2026-10-01
+
+The HTTP probes measure what they claim to, and what the measurements cost
+is visible.
+
+- The HTTP probes downloaded the whole home page on every sample, about
+  5.7 GB a day for the seed's Cloudflare target alone, and timed the
+  download. They now send `HEAD`, 3 samples per round, and the whole seed
+  comes to ~98 MB/day. The HTTP series steps down at the upgrade;
+  SmokePing's own HTTP graphs restart (the old files are archived), and
+  Grafana's history runs straight through.
+- `smoking-pi budget` reports samples per hour and MB per day per probe
+  against a ceiling (default 1000 MB/day). Accounting only.
+- Charts are drawn as paper figures sized for a phone (1100 × 880 px,
+  16–20 pt type) and sent as inline photos. **Installs that never set
+  `CHART_THEME` or `ALERT_IMAGE_AS_DOCUMENT` change look on upgrade**; the
+  entry below says how to keep the old one.
+- The assistant no longer draws charts of its own.
+- `smoking-pi install` sets up the services it switches on, and a new
+  install's first alert is no longer a false "critical: the monitor, not
+  the network".
+
 ### Added
 
 - **The documentation shows the charts.** The alerting and MCP docs
