@@ -139,7 +139,9 @@ same uplink the Wi-Fi panels use, and keeps the last 24 hours.
 ![The budget card with the measured line: about 410 MB/day estimated, about 813 MB/day measured on wlan0](img/budget-card-measured.png)
 
 *A test Pi with the DNS wizard's HTTP targets: the estimate says 410
-MB/day, and the meter (here only a minute old) says about twice that.*
+MB/day, and the meter, here only a minute old, says about twice that.
+Ten minutes after an upgrade it read ~524 MB/day: a short window catches the
+probes' bursts, which is why under an hour of data is gray.*
 
 The meter counts **everything on that interface**, not only the
 measurements. That is its point: the gap between the two lines is what
@@ -193,14 +195,24 @@ stacked. The series is `service_traffic` (tags `service` and `kind`:
 `host_network`, `bridge` or `rest`; fields `rx_bytes`, `tx_bytes`,
 `seconds`, `mb_per_day`).
 
-On a test Pi, two minutes of it read:
+On a test Pi, ten minutes after an upgrade, `smoking-pi budget` read
+(the uplink meter said ~524 MB/day over the same time):
 
 ```text
-smokeping          host_network  in    925642 B  out    384017 B  ~   943.0 MB/day
-host               rest          in      3898 B  out     13103 B  ~    12.2 MB/day
-grafana            bridge        in      5310 B  out      2417 B  ~     5.6 MB/day
-dns-observer       host_network  in      3923 B  out      3382 B  ~     5.3 MB/day
+By service, over the last 10 min (not yet a daily figure):
+  smokeping          ~   463.7 MB/day  (2.3 MB in, 1.0 MB out)
+  host               ~    37.4 MB/day  (0.1 MB in, 0.1 MB out)
+  other_containers   ~     2.4 MB/day  (0.0 MB in, 0.0 MB out)
+  grafana            ~     1.1 MB/day  (0.0 MB in, 0.0 MB out)
+  mdns               ~     1.1 MB/day  (0.0 MB in, 0.0 MB out)
+  dns-observer       ~     0.7 MB/day  (0.0 MB in, 0.0 MB out)
 ```
+
+The services add up to ~506 MB/day against the interface's ~524. The two
+were read over slightly different windows (the uplink meter's was a
+minute longer), and the interface also counts link-layer overhead that the
+per-container counters do not, so a few percent of difference is
+expected.
 
 **What it changes on the host.** It adds one table, `inet
 smoking_pi_meter`, with three chains (output, input, forward) at
