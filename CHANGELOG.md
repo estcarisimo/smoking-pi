@@ -9,6 +9,26 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.17.0] — 2026-10-01
+
+What the measurements cost is on the dashboard and in Grafana, and two
+places that echoed exception text no longer do.
+
+- The web admin dashboard has a *Measurement budget* card: MB/day and
+  samples per hour against their ceilings, the headroom, and every probe,
+  most expensive first. The old *Bandwidth Usage* card counted 64 bytes a
+  sample and showed the seed at 0.2 Kbps, about 2 MB a day, when the
+  budget says about 98 MB a day; it and the Probes page now use the
+  budget's measured costs.
+- Grafana's Overview (Pro, InfluxDB) has a *Measurement budget* row: MB/day
+  and samples per hour per probe, stacked, against the ceiling as a dashed
+  line. A new exporter in the SmokePing container writes the budget every
+  five minutes, so the row fills from the upgrade on.
+- The DNS observer card and the Probes page's refusal messages no longer
+  show exception text.
+- `docs/wifi.md`'s power save steps work on netplan hosts, and the page
+  shows how to keep the journal across reboots.
+
 ### Added
 
 - **The dashboard shows the measurement budget, and its bandwidth figures are
