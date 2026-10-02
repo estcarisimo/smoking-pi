@@ -44,6 +44,9 @@ SYS_NET = Path("/sys/class/net")
 CGROUP_ROOT = Path("/sys/fs/cgroup")
 FETCH_TIMEOUT = 5  # well inside the 15 s stop grace period
 DEFAULT_URL = "http://127.0.0.1:5000"
+# After an upgrade every container starts at once: config-manager and
+# InfluxDB answer within about a minute. Until then a failure is expected.
+STARTUP_GRACE = 120
 
 
 def physical_interfaces(sys_net: Path = SYS_NET) -> list[str]:
@@ -60,21 +63,27 @@ def uplinks(env: dict) -> list[str]:
     return names or physical_interfaces()
 
 
-def fetch_containers(base_url: str, token: str = "",
-                     opener=urllib.request.urlopen) -> list[ruleset.Service] | None:
+def fetch_containers(base_url: str, token: str = "", opener=urllib.request.urlopen,
+                     starting: bool = False) -> list[ruleset.Service] | None:
     """The stack's containers, or None when config-manager cannot say.
-    Only the exception's type is logged: nothing here echoes the token."""
+    Only the exception's type is logged: nothing here echoes the token.
+    While ``starting``, a failure is config-manager still starting: INFO."""
     req = urllib.request.Request(base_url.rstrip("/") + "/meter/containers")
+    reason = None
     if token:
         req.add_header("X-API-Token", token)
     try:
         with opener(req, timeout=FETCH_TIMEOUT) as resp:
             body = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
-        log.warning("containers not read: HTTP %s", exc.code)
-        return None
+        reason = f"HTTP {exc.code}"
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
-        log.warning("containers not read: %s", type(exc).__name__)
+        reason = type(exc).__name__
+    if reason is not None:
+        if starting:
+            log.info("containers not read yet, config-manager still starting: %s", reason)
+        else:
+            log.warning("containers not read: %s", reason)
         return None
     if not isinstance(body, dict) or not isinstance(body.get("containers"), list):
         return None
@@ -125,6 +134,40 @@ def influx_writer(env: dict):
     return lambda points: api.write(bucket=env["INFLUX_BUCKET"], record=points)
 
 
+class TrafficWriter:
+    """Writes each interval's points. A batch that fails is kept and sent
+    again with the next interval's, once: at most one batch waits, so an
+    InfluxDB that stays down costs memory for one interval, not a backlog.
+    The state file has every interval either way; this is the series only."""
+
+    def __init__(self, write):
+        self.write = write
+        self.held: list = []
+
+    def __call__(self, points: list, starting: bool = False) -> bool:
+        retried = self.held
+        try:
+            self.write(retried + points)
+        except Exception as exc:
+            # The type only: an InfluxDB error's message can carry the token.
+            name = type(exc).__name__
+            if starting:
+                log.info("traffic not written yet, InfluxDB still starting: %s; "
+                         "kept for the next interval", name)
+            else:
+                log.error("traffic not written: %s; kept for the next interval", name)
+            if retried:
+                # Lost from the series, even while starting: never quiet.
+                log.warning("the interval held from the last attempt is dropped from "
+                            "InfluxDB (the state file has it)")
+            self.held = list(points)
+            return False
+        if retried:
+            log.info("traffic written, with the interval held from the last attempt")
+        self.held = []
+        return True
+
+
 def live_cgroups(services: list[ruleset.Service],
                  root: Path = CGROUP_ROOT) -> tuple[list[ruleset.Service], tuple]:
     """The services whose cgroup exists, and a fingerprint of them.
@@ -155,8 +198,9 @@ class Meter:
     loaded, what was counted before the last reload, the last interval."""
 
     def __init__(self, env: dict, nft_mod=nft, fetch=fetch_containers,
-                 cgroups=live_cgroups):
+                 cgroups=live_cgroups, started: float | None = None):
         self.env = env
+        self.started = time.monotonic() if started is None else started
         self.nft = nft_mod
         self.fetch = fetch
         self.cgroups = cgroups
@@ -171,10 +215,16 @@ class Meter:
         self.state = meter.load_state(self.state_path)
         self.error: str | None = None
 
+    def starting(self, mono: float | None = None) -> bool:
+        """Within the grace period after start, when the stack is still coming up."""
+        mono = time.monotonic() if mono is None else mono
+        return mono - self.started < STARTUP_GRACE
+
     def sync(self, mono: float | None = None) -> None:
         """Reload the table when the containers (or uplinks) changed."""
         found = self.fetch(self.env.get("CONFIG_API_URL") or DEFAULT_URL,
-                           self.env.get("CONFIG_API_TOKEN", ""))
+                           self.env.get("CONFIG_API_TOKEN", ""),
+                           starting=self.starting(mono))
         if found is not None:
             self.services = ruleset.services_counted(found)
         links = uplinks(self.env)
@@ -254,7 +304,8 @@ def run(env: dict) -> int:
         return 0
 
     m = Meter(env)
-    write = influx_writer(env)
+    influx = influx_writer(env)
+    write = TrafficWriter(influx) if influx else None
     next_sync = 0.0
     next_collect = 0.0
     while not stop.is_set():
@@ -280,11 +331,7 @@ def run(env: dict) -> int:
                 m.last_mono = None
                 interval = None
             if interval and write:
-                try:
-                    write(meter.points(interval))
-                except Exception as exc:
-                    # The type only: an InfluxDB error's message can carry the token.
-                    log.error("traffic not written: %s", type(exc).__name__)
+                write(meter.points(interval), starting=m.starting(mono))
             next_collect = (now // meter.INTERVAL + 1) * meter.INTERVAL
         write_status(status_path, {
             "state": "error" if m.error else ("counting" if m.loaded else "starting"),
