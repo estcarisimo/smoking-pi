@@ -30,6 +30,37 @@ The `mdns` service avoids both halves of that:
 - the name it holds is written to its status, so `smoking-pi url` prints
   the name that answers instead of guessing `$(hostname).local`.
 
+## When `<hostname>.local` stops resolving
+
+`smoking-pi.local` is the mdns service's; the host's own name
+(`smokingpi.local` on the reference Pi) is still Avahi's, and people and
+old bookmarks use it. When it stops resolving, Avahi has most likely
+renamed itself. Check:
+
+```bash
+systemctl status avahi-daemon | grep running
+journalctl -u avahi-daemon -b | grep -i "conflict\|Host name is"
+```
+
+`running [smokingpi-2.local]` and `Host name conflict, retrying with
+smokingpi-2` mean it did. `smoking-pi doctor --live` says so too
+(the `avahi-host-name` check), which is how an upgrade notices it.
+
+The fix that is known to work is to restart it:
+
+```bash
+sudo systemctl restart avahi-daemon
+```
+
+It holds until the next conflict, which on the reference Pi has meant
+the next boot. The cause is not proven. The likely one: Avahi publishes
+records on every Docker bridge and veth it sees, and a Wi-Fi access point
+that echoes multicast back can make it hear its own announcement. If it keeps
+happening, telling Avahi to use the LAN interface only is the usual
+remedy: `allow-interfaces=wlan0` (or `eth0`) under `[server]` in
+`/etc/avahi/avahi-daemon.conf`, then the restart above. Smoking Pi does
+not change that file for you; it is the host's.
+
 ## Two Smoking Pis on one network
 
 The name is probed before it is used. If another host already answers for

@@ -228,9 +228,31 @@ IPv4 has the same shape: `ip route add unreachable default` is listed in
 set, and reporting `*` as the interface being measured would be worse than
 reporting nothing.
 
+### `avahi-host-name`
+
+Whether the host's Avahi still answers for `<hostname>.local`. On a name
+conflict Avahi renames itself to `<hostname>-2.local` and stays there
+until it restarts, so the plain name resolves nowhere; the reference Pi
+did this eight seconds after boot, twice. The check reads Avahi's process
+title (`avahi-daemon: running [smokingpi-2.local]`), so it needs no
+journal, and no root unless `/proc` is mounted with `hidepid` (then it
+skips and says why). Only that renaming pattern warns; a name set on
+purpose in `avahi-daemon.conf` (`host-name=`, `domain-name=`) is
+reported, not judged:
+
+```text
+[warn] avahi-host-name               1 problem
+          - Avahi answers for smokingpi-2.local, not smokingpi.local: it renamed itself after a name conflict, so smokingpi.local resolves nowhere. `sudo systemctl restart avahi-daemon` takes it back until the next conflict; smoking-pi.local (the mdns service) still works (docs/mdns.md)
+```
+
+It skips when Avahi is not running or cannot be seen. `smoking-pi.local`, the mdns
+service's name, is not this check's business: that service says which
+name it holds itself (`smoking-pi url`).
+
 The Docker checks skip cleanly when Docker is absent, so `--live` is safe
 to run anywhere; `uplink-interface` asks the kernel rather than Docker and
-answers on any Linux host, skipping only where `/proc/net` is not there.
+answers on any Linux host, skipping only where `/proc/net` is not there, and
+`avahi-host-name` skips where Avahi does not run.
 Without the flag the behavior is exactly as before, and CI is unaffected.
 
 ## What is not covered yet
