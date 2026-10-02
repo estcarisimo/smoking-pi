@@ -56,6 +56,9 @@
                     {% else %}
                     <span class="text-muted">unknown</span>
                     {% endif %}
+                    {% if traffic.available and traffic.month %}<br>
+                    <small id="top-month">This month: {{ traffic.month.total }}{% if traffic.month.internet %} ({{ traffic.month.internet }} Internet){% endif %}</small>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -212,6 +215,56 @@
         {% endif %}
         <p class="mb-0 text-muted small">Bandwidth and the table: the configured cost of SmokePing's measurements, estimated; most expensive first.{% if budget.measured %} The measured line is the uplink's own counters{% if budget.by_service %}, and the service table the same traffic counted per container{% endif %}.{% endif %}
             <code>sudo smoking-pi budget</code> prints the same report.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Traffic: what the Pi sent and received, per day, week and month -->
+<div class="card mb-4" id="traffic-card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-arrow-down-up"></i> Traffic</h5>
+    </div>
+    <div class="card-body">
+        {% if not traffic.available %}
+        <p class="mb-0 text-muted">No figures: {{ traffic.reason }}</p>
+        {% else %}
+        {% if traffic.month %}
+        <p class="mb-3" id="traffic-month"><span class="fs-5"><strong>This month: {{ traffic.month.total }}</strong></span>
+            <span class="text-muted">({{ traffic.month.tx }} sent, {{ traffic.month.rx }} received)</span>
+            {% if traffic.month.internet %}<br><span id="traffic-month-internet">Internet only: <strong>{{ traffic.month.internet }}</strong>{% if traffic.month.internet_partial %} <small class="text-muted">(measured for {{ '%.0f' % traffic.month.internet_coverage }}% of the month)</small>{% endif %}</span>{% endif %}
+            {% if traffic.month.partial %}<br><small class="text-muted">Measured for {{ '%.0f' % traffic.month.coverage }}% of the month so far: the real figure is higher.</small>{% endif %}</p>
+        {% endif %}
+        <table class="table table-sm mb-3" aria-label="Traffic by period">
+            <thead><tr><th scope="col">Period</th><th scope="col" class="text-end">Received</th><th scope="col" class="text-end">Sent</th><th scope="col" class="text-end">Total</th>{% if traffic.internet_available %}<th scope="col" class="text-end">Internet</th>{% endif %}<th scope="col" class="text-end">Measured</th></tr></thead>
+            <tbody>
+            {% for r in traffic.rows %}
+            <tr>
+                <td title="{{ r.first }} to {{ r.last }}">{{ r.label }}</td>
+                <td class="text-end">{{ r.rx }}</td>
+                <td class="text-end">{{ r.tx }}</td>
+                <td class="text-end">{{ r.total }}</td>
+                {% if traffic.internet_available %}<td class="text-end">{{ r.internet or '-' }}{% if r.internet_partial %} <small class="text-warning-emphasis" title="measured for {{ '%.0f' % r.internet_coverage }}% of the period">({{ '%.0f' % r.internet_coverage }}%)</small>{% endif %}</td>{% endif %}
+                <td class="text-end">{% if r.coverage is none %}-{% else %}{% if r.partial %}<span class="text-warning-emphasis" title="partial: the meter was not running for the whole period">{{ '%.0f' % r.coverage }}%<span class="visually-hidden"> (partial)</span></span>{% else %}{{ '%.0f' % r.coverage }}%{% endif %}{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% if traffic.services %}
+        <div class="mb-3" id="traffic-services">
+            <h6 class="mb-1">This month by service</h6>
+            <table class="table table-sm mb-0" aria-label="This month by service">
+                <thead><tr><th scope="col">Service</th><th scope="col" class="text-end">Total</th><th scope="col" class="text-end">Received</th><th scope="col" class="text-end">Sent</th></tr></thead>
+                <tbody>
+                {% for r in traffic.services %}
+                <tr><td>{{ r.service }}</td><td class="text-end">{{ r.total }}</td><td class="text-end">{{ r.rx }}</td><td class="text-end">{{ r.tx }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+        <p class="mb-0 text-muted small">Everything on {{ traffic.interfaces }}, the local network included, counted since {{ traffic.since or 'an unknown date' }}{% if traffic.internet_since and traffic.internet_since != traffic.since %} (Internet only since {{ traffic.internet_since }}){% endif %}, local time ({{ traffic.timezone or 'unknown' }}).{% if traffic.internet_available %} <em>Internet</em> leaves out traffic to and from the local network: what a data plan counts.{% endif %}
+            <em>Measured</em> is how much of the period the meter was running; nothing is extrapolated.
+            <code>sudo smoking-pi traffic</code> prints the same report.</p>
         {% endif %}
     </div>
 </div>

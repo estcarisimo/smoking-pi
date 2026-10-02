@@ -44,6 +44,14 @@ version gets a matching GitHub release and git tag.
   minutes, and nothing is extrapolated. `docs/measurement-budget.md`, *Traffic
   accounting*; it also corrects that the microcut detector's pings stay on
   the LAN: they go to the ISP's first hop, across the uplink.
+- **A Traffic card on the web admin's dashboard (Pro).** "How much this
+  month?" needed SSH and `smoking-pi traffic`; the dashboard, where people
+  look, had only the 24-hour rate. The card shows the same figures: this month's total
+  (sent and received, and the Internet-only part), a row per period
+  (today, yesterday, this week, this month, last month) with how much of
+  it was measured, flagged when under 99%, and this month by service. The
+  top *Bandwidth Usage* card adds "This month: …". `/traffic` is cached
+  for a minute like `/budget`, and a failure is never cached.
 
 ### Fixed
 

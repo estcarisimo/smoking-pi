@@ -213,10 +213,13 @@ def human(n: int) -> str:
     """Decimal units, as ISPs bill: 1 GB = 10^9 bytes."""
     if n <= 0:
         return "0"
-    if n >= 1e9:
+    # Thresholds on the rounded value: 999,999 bytes is "1.0 MB", not "1000 kB".
+    if n >= 999_500_000:
         return f"{n / 1e9:.2f} GB"
-    if n >= 1e6:
-        return f"{n / 1e6:.0f} MB" if n >= 1e7 else f"{n / 1e6:.1f} MB"
+    if n >= 9_950_000:
+        return f"{n / 1e6:.0f} MB"
+    if n >= 999_500:
+        return f"{n / 1e6:.1f} MB"
     return f"{n / 1e3:.0f} kB"
 
 

@@ -208,6 +208,21 @@ def test_render():
     assert traffic.human(1_570_000_000) == "1.57 GB"
 
 
+# The same table pins config-manager's traffic.human() and web-admin's
+# human_bytes(): two copies (containers cannot import each other).
+HUMAN_BYTES_CASES = [
+    (0, "0"), (999, "1 kB"), (512_000, "512 kB"), (999_499, "999 kB"),
+    (999_999, "1.0 MB"), (5_500_000, "5.5 MB"), (9_949_999, "9.9 MB"),
+    (9_999_999, "10 MB"), (450_000_000, "450 MB"), (999_499_999, "999 MB"),
+    (999_999_999, "1.00 GB"), (1_570_000_000, "1.57 GB"),
+]
+
+
+@pytest.mark.parametrize("n, text", HUMAN_BYTES_CASES)
+def test_human_matches_the_web_admin(n, text):
+    assert traffic.human(n) == text
+
+
 # --- GET /traffic ----------------------------------------------------------------
 
 class FakeContainer:
