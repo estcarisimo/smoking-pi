@@ -350,6 +350,13 @@ class ConfigManagerClient:
             return response.json()
         raise RuntimeError(f"Failed to get measurement budget: {response.status_code}")
 
+    def get_traffic(self) -> Dict[str, Any]:
+        """What the Pi sent and received per day, week and month (config-manager /traffic)"""
+        response = self._make_request('GET', '/traffic')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get traffic accounting: {response.status_code}")
+
     def get_assistant(self) -> Dict[str, Any]:
         """Is a chat assistant calling the MCP server? (config-manager /assistant)"""
         response = self._make_request('GET', '/assistant')
@@ -543,6 +550,30 @@ class ConfigAPIGateway:
             return body
         except Exception:
             logger.error("Failed to get the measurement budget", exc_info=True)
+            return {
+                'available': False,
+                'reason': 'config-manager unreachable; see web-admin log',
+            }
+
+    # /traffic reads two state files out of containers too; the meters
+    # write every five minutes, so a minute-old report loses nothing.
+    TRAFFIC_TTL_SECONDS = 60
+
+    def get_traffic(self) -> Dict[str, Any]:
+        """The traffic card's report. Never raises, and caches like
+        get_budget: a report for a minute, a failure not at all."""
+        cached = getattr(self, '_traffic_cache', None)
+        if cached and time.monotonic() - cached[0] < self.TRAFFIC_TTL_SECONDS:
+            return cached[1]
+        try:
+            body = self.client.get_traffic()
+            if not isinstance(body, dict):
+                raise ValueError("traffic body is not an object")
+            if body.get('available'):
+                self._traffic_cache = (time.monotonic(), body)
+            return body
+        except Exception:
+            logger.error("Failed to get traffic accounting", exc_info=True)
             return {
                 'available': False,
                 'reason': 'config-manager unreachable; see web-admin log',

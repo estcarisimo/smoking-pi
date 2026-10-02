@@ -204,6 +204,85 @@ def summarize_budget(body):
     }
 
 
+def human_bytes(n):
+    """Decimal units, as ISPs bill (1 GB = 10^9 bytes); kept in step with
+    config-manager's traffic.human()."""
+    n = n or 0
+    if n <= 0:
+        return "0"
+    if n >= 1e9:
+        return f"{n / 1e9:.2f} GB"
+    if n >= 1e6:
+        return f"{n / 1e6:.0f} MB" if n >= 1e7 else f"{n / 1e6:.1f} MB"
+    return f"{n / 1e3:.0f} kB"
+
+
+# The periods the traffic card lists, in order (traffic.py periods()).
+TRAFFIC_PERIODS = ('today', 'yesterday', 'this_week', 'this_month', 'last_month')
+# Below this share of a period measured, the card says the figure is partial.
+TRAFFIC_PARTIAL_PCT = 99
+
+
+def summarize_traffic(body):
+    """What the dashboard's traffic card needs from /traffic (traffic.py):
+    bytes received and sent per period, on the interface and to the
+    Internet only, each with how much of the period was measured."""
+    if not isinstance(body, dict) or not body.get('available'):
+        reason = body.get('reason') if isinstance(body, dict) else None
+        return {'available': False, 'reason': reason or 'unknown'}
+    by_key = {p.get('period'): p for p in body.get('periods') or [] if isinstance(p, dict)}
+    rows = []
+    for key in TRAFFIC_PERIODS:
+        p = by_key.get(key)
+        if not p:
+            continue
+        up = p.get('uplink') or {}
+        net = p.get('internet') or None
+        coverage = up.get('coverage_pct')
+        rows.append({
+            'period': key,
+            'label': p.get('label') or key,
+            'first': p.get('first'),
+            'last': p.get('last'),
+            'rx': human_bytes(up.get('rx')),
+            'tx': human_bytes(up.get('tx')),
+            'total': human_bytes(up.get('total')),
+            # No Internet figure, or one the netmeter never measured: a dash,
+            # never a zero.
+            'internet': (human_bytes(net.get('total'))
+                         if net and net.get('seconds') else None),
+            'coverage': coverage,
+            'partial': coverage is not None and coverage < TRAFFIC_PARTIAL_PCT,
+            # The netmeter's own: it can have started later, or been off.
+            'internet_coverage': (net.get('coverage_pct')
+                                  if net and net.get('seconds') else None),
+        })
+    for r in rows:
+        ic = r['internet_coverage']
+        r['internet_partial'] = ic is not None and ic < TRAFFIC_PARTIAL_PCT
+    month = next((r for r in rows if r['period'] == 'this_month'), None)
+    services = []
+    for r in (body.get('services') or {}).get('this_month') or []:
+        if isinstance(r, dict):
+            services.append({
+                'service': SERVICE_LABELS.get(r.get('service'), r.get('service')),
+                'total': human_bytes(r.get('total')),
+                'rx': human_bytes(r.get('rx')),
+                'tx': human_bytes(r.get('tx')),
+            })
+    return {
+        'available': True,
+        'interfaces': ', '.join(body.get('interfaces') or []) or 'the uplink',
+        'since': body.get('since'),
+        'internet_since': body.get('internet_since'),
+        'timezone': body.get('timezone'),
+        'internet_available': bool(body.get('internet_available')),
+        'month': month,
+        'rows': rows,
+        'services': services,
+    }
+
+
 # How the card names the meter's buckets that are not containers.
 SERVICE_LABELS = {
     'host': 'the host, outside the stack',
@@ -307,6 +386,7 @@ def index():
         'connection': summarize_connection(config_api.get_recommendations()),
         'dns_observer': summarize_dns_observer(config_api.get_dns_observer()),
         'budget': summarize_budget(config_api.get_budget()),
+        'traffic': summarize_traffic(config_api.get_traffic()),
         'using_database': using_database,
         'smokeping_running': smokeping_running,
         'target_counts': target_counts,

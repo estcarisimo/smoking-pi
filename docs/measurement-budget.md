@@ -346,7 +346,18 @@ last month, the week and the 30 days, and the Internet column's own.*
   `rx_bytes`, `tx_bytes`, `seconds`, `mb_per_day`) beside
   `service_traffic`.
 
-Basic and Standard have no meters; `smoking-pi traffic` says so.
+The web admin's dashboard has the same figures in a **Traffic** card,
+below the budget card, and the top *Bandwidth Usage* card adds this
+month's total:
+
+![The Traffic card: this month's total, sent and received, the Internet-only part, a row per period with how much of it was measured, and this month by service](img/traffic-card.png)
+
+*Sample data. A period measured for less than 99% of its time shows its
+coverage in amber, and the Internet column shows its own when the netmeter
+covered less.*
+
+Basic and Standard have no meters; `smoking-pi traffic` says so, and the
+card says there are no figures yet.
 
 ## What it does not count yet
 

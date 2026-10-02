@@ -58,6 +58,7 @@ def _stub_dashboard(monkeypatch, measurements=None):
                         lambda: {"smokeping": {"running": True}, "using_database": True})
     monkeypatch.setattr(gw, "get_dns_observer", lambda: {"available": False})
     monkeypatch.setattr(gw, "get_budget", lambda: {"available": False, "reason": "stubbed"})
+    monkeypatch.setattr(gw, "get_traffic", lambda: {"available": False, "reason": "stubbed"})
     if measurements is not None:
         monkeypatch.setattr(gw, "get_measurements", lambda: measurements)
 
