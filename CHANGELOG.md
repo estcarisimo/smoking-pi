@@ -50,9 +50,10 @@ warns when Avahi renames the host.
   unaffected, but people and old bookmarks still use the host's name. A
   new `doctor --live` check, `avahi-host-name`, reads Avahi's process
   title and warns when it answers for anything but `<hostname>.local`,
-  with the fix. `smoking-pi upgrade` runs it unless given `--skip-doctor`. `docs/mdns.md` has a
-  new section, "When `<hostname>.local` stops resolving": how to check,
-  the restart that is known to work, and the unproven cause.
+  with the fix. `smoking-pi upgrade` runs it unless given `--skip-doctor`.
+  `docs/mdns.md` has a new section, "When `<hostname>.local` stops
+  resolving": how to check, the restart that is known to work, and the
+  unproven cause.
 
 - **Traffic accounting: what the Pi sent and received, by day, week and
   month (Pro).** The meters gave a rate (MB/day over the last 24 h), but
