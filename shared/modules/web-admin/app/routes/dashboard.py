@@ -210,10 +210,13 @@ def human_bytes(n):
     n = n or 0
     if n <= 0:
         return "0"
-    if n >= 1e9:
+    # Thresholds on the rounded value: 999,999 bytes is "1.0 MB", not "1000 kB".
+    if n >= 999_500_000:
         return f"{n / 1e9:.2f} GB"
-    if n >= 1e6:
-        return f"{n / 1e6:.0f} MB" if n >= 1e7 else f"{n / 1e6:.1f} MB"
+    if n >= 9_950_000:
+        return f"{n / 1e6:.0f} MB"
+    if n >= 999_500:
+        return f"{n / 1e6:.1f} MB"
     return f"{n / 1e3:.0f} kB"
 
 
@@ -239,6 +242,8 @@ def summarize_traffic(body):
         up = p.get('uplink') or {}
         net = p.get('internet') or None
         coverage = up.get('coverage_pct')
+        # The netmeter's own: it can have started later, or been off.
+        net_coverage = net.get('coverage_pct') if net and net.get('seconds') else None
         rows.append({
             'period': key,
             'label': p.get('label') or key,
@@ -253,13 +258,10 @@ def summarize_traffic(body):
                          if net and net.get('seconds') else None),
             'coverage': coverage,
             'partial': coverage is not None and coverage < TRAFFIC_PARTIAL_PCT,
-            # The netmeter's own: it can have started later, or been off.
-            'internet_coverage': (net.get('coverage_pct')
-                                  if net and net.get('seconds') else None),
+            'internet_coverage': net_coverage,
+            'internet_partial': (net_coverage is not None
+                                 and net_coverage < TRAFFIC_PARTIAL_PCT),
         })
-    for r in rows:
-        ic = r['internet_coverage']
-        r['internet_partial'] = ic is not None and ic < TRAFFIC_PARTIAL_PCT
     month = next((r for r in rows if r['period'] == 'this_month'), None)
     services = []
     for r in (body.get('services') or {}).get('this_month') or []:

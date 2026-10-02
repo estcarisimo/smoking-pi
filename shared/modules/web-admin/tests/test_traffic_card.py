@@ -1,6 +1,7 @@
 """The dashboard's traffic card: config-manager's /traffic, what the Pi
 sent and received per period, on the interface and to the Internet."""
 
+import pytest
 from conftest import login
 
 from app.routes import dashboard as dashboard_module
@@ -90,10 +91,20 @@ def test_services_use_the_meters_labels():
     assert services[1]["service"] == "the host, outside the stack"
 
 
-def test_human_bytes_matches_config_manager():
-    h = dashboard_module.human_bytes
-    assert [h(0), h(None), h(512_000), h(5_500_000), h(450_000_000), h(1_570_000_000)] == [
-        "0", "0", "512 kB", "5.5 MB", "450 MB", "1.57 GB"]
+# The same table pins config-manager's traffic.human() and web-admin's
+# human_bytes(): two copies (containers cannot import each other).
+HUMAN_BYTES_CASES = [
+    (0, "0"), (999, "1 kB"), (512_000, "512 kB"), (999_499, "999 kB"),
+    (999_999, "1.0 MB"), (5_500_000, "5.5 MB"), (9_949_999, "9.9 MB"),
+    (9_999_999, "10 MB"), (450_000_000, "450 MB"), (999_499_999, "999 MB"),
+    (999_999_999, "1.00 GB"), (1_570_000_000, "1.57 GB"),
+]
+
+
+@pytest.mark.parametrize("n, text", HUMAN_BYTES_CASES)
+def test_human_bytes_matches_config_manager(n, text):
+    assert dashboard_module.human_bytes(n) == text
+    assert dashboard_module.human_bytes(None) == "0"
 
 
 def test_the_card_and_the_top_line(client, monkeypatch):
@@ -105,7 +116,8 @@ def test_the_card_and_the_top_line(client, monkeypatch):
     assert "This month by service" in html and "the host, outside the stack" in html
     assert "sudo smoking-pi traffic" in html
     # Partial coverage is flagged, and the unmeasured Internet cell is a dash.
-    assert '<span class="text-warning-emphasis">44%</span>' in html
+    assert '44%<span class="visually-hidden"> (partial)</span>' in html
+    assert 'aria-label="Traffic by period"' in html and 'scope="col"' in html
     assert "<td class=\"text-end\">-</td>" in html
     assert "last 30 days" not in html  # the CLI's, not the card's
 
