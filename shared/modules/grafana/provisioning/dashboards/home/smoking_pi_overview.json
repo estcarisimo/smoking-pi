@@ -1963,6 +1963,162 @@
       ]
     },
     {
+      "id": 57,
+      "type": "timeseries",
+      "title": "Bandwidth in use by service (bit/s)",
+      "description": "The rate each service used on the uplink, both directions together, stacked: the bytes the netmeter counted in each window times eight, over the seconds it counted (decimal units: 1 Mb/s = 10^6 bits per second). The line is the uplink meter, the whole Pi. Every point is an average over at least one five-minute interval, wider when the range is long: a burst of a few seconds is spread over its interval, so this is the load the Pi puts on the link, not its peak. A window with less than a minute counted (a restart) is left out. docs/measurement-budget.md, \"Bandwidth\".",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 0,
+        "y": 58
+      },
+      "interval": "5m",
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "min": 0,
+          "displayName": "${__field.labels.service}",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 30,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "spanNulls": 600000,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "uplink, whole Pi"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "// A rate per window from the bytes and seconds in it: a mean of per-interval rates\n// would let the sub-second interval a restart leaves behind spike the chart.\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop)\n  |> filter(fn:(r) => r._measurement == \"service_traffic\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\" or r._field == \"seconds\"))\n  |> group(columns:[\"service\", \"_field\"])\n  // An interval is stamped at its end: the window it ends in starts where it was counted.\n  |> aggregateWindow(every: v.windowPeriod, fn: sum, createEmpty: false, timeSrc: \"_start\")\n  |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn:(r) => exists r.rx_bytes and exists r.tx_bytes and exists r.seconds and r.seconds >= 60.0)\n  |> map(fn:(r) => ({_time: r._time, service: r.service, _value: float(v: r.rx_bytes + r.tx_bytes) * 8.0 / r.seconds}))"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "// A rate per window from the bytes and seconds in it: a mean of per-interval rates\n// would let the sub-second interval a restart leaves behind spike the chart.\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop)\n  |> filter(fn:(r) => r._measurement == \"uplink_traffic\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\" or r._field == \"seconds\"))\n  |> group(columns:[\"_field\"])\n  // An interval is stamped at its end: the window it ends in starts where it was counted.\n  |> aggregateWindow(every: v.windowPeriod, fn: sum, createEmpty: false, timeSrc: \"_start\")\n  |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn:(r) => exists r.rx_bytes and exists r.tx_bytes and exists r.seconds and r.seconds >= 60.0)\n  |> map(fn:(r) => ({_time: r._time, _value: float(v: r.rx_bytes + r.tx_bytes) * 8.0 / r.seconds}))"
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "type": "stat",
+      "title": "Bandwidth now",
+      "description": "The uplink's last five-minute interval of at least a minute, the whole Pi, per direction: what it received (download) and sent (upload), as an average rate over the interval.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 58
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "orientation": "vertical"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "decimals": 1,
+          "noValue": "no data in the last 15 minutes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-15m)\n  |> filter(fn:(r) => r._measurement == \"uplink_traffic\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\" or r._field == \"seconds\"))\n  |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  // Not the sliver a restart leaves behind: a rate over a fraction of a second.\n  |> filter(fn:(r) => exists r.rx_bytes and exists r.tx_bytes and exists r.seconds and r.seconds >= 60.0)\n  |> group() |> sort(columns:[\"_time\"]) |> last(column:\"seconds\")\n  |> map(fn:(r) => ({_time: r._time, download: float(v: r.rx_bytes) * 8.0 / r.seconds, upload: float(v: r.tx_bytes) * 8.0 / r.seconds}))"
+        }
+      ]
+    },
+    {
       "id": 60,
       "type": "row",
       "title": "Traffic (bytes sent and received)",
@@ -1972,7 +2128,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 58
+        "y": 66
       }
     },
     {
@@ -1987,7 +2143,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 59
+        "y": 67
       },
       "timeFrom": "30d",
       "options": {
@@ -2140,7 +2296,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 59
+        "y": 67
       },
       "options": {
         "reduceOptions": {
@@ -2222,7 +2378,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 63
+        "y": 71
       },
       "options": {
         "reduceOptions": {
@@ -2304,7 +2460,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 67
+        "y": 75
       },
       "timeFrom": "1y",
       "options": {
@@ -2379,7 +2535,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 75
+        "y": 83
       }
     },
     {
@@ -2390,7 +2546,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 76
+        "y": 84
       },
       "options": {
         "mode": "markdown",
