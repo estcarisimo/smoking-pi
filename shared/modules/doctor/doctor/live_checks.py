@@ -663,27 +663,33 @@ PROC = pathlib.Path("/proc")
 AVAHI_TITLE = re.compile(r"^avahi-daemon: running \[([^\]]+)\]")
 
 
-def avahi_host_name(proc: pathlib.Path = PROC) -> str | None:
+def avahi_host_name(proc: pathlib.Path = PROC) -> tuple[str | None, bool]:
     """The name the host's Avahi answers for, from its process title
-    (``avahi-daemon: running [smokingpi.local]``); None when it is not running."""
+    (``avahi-daemon: running [smokingpi.local]``), and whether any other
+    process's title could be read at all (``hidepid`` on /proc, or a PID
+    namespace without the host's processes, hides them)."""
     try:
         entries = list(proc.iterdir())
     except OSError:
-        return None
+        return None, False
+    readable = False
     for entry in entries:
         if not entry.name.isdigit():
             continue
         try:
-            title = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+            raw = (entry / "cmdline").read_bytes()
         except OSError:
             continue
-        match = AVAHI_TITLE.match(title.strip())
+        readable = True
+        title = raw.replace(b"\0", b" ").decode(errors="replace").strip()
+        match = AVAHI_TITLE.match(title)
         if match:
-            return match.group(1)
-    return None
+            return match.group(1), True
+    return None, readable
 
 
-def check_avahi_host_name(proc: pathlib.Path = PROC, hostname: str | None = None) -> CheckResult:
+def check_avahi_host_name(proc: pathlib.Path = PROC,
+                          hostname: str | None = None) -> CheckResult:
     """Whether the host's Avahi still answers for ``<hostname>.local``.
 
     On a host conflict Avahi renames itself to ``<hostname>-2.local`` and
@@ -691,22 +697,29 @@ def check_avahi_host_name(proc: pathlib.Path = PROC, hostname: str | None = None
     The reference Pi did this eight seconds after boot, twice, with no
     other host holding the name. ``smoking-pi.local`` (the mdns service)
     is not affected; this is about the host's own name, which people and
-    old bookmarks still use (docs/mdns.md).
+    old bookmarks still use (docs/mdns.md). Only that renaming pattern is a
+    warning: a name set on purpose (``host-name=`` or ``domain-name=`` in
+    avahi-daemon.conf) is reported, not judged.
     """
-    name = avahi_host_name(proc)
+    name, readable = avahi_host_name(proc)
     if name is None:
-        return skipped("avahi-host-name", "Avahi is not running on this host")
+        why = ("Avahi is not running on this host" if readable else
+               "no other process is visible here (hidepid on /proc, or a container)")
+        return skipped("avahi-host-name", why)
     host = (hostname or socket.gethostname()).split(".")[0].lower()
     expected = f"{host}.local"
     if name.lower() == expected:
         return result("avahi-host-name", [], f"Avahi answers for {name}")
+    if not re.fullmatch(rf"{re.escape(host)}-\d+\.local", name.lower()):
+        return result("avahi-host-name", [],
+                      f"Avahi answers for {name} (a name set in its configuration)")
     return result(
         "avahi-host-name",
         [Finding(
             f"Avahi answers for {name}, not {expected}: it renamed itself after a "
-            f"name conflict, so {expected} resolves nowhere. `sudo systemctl restart "
-            f"avahi-daemon` takes it back until the next conflict; smoking-pi.local "
-            f"(the mdns service) still works (docs/mdns.md)")],
+            f"name conflict, so {expected} resolves nowhere. `sudo systemctl "
+            f"restart avahi-daemon` takes it back until the next conflict; "
+            f"smoking-pi.local (the mdns service) still works (docs/mdns.md)")],
         "",
         status=Status.WARN,
     )

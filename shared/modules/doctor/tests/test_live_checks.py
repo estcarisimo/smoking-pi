@@ -713,22 +713,48 @@ def _proc(tmp_path, titles):
     return tmp_path
 
 
-def test_avahi_answering_for_the_hostname_is_ok(tmp_path):
-    proc = _proc(tmp_path, {1: "/sbin/init\0", 689: "avahi-daemon: running [smokingpi.local]\0"})
-    res = live_checks.check_avahi_host_name(proc, hostname="smokingpi")
-    assert res.status.value == "ok" and "smokingpi.local" in res.summary
+AVAHI = "avahi-daemon: running [{}]\0"
 
 
-def test_avahi_renamed_after_a_conflict_warns_with_the_fix(tmp_path):
-    proc = _proc(tmp_path, {689: "avahi-daemon: running [smokingpi-2.local]\0",
-                            690: "avahi-daemon: chroot helper\0"})
-    res = live_checks.check_avahi_host_name(proc, hostname="smokingpi")
+@pytest.mark.parametrize("hostname,title", [
+    ("smokingpi", "smokingpi.local"),
+    ("SmokingPi.lan", "smokingpi.local"),   # FQDN, mixed case
+    ("rack-2", "rack-2.local"),             # a hostname that ends in -2
+])
+def test_avahi_answering_for_the_hostname_is_ok(tmp_path, hostname, title):
+    proc = _proc(tmp_path, {1: "/sbin/init\0", 689: AVAHI.format(title)})
+    res = live_checks.check_avahi_host_name(proc, hostname=hostname)
+    assert res.status.value == "ok" and title in res.summary
+
+
+@pytest.mark.parametrize("hostname,title", [
+    ("smokingpi", "smokingpi-2.local"),
+    ("rack-2", "rack-2-2.local"),
+])
+def test_avahi_renamed_after_a_conflict_warns_with_the_fix(tmp_path, hostname, title):
+    proc = _proc(tmp_path, {689: AVAHI.format(title), 690: "avahi-daemon: chroot helper\0"})
+    res = live_checks.check_avahi_host_name(proc, hostname=hostname)
     assert res.status.value == "warn"
     msg = res.findings[0].message
-    assert "smokingpi-2.local, not smokingpi.local" in msg
+    assert f"{title}, not {hostname}.local" in msg
     assert "systemctl restart avahi-daemon" in msg and "smoking-pi.local" in msg
 
 
+@pytest.mark.parametrize("title", ["pi.local", "smokingpi.lan"])
+def test_a_configured_name_is_reported_not_judged(tmp_path, title):
+    proc = _proc(tmp_path, {689: AVAHI.format(title)})
+    res = live_checks.check_avahi_host_name(proc, hostname="smokingpi")
+    assert res.status.value == "ok" and "set in its configuration" in res.summary
+
+
 def test_no_avahi_is_skipped(tmp_path):
-    res = live_checks.check_avahi_host_name(_proc(tmp_path, {1: "/sbin/init\0"}), hostname="x")
-    assert res.status.value == "skip"
+    res = live_checks.check_avahi_host_name(_proc(tmp_path, {1: "/sbin/init\0"}),
+                                            hostname="x")
+    assert res.status.value == "skip" and "not running" in res.summary
+
+
+def test_hidden_processes_skip_with_their_own_reason(tmp_path):
+    # hidepid: the pid directories are listed, their cmdline is not readable.
+    (tmp_path / "689").mkdir()
+    res = live_checks.check_avahi_host_name(tmp_path, hostname="x")
+    assert res.status.value == "skip" and "hidepid" in res.summary

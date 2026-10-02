@@ -43,7 +43,7 @@ journalctl -u avahi-daemon -b | grep -i "conflict\|Host name is"
 ```
 
 `running [smokingpi-2.local]` and `Host name conflict, retrying with
-smokingpi-2` mean it did. `sudo smoking-pi doctor --live` says so too
+smokingpi-2` mean it did. `smoking-pi doctor --live` says so too
 (the `avahi-host-name` check), which is how an upgrade notices it.
 
 The fix that is known to work is to restart it:
@@ -53,9 +53,9 @@ sudo systemctl restart avahi-daemon
 ```
 
 It holds until the next conflict, which on the reference Pi has meant
-the next boot. The cause is not proven. Avahi published records on every
-Docker bridge and veth it saw, and a Wi-Fi access point that echoes
-multicast back can make it hear its own announcement. If it keeps
+the next boot. The cause is not proven. The likely one: Avahi publishes
+records on every Docker bridge and veth it sees, and a Wi-Fi access point
+that echoes multicast back can make it hear its own announcement. If it keeps
 happening, telling Avahi to use the LAN interface only is the usual
 remedy: `allow-interfaces=wlan0` (or `eth0`) under `[server]` in
 `/etc/avahi/avahi-daemon.conf`, then the restart above. Smoking Pi does
