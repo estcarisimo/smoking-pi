@@ -22,14 +22,14 @@ Basic has no config-manager). On the shipped seed:
 
 ```
 probe          class    targets  step pings  samples/h    MB/day
-CurlHTTP1      Curl           3   300     3        108      31.1
-CurlHTTP2      Curl           3   300     3        108      31.1
-CurlHTTP3      Curl           3   300     3        108      31.1
+CurlHTTP3      Curl           3   300     3        108      46.7
+CurlHTTP1      Curl           3   300     3        108      32.4
+CurlHTTP2      Curl           3   300     3        108      32.4
 FPing          FPing          6   300    10        720       2.9
 DNS            DNS            3   300     5        180       1.3
 TCPPing        TCPPing        3   300     5        180       0.9
 
-21 targets: 1404 samples/h of 20000 (7.0%), ~98 MB/day of 1000 (9.8%).
+21 targets: 1404 samples/h of 20000 (7.0%), ~117 MB/day of 1000 (11.7%).
 Approximate: SmokePing measurements only, from the generated config.
 ```
 
@@ -90,14 +90,15 @@ measured rather than derived:
 | `FPing6` | 208 | the same over IPv6 |
 | `DNS` | 300 | one lookup: ~80 bytes up, 80–165 down with dig's EDNS cookie |
 | `TCPPing` | 200 | SYN, SYN/ACK, and the kernel's RST |
-| `Curl` | 12,000 | one HEAD over TLS 1.3: the certificate chain and the response headers (8–12 KB across eight popular sites) |
+| `Curl`, HTTP/1.1 and HTTP/2 | 12,500 | one HEAD over TLS 1.3: the certificate chain, the response headers and curl's lookup of the name (9–17 KB across 23 sites, 12.5 KB on average) |
+| `Curl`, HTTP/3 | 18,000 | the same HEAD over QUIC (15–22 KB, 17–18 KB on average): every client Initial is padded to 1200 bytes, and QUIC sends its own acknowledgments |
 
 A probe of a class with no measured cost (a probe you added yourself) is
 counted in samples and listed as unpriced, so the MB/day figure is not
 read as complete.
 
 Nearly all of the seed's bandwidth is TLS handshakes: an HTTP sample costs
-70 times an ICMP one. That is why the HTTP probes send `HEAD`. Before
+70 to 110 times an ICMP one. That is why the HTTP probes send `HEAD`. Before
 they did, each sample downloaded the whole home page, and the same seed
 cost about 6 GB a day ([HTTP probes](http-probes.md#what-the-curl-sample-measures)).
 
@@ -115,9 +116,9 @@ switch the check off. Over either ceiling, the report says so and what
 brings it back: fewer targets, fewer pings, or a longer step
 ([Measurement frequency](measurement-frequency.md)).
 
-The defaults are deliberately generous: the seed uses 10% of the bandwidth
+The defaults are deliberately generous: the seed uses 12% of the bandwidth
 and 7% of the samples. A DNS wizard adoption of 60 services over HTTP/1.1,
-2 and 3 alone is about 1.9 GB a day, and shows as over budget.
+2 and 3 alone is about 2.2 GB a day, and shows as over budget.
 
 ## Measured traffic
 
@@ -147,8 +148,11 @@ The meter counts **everything on that interface**, not only the
 measurements. That is its point: the gap between the two lines is what
 the Pi spends on other things. It includes:
 
-- LAN traffic on the same link: the microcut detector's pings to the
-  router (about 50 MB a day), you opening Grafana or the web admin, and
+- the microcut detector's pings to the CPE: 50 every 30 seconds to its
+  IPv4 address, about 24 MB a day, and as many again to its IPv6 one when
+  it has one (the netmeter counts them under `smokeping`, whose container
+  runs the detector);
+- LAN traffic on the same link: you opening Grafana or the web admin, and
   the DNS observer answering the house when the router forwards DNS to it;
 - the stack's own downloads: image pulls on an upgrade, `apt`;
 - anything else on the host: an assistant, the Cloudflare tunnels, a
@@ -213,6 +217,16 @@ were read over slightly different windows (the uplink meter's was a
 minute longer), and the interface also counts link-layer overhead that the
 per-container counters do not, so a few percent of difference is
 expected.
+
+**Checked against the estimate.** Over 14.6 steady hours on the same
+Pi (40 HTTP probes from the DNS wizard and the seed, a third of them
+HTTP/3), the meter put `smokeping` at ~528 MB/day and the whole uplink at
+~559. The estimate, with HTTP/3 priced like HTTP/2, said 410: 29% short.
+Measuring each probe's HEAD on its own (the same curl command in a
+throwaway container, reading that container's byte counters) found the
+gap: HTTP/1.1 and HTTP/2 cost what the table said, HTTP/3 about 45% more.
+Priced per version, the probes come to ~506 MB/day; with the microcut
+detector's ~24 that is ~530, within 1% of what the meter counted.
 
 **What it changes on the host.** It adds one table, `inet
 smoking_pi_meter`, with three chains (output, input, forward) at

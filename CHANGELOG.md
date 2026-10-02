@@ -23,6 +23,26 @@ version gets a matching GitHub release and git tag.
   "When `<hostname>.local` stops resolving": how to check, the restart that
   is known to work, and the unproven cause.
 
+### Fixed
+
+- **The measurement budget priced HTTP/3 like HTTP/2, and HTTP/3 costs
+  about 45% more.** On a test Pi with the DNS wizard's HTTP targets, the
+  netmeter counted SmokePing at ~528 MB/day over 14.6 steady hours while
+  the budget estimated 410: 29% short, on the figure the ceiling and the
+  red/green of the card are judged by. Each probe's HEAD, measured on its
+  own (the probes' exact curl command in a throwaway container, reading its
+  byte counters; 40 targets, 3 samples each), cost 12.5 KB on average over
+  HTTP/1.1 and HTTP/2 but 17–18 KB over HTTP/3: QUIC pads every client
+  Initial to 1200 bytes and acknowledges on its own. The budget now prices a
+  Curl probe whose arguments ask for HTTP/3 at 18 KB and the others at
+  12.5 KB (was 12 for all). With the microcut detector's ~24 MB/day, which
+  the estimate does not count, that comes within 1% of the meter. The
+  shipped seed's estimate rises from ~98 to ~117 MB/day (12% of the default
+  ceiling); a wizard-heavy install, mostly HTTP, rises the most.
+  `docs/measurement-budget.md` also corrects the microcut detector's share:
+  ~24 MB/day per CPE address, counted under `smokeping`, not ~50 of LAN
+  traffic.
+
 ## [2.18.0] — 2026-10-01
 
 The Pi answers for `smoking-pi.local` from its own container, and the
