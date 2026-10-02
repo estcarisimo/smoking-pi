@@ -32,6 +32,7 @@ from scripts import ipv6_check
 from file_ops import get_config_lock, atomic_write_yaml
 import freshness
 import budget
+import traffic
 import meter_containers
 import assistant
 import recommendations
@@ -557,6 +558,27 @@ class ConfigManagerAPI:
         )
         return {'available': True, 'complete': complete,
                 'checked_at': datetime.now().isoformat(), **body}
+
+    def _container_file(self, service: str, path: str) -> str:
+        """A file inside one of the stack's containers, or '' when the
+        container or the file is not there (another edition, a profile
+        that is off, a meter that has not written yet)."""
+        try:
+            container = docker.from_env().containers.get(resolve_container_name(service))
+            found = container.exec_run(['cat', path])
+        except Exception as e:
+            logger.debug("%s:%s not read: %s", service, path, type(e).__name__)
+            return ''
+        return found.output.decode(errors='replace') if found.exit_code == 0 else ''
+
+    def traffic_accounting(self) -> Dict[str, Any]:
+        """What the Pi sent and received per day, week and month, from the
+        meters' ledgers. See traffic.py."""
+        body = traffic.report(
+            uplink_text=self._container_file('smokeping', '/config/uplink_traffic.json'),
+            netmeter_text=self._container_file('netmeter', '/var/lib/netmeter/state.json'),
+        )
+        return {'checked_at': datetime.now().isoformat(), **body}
 
     def assistant_status(self) -> Dict[str, Any]:
         """Whether an assistant is calling the MCP server; see assistant.py.
@@ -1175,6 +1197,16 @@ def measurement_budget():
         return jsonify(api.measurement_budget())
     except Exception as e:
         return error_response(500, "Failed to compute the measurement budget", e)
+
+
+@app.route('/traffic', methods=['GET'])
+@require_api_token
+def traffic_accounting():
+    """Bytes sent and received per day, week and month. See traffic.py."""
+    try:
+        return jsonify(api.traffic_accounting())
+    except Exception as e:
+        return error_response(500, "Failed to read the traffic ledger", e)
 
 
 @app.route('/meter/containers', methods=['GET'])

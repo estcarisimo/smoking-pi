@@ -22,9 +22,11 @@ Writes:
   as decimal megabytes a day. Only with TSDB_TYPE=influxdb.
 * ``/config/uplink_traffic.json`` (UPLINK_TRAFFIC_STATE): the last 24 h of
   intervals and the last counter reading, which config-manager's /budget
-  reads to report the measured figure beside the estimate. Kept on the
-  config volume, so a container restart picks the counters up where they
-  were instead of losing an interval.
+  reads to report the measured figure beside the estimate, and ``days``,
+  the traffic ledger (/traffic): bytes in and out per local date (TZ) for
+  the last KEEP_DAYS days. Kept on the config volume, so a container
+  restart picks the counters up where they were instead of losing an
+  interval.
 
 An interval is dropped, not guessed, when a counter went backwards (the
 host rebooted, the driver reset) or the interface changed. Pro edition.
@@ -50,6 +52,9 @@ KEEP_SECONDS = 86_400 + 2 * INTERVAL
 MAX_GAP = 3 * INTERVAL
 PROC_NET_DEV = Path("/proc/net/dev")
 DEFAULT_STATE = "/config/uplink_traffic.json"
+# The ledger: a year and a month, so this month can be set beside the same
+# month a year ago. About 60 bytes a day.
+KEEP_DAYS = 400
 
 
 def read_counters(name: str, path: Path = PROC_NET_DEV) -> tuple[int, int] | None:
@@ -90,6 +95,30 @@ def save_state(path: str, state: dict) -> None:
     os.replace(tmp, path)
 
 
+def local_day(t: float) -> str:
+    """The local date (the container's TZ) an interval ending at ``t``
+    belongs to. An interval that straddles midnight counts for the day it
+    ends in: at most five minutes on the wrong side."""
+    return time.strftime("%Y-%m-%d", time.localtime(t))
+
+
+def add_to_ledger(days: dict, interval: dict, keep: int = KEEP_DAYS) -> dict:
+    """``days`` with one interval added to its local date, and only the
+    newest ``keep`` dates kept."""
+    out = {k: v for k, v in days.items() if isinstance(v, dict)}
+    key = local_day(interval["t"])
+    day = dict(out.get(key) or {})
+    day["rx"] = int(day.get("rx") or 0) + int(interval["rx"])
+    day["tx"] = int(day.get("tx") or 0) + int(interval["tx"])
+    day["seconds"] = round(float(day.get("seconds") or 0) + float(interval["seconds"]), 1)
+    if interval.get("interface") and interval["interface"] not in day.get("interfaces", []):
+        day["interfaces"] = sorted([*day.get("interfaces", []), interval["interface"]])
+    out[key] = day
+    for old in sorted(out)[:-keep]:
+        del out[old]
+    return out
+
+
 def step(state: dict, interface: str | None, counters: tuple[int, int] | None,
          now: float, mono: float | None = None) -> tuple[dict, dict | None]:
     """Advance the state by one reading; return it and the new interval
@@ -123,9 +152,12 @@ def step(state: dict, interface: str | None, counters: tuple[int, int] | None,
     # back would otherwise keep those rows until it caught up.
     kept = [i for i in state.get("intervals", [])
             if -INTERVAL <= now - i.get("t", 0) <= KEEP_SECONDS]
+    days = state.get("days") if isinstance(state.get("days"), dict) else {}
     if interval:
         kept.append(interval)
-    return {"last": new_last, "intervals": kept, "updated": int(now)}, interval
+        days = add_to_ledger(days, interval)
+    return {"last": new_last, "intervals": kept, "days": days,
+            "updated": int(now)}, interval
 
 
 def mb_per_day(interval: dict) -> float:

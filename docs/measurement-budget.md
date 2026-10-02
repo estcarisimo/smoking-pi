@@ -266,16 +266,84 @@ Limits worth knowing:
   would see them; Docker and Tailscale do not do this. `NETMETER=off`
   if yours does.
 
+## Traffic accounting
+
+The meters above give a rate; Pro also keeps a **ledger**: what the Pi
+sent and received per day, so you can ask how much it has spent in the
+periods a data plan is billed in.
+
+```bash
+sudo smoking-pi traffic
+```
+
+```text
+Traffic on wlan0 (local time, America/Chicago), measured since 2026-09-30.
+
+                received       sent      total  covered   Internet
+today             450 MB     150 MB     600 MB     100%     520 MB
+yesterday         900 MB     300 MB    1.20 GB     100%    1.05 GB
+this week        1.75 GB     550 MB    2.30 GB      44%    1.57 GB
+this month       1.35 GB     450 MB    1.80 GB     100%    1.57 GB
+last month        400 MB     100 MB     500 MB       2%          -
+last 30 days     1.75 GB     550 MB    2.30 GB       7%    1.57 GB
+
+received/sent/total: everything on the interface, the local network included.
+Internet: the same without traffic to and from the local network (what a data plan counts).
+covered: how much of the period the meter was running.
+
+This month by service:
+  smokeping              800 MB  (600 MB in, 200 MB out)
+  host                    60 MB  (50 MB in, 10 MB out)
+  grafana                 12 MB  (10 MB in, 2 MB out)
+```
+
+*An example: a meter that started on 30 September, half a day before the
+month ended. Hence the low coverage for last month, the week and the
+30 days.*
+
+- **Two figures.** *total* is everything on the uplink interface, as the
+  uplink meter counts it. *Internet* is the netmeter's count of the same
+  interface without the traffic whose other end is on the local network:
+  private addresses (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`),
+  link-local (`169.254/16`, `fe80::/10`), multicast and broadcast. That
+  is what an ISP's data cap sees. The difference is the LAN: you opening
+  Grafana or the web admin, the DNS observer answering the house, mDNS. A
+  LAN numbered from public space (a global IPv6 prefix on the LAN) counts
+  as Internet, and so does carrier-grade NAT space (`100.64/10`), which
+  is the ISP's.
+- **Local dates.** Days, weeks (Monday to Sunday) and months follow the
+  stack's `TZ`. An interval that straddles midnight counts for the day it
+  ends in, at most five minutes on the wrong side.
+- **covered** says how much of the period the meter was running. A
+  reboot loses one five-minute interval (the kernel's counters start
+  again from zero); a stopped container loses what it did not see. The
+  figures are what was counted, never extrapolated: at 90% covered, the
+  real figure is about a tenth higher.
+- **Kept** 400 days per day, so this month can be set beside the same
+  month a year ago; services per month, for 25 months. The ledger lives
+  in the meters' state files (`uplink_traffic.json` in SmokePing's
+  `smokeping-config` volume, `state.json` in `netmeter-state`), so it
+  works with ClickHouse as well as InfluxDB and survives losing the time
+  series. `smoking-pi backup` copies both volumes.
+- `--json` prints the report; the API is `GET /traffic` on config-manager.
+  With InfluxDB, the netmeter also writes `internet_traffic` (fields
+  `rx_bytes`, `tx_bytes`, `seconds`, `mb_per_day`) beside
+  `service_traffic`.
+
+Standard has no meter, and Basic no config-manager: both say so.
+
 ## What it does not count yet
 
 The estimate leaves out measurements outside SmokePing, which do not grow
 with the target list (the meter above sees them):
 
-- **The CPE microcut detector** (Pro, InfluxDB): 50 pings to the router
-  every 30 seconds, per address family, about 144,000 a day each, or
-  ~24 MB/day over IPv4 and ~30 MB/day over IPv6. It never leaves the LAN,
-  so it costs nothing on the uplink; it is the largest single source of
-  packets on the box.
+- **The CPE microcut detector** (Pro, InfluxDB): 50 pings to the CPE
+  (the ISP's first hop, which `cpe_discovery` finds) every 30 seconds, per
+  address family, about 144,000 a day each, or ~24 MB/day over IPv4 and
+  ~30 MB/day over IPv6. That hop is past the router, so the pings cross
+  the uplink and the netmeter counts them under `smokeping`, as Internet
+  traffic when the hop has a public address. It is the largest single
+  source of packets on the box.
 - **Resolver identity and the public address** (Pro, InfluxDB): a few
   DNS lookups every 15 minutes, well under 1 MB a day.
 - **The DNS observer's canary**: one lookup through the router every five

@@ -4,7 +4,9 @@ Loads the counter-only nftables table (ruleset.py), keeps it in step with
 the running containers (config-manager's GET /meter/containers: the
 privileged container never holds the Docker socket), and every five
 minutes reads and zeroes the counters into one interval per service:
-InfluxDB ``service_traffic`` and the 24 h state file /budget reads.
+InfluxDB ``service_traffic`` (and ``internet_traffic``, the uplink without
+the local network), the 24 h state file /budget reads, and the ledger in
+the same file that /traffic reads.
 
     NETMETER              off = load no table, count nothing (default on)
     NETMETER_INTERFACES   comma-separated uplinks (default: every physical
@@ -226,7 +228,7 @@ class Meter:
             return None
         attributed = ruleset.attribute(counts, self.counted)
         self.state, interval = meter.record(self.state, attributed, kinds(self.counted),
-                                            now, mono - previous)
+                                            now, mono - previous, ruleset.internet(counts))
         try:
             meter.save_state(self.state_path, self.state)
         except OSError as e:

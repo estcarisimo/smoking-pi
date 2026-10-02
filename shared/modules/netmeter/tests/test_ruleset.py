@@ -101,3 +101,28 @@ def test_clashing_counter_names_keep_the_first():
     text = ruleset.build([Service("web-admin", False, ipv4=("172.18.0.2",)),
                           Service("web_admin", False, ipv4=("172.18.0.3",))], ["wlan0"])
     assert text.count("counter s_web_admin_tx {}") == 1
+
+
+def test_internet_counters_skip_the_local_network_before_any_service_returns():
+    text = ruleset.build([SP, GRAFANA], ["wlan0"])
+    assert "set local_v4 { type ipv4_addr; flags interval; elements = { 10.0.0.0/8, " in text
+    assert "fc00::/7, fe80::/10, ff00::/8" in text
+    out = text[text.index("chain meter_out"):text.index("chain meter_in")]
+    # Counted on every uplink packet, so before the first per-service return.
+    assert out.index("ip daddr != @local_v4 counter name internet_tx") < out.index("socket cgroupv2")
+    assert "ip6 daddr != @local_v6 counter name internet_tx" in out
+    inbound = text[text.index("chain meter_in"):text.index("chain meter_forward")]
+    assert "ip saddr != @local_v4 counter name internet_rx" in inbound
+    fwd = text[text.index("chain meter_forward"):]
+    assert ('oifname { "wlan0" } iifname != { "wlan0" } ip daddr != @local_v4 '
+            "counter name fwd_internet_tx") in fwd
+    assert fwd.index("fwd_internet_rx") < fwd.index("s_grafana")
+    # Still nothing but counters.
+    assert text.count("policy accept") == 3
+
+
+def test_internet_adds_host_and_forwarded():
+    counts = {"internet_rx": (3, 300), "internet_tx": (2, 200),
+              "fwd_internet_rx": (1, 50), "fwd_internet_tx": (1, 5), "total_rx": (9, 999)}
+    assert ruleset.internet(counts) == {"rx": 350, "tx": 205}
+    assert ruleset.internet({}) == {"rx": 0, "tx": 0}
