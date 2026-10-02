@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pro: the netmeter no longer logs an ERROR on every upgrade, and keeps
+  the interval InfluxDB was not ready for.** Right after `smoking-pi
+  upgrade` recreates the stack, config-manager and InfluxDB are still
+  starting, so the netmeter logged `WARNING containers not read:
+  ConnectionResetError` and `ERROR traffic not written: ProtocolError`
+  (seen on the staging Pi during the v2.19.0-rc.1 acceptance), then
+  recovered on its own within a minute. An ERROR on every upgrade trains
+  people to skip past real ones, and the interval that failed was dropped
+  from the `service_traffic`/`internet_traffic` series (the state file
+  had it). For the first 120 s after it starts, the netmeter now logs
+  those two at INFO, saying the service is still starting; afterwards
+  they stay WARNING and ERROR. A batch InfluxDB refused is sent again
+  with the next interval's, once: at most one batch waits, never a
+  backlog. Only the exception's type is logged, as before.
+
 ## [2.19.0] — 2026-10-02
 
 On Pro, the Pi now answers "how much this month?": a ledger of the bytes

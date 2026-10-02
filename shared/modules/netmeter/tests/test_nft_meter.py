@@ -140,7 +140,7 @@ def test_meter_loads_once_and_counts_across_a_reload(tmp_path, monkeypatch):
     fake = FakeNft()
     found = {"list": services()}
     m = main.Meter({"NETMETER_STATE_DIR": str(tmp_path)}, nft_mod=fake,
-                   fetch=lambda url, token: found["list"], cgroups=ALL_LIVE)
+                   fetch=lambda url, token, **_: found["list"], cgroups=ALL_LIVE)
     m.sync(mono=0.0)
     m.sync(mono=60.0)
     assert len(fake.loaded) == 1  # unchanged: not reloaded
@@ -162,7 +162,7 @@ def test_meter_keeps_the_last_services_when_config_manager_is_down(tmp_path, mon
     fake = FakeNft()
     answers = iter([services(), None])
     m = main.Meter({"NETMETER_STATE_DIR": str(tmp_path)}, nft_mod=fake,
-                   fetch=lambda url, token: next(answers), cgroups=ALL_LIVE)
+                   fetch=lambda url, token, **_: next(answers), cgroups=ALL_LIVE)
     m.sync(mono=0.0)
     m.sync(mono=60.0)
     assert [s.name for s in m.services] == ["smokeping"] and len(fake.loaded) == 1
@@ -243,7 +243,7 @@ def test_a_restart_with_the_same_id_reloads(tmp_path, monkeypatch):
     fake = FakeNft()
     fake.counts = {"total_tx": (1, 1)}
     m = main.Meter({"NETMETER_STATE_DIR": str(tmp_path)}, nft_mod=fake,
-                   fetch=lambda url, token: services(),
+                   fetch=lambda url, token, **_: services(),
                    cgroups=lambda s: main.live_cgroups(s, cg))
     m.sync(mono=0.0)
     m.sync(mono=60.0)
@@ -265,7 +265,7 @@ def test_a_vanished_cgroup_is_left_out_not_fatal(tmp_path):
 def test_a_refused_reload_is_an_error_not_a_crash(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "uplinks", lambda env: ["eth0+"])  # not quotable
     m = main.Meter({"NETMETER_STATE_DIR": str(tmp_path)}, nft_mod=FakeNft(),
-                   fetch=lambda url, token: services(), cgroups=ALL_LIVE)
+                   fetch=lambda url, token, **_: services(), cgroups=ALL_LIVE)
     m.sync(mono=0.0)
     assert m.error.startswith("no ruleset") and m.loaded is None
 
@@ -295,3 +295,72 @@ def test_the_ledger_skips_a_pre_2020_clock_and_survives_wrong_shaped_rows():
     state, _ = meter.record(damaged, svc, {}, 1_790_000_000.0, 300.0)
     assert state["days"][day]["rx"] == 1
     assert state["months"][day[:7]]["services"] == {"host": {"rx": 1, "tx": 1}}
+
+
+def _reset_by_peer(req, timeout):
+    raise ConnectionResetError("secret-token-in-message")
+
+
+def test_fetch_failure_is_info_while_starting_and_warning_after(caplog):
+    caplog.set_level("INFO", logger="netmeter")
+    assert main.fetch_containers("http://x", opener=_reset_by_peer, starting=True) is None
+    (rec,) = caplog.records
+    assert rec.levelname == "INFO" and "still starting" in rec.getMessage()
+    assert "ConnectionResetError" in rec.getMessage()
+    caplog.clear()
+    assert main.fetch_containers("http://x", opener=_reset_by_peer) is None
+    (rec,) = caplog.records
+    assert rec.levelname == "WARNING" and "secret" not in rec.getMessage()
+
+
+def test_meter_passes_the_grace_period_to_fetch(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "uplinks", lambda env: ["wlan0"])
+    seen = []
+    m = main.Meter({"NETMETER_STATE_DIR": str(tmp_path)}, nft_mod=FakeNft(),
+                   fetch=lambda url, token, starting: seen.append(starting) or services(),
+                   cgroups=ALL_LIVE, started=1000.0)
+    m.sync(mono=1000.0 + main.STARTUP_GRACE - 1)
+    m.sync(mono=1000.0 + main.STARTUP_GRACE)
+    assert seen == [True, False]
+
+
+class FlakyWrite:
+    """InfluxDB that fails while ``down`` and records every batch it is sent."""
+
+    def __init__(self):
+        self.down = True
+        self.batches = []
+
+    def __call__(self, points):
+        self.batches.append(list(points))
+        if self.down:
+            raise main.http.client.HTTPException("token=secret")
+
+
+def test_a_failed_batch_is_sent_again_with_the_next(caplog):
+    caplog.set_level("INFO", logger="netmeter")
+    influx = FlakyWrite()
+    w = main.TrafficWriter(influx)
+    assert w(["a1", "a2"], starting=True) is False
+    assert [r.levelname for r in caplog.records] == ["INFO"]
+    assert "still starting" in caplog.records[0].getMessage()
+    influx.down = False
+    assert w(["b1"]) is True
+    assert influx.batches[-1] == ["a1", "a2", "b1"] and w.held == []
+    assert w(["c1"]) is True and influx.batches[-1] == ["c1"]
+    assert all(r.levelname == "INFO" for r in caplog.records)
+    assert not any("secret" in r.getMessage() for r in caplog.records)
+
+
+def test_at_most_one_batch_waits(caplog):
+    caplog.set_level("INFO", logger="netmeter")
+    influx = FlakyWrite()
+    w = main.TrafficWriter(influx)
+    w(["a"], starting=True)
+    w(["b"])  # after the grace period: an ERROR, and "a" has had its one retry
+    assert influx.batches[-1] == ["a", "b"] and w.held == ["b"]
+    assert [r.levelname for r in caplog.records] == ["INFO", "ERROR", "WARNING"]
+    for i in range(10):
+        w([f"x{i}"])
+    assert w.held == ["x9"] and influx.batches[-1] == ["x8", "x9"]
+    assert not any("secret" in r.getMessage() for r in caplog.records)
