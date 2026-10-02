@@ -15,7 +15,8 @@ container — no fork of SmokePing, no fork of the LinuxServer image.
 The HTTP probes take 3 samples per 5-minute cycle (`pings = 3`,
 `step = 300`), the TCP probe 5, five targets in parallel. Nine HTTP targets
 plus three TCP targets cost about 40 requests per 5 minutes. Each HTTP sample is a `HEAD` request: a TLS
-handshake and the response headers, a few KB. Keep `pings` low all the
+handshake and the response headers, about 12 KB over HTTP/1.1 and HTTP/2
+and 18 KB over HTTP/3 ([Measurement budget](measurement-budget.md)). Keep `pings` low all the
 same; 20 requests per cycle is unfriendly to the server.
 
 ## What the Curl sample measures

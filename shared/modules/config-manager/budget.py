@@ -87,7 +87,8 @@ def probe_classes(probes_text: str) -> Dict[str, str]:
 def http3_probes(probes_text: str) -> Set[str]:
     """Probe names whose curl speaks HTTP/3 (``--http3`` or
     ``--http3-only`` in their ``extraargs``), priced apart from HTTP/1.1
-    and HTTP/2."""
+    and HTTP/2. Each section's own ``extraargs`` only, which is how
+    config_generator emits them: a ``+ Curl`` parent never carries one."""
     found: Set[str] = set()
     current: Optional[str] = None
     for raw in probes_text.splitlines():
