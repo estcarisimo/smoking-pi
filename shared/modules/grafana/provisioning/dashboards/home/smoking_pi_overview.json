@@ -2039,7 +2039,17 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "blue"
+                  "fixedColor": "text"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
                 }
               }
             ]
