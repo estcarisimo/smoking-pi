@@ -52,6 +52,17 @@ version gets a matching GitHub release and git tag.
   it was measured, flagged when under 99%, and this month by service. The
   top *Bandwidth Usage* card adds "This month: …". `/traffic` is cached
   for a minute like `/budget`, and a failure is never cached.
+- **A Traffic row in Grafana's Overview (Pro, InfluxDB).** The Overview
+  showed traffic only as a rate (MB/day per five-minute interval), which
+  cannot be read as "how much this month". The new row has received and
+  sent per day over 30 days with the Internet-only part as a line, this
+  month so far and last month, and each service per calendar month over
+  12 months, summed from the existing series. Days and months follow the
+  dashboard's time zone (Flux `timezone.location` from `${__timezone}`);
+  checked in a real browser on a test Pi under Chicago and Tokyo, where a
+  naive month label would have put Tokyo's October in September. The
+  *Measured traffic by service* panel's description no longer says the
+  microcut detector pings "the router".
 
 ### Fixed
 

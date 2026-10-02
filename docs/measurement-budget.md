@@ -356,8 +356,27 @@ month's total:
 coverage in amber, and the Internet column shows its own when the netmeter
 covered less.*
 
+Grafana's **Overview** has a *Traffic* row (InfluxDB): received and sent
+per day over the last 30 days with the Internet-only part as a line, this
+month so far and last month (the interface's total and the Internet
+part), and each service's traffic per calendar month over the last 12.
+They sum the same five-minute series (`uplink_traffic`,
+`internet_traffic`, `service_traffic`), so they work back to when the
+meters started, not only since the ledger; but they say nothing about
+coverage: a gap is simply a shorter bar. Days and months there follow
+the dashboard's time zone (your browser's by default), the card and the
+command the Pi's `TZ`; near midnight the two can split a day differently.
+
+![The Overview's Traffic row on a test Pi: daily bars for two days, this month's total, no traffic counted last month, and one month of traffic by service](img/traffic-grafana.png)
+
+*A test Pi two days after its meters started: hence one month, two days,
+and nothing last month. The Internet line and figure are missing because
+that Pi's netmeter predated them.*
+
 Basic and Standard have no meters; `smoking-pi traffic` says so, and the
-card says there are no figures yet.
+card says there are no figures yet. With ClickHouse, the command and the
+card work (the ledger is in the state files) and the Grafana row does
+not (the meters write their series to InfluxDB only).
 
 ## What it does not count yet
 

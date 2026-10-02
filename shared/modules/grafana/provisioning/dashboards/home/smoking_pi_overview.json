@@ -1908,7 +1908,7 @@
       "id": 56,
       "type": "timeseries",
       "title": "Measured traffic by service (MB/day)",
-      "description": "What each service really sent and received on the uplink, stacked, as MB/day over each five-minute interval: nftables counters keyed on each container (the netmeter service), not an estimate. \"host\" is everything on the uplink no container sent (apt, an assistant, sshd); \"other_containers\" are containers this stack does not name, such as a tunnel started by hand. LAN traffic on the same link counts too (the microcut detector's pings to the router are SmokePing's). docs/measurement-budget.md, \"By service\".",
+      "description": "What each service really sent and received on the uplink, stacked, as MB/day over each five-minute interval: nftables counters keyed on each container (the netmeter service), not an estimate. \"host\" is everything on the uplink no container sent (apt, an assistant, sshd); \"other_containers\" are containers this stack does not name, such as a tunnel started by hand. LAN traffic on the same link counts too (the microcut detector's pings to the ISP's first hop are SmokePing's). docs/measurement-budget.md, \"By service\".",
       "datasource": {
         "uid": "influxdb"
       },
@@ -1963,9 +1963,9 @@
       ]
     },
     {
-      "id": 13,
+      "id": 60,
       "type": "row",
-      "title": "Dashboards",
+      "title": "Traffic (bytes sent and received)",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -1976,6 +1976,414 @@
       }
     },
     {
+      "id": 61,
+      "type": "timeseries",
+      "title": "Traffic per day, last 30 days",
+      "description": "What the Pi received and sent each day on its uplink interface, stacked (decimal units, as ISPs bill: 1 GB = 10^9 bytes), from the uplink meter's five-minute counters. The line is the Internet-only part (the netmeter: the same interface without traffic to and from the local network), what a data plan counts. Counted, never extrapolated: a day with a reboot or a stopped meter is short, and `sudo smoking-pi traffic` (or the web admin's Traffic card) says how much of each period was measured. Days and months follow this dashboard's time zone; the Traffic card and the CLI use the Pi's TZ, so near midnight the two can split a day differently. docs/measurement-budget.md, \"Traffic accounting\".",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 59
+      },
+      "timeFrom": "30d",
+      "interval": "1d",
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "sum",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "received"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "sent"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Internet only (both directions)"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"uplink_traffic\" and r._field == \"rx_bytes\") |> group() |> aggregateWindow(every: 1d, fn: sum, createEmpty: false, location: loc, timeSrc: \"_start\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"uplink_traffic\" and r._field == \"tx_bytes\") |> group() |> aggregateWindow(every: 1d, fn: sum, createEmpty: false, location: loc, timeSrc: \"_start\")"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"internet_traffic\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\")) |> group() |> aggregateWindow(every: 1d, fn: sum, createEmpty: false, location: loc, timeSrc: \"_start\")"
+        }
+      ]
+    },
+    {
+      "id": 62,
+      "type": "stat",
+      "title": "This month so far",
+      "description": "Bytes received plus sent since the first of this month: on the uplink interface (the local network included), and the Internet-only part. Independent of the dashboard's time range. Counted, never extrapolated: a day with a reboot or a stopped meter is short, and `sudo smoking-pi traffic` (or the web admin's Traffic card) says how much of each period was measured. Days and months follow this dashboard's time zone; the Traffic card and the CLI use the Pi's TZ, so near midnight the two can split a day differently.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 59
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "none",
+        "colorMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "decimals": 2,
+          "noValue": "none counted"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "total on the interface"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Internet only"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nms = date.truncate(t: now(), unit: 1mo, location: loc)\nfrom(bucket:\"smokeping\") |> range(start: ms, stop: now()) |> filter(fn:(r) => r._measurement == \"uplink_traffic\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\")) |> group() |> sum()"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nms = date.truncate(t: now(), unit: 1mo, location: loc)\nfrom(bucket:\"smokeping\") |> range(start: ms, stop: now()) |> filter(fn:(r) => r._measurement == \"internet_traffic\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\")) |> group() |> sum()"
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "type": "stat",
+      "title": "Last month",
+      "description": "Bytes received plus sent last calendar month: on the uplink interface (the local network included), and the Internet-only part. Independent of the dashboard's time range. Counted, never extrapolated: a day with a reboot or a stopped meter is short, and `sudo smoking-pi traffic` (or the web admin's Traffic card) says how much of each period was measured. Days and months follow this dashboard's time zone; the Traffic card and the CLI use the Pi's TZ, so near midnight the two can split a day differently.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 63
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "none",
+        "colorMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "decimals": 2,
+          "noValue": "none counted"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "total on the interface"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Internet only"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nms = date.truncate(t: now(), unit: 1mo, location: loc)\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 1mo, from: ms), stop: ms) |> filter(fn:(r) => r._measurement == \"uplink_traffic\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\")) |> group() |> sum()"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nms = date.truncate(t: now(), unit: 1mo, location: loc)\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 1mo, from: ms), stop: ms) |> filter(fn:(r) => r._measurement == \"internet_traffic\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\")) |> group() |> sum()"
+        }
+      ]
+    },
+    {
+      "id": 64,
+      "type": "barchart",
+      "title": "Traffic per month by service, last 12 months",
+      "description": "What each service received and sent on the uplink per calendar month, stacked: the netmeter's nftables counters keyed on each container, not an estimate; a service that carried nothing is left out. \"host\" is everything no container sent (apt, an assistant, sshd); \"other_containers\" are containers this stack does not name. Counted, never extrapolated: a day with a reboot or a stopped meter is short, and `sudo smoking-pi traffic` (or the web admin's Traffic card) says how much of each period was measured. Days and months follow this dashboard's time zone; the Traffic card and the CLI use the Pi's TZ, so near midnight the two can split a day differently.",
+      "datasource": {
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 67
+      },
+      "timeFrom": "1y",
+      "options": {
+        "xField": "month",
+        "orientation": "vertical",
+        "stacking": "normal",
+        "showValue": "never",
+        "barWidth": 0.6,
+        "groupWidth": 0.7,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "gradientMode": "none",
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "smokeping"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\nimport \"strings\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"service_traffic\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\")) |> group(columns:[\"service\"]) |> aggregateWindow(every: 1mo, fn: sum, createEmpty: false, location: loc, timeSrc: \"_start\") |> filter(fn:(r) => r._value > 0) |> map(fn:(r) => ({month: strings.substring(v: string(v: date.add(d: 15h, to: r._time)), start: 0, end: 7), service: r.service, bytes: r._value})) |> group() |> pivot(rowKey:[\"month\"], columnKey:[\"service\"], valueColumn:\"bytes\") |> sort(columns:[\"month\"])"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Dashboards",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 75
+      }
+    },
+    {
       "id": 14,
       "type": "text",
       "title": "",
@@ -1983,7 +2391,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 59
+        "y": 76
       },
       "options": {
         "mode": "markdown",
