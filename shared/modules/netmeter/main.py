@@ -69,6 +69,7 @@ def fetch_containers(base_url: str, token: str = "", opener=urllib.request.urlop
     Only the exception's type is logged: nothing here echoes the token.
     While ``starting``, a failure is config-manager still starting: INFO."""
     req = urllib.request.Request(base_url.rstrip("/") + "/meter/containers")
+    reason = None
     if token:
         req.add_header("X-API-Token", token)
     try:
@@ -78,8 +79,6 @@ def fetch_containers(base_url: str, token: str = "", opener=urllib.request.urlop
         reason = f"HTTP {exc.code}"
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
         reason = type(exc).__name__
-    else:
-        reason = None
     if reason is not None:
         if starting:
             log.info("containers not read yet, config-manager still starting: %s", reason)
@@ -158,9 +157,9 @@ class TrafficWriter:
             else:
                 log.error("traffic not written: %s; kept for the next interval", name)
             if retried:
-                log.log(logging.INFO if starting else logging.WARNING,
-                        "the interval held from the last attempt is dropped from "
-                        "InfluxDB (the state file has it)")
+                # Lost from the series, even while starting: never quiet.
+                log.warning("the interval held from the last attempt is dropped from "
+                            "InfluxDB (the state file has it)")
             self.held = list(points)
             return False
         if retried:

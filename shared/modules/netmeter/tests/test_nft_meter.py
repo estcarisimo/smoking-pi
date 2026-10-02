@@ -364,3 +364,37 @@ def test_at_most_one_batch_waits(caplog):
         w([f"x{i}"])
     assert w.held == ["x9"] and influx.batches[-1] == ["x8", "x9"]
     assert not any("secret" in r.getMessage() for r in caplog.records)
+
+
+def test_run_holds_a_refused_batch_and_logs_info_while_starting(tmp_path, monkeypatch, caplog):
+    import threading
+    caplog.set_level("INFO", logger="netmeter")
+    influx = FlakyWrite()
+
+    class FakeMeter:
+        error, loaded, counted = None, "table", []
+
+        def __init__(self, env):
+            pass
+
+        def starting(self, mono=None):
+            return True
+
+        def sync(self, mono=None):
+            pass
+
+        def collect(self, now, mono):
+            return {"t": 1}
+
+    monkeypatch.setattr(main, "Meter", FakeMeter)
+    monkeypatch.setattr(main, "influx_writer", lambda env: influx)
+    monkeypatch.setattr(main.meter, "points", lambda interval: ["p"])
+    monkeypatch.setattr(main.nft, "teardown", lambda: None)
+    monkeypatch.setattr(main.signal, "signal", lambda *a: None)
+    waits = iter([False, True])
+    monkeypatch.setattr(threading.Event, "is_set", lambda self: next(waits))
+    monkeypatch.setattr(threading.Event, "wait", lambda self, t=None: True)
+    assert main.run({"NETMETER_STATE_DIR": str(tmp_path)}) == 0
+    assert influx.batches == [["p"]]
+    assert not any(r.levelname == "ERROR" for r in caplog.records)
+    assert any("still starting" in r.getMessage() for r in caplog.records)
