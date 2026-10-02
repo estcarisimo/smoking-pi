@@ -3,6 +3,8 @@
 import pathlib
 import sys
 
+import pytest
+
 MODULE_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MODULE_DIR))
 
@@ -101,3 +103,69 @@ def test_rows_stamped_in_the_future_are_dropped():
     future = {"t": 10_000, "interface": "wlan0", "rx": 1, "tx": 1, "seconds": 300}
     state, _ = ut.step({"intervals": [future]}, "wlan0", (1, 1), 1000.0)
     assert state["intervals"] == []
+
+
+@pytest.fixture
+def chicago(monkeypatch):
+    monkeypatch.setenv("TZ", "America/Chicago")
+    ut.time.tzset()
+    yield
+    monkeypatch.undo()
+    ut.time.tzset()
+
+
+def test_the_ledger_adds_each_interval_to_its_local_date(chicago):
+    # 2026-10-02 04:55 and 05:00 UTC: 23:55 on the 1st and midnight on the 2nd
+    # in Chicago. An interval counts for the day it ends in.
+    t1, t2 = 1790916900.0, 1790917200.0
+    state, _ = ut.step({"intervals": []}, "wlan0", (0, 0), t1 - 300)
+    state, _ = ut.step(state, "wlan0", (1000, 100), t1)
+    state, _ = ut.step(state, "wlan0", (3000, 400), t2)
+    assert state["days"] == {
+        "2026-10-01": {"rx": 1000, "tx": 100, "seconds": 300.0, "interfaces": ["wlan0"]},
+        "2026-10-02": {"rx": 2000, "tx": 300, "seconds": 300.0, "interfaces": ["wlan0"]},
+    }
+
+
+def test_the_ledger_survives_a_dropped_interval_and_keeps_the_newest_days():
+    days = {}
+    for n in range(5):
+        days = ut.add_to_ledger(days, {"t": 1_790_000_000 + n * 86_400, "rx": 1, "tx": 1,
+                                       "seconds": 300, "interface": "wlan0"}, keep=3)
+    assert len(days) == 3 and min(days) == ut.local_day(1_790_000_000 + 2 * 86_400)
+    # A reboot drops an interval, never the ledger.
+    state = {"intervals": [], "days": days, "last": {"t": 1.0, "interface": "wlan0",
+                                                      "rx": 10**9, "tx": 10**9}}
+    state, interval = ut.step(state, "wlan0", (5, 5), 2.0)
+    assert interval is None and state["days"] == days
+
+
+def test_two_interfaces_in_one_day_are_both_named():
+    days = ut.add_to_ledger({}, {"t": 1_790_000_000, "rx": 1, "tx": 1, "seconds": 300,
+                                 "interface": "wlan0"})
+    days = ut.add_to_ledger(days, {"t": 1_790_000_300, "rx": 1, "tx": 1, "seconds": 300,
+                                   "interface": "eth0"})
+    assert days[ut.local_day(1_790_000_000)]["interfaces"] == ["eth0", "wlan0"]
+
+
+def test_a_damaged_state_file_falls_back_to_the_previous_copy(tmp_path):
+    path = str(tmp_path / "uplink_traffic.json")
+    good = {"intervals": [], "days": {"2026-10-01": {"rx": 1, "tx": 2, "seconds": 300.0}}}
+    ut.save_state(path, good)
+    ut.save_state(path, dict(good, updated=1))  # the first is now the .bak
+    (tmp_path / "uplink_traffic.json").write_text('{"intervals": [')  # a torn write
+    state = ut.load_state(path)
+    assert state["days"] == good["days"]
+    # The damaged file is kept for a look, not overwritten by the next save.
+    assert (tmp_path / "uplink_traffic.json.corrupt").read_text() == '{"intervals": ['
+    # A crash between save_state's two renames leaves only the .bak.
+    (tmp_path / "uplink_traffic.json").unlink(missing_ok=True)
+    assert ut.load_state(path)["days"] == good["days"]
+    assert ut.load_state(str(tmp_path / "none.json")) == {"intervals": []}
+
+
+def test_a_clock_before_2020_stays_out_of_the_ledger():
+    # A Pi without a real-time clock, before NTP: the bytes are real, the date is not.
+    days = ut.add_to_ledger({}, {"t": 300, "rx": 1, "tx": 1, "seconds": 300,
+                                 "interface": "wlan0"})
+    assert days == {}

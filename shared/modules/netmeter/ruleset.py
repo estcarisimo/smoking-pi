@@ -20,6 +20,12 @@ bridges never touches the uplink and is not counted.
   is matched by the receiving socket's cgroup.
 * **Bridged containers** (Grafana, the web admin, ai-insights...) reach
   the uplink through the forward hook, by their own address.
+* **Internet only**: the same uplink, without the traffic whose other end
+  is on the local network (private, link-local and multicast addresses:
+  LOCAL_V4/LOCAL_V6). Counted as totals (``internet_tx``/``_rx``, and
+  ``fwd_internet_*`` for bridged containers), not per service. That is
+  what an ISP's data cap sees; the difference is the LAN: you opening
+  Grafana, the DNS observer answering the house, the router's pings.
 * What is left: ``other_containers`` (forwarded traffic of containers this
   stack does not name, such as a Cloudflare tunnel started by hand) and
   ``host`` (everything else on the uplink: apt, an assistant, sshd), as
@@ -48,6 +54,15 @@ PRIORITY = -150
 FIXED_MARKS = {"smokeping": 1, "dns-observer": 2, "alerter": 3, "mcp-server": 4,
                "mdns": 5, "netmeter": 6}
 HASHED_MARKS = range(16, MAX_MARKED)  # for a host-network service not named above
+# The other end of a packet on the local network, not the Internet: the
+# private ranges (RFC 1918, RFC 4193 ULA), link-local, multicast, the
+# IPv4 broadcast and the unspecified addresses (a DHCP discover, IPv6
+# duplicate address detection). Static, so an address change never reloads the table. A
+# LAN numbered from public space (a global IPv6 prefix on the LAN) counts
+# as Internet; carrier-grade NAT space (100.64/10) is the ISP's, so it does.
+LOCAL_V4 = ("0.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+            "169.254.0.0/16", "224.0.0.0/4", "255.255.255.255")
+LOCAL_V6 = ("::", "fc00::/7", "fe80::/10", "ff00::/8")
 
 
 @dataclass(frozen=True)
@@ -121,7 +136,8 @@ def build(services: list[Service], uplinks: list[str]) -> str:
     bridged = [s for s in counted if not s.host_network]
     up = _ifset(sorted(uplinks))
 
-    counters = ["total_tx", "total_rx", "fwd_tx", "fwd_rx"]
+    counters = ["total_tx", "total_rx", "fwd_tx", "fwd_rx", "internet_tx", "internet_rx",
+                "fwd_internet_tx", "fwd_internet_rx"]
     for s in counted:
         counters += [counter_name(s.name) + "_tx", counter_name(s.name) + "_rx"]
 
@@ -157,20 +173,45 @@ def build(services: list[Service], uplinks: list[str]) -> str:
     lines = [f"table {FAMILY} {TABLE} {{}}", f"delete table {FAMILY} {TABLE}",
              f"table {FAMILY} {TABLE} {{"]
     lines += [f"\tcounter {c} {{}}" for c in counters]
+    lines += [f"\tset local_v4 {{ type ipv4_addr; flags interval; "
+              f"elements = {{ {', '.join(LOCAL_V4)} }} }}",
+              f"\tset local_v6 {{ type ipv6_addr; flags interval; "
+              f"elements = {{ {', '.join(LOCAL_V6)} }} }}"]
     text = "\n".join(lines) + "\n"
-    text += chain("meter_out", "output", [f"oifname != {up} return", "counter name total_tx",
-                                    *out_rules])
-    text += chain("meter_in", "input", [f"iifname != {up} return", "counter name total_rx",
-                                  *in_mark_rules, *in_sock_rules])
+    # The Internet-only counters come before the per-service rules, which
+    # end in return.
+    text += chain("meter_out", "output", [
+        f"oifname != {up} return", "counter name total_tx",
+        "ip daddr != @local_v4 counter name internet_tx",
+        "ip6 daddr != @local_v6 counter name internet_tx",
+        *out_rules])
+    text += chain("meter_in", "input", [
+        f"iifname != {up} return", "counter name total_rx",
+        "ip saddr != @local_v4 counter name internet_rx",
+        "ip6 saddr != @local_v6 counter name internet_rx",
+        *in_mark_rules, *in_sock_rules])
     text += chain("meter_forward", "forward", [
         f"oifname {up} iifname != {up} counter name fwd_tx",
         f"iifname {up} oifname != {up} counter name fwd_rx",
+        f"oifname {up} iifname != {up} ip daddr != @local_v4 counter name fwd_internet_tx",
+        f"oifname {up} iifname != {up} ip6 daddr != @local_v6 counter name fwd_internet_tx",
+        f"iifname {up} oifname != {up} ip saddr != @local_v4 counter name fwd_internet_rx",
+        f"iifname {up} oifname != {up} ip6 saddr != @local_v6 counter name fwd_internet_rx",
         *fwd_rules])
     return text + "}\n"
 
 
 def teardown() -> str:
     return f"table {FAMILY} {TABLE} {{}}\ndelete table {FAMILY} {TABLE}\n"
+
+
+def internet(counts: dict[str, tuple[int, int]]) -> dict[str, int]:
+    """Bytes to and from the Internet (not the local network), host and
+    forwarded together, from one reset of the counters."""
+    def b(name):
+        return counts.get(name, (0, 0))[1]
+    return {"rx": b("internet_rx") + b("fwd_internet_rx"),
+            "tx": b("internet_tx") + b("fwd_internet_tx")}
 
 
 def attribute(counts: dict[str, tuple[int, int]],

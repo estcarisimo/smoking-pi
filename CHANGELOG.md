@@ -23,6 +23,28 @@ version gets a matching GitHub release and git tag.
   "When `<hostname>.local` stops resolving": how to check, the restart that
   is known to work, and the unproven cause.
 
+- **Traffic accounting: what the Pi sent and received, by day, week and
+  month (Pro).** The meters gave a rate (MB/day over the last 24 h), but
+  not the question a data plan asks: how much this month? Nothing kept
+  more than a day, outside InfluxDB, and nothing at all with ClickHouse.
+  The uplink meter and the netmeter now keep a ledger in their state
+  files: bytes in and out per local date (`TZ`) for 400 days, and each
+  service's bytes per month for 25 (per day it would more than double a
+  file rewritten every five minutes on an SD card). Since that file now
+  holds history nothing else keeps, each meter writes it with an fsync,
+  keeps the previous copy, and sets a damaged file aside instead of
+  starting over. The netmeter also
+  counts the **Internet-only** part: the same uplink without traffic to
+  private, link-local and multicast addresses, which is what an ISP's cap
+  sees (two new totals in its nftables table, still counters only; with
+  InfluxDB, a new `internet_traffic` series). config-manager's new
+  `GET /traffic` and `smoking-pi traffic [--json]` report today,
+  yesterday, this week, this month, last month and the last 30 days, each
+  with how much of the period each meter measured: a reboot loses five
+  minutes, and nothing is extrapolated. `docs/measurement-budget.md`, *Traffic
+  accounting*; it also corrects that the microcut detector's pings stay on
+  the LAN: they go to the ISP's first hop, across the uplink.
+
 ### Fixed
 
 - **The measurement budget priced HTTP/3 like HTTP/2, and HTTP/3 costs

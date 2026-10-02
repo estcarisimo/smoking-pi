@@ -207,6 +207,12 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      most expensive first, against MEASUREMENT_BUDGET_MB_PER_DAY
                      and MEASUREMENT_BUDGET_SAMPLES_PER_HOUR. Accounting only:
                      nothing is throttled. See docs/measurement-budget.md.
+  traffic [--json]
+                     What the Pi sent and received (Pro): today, yesterday,
+                     this week, this month, last month and the last 30 days,
+                     on the uplink interface and to the Internet only, with
+                     how much of each period was measured and this month's
+                     traffic by service. See docs/measurement-budget.md.
   dns [status [--json] | test [--via ROUTER] [--json] | adopt [--dry-run] | enable [--yes] | disable [--yes]]
                      The DNS observer (Pro): AdGuard Home on port 53, for the
                      router to forward the house's DNS to. 'enable' turns on
@@ -2238,6 +2244,28 @@ cmd_budget() {
     compose exec -T config-manager python budget.py "$@"
 }
 
+cmd_traffic() {
+    # The traffic ledger (config-manager/traffic.py over the meters' state
+    # files), asked of the running API from inside its container, like
+    # budget: the API token stays in the container's environment.
+    local a
+    for a in "$@"; do
+        case "$a" in --json) ;; -h|--help) usage; return 0 ;;
+            *) echo "unknown option $a (--json)" >&2; return 2 ;; esac
+    done
+    need_edition
+    # The meters (the netmeter, SmokePing's uplink exporter) are Pro's.
+    if ! grep -q '^  netmeter:' "$EDITION_DIR/docker-compose.yml"; then
+        echo "Traffic accounting is a Pro feature; the $SMOKING_PI_EDITION edition does not ship it." >&2
+        return 1
+    fi
+    if [ -z "$(compose ps -q --status running config-manager 2>/dev/null)" ]; then
+        echo "config-manager is not running: $(cli_name) up" >&2
+        return 1
+    fi
+    compose exec -T config-manager python traffic.py "$@"
+}
+
 port53_holder() {
     # Whatever already listens on port 53 (systemd-resolved's stub listens
     # on 127.0.0.53 only and does not conflict with 0.0.0.0 on Linux, but
@@ -2352,6 +2380,7 @@ case "${1:-}" in
     alerts) shift; cmd_alerts "$@" ;;
     dns) shift; cmd_dns "$@" ;;
     budget) shift; cmd_budget "$@" ;;
+    traffic) shift; cmd_traffic "$@" ;;
     up) shift; compose up -d "$@"; remove_disabled; publish_avahi ;;
     down) shift; compose down "$@"; unpublish_avahi ;;
     discover) shift; cmd_discover "$@" ;;

@@ -1,4 +1,5 @@
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -64,6 +65,40 @@ def test_record_keeps_a_day_and_drops_the_future():
     assert interval["services"]["smokeping"] == {"rx": 1, "tx": 2, "kind": "host_network"}
 
 
+@pytest.fixture
+def chicago(monkeypatch):
+    monkeypatch.setenv("TZ", "America/Chicago")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_the_ledger_keeps_days_with_the_internet_part_and_months_by_service(chicago):
+    svc = {"smokeping": {"rx": 100, "tx": 50}, "host": {"rx": 10, "tx": 5}}
+    kinds = {"smokeping": "host_network", "host": "rest"}
+    # 2026-10-01 23:55 and 2026-10-02 00:00 in Chicago: two days, one month.
+    state, _ = meter.record({"intervals": []}, svc, kinds, 1790916900.0, 300.0,
+                            {"rx": 80, "tx": 40})
+    state, _ = meter.record(state, svc, kinds, 1790917200.0, 300.0, {"rx": 80, "tx": 40})
+    assert state["days"] == {
+        "2026-10-01": {"rx": 110, "tx": 55, "seconds": 300.0, "internet": {"rx": 80, "tx": 40}},
+        "2026-10-02": {"rx": 110, "tx": 55, "seconds": 300.0, "internet": {"rx": 80, "tx": 40}},
+    }
+    assert state["months"] == {"2026-10": {"seconds": 600.0, "services": {
+        "smokeping": {"rx": 200, "tx": 100}, "host": {"rx": 20, "tx": 10}}}}
+
+
+def test_the_ledger_keeps_only_the_newest_days_and_months(monkeypatch):
+    monkeypatch.setattr(meter, "KEEP_DAYS", 2)
+    monkeypatch.setattr(meter, "KEEP_MONTHS", 1)
+    state = {"intervals": []}
+    for n in range(3):
+        state, _ = meter.record(state, {"host": {"rx": 1, "tx": 1}}, {}, 1_790_000_000.0
+                                + n * 40 * 86_400, 300.0)
+    assert len(state["days"]) == 2 and len(state["months"]) == 1
+
+
 def test_points():
     interval = {"t": 1301, "seconds": 300.0,
                 "services": {"smokeping": {"rx": 100, "tx": 200, "kind": "host_network"}}}
@@ -71,6 +106,10 @@ def test_points():
     line = pt.to_line_protocol()
     assert line.startswith("service_traffic,kind=host_network,service=smokeping ")
     assert "rx_bytes=100i" in line and line.endswith(" 1301")
+    interval["internet"] = {"rx": 70, "tx": 30}
+    _, inet = meter.points(interval)
+    line = inet.to_line_protocol()
+    assert line.startswith("internet_traffic ") and "tx_bytes=30i" in line
 
 
 class FakeNft:
@@ -114,6 +153,7 @@ def test_meter_loads_once_and_counts_across_a_reload(tmp_path, monkeypatch):
     assert interval["seconds"] == 300.0
     assert interval["services"]["smokeping"]["tx"] == 150
     assert interval["services"]["host"]["tx"] == 30
+    assert interval["internet"] == {"rx": 0, "tx": 0}
     assert (tmp_path / "state.json").exists()
 
 
@@ -233,3 +273,25 @@ def test_a_refused_reload_is_an_error_not_a_crash(tmp_path, monkeypatch):
 def test_empty_counter_output_is_an_error():
     with pytest.raises(nft.NftError):
         nft.reset_counters(runner=runner('{"nftables": []}'))
+
+
+def test_a_damaged_state_file_falls_back_to_the_previous_copy(tmp_path):
+    path = str(tmp_path / "state.json")
+    good = {"intervals": [], "months": {"2026-10": {"seconds": 1.0, "services": {}}}}
+    meter.save_state(path, good)
+    meter.save_state(path, dict(good, updated=1))
+    (tmp_path / "state.json").write_text("[]")  # valid JSON, wrong shape
+    assert meter.load_state(path)["months"] == good["months"]
+    assert (tmp_path / "state.json.corrupt").exists()
+
+
+def test_the_ledger_skips_a_pre_2020_clock_and_survives_wrong_shaped_rows():
+    svc = {"host": {"rx": 1, "tx": 1}}
+    state, _ = meter.record({"intervals": []}, svc, {}, 300.0, 300.0)
+    assert "days" not in state or state["days"] == {}
+    day = time.strftime("%Y-%m-%d", time.localtime(1_790_000_000))
+    damaged = {"intervals": [], "days": {day: ["junk"]},
+               "months": {day[:7]: {"services": "junk"}}}
+    state, _ = meter.record(damaged, svc, {}, 1_790_000_000.0, 300.0)
+    assert state["days"][day]["rx"] == 1
+    assert state["months"][day[:7]]["services"] == {"host": {"rx": 1, "tx": 1}}

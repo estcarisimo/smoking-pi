@@ -67,6 +67,7 @@ COPY models.py ./
 COPY file_ops.py ./
 COPY freshness.py ./
 COPY budget.py ./
+COPY traffic.py ./
 COPY meter_containers.py ./
 COPY recommendations.py ./
 COPY assistant.py ./

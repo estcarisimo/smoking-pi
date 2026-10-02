@@ -2099,3 +2099,53 @@ STUB
     run grep -q 'budget.py' "$DOCKER_LOG"
     [ "$status" -ne 0 ]
 }
+
+# --- traffic: what the Pi sent and received --------------------------------------
+
+traffic_setup() {
+    mkdir -p "$BATS_TEST_TMPDIR/bin4"
+    cat > "$BATS_TEST_TMPDIR/bin4/docker" <<STUB
+#!/bin/sh
+case "\$*" in
+    *"ps -q --status running config-manager"*) echo "docker \$*" >> "\$DOCKER_LOG"; [ -z "\${STUB_CM_RUNNING:-}" ] || echo cm123; exit 0 ;;
+    *"exec -T config-manager python traffic.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "this month     1.35 GB"; exit 0 ;;
+esac
+exec "$BATS_TEST_TMPDIR/bin/docker" "\$@"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin4/docker"
+    export PATH="$BATS_TEST_TMPDIR/bin4:$PATH"
+}
+
+@test "traffic: runs in config-manager, passes --json, refuses other options and a stopped API" {
+    traffic_setup
+    run "$CLI" traffic
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"config-manager is not running"* ]]
+    run grep -q 'traffic.py' "$DOCKER_LOG"
+    [ "$status" -ne 0 ]
+    export STUB_CM_RUNNING=1
+    run "$CLI" traffic
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python traffic.py$' "$DOCKER_LOG"
+    [[ "$output" == *"this month"* ]]
+    run "$CLI" traffic --json
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python traffic.py --json' "$DOCKER_LOG"
+    run "$CLI" traffic --month
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown option --month"* ]]
+}
+
+@test "traffic: Basic and Standard have no meters, and say so instead of trying" {
+    traffic_setup
+    export STUB_CM_RUNNING=1
+    for ed in basic standard; do
+        mkdir -p "$STUB_HOME/editions/$ed"
+        cp "$REPO/editions/$ed/docker-compose.yml" "$STUB_HOME/editions/$ed/"
+        SMOKING_PI_EDITION=$ed run "$CLI" traffic
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"Pro feature; the $ed edition"* ]]
+    done
+    run grep -q 'traffic.py' "$DOCKER_LOG"
+    [ "$status" -ne 0 ]
+}
