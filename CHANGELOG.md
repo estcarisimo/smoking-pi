@@ -9,6 +9,37 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.19.0] — 2026-10-02
+
+On Pro, the Pi now answers "how much this month?": a ledger of the bytes
+it sent and received per day, with the part that went to the Internet, in
+a command, a dashboard card and (with InfluxDB) a Grafana row. The
+measurement budget's estimate is corrected for HTTP/3, and the doctor
+warns when Avahi renames the host.
+
+- Pro: the uplink meter and the netmeter keep bytes in and out per local
+  date for 400 days, and each service's bytes per month for 25.
+  `smoking-pi traffic`, `GET /traffic` and the web admin's new Traffic
+  card report today, yesterday, this week, this month, last month (and, in
+  the command, the last 30 days), each with how much of the period was
+  measured. The ledger starts at the upgrade, so the card and the command
+  count from then; the Overview's new Traffic row sums the series already
+  in InfluxDB, back to when the meters started in v2.18.0 (the
+  Internet-only line starts at the upgrade).
+- Pro: the netmeter's nftables table gains the Internet-only totals:
+  traffic whose other end is not on the local network (private,
+  link-local, multicast, broadcast). Still counters only; with InfluxDB, a
+  new `internet_traffic` series.
+- The budget prices an HTTP/3 sample at 18 KB, and HTTP/1.1 and HTTP/2 at
+  12.5 KB (was 12 KB for all). On a test Pi the estimate had been 29%
+  under what the netmeter counted for SmokePing; the shipped seed's
+  estimate rises from ~98 to ~117 MB/day.
+- `doctor --live` has a new check, `avahi-host-name`, which `smoking-pi
+  upgrade` runs unless given `--skip-doctor`.
+- No new images and no new settings. As with every release, the upgrade
+  recreates the containers on the new version; the netmeter reloading its
+  table costs one five-minute interval of coverage.
+
 ### Added
 
 - **The doctor notices when Avahi renames the host.** On the reference Pi
@@ -16,12 +47,13 @@ version gets a matching GitHub release and git tag.
   after boot, twice (2026-09-29 and 2026-10-01). From then on
   `smokingpi.local` resolved nowhere, and nothing said so until someone
   typed the name and it failed. `smoking-pi.local` (the mdns service) is
-  unaffected, but people and old bookmarks still use the host's name. A new
-  `doctor --live` check, `avahi-host-name`, reads Avahi's process title and
-  warns when it answers for anything but `<hostname>.local`, with the fix.
-  Every `smoking-pi upgrade` runs it. `docs/mdns.md` has a new section,
-  "When `<hostname>.local` stops resolving": how to check, the restart that
-  is known to work, and the unproven cause.
+  unaffected, but people and old bookmarks still use the host's name. A
+  new `doctor --live` check, `avahi-host-name`, reads Avahi's process
+  title and warns when it answers for anything but `<hostname>.local`,
+  with the fix. `smoking-pi upgrade` runs it unless given `--skip-doctor`.
+  `docs/mdns.md` has a new section, "When `<hostname>.local` stops
+  resolving": how to check, the restart that is known to work, and the
+  unproven cause.
 
 - **Traffic accounting: what the Pi sent and received, by day, week and
   month (Pro).** The meters gave a rate (MB/day over the last 24 h), but
@@ -33,31 +65,31 @@ version gets a matching GitHub release and git tag.
   file rewritten every five minutes on an SD card). Since that file now
   holds history nothing else keeps, each meter writes it with an fsync,
   keeps the previous copy, and sets a damaged file aside instead of
-  starting over. The netmeter also
-  counts the **Internet-only** part: the same uplink without traffic to
-  private, link-local and multicast addresses, which is what an ISP's cap
-  sees (two new totals in its nftables table, still counters only; with
-  InfluxDB, a new `internet_traffic` series). config-manager's new
-  `GET /traffic` and `smoking-pi traffic [--json]` report today,
-  yesterday, this week, this month, last month and the last 30 days, each
-  with how much of the period each meter measured: a reboot loses five
-  minutes, and nothing is extrapolated. `docs/measurement-budget.md`, *Traffic
-  accounting*; it also corrects that the microcut detector's pings stay on
-  the LAN: they go to the ISP's first hop, across the uplink.
+  starting over. The netmeter also counts the **Internet-only** part: the
+  same uplink without traffic to private, link-local and multicast
+  addresses, which is what an ISP's cap sees (two new totals in its
+  nftables table, still counters only; with InfluxDB, a new
+  `internet_traffic` series). config-manager's new `GET /traffic` and
+  `smoking-pi traffic [--json]` report today, yesterday, this week, this
+  month, last month and the last 30 days, each with how much of the period
+  each meter measured: a reboot loses five minutes, and nothing is
+  extrapolated. `docs/measurement-budget.md`, *Traffic accounting*; it
+  also corrects that the microcut detector's pings stay on the LAN: they
+  go to the ISP's first hop, across the uplink.
 - **A Traffic card on the web admin's dashboard (Pro).** "How much this
   month?" needed SSH and `smoking-pi traffic`; the dashboard, where people
-  look, had only the 24-hour rate. The card shows the same figures: this month's total
-  (sent and received, and the Internet-only part), a row per period
-  (today, yesterday, this week, this month, last month) with how much of
-  it was measured, flagged when under 99%, and this month by service. The
-  top *Bandwidth Usage* card adds "This month: …". `/traffic` is cached
-  for a minute like `/budget`, and a failure is never cached.
+  look, had only the 24-hour rate. The card shows the same figures: this
+  month's total (sent and received, and the Internet-only part), a row per
+  period (today, yesterday, this week, this month, last month) with how
+  much of it was measured, flagged when under 99%, and this month by
+  service. The top *Bandwidth Usage* card adds "This month: …". `/traffic`
+  is cached for a minute like `/budget`, and a failure is never cached.
 - **A Traffic row in Grafana's Overview (Pro, InfluxDB).** The Overview
   showed traffic only as a rate (MB/day per five-minute interval), which
   cannot be read as "how much this month". The new row has received and
   sent per day over 30 days with the Internet-only part as a line, this
-  month so far and last month, and each service per calendar month over
-  12 months, summed from the existing series. Days and months follow the
+  month so far and last month, and each service per calendar month over 12
+  months, summed from the existing series. Days and months follow the
   dashboard's time zone (Flux `timezone.location` from `${__timezone}`);
   checked in a real browser on a test Pi under Chicago and Tokyo, where a
   naive month label would have put Tokyo's October in September. The
@@ -71,18 +103,18 @@ version gets a matching GitHub release and git tag.
   netmeter counted SmokePing at ~528 MB/day over 14.6 steady hours while
   the budget estimated 410: 29% short, on the figure the ceiling and the
   red/green of the card are judged by. Each probe's HEAD, measured on its
-  own (the probes' exact curl command in a throwaway container, reading its
-  byte counters; 40 targets, 3 samples each), cost 12.5 KB on average over
-  HTTP/1.1 and HTTP/2 but 17–18 KB over HTTP/3: QUIC pads every client
-  Initial to 1200 bytes and acknowledges on its own. The budget now prices a
-  Curl probe whose arguments ask for HTTP/3 at 18 KB and the others at
-  12.5 KB (was 12 for all). With the microcut detector's ~24 MB/day, which
-  the estimate does not count, that comes within 1% of the meter. The
-  shipped seed's estimate rises from ~98 to ~117 MB/day (12% of the default
-  ceiling); a wizard-heavy install, mostly HTTP, rises the most.
-  `docs/measurement-budget.md` also corrects the microcut detector's share:
-  ~24 MB/day per CPE address, counted under `smokeping`, not ~50 of LAN
-  traffic.
+  own (the probes' exact curl command in a throwaway container, reading
+  its byte counters; 40 targets, 3 samples each), cost 12.5 KB on average
+  over HTTP/1.1 and HTTP/2 but 17–18 KB over HTTP/3: QUIC pads every
+  client Initial to 1200 bytes and acknowledges on its own. The budget now
+  prices a Curl probe whose arguments ask for HTTP/3 at 18 KB and the
+  others at 12.5 KB (was 12 for all). With the microcut detector's ~24
+  MB/day, which the estimate does not count, that comes within 1% of the
+  meter. The shipped seed's estimate rises from ~98 to ~117 MB/day (12% of
+  the default ceiling); a wizard-heavy install, mostly HTTP, rises the
+  most. `docs/measurement-budget.md` also corrects the microcut detector's
+  share: ~24 MB/day per CPE address, counted under `smokeping`, not ~50 of
+  LAN traffic.
 
 ## [2.18.0] — 2026-10-01
 
