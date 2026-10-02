@@ -9,6 +9,34 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.19.0] — 2026-10-02
+
+The Pi now answers "how much this month?": a ledger of the bytes it sent
+and received per day, with the part that went to the Internet, in a
+command, a dashboard card and a Grafana row. The measurement budget's
+estimate is corrected for HTTP/3, and the doctor warns when Avahi renames
+the host.
+
+- Pro: the uplink meter and the netmeter keep bytes in and out per local
+  date for 400 days, and each service's bytes per month for 25.
+  `smoking-pi traffic`, `GET /traffic` and the web admin's new Traffic
+  card report today, yesterday, this week, this month, last month (and,
+  in the command, the last 30 days), each with how much of the period was
+  measured. The ledger starts at the upgrade, so the card and the command
+  count from then; the Overview's new Traffic row sums the series already
+  in InfluxDB, back to when the meters started in v2.18.0.
+- Pro: the netmeter's nftables table gains the Internet-only totals:
+  traffic whose other end is not a private, link-local or multicast
+  address. Still counters only; with InfluxDB, a new `internet_traffic`
+  series.
+- The budget prices an HTTP/3 sample at 18 KB, and HTTP/1.1 and HTTP/2 at
+  12.5 KB (was 12 KB for all). On a test Pi the estimate had been 29%
+  under what the netmeter counted for SmokePing; the shipped seed's
+  estimate rises from ~98 to ~117 MB/day.
+- `doctor --live` has a new check, `avahi-host-name`, which every
+  `smoking-pi upgrade` runs.
+- No new images and no new settings.
+
 ### Added
 
 - **The doctor notices when Avahi renames the host.** On the reference Pi
@@ -33,21 +61,20 @@ version gets a matching GitHub release and git tag.
   file rewritten every five minutes on an SD card). Since that file now
   holds history nothing else keeps, each meter writes it with an fsync,
   keeps the previous copy, and sets a damaged file aside instead of
-  starting over. The netmeter also
-  counts the **Internet-only** part: the same uplink without traffic to
+  starting over. The netmeter also counts the **Internet-only** part: the same uplink without traffic to
   private, link-local and multicast addresses, which is what an ISP's cap
   sees (two new totals in its nftables table, still counters only; with
   InfluxDB, a new `internet_traffic` series). config-manager's new
   `GET /traffic` and `smoking-pi traffic [--json]` report today,
   yesterday, this week, this month, last month and the last 30 days, each
   with how much of the period each meter measured: a reboot loses five
-  minutes, and nothing is extrapolated. `docs/measurement-budget.md`, *Traffic
-  accounting*; it also corrects that the microcut detector's pings stay on
+  minutes, and nothing is extrapolated. `docs/measurement-budget.md`,
+  *Traffic accounting*; it also corrects that the microcut detector's pings stay on
   the LAN: they go to the ISP's first hop, across the uplink.
 - **A Traffic card on the web admin's dashboard (Pro).** "How much this
   month?" needed SSH and `smoking-pi traffic`; the dashboard, where people
-  look, had only the 24-hour rate. The card shows the same figures: this month's total
-  (sent and received, and the Internet-only part), a row per period
+  look, had only the 24-hour rate. The card shows the same figures: this
+  month's total (sent and received, and the Internet-only part), a row per period
   (today, yesterday, this week, this month, last month) with how much of
   it was measured, flagged when under 99%, and this month by service. The
   top *Bandwidth Usage* card adds "This month: …". `/traffic` is cached
