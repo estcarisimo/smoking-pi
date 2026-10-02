@@ -92,14 +92,74 @@ def test_samples_and_bytes_per_probe():
     assert rows["FPing"]["targets"] == 3
     assert rows["FPing"]["samples_per_hour"] == 360
     assert rows["FPing"]["mb_per_day"] == pytest.approx(360 * 24 * 168 / 1e6, abs=0.01)
-    # One HEAD target: 60 samples an hour at 12 KB.
+    # One HEAD target: 60 samples an hour at 12.5 KB.
     assert rows["CurlHTTP2"]["samples_per_hour"] == 60
-    assert rows["CurlHTTP2"]["mb_per_day"] == pytest.approx(60 * 24 * 12_000 / 1e6)
+    assert rows["CurlHTTP2"]["mb_per_day"] == pytest.approx(60 * 24 * 12_500 / 1e6)
     # The wizard's copy is priced as the Curl class it belongs to.
-    assert rows["WizardHTTP2"]["bytes_per_sample"] == 12_000
+    assert rows["WizardHTTP2"]["bytes_per_sample"] == 12_500
     # Its own step: 3 pings every 60 s = 180 an hour.
     assert rows["Mystery"]["samples_per_hour"] == 180
     assert body["targets"] == 7
+
+
+# config_generator's HTTP sub-probes as generated: the version is in extraargs.
+HTTP_PROBES = """*** Probes ***
+
++ Curl
+
+++ CurlHTTP2
+binary = /usr/local/bin/curl-h3
+step = 300
+pings = 3
+extraargs = --http2;-s;-I;-o;/dev/null;-w;HTTPv=%{http_version}\\n
+
+++ CurlHTTP3
+binary = /usr/local/bin/curl-h3
+step = 300
+pings = 3
+extraargs = --http3-only;-s;-I;-o;/dev/null;-w;HTTPv=%{http_version}\\n
+
+++ WizardHTTP3
+binary = /usr/local/bin/curl-h3
+step = 300
+pings = 3
+extraargs = --http3-only;-s;-I;-o;/dev/null;-w;HTTPv=%{http_version}\\n
+
++ Mystery
+extraargs = --http3
+"""
+
+HTTP_TARGETS = """*** Targets ***
+
++ HTTP
+++ a_h2
+probe = CurlHTTP2
+host = www.google.com
+++ a_h3
+probe = CurlHTTP3
+host = www.google.com
+++ w_h3
+probe = WizardHTTP3
+host = www.bbc.co.uk
+++ odd
+probe = Mystery
+host = example.com
+"""
+
+
+def test_http3_is_priced_apart_from_http1_and_http2():
+    # Measured 2026-10-02: a HEAD over QUIC costs ~45% more than over TCP.
+    assert budget.http3_probes(HTTP_PROBES) == {"CurlHTTP3", "WizardHTTP3", "Mystery"}
+    body = budget.report(HTTP_TARGETS, "", HTTP_PROBES, env=NO_ENV)
+    rows = {r["probe"]: r for r in body["by_probe"]}
+    assert rows["CurlHTTP2"]["bytes_per_sample"] == 12_500
+    assert rows["CurlHTTP3"]["bytes_per_sample"] == 18_000
+    assert rows["WizardHTTP3"]["bytes_per_sample"] == 18_000
+    assert rows["CurlHTTP3"]["mb_per_day"] == pytest.approx(36 * 24 * 18_000 / 1e6, abs=0.01)
+    # Only the Curl class has an HTTP/3 price: a probe of another class that
+    # happens to pass --http3 stays unpriced rather than borrowing it.
+    assert rows["Mystery"]["bytes_per_sample"] is None
+    assert [r["probe"] for r in body["by_probe"]][:2] == ["CurlHTTP3", "WizardHTTP3"]
 
 
 def test_most_expensive_first():

@@ -10,7 +10,8 @@ discovery step) is visible before it is expensive.
 
 Deliberately approximate: the purpose is guardrails and capacity planning,
 not byte-perfect accounting. The per-sample costs below were measured, not
-derived from a spec, and are rounded up.
+derived from a spec: averages over real sites, checked against the
+netmeter's per-service counters.
 
 Everything here is pure, so it is tested without Docker; api.py and the
 command line below supply the file contents.
@@ -25,7 +26,7 @@ import re
 import sys
 import time
 from collections import Counter
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 
 import freshness
 
@@ -37,20 +38,26 @@ import freshness
 #   EDNS cookie; rounded up.
 # - TCPPing: tcptraceroute's SYN, the SYN/ACK and the kernel's RST.
 # - Curl: one HEAD over TLS 1.3. The handshake (certificate chain) and the
-#   response headers: 8-12 KB across eight popular sites, so 12 KB.
-#   HTTP/3's padded QUIC Initials add a little; it stays within this.
+#   response headers, and curl's own lookup of the name. Re-measured
+#   2026-10-02 per sample on a test Pi, 23 sites: 9-17 KB over HTTP/1.1 and
+#   HTTP/2, 12.5 KB on average.
+# - Curl over HTTP/3 (HTTP3_BYTES_PER_SAMPLE): 15-22 KB, 17-18 KB on
+#   average. QUIC pads every client Initial to 1200 bytes and acknowledges
+#   on its own, so the same HEAD costs about 45% more than over TCP. Priced
+#   at 12 KB until then, the estimate sat ~29% under the meter.
 BYTES_PER_SAMPLE: Dict[str, int] = {
     "FPing": 168,
     "FPing6": 208,
     "DNS": 300,
     "TCPPing": 200,
-    "Curl": 12_000,
+    "Curl": 12_500,
 }
+HTTP3_BYTES_PER_SAMPLE = 18_000
 
-# Default ceilings, about 30 GB a month. The shipped seed uses 10% of the
-# bandwidth (~98 MB/day, nearly all of it TLS handshakes) and 7% of the
+# Default ceilings, about 30 GB a month. The shipped seed uses 12% of the
+# bandwidth (~117 MB/day, nearly all of it TLS handshakes) and 7% of the
 # samples; a DNS wizard adoption of 60 services over HTTP/1.1, 2 and 3
-# alone is ~1.9 GB/day. So they flag a target list that grew several-fold,
+# alone is ~2.2 GB/day. So they flag a target list that grew several-fold,
 # not normal use. MEASUREMENT_BUDGET_MB_PER_DAY and
 # MEASUREMENT_BUDGET_SAMPLES_PER_HOUR override them.
 DEFAULT_MB_PER_DAY = 1000
@@ -75,6 +82,24 @@ def probe_classes(probes_text: str) -> Dict[str, str]:
         elif parent is not None:
             classes[m.group(2)] = parent
     return classes
+
+
+def http3_probes(probes_text: str) -> Set[str]:
+    """Probe names whose curl speaks HTTP/3 (``--http3`` or
+    ``--http3-only`` in their ``extraargs``), priced apart from HTTP/1.1
+    and HTTP/2. Each section's own ``extraargs`` only, which is how
+    config_generator emits them: a ``+ Curl`` parent never carries one."""
+    found: Set[str] = set()
+    current: Optional[str] = None
+    for raw in probes_text.splitlines():
+        line = raw.strip()
+        m = _SECTION.match(line)
+        if m:
+            current = m.group(2)
+            continue
+        if current and line.startswith("extraargs") and "--http3" in line:
+            found.add(current)
+    return found
 
 
 def ceilings(env: Optional[Dict[str, str]] = None) -> Dict[str, float]:
@@ -223,6 +248,7 @@ def report(
     steps = freshness.parse_probe_var(probes_text, "step", step)
     counts = freshness.parse_probe_var(probes_text, "pings", pings)
     classes = probe_classes(probes_text)
+    http3 = http3_probes(probes_text)
     per_probe = Counter(e.probe for e in freshness.parse_targets(targets_text, cpe_text))
 
     rows = []
@@ -230,7 +256,8 @@ def report(
         p_step = steps.get(probe, step)
         p_pings = counts.get(probe, pings)
         cls = classes.get(probe, probe)
-        per_sample = BYTES_PER_SAMPLE.get(cls)
+        per_sample = (HTTP3_BYTES_PER_SAMPLE if cls == "Curl" and probe in http3
+                      else BYTES_PER_SAMPLE.get(cls))
         samples_h = targets * p_pings * 3600 / p_step
         rows.append({
             "probe": probe,
