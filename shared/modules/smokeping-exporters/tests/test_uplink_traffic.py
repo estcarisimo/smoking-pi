@@ -146,3 +146,26 @@ def test_two_interfaces_in_one_day_are_both_named():
     days = ut.add_to_ledger(days, {"t": 1_790_000_300, "rx": 1, "tx": 1, "seconds": 300,
                                    "interface": "eth0"})
     assert days[ut.local_day(1_790_000_000)]["interfaces"] == ["eth0", "wlan0"]
+
+
+def test_a_damaged_state_file_falls_back_to_the_previous_copy(tmp_path):
+    path = str(tmp_path / "uplink_traffic.json")
+    good = {"intervals": [], "days": {"2026-10-01": {"rx": 1, "tx": 2, "seconds": 300.0}}}
+    ut.save_state(path, good)
+    ut.save_state(path, dict(good, updated=1))  # the first is now the .bak
+    (tmp_path / "uplink_traffic.json").write_text('{"intervals": [')  # a torn write
+    state = ut.load_state(path)
+    assert state["days"] == good["days"]
+    # The damaged file is kept for a look, not overwritten by the next save.
+    assert (tmp_path / "uplink_traffic.json.corrupt").read_text() == '{"intervals": ['
+    # A crash between save_state's two renames leaves only the .bak.
+    (tmp_path / "uplink_traffic.json").unlink(missing_ok=True)
+    assert ut.load_state(path)["days"] == good["days"]
+    assert ut.load_state(str(tmp_path / "none.json")) == {"intervals": []}
+
+
+def test_a_clock_before_2020_stays_out_of_the_ledger():
+    # A Pi without a real-time clock, before NTP: the bytes are real, the date is not.
+    days = ut.add_to_ledger({}, {"t": 300, "rx": 1, "tx": 1, "seconds": 300,
+                                 "interface": "wlan0"})
+    assert days == {}

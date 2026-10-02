@@ -2254,7 +2254,8 @@ cmd_traffic() {
             *) echo "unknown option $a (--json)" >&2; return 2 ;; esac
     done
     need_edition
-    if ! grep -q '^  config-manager:' "$EDITION_DIR/docker-compose.yml"; then
+    # The meters (the netmeter, SmokePing's uplink exporter) are Pro's.
+    if ! grep -q '^  netmeter:' "$EDITION_DIR/docker-compose.yml"; then
         echo "Traffic accounting is a Pro feature; the $SMOKING_PI_EDITION edition does not ship it." >&2
         return 1
     fi

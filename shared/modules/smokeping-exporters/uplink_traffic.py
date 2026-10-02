@@ -55,6 +55,10 @@ DEFAULT_STATE = "/config/uplink_traffic.json"
 # The ledger: a year and a month, so this month can be set beside the same
 # month a year ago. About 60 bytes a day.
 KEEP_DAYS = 400
+# A wall clock before this is a Pi without a real-time clock that has not
+# synced yet: its intervals are real, their dates are not, so they stay
+# out of the ledger (2020-01-01 UTC).
+LEDGER_EPOCH = 1_577_836_800
 
 
 def read_counters(name: str, path: Path = PROC_NET_DEV) -> tuple[int, int] | None:
@@ -77,21 +81,48 @@ def read_counters(name: str, path: Path = PROC_NET_DEV) -> tuple[int, int] | Non
     return None
 
 
-def load_state(path: str) -> dict:
+def _read_state(path: str) -> tuple[dict | None, bool]:
+    """(state, damaged): None and False when there is no file."""
     try:
         with open(path) as f:
             state = json.load(f)
+    except FileNotFoundError:
+        return None, False
     except (OSError, ValueError):
-        return {"intervals": []}
+        return None, True
     if not isinstance(state, dict) or not isinstance(state.get("intervals"), list):
-        return {"intervals": []}
-    return state
+        return None, True
+    return state, False
+
+
+def load_state(path: str) -> dict:
+    """The state file. A damaged one is set aside as ``.corrupt``, not
+    overwritten, and the copy save_state kept of the one before (``.bak``)
+    is used instead: the file holds the traffic ledger, up to 400 days
+    that nothing else keeps."""
+    state, damaged = _read_state(path)
+    if damaged:
+        log.warning("state file damaged, kept as %s.corrupt; using the previous copy", path)
+        try:
+            os.replace(path, f"{path}.corrupt")
+        except OSError:
+            pass
+    if state is None:
+        state, _ = _read_state(f"{path}.bak")
+    return state if state is not None else {"intervals": []}
 
 
 def save_state(path: str, state: dict) -> None:
+    """Write, flush to the card, keep the previous file as ``.bak``, then
+    put the new one in place. A crash between the two renames leaves only
+    the ``.bak``, which load_state reads."""
     tmp = f"{path}.tmp"
     with open(tmp, "w") as f:
         json.dump(state, f, separators=(",", ":"))
+        f.flush()
+        os.fsync(f.fileno())
+    if os.path.exists(path):
+        os.replace(path, f"{path}.bak")
     os.replace(tmp, path)
 
 
@@ -106,6 +137,8 @@ def add_to_ledger(days: dict, interval: dict, keep: int = KEEP_DAYS) -> dict:
     """``days`` with one interval added to its local date, and only the
     newest ``keep`` dates kept."""
     out = {k: v for k, v in days.items() if isinstance(v, dict)}
+    if interval["t"] < LEDGER_EPOCH:
+        return out
     key = local_day(interval["t"])
     day = dict(out.get(key) or {})
     day["rx"] = int(day.get("rx") or 0) + int(interval["rx"])

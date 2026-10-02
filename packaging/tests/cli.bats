@@ -2136,13 +2136,16 @@ STUB
     [[ "$output" == *"unknown option --month"* ]]
 }
 
-@test "traffic: Basic has no config-manager, and says so instead of trying" {
+@test "traffic: Basic and Standard have no meters, and say so instead of trying" {
     traffic_setup
-    cp "$REPO/editions/basic/docker-compose.yml" "$STUB_HOME/editions/basic/"
     export STUB_CM_RUNNING=1
-    SMOKING_PI_EDITION=basic run "$CLI" traffic
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"Pro feature"* ]]
+    for ed in basic standard; do
+        mkdir -p "$STUB_HOME/editions/$ed"
+        cp "$REPO/editions/$ed/docker-compose.yml" "$STUB_HOME/editions/$ed/"
+        SMOKING_PI_EDITION=$ed run "$CLI" traffic
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"Pro feature; the $ed edition"* ]]
+    done
     run grep -q 'traffic.py' "$DOCKER_LOG"
     [ "$status" -ne 0 ]
 }

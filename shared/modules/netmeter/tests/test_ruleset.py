@@ -105,8 +105,8 @@ def test_clashing_counter_names_keep_the_first():
 
 def test_internet_counters_skip_the_local_network_before_any_service_returns():
     text = ruleset.build([SP, GRAFANA], ["wlan0"])
-    assert "set local_v4 { type ipv4_addr; flags interval; elements = { 10.0.0.0/8, " in text
-    assert "fc00::/7, fe80::/10, ff00::/8" in text
+    assert "set local_v4 { type ipv4_addr; flags interval; elements = { 0.0.0.0/8, 10.0.0.0/8, " in text
+    assert "elements = { ::, fc00::/7, fe80::/10, ff00::/8 }" in text
     out = text[text.index("chain meter_out"):text.index("chain meter_in")]
     # Counted on every uplink packet, so before the first per-service return.
     assert out.index("ip daddr != @local_v4 counter name internet_tx") < out.index("socket cgroupv2")

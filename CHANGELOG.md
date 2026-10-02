@@ -29,16 +29,19 @@ version gets a matching GitHub release and git tag.
   more than a day, outside InfluxDB, and nothing at all with ClickHouse.
   The uplink meter and the netmeter now keep a ledger in their state
   files: bytes in and out per local date (`TZ`) for 400 days, and each
-  service's bytes per month for 25 (per month, not per day, because the
-  file is rewritten every five minutes on an SD card). The netmeter also
+  service's bytes per month for 25 (per day it would more than double a
+  file rewritten every five minutes on an SD card). Since that file now
+  holds history nothing else keeps, each meter writes it with an fsync,
+  keeps the previous copy, and sets a damaged file aside instead of
+  starting over. The netmeter also
   counts the **Internet-only** part: the same uplink without traffic to
   private, link-local and multicast addresses, which is what an ISP's cap
   sees (two new totals in its nftables table, still counters only; with
   InfluxDB, a new `internet_traffic` series). config-manager's new
   `GET /traffic` and `smoking-pi traffic [--json]` report today,
   yesterday, this week, this month, last month and the last 30 days, each
-  with how much of the period was measured: a reboot loses five minutes,
-  and nothing is extrapolated. `docs/measurement-budget.md`, *Traffic
+  with how much of the period each meter measured: a reboot loses five
+  minutes, and nothing is extrapolated. `docs/measurement-budget.md`, *Traffic
   accounting*; it also corrects that the microcut detector's pings stay on
   the LAN: they go to the ISP's first hop, across the uplink.
 

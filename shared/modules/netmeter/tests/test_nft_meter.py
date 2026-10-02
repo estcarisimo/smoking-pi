@@ -273,3 +273,25 @@ def test_a_refused_reload_is_an_error_not_a_crash(tmp_path, monkeypatch):
 def test_empty_counter_output_is_an_error():
     with pytest.raises(nft.NftError):
         nft.reset_counters(runner=runner('{"nftables": []}'))
+
+
+def test_a_damaged_state_file_falls_back_to_the_previous_copy(tmp_path):
+    path = str(tmp_path / "state.json")
+    good = {"intervals": [], "months": {"2026-10": {"seconds": 1.0, "services": {}}}}
+    meter.save_state(path, good)
+    meter.save_state(path, dict(good, updated=1))
+    (tmp_path / "state.json").write_text("[]")  # valid JSON, wrong shape
+    assert meter.load_state(path)["months"] == good["months"]
+    assert (tmp_path / "state.json.corrupt").exists()
+
+
+def test_the_ledger_skips_a_pre_2020_clock_and_survives_wrong_shaped_rows():
+    svc = {"host": {"rx": 1, "tx": 1}}
+    state, _ = meter.record({"intervals": []}, svc, {}, 300.0, 300.0)
+    assert "days" not in state or state["days"] == {}
+    day = time.strftime("%Y-%m-%d", time.localtime(1_790_000_000))
+    damaged = {"intervals": [], "days": {day: ["junk"]},
+               "months": {day[:7]: {"services": "junk"}}}
+    state, _ = meter.record(damaged, svc, {}, 1_790_000_000.0, 300.0)
+    assert state["days"][day]["rx"] == 1
+    assert state["months"][day[:7]]["services"] == {"host": {"rx": 1, "tx": 1}}

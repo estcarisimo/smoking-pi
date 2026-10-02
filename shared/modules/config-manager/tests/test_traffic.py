@@ -60,6 +60,7 @@ NETMETER = netmeter_state(
         "grafana": {"rx": 900_000_000, "tx": 1}}},
      "2026-09": {"seconds": DAY, "services": {"smokeping": {"rx": 5, "tx": 5}}}})
 NOON = at("2026-10-02T12:00:00")
+TODAY = datetime(2026, 10, 2).date()
 
 
 def by_period(body):
@@ -115,6 +116,41 @@ def test_the_internet_figure_is_the_netmeters_and_smaller():
     assert "No Internet-only figure" in traffic.render(alone)
 
 
+@pytest.mark.parametrize("day, hours", [("2027-03-14", 23), ("2026-11-01", 25)])
+def test_a_daylight_saving_day_is_its_real_length(day, hours):
+    # Chicago springs forward on 2027-03-14 and falls back on 2026-11-01:
+    # a meter running all day counts 23 or 25 hours, and that is 100%.
+    ledger = uplink_state({day: {"rx": 1, "tx": 1, "seconds": hours * 3600.0}})
+    next_noon = datetime.fromisoformat(day).timestamp() + 36 * 3600
+    p = by_period(traffic.report(ledger, "", now=next_noon))
+    assert p["yesterday"]["uplink"]["coverage_pct"] == 100.0
+
+
+def test_rows_dated_by_a_wrong_clock_are_ignored():
+    ledger = uplink_state({
+        "1970-01-01": {"rx": 5, "tx": 5, "seconds": 300.0},     # before NTP synced
+        "2031-05-05": {"rx": 7, "tx": 7, "seconds": 300.0},     # a clock stepped ahead
+        "2026-10-02": {"rx": 1, "tx": 1, "seconds": 300.0}})
+    body = traffic.report(ledger, "", now=NOON)
+    assert body["since"] == "2026-10-02"
+    assert [d["date"] for d in body["days"]] == ["2026-10-02"]
+
+
+def test_the_internet_figure_has_its_own_coverage_and_start():
+    # The netmeter started a day after the uplink meter.
+    net = netmeter_state({"2026-10-02": {"rx": 1, "tx": 1, "seconds": DAY / 2,
+                                         "internet": {"rx": 10, "tx": 10}}})
+    body = traffic.report(UPLINK, net, now=NOON)
+    month = by_period(body)["this_month"]
+    assert month["uplink"]["coverage_pct"] == 100.0
+    assert month["internet"]["coverage_pct"] == pytest.approx(100 / 3, abs=0.1)
+    assert body["internet_since"] == "2026-10-02" and body["since"] == "2026-09-30"
+    text = traffic.render(body)
+    assert "Internet only since 2026-10-02" in text
+    month_line = next(line for line in text.splitlines() if line.startswith("this month"))
+    assert month_line.split()[-1] == "33%"
+
+
 def test_services_by_month_most_first():
     body = traffic.report(UPLINK, NETMETER, now=NOON)
     names = [s["service"] for s in body["services"]["this_month"]]
@@ -146,9 +182,9 @@ def test_no_ledger_or_a_damaged_one_is_said_not_raised(damaged):
         assert by_period(body)["today"]["uplink"]["total"] == 0
     else:
         assert "no traffic ledger yet" in body["reason"]
-    assert traffic._ledger('{"days": {"junk": {"rx": 1}, "2026-10-02": {}}}', "days") == {
+    assert traffic._ledger('{"days": {"junk": {"rx": 1}, "2026-10-02": {}}}', "days", TODAY) == {
         "2026-10-02": {}}
-    assert traffic._ledger('{"months": {"2026-13": {}, "2026-10": {}}}', "months") == {
+    assert traffic._ledger('{"months": {"2026-13": {}, "2026-10": {}}}', "months", TODAY) == {
         "2026-10": {}}
 
 
@@ -218,7 +254,12 @@ def test_traffic_without_netmeter_or_docker_answers(client, monkeypatch):
     assert body["available"] is True and body["internet_available"] is False
     _docker(monkeypatch, error=RuntimeError("no docker socket"))
     body = client.get("/traffic").get_json()
-    assert body["available"] is False
+    assert body["available"] is False and body["complete"] is False
+    assert "could not be read" in body["reason"]
+    # A reachable container without the file yet is "no ledger yet".
+    _docker(monkeypatch, {"pro-smokeping-1": FakeContainer({})})
+    body = client.get("/traffic").get_json()
+    assert body["complete"] is True and "no traffic ledger yet" in body["reason"]
 
 
 def test_traffic_needs_the_token_when_one_is_set(client, monkeypatch):

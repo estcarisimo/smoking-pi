@@ -12,13 +12,19 @@ an SD card, and a year of daily rows per service would be most of it.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
+
+log = logging.getLogger("netmeter")
 
 INTERVAL = 300
 KEEP_SECONDS = 86_400 + 2 * INTERVAL
 KEEP_DAYS = 400
 KEEP_MONTHS = 25
+# A wall clock before this is a Pi without a real-time clock that has not
+# synced yet: the interval is real, its date is not (2020-01-01 UTC).
+LEDGER_EPOCH = 1_577_836_800
 
 
 def add_counts(a: dict[str, tuple[int, int]], b: dict[str, tuple[int, int]]) -> dict:
@@ -47,13 +53,15 @@ def add_to_ledger(state: dict, interval: dict) -> dict:
     and month it ends in (an interval straddling midnight counts for the
     day it ends in: at most five minutes on the wrong side)."""
     t = interval["t"]
+    if t < LEDGER_EPOCH:
+        return state
     day_key = time.strftime("%Y-%m-%d", time.localtime(t))
     month_key = day_key[:7]
     services = interval["services"]
     days = state.get("days") if isinstance(state.get("days"), dict) else {}
     months = state.get("months") if isinstance(state.get("months"), dict) else {}
 
-    day = dict(days.get(day_key) or {})
+    day = dict(days[day_key]) if isinstance(days.get(day_key), dict) else {}
     total = _add(day, sum(v["rx"] for v in services.values()),
                  sum(v["tx"] for v in services.values()))
     day.update(total)
@@ -61,9 +69,10 @@ def add_to_ledger(state: dict, interval: dict) -> dict:
     if "internet" in interval:
         day["internet"] = _add(day.get("internet"), interval["internet"]["rx"],
                                interval["internet"]["tx"])
-    month = dict(months.get(month_key) or {})
+    month = dict(months[month_key]) if isinstance(months.get(month_key), dict) else {}
     month["seconds"] = round(float(month.get("seconds") or 0) + interval["seconds"], 1)
-    by_service = dict(month.get("services") or {})
+    by_service = (dict(month["services"]) if isinstance(month.get("services"), dict)
+                  else {})
     for name, v in services.items():
         by_service[name] = _add(by_service.get(name), v["rx"], v["tx"])
     month["services"] = by_service
@@ -116,20 +125,47 @@ def points(interval: dict):
     return out
 
 
-def load_state(path: str) -> dict:
+def _read_state(path: str) -> tuple[dict | None, bool]:
+    """(state, damaged): None and False when there is no file."""
     try:
         with open(path) as f:
             state = json.load(f)
+    except FileNotFoundError:
+        return None, False
     except (OSError, ValueError):
-        return {"intervals": []}
+        return None, True
     if not isinstance(state, dict) or not isinstance(state.get("intervals"), list):
-        return {"intervals": []}
-    return state
+        return None, True
+    return state, False
+
+
+def load_state(path: str) -> dict:
+    """The state file. A damaged one is set aside as ``.corrupt``, not
+    overwritten, and the copy save_state kept of the one before (``.bak``)
+    is used instead: the file holds the traffic ledger, up to 400 days
+    that nothing else keeps."""
+    state, damaged = _read_state(path)
+    if damaged:
+        log.warning("state file damaged, kept as %s.corrupt; using the previous copy", path)
+        try:
+            os.replace(path, f"{path}.corrupt")
+        except OSError:
+            pass
+    if state is None:
+        state, _ = _read_state(f"{path}.bak")
+    return state if state is not None else {"intervals": []}
 
 
 def save_state(path: str, state: dict) -> None:
+    """Write, flush to the card, keep the previous file as ``.bak``, then
+    put the new one in place. A crash between the two renames leaves only
+    the ``.bak``, which load_state reads."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = f"{path}.tmp"
     with open(tmp, "w") as f:
         json.dump(state, f, separators=(",", ":"))
+        f.flush()
+        os.fsync(f.fileno())
+    if os.path.exists(path):
+        os.replace(path, f"{path}.bak")
     os.replace(tmp, path)

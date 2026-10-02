@@ -35,6 +35,8 @@ from typing import Dict, List, Optional, Tuple
 
 # How many of the newest days the body lists one by one.
 DAYS_LISTED = 62
+# The meters write nothing dated earlier (their LEDGER_EPOCH).
+LEDGER_FIRST = date(2020, 1, 1)
 
 
 def _day(d: str) -> Optional[date]:
@@ -44,7 +46,7 @@ def _day(d: str) -> Optional[date]:
         return None
 
 
-def _ledger(text: str, key: str) -> Dict[str, dict]:
+def _ledger(text: str, key: str, today: date) -> Dict[str, dict]:
     """``days`` or ``months`` of a meter's state file; {} when the file is
     missing or damaged (the report then says the meter has nothing yet)."""
     try:
@@ -54,11 +56,17 @@ def _ledger(text: str, key: str) -> Dict[str, dict]:
     rows = state.get(key) if isinstance(state, dict) else None
     if not isinstance(rows, dict):
         return {}
-    # A date (days) or a month (months), nothing else: a damaged key must
-    # not become the "measured since".
-    valid = _day if key == "days" else (lambda k: _day(f"{k}-01"))
+    # A date (days) or a month (months) between 2020 and tomorrow, nothing
+    # else: a damaged key, or a row a wrong clock wrote (a Pi without a
+    # real-time clock before it synced, a clock stepped forward), must not
+    # become the "measured since" or this month's traffic.
+    latest = today + timedelta(days=1)
+
+    def valid(k):
+        d = _day(k) if key == "days" else _day(f"{k}-01")
+        return d is not None and LEDGER_FIRST <= d <= latest
     return {k: v for k, v in rows.items()
-            if isinstance(k, str) and isinstance(v, dict) and valid(k) is not None}
+            if isinstance(k, str) and isinstance(v, dict) and valid(k)}
 
 
 def _int(v) -> int:
@@ -90,11 +98,13 @@ def periods(today: date) -> List[Tuple[str, str, date, date]]:
     ]
 
 
-def _elapsed(first: date, last: date, now: datetime) -> float:
-    """Seconds of the period that have happened, in local time."""
-    start = datetime.combine(first, datetime.min.time())
-    end = min(datetime.combine(last + timedelta(days=1), datetime.min.time()), now)
-    return max((end - start).total_seconds(), 0.0)
+def _elapsed(first: date, last: date, now: float) -> float:
+    """Real seconds of the period that have happened. Local midnights
+    through epoch seconds, not naive datetimes: a daylight-saving day is
+    23 or 25 hours, and the meters count real seconds."""
+    start = datetime.combine(first, datetime.min.time()).timestamp()
+    end = min(datetime.combine(last + timedelta(days=1), datetime.min.time()).timestamp(), now)
+    return max(end - start, 0.0)
 
 
 def _sum(days: Dict[str, dict], first: date, last: date, internet: bool = False) -> dict:
@@ -138,11 +148,11 @@ def report(uplink_text: str = "", netmeter_text: str = "",
            now: Optional[float] = None) -> dict:
     """The JSON body of GET /traffic. Bytes are integers; the clients
     format them."""
-    now_dt = datetime.fromtimestamp(time.time() if now is None else now)
-    today = now_dt.date()
-    uplink_days = _ledger(uplink_text, "days")
-    net_days = _ledger(netmeter_text, "days")
-    months = _ledger(netmeter_text, "months")
+    now = time.time() if now is None else now
+    today = datetime.fromtimestamp(now).date()
+    uplink_days = _ledger(uplink_text, "days", today)
+    net_days = _ledger(netmeter_text, "days", today)
+    months = _ledger(netmeter_text, "months", today)
     # The interface's figure is the uplink meter's; without it (the
     # exporter has not run yet), the netmeter's own totals of the same
     # interface.
@@ -157,7 +167,7 @@ def report(uplink_text: str = "", netmeter_text: str = "",
                          for i in (r.get("interfaces") or []) if isinstance(i, str)})
     out_periods = []
     for key, label, first, last in periods(today):
-        elapsed = _elapsed(first, last, now_dt)
+        elapsed = _elapsed(first, last, now)
         uplink = _sum(days, first, last)
         uplink["coverage_pct"] = _coverage(uplink["seconds"], elapsed)
         internet = None
@@ -185,6 +195,11 @@ def report(uplink_text: str = "", netmeter_text: str = "",
         "interfaces": interfaces,
         "since": min(days),
         "internet_available": has_internet,
+        # The netmeter can have started later than the uplink meter (it
+        # came in v2.18.0) or been off for a while: its own start.
+        "internet_since": (min(k for k, r in net_days.items()
+                               if isinstance(r.get("internet"), dict))
+                           if has_internet else None),
         "periods": out_periods,
         "days": listed,
         "services": {
@@ -208,21 +223,27 @@ def human(n: int) -> str:
 def render(body: dict) -> str:
     """The report as text, for ``smoking-pi traffic``."""
     on = ", ".join(body.get("interfaces") or []) or "the uplink"
-    lines = [f"Traffic on {on} (local time, {body.get('timezone')}), "
-             f"measured since {body.get('since')}.", ""]
+    since = f"measured since {body.get('since')}"
+    if body.get("internet_since") and body["internet_since"] != body.get("since"):
+        since += f", Internet only since {body['internet_since']}"
+    lines = [f"Traffic on {on} (local time, {body.get('timezone')}), {since}.", ""]
+
+    def cov(part):
+        return "-" if part["coverage_pct"] is None else f"{part['coverage_pct']:.0f}%"
+
     head = f"{'':<13} {'received':>10} {'sent':>10} {'total':>10} {'covered':>8}"
     if body.get("internet_available"):
-        head += f" {'Internet':>10}"
+        head += f" {'Internet':>10} {'covered':>8}"
     lines.append(head)
     for p in body["periods"]:
         u = p["uplink"]
-        cov = "-" if u["coverage_pct"] is None else f"{u['coverage_pct']:.0f}%"
         line = (f"{p['label']:<13} {human(u['rx']):>10} {human(u['tx']):>10} "
-                f"{human(u['total']):>10} {cov:>8}")
+                f"{human(u['total']):>10} {cov(u):>8}")
         if body.get("internet_available"):
             # Nothing measured is not zero bytes: the netmeter was not running.
             net = p["internet"]
-            line += f" {human(net['total']) if net['seconds'] else '-':>10}"
+            line += (f" {human(net['total']):>10} {cov(net):>8}" if net["seconds"]
+                     else f" {'-':>10} {'-':>8}")
         lines.append(line)
     lines += ["",
               "received/sent/total: everything on the interface, the local network "
@@ -232,7 +253,8 @@ def render(body: dict) -> str:
                      "network (what a data plan counts).")
     else:
         lines.append("No Internet-only figure: the netmeter is off or has not counted yet.")
-    lines.append("covered: how much of the period the meter was running.")
+    lines.append("covered: how much of the period each meter was running; nothing is "
+                 "extrapolated.")
     services = body.get("services", {}).get("this_month") or []
     if services:
         lines += ["", "This month by service:"]

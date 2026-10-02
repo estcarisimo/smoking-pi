@@ -11,7 +11,7 @@ import secrets
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 import yaml
 import subprocess
 import threading
@@ -530,9 +530,9 @@ class ConfigManagerAPI:
                 database_text = database.output.decode(errors='replace')
             # The uplink meter (smokeping-exporters/uplink_traffic.py);
             # absent before its first interval and on Basic/Standard.
-            traffic = container.exec_run(['cat', '/config/uplink_traffic.json'])
-            if traffic.exit_code == 0:
-                traffic_text = traffic.output.decode(errors='replace')
+            uplink = container.exec_run(['cat', '/config/uplink_traffic.json'])
+            if uplink.exit_code == 0:
+                traffic_text = uplink.output.decode(errors='replace')
         except Exception as e:
             logger.info("Budget without the SmokePing container's files: %s",
                         type(e).__name__)
@@ -559,26 +559,33 @@ class ConfigManagerAPI:
         return {'available': True, 'complete': complete,
                 'checked_at': datetime.now().isoformat(), **body}
 
-    def _container_file(self, service: str, path: str) -> str:
-        """A file inside one of the stack's containers, or '' when the
-        container or the file is not there (another edition, a profile
-        that is off, a meter that has not written yet)."""
+    def _container_file(self, service: str, path: str) -> Optional[str]:
+        """A file inside one of the stack's containers: '' when the file is
+        not there (a meter that has not written yet), None when the
+        container could not be asked (not in this edition, a profile that
+        is off, stopped, or no Docker socket)."""
         try:
             container = docker.from_env().containers.get(resolve_container_name(service))
             found = container.exec_run(['cat', path])
         except Exception as e:
-            logger.debug("%s:%s not read: %s", service, path, type(e).__name__)
-            return ''
+            logger.info("%s:%s not read: %s", service, path, type(e).__name__)
+            return None
         return found.output.decode(errors='replace') if found.exit_code == 0 else ''
 
     def traffic_accounting(self) -> Dict[str, Any]:
         """What the Pi sent and received per day, week and month, from the
         meters' ledgers. See traffic.py."""
-        body = traffic.report(
-            uplink_text=self._container_file('smokeping', '/config/uplink_traffic.json'),
-            netmeter_text=self._container_file('netmeter', '/var/lib/netmeter/state.json'),
-        )
-        return {'checked_at': datetime.now().isoformat(), **body}
+        uplink = self._container_file('smokeping', '/config/uplink_traffic.json')
+        netmeter = self._container_file('netmeter', '/var/lib/netmeter/state.json')
+        body = traffic.report(uplink_text=uplink or '', netmeter_text=netmeter or '')
+        if not body.get('available') and uplink is None:
+            # Not "no ledger yet": the container holding it was not reachable.
+            body['reason'] = ("the SmokePing container could not be read "
+                              "(stopped, or no Docker access); see config-manager's log")
+        # The netmeter's absence is normal (Standard, NETMETER=off); the
+        # uplink meter's is not.
+        return {'checked_at': datetime.now().isoformat(),
+                'complete': uplink is not None, **body}
 
     def assistant_status(self) -> Dict[str, Any]:
         """Whether an assistant is calling the MCP server; see assistant.py.

@@ -55,13 +55,14 @@ FIXED_MARKS = {"smokeping": 1, "dns-observer": 2, "alerter": 3, "mcp-server": 4,
                "mdns": 5, "netmeter": 6}
 HASHED_MARKS = range(16, MAX_MARKED)  # for a host-network service not named above
 # The other end of a packet on the local network, not the Internet: the
-# private ranges (RFC 1918, RFC 4193 ULA), link-local, multicast and the
-# IPv4 broadcast. Static, so an address change never reloads the table. A
+# private ranges (RFC 1918, RFC 4193 ULA), link-local, multicast, the
+# IPv4 broadcast and the unspecified addresses (a DHCP discover, IPv6
+# duplicate address detection). Static, so an address change never reloads the table. A
 # LAN numbered from public space (a global IPv6 prefix on the LAN) counts
 # as Internet; carrier-grade NAT space (100.64/10) is the ISP's, so it does.
-LOCAL_V4 = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
-            "224.0.0.0/4", "255.255.255.255")
-LOCAL_V6 = ("fc00::/7", "fe80::/10", "ff00::/8")
+LOCAL_V4 = ("0.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+            "169.254.0.0/16", "224.0.0.0/4", "255.255.255.255")
+LOCAL_V6 = ("::", "fc00::/7", "fe80::/10", "ff00::/8")
 
 
 @dataclass(frozen=True)
