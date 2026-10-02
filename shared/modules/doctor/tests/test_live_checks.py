@@ -315,6 +315,7 @@ def test_run_all_returns_every_check(repo, host_resolv):
         "config-manager-database",
         "silent-series",
         "uplink-interface",
+        "avahi-host-name",
     ]
     # Without a daemon the two Docker checks skip rather than report a broken
     # deployment. uplink-interface asks the kernel, not Docker, so it answers
@@ -701,3 +702,33 @@ def test_no_influx_skips_and_a_failed_query_warns():
     assert live_checks.check_silent_series(FakeDocker({PS_INFLUX: (0, "")})).status == Status.SKIP
     assert live_checks.check_silent_series(FakeDocker({}, present=False)).status == Status.SKIP
     assert live_checks.check_silent_series(_influx([], rc=1)).status == Status.WARN
+
+
+def _proc(tmp_path, titles):
+    for pid, title in titles.items():
+        d = tmp_path / str(pid)
+        d.mkdir()
+        (d / "cmdline").write_bytes(title.encode())
+    (tmp_path / "self").mkdir()
+    return tmp_path
+
+
+def test_avahi_answering_for_the_hostname_is_ok(tmp_path):
+    proc = _proc(tmp_path, {1: "/sbin/init\0", 689: "avahi-daemon: running [smokingpi.local]\0"})
+    res = live_checks.check_avahi_host_name(proc, hostname="smokingpi")
+    assert res.status.value == "ok" and "smokingpi.local" in res.summary
+
+
+def test_avahi_renamed_after_a_conflict_warns_with_the_fix(tmp_path):
+    proc = _proc(tmp_path, {689: "avahi-daemon: running [smokingpi-2.local]\0",
+                            690: "avahi-daemon: chroot helper\0"})
+    res = live_checks.check_avahi_host_name(proc, hostname="smokingpi")
+    assert res.status.value == "warn"
+    msg = res.findings[0].message
+    assert "smokingpi-2.local, not smokingpi.local" in msg
+    assert "systemctl restart avahi-daemon" in msg and "smoking-pi.local" in msg
+
+
+def test_no_avahi_is_skipped(tmp_path):
+    res = live_checks.check_avahi_host_name(_proc(tmp_path, {1: "/sbin/init\0"}), hostname="x")
+    assert res.status.value == "skip"

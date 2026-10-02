@@ -47,7 +47,9 @@ from __future__ import annotations
 
 import hashlib
 import pathlib
+import re
 import shutil
+import socket
 import subprocess
 
 from . import sources
@@ -580,6 +582,7 @@ def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
         check_config_manager_database(docker),
         check_silent_series(docker),
         check_uplink_interface(),
+        check_avahi_host_name(),
     ]
 
 
@@ -654,3 +657,56 @@ def check_uplink_interface(
                 f"metric, and takes over if {iface} goes down"
             )
     return result("uplink-interface", [], detail)
+
+
+PROC = pathlib.Path("/proc")
+AVAHI_TITLE = re.compile(r"^avahi-daemon: running \[([^\]]+)\]")
+
+
+def avahi_host_name(proc: pathlib.Path = PROC) -> str | None:
+    """The name the host's Avahi answers for, from its process title
+    (``avahi-daemon: running [smokingpi.local]``); None when it is not running."""
+    try:
+        entries = list(proc.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            title = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+        except OSError:
+            continue
+        match = AVAHI_TITLE.match(title.strip())
+        if match:
+            return match.group(1)
+    return None
+
+
+def check_avahi_host_name(proc: pathlib.Path = PROC, hostname: str | None = None) -> CheckResult:
+    """Whether the host's Avahi still answers for ``<hostname>.local``.
+
+    On a host conflict Avahi renames itself to ``<hostname>-2.local`` and
+    stays there until it restarts; the plain name then resolves nowhere.
+    The reference Pi did this eight seconds after boot, twice, with no
+    other host holding the name. ``smoking-pi.local`` (the mdns service)
+    is not affected; this is about the host's own name, which people and
+    old bookmarks still use (docs/mdns.md).
+    """
+    name = avahi_host_name(proc)
+    if name is None:
+        return skipped("avahi-host-name", "Avahi is not running on this host")
+    host = (hostname or socket.gethostname()).split(".")[0].lower()
+    expected = f"{host}.local"
+    if name.lower() == expected:
+        return result("avahi-host-name", [], f"Avahi answers for {name}")
+    return result(
+        "avahi-host-name",
+        [Finding(
+            f"Avahi answers for {name}, not {expected}: it renamed itself after a "
+            f"name conflict, so {expected} resolves nowhere. `sudo systemctl restart "
+            f"avahi-daemon` takes it back until the next conflict; smoking-pi.local "
+            f"(the mdns service) still works (docs/mdns.md)")],
+        "",
+        status=Status.WARN,
+    )

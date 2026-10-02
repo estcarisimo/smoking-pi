@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The doctor notices when Avahi renames the host.** On the reference Pi
+  the host's Avahi renamed itself to `smokingpi-2.local` eight seconds
+  after boot, twice (2026-09-29 and 2026-10-01). From then on
+  `smokingpi.local` resolved nowhere, and nothing said so until someone
+  typed the name and it failed. `smoking-pi.local` (the mdns service) is
+  unaffected, but people and old bookmarks still use the host's name. A new
+  `doctor --live` check, `avahi-host-name`, reads Avahi's process title and
+  warns when it answers for anything but `<hostname>.local`, with the fix.
+  Every `smoking-pi upgrade` runs it. `docs/mdns.md` has a new section,
+  "When `<hostname>.local` stops resolving": how to check, the restart that
+  is known to work, and the unproven cause.
+
 ## [2.18.0] — 2026-10-01
 
 The Pi answers for `smoking-pi.local` from its own container, and the
