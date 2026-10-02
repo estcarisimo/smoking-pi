@@ -266,6 +266,27 @@ Limits worth knowing:
   would see them; Docker and Tailscale do not do this. `NETMETER=off`
   if yours does.
 
+## Bandwidth
+
+MB/day answers "how much"; the Overview's *Bandwidth in use by service
+(bit/s)* answers "how fast, right now": the same counters as a rate. For
+each window it divides the bytes counted (both directions, times eight)
+by the seconds counted, per service, stacked, with the uplink meter (the
+whole Pi) as a dashed line. *Bandwidth now*, beside it, is the uplink's
+last five-minute interval, download and upload apart. Units are decimal
+(1 Mb/s = 10^6 bits per second), as ISPs quote a link's speed.
+
+Every point is an average over at least one five-minute interval, the
+counters' resolution: a burst of a few seconds (a page load, an image
+pull) is spread over its interval, so the chart shows the load the Pi
+puts on the link, not its peak. A window with less than a minute counted
+is left out: a restart leaves a sub-second interval behind, and a rate
+over it would be noise. On a test Pi, SmokePing ran at ~50 kb/s around
+the clock, and the busiest five minutes of the day reached ~6.7 Mb/s on
+the uplink line.
+
+![Bandwidth in use by service over a day on a test Pi: the services stacked near the floor, the whole-Pi uplink as a dashed line with two bursts to ~4.5 and ~6.7 Mb/s, and Bandwidth now at 41.6 kb/s down and 239.6 kb/s up](img/traffic-bandwidth.png)
+
 ## Traffic accounting
 
 The meters above give a rate; Pro also keeps a **ledger**: what the Pi

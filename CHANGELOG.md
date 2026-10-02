@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Pro: the bandwidth in use, in bit/s, per service (InfluxDB).** The
+  Overview showed each service's traffic as MB/day, a budget figure, but
+  not the question a link asks: how much of it is in use now? A 10 GB/day
+  reading had to be converted by hand into ~0.9 Mb/s. A new panel,
+  *Bandwidth in use by service (bit/s)*, stacks each service's rate from
+  the netmeter's counters with the whole Pi's uplink as a dashed line,
+  and *Bandwidth now* gives the uplink's last interval, download and upload
+  apart. Each window's rate is its bytes over its seconds, not a mean of
+  per-interval rates, and a window with less than a minute counted (the
+  sub-second interval a restart leaves behind) is left out, so neither
+  can spike it. Five-minute averages: a burst shorter than that is spread
+  over its interval. `docs/measurement-budget.md`, "Bandwidth".
+
 ### Fixed
 
 - **Pro: the netmeter no longer logs an ERROR on every upgrade, and keeps
