@@ -5,6 +5,7 @@ import json
 import time
 from datetime import datetime
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -23,9 +24,14 @@ def chicago(monkeypatch):
     time.tzset()
 
 
+CHICAGO = ZoneInfo("America/Chicago")
+
+
 def at(text: str) -> float:
-    """A local time as an epoch, in the pinned TZ."""
-    return datetime.fromisoformat(text).timestamp()
+    """A Chicago wall-clock time as an epoch. An explicit zone, not the
+    process's: module-level constants are computed at import, before the
+    fixture pins TZ, and CI runs in UTC."""
+    return datetime.fromisoformat(text).replace(tzinfo=CHICAGO).timestamp()
 
 
 DAY = 86_400.0
@@ -121,7 +127,7 @@ def test_a_daylight_saving_day_is_its_real_length(day, hours):
     # Chicago springs forward on 2027-03-14 and falls back on 2026-11-01:
     # a meter running all day counts 23 or 25 hours, and that is 100%.
     ledger = uplink_state({day: {"rx": 1, "tx": 1, "seconds": hours * 3600.0}})
-    next_noon = datetime.fromisoformat(day).timestamp() + 36 * 3600
+    next_noon = at(f"{day}T00:00:00") + 36 * 3600
     p = by_period(traffic.report(ledger, "", now=next_noon))
     assert p["yesterday"]["uplink"]["coverage_pct"] == 100.0
 
