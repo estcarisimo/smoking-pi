@@ -197,8 +197,9 @@ address, which survives a new DHCP lease. It takes the name held now, so
 after a conflict it is `smoking-pi-2.local`, and `smoking-pi links` warns
 if the stored name and the held one part ways. Only a device that resolves
 `.local` names can open such a link, so check on the phone that reads the
-alerts; `--lan auto` is the address every device can open. `--lan https://host` suits
-a reverse proxy on the LAN, where no port is added. `--tunnel` refuses an
+alerts; `--lan auto` is the address every device can open.
+`--lan https://host` suits a reverse proxy on the LAN, where no port is
+added. `--tunnel` refuses an
 address without its scheme. The alerter and the MCP server are
 recreated to pick it up. By hand, set one variable for the common case:
 

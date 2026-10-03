@@ -1120,6 +1120,18 @@ links_setup() {
     grep -qx 'PUBLIC_BASE_HOST=' "$SMOKING_PI_ENV_FILE"
 }
 
+@test "links --lan mdns refuses while mdns is not running; links still shows, without a warning" {
+    links_setup
+    run "$CLI" links --lan mdns
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"holds no name"* ]]
+    sed -i 's/^PUBLIC_BASE_HOST=.*/PUBLIC_BASE_HOST=smoking-pi.local/' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" links
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"at home:       http://smoking-pi.local:3000/"* ]]
+    [[ "$output" != *"Warning"* ]]
+}
+
 @test "links warns when the stored .local name is not the one mdns holds" {
     links_setup
     sed -i 's/^PUBLIC_BASE_HOST=.*/PUBLIC_BASE_HOST=smoking-pi.local/' "$SMOKING_PI_ENV_FILE"

@@ -19,8 +19,9 @@ version gets a matching GitHub release and git tag.
   holds now (it refuses while the service is off or still probing), and
   `smoking-pi links` warns when the stored `.local` name and the held one
   part ways. `--lan auto` stays the default advice: only devices that
-  resolve `.local` names can open these links. Checked from another
-  machine on the reference network: `smoking-pi.local` resolves, and
+  resolve `.local` names can open these links. Checked from a Linux
+  machine on the reference network (not yet from a phone):
+  `smoking-pi.local` resolves, and
   Grafana and the web admin answer on it. The template's example address
   is generic now (it was the reference Pi's).
 
