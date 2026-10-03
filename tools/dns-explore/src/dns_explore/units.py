@@ -262,7 +262,7 @@ class AsnLookup:
 
     Asked of ``1.1.1.1`` directly, never the router: through the router the
     lookups would reach the observer and show up in the very log being
-    analysed. One lookup per /24 (IPv4) or /48 (IPv6), cached.
+    analyzed. One lookup per /24 (IPv4) or /48 (IPv6), cached.
     """
 
     def __init__(self, nameserver: str = "1.1.1.1", timeout: float = 3.0) -> None:

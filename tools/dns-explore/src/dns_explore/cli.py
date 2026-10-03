@@ -31,6 +31,20 @@ def _csv(value: str) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
+def _rules(value: str) -> list[tuple[int, int]]:
+    """``"2:3,3:5"`` -> ``[(2, 3), (3, 5)]``; each day count at least 1."""
+    out = []
+    for pair in _csv(value):
+        enter, sep, leave = pair.partition(":")
+        whole = sep and all(x.isascii() and x.isdigit() for x in (enter, leave))
+        if not (whole and int(enter) and int(leave)):
+            raise typer.BadParameter(
+                f"{pair}: expected E:L, two whole days >= 1", param_hint="--rules"
+            )
+        out.append((int(enter), int(leave)))
+    return out
+
+
 def _window(value: str) -> timedelta | None:
     if value in ("", "all"):
         return None
@@ -107,6 +121,9 @@ def load(
             # local time with its offset); UTC days would move the hour
             # after local midnight to the day before.
             "day": [q.ts.date() for q in kept],
+            # Minutes after that local midnight: tells a whole day from the
+            # partial ones at the ends of the log.
+            "clock": [q.ts.hour * 60 + q.ts.minute for q in kept],
             "cached": [q.cached for q in kept],
             "q": kept,
         }
@@ -142,6 +159,17 @@ def report(
         str, typer.Option(help=f"Comma list of {', '.join(metrics.SCORES)}.")
     ] = ",".join(metrics.SCORES),
     k: Annotated[str, typer.Option(help="Depths (top-K), comma list.")] = "5,10,20,50",
+    rules: Annotated[
+        str,
+        typer.Option(help="Enter/leave rules to replay, as E:L pairs: added after E days "
+                     "in the daily top-K, removed after L days out of it."),
+    ] = "1:1,2:3,3:3,3:5",
+    whole_days: Annotated[
+        bool,
+        typer.Option("--whole-days/--all-days",
+                     help="Compare whole days only: leave out a first or last day the "
+                     "log covers in part."),
+    ] = True,
     window: Annotated[
         str, typer.Option(help="Only the last Nh / Nd of the log, or 'all'.")
     ] = "all",
@@ -168,6 +196,7 @@ def report(
     )
     level_list, score_list = _csv(levels), _csv(scores)
     ks = tuple(int(x) for x in _csv(k))
+    rule_list = _rules(rules)
     lookup = units.AsnLookup() if asn else None
     if not asn:
         level_list = [lv for lv in level_list if lv not in ("asn", "org")]
@@ -257,18 +286,23 @@ def report(
         typer.echo(f"\n== Top {show} by presence: {level} ==")
         typer.echo(top.astype(int).to_string())
 
-    # Churn needs at least two days.
-    days = df["day"].nunique()
+    # Churn and stability compare days, so only whole ones: a day the log
+    # starts or ends in ranks fewer hours and looks like churn.
+    daily, partial = metrics.whole_days(df) if whole_days else (df, [])
+    results["partial_days_left_out"] = [str(d) for d in partial]
+    days = daily["day"].nunique() if not daily.empty else 0
     results["churn"] = []
-    typer.echo(f"\n== Day-over-day churn of the top-K ({days} day(s) in the log) ==")
+    left_out = f"; left out, partial: {', '.join(map(str, partial))}" if partial else ""
+    typer.echo(f"\n== Day-over-day churn of the top-K ({days} whole day(s) in the log"
+               f"{left_out}) ==")
     if days < 2:
-        typer.echo("Needs at least two days of log; run again later.")
+        typer.echo("Needs at least two whole days of log; run again later (or --all-days).")
     else:
         churn_rows = []
         for level in level_list:
             for score in score_list:
                 for kk in ks:
-                    c = metrics.churn(df, level, score, kk)
+                    c = metrics.churn(daily, level, score, kk)
                     churn_rows.append(
                         {
                             "level": level,
@@ -282,6 +316,29 @@ def report(
         ch = pd.DataFrame(churn_rows)
         results["churn"] = ch.to_dict(orient="records")
         typer.echo(ch.round(3).to_string(index=False))
+
+        # Who comes and goes, and what an enter/leave rule would have done.
+        stab_rows = []
+        for level in level_list:
+            for score in score_list:
+                for kk in ks:
+                    row = {"level": level, "score": score, "k": kk,
+                           **metrics.stability(daily, level, score, kk)}
+                    m = metrics.membership(daily, level, score, kk)
+                    for enter, leave in rule_list:
+                        h = metrics.hysteresis(m, enter, leave)
+                        row[f"E{enter}L{leave}"] = f"+{h['adds']}/-{h['drops']}"
+                    stab_rows.append(row)
+        st = pd.DataFrame(stab_rows)
+        results["stability"] = st.to_dict(orient="records")
+        typer.echo(
+            "\n== Stability of the top-K: days logged and missing; units ever in it, "
+            "in it every day, once; re-entries; longest absence before a return "
+            "(days); units tied at the cut (above 1, the row's stability is the "
+            "tie-break's); +adds/-drops under enter-after-E-days / "
+            "leave-after-L-days rules =="
+        )
+        typer.echo(st.round(2).to_string(index=False))
 
     if json_out:
         json_out.parent.mkdir(parents=True, exist_ok=True)
