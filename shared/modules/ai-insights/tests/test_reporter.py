@@ -167,3 +167,13 @@ def test_render_summary_lists_uplink_changes():
 def test_render_summary_omits_a_quiet_uplink():
     for uplink in ({}, {"current": {"interface": "wlan0"}, "changes": []}):
         assert "Uplink changes" not in reporter.render_summary({**SAMPLE_DATA, "uplink": uplink})
+
+
+def test_render_summary_keeps_deaf_spans_out_of_the_cuts():
+    cpe = {**SAMPLE_DATA.get("cpe", {}), "cuts": [],
+           "deaf": [{"start": "2026-10-01T14:43:02Z", "end": "2026-10-01T15:20:32Z",
+                     "seconds": 2260, "deaf": "received nothing"}]}
+    text = reporter.render_summary({**SAMPLE_DATA, "cpe": cpe})
+    assert "Not microcuts" in text
+    assert "2026-10-01T14:43:02Z: 2260 s, received nothing" in text
+    assert "No cuts above the threshold" in text

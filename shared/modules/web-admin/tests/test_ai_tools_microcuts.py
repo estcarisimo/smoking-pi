@@ -19,7 +19,7 @@ CPE = {"target": "203.0.113.1", "protocol": "ipv4"}
 
 
 def _fake_influx(monkeypatch, cut_windows, windows=2880, p50=10.0, p90=16.0,
-                 max_loss=None):
+                 max_loss=None, deaf=None):
     """Answer each of the tool's Flux queries from the spec, so a test reads
     like the day it reproduces: a floor plus a list of windows above the
     threshold."""
@@ -41,6 +41,8 @@ def _fake_influx(monkeypatch, cut_windows, windows=2880, p50=10.0, p90=16.0,
             return [{**CPE, "_value": windows}]
         if f"r._value > {microcuts.loss_pct()}" in flux:
             return cut_windows
+        if "difference(" in flux:
+            return deaf or []
         raise AssertionError(f"unexpected Flux: {flux}")
 
     monkeypatch.setattr(ai_tools, "query_influx", query)
@@ -146,3 +148,20 @@ def test_tool_descriptions_state_the_definition(name):
         )
     else:
         assert "cuts" in text and "floor" in text and "never as microcuts" in text
+
+
+def test_a_hung_radio_is_deaf_not_a_cut(monkeypatch):
+    """2026-10-01 14:43Z: 76 windows at 100% while wlan0 stayed associated
+    and received nothing; the assistant called it a 37-minute microcut."""
+    deaf = [{"_time": T0 + timedelta(seconds=off), "interface": "wlan0",
+             "rx_packets": 0, "associated": 1} for off in range(10, 170, 10)]
+    _fake_influx(monkeypatch, _windows([(30 * i, 100.0) for i in range(6)]),
+                 deaf=deaf)
+    out = ai_tools.execute_tool("get_microcut_stats", {"hours": 24})
+    assert out["cuts"] == [] and out["worst_windows"] == []
+    assert out["stats"][0]["confirmed_cuts"] == 0
+    assert out["deaf"] == [{"start": "2026-09-19T00:42:33+00:00",
+                            "end": "2026-09-19T00:45:03+00:00",
+                            "seconds": 160, "deaf": "received nothing"}]
+    assert "monitor was deaf" in out["deaf_note"]
+    assert out["note"].startswith("No microcuts in the last 24h: every window above 50%")

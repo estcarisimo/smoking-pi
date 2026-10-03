@@ -184,6 +184,32 @@ def test_microcut_burst_fires_on_one_confirmed_cut_and_names_its_duration():
     assert "over 50% loss in the last 60m" in inc["message"]
 
 
+def _deaf(spec, associated=1):
+    """Deaf wifi_link samples (common.microcuts.uplink_flux) at these
+    seconds after CPE_T0: the counter did not move since the one before."""
+    return [{"_time": CPE_T0 + timedelta(seconds=off), "interface": "wlan0",
+             "rx_packets": 0, "associated": associated} for off in spec]
+
+
+def test_microcut_burst_leaves_a_deaf_radio_to_uplink_down():
+    """2026-10-01 14:43Z: 76 windows at 100% while wlan0 stayed associated
+    and received nothing -- the radio hang, reported as a microcut. A deaf
+    sample every 10 s through the cut: not the link's, no microcut_burst."""
+    rows = _windows([(30 * i, 100.0) for i in range(6)])
+    deaf = _deaf(range(10, 30 * 5 + 20, 10))
+    assert evaluator.rule_microcut_burst(rows, uplink_rows=deaf) == []
+    # The same windows with the radio hearing (no deaf sample): a cut.
+    assert len(evaluator.rule_microcut_burst(rows, uplink_rows=[])) == 1
+
+
+def test_microcut_burst_counts_a_cut_the_radio_only_partly_missed():
+    """Deaf for the first minute only: the rest of the cut the radio heard
+    the LAN, so the link was cut and the alert stands."""
+    rows = _windows([(30 * i, 100.0) for i in range(6)])
+    deaf = _deaf(range(10, 70, 10))
+    assert len(evaluator.rule_microcut_burst(rows, uplink_rows=deaf)) == 1
+
+
 def test_microcut_burst_does_not_fire_on_two_isolated_windows():
     """2026-09-07 10:17 and 10:40Z: two single windows at 52% and 62%, 23
     minutes apart, were a "burst". They are two possible cuts, under the
@@ -641,6 +667,8 @@ def test_context_carries_the_four_wifi_aggregates(monkeypatch):
     seen = []
 
     def fake_query(flux_src):
+        if "wifi_link" in flux_src and "difference(" in flux_src:
+            return []  # the deaf-radio evidence for microcuts, not an aggregate
         if "wifi_link" in flux_src:
             seen.append(flux_src)
             if "reduce(" in flux_src:

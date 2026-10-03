@@ -83,3 +83,111 @@ def test_threshold_follows_the_env(monkeypatch):
     assert "r._value > 80.0" in microcuts.cut_windows_flux("-60m")
     monkeypatch.setenv("MICROCUT_LOSS_PCT", "lots")
     assert microcuts.loss_pct() == 50.0
+
+
+# --- attribution: the host's deaf radio is not the link ---------------------
+
+
+def _deaf(spec, associated=1, as_string=False):
+    """Deaf uplink samples (uplink_flux) at these seconds after T0."""
+    def when(off):
+        t = T0 + timedelta(seconds=off)
+        return t.isoformat().replace("+00:00", "Z") if as_string else t
+    return [{"_time": when(off), "interface": "wlan0", "rx_packets": 0,
+             "associated": associated} for off in spec]
+
+
+def _cut(windows=6):
+    return microcuts.fold_cuts(_rows([(30 * i, 100.0) for i in range(windows)]))
+
+
+def test_a_cut_the_radio_heard_nothing_through_is_this_hosts():
+    # Six windows, 160 s; a deaf sample every 10 s from start to end.
+    cuts = microcuts.attribute(_cut(), _deaf(range(10, 170, 10)))
+    assert cuts[0]["origin"] == "this_host" and cuts[0]["deaf"] == "received nothing"
+    assert microcuts.link_cuts(cuts) == [] and len(microcuts.host_cuts(cuts)) == 1
+
+
+def test_not_associated_is_named_as_such():
+    cuts = microcuts.attribute(_cut(), _deaf(range(10, 170, 10), associated=0))
+    assert cuts[0]["deaf"] == "not associated"
+
+
+def test_one_missed_sample_is_tolerated_two_are_not():
+    every = list(range(10, 170, 10))
+    one_gap = [t for t in every if t != 80]
+    two_gap = [t for t in every if t not in (80, 90)]
+    assert microcuts.attribute(_cut(), _deaf(one_gap))[0]["origin"] == "this_host"
+    assert microcuts.attribute(_cut(), _deaf(two_gap))[0]["origin"] == "link"
+
+
+def test_deaf_samples_must_reach_the_end_of_the_cut():
+    # Deaf for the first minute, then hearing (healthy samples are filtered
+    # out by the query): the link was cut for the rest.
+    assert microcuts.attribute(_cut(), _deaf(range(10, 70, 10)))[0]["origin"] == "link"
+
+
+def test_without_evidence_every_cut_stays_the_links():
+    # A wired host, or wifi_link absent: the old behavior, never a guess.
+    cuts = microcuts.attribute(_cut(), [])
+    assert cuts[0]["origin"] == "link" and "deaf" not in cuts[0]
+
+
+def test_samples_after_the_cut_are_not_read():
+    # The long hangs end in a reboot; whatever comes after must not matter.
+    cuts = microcuts.attribute(_cut(), _deaf(range(10, 170, 10)) + _deaf([3600]))
+    assert cuts[0]["origin"] == "this_host"
+
+
+def test_attribute_reads_iso_strings_and_equal_times():
+    rows = _deaf(range(10, 170, 10), as_string=True)
+    cuts = microcuts.attribute(_cut(), rows + rows)  # duplicates sort without error
+    assert cuts[0]["origin"] == "this_host"
+
+
+def test_link_windows_drops_the_hosts_windows_only():
+    windows = _rows([(30 * i, 100.0) for i in range(6)]) + _rows([(3600, 62.0)])
+    cuts = microcuts.attribute(microcuts.fold_cuts(windows), _deaf(range(10, 170, 10)))
+    kept = microcuts.link_windows(windows, cuts)
+    assert [r["_value"] for r in kept] == [62.0]
+
+
+def test_describe_deaf():
+    cuts = microcuts.attribute(_cut(), _deaf(range(10, 170, 10)))
+    spans = microcuts.deaf_spans(cuts)
+    assert spans == [{"start": "2026-09-19T00:42:33+00:00",
+                      "end": "2026-09-19T00:45:03+00:00",
+                      "seconds": 160, "deaf": "received nothing"}]
+    assert microcuts.describe_deaf(spans) == (
+        "this host's Wi-Fi heard nothing for 2 min 40 s: the monitor was deaf, "
+        "not the link cut")
+    assert microcuts.describe_deaf(
+        microcuts.deaf_spans(microcuts.attribute(_cut(), []))) == ""
+
+
+def test_one_hang_on_two_cpe_series_is_one_span():
+    windows = (_rows([(30 * i, 100.0) for i in range(6)])
+               + _rows([(30 * i + 5, 100.0) for i in range(6)], protocol="ipv6"))
+    cuts = microcuts.attribute(microcuts.fold_cuts(windows), _deaf(range(10, 180, 10)))
+    assert len(microcuts.host_cuts(cuts)) == 2
+    spans = microcuts.deaf_spans(cuts)
+    assert len(spans) == 1 and spans[0]["seconds"] == 165
+    assert "2 min 45 s:" in microcuts.describe_deaf(spans)
+
+
+def test_a_cut_longer_than_a_window_needs_two_deaf_samples():
+    two = microcuts.fold_cuts(_rows([(0, 100.0), (20, 100.0)]))  # 30 s
+    assert microcuts.attribute(two, _deaf([20]))[0]["origin"] == "link"
+    assert microcuts.attribute(
+        microcuts.fold_cuts(_rows([(0, 100.0), (20, 100.0)])), _deaf([10, 20, 30])
+    )[0]["origin"] == "this_host"
+
+
+def test_uplink_flux_reads_only_deaf_samples_of_the_uplink_interface():
+    flux = microcuts.uplink_flux("-24h")
+    # A disassociated sample inherits the route flag of the last associated
+    # one; a spare radio (never the route) yields nothing.
+    assert 'then debug.null(type: "int") else r.uplink' in flux
+    assert 'fill(column: "uplink", usePrevious: true)' in flux
+    assert 'difference(columns: ["rx_packets"])' in flux
+    assert "r.uplink == 1 and (r.rx_packets == 0 or r.associated == 0)" in flux

@@ -566,7 +566,7 @@ _CPE_T0 = datetime(2026, 9, 19, 0, 42, 33, tzinfo=timezone.utc)
 
 
 def _cpe_fake(cut_windows, windows=2880, p50=10.0, p90=18.0, max_loss=None,
-              target="203.0.113.1", protocol="ipv4"):
+              target="203.0.113.1", protocol="ipv4", deaf=None):
     """A day of cpe_latency: the floor as aggregates, plus the raw windows
     above the threshold as [(seconds after _CPE_T0, loss_pct), ...]."""
     rows = [{"_time": _CPE_T0 + timedelta(seconds=off), "target": target,
@@ -576,6 +576,10 @@ def _cpe_fake(cut_windows, windows=2880, p50=10.0, p90=18.0, max_loss=None,
     tp = {"target": target, "protocol": protocol}
 
     def fake(flux):
+        if "wifi_link" in flux and "difference(" in flux:
+            # The host's deaf Wi-Fi samples (common.microcuts.uplink_flux).
+            return [{"_time": _CPE_T0 + timedelta(seconds=off), "interface": "wlan0",
+                     "rx_packets": 0, "associated": 1} for off in (deaf or [])]
         assert "cpe_latency" in flux
         if "r._value > 50.0" in flux:
             return rows
@@ -630,6 +634,36 @@ def test_microcut_stats_folds_the_real_cut_into_one_with_its_duration(monkeypatc
     assert len(result["worst_windows"]) == 5          # the five worst CUT windows
     assert all(w["loss_pct"] == 100.0 for w in result["worst_windows"])
     assert "note" not in result
+
+
+def test_microcut_stats_a_hung_radio_is_deaf_not_a_cut(monkeypatch, no_api):
+    """2026-10-01 14:43Z: 76 windows at 100% while wlan0 stayed associated
+    and received nothing -- reported as a 37-minute microcut. The monitor
+    was deaf; the line is unknown for it, and is not called cut."""
+    six = [(30 * i, 100.0) for i in range(6)]
+    later = [(7200, 62.0)]  # a possible cut the radio heard through
+    _patch_influx(monkeypatch, _cpe_fake(six + later, deaf=range(10, 170, 10)))
+    result = server.get_microcut_stats(hours=24)
+    assert [c["max_loss_pct"] for c in result["cuts"]] == [62.0]
+    assert result["stats"][0]["confirmed_cuts"] == 0
+    assert result["stats"][0]["possible_cuts"] == 1
+    assert [w["loss_pct"] for w in result["worst_windows"]] == [62.0]
+    assert result["deaf"] == [{"start": "2026-09-19T00:42:33+00:00",
+                               "end": "2026-09-19T00:45:03+00:00",
+                               "seconds": 160, "deaf": "received nothing"}]
+    assert result["deaf_note"] == (
+        "this host's Wi-Fi heard nothing for 2 min 40 s: the monitor was deaf, "
+        "not the link cut")
+
+
+def test_microcut_stats_only_deaf_windows_say_so_in_the_note(monkeypatch, no_api):
+    six = [(30 * i, 100.0) for i in range(6)]
+    _patch_influx(monkeypatch, _cpe_fake(six, deaf=range(10, 170, 10)))
+    result = server.get_microcut_stats(hours=24)
+    assert result["cuts"] == []
+    assert result["note"].startswith(
+        "No microcuts in the last 24h: every window above 50% loss fell while "
+        "this host's Wi-Fi heard nothing")
 
 
 def test_microcut_stats_an_isolated_window_is_a_possible_cut(monkeypatch, no_api):

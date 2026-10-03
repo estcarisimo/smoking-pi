@@ -266,7 +266,11 @@ TOOLS = [
             "per-target floor (p50/p90 loss over every window). The gateway "
             "rate-limits ICMP, so most windows show some loss with nothing "
             "wrong: report cuts, and describe the floor with its p90, never as "
-            "microcuts. When 'cuts' is empty there were no microcuts."
+            "microcuts. When 'cuts' is empty there were no microcuts. "
+            "'deaf' lists spans when this host's own Wi-Fi heard nothing: the "
+            "probe saw 100% loss for a link it could not hear. They are not "
+            "microcuts: say the monitor was deaf for that long and the line "
+            "is unknown then, never that the line was cut."
         ),
         "input_schema": {
             "type": "object",
@@ -593,8 +597,18 @@ def _get_microcut_stats(tool_input: dict) -> dict:
         lambda v: round(float(v), 3),
     )
     cut_rows = query_influx(cut_windows_flux)
-
-    cuts = microcuts.fold_cuts(cut_rows)
+    # This host's deaf radio makes cuts the link did not (common.microcuts).
+    # Optional: without the evidence every cut stays the link's.
+    try:
+        deaf_rows = query_influx(microcuts.uplink_flux(f"-{hours}h"))
+    except Exception:  # influx client raises many exception types
+        logger.warning("deaf-radio evidence query failed; every microcut counted as the link's", exc_info=True)
+        deaf_rows = []
+    attributed = microcuts.attribute(microcuts.fold_cuts(cut_rows), deaf_rows)
+    truncated = len(cut_rows) >= microcuts.MAX_ROWS
+    cut_rows = microcuts.link_windows(cut_rows, attributed)
+    deaf = microcuts.deaf_spans(attributed)
+    cuts = microcuts.link_cuts(attributed)
     for entry in stats.values():
         entry.setdefault("windows", 0)
         own = [
@@ -616,7 +630,7 @@ def _get_microcut_stats(tool_input: dict) -> dict:
         "window_hours": hours,
         "cut_loss_pct": threshold,
         "cuts": cuts,
-        "truncated": len(cut_rows) >= microcuts.MAX_ROWS,
+        "truncated": truncated,
         "stats": sorted(
             stats.values(),
             key=lambda e: (e.get("target") or "", e.get("protocol") or ""),
@@ -631,15 +645,24 @@ def _get_microcut_stats(tool_input: dict) -> dict:
             for row in worst_rows
         ],
     }
+    if deaf:
+        result["deaf"] = deaf
+        result["deaf_note"] = microcuts.describe_deaf(deaf)
     if not cuts and stats:
         floor = ", ".join(
             f"{e['target']}/{e['protocol']} p50 {e.get('p50_loss_pct', 0):g}% / "
             f"p90 {e.get('p90_loss_pct', 0):g}%"
             for e in result["stats"]
         )
-        result["note"] = (
+        lead = (
+            f"No microcuts in the last {hours}h: every window above "
+            f"{threshold:g}% loss fell while {result['deaf_note']}."
+            if deaf else
             f"No window exceeded {threshold:g}% loss in the last {hours}h: no "
-            f"microcuts. The gateway's ICMP floor sat at {floor}; that is "
+            "microcuts."
+        )
+        result["note"] = (
+            f"{lead} The gateway's ICMP floor sat at {floor}; that is "
             "rate limiting, not a fault."
         )
     return result

@@ -23,6 +23,15 @@ now shares:
 - The **floor** is the distribution of every window's loss (p50 / p90),
   reported beside the cuts so "the gateway had a bad day" can be said with a
   number instead of a list.
+- A cut is **this host's** (``origin: "this_host"``), not the link's, when
+  the host's own Wi-Fi uplink was deaf for all of it: associated but its
+  received-packet counter did not move, or not associated at all. The probe
+  then records 100% loss for a link it cannot hear. On the reference Pi
+  every confirmed cut from 20 September to 1 October 2026 was this (radio
+  hangs from 13 min to 3 h 25 min), and each was reported as a microcut. A
+  real cut beyond the radio still leaves the LAN talking -- the router's
+  DNS forwards, ARP, multicast -- so the counter moves. A wired host, or one
+  without ``wifi_link``, gets ``origin: "link"`` for every cut.
 """
 
 from __future__ import annotations
@@ -42,6 +51,9 @@ DEFAULT_LOSS_PCT = 50.0  # MICROCUT_LOSS_PCT
 # one missing window between them. Rescale if CPE_PROBE_IDLE changes.
 WINDOW_S = 10
 GAP_S = 70
+# wifi_link samples every 10 s; the deaf test allows one missed sample
+# (a 20 s gap, with slack for timing) and no more.
+COVER_S = 25
 # Rows fetched for folding. Every window above 50% for a week on a healthy
 # gateway is a few dozen; a multi-hour total outage is ~120 per hour.
 MAX_ROWS = 5000
@@ -67,6 +79,157 @@ def cut_windows_flux(range_start: str, threshold_pct: float | None = None) -> st
         + '|> group() |> sort(columns: ["_time"]) '
         + f"|> limit(n: {MAX_ROWS})"
     )
+
+
+def uplink_flux(range_start: str) -> str:
+    """The host's deaf Wi-Fi samples, oldest first -- the evidence
+    :func:`attribute` reads.
+
+    A sample counts only while its interface carries the default route
+    (``uplink == 1``): a spare radio, or the Wi-Fi after Ethernet took the
+    route, says nothing about the link the probes cross. A radio that lost
+    its association writes ``uplink == 0`` (the route left with it), so
+    such a sample inherits the flag of the interface's last associated
+    one. Series are merged across access points (a lost association writes
+    without a ``bssid``). A sample is deaf when the received-packet counter
+    did not move since the one before (``rx_packets`` is that difference
+    here; a reboot's reset is negative, not deaf) or the radio is not
+    associated. Healthy samples are dropped in the database: a week is
+    ~60 000 samples, and a healthy one has no deaf sample at all.
+    """
+    return (
+        'import "internal/debug"\n'
+        + base_flux(["wifi_link"], range_start)
+        + '|> filter(fn: (r) => r._field == "rx_packets" or '
+        + 'r._field == "associated" or r._field == "uplink") '
+        + '|> keep(columns: ["_time", "_field", "_value", "interface"]) '
+        + '|> group(columns: ["interface"]) '
+        + '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '
+        + '|> sort(columns: ["_time"]) '
+        + "|> map(fn: (r) => ({r with uplink: if r.associated == 0 "
+        + 'then debug.null(type: "int") else r.uplink})) '
+        + '|> fill(column: "uplink", usePrevious: true) '
+        + '|> difference(columns: ["rx_packets"]) '
+        + "|> filter(fn: (r) => r.uplink == 1 and "
+        + "(r.rx_packets == 0 or r.associated == 0)) "
+        + '|> keep(columns: ["_time", "interface", "rx_packets", "associated"]) '
+        + '|> group() |> sort(columns: ["_time"]) '
+        + f"|> limit(n: {MAX_ROWS * 4})"
+    )
+
+
+def _deaf(cut: dict, samples: list[tuple[float, dict]]) -> str | None:
+    """Why the host could not hear during ``cut``, or None. ``samples`` are
+    (epoch, row) of :func:`uplink_flux`: deaf samples only, oldest first.
+
+    The cut is the host's when deaf samples run through all of it, from its
+    start to within ``COVER_S`` of its end, with no gap over ``COVER_S``
+    (one missed 10 s sample is allowed; a healthy sample, filtered out, is a
+    gap). Each sample speaks for the 10 s before it, and nothing after the
+    cut is read: the long hangs end in a reboot, which resets the counter.
+    """
+    start = cut["start_epoch"]
+    end = start + cut["seconds"]
+    times = [t for t, _ in samples if start < t <= end + WINDOW_S]
+    # A cut longer than one window needs more than one deaf sample.
+    if not times or (cut["seconds"] > WINDOW_S and len(times) < 2):
+        return None
+    edges = [start] + times
+    if max(b - a for a, b in zip(edges, edges[1:])) > COVER_S or times[-1] < end - COVER_S:
+        return None
+    inside = [r for t, r in samples if start < t <= end + WINDOW_S]
+    if any(_num(r.get("associated")) == 0 for r in inside):
+        return "not associated"
+    return "received nothing"
+
+
+def _num(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def attribute(cuts: list[dict], uplink_rows: list[dict]) -> list[dict]:
+    """Mark each cut ``origin`` ``"this_host"`` (with ``deaf``: why) or
+    ``"link"``, from :func:`uplink_flux` rows. Needs ``start_epoch``, so
+    call it before a caller pops it. Returns ``cuts``.
+
+    A short cut needs Wi-Fi samples on both sides of it; without them (a
+    wired host, a gap in ``wifi_link``) it stays ``"link"``: the old
+    behavior, never a guess.
+    """
+    samples = sorted(
+        ((e, r) for r in uplink_rows if (e := _epoch(r.get("_time"))) is not None),
+        key=lambda item: item[0],
+    )
+    for cut in cuts:
+        why = _deaf(cut, samples) if samples else None
+        cut["origin"] = "this_host" if why else "link"
+        if why:
+            cut["deaf"] = why
+    return cuts
+
+
+def link_cuts(cuts: list[dict]) -> list[dict]:
+    """The cuts that are the link's: what counts as a microcut."""
+    return [c for c in cuts if c.get("origin", "link") == "link"]
+
+
+def host_cuts(cuts: list[dict]) -> list[dict]:
+    """The cuts this host's own deaf radio made."""
+    return [c for c in cuts if c.get("origin") == "this_host"]
+
+
+def link_windows(rows: list[dict], cuts: list[dict]) -> list[dict]:
+    """The cut-window ``rows`` outside every cut of this host's: the
+    windows a "worst windows" list may show. Needs ``start_epoch``."""
+    spans = [(c["start_epoch"], c["start_epoch"] + c["seconds"])
+             for c in host_cuts(cuts) if "start_epoch" in c]
+    if not spans:
+        return rows
+    return [
+        r for r in rows
+        if (e := _epoch(r.get("_time"))) is None
+        or not any(a <= e <= b for a, b in spans)
+    ]
+
+
+def deaf_spans(cuts: list[dict]) -> list[dict]:
+    """This host's deaf spans, newest first, each ``start``, ``end``,
+    ``seconds``, ``deaf``. One hang makes a cut on every CPE target and
+    protocol; overlapping ones are merged here, so it is told once. Needs
+    ``start_epoch``."""
+    own = sorted((c for c in host_cuts(cuts) if "start_epoch" in c),
+                 key=lambda c: c["start_epoch"])
+    merged: list[dict] = []
+    for c in own:
+        lo, hi = c["start_epoch"], c["start_epoch"] + c["seconds"]
+        if merged and lo <= merged[-1]["_hi"]:
+            last = merged[-1]
+            if hi > last["_hi"]:
+                last.update(_hi=hi, end=c["end"])
+            if c["deaf"] == "not associated":
+                last["deaf"] = c["deaf"]
+            continue
+        merged.append({"_lo": lo, "_hi": hi, "start": c["start"], "end": c["end"],
+                       "deaf": c["deaf"]})
+    out = [{"start": m["start"], "end": m["end"], "seconds": int(m["_hi"] - m["_lo"]),
+            "deaf": m["deaf"]} for m in merged]
+    out.reverse()
+    return out
+
+
+def describe_deaf(spans: list[dict]) -> str:
+    """One clause for :func:`deaf_spans`: 'this host's Wi-Fi heard nothing
+    for 1 h 52 min (2 spans)'. Empty when there are none."""
+    own = spans
+    if not own:
+        return ""
+    total = sum(c["seconds"] for c in own)
+    spans = f" ({len(own)} spans)" if len(own) > 1 else ""
+    return (f"this host's Wi-Fi heard nothing for {_duration(total)}{spans}: "
+            "the monitor was deaf, not the link cut")
 
 
 def _epoch(value: Any) -> float | None:
@@ -177,6 +340,13 @@ def _duration(seconds: int) -> str:
 
 __all__ = [
     "DEFAULT_LOSS_PCT",
+    "attribute",
+    "deaf_spans",
+    "describe_deaf",
+    "host_cuts",
+    "link_cuts",
+    "link_windows",
+    "uplink_flux",
     "GAP_S",
     "MAX_ROWS",
     "WINDOW_S",
