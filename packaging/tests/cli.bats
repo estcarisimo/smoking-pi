@@ -1103,6 +1103,33 @@ links_setup() {
     [[ "$output" == *"which no enabled profile runs"* ]]
 }
 
+@test "links --lan mdns stores the name the mdns service holds, not MDNS_NAME" {
+    links_setup
+    STUB_MDNS='{\n "name": "smoking-pi-2.local",\n "state": "announced"\n}\n' run "$CLI" links --lan mdns
+    [ "$status" -eq 0 ]
+    grep -qx 'PUBLIC_BASE_HOST=smoking-pi-2.local' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"http://smoking-pi-2.local:3000/ (Grafana)"* ]]
+    [[ "$output" == *"Only a device that resolves .local names"* ]]
+}
+
+@test "links --lan mdns refuses while mdns holds no name, and changes nothing" {
+    links_setup
+    STUB_MDNS='{\n "name": "smoking-pi.local",\n "state": "probing"\n}\n' run "$CLI" links --lan mdns
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"holds no name"* ]]
+    grep -qx 'PUBLIC_BASE_HOST=' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "links warns when the stored .local name is not the one mdns holds" {
+    links_setup
+    sed -i 's/^PUBLIC_BASE_HOST=.*/PUBLIC_BASE_HOST=smoking-pi.local/' "$SMOKING_PI_ENV_FILE"
+    STUB_MDNS='{\n "name": "smoking-pi-2.local",\n "state": "announced"\n}\n' run "$CLI" links
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"now holds smoking-pi-2.local"* ]]
+    STUB_MDNS='{\n "name": "smoking-pi.local",\n "state": "announced"\n}\n' run "$CLI" links
+    [[ "$output" != *"Warning"* ]]
+}
+
 @test "links --tunnel refuses a bare host: it would become a dead http link" {
     links_setup
     run "$CLI" links --tunnel smokingpi.example.com

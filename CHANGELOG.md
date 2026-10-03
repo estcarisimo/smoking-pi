@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- **Assistant and alert links can use the Pi's `.local` name: `smoking-pi
+  links --lan mdns`.** Since v2.18.0 the mdns service holds
+  `smoking-pi.local`, but links could only follow it by typing the name,
+  and a typed name goes stale: after a name conflict the service holds
+  `smoking-pi-2.local`, and a link to `smoking-pi.local` then opens the
+  other host. So answers in Telegram kept a raw LAN address, which breaks
+  when the DHCP lease changes. `--lan mdns` stores the name the service
+  holds now (it refuses while the service is off or still probing), and
+  `smoking-pi links` warns when the stored `.local` name and the held one
+  part ways. `--lan auto` stays the default advice: only devices that
+  resolve `.local` names can open these links. Checked from another
+  machine on the reference network: `smoking-pi.local` resolves, and
+  Grafana and the web admin answer on it. The template's example address
+  is generic now (it was the reference Pi's).
+
 - **The DNS observer guide warns that the own-traffic list is right only
   on a Pi that does nothing but measure.** The wizard and
   `tools/dns-explore` leave out Smoking Pi's own lookups by a list of

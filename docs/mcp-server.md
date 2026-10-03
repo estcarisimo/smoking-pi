@@ -184,13 +184,20 @@ The short way (Pro):
 
 ```bash
 sudo smoking-pi links --lan auto                              # this machine's LAN address
+sudo smoking-pi links --lan mdns                              # its .local name (smoking-pi.local)
 sudo smoking-pi links --tunnel https://smokingpi.example.com  # from anywhere
 sudo smoking-pi links                                         # show where links point
 ```
 
 `--lan auto` takes the address the local network sees: the source of the
 default route, not the address an SSH session came in on, which can be a
-tailnet address that a phone on the Wi-Fi can't open. `--lan https://host` suits
+tailnet address that a phone on the Wi-Fi can't open. `--lan mdns` stores the
+`.local` name the [mdns service](mdns.md) holds: a name instead of an
+address, which survives a new DHCP lease. It takes the name held now, so
+after a conflict it is `smoking-pi-2.local`, and `smoking-pi links` warns
+if the stored name and the held one part ways. Only a device that resolves
+`.local` names can open such a link, so check on the phone that reads the
+alerts; `--lan auto` is the address every device can open. `--lan https://host` suits
 a reverse proxy on the LAN, where no port is added. `--tunnel` refuses an
 address without its scheme. The alerter and the MCP server are
 recreated to pick it up. By hand, set one variable for the common case:
