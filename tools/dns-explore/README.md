@@ -27,8 +27,10 @@ de observaciones DNS a targets" in the project's Notion.
   - HHI (Herfindahl–Hirschman) and its effective number, 1/HHI;
   - Shannon entropy and its effective number, exp(H);
   - coverage@K.
-- 🔍 **What coalescing hides**: how many hostnames, CDNs, ASes and organisations sit behind the top-K services.
+- 🔍 **What coalescing hides**: how many hostnames, CDNs, ASes and organizations sit behind the top-K services.
 - 🔁 **Churn**: day-over-day Jaccard of the top-K, per level, score and K.
+- ⚖️ **Stability and enter/leave rules**: per level, score and K, how many units were ever in a daily top-K, in it every day or on one day only; how often one came back and after how long an absence (an exit rule must wait longer); how many units tie at the K-th score (presence saturates at 24 hours a day, so a tie means the score ranks nothing there); and what each rule in `--rules E:L` would have done: added after E days in the daily top-K, removed after L days out. `1:1` replays the raw churn.
+- 📅 **Whole days only** for churn and stability: the day a log starts in and the day it ends in rank fewer hours and look like churn, so they are left out and named (`--all-days` keeps them).
 - 🙈 **The Pi's own traffic left out**: image pulls, tunnels, alert bots, the observer's canary, and names reserved for documentation. The Pi resolves through the router, so this traffic reaches the observer like the house's does.
 - 📡 **SmokePing's lookups left out too**: the names it measures, read from the install's generated `Targets` (`--targets`). It looks each one up about once per TTL, all day and all night; on the reference Pi that was a third of the log.
 
@@ -45,7 +47,7 @@ uv run dns-explore
 It reads the log from the `pro-dns-observer-1` container with `docker exec`,
 so it needs no admin password. Origin ASes come from Team Cymru's DNS
 service, asked of `1.1.1.1` directly and not through the router: otherwise
-the lookups would land in the very log being analysed.
+the lookups would land in the very log being analyzed.
 
 ## 📖 Usage
 
@@ -55,6 +57,9 @@ uv run dns-explore
 
 # Only the last day, services and CDNs by presence, deeper K
 uv run dns-explore --window 1d --levels service,cdn --scores presence --k 10,25,100
+
+# Replay other enter/leave rules (E days in to add, L days out to remove)
+uv run dns-explore --window 7d --levels service,asn --rules 2:3,3:7,5:7
 
 # Without the Team Cymru lookups (no network at all)
 uv run dns-explore --no-asn

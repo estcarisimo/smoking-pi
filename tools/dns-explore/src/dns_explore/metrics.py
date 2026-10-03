@@ -3,7 +3,7 @@
 The input is a DataFrame with one row per query and a column per
 aggregation level (see :mod:`dns_explore.units`), plus ``ts`` and
 ``cached``. Every function takes the level as a column name, so the same
-measures apply to hostnames, services, CDNs, ASes or organisations.
+measures apply to hostnames, services, CDNs, ASes or organizations.
 
 Scores
 ------
@@ -172,3 +172,160 @@ def churn(df: pd.DataFrame, level: str, score: str, k: int) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows, columns=["day", "jaccard", "entered", "left", "gap_days"])
+
+
+def membership(df: pd.DataFrame, level: str, score: str, k: int) -> pd.DataFrame:
+    """Which units were in each day's top-K.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One boolean row per unit that was ever in a daily top-K, one column
+        per day in the log, in order.
+    """
+    days = daily_topk(df, level, score, k)
+    ordered = sorted(days)
+    units = sorted(set().union(*days.values())) if days else []
+    return pd.DataFrame(
+        {day: [u in days[day] for u in units] for day in ordered}, index=units, dtype=bool
+    )
+
+
+def ties_at_cut(df: pd.DataFrame, level: str, score: str, k: int) -> float:
+    """Mean, over days, of how many units share the K-th unit's score.
+
+    1 means a clean cut. Above 1 the top-K is partly decided by the
+    tie-break (unit name), not by the score: presence per day saturates at
+    24 hours, so a saturated score ranks nothing.
+    """
+    days = df["day"] if "day" in df else df["ts"].dt.date
+    counts = []
+    for _, part in df.groupby(days):
+        s = scores(part, level, score)
+        if len(s) >= k:
+            counts.append(int((s == s.iloc[k - 1]).sum()))
+    return float(np.mean(counts)) if counts else float("nan")
+
+
+def runs(row: pd.Series) -> tuple[int, int]:
+    """Re-entries of one unit, and its longest absence before coming back.
+
+    Examples
+    --------
+    >>> runs(pd.Series([True, False, False, True, False, True]))
+    (2, 2)
+    """
+    seen, gap, reentries, longest = False, 0, 0, 0
+    for inside in row:
+        if inside:
+            if seen and gap:
+                reentries += 1
+                longest = max(longest, gap)
+            seen, gap = True, 0
+        elif seen:
+            gap += 1
+    return reentries, longest
+
+
+def stability(df: pd.DataFrame, level: str, score: str, k: int) -> dict[str, float]:
+    """How the units of the daily top-K come and go.
+
+    Returns
+    -------
+    dict
+        ``days`` in the log; ``ever``: units ever in a daily top-K;
+        ``always``: in every day's; ``once``: in exactly one day's;
+        ``reentries``: times a unit came back after dropping out;
+        ``max_return_gap``: the longest absence, in days, of a unit that came
+        back (an exit rule must wait longer than this, or it retires units
+        that return); ``ties_at_cut``: see :func:`ties_at_cut`.
+    """
+    m = membership(df, level, score, k)
+    per_unit = [runs(row) for _, row in m.iterrows()]
+    in_days = m.sum(axis=1)
+    return {
+        "days": m.shape[1],
+        "ever": len(m),
+        "always": int((in_days == m.shape[1]).sum()),
+        "once": int((in_days == 1).sum()),
+        "reentries": sum(r for r, _ in per_unit),
+        "max_return_gap": max((g for _, g in per_unit), default=0),
+        "ties_at_cut": ties_at_cut(df, level, score, k),
+    }
+
+
+def hysteresis(m: pd.DataFrame, enter: int, leave: int) -> dict[str, int]:
+    """Replay the daily top-K through an enter/leave rule.
+
+    The selection starts as the first day's top-K. Afterwards a unit is
+    added once it has been in the daily top-K ``enter`` days in a row, and
+    removed once it has been out of it ``leave`` days in a row. ``enter=1,
+    leave=1`` follows the raw top-K, so its changes are the raw churn.
+
+    Parameters
+    ----------
+    m : pandas.DataFrame
+        From :func:`membership`.
+
+    Returns
+    -------
+    dict
+        ``adds`` and ``drops`` over the log (the first day excluded), and
+        ``size`` of the selection on the last day.
+
+    Examples
+    --------
+    >>> m = pd.DataFrame({1: [True, False], 2: [False, True], 3: [True, True]},
+    ...                  index=["a", "b"])
+    >>> hysteresis(m, 1, 1), hysteresis(m, 2, 2)
+    ({'adds': 2, 'drops': 1, 'size': 2}, {'adds': 1, 'drops': 0, 'size': 2})
+    """
+    if m.shape[1] == 0:
+        return {"adds": 0, "drops": 0, "size": 0}
+    cols = list(m.columns)
+    selected = set(m.index[m[cols[0]]])
+    streak_in = dict.fromkeys(m.index, 0)
+    streak_out = dict.fromkeys(m.index, 0)
+    for u in m.index:
+        streak_in[u] = int(m.at[u, cols[0]])
+        streak_out[u] = int(not m.at[u, cols[0]])
+    adds = drops = 0
+    for day in cols[1:]:
+        for u in m.index:
+            if m.at[u, day]:
+                streak_in[u], streak_out[u] = streak_in[u] + 1, 0
+            else:
+                streak_in[u], streak_out[u] = 0, streak_out[u] + 1
+            if u not in selected and streak_in[u] >= enter:
+                selected.add(u)
+                adds += 1
+            elif u in selected and streak_out[u] >= leave:
+                selected.discard(u)
+                drops += 1
+    return {"adds": adds, "drops": drops, "size": len(selected)}
+
+
+def whole_days(df: pd.DataFrame, slack_minutes: int = 60) -> tuple[pd.DataFrame, list[date]]:
+    """Drop the first and last day of the log when it covers them only in part.
+
+    The first day counts as whole if the log has it within ``slack_minutes``
+    of its local midnight, the last if it reaches within ``slack_minutes``
+    of the next. Uses the ``clock`` column (minutes after the log's local
+    midnight) when present, otherwise the UTC time of ``ts``.
+
+    Returns
+    -------
+    tuple
+        The rows of whole days, and the days left out.
+    """
+    if df.empty:
+        return df, []
+    days = df["day"] if "day" in df else df["ts"].dt.date
+    clock = df["clock"] if "clock" in df else df["ts"].dt.hour * 60 + df["ts"].dt.minute
+    first, last = days.min(), days.max()
+    partial = []
+    if clock[days == first].min() > slack_minutes:
+        partial.append(first)
+    if last not in partial and clock[days == last].max() < 24 * 60 - slack_minutes:
+        partial.append(last)
+    return df.loc[~days.isin(partial)], partial

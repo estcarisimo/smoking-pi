@@ -20,7 +20,9 @@ def test_report_from_files_without_network(tmp_path, line):
     log.write_text("\n".join(lines) + "\n")
     out = tmp_path / "r.json"
 
-    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1,2", "--json", str(out)])
+    res = runner.invoke(
+        app, ["--file", str(log), "--no-asn", "--k", "1,2", "--all-days", "--json", str(out)]
+    )
 
     assert res.exit_code == 0, res.output
     assert "Diversity and concentration" in res.output
@@ -32,6 +34,18 @@ def test_report_from_files_without_network(tmp_path, line):
     top_service = data["top"]["service"][0]
     assert top_service["service"] == "netflix.com"
     assert data["churn"], "two days of log give a churn table"
+    assert "Stability of the top-K" in res.output
+    stab = {(r["level"], r["k"]): r for r in data["stability"] if r["score"] == "queries"}
+    assert stab[("service", 1)]["days"] == 2
+    assert set(stab[("service", 1)]) >= {"E1L1", "E2L3", "E3L3", "E3L5"}
+
+
+def test_rules_must_be_whole_days(tmp_path, line):
+    log = tmp_path / "querylog.json"
+    log.write_text(line("www.netflix.com") + "\n")
+    for bad in ("2", "0:3", "a:b", "2:-1"):
+        res = runner.invoke(app, ["--file", str(log), "--no-asn", "--rules", bad])
+        assert res.exit_code == 2, (bad, res.output)
 
 
 def test_empty_after_filtering_exits_1(tmp_path, line):
@@ -54,7 +68,8 @@ def test_local_midnight_stays_on_its_day(tmp_path, line):
     log = tmp_path / "querylog.json"
     log.write_text("\n".join(lines) + "\n")
     out = tmp_path / "r.json"
-    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1", "--json", str(out)])
+    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1", "--all-days",
+                                 "--json", str(out)])
     assert res.exit_code == 0, res.output
     # In UTC both are on 30 June (one day, no churn); locally they are two days.
     assert json.loads(out.read_text())["churn"], "two local days give a churn table"
@@ -120,3 +135,17 @@ def test_auto_follows_a_relocated_output_dir(tmp_path, line, monkeypatch):
     res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1", "--json", str(out)])
     assert res.exit_code == 0, res.output
     assert json.loads(out.read_text())["counts"]["excluded_measured"] == 1
+
+
+def test_partial_days_at_the_ends_are_left_out(tmp_path, line):
+    # From 10:00 on day 0 to 10:00 on day 3: days 1 and 2 are whole.
+    day = 24 * 60
+    lines = [line("www.netflix.com", m) for m in range(0, 3 * day + 1, 30)]
+    log = tmp_path / "querylog.json"
+    log.write_text("\n".join(lines) + "\n")
+    out = tmp_path / "r.json"
+    res = runner.invoke(app, ["--file", str(log), "--no-asn", "--k", "1", "--json", str(out)])
+    assert res.exit_code == 0, res.output
+    data = json.loads(out.read_text())
+    assert data["partial_days_left_out"] == ["2026-09-26", "2026-09-29"]
+    assert {r["days"] for r in data["stability"]} == {2}

@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- **`tools/dns-explore` reports how stable the daily top-K is, and what
+  an enter/leave rule would have done with it.** The week of DNS log
+  collected for the domain-selection design was meant to set the
+  automatic selection's hysteresis, but the tool only gave a mean
+  day-over-day Jaccard, which cannot say how long a service stays away
+  before it returns, nor how many changes a rule allows. Without those
+  numbers the thresholds would have been guesses, and each wrong
+  retirement cuts a target's time series. The new table gives, per level,
+  score and K: units ever in a daily top-K, in it every day, on one day
+  only; re-entries and the longest absence before a return; units tied at
+  the K-th score; and the adds and drops under each `--rules E:L` pair.
+  Churn and stability now compare whole days only: the re-run's
+  first and last days covered about 7 and 17 hours and read as churn
+  (`--all-days` restores the old behavior).
+  On the reference Pi's week (27 September–2 October, whole days),
+  services by queries at K = 20: 15 of the 26 that were ever in a daily
+  top-20 were in it every day, no service came back after more than two
+  days away, and enter-after-3/leave-after-5 made no change all week.
+  Presence ties 18 services at the cut for K = 10: it filters, it does
+  not rank. The scheduled run itself still used the 26 September tool,
+  which counted SmokePing's lookups (28.7% of the log) as the house's;
+  it was re-run with this version.
+
 ## [2.20.0] — 2026-10-02
 
 On Pro with InfluxDB, the Overview shows the bandwidth in use, in bit/s,
