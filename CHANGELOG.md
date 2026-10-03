@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.20.0] — 2026-10-02
+
+On Pro with InfluxDB, the Overview shows the bandwidth in use, in bit/s,
+per service and for the whole Pi, beside the MB/day it already showed.
+The netmeter stops logging an ERROR on every upgrade.
+
+- Pro (InfluxDB): *Bandwidth in use by service (bit/s)* stacks each
+  service's rate with the whole Pi's uplink as a dashed line, and
+  *Bandwidth now* gives the uplink's last five-minute interval, download
+  and upload apart. Five-minute averages, not peaks.
+- Pro: for its first 120 s after a start, the netmeter logs the
+  config-manager and InfluxDB errors of a stack still starting at INFO,
+  and sends a batch InfluxDB refused once more with the next interval.
+- No new images and no new settings. As with every release, the upgrade
+  recreates the containers on the new version.
+
 ### Added
 
 - **Pro: the bandwidth in use, in bit/s, per service (InfluxDB).** The
