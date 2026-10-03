@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- **The DNS observer guide warns that the own-traffic list is right only
+  on a Pi that does nothing but measure.** The wizard and
+  `tools/dns-explore` leave out Smoking Pi's own lookups by a list of
+  names; they cannot tell anything else the Pi runs from the house,
+  because every query reaches the observer from the router's address. On
+  a Pi that also hosts an assistant, a bot or a tunnel (the reference Pi
+  does), those lookups rank as services the house uses, and a selection
+  built on that ranking would measure them. The guide and the tool's
+  README now say so, and name the remedy: `DNS_WIZARD_EXCLUDE`
+  (`--exclude-file` in the tool), or moving those programs elsewhere.
+  Decided with the domain-selection design: keep excluding by list first.
+
 - **`tools/dns-explore` reports how stable the daily top-K is, and what
   an enter/leave rule would have done with it.** The week of DNS log
   collected for the domain-selection design was meant to set the
