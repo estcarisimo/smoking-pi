@@ -95,7 +95,8 @@ def test_a_target_over_the_ceiling_is_refused_with_the_numbers(client):
     body = r.get_json()
     assert body["reason"] == "over_budget" and body["error"] == "Over the measurement budget"
     assert body["requested"] == {"samples_per_hour": 120.0, "mb_per_day": 0.48}
-    assert body["after"]["mb_per_day"] == 1000.28 and body["after"]["bandwidth_pct"] == 100.0
+    # Rounded up: a refusal never reads "100%".
+    assert body["after"]["mb_per_day"] == 1000.28 and body["after"]["bandwidth_pct"] == 100.1
     assert body["headroom"]["mb_per_day"] == 0.2
     assert "Repeat it with force" in body["message"]
     assert "MEASUREMENT_BUDGET_MB_PER_DAY" in body["message"]
@@ -212,3 +213,39 @@ def test_admission_lets_through_what_fits_and_what_cuts():
     refusal = budget.admission(body, 100.0, 2.0)
     assert refusal["after"]["mb_per_day"] == 1001.0
     assert refusal["headroom"] == {"samples_per_hour": 19000.0, "mb_per_day": 1.0}
+
+
+def test_turning_on_and_moving_in_one_edit_prices_the_new_probe_whole(client):
+    # Inactive FPing target, turned on as CurlHTTP2: costs all 18 MB/day.
+    s = client.session()
+    google = s.query(Target).filter_by(name="Google").one()
+    google.is_active = False
+    s.commit()
+    curl = s.query(Probe).filter_by(name="CurlHTTP2").one()
+    gid, cid = google.id, curl.id
+    s.close()
+    client.state["budget"] = budget_body(mb=990.0)
+    r = client.put(f"/targets/{gid}", json={"probe_id": cid, "is_active": True})
+    assert r.status_code == 409
+    assert r.get_json()["requested"]["mb_per_day"] == 18.0
+
+
+def test_a_title_edit_never_asks_the_budget(client, monkeypatch):
+    def unreachable():
+        raise AssertionError("no budget needed for a title")
+
+    monkeypatch.setattr(api_module.api, "measurement_budget", unreachable)
+    s = client.session()
+    gid = s.query(Target).filter_by(name="Google").one().id
+    s.close()
+    assert client.put(f"/targets/{gid}", json={"title": "Google Search"}).status_code == 200
+
+
+def test_only_a_ceiling_the_change_adds_to_refuses_it():
+    # Samples already over; a change that adds bytes but no samples fits.
+    body = budget_body(mb=100.0, samples=25000.0)
+    assert budget.admission(body, 0.0, 5.0) is None
+    assert budget.admission(body, 10.0, 0.0) is not None
+    text = budget.refusal_text(budget.admission(budget_body(mb=999.0, samples=25000.0),
+                                                -10.0, 5.0))
+    assert "MB/day" in text and "samples/hour (" not in text

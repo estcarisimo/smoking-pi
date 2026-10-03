@@ -30,7 +30,9 @@ version gets a matching GitHub release and git tag.
   files the two agree to the sample for all nine probes. Nothing already
   measured is ever throttled or dropped; a YAML upload, the first-run seed
   and the nightly OCA refresh are not admitted (they set the
-  configuration rather than add to it).
+  configuration rather than add to it). A guardrail, not a lock: two
+  changes sent at the same moment can each fit and cross a ceiling
+  together.
 
 ## [2.21.0] — 2026-10-03
 

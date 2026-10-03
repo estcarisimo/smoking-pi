@@ -444,6 +444,12 @@ the assistants and the CLI show that sentence.
 `smoking-pi dns adopt --dry-run` says whether the adoption fits before
 anything is tried.
 
+A guardrail, not a lock: the budget is read from the generated files as
+SmokePing last loaded them, so two changes sent at the same moment can each
+fit on their own and cross a ceiling together. A refusal names only the
+ceilings the change adds to: with samples already over, a change that adds
+bytes but no samples is judged on bytes.
+
 What is never refused:
 
 - a change that lowers the cost (removing or turning off a target, a

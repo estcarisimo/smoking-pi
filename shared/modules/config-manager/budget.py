@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -129,20 +130,22 @@ def admission(body: dict, samples_h: float, mb_day: float) -> Optional[dict]:
     or fits under both ceilings; otherwise the refusal: what the change
     requests, the totals now and after, the ceilings and the headroom.
     """
-    if samples_h <= 0 and mb_day <= 0:
-        return None
     c = body["ceiling"]
     after_s = body["samples_per_hour"] + max(samples_h, 0.0)
     after_mb = body["mb_per_day"] + max(mb_day, 0.0)
-    if after_s <= c["samples_per_hour"] and after_mb <= c["mb_per_day"]:
+    # Only a ceiling the change adds to: one already over is not a reason
+    # to refuse a change that does not touch it.
+    if not ((samples_h > 0 and after_s > c["samples_per_hour"])
+            or (mb_day > 0 and after_mb > c["mb_per_day"])):
         return None
     return {
         "reason": "over_budget",
         "requested": {"samples_per_hour": round(samples_h, 1), "mb_per_day": round(mb_day, 2)},
         "now": {"samples_per_hour": body["samples_per_hour"], "mb_per_day": body["mb_per_day"]},
         "after": {"samples_per_hour": round(after_s, 1), "mb_per_day": round(after_mb, 2),
-                  "samples_pct": round(100 * after_s / c["samples_per_hour"], 1),
-                  "bandwidth_pct": round(100 * after_mb / c["mb_per_day"], 1)},
+                  # Rounded up: a refusal never reads "100%".
+                  "samples_pct": math.ceil(1000 * after_s / c["samples_per_hour"]) / 10,
+                  "bandwidth_pct": math.ceil(1000 * after_mb / c["mb_per_day"]) / 10},
         "ceiling": c,
         "headroom": {
             "samples_per_hour": round(max(c["samples_per_hour"] - body["samples_per_hour"], 0), 1),
@@ -156,10 +159,10 @@ def refusal_text(refusal: dict) -> str:
     refused, and the two ways forward."""
     a, c, r = refusal["after"], refusal["ceiling"], refusal["requested"]
     over = []
-    if a["mb_per_day"] > c["mb_per_day"]:
+    if r["mb_per_day"] > 0 and a["mb_per_day"] > c["mb_per_day"]:
         over.append(f"{_mb(a['mb_per_day'])} of {_mb(c['mb_per_day'])} MB/day "
                     f"({a['bandwidth_pct']:g}%)")
-    if a["samples_per_hour"] > c["samples_per_hour"]:
+    if r["samples_per_hour"] > 0 and a["samples_per_hour"] > c["samples_per_hour"]:
         over.append(f"{a['samples_per_hour']:,.0f} of {c['samples_per_hour']:,.0f} "
                     f"samples/hour ({a['samples_pct']:g}%)")
     return (f"This change adds {_mb(r['mb_per_day'])} MB/day and "
