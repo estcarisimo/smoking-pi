@@ -602,14 +602,12 @@ def _get_microcut_stats(tool_input: dict) -> dict:
     try:
         deaf_rows = query_influx(microcuts.uplink_flux(f"-{hours}h"))
     except Exception:  # influx client raises many exception types
+        logger.warning("deaf-radio evidence query failed; every microcut counted as the link's", exc_info=True)
         deaf_rows = []
     attributed = microcuts.attribute(microcuts.fold_cuts(cut_rows), deaf_rows)
     truncated = len(cut_rows) >= microcuts.MAX_ROWS
     cut_rows = microcuts.link_windows(cut_rows, attributed)
-    deaf = [
-        {k: c[k] for k in ("start", "end", "seconds", "deaf")}
-        for c in reversed(microcuts.host_cuts(attributed))
-    ]
+    deaf = microcuts.deaf_spans(attributed)
     cuts = microcuts.link_cuts(attributed)
     for entry in stats.values():
         entry.setdefault("windows", 0)
@@ -649,7 +647,7 @@ def _get_microcut_stats(tool_input: dict) -> dict:
     }
     if deaf:
         result["deaf"] = deaf
-        result["deaf_note"] = microcuts.describe_deaf(attributed)
+        result["deaf_note"] = microcuts.describe_deaf(deaf)
     if not cuts and stats:
         floor = ", ".join(
             f"{e['target']}/{e['protocol']} p50 {e.get('p50_loss_pct', 0):g}% / "

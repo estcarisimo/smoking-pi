@@ -13,12 +13,15 @@ tested without an InfluxDB — only :func:`evaluate` touches the network.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Collection
 from datetime import datetime, timezone
 
 import flux
 from common import aggregates, cadence, microcuts
+
+log = logging.getLogger("alerter.evaluator")
 
 # Thresholds (env-tunable).
 # Windows below are written for SmokePing's default 300 s step. A probe on a
@@ -815,6 +818,8 @@ def evaluate_with_context(open_keys: Collection[str] = ()) -> tuple[list[dict], 
     try:
         deaf_rows = _query(microcuts.uplink_flux("-60m"))
     except Exception:  # influx client raises many exception types
+        log.warning("deaf-radio evidence query failed; every microcut counted "
+                    "as the link's", exc_info=True)
         deaf_rows = []
     incidents += rule_microcut_burst(micro_rows, uplink_rows=deaf_rows)
     # The verdict reads the folded shape, not the raw windows.

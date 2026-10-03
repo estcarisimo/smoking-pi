@@ -190,14 +190,15 @@ def _collect_cpe_stats(hours: int) -> dict:
     try:
         deaf_rows = query_influx(microcuts.uplink_flux(f"-{int(hours)}h"))
     except Exception:  # influx client raises many exception types
+        log.warning("deaf-radio evidence query failed; every microcut counted as the link's", exc_info=True)
         deaf_rows = []
     attributed = microcuts.attribute(microcuts.fold_cuts(cut_rows), deaf_rows)
     cut_rows = microcuts.link_windows(cut_rows, attributed)
+    deaf = microcuts.deaf_spans(attributed)
     for cut in attributed:
         cut.pop("start_epoch", None)
     attributed.reverse()  # newest first, as the tool reports them
     cuts = microcuts.link_cuts(attributed)
-    deaf = microcuts.host_cuts(attributed)
 
     for entry in stats.values():
         entry.setdefault("windows", 0)
@@ -225,7 +226,7 @@ def _collect_cpe_stats(hours: int) -> dict:
         ),
         "cuts": cuts,
         "deaf": deaf,
-        "deaf_note": microcuts.describe_deaf(attributed),
+        "deaf_note": microcuts.describe_deaf(deaf),
         "worst_windows": worst_windows,
     }
 

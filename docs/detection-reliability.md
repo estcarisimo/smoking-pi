@@ -279,8 +279,11 @@ the radio leaves the LAN talking (the router forwarding the house's DNS,
 ARP, multicast), so a flat counter is the radio, not the line.
 
 **What changed.** `common.microcuts.attribute` marks each cut `origin:
-"this_host"` (with `deaf`: `received nothing` or `not associated`) when the
-uplink interface's deaf samples run through all of it. It allows one missed
+"this_host"` (with `deaf`: `received nothing` or `not associated`) when
+deaf samples run through all of it, counted only while their interface holds
+the default route (a disassociated sample inherits that from the last
+associated one), so a spare radio, or the Wi-Fi after Ethernet took the
+route, proves nothing. One hang seen on several CPE series is one span. It allows one missed
 sample, reads nothing after the cut (the long hangs end in a reboot, which
 resets the counter), and treats a wired host or a missing `wifi_link` as no
 evidence, so every cut stays the link's. `uplink_flux` asks InfluxDB for the

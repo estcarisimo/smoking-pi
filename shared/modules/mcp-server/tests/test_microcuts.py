@@ -116,7 +116,7 @@ def test_not_associated_is_named_as_such():
 def test_one_missed_sample_is_tolerated_two_are_not():
     every = list(range(10, 170, 10))
     one_gap = [t for t in every if t != 80]
-    two_gap = [t for t in every if t not in (80, 90, 100)]
+    two_gap = [t for t in every if t not in (80, 90)]
     assert microcuts.attribute(_cut(), _deaf(one_gap))[0]["origin"] == "this_host"
     assert microcuts.attribute(_cut(), _deaf(two_gap))[0]["origin"] == "link"
 
@@ -154,15 +154,40 @@ def test_link_windows_drops_the_hosts_windows_only():
 
 def test_describe_deaf():
     cuts = microcuts.attribute(_cut(), _deaf(range(10, 170, 10)))
-    assert microcuts.describe_deaf(cuts) == (
+    spans = microcuts.deaf_spans(cuts)
+    assert spans == [{"start": "2026-09-19T00:42:33+00:00",
+                      "end": "2026-09-19T00:45:03+00:00",
+                      "seconds": 160, "deaf": "received nothing"}]
+    assert microcuts.describe_deaf(spans) == (
         "this host's Wi-Fi heard nothing for 2 min 40 s: the monitor was deaf, "
         "not the link cut")
-    assert microcuts.describe_deaf(microcuts.attribute(_cut(), [])) == ""
+    assert microcuts.describe_deaf(
+        microcuts.deaf_spans(microcuts.attribute(_cut(), []))) == ""
+
+
+def test_one_hang_on_two_cpe_series_is_one_span():
+    windows = (_rows([(30 * i, 100.0) for i in range(6)])
+               + _rows([(30 * i + 5, 100.0) for i in range(6)], protocol="ipv6"))
+    cuts = microcuts.attribute(microcuts.fold_cuts(windows), _deaf(range(10, 180, 10)))
+    assert len(microcuts.host_cuts(cuts)) == 2
+    spans = microcuts.deaf_spans(cuts)
+    assert len(spans) == 1 and spans[0]["seconds"] == 165
+    assert "2 min 45 s:" in microcuts.describe_deaf(spans)
+
+
+def test_a_cut_longer_than_a_window_needs_two_deaf_samples():
+    two = microcuts.fold_cuts(_rows([(0, 100.0), (20, 100.0)]))  # 30 s
+    assert microcuts.attribute(two, _deaf([20]))[0]["origin"] == "link"
+    assert microcuts.attribute(
+        microcuts.fold_cuts(_rows([(0, 100.0), (20, 100.0)])), _deaf([10, 20, 30])
+    )[0]["origin"] == "this_host"
 
 
 def test_uplink_flux_reads_only_deaf_samples_of_the_uplink_interface():
     flux = microcuts.uplink_flux("-24h")
-    assert 'r._field == "uplink" and r._value == 1' in flux
-    assert "contains(value: r.interface, set: uplinks)" in flux
+    # A disassociated sample inherits the route flag of the last associated
+    # one; a spare radio (never the route) yields nothing.
+    assert 'then debug.null(type: "int") else r.uplink' in flux
+    assert 'fill(column: "uplink", usePrevious: true)' in flux
     assert 'difference(columns: ["rx_packets"])' in flux
-    assert "r.rx_packets == 0 or r.associated == 0" in flux
+    assert "r.uplink == 1 and (r.rx_packets == 0 or r.associated == 0)" in flux

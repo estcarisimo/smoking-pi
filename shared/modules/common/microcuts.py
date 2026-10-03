@@ -51,9 +51,9 @@ DEFAULT_LOSS_PCT = 50.0  # MICROCUT_LOSS_PCT
 # one missing window between them. Rescale if CPE_PROBE_IDLE changes.
 WINDOW_S = 10
 GAP_S = 70
-# wifi_link samples every 10 s; the deaf test needs samples reaching this
-# close to a cut's end (two missed samples).
-COVER_S = 30
+# wifi_link samples every 10 s; the deaf test allows one missed sample
+# (a 20 s gap, with slack for timing) and no more.
+COVER_S = 25
 # Rows fetched for folding. Every window above 50% for a week on a healthy
 # gateway is a few dozen; a multi-hour total outage is ~120 per hour.
 MAX_ROWS = 5000
@@ -85,34 +85,34 @@ def uplink_flux(range_start: str) -> str:
     """The host's deaf Wi-Fi samples, oldest first -- the evidence
     :func:`attribute` reads.
 
-    Only interfaces that carried the default route in the range
-    (``uplink == 1`` at some sample): a spare radio says nothing about the
-    link the probes cross. Their series are merged across access points
-    (a radio that lost its association writes without a ``bssid``, and with
-    ``uplink == 0`` because the route left with it). A sample is deaf when
-    the received-packet counter did not move since the one before
-    (``rx_packets`` is that difference here) or the radio is not associated.
-    Healthy samples are dropped in the database: a week is ~60 000 samples,
-    and a healthy one has no deaf sample at all.
+    A sample counts only while its interface carries the default route
+    (``uplink == 1``): a spare radio, or the Wi-Fi after Ethernet took the
+    route, says nothing about the link the probes cross. A radio that lost
+    its association writes ``uplink == 0`` (the route left with it), so
+    such a sample inherits the flag of the interface's last associated
+    one. Series are merged across access points (a lost association writes
+    without a ``bssid``). A sample is deaf when the received-packet counter
+    did not move since the one before (``rx_packets`` is that difference
+    here; a reboot's reset is negative, not deaf) or the radio is not
+    associated. Healthy samples are dropped in the database: a week is
+    ~60 000 samples, and a healthy one has no deaf sample at all.
     """
-    wifi = base_flux(["wifi_link"], range_start)
     return (
-        "uplinks = "
-        + wifi
-        + '|> filter(fn: (r) => r._field == "uplink" and r._value == 1) '
-        + '|> group(columns: ["interface"]) |> last() |> group() '
-        # findColumn refuses a field's values; a mapped column is fine.
-        + "|> map(fn: (r) => ({_value: r.interface})) "
-        + '|> findColumn(fn: (key) => true, column: "_value")\n'
-        + wifi
-        + "|> filter(fn: (r) => contains(value: r.interface, set: uplinks)) "
-        + '|> filter(fn: (r) => r._field == "rx_packets" or r._field == "associated") '
+        'import "internal/debug"\n'
+        + base_flux(["wifi_link"], range_start)
+        + '|> filter(fn: (r) => r._field == "rx_packets" or '
+        + 'r._field == "associated" or r._field == "uplink") '
         + '|> keep(columns: ["_time", "_field", "_value", "interface"]) '
         + '|> group(columns: ["interface"]) '
         + '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '
         + '|> sort(columns: ["_time"]) '
+        + "|> map(fn: (r) => ({r with uplink: if r.associated == 0 "
+        + 'then debug.null(type: "int") else r.uplink})) '
+        + '|> fill(column: "uplink", usePrevious: true) '
         + '|> difference(columns: ["rx_packets"]) '
-        + "|> filter(fn: (r) => r.rx_packets == 0 or r.associated == 0) "
+        + "|> filter(fn: (r) => r.uplink == 1 and "
+        + "(r.rx_packets == 0 or r.associated == 0)) "
+        + '|> keep(columns: ["_time", "interface", "rx_packets", "associated"]) '
         + '|> group() |> sort(columns: ["_time"]) '
         + f"|> limit(n: {MAX_ROWS * 4})"
     )
@@ -131,7 +131,8 @@ def _deaf(cut: dict, samples: list[tuple[float, dict]]) -> str | None:
     start = cut["start_epoch"]
     end = start + cut["seconds"]
     times = [t for t, _ in samples if start < t <= end + WINDOW_S]
-    if not times:
+    # A cut longer than one window needs more than one deaf sample.
+    if not times or (cut["seconds"] > WINDOW_S and len(times) < 2):
         return None
     edges = [start] + times
     if max(b - a for a, b in zip(edges, edges[1:])) > COVER_S or times[-1] < end - COVER_S:
@@ -194,10 +195,35 @@ def link_windows(rows: list[dict], cuts: list[dict]) -> list[dict]:
     ]
 
 
-def describe_deaf(cuts: list[dict]) -> str:
-    """One clause for the host's own spans: 'this host's Wi-Fi heard
-    nothing for 1 h 52 min (2 spans)'. Empty when there are none."""
-    own = host_cuts(cuts)
+def deaf_spans(cuts: list[dict]) -> list[dict]:
+    """This host's deaf spans, newest first, each ``start``, ``end``,
+    ``seconds``, ``deaf``. One hang makes a cut on every CPE target and
+    protocol; overlapping ones are merged here, so it is told once. Needs
+    ``start_epoch``."""
+    own = sorted((c for c in host_cuts(cuts) if "start_epoch" in c),
+                 key=lambda c: c["start_epoch"])
+    merged: list[dict] = []
+    for c in own:
+        lo, hi = c["start_epoch"], c["start_epoch"] + c["seconds"]
+        if merged and lo <= merged[-1]["_hi"]:
+            last = merged[-1]
+            if hi > last["_hi"]:
+                last.update(_hi=hi, end=c["end"])
+            if c["deaf"] == "not associated":
+                last["deaf"] = c["deaf"]
+            continue
+        merged.append({"_lo": lo, "_hi": hi, "start": c["start"], "end": c["end"],
+                       "deaf": c["deaf"]})
+    out = [{"start": m["start"], "end": m["end"], "seconds": int(m["_hi"] - m["_lo"]),
+            "deaf": m["deaf"]} for m in merged]
+    out.reverse()
+    return out
+
+
+def describe_deaf(spans: list[dict]) -> str:
+    """One clause for :func:`deaf_spans`: 'this host's Wi-Fi heard nothing
+    for 1 h 52 min (2 spans)'. Empty when there are none."""
+    own = spans
     if not own:
         return ""
     total = sum(c["seconds"] for c in own)
@@ -315,6 +341,7 @@ def _duration(seconds: int) -> str:
 __all__ = [
     "DEFAULT_LOSS_PCT",
     "attribute",
+    "deaf_spans",
     "describe_deaf",
     "host_cuts",
     "link_cuts",
