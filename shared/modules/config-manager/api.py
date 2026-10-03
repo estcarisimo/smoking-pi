@@ -1326,6 +1326,77 @@ def dns_observer_route():
         return error_response(500, "Failed to read the DNS observer's state", e)
 
 
+def _forced() -> bool:
+    """``?force=1``: admit a change even over the measurement budget."""
+    return request.args.get('force') in ('1', 'true', 'yes')
+
+
+def _target_cost(probe) -> tuple:
+    """(samples/hour, MB/day) of one active target on ``probe`` (a Probe
+    row: its step and pings are the database's, which the next
+    regeneration will apply)."""
+    probes_file = OUTPUT_DIR / "Probes"
+    text = probes_file.read_text() if probes_file.exists() else ''
+    return budget.probe_cost(text, probe.name, probe.step_seconds, probe.pings,
+                             like=wizard_adopt.WIZARD_PROBES.get(probe.name))
+
+
+def _budget_now() -> Optional[dict]:
+    """The budget as it stands, for admission; None when forced or when it
+    cannot be computed (no generated files yet, an error), which admits:
+    admission never blocks on its own failure. Read BEFORE a database
+    session opens: it asks the SmokePing container over Docker, and no
+    transaction should wait on that."""
+    if _forced():
+        return None
+    try:
+        body = api.measurement_budget()
+    except Exception as e:
+        logger.warning("Change admitted without a budget check: %s", type(e).__name__)
+        return None
+    return body if body.get('available') else None
+
+
+def _over_budget(body: Optional[dict], samples_h: float, mb_day: float) -> Optional[dict]:
+    """The refusal when a change adding this much would cross a ceiling of
+    ``body`` (:func:`_budget_now`), else None."""
+    if body is None:
+        return None
+    return budget.admission(body, samples_h, mb_day)
+
+
+def _adoption_cost(session, targets: list, deactivated: list) -> tuple:
+    """(samples/hour, MB/day) an adoption adds: its new targets, net of the
+    adopted layers the same transaction deactivates. A wizard probe the
+    adoption has not created yet is priced as the curated one it copies."""
+    probes_file = OUTPUT_DIR / "Probes"
+    text = probes_file.read_text() if probes_file.exists() else ''
+    rows = {p.name: p for p in session.query(Probe).all()}
+    samples = mb = 0.0
+    for t in targets:
+        like = wizard_adopt.WIZARD_PROBES.get(t['probe'])
+        probe = rows.get(t['probe']) or rows.get(like or '')
+        if probe is not None:
+            cost = budget.probe_cost(text, t['probe'], probe.step_seconds, probe.pings, like=like)
+            samples, mb = samples + cost[0], mb + cost[1]
+    if deactivated:
+        for target in session.query(Target).filter(Target.name.in_(deactivated)):
+            if target.probe is not None:
+                cost = _target_cost(target.probe)
+                samples, mb = samples - cost[0], mb - cost[1]
+    return samples, mb
+
+
+def _over_budget_response(refusal: dict):
+    """409 with the numbers and a sentence for a person. Every field is
+    computed here from the budget, none from an exception."""
+    logger.info("Refused a change over the measurement budget: after %s MB/day, "
+                "%s samples/hour", refusal['after']['mb_per_day'],
+                refusal['after']['samples_per_hour'])
+    return jsonify({'error': 'Over the measurement budget',
+                    'message': budget.refusal_text(refusal), **refusal}), 409
+
+
 @app.route('/wizard/adopt', methods=['POST'])
 @require_api_token
 def wizard_adopt_route():
@@ -1352,6 +1423,7 @@ def wizard_adopt_route():
     except ValueError:
         max_services = 60
     models = (Target, TargetCategory, Probe)
+    now = None if retire_only else _budget_now()
 
     def checker(layers):
         report = api._layer_check({'preflight': layers})
@@ -1376,6 +1448,18 @@ def wizard_adopt_route():
                 session, models, snapshot,
                 max_services=max_services, dry_run=dry_run, checker=checker, commit=False,
             )
+        if not retire_only:
+            dropped = list(retired['retired']) + [
+                name for c in merged['consolidated'] for name in c['deactivated']]
+            refusal = _over_budget(now, *_adoption_cost(session, result['targets'], dropped))
+            if dry_run:
+                # Say it now, not on the real run.
+                result['budget'] = ({'admitted': False, **refusal,
+                                     'message': budget.refusal_text(refusal)}
+                                    if refusal else {'admitted': True})
+            elif refusal:
+                session.rollback()
+                return _over_budget_response(refusal)
         if dry_run:
             session.rollback()
         else:
@@ -1518,8 +1602,15 @@ def create_target():
             if field not in target_data:
                 raise BadRequest(f"Missing required field: {field}")
         
+        now = _budget_now() if target_data.get('is_active', True) else None
         session = get_db_session()
         try:
+            if now is not None:
+                probe = session.get(Probe, target_data['probe_id'])
+                if probe is not None:
+                    refusal = _over_budget(now, *_target_cost(probe))
+                    if refusal:
+                        return _over_budget_response(refusal)
             target_repo = TargetRepository(session)
             target = target_repo.create(target_data)
             
@@ -1560,8 +1651,23 @@ def update_target(target_id):
         if refused:
             return refused
         
+        now = (_budget_now() if 'probe_id' in target_data or target_data.get('is_active')
+               else None)
         session = get_db_session()
         try:
+            current = session.get(Target, target_id)
+            if current is not None and now is not None:
+                # Cost after minus cost before: a new probe, or turned on.
+                new_probe = (session.get(Probe, target_data['probe_id'])
+                             if 'probe_id' in target_data else current.probe)
+                before = (_target_cost(current.probe)
+                          if current.is_active and current.probe is not None else (0.0, 0.0))
+                after = (_target_cost(new_probe)
+                         if target_data.get('is_active', current.is_active) and new_probe
+                         else (0.0, 0.0))
+                refusal = _over_budget(now, after[0] - before[0], after[1] - before[1])
+                if refusal:
+                    return _over_budget_response(refusal)
             target_repo = TargetRepository(session)
             target = target_repo.update(target_id, target_data)
             
@@ -1627,8 +1733,14 @@ def toggle_target(target_id):
         return jsonify({'error': 'Database not available'}), 400
     
     try:
+        now = _budget_now()
         session = get_db_session()
         try:
+            current = session.get(Target, target_id)
+            if current is not None and not current.is_active and current.probe is not None:
+                refusal = _over_budget(now, *_target_cost(current.probe))
+                if refusal:
+                    return _over_budget_response(refusal)
             target_repo = TargetRepository(session)
             target = target_repo.toggle_active(target_id)
             
@@ -1784,6 +1896,7 @@ def update_probe(name):
             400, "Only step_seconds and pings can be changed here",
             reason='field_not_editable', fields=unknown)
     try:
+        now = _budget_now()
         session = get_db_session()
         try:
             probe = ProbeRepository(session).get_by_name(name)
@@ -1803,6 +1916,15 @@ def update_probe(name):
             if wanted == previous:
                 return jsonify({'success': True, 'changed': False, 'probe': name,
                                 'previous': previous, **counts})
+            n = counts['active_targets']
+            if n:
+                probes_file = OUTPUT_DIR / "Probes"
+                text = probes_file.read_text() if probes_file.exists() else ''
+                old = budget.probe_cost(text, name, previous['step_seconds'], previous['pings'])
+                new = budget.probe_cost(text, name, wanted['step_seconds'], wanted['pings'])
+                refusal = _over_budget(now, n * (new[0] - old[0]), n * (new[1] - old[1]))
+                if refusal:
+                    return _over_budget_response(refusal)
             probe.step_seconds = wanted['step_seconds']
             probe.pings = wanted['pings']
             session.commit()

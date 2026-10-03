@@ -1785,8 +1785,11 @@ STUB
     [ "$status" -eq 0 ]
     grep -q 'exec -T config-manager python wizard_adopt.py --retire-only --dry-run' "$DOCKER_LOG"
     run "$CLI" dns adopt --force
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python wizard_adopt.py --force' "$DOCKER_LOG"
+    run "$CLI" dns adopt --yes
     [ "$status" -eq 2 ]
-    [[ "$output" == *"unknown option --force"* ]]
+    [[ "$output" == *"unknown option --yes"* ]]
 }
 
 @test "install accepts the dns profile" {

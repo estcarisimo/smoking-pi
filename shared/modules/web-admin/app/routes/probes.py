@@ -13,7 +13,7 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 
 from app.routes.dashboard import config_api
 from app.routes.targets import describe_cadence, probe_unit
-from app.services.config_api import ProbeChangeRefused
+from app.services.config_api import ProbeChangeRefused, over_budget_message
 
 probes_bp = Blueprint('probes', __name__)
 
@@ -123,6 +123,10 @@ def edit(name):
         except Exception as e:
             current_app.logger.error(f"Failed to update probe {name}: {e}")
             flash('config-manager did not save the change.', 'error')
+            return render_template('probes/edit.html', probe=probe,
+                                   **_form(probe, step, pings))
+        if result.get('refused') == 'over_budget':
+            flash(over_budget_message(result.get('numbers') or {}), 'error')
             return render_template('probes/edit.html', probe=probe,
                                    **_form(probe, step, pings))
         _report(name, result, probe['unit'])

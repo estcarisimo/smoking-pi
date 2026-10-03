@@ -8,7 +8,7 @@ import ipaddress
 import re
 import socket
 from datetime import datetime
-from app.services.config_api import ConfigAPIGateway
+from app.services.config_api import ConfigAPIGateway, over_budget_message
 
 targets_bp = Blueprint('targets', __name__)
 
@@ -398,6 +398,11 @@ def add_target():
                 # Create target in database (config-manager regenerates the
                 # SmokePing config automatically in database mode)
                 result = config_api.create_target_in_db(target_data)
+                if (result or {}).get('refused') == 'over_budget':
+                    return _add_target_error_response(
+                        {'_form': over_budget_message(result.get('numbers') or {})},
+                        name, hostname, title, target_type, dns_query,
+                        http_version)
                 warning = reload_warning(result)
                 success_message = warning or (
                     f"Target '{name}' added. SmokePing picked it up; its "
@@ -612,6 +617,9 @@ def toggle_target(target_id):
 
     try:
         result = config_api.toggle_target_in_db(target_id)
+        if result.get('refused') == 'over_budget':
+            return jsonify({'success': False,
+                            'error': over_budget_message(result.get('numbers') or {})}), 409
         target = result.get('target', {})
         warning = reload_warning(result)
         return jsonify({
@@ -674,6 +682,9 @@ def edit_target(target_id):
 
     try:
         result = config_api.update_target_in_db(target_id, update)
+        if result.get('refused') == 'over_budget':
+            return jsonify({'success': False,
+                            'error': over_budget_message(result.get('numbers') or {})}), 409
         warning = reload_warning(result)
         return jsonify({'success': True, 'reloaded': warning is None,
                         'message': warning or 'Target updated'})

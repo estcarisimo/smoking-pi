@@ -395,6 +395,12 @@ def add_target(
     the config-manager; data for the new target starts appearing within a
     few minutes. If SmokePing doesn't pick up the change, call
     apply_config().
+
+    "Over the measurement budget" (HTTP 409) means nothing was saved: the
+    target would push the configured measurements past a ceiling of the
+    measurement budget. Say so; the owner can raise the ceiling
+    (MEASUREMENT_BUDGET_MB_PER_DAY) or remove something first. Do not
+    retry. toggle_target turning a target on is refused the same way.
     """
     error = _validate_name(name)
     if error:

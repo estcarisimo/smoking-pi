@@ -7,7 +7,7 @@ import logging
 import os
 import time
 import requests
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -15,6 +15,64 @@ logger = logging.getLogger(__name__)
 # The numbers a probe refusal may carry (config-manager's
 # probe_cadence_problem); anything else in the body is not kept.
 PROBE_REFUSAL_NUMBERS = ('pings', 'worst_seconds', 'step_seconds')
+
+
+# The numbers of an over-budget refusal (config-manager's 409), by group.
+OVER_BUDGET_GROUPS = ('requested', 'after', 'ceiling')
+OVER_BUDGET_FIELDS = ('mb_per_day', 'samples_per_hour', 'bandwidth_pct', 'samples_pct')
+
+
+def over_budget(response) -> Optional[Dict[str, Any]]:
+    """The refusal when config-manager answered 409 over_budget, else None:
+    ``{'success': False, 'refused': 'over_budget', 'numbers': {...}}``.
+
+    A returned value, not an exception, and only numbers, checked one by
+    one: the page writes its own sentence from them
+    (:func:`over_budget_message`), so nothing the answer says is shown.
+    """
+    if response.status_code != 409:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or body.get('reason') != 'over_budget':
+        return None
+    numbers = {}
+    for group in OVER_BUDGET_GROUPS:
+        part = body.get(group)
+        if not isinstance(part, dict):
+            continue
+        for field in OVER_BUDGET_FIELDS:
+            value = part.get(field)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                numbers[f'{group}_{field}'] = float(value)
+    return {'success': False, 'refused': 'over_budget', 'numbers': numbers}
+
+
+def over_budget_message(numbers: Dict[str, float]) -> str:
+    """A person's sentence for an over-budget refusal: literals and numbers."""
+    def mb(v):
+        return f"{v:.1f}" if v < 10 else f"{v:.0f}"
+    parts = []
+    if {'after_mb_per_day', 'ceiling_mb_per_day'} <= numbers.keys() and \
+            numbers['after_mb_per_day'] > numbers['ceiling_mb_per_day']:
+        parts.append(f"{mb(numbers['after_mb_per_day'])} of "
+                     f"{mb(numbers['ceiling_mb_per_day'])} MB/day")
+    if {'after_samples_per_hour', 'ceiling_samples_per_hour'} <= numbers.keys() and \
+            numbers['after_samples_per_hour'] > numbers['ceiling_samples_per_hour']:
+        parts.append(f"{numbers['after_samples_per_hour']:,.0f} of "
+                     f"{numbers['ceiling_samples_per_hour']:,.0f} samples/hour")
+    adds = ""
+    if 'requested_mb_per_day' in numbers:
+        adds = f" It adds {mb(numbers['requested_mb_per_day'])} MB/day"
+        if 'requested_samples_per_hour' in numbers:
+            adds += f" and {numbers['requested_samples_per_hour']:,.0f} samples/hour"
+        adds += "."
+    over = f" It would bring the measurements to {' and '.join(parts)}." if parts else ""
+    return ("Not saved: over the measurement budget." + adds + over +
+            " Raise the ceiling (sudo smoking-pi config set "
+            "MEASUREMENT_BUDGET_MB_PER_DAY ...) or remove something first.")
 
 
 class ProbeChangeRefused(Exception):
@@ -213,7 +271,9 @@ class ConfigManagerClient:
         """Create new target in database"""
         try:
             response = self._make_request('POST', '/targets', json=target_data)
-            
+            refused = over_budget(response)
+            if refused:
+                return refused
             if response.status_code == 201:
                 return response.json()
             elif response.status_code == 400:
@@ -231,7 +291,9 @@ class ConfigManagerClient:
         """Update target in database"""
         try:
             response = self._make_request('PUT', f'/targets/{target_id}', json=target_data)
-            
+            refused = over_budget(response)
+            if refused:
+                return refused
             if response.status_code == 200:
                 return response.json()
             elif response.status_code == 404:
@@ -272,6 +334,9 @@ class ConfigManagerClient:
         answer that is not JSON.
         """
         response = self._make_request('PUT', f'/probes/{name}', json=changes)
+        refused = over_budget(response)
+        if refused:
+            return refused
         try:
             body = response.json() if response.text else {}
         except ValueError:
@@ -295,7 +360,9 @@ class ConfigManagerClient:
         """Toggle target active status"""
         try:
             response = self._make_request('POST', f'/targets/{target_id}/toggle')
-            
+            refused = over_budget(response)
+            if refused:
+                return refused
             if response.status_code == 200:
                 return response.json()
             elif response.status_code == 404:
@@ -791,6 +858,7 @@ class ConfigAPIGateway:
             # Create or reactivate targets for new sites
             created_count = 0
             reactivated_count = 0
+            over_budget_count = 0
             
             for idx, site in enumerate(sites[:100]):  # Limit to 100
                 # Use normalized naming
@@ -822,7 +890,9 @@ class ConfigAPIGateway:
                     # Reactivate existing target if it's inactive
                     if not existing_target.get('is_active'):
                         try:
-                            self.toggle_target_in_db(existing_target['id'])
+                            if (self.toggle_target_in_db(existing_target['id']) or {}).get('refused'):
+                                over_budget_count += 1
+                                continue
                             reactivated_count += 1
                             logger.info(f"Reactivated existing target: {existing_target.get('name')} ({existing_target.get('host')})")
                         except Exception as e:
@@ -831,7 +901,9 @@ class ConfigAPIGateway:
                 else:
                     # Create new target
                     try:
-                        self.create_target_in_db(target_data)
+                        if (self.create_target_in_db(target_data) or {}).get('refused'):
+                            over_budget_count += 1
+                            continue
                         created_count += 1
                         logger.info(f"Created new target: {name} ({site})")
                     except Exception as e:
@@ -841,7 +913,10 @@ class ConfigAPIGateway:
             
             return {
                 'success': True,
-                'message': f'Smart merge complete: {preserved_count} preserved, {created_count} created, {reactivated_count} reactivated, {deactivated_count} deactivated',
+                'message': (f'Smart merge complete: {preserved_count} preserved, {created_count} created, {reactivated_count} reactivated, {deactivated_count} deactivated'
+                            + (f', {over_budget_count} not added (over the measurement budget)'
+                               if over_budget_count else '')),
+                'over_budget': over_budget_count,
                 'total_targets': total_active,
                 'preserved': preserved_count,
                 'created': created_count,

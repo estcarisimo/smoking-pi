@@ -29,7 +29,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from app.services.config_api import ConfigAPIGateway
+from app.services.config_api import ConfigAPIGateway, over_budget_message
 from common import cadence, microcuts
 
 logger = logging.getLogger(__name__)
@@ -381,6 +381,8 @@ def _add_target(tool_input: dict) -> dict:
             "probe_id": probe_row["id"],
         }
     )
+    if result.get("refused") == "over_budget":
+        return {"error": over_budget_message(result.get("numbers") or {})}
     # The assistant repeats the note to the person, so it must not claim a
     # reload config-manager did not confirm (an absent field is an older
     # config-manager, not a failure).
@@ -414,6 +416,8 @@ def _toggle_target(tool_input: dict) -> dict:
     if err:
         return err
     result = gateway.toggle_target_in_db(target["id"])
+    if result.get("refused") == "over_budget":
+        return {"error": over_budget_message(result.get("numbers") or {})}
     return {
         "success": True,
         "message": result.get("message", "Target toggled."),

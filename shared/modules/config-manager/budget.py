@@ -4,9 +4,11 @@ The first step of the measurement budget: accounting, not admission. It
 reads the same generated files SmokePing loads (Targets, CPE_Targets,
 Probes, the Database defaults), so what it counts is what runs, and
 reports samples per hour and approximate bytes per day per probe, the
-totals, and how much of each ceiling they use. Nothing is throttled yet;
-the point is that a target list that grows (the DNS wizard, a future
-discovery step) is visible before it is expensive.
+totals, and how much of each ceiling they use. Admission is at the door:
+a change that would add cost past a ceiling (a target added or turned
+on, a faster probe, a wizard adoption) is refused before it is saved,
+with the numbers, unless forced (:func:`admission`). Nothing already
+measured is ever throttled or dropped.
 
 Deliberately approximate: the purpose is guardrails and capacity planning,
 not byte-perfect accounting. The per-sample costs below were measured, not
@@ -21,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -100,6 +103,73 @@ def http3_probes(probes_text: str) -> Set[str]:
         if current and line.startswith("extraargs") and "--http3" in line:
             found.add(current)
     return found
+
+
+def probe_cost(probes_text: str, probe: str, step: float, pings: float,
+               like: Optional[str] = None) -> tuple:
+    """(samples per hour, MB per day) of ONE target on ``probe`` at this
+    step and pings, priced as :func:`report` prices it. ``like`` names a
+    probe to price it as when ``probe`` is not in the generated Probes yet
+    (a wizard probe a first adoption is about to create from it). An
+    unpriced class costs samples and no bytes, as in the report."""
+    classes = probe_classes(probes_text)
+    http3 = http3_probes(probes_text)
+    name = probe if probe in classes or like is None else like
+    cls = classes.get(name, name)
+    per_sample = (HTTP3_BYTES_PER_SAMPLE if cls == "Curl" and name in http3
+                  else BYTES_PER_SAMPLE.get(cls))
+    samples_h = float(pings) * 3600 / float(step) if step else 0.0
+    return samples_h, (samples_h * 24 * per_sample / 1e6 if per_sample else 0.0)
+
+
+def admission(body: dict, samples_h: float, mb_day: float) -> Optional[dict]:
+    """Whether a change that adds ``samples_h`` and ``mb_day`` fits.
+
+    ``body`` is :func:`report`'s. None when the change adds nothing (a
+    change that lowers the cost is always admitted, even over a ceiling)
+    or fits under both ceilings; otherwise the refusal: what the change
+    requests, the totals now and after, the ceilings and the headroom.
+    """
+    c = body["ceiling"]
+    after_s = body["samples_per_hour"] + max(samples_h, 0.0)
+    after_mb = body["mb_per_day"] + max(mb_day, 0.0)
+    # Only a ceiling the change adds to: one already over is not a reason
+    # to refuse a change that does not touch it.
+    if not ((samples_h > 0 and after_s > c["samples_per_hour"])
+            or (mb_day > 0 and after_mb > c["mb_per_day"])):
+        return None
+    return {
+        "reason": "over_budget",
+        "requested": {"samples_per_hour": round(samples_h, 1), "mb_per_day": round(mb_day, 2)},
+        "now": {"samples_per_hour": body["samples_per_hour"], "mb_per_day": body["mb_per_day"]},
+        "after": {"samples_per_hour": round(after_s, 1), "mb_per_day": round(after_mb, 2),
+                  # Rounded up: a refusal never reads "100%".
+                  "samples_pct": math.ceil(1000 * after_s / c["samples_per_hour"]) / 10,
+                  "bandwidth_pct": math.ceil(1000 * after_mb / c["mb_per_day"]) / 10},
+        "ceiling": c,
+        "headroom": {
+            "samples_per_hour": round(max(c["samples_per_hour"] - body["samples_per_hour"], 0), 1),
+            "mb_per_day": round(max(c["mb_per_day"] - body["mb_per_day"], 0), 2),
+        },
+    }
+
+
+def refusal_text(refusal: dict) -> str:
+    """One sentence for a person: what the change would cost and why it was
+    refused, and the two ways forward."""
+    a, c, r = refusal["after"], refusal["ceiling"], refusal["requested"]
+    over = []
+    if r["mb_per_day"] > 0 and a["mb_per_day"] > c["mb_per_day"]:
+        over.append(f"{_mb(a['mb_per_day'])} of {_mb(c['mb_per_day'])} MB/day "
+                    f"({a['bandwidth_pct']:g}%)")
+    if r["samples_per_hour"] > 0 and a["samples_per_hour"] > c["samples_per_hour"]:
+        over.append(f"{a['samples_per_hour']:,.0f} of {c['samples_per_hour']:,.0f} "
+                    f"samples/hour ({a['samples_pct']:g}%)")
+    return (f"This change adds {_mb(r['mb_per_day'])} MB/day and "
+            f"{r['samples_per_hour']:,.0f} samples/hour, which would put the "
+            f"measurements at {' and '.join(over)}. Repeat it with force to add it "
+            "anyway, or raise MEASUREMENT_BUDGET_MB_PER_DAY / "
+            "MEASUREMENT_BUDGET_SAMPLES_PER_HOUR.")
 
 
 def ceilings(env: Optional[Dict[str, str]] = None) -> Dict[str, float]:

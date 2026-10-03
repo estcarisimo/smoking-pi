@@ -56,6 +56,7 @@ KNOWN_ERRORS = frozenset({
     "Method not allowed",
     "OCA refresh failed",
     "OCA refresh timed out",
+    "Over the measurement budget",
     "Request body must be a non-empty JSON object",
     "Status check failed",
     "Target not found",

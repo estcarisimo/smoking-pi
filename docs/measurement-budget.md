@@ -6,10 +6,10 @@ wizard adopting 60 services over ICMP, TCP and three HTTP versions is not
 nothing. The measurement budget makes that cost visible before it is a
 surprise on a metered connection.
 
-This first version is **accounting, not admission**. It reports what the
-configured measurements cost against two ceilings. It does not throttle,
-defer or drop anything; that comes later, once the numbers have earned
-trust (see [What comes next](#what-comes-next)).
+It reports what the configured measurements cost against two ceilings,
+and refuses a change that would push the cost past one
+([Admission](#admission)). It never throttles, defers or drops what is
+already measured.
 
 ## The command
 
@@ -418,13 +418,58 @@ with the target list (the meter above sees them):
 - **On-demand checks**: the DNS wizard's pre-flight, `smoking-pi dns test`,
   the OCA refresh.
 
+## Admission
+
+A change that adds cost is priced before it is saved, against the budget
+as it stands:
+
+- adding a target, or turning one on;
+- moving a target to a costlier probe;
+- a shorter step or more pings on a probe (priced for each of its active
+  targets);
+- a DNS wizard adoption (its new targets, net of the layers it deactivates
+  in the same run).
+
+If the totals after the change would cross either ceiling, the change is
+refused and nothing is saved. The API answers `409` with `reason:
+over_budget`, the cost `requested`, the totals `now` and `after`, the
+`ceiling` and the `headroom`, and a `message` for a person. The web admin,
+the assistants and the CLI show that sentence.
+
+- **To add it anyway**, repeat with force: `?force=1` on the API,
+  `smoking-pi dns adopt --force`.
+- **To make room**, raise a ceiling (above) or cut something
+  ([Measurement frequency](measurement-frequency.md)).
+
+`smoking-pi dns adopt --dry-run` says whether the adoption fits before
+anything is tried.
+
+A guardrail, not a lock: the budget is read from the generated files as
+SmokePing last loaded them, so two changes sent at the same moment can each
+fit on their own and cross a ceiling together. A refusal names only the
+ceilings the change adds to: with samples already over, a change that adds
+bytes but no samples is judged on bytes.
+
+What is never refused:
+
+- a change that lowers the cost (removing or turning off a target, a
+  longer step), even with the budget already over;
+- a target added turned off;
+- any change when the budget cannot be computed: no generated files yet, or
+  an error reading them. Admission never blocks on its own failure.
+
+Not admitted, because they set the configuration rather than add to it:
+`PUT /config/targets` (a whole YAML file), the first-run seed, and the
+nightly Netflix OCA refresh, which replaces its targets one for one.
+
 ## What comes next
 
 From the roadmap, in order:
 
-1. Admission: when the requested set exceeds the budget, reduce cadence,
-   samples or targets, with deterministic rotation so the whole set is
-   eventually covered, and report requested vs admitted vs deferred.
+1. Scheduling within the budget: when the requested set exceeds it, reduce
+   cadence, samples or targets, with deterministic rotation so the whole
+   set is eventually covered, and report requested vs admitted vs
+   deferred. Today admission refuses at the door instead.
 2. Per-destination limits (service, prefix, ASN) so a large discovered
    target set does not turn into concentrated probing of one operator.
 3. The DNS wizard and future traceroute measurements asking this budget
