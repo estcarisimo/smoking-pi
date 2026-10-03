@@ -318,9 +318,10 @@ leave out.
     lookups count as the house's. Its names then rank as services the house
     uses, and a selection built on the ranking would measure them. If the
     Pi serves other purposes, add their names to `DNS_WIZARD_EXCLUDE`
-    (`sudo smoking-pi config set DNS_WIZARD_EXCLUDE .example.com,api.example.net`),
-    or move those programs to another machine. The observer cannot tell them
-    apart by itself: every query reaches it from the router's address.
+    (`sudo smoking-pi config set DNS_WIZARD_EXCLUDE .example.com,api.example.net`,
+    which restarts the observer), or move those programs to another machine.
+    Every query reaches the observer from the router's address, so it cannot
+    tell them apart by itself.
 
 On its own it changes no target: it shows what the house uses, and how much
 grouping and cutting would lose. To **measure** what it selects, see
