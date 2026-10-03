@@ -311,6 +311,17 @@ lookups keep the router's cache of those names warm. The service still
 counts through its other names. `DNS_WIZARD_EXCLUDE` adds more names to
 leave out.
 
+!!! warning "The list is right only on a Pi that does nothing but measure"
+    It knows Smoking Pi's own traffic and nothing else. Anything else the
+    Pi runs (an assistant or its node, a chat bot, a tunnel, a dashboard
+    renderer, a desktop session) resolves through the same router, so its
+    lookups count as the house's. Its names then rank as services the house
+    uses, and a selection built on the ranking would measure them. If the
+    Pi serves other purposes, add their names to `DNS_WIZARD_EXCLUDE`
+    (`sudo smoking-pi config set DNS_WIZARD_EXCLUDE .example.com,api.example.net`),
+    or move those programs to another machine. The observer cannot tell them
+    apart by itself: every query reaches it from the router's address.
+
 On its own it changes no target: it shows what the house uses, and how much
 grouping and cutting would lose. To **measure** what it selects, see
 [Measuring what the house uses](#measuring-what-the-house-uses). Open it in
