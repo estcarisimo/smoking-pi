@@ -29,25 +29,7 @@ instead of its LAN address.
   openclaw` refreshes the OpenClaw skill, which now says how to report a
   deaf span.
 
-- **A hung Wi-Fi radio on the monitor is no longer reported as a
-  microcut.** The CPE probe measures through the host's own uplink, so
-  when the radio hangs (associated, receiving nothing) its windows read
-  100% and fold into one long "confirmed cut". On the reference Pi, five of
-  the six confirmed cuts since `wifi_link` began (19 September) were that,
-  from 70 s to 3 h 25 min. The assistant answered "3 cuts, the longest
-  1 h 52 min" for a week whose line never dropped, the AI report and digest
-  said the same, and `microcut_burst` fired beside `uplink_down` for one
-  fact. Each cut is now checked against the uplink interface's
-  received-packet counter: if it stood still (or the radio was not
-  associated) through the whole cut, the cut is this host's. It is left out
-  of the cuts, counts, worst windows and `microcut_burst`, and reported
-  apart as `deaf` / `deaf_note` ("this host's Wi-Fi heard nothing for
-  2 h 43 min (3 spans): the monitor was deaf, not the link cut"). A wired
-  host, or one without `wifi_link`, keeps every cut as before. Only the
-  deaf samples leave InfluxDB, so a healthy week costs nothing. Evidence
-  and the replay are in `docs/detection-reliability.md`, *When the monitor
-  is deaf*. The OpenClaw skill says how to report `deaf`; refresh it with
-  `smoking-pi openclaw` after upgrading.
+### Added
 
 - **Assistant and alert links can use the Pi's `.local` name: `smoking-pi
   links --lan mdns`.** Since v2.18.0 the mdns service holds
@@ -61,21 +43,9 @@ instead of its LAN address.
   part ways. `--lan auto` stays the default advice: only devices that
   resolve `.local` names can open these links. Checked from a Linux
   machine on the reference network (not yet from a phone):
-  `smoking-pi.local` resolves, and
-  Grafana and the web admin answer on it. The template's example address
-  is generic now (it was the reference Pi's).
-
-- **The DNS observer guide warns that the own-traffic list is right only
-  on a Pi that does nothing but measure.** The wizard and
-  `tools/dns-explore` leave out Smoking Pi's own lookups by a list of
-  names; they cannot tell anything else the Pi runs from the house,
-  because every query reaches the observer from the router's address. On
-  a Pi that also hosts an assistant, a bot or a tunnel (the reference Pi
-  does), those lookups rank as services the house uses, and a selection
-  built on that ranking would measure them. The guide and the tool's
-  README now say so, and name the remedy: `DNS_WIZARD_EXCLUDE`
-  (`--exclude-file` in the tool), or moving those programs elsewhere.
-  Decided with the domain-selection design: keep excluding by list first.
+  `smoking-pi.local` resolves, and Grafana and the web admin answer on
+  it. The template's example address is generic now (it was the
+  reference Pi's).
 
 - **`tools/dns-explore` reports how stable the daily top-K is, and what
   an enter/leave rule would have done with it.** The week of DNS log
@@ -102,6 +72,40 @@ instead of its LAN address.
   starts an absence. The scheduled run itself still used the 26 September tool,
   which counted SmokePing's lookups (28.7% of the log) as the house's;
   it was re-run with this version.
+
+### Fixed
+
+- **A hung Wi-Fi radio on the monitor is no longer reported as a
+  microcut.** The CPE probe measures through the host's own uplink, so
+  when the radio hangs (associated, receiving nothing) its windows read
+  100% and fold into one long "confirmed cut". On the reference Pi, five of
+  the six confirmed cuts since `wifi_link` began (19 September) were that,
+  from 70 s to 3 h 25 min. The assistant answered "3 cuts, the longest
+  1 h 52 min" for a week whose line never dropped, the AI report and digest
+  said the same, and `microcut_burst` fired beside `uplink_down` for one
+  fact. Each cut is now checked against the uplink interface's
+  received-packet counter: if it stood still (or the radio was not
+  associated) through the whole cut, the cut is this host's. It is left out
+  of the cuts, counts, worst windows and `microcut_burst`, and reported
+  apart as `deaf` / `deaf_note` ("this host's Wi-Fi heard nothing for
+  2 h 43 min (3 spans): the monitor was deaf, not the link cut"). A wired
+  host, or one without `wifi_link`, keeps every cut as before. Only the
+  deaf samples leave InfluxDB, so a healthy week costs nothing. Evidence
+  and the replay are in `docs/detection-reliability.md`, *When the monitor
+  is deaf*. The OpenClaw skill says how to report `deaf`; refresh it with
+  `smoking-pi openclaw` after upgrading.
+
+- **The DNS observer guide warns that the own-traffic list is right only
+  on a Pi that does nothing but measure.** The wizard and
+  `tools/dns-explore` leave out Smoking Pi's own lookups by a list of
+  names; they cannot tell anything else the Pi runs from the house,
+  because every query reaches the observer from the router's address. On
+  a Pi that also hosts an assistant, a bot or a tunnel (the reference Pi
+  does), those lookups rank as services the house uses, and a selection
+  built on that ranking would measure them. The guide and the tool's
+  README now say so, and name the remedy: `DNS_WIZARD_EXCLUDE`
+  (`--exclude-file` in the tool), or moving those programs elsewhere.
+  Decided with the domain-selection design: keep excluding by list first.
 
 ## [2.20.0] — 2026-10-02
 
