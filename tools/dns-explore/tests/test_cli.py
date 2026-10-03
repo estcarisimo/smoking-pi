@@ -43,7 +43,7 @@ def test_report_from_files_without_network(tmp_path, line):
 def test_rules_must_be_whole_days(tmp_path, line):
     log = tmp_path / "querylog.json"
     log.write_text(line("www.netflix.com") + "\n")
-    for bad in ("2", "0:3", "a:b", "2:-1"):
+    for bad in ("2", "0:3", "a:b", "2:-1", "\u00b2:3"):
         res = runner.invoke(app, ["--file", str(log), "--no-asn", "--rules", bad])
         assert res.exit_code == 2, (bad, res.output)
 

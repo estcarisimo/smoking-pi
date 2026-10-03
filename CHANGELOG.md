@@ -26,9 +26,12 @@ version gets a matching GitHub release and git tag.
   On the reference Pi's week (27 September–2 October, whole days),
   services by queries at K = 20: 15 of the 26 that were ever in a daily
   top-20 were in it every day, no service came back after more than two
-  days away, and enter-after-3/leave-after-5 made no change all week.
-  Presence ties 18 services at the cut for K = 10: it filters, it does
-  not rank. The scheduled run itself still used the 26 September tool,
+  days away, and enter-after-3/leave-after-5 made no change all week at
+  K = 10 and 20 (+3/−6 at K = 50). Presence ties 18 services at the cut
+  for K = 10: it filters, it does not rank, and its rows look stable only
+  because the tie-break picks the same names every day. A day missing
+  from the log is unknown, not adjacent: it breaks every streak and never
+  starts an absence. The scheduled run itself still used the 26 September tool,
   which counted SmokePing's lookups (28.7% of the log) as the house's;
   it was re-run with this version.
 

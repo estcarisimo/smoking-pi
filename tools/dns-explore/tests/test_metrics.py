@@ -115,9 +115,10 @@ def test_days_are_the_logs_local_days_not_utc():
 
 
 def _days(*tops):
-    """One row per (unit, day): tops[d] lists day d's units, best first."""
+    """One row per (unit, day): tops[d] lists day d's units, best first;
+    ``None`` is a day missing from the log. Day 0 is T0's (10:00)."""
     day = 24 * 60
-    return frame([(u, d * day + i, False) for d, units in enumerate(tops)
+    return frame([(u, d * day + i, False) for d, units in enumerate(tops) if units
                   for i, u in enumerate(units) for _ in range(len(units) - i)])
 
 
@@ -147,8 +148,7 @@ def test_ties_at_cut_flags_a_saturated_score():
     df = frame(rows)
     assert metrics.ties_at_cut(df, "service", "presence", k=1) == 3
     assert metrics.ties_at_cut(_days(["a.example", "b.example"]), "service", "queries", 1) == 1
-    assert math.isnan(metrics.ties_at_cut(frame([("a.example", day, False)]),
-                                          "service", "queries", 5))
+    assert metrics.ties_at_cut(frame([("a.example", day, False)]), "service", "queries", 5) is None
 
 
 @pytest.mark.parametrize(
@@ -183,3 +183,23 @@ def test_whole_days_keeps_days_the_log_covers():
     early = frame([("a.example", m, False) for m in range(-9 * 60 - 30, day, 30)])
     assert [d.day for d in metrics.whole_days(early)[1]] == [27]  # only the last
     assert metrics.whole_days(frame([]).astype({"ts": "datetime64[ns, UTC]"}))[1] == []
+
+
+def test_a_day_missing_from_the_log_is_unknown_not_adjacent():
+    a, b = "a.example", "b.example"
+    # b is in on day 1, out on day 2, in again on day 4; day 3 has no log.
+    df = _days([a], [a, b], [a], None, [a, b])
+    m = metrics.membership(df, "service", "queries", k=2)
+    assert m.shape[1] == 5 and m.iloc[:, 3].isna().all()
+    s = metrics.stability(df, "service", "queries", k=2)
+    assert (s["days"], s["missing_days"], s["always"]) == (4, 1, 1)
+    # a never left (the hole is not an exit); b was away two calendar days.
+    assert (s["reentries"], s["max_return_gap"]) == (1, 2)
+    # Two days in, but not in a row: enter=2 never adds b.
+    assert metrics.hysteresis(m, 2, 3) == {"adds": 0, "drops": 0, "size": 1}
+    assert metrics.hysteresis(m, 1, 3) == {"adds": 1, "drops": 0, "size": 2}
+
+
+def test_days_with_fewer_than_k_units():
+    m = metrics.membership(_days(["a.example"], ["b.example"]), "service", "queries", k=5)
+    assert metrics.hysteresis(m, 1, 1) == {"adds": 1, "drops": 1, "size": 1}

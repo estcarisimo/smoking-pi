@@ -36,9 +36,11 @@ def _rules(value: str) -> list[tuple[int, int]]:
     out = []
     for pair in _csv(value):
         enter, sep, leave = pair.partition(":")
-        if not (sep and enter.isdigit() and leave.isdigit() and int(enter) and int(leave)):
-            raise typer.BadParameter(f"{pair}: expected E:L, two whole days >= 1",
-                                     param_hint="--rules")
+        whole = sep and all(x.isascii() and x.isdigit() for x in (enter, leave))
+        if not (whole and int(enter) and int(leave)):
+            raise typer.BadParameter(
+                f"{pair}: expected E:L, two whole days >= 1", param_hint="--rules"
+            )
         out.append((int(enter), int(leave)))
     return out
 
@@ -330,9 +332,11 @@ def report(
         st = pd.DataFrame(stab_rows)
         results["stability"] = st.to_dict(orient="records")
         typer.echo(
-            "\n== Stability of the top-K: units ever in it, in it every day, once; "
-            "re-entries; longest absence before a return (days); units tied at the "
-            "cut; changes under enter-after-E-days / leave-after-L-days rules =="
+            "\n== Stability of the top-K: days logged and missing; units ever in it, "
+            "in it every day, once; re-entries; longest absence before a return "
+            "(days); units tied at the cut (above 1, the row's stability is the "
+            "tie-break's); +adds/-drops under enter-after-E-days / "
+            "leave-after-L-days rules =="
         )
         typer.echo(st.round(2).to_string(index=False))
 

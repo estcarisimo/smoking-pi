@@ -19,7 +19,7 @@ Scores
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -180,23 +180,31 @@ def membership(df: pd.DataFrame, level: str, score: str, k: int) -> pd.DataFrame
     Returns
     -------
     pandas.DataFrame
-        One boolean row per unit that was ever in a daily top-K, one column
-        per day in the log, in order.
+        One row per unit that was ever in a daily top-K, one column per
+        calendar day from the log's first to its last, in order. A day the
+        log has no entries for is ``pd.NA`` for every unit: unknown, not out.
     """
     days = daily_topk(df, level, score, k)
-    ordered = sorted(days)
-    units = sorted(set().union(*days.values())) if days else []
+    if not days:
+        return pd.DataFrame(dtype="boolean")
+    first, last = min(days), max(days)
+    calendar = [first + timedelta(days=i) for i in range((last - first).days + 1)]
+    units = sorted(set().union(*days.values()))
     return pd.DataFrame(
-        {day: [u in days[day] for u in units] for day in ordered}, index=units, dtype=bool
+        {day: [(u in days[day]) if day in days else pd.NA for u in units] for day in calendar},
+        index=units,
+        dtype="boolean",
     )
 
 
-def ties_at_cut(df: pd.DataFrame, level: str, score: str, k: int) -> float:
+def ties_at_cut(df: pd.DataFrame, level: str, score: str, k: int) -> float | None:
     """Mean, over days, of how many units share the K-th unit's score.
 
     1 means a clean cut. Above 1 the top-K is partly decided by the
     tie-break (unit name), not by the score: presence per day saturates at
-    24 hours, so a saturated score ranks nothing.
+    24 hours, so a saturated score ranks nothing, and the tie-break then
+    makes the same names win every day, which reads as stability. ``None``
+    when no day has K units.
     """
     days = df["day"] if "day" in df else df["ts"].dt.date
     counts = []
@@ -204,49 +212,64 @@ def ties_at_cut(df: pd.DataFrame, level: str, score: str, k: int) -> float:
         s = scores(part, level, score)
         if len(s) >= k:
             counts.append(int((s == s.iloc[k - 1]).sum()))
-    return float(np.mean(counts)) if counts else float("nan")
+    return float(np.mean(counts)) if counts else None
 
 
 def runs(row: pd.Series) -> tuple[int, int]:
     """Re-entries of one unit, and its longest absence before coming back.
 
+    A day missing from the log (``pd.NA``) lengthens an absence already
+    seen (it is calendar time away, which is what an exit delay is
+    measured in) but never starts one: a unit in on both sides of a hole
+    did not leave.
+
     Examples
     --------
     >>> runs(pd.Series([True, False, False, True, False, True]))
     (2, 2)
+    >>> runs(pd.Series([True, pd.NA, True], dtype="boolean"))
+    (0, 0)
+    >>> runs(pd.Series([True, False, pd.NA, True], dtype="boolean"))
+    (1, 2)
     """
-    seen, gap, reentries, longest = False, 0, 0, 0
+    seen, gap, away, reentries, longest = False, 0, False, 0, 0
     for inside in row:
-        if inside:
-            if seen and gap:
+        if pd.isna(inside):
+            gap += seen
+        elif inside:
+            if away:
                 reentries += 1
                 longest = max(longest, gap)
-            seen, gap = True, 0
+            seen, gap, away = True, 0, False
         elif seen:
-            gap += 1
+            gap, away = gap + 1, True
     return reentries, longest
 
 
-def stability(df: pd.DataFrame, level: str, score: str, k: int) -> dict[str, float]:
+def stability(df: pd.DataFrame, level: str, score: str, k: int) -> dict[str, float | None]:
     """How the units of the daily top-K come and go.
 
     Returns
     -------
     dict
-        ``days`` in the log; ``ever``: units ever in a daily top-K;
-        ``always``: in every day's; ``once``: in exactly one day's;
-        ``reentries``: times a unit came back after dropping out;
-        ``max_return_gap``: the longest absence, in days, of a unit that came
-        back (an exit rule must wait longer than this, or it retires units
-        that return); ``ties_at_cut``: see :func:`ties_at_cut`.
+        ``days``: days in the log; ``missing_days``: calendar days between
+        its first and last that it has no entries for; ``ever``: units ever
+        in a daily top-K; ``always``: in every logged day's; ``once``: in
+        exactly one day's; ``reentries``: times a unit came back after
+        dropping out; ``max_return_gap``: the longest absence, in calendar
+        days, of a unit that came back (an exit rule must wait longer than
+        this, or it retires units that return); ``ties_at_cut``: see
+        :func:`ties_at_cut`.
     """
     m = membership(df, level, score, k)
+    logged = int(m.notna().all(axis=0).sum()) if len(m) else 0
     per_unit = [runs(row) for _, row in m.iterrows()]
-    in_days = m.sum(axis=1)
+    in_days = m.fillna(False).sum(axis=1)
     return {
-        "days": m.shape[1],
+        "days": logged,
+        "missing_days": m.shape[1] - logged,
         "ever": len(m),
-        "always": int((in_days == m.shape[1]).sum()),
+        "always": int((in_days == logged).sum()),
         "once": int((in_days == 1).sum()),
         "reentries": sum(r for r, _ in per_unit),
         "max_return_gap": max((g for _, g in per_unit), default=0),
@@ -260,7 +283,9 @@ def hysteresis(m: pd.DataFrame, enter: int, leave: int) -> dict[str, int]:
     The selection starts as the first day's top-K. Afterwards a unit is
     added once it has been in the daily top-K ``enter`` days in a row, and
     removed once it has been out of it ``leave`` days in a row. ``enter=1,
-    leave=1`` follows the raw top-K, so its changes are the raw churn.
+    leave=1`` follows the raw top-K. A day missing from the log changes
+    nothing and breaks every streak, as the design freezes the selection
+    while the observer is not live.
 
     Parameters
     ----------
@@ -283,16 +308,18 @@ def hysteresis(m: pd.DataFrame, enter: int, leave: int) -> dict[str, int]:
     if m.shape[1] == 0:
         return {"adds": 0, "drops": 0, "size": 0}
     cols = list(m.columns)
-    selected = set(m.index[m[cols[0]]])
-    streak_in = dict.fromkeys(m.index, 0)
-    streak_out = dict.fromkeys(m.index, 0)
-    for u in m.index:
-        streak_in[u] = int(m.at[u, cols[0]])
-        streak_out[u] = int(not m.at[u, cols[0]])
+    first = m[cols[0]].fillna(False).astype(bool)
+    selected = set(m.index[first])
+    streak_in = {u: int(first[u]) for u in m.index}
+    streak_out = {u: int(not first[u]) for u in m.index}
     adds = drops = 0
     for day in cols[1:]:
         for u in m.index:
-            if m.at[u, day]:
+            inside = m.at[u, day]
+            if inside is pd.NA:
+                streak_in[u] = streak_out[u] = 0
+                continue
+            if inside:
                 streak_in[u], streak_out[u] = streak_in[u] + 1, 0
             else:
                 streak_in[u], streak_out[u] = 0, streak_out[u] + 1
