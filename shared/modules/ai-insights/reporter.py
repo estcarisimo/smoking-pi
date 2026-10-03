@@ -87,6 +87,14 @@ worst {{ c.max_loss_pct }}%{% if c.total %}, all at 100%{% endif %} \
 {%- else -%}
 No cuts above the threshold in this window.
 {%- endif %}
+{% if data.cpe.deaf -%}
+Not microcuts: spans when this host's own Wi-Fi heard nothing (the probe
+recorded 100% loss for a link it could not hear; the link itself is unknown
+then, so do not count or describe these as cuts of the line):
+{% for c in data.cpe.deaf -%}
+- {{ c.start }}: {{ c.seconds }} s, {{ c.deaf }}
+{% endfor %}
+{%- endif %}
 {% if data.wifi -%}
 Wi-Fi uplink ({{ data.wifi.interface }}{% if data.wifi.ssid %}, {{ data.wifi.ssid }}{% endif %}\
 {% if data.wifi.channel %}, ch{{ data.wifi.channel }}{% endif %}; the hop every measurement above crossed):

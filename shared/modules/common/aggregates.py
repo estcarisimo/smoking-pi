@@ -185,10 +185,19 @@ def _collect_cpe_stats(hours: int) -> dict:
         lambda v: round(float(v), 3),
     )
     cut_rows = query_influx(microcuts.cut_windows_flux(f"-{int(hours)}h", threshold))
-    cuts = microcuts.fold_cuts(cut_rows)
-    for cut in cuts:
+    # This host's deaf radio makes cuts the link did not: reported apart, as
+    # ``deaf``, never as microcuts. Optional, like the Wi-Fi stats.
+    try:
+        deaf_rows = query_influx(microcuts.uplink_flux(f"-{int(hours)}h"))
+    except Exception:  # influx client raises many exception types
+        deaf_rows = []
+    attributed = microcuts.attribute(microcuts.fold_cuts(cut_rows), deaf_rows)
+    cut_rows = microcuts.link_windows(cut_rows, attributed)
+    for cut in attributed:
         cut.pop("start_epoch", None)
-    cuts.reverse()  # newest first, as the tool reports them
+    attributed.reverse()  # newest first, as the tool reports them
+    cuts = microcuts.link_cuts(attributed)
+    deaf = microcuts.host_cuts(attributed)
 
     for entry in stats.values():
         entry.setdefault("windows", 0)
@@ -215,6 +224,8 @@ def _collect_cpe_stats(hours: int) -> dict:
             key=lambda e: (e.get("target") or "", e.get("protocol") or ""),
         ),
         "cuts": cuts,
+        "deaf": deaf,
+        "deaf_note": microcuts.describe_deaf(attributed),
         "worst_windows": worst_windows,
     }
 

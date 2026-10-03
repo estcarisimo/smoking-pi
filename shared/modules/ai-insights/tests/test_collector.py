@@ -181,3 +181,23 @@ def test_a_failed_cadence_query_still_counts_on_ten_pings(monkeypatch):
     monkeypatch.setattr(aggregates, "query_influx", handler)
     aggregates._collect_target_stats(24)
     assert any("r._value >= 0.15)" in f for f in seen)
+
+
+def test_collect_reports_a_deaf_radio_apart_from_the_cuts(monkeypatch):
+    """The two windows at 100% fell while wlan0 received nothing: the
+    report gets them as `deaf`, not as a cut of the line."""
+    t0 = datetime(2026, 7, 28, 3, 0, tzinfo=timezone.utc)
+
+    def handler(flux):
+        if "wifi_link" in flux and "difference(" in flux:
+            return [{"_time": t0 + timedelta(seconds=s), "interface": "wlan0",
+                     "rx_packets": 0, "associated": 1} for s in (10, 20, 30, 40)]
+        return _target_rows(flux)
+
+    _dispatch(monkeypatch, handler)
+    data = collector.collect(hours=24)
+    assert data["cpe"]["cuts"] == [] and data["cpe"]["worst_windows"] == []
+    assert data["cpe"]["stats"][0]["confirmed_cuts"] == 0
+    assert data["cpe"]["deaf"][0]["seconds"] == 40
+    assert data["cpe"]["deaf"][0]["deaf"] == "received nothing"
+    assert "monitor was deaf" in data["cpe"]["deaf_note"]

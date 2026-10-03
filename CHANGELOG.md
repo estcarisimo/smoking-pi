@@ -9,6 +9,26 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- **A hung Wi-Fi radio on the monitor is no longer reported as a
+  microcut.** The CPE probe measures through the host's own uplink, so
+  when the radio hangs (associated, receiving nothing) its windows read
+  100% and fold into one long "confirmed cut". On the reference Pi, five of
+  the six confirmed cuts since `wifi_link` began (19 September) were that,
+  from 70 s to 3 h 25 min. The assistant answered "3 cuts, the longest
+  1 h 52 min" for a week whose line never dropped, the AI report and digest
+  said the same, and `microcut_burst` fired beside `uplink_down` for one
+  fact. Each cut is now checked against the uplink interface's
+  received-packet counter: if it stood still (or the radio was not
+  associated) through the whole cut, the cut is this host's. It is left out
+  of the cuts, counts, worst windows and `microcut_burst`, and reported
+  apart as `deaf` / `deaf_note` ("this host's Wi-Fi heard nothing for
+  2 h 43 min (3 spans): the monitor was deaf, not the link cut"). A wired
+  host, or one without `wifi_link`, keeps every cut as before. Only the
+  deaf samples leave InfluxDB, so a healthy week costs nothing. Evidence
+  and the replay are in `docs/detection-reliability.md`, *When the monitor
+  is deaf*. The OpenClaw skill says how to report `deaf`; refresh it with
+  `smoking-pi openclaw` after upgrading.
+
 - **Assistant and alert links can use the Pi's `.local` name: `smoking-pi
   links --lan mdns`.** Since v2.18.0 the mdns service holds
   `smoking-pi.local`, but links could only follow it by typing the name,

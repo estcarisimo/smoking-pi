@@ -422,20 +422,26 @@ def microcut_rows(cuts: list[dict], window_rows: list[dict]) -> list[dict]:
 
 
 def rule_microcut_burst(
-    window_rows: list[dict], burst_n: int | None = None
+    window_rows: list[dict],
+    burst_n: int | None = None,
+    uplink_rows: list[dict] | None = None,
 ) -> list[dict]:
     """warning: a confirmed cut, or MICROCUT_BURST_N possible ones, in 60m.
 
     ``window_rows`` are the raw cut windows from :func:`_microcut_flux`;
     they are folded into cuts here (common.microcuts.fold_cuts), so the
     message can say "1 cut of 2 min 40 s (6 windows, all at 100%)" rather
-    than "6 windows over 50%".
+    than "6 windows over 50%". ``uplink_rows`` (common.microcuts.uplink_flux)
+    take out the cuts this host's own deaf radio made: those are
+    ``uplink_down``'s, not the link's.
     """
     if burst_n is None:
         burst_n = _env_int("MICROCUT_BURST_N", DEFAULT_MICROCUT_BURST_N)
     loss_pct = _env_float("MICROCUT_LOSS_PCT", DEFAULT_MICROCUT_LOSS_PCT)
 
-    cuts = microcuts.fold_cuts(window_rows)
+    cuts = microcuts.link_cuts(
+        microcuts.attribute(microcuts.fold_cuts(window_rows), uplink_rows or [])
+    )
     incidents = []
     for row in microcut_rows(cuts, window_rows):
         target, protocol = row["target"], row["protocol"] or "?"
@@ -804,9 +810,19 @@ def evaluate_with_context(open_keys: Collection[str] = ()) -> tuple[list[dict], 
         cadences=cadences,
         window_s=windows["mean"],
     )
-    incidents += rule_microcut_burst(micro_rows)
+    # This host's deaf radio, which makes cuts the link did not. Optional
+    # like host_uplink: a failed query leaves every cut the link's.
+    try:
+        deaf_rows = _query(microcuts.uplink_flux("-60m"))
+    except Exception:  # influx client raises many exception types
+        deaf_rows = []
+    incidents += rule_microcut_burst(micro_rows, uplink_rows=deaf_rows)
     # The verdict reads the folded shape, not the raw windows.
-    micro_rows = microcut_rows(microcuts.fold_cuts(micro_rows), micro_rows)
+    micro_rows = microcut_rows(
+        microcuts.link_cuts(
+            microcuts.attribute(microcuts.fold_cuts(micro_rows), deaf_rows)),
+        micro_rows,
+    )
     widespread = rule_widespread(
         down_rows, step_s=windows["step"], cadences=cadences
     )

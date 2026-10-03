@@ -247,6 +247,55 @@ rose from 5% to the shared `LOSS_EVENT_PCT` (15%; now `EVENT_LOST_PINGS`) for th
 two answer identically for 24 h and 7 d (`web-admin/tests/test_ai_tools_microcuts.py`
 replays the quiet day, the six-window cut and the two isolated windows).
 
+### When the monitor is deaf (2026-10-03)
+
+The definition above settled what counts as a cut. It did not settle whose
+cut it is. The probe measures through this host's own uplink, so when that
+radio hangs (associated, receiving nothing: see [Downtime](#downtime)) the
+CPE windows read 100% for a link the host cannot hear, and fold into one
+long "confirmed cut".
+
+**Evidence: the reference Pi, 27 July to 3 October 2026.** 255 424 windows;
+3 442 above 50% on the IPv4 CPE target, folded into 92 cuts, 14 of them
+confirmed. Each confirmed cut was set against `wifi_link` and the Internet
+targets over the same minutes. `wifi_link` exists from 19 September.
+
+| Confirmed cut | Wi-Fi during it | Internet targets | Whose |
+| --- | --- | --- | --- |
+| 2026-09-20 01:32, 3 h 25 min | associated at −50 dBm, `rx_packets` flat | 98% loss | this host: the radio hang above |
+| 2026-09-26 15:31, 70 s | not associated | 29% mean loss | this host: lost its association |
+| 2026-09-27 13:14, 1 h 52 min | associated at −51 dBm, `rx_packets` flat | 93% | this host |
+| 2026-09-27 21:11, 13 min | associated at −46 dBm, `rx_packets` flat | 19% | this host |
+| 2026-10-01 14:43, 37 min | associated at −58 dBm, `rx_packets` flat | 70% | this host |
+| 2026-09-25 08:04, 6 min | associated; receiving dropped from 66 to 4 packets/s, not to 0 | 28% | the link (unproven either way, so the old reading stands) |
+| 2026-09-19 00:42, 2 min 40 s | before `wifi_link` | 38% | the link: the one real cut in the record |
+
+Since `wifi_link` began, every confirmed cut with Wi-Fi evidence but one was
+the monitor's own radio, and each was reported as a microcut by the MCP
+tool, the web assistant, the AI report and `microcut_burst`. Outside those
+spans the counter never stood still: the 2 229 deaf 10 s samples over 18
+days add up to the five spans' 22 160 s, almost exactly. A real cut beyond
+the radio leaves the LAN talking (the router forwarding the house's DNS,
+ARP, multicast), so a flat counter is the radio, not the line.
+
+**What changed.** `common.microcuts.attribute` marks each cut `origin:
+"this_host"` (with `deaf`: `received nothing` or `not associated`) when the
+uplink interface's deaf samples run through all of it. It allows one missed
+sample, reads nothing after the cut (the long hangs end in a reboot, which
+resets the counter), and treats a wired host or a missing `wifi_link` as no
+evidence, so every cut stays the link's. `uplink_flux` asks InfluxDB for the
+deaf samples only. Every consumer takes those spans out of `cuts`, the
+counts, `worst_windows` and `microcut_burst`, and reports them apart:
+`deaf` and `deaf_note` ("this host's Wi-Fi heard nothing for 2 h 43 min (3
+spans): the monitor was deaf, not the link cut"). `uplink_down` already
+names the hang while it lasts. Replayed on the record above, the seven days
+to 3 October go from "3 cuts, the longest 1 h 52 min" to no confirmed cut,
+the same two possible ones, and one `deaf_note` for the three hangs.
+
+Not changed: the 78 possible cuts (single windows at 52–78%). They alerted
+twice in 68 days (8 and 9 August, three or more in an hour), and 28 of them
+coincide with Internet loss above 20%, so they are not all the floor.
+
 ### Microcut backlog
 
 1. `GAP_S` and the 30 s cadence are constants; if `CPE_PROBE_IDLE` is
@@ -256,3 +305,5 @@ replays the quiet day, the six-window cut and the two isolated windows).
    `mcp-server/server.py`, not in `common`. Move it there when either side is
    next touched, so the in-UI chat can name a hung radio the way the MCP tool
    does.
+3. A cut on a wired host has no deaf test: an Ethernet link that stops
+   receiving is not measured by anything today.

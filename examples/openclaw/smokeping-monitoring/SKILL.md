@@ -72,7 +72,10 @@ deployment-independent and should be left alone.
   `confirmed`/possible) and the per-target floor (`p50_loss_pct`,
   `p90_loss_pct`); `worst_windows` holds only windows above the cut
   threshold, and when there are none the `note` states the floor. Never
-  turn a top-5 into five events.
+  turn a top-5 into five events. `deaf` lists spans when the Pi's own Wi-Fi
+  heard nothing (`deaf_note` says it in one sentence): the probe saw 100%
+  loss for a link it could not hear. Those are not microcuts: say the
+  monitor was deaf for that long and the line is unknown for it.
 - `get_wifi_stats(hours)` — the Pi's own Wi-Fi uplink, when it has one:
   current SSID/channel/signal/bitrate, and over the window the signal range,
   the share of weak samples, disconnects, roams and failures. `present:
