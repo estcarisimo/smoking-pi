@@ -495,3 +495,51 @@ def test_consolidation_is_logged_once_committed(env, caplog):
     assert "kept" not in caplog.text
     env.client.post("/wizard/adopt")
     assert "DNS wizard: kept W_" in caplog.text and "for googleapis.com" in caplog.text
+
+
+def _budget(monkeypatch, samples, ceiling=20000.0):
+    monkeypatch.setattr(api_module.api, "measurement_budget", lambda: {
+        "available": True, "mb_per_day": 10.0, "samples_per_hour": samples,
+        "ceiling": {"mb_per_day": 1000.0, "samples_per_hour": ceiling}})
+
+
+def test_adopt_over_the_budget_is_refused_and_saves_nothing(env, monkeypatch):
+    # Two services x (ICMP 120 + TCP 60 + three HTTP layers at 60) samples/hour.
+    _budget(monkeypatch, samples=19500.0)
+    env.write(snapshot(["netflix.com", "bbc.co.uk"]))
+    dry = env.client.post("/wizard/adopt?dry_run=1").get_json()
+    assert dry["budget"]["admitted"] is False
+    assert dry["budget"]["requested"]["samples_per_hour"] == 720.0
+    assert "Repeat it with force" in dry["budget"]["message"]
+    r = env.client.post("/wizard/adopt")
+    assert r.status_code == 409 and r.get_json()["reason"] == "over_budget"
+    assert names(env.session()) == [] and env.reloads == []
+    forced = env.client.post("/wizard/adopt?force=1")
+    assert forced.status_code == 200 and forced.get_json()["targets_added"] == 10
+
+
+def test_adopt_that_fits_says_so_on_a_dry_run(env, monkeypatch):
+    _budget(monkeypatch, samples=1000.0)
+    env.write(snapshot(["netflix.com"]))
+    assert env.client.post("/wizard/adopt?dry_run=1").get_json()["budget"] == {"admitted": True}
+
+
+def test_cli_passes_force_and_explains_an_over_budget_refusal(monkeypatch, capsys):
+    import io
+    import urllib.error
+    import urllib.request
+
+    seen = []
+
+    def refuse(req, timeout):
+        seen.append(req.full_url)
+        body = json.dumps({"reason": "over_budget", "error": "Over the measurement budget",
+                           "message": "This change adds 2.2 MB/day."}).encode()
+        raise urllib.error.HTTPError(req.full_url, 409, "Conflict", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    assert wizard_adopt.main([]) == 1
+    err = capsys.readouterr().err
+    assert "This change adds 2.2 MB/day." in err and "dns adopt --force" in err
+    wizard_adopt.main(["--force", "--dry-run"])
+    assert seen[-1].endswith("?dry_run=1&force=1")

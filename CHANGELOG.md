@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+- **A change that would push the measurements past the budget is refused
+  before it is saved (admission).** The measurement budget only reported:
+  a DNS wizard adoption, a faster step or a batch of top sites could take
+  a metered connection several times past its ceiling, and the card turned
+  red after the fact (on the reference Pi the first reading was 126% of
+  the ceiling, almost all of it one adoption). config-manager now prices
+  each change that adds cost (a target added or turned on, a move to a
+  costlier probe, a shorter step or more pings, an adoption net of the
+  layers it deactivates) against the budget as it stands, and answers
+  `409 over_budget` with the cost, the totals now and after, the ceilings
+  and the headroom when it would cross one. Nothing is saved. `?force=1`
+  (`smoking-pi dns adopt --force`) admits it anyway, and
+  `dns adopt --dry-run` says beforehand whether it fits. A change that
+  lowers the cost is always admitted, even over budget, and a budget that
+  cannot be computed never blocks. The web admin (add, edit, toggle,
+  Probes page, top-sites picker), its assistant and the MCP tools say
+  "Not saved: over the measurement budget" with the numbers, in their own
+  words. Priced as the report prices it: on the staging Pi's generated
+  files the two agree to the sample for all nine probes. Nothing already
+  measured is ever throttled or dropped; a YAML upload, the first-run seed
+  and the nightly OCA refresh are not admitted (they set the
+  configuration rather than add to it).
+
 ## [2.21.0] — 2026-10-03
 
 On Pro, a hung Wi-Fi radio on the monitor is no longer reported as a

@@ -425,8 +425,9 @@ def retire_silent(session, models, silence: dict | None) -> dict:
 
 
 def main(argv: list[str]) -> int:
-    """``python wizard_adopt.py [--dry-run] [--retire-only]``: ask the running
-    API to adopt; ``--retire-only`` only deactivates silent layers.
+    """``python wizard_adopt.py [--dry-run] [--retire-only] [--force]``: ask
+    the running API to adopt; ``--retire-only`` only deactivates silent
+    layers; ``--force`` adopts even over the measurement budget.
 
     Runs inside the config-manager container (smoking-pi dns adopt), so the
     API token comes from the container's own environment.
@@ -436,7 +437,9 @@ def main(argv: list[str]) -> int:
 
     dry = "--dry-run" in argv
     retire_only = "--retire-only" in argv
-    query = "&".join(q for q, on in (("dry_run=1", dry), ("retire_only=1", retire_only)) if on)
+    force = "--force" in argv
+    query = "&".join(q for q, on in (("dry_run=1", dry), ("retire_only=1", retire_only),
+                                     ("force=1", force)) if on)
     url = "http://127.0.0.1:5000/wizard/adopt" + (f"?{query}" if query else "")
     req = urllib.request.Request(url, method="POST", data=b"{}",
                                  headers={"Content-Type": "application/json"})
@@ -452,6 +455,10 @@ def main(argv: list[str]) -> int:
             body = json.loads(exc.read() or b"{}")
         except ValueError:
             body = {}
+        if body.get("reason") == "over_budget":
+            print(f"refused: {body.get('message', body.get('error'))} "
+                  "(here: smoking-pi dns adopt --force)", file=sys.stderr)
+            return 1
         print(f"refused: {body.get('error', exc.reason)}", file=sys.stderr)
         return 1
     except (urllib.error.URLError, OSError) as exc:
@@ -463,6 +470,9 @@ def main(argv: list[str]) -> int:
     else:
         print(f"{verb} {body['targets_added']} targets for {body['services_added']} services "
               f"(selected now: {body['selected']}; already measured: {body['already_adopted']}).")
+    if (body.get("budget") or {}).get("admitted") is False:
+        print(f"Over the measurement budget: {body['budget']['message']} "
+              "(here: smoking-pi dns adopt --force)")
     if body.get("over_cap"):
         print(f"Left out, cap reached (DNS_WIZARD_MAX): {', '.join(body['over_cap'])}")
     if body.get("not_served"):

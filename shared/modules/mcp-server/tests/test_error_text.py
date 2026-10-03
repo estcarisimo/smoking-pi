@@ -173,3 +173,20 @@ def test_get_chart_cpe_lookup_failure_is_static(monkeypatch):
     assert isinstance(result, dict)
     assert "hunter2" not in str(result) and "HTTPHeaderDict" not in str(result)
     assert result["error"].startswith("InfluxDB query failed")
+
+
+def test_an_over_budget_refusal_reaches_the_assistant_by_name(monkeypatch):
+    api = backends.ConfigAPI(base_url="http://config-manager:5000", token="t")
+
+    class Resp:
+        status_code = 409
+        text = "{}"
+
+        def json(self):
+            return {"error": "Over the measurement budget", "reason": "over_budget",
+                    "message": "free text is not passed on"}
+
+    monkeypatch.setattr(api.client, "request", lambda *a, **k: Resp())
+    with pytest.raises(backends.ConfigAPIError) as info:
+        api.request("POST", "/targets")
+    assert str(info.value) == "POST /targets failed with HTTP 409: Over the measurement budget"
