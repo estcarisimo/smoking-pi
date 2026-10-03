@@ -9,6 +9,26 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.21.0] — 2026-10-03
+
+On Pro, a hung Wi-Fi radio on the monitor is no longer reported as a
+microcut, and alert and assistant links can use the Pi's `.local` name
+instead of its LAN address.
+
+- Pro: when the Pi's own Wi-Fi was deaf for a whole cut (associated but
+  receiving nothing, or not associated), the cut is reported apart, as
+  `deaf`, by the assistants, the digest, the AI report and the alerter,
+  not as a microcut. On the reference Pi that was five of the six
+  confirmed cuts since 19 September.
+- Pro: `sudo smoking-pi links --lan mdns` points links at the name the
+  mdns service holds; `smoking-pi links` warns if it changes.
+- Docs and tools: the DNS observer's own-traffic list is right only on a
+  Pi that does nothing but measure; `tools/dns-explore` reports top-K
+  stability.
+- No new images and no new settings. After upgrading, `sudo smoking-pi
+  openclaw` refreshes the OpenClaw skill, which now says how to report a
+  deaf span.
+
 - **A hung Wi-Fi radio on the monitor is no longer reported as a
   microcut.** The CPE probe measures through the host's own uplink, so
   when the radio hangs (associated, receiving nothing) its windows read
