@@ -19,7 +19,7 @@ sure it is and the evidence, instead of attributing raw numbers on its own.
   episode in up to a week. On the reference Pi's week, its 2026-10-01
   radio hang is `local_wifi`, `high`. The OpenClaw skill now starts from
   it.
-- `smoking-pi dns adopt --dry-run` says when an adoption fits the
+- Pro: `smoking-pi dns adopt --dry-run` says when an adoption fits the
   measurement budget.
 - No new images and no new settings. After upgrading, `sudo smoking-pi
   openclaw` refreshes the OpenClaw skill.
