@@ -470,9 +470,14 @@ def main(argv: list[str]) -> int:
     else:
         print(f"{verb} {body['targets_added']} targets for {body['services_added']} services "
               f"(selected now: {body['selected']}; already measured: {body['already_adopted']}).")
-    if (body.get("budget") or {}).get("admitted") is False:
-        print(f"Over the measurement budget: {body['budget']['message']} "
+    verdict = body.get("budget") or {}
+    if verdict.get("admitted") is False:
+        print(f"Over the measurement budget: {verdict['message']} "
               "(here: smoking-pi dns adopt --force)")
+    elif dry and not force and verdict.get("checked") is False:
+        print("The measurement budget could not be read: adopting will not be refused for it.")
+    elif dry and not force and verdict.get("admitted"):
+        print("Fits the measurement budget.")
     if body.get("over_cap"):
         print(f"Left out, cap reached (DNS_WIZARD_MAX): {', '.join(body['over_cap'])}")
     if body.get("not_served"):

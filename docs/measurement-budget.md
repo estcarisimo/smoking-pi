@@ -442,7 +442,9 @@ the assistants and the CLI show that sentence.
   ([Measurement frequency](measurement-frequency.md)).
 
 `smoking-pi dns adopt --dry-run` says whether the adoption fits before
-anything is tried.
+anything is tried: "Fits the measurement budget.", the refusal it would
+get, or that the budget could not be read (then adopting is not refused
+for it).
 
 A guardrail, not a lock: the budget is read from the generated files as
 SmokePing last loaded them, so two changes sent at the same moment can each
