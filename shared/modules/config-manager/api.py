@@ -1454,9 +1454,13 @@ def wizard_adopt_route():
             refusal = _over_budget(now, *_adoption_cost(session, result['targets'], dropped))
             if dry_run:
                 # Say it now, not on the real run.
+                # checked: False when forced or the budget could not be
+                # read, so "admitted" is not read as "it fits".
                 result['budget'] = ({'admitted': False, **refusal,
                                      'message': budget.refusal_text(refusal)}
-                                    if refusal else {'admitted': True})
+                                    if refusal else {'admitted': True}
+                                    if now is not None else
+                                    {'admitted': True, 'checked': False})
             elif refusal:
                 session.rollback()
                 return _over_budget_response(refusal)

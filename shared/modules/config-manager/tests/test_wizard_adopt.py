@@ -543,3 +543,36 @@ def test_cli_passes_force_and_explains_an_over_budget_refusal(monkeypatch, capsy
     assert "This change adds 2.2 MB/day." in err and "dns adopt --force" in err
     wizard_adopt.main(["--force", "--dry-run"])
     assert seen[-1].endswith("?dry_run=1&force=1")
+
+
+def test_adopt_dry_run_says_when_the_budget_was_not_read(env, monkeypatch):
+    monkeypatch.setattr(api_module.api, "measurement_budget",
+                        lambda: {"available": False})
+    env.write(snapshot(["netflix.com"]))
+    body = env.client.post("/wizard/adopt?dry_run=1").get_json()
+    assert body["budget"] == {"admitted": True, "checked": False}
+
+
+def _answer(monkeypatch, verdict):
+    import io
+    import urllib.request
+
+    def ok(req, timeout):
+        return io.BytesIO(json.dumps({
+            "targets_added": 9, "services_added": 2, "selected": 11,
+            "already_adopted": 11, "budget": verdict}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", ok)
+
+
+def test_cli_dry_run_says_it_fits(monkeypatch, capsys):
+    _answer(monkeypatch, {"admitted": True})
+    assert wizard_adopt.main(["--dry-run"]) == 0
+    assert "Fits the measurement budget." in capsys.readouterr().out
+
+
+def test_cli_dry_run_says_the_budget_was_not_read(monkeypatch, capsys):
+    _answer(monkeypatch, {"admitted": True, "checked": False})
+    wizard_adopt.main(["--dry-run"])
+    out = capsys.readouterr().out
+    assert "could not be read" in out and "Fits" not in out

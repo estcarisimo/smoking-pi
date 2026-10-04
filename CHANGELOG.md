@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`smoking-pi dns adopt --dry-run` now says when an adoption fits the
+  measurement budget.** It spoke only when one did not, although its help
+  says it "says whether it fits", so a silent dry run could mean "fits",
+  "forced" or "the budget could not be read". It now prints "Fits the
+  measurement budget.", or that the budget could not be read (the API's
+  dry-run verdict carries `checked: false` then, so "admitted" is not
+  mistaken for "fits").
+
 ## [2.22.0] — 2026-10-04
 
 On Standard and Pro, a change that would push the measurements past the
