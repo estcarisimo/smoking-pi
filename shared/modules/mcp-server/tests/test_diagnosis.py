@@ -263,3 +263,119 @@ def test_diagnose_loss_reports_a_failed_required_query(monkeypatch, no_api):
     monkeypatch.setattr(server, "_cadences", lambda: {})
     result = server.diagnose_loss(hours=24)
     assert "error" in result and "secret detail" not in str(result)
+
+
+# ---------------------------------------------------------------------------
+# Review cases: no contradictions, wide Wi-Fi rows, missing evidence
+# ---------------------------------------------------------------------------
+
+
+def wifi_rows(n, width=60, **override):
+    rows = [{"_epoch": T0 + (i + 1) * width, "signal_dbm": -55.0, "associated": 1.0}
+            for i in range(n)]
+    for i, fields in override.items():
+        rows[int(i)].update(fields)
+    return rows
+
+
+def test_spread_never_says_no_drops_when_the_carrier_dropped():
+    events = [ev(t, 3 + i, 20.0) for i, t in enumerate(TARGETS[:7])]
+    floor = diagnosis.first_hop_floor(
+        [{"_epoch": T0 + i * STEP, "_value": 11.0} for i in range(0, 40)], STEP)
+    wifi = wifi_rows(60, **{"20": {"drops": 1}})
+    inc = only(diagnosis.diagnose(events, ctx(floor=floor, wifi=wifi), 288))
+    said = " ".join(inc["evidence"])
+    assert "carrier dropped 1" in " ".join(inc["against"])
+    assert "no carrier drop" not in said
+
+
+def test_outage_never_says_receiving_the_whole_time_when_it_was_not():
+    events = [ev(t, s, 100.0) for t in TARGETS for s in range(3, 9)]
+    wifi = wifi_rows(60, **{"20": {"associated": 0.0}})
+    inc = only(diagnosis.diagnose(events, ctx(wifi=wifi), 288))
+    assert inc["class"] == "local_link"
+    assert not any("whole time" in e for e in inc["evidence"])
+    assert any("not associated for 1 minute" in a for a in inc["against"])
+
+
+def test_five_minute_wifi_rows_still_cover_a_one_cycle_incident():
+    """Past two days the rows are 5 min wide, stamped at their end."""
+    lo = T0 + 3 * STEP
+    rows = [{"_epoch": lo + 240, "signal_dbm": -55.0, "associated": 0.0}]
+    inc = only(diagnosis.diagnose([ev(t, 4, 100.0) for t in TARGETS],
+                                  ctx(wifi=rows, wifi_width=300.0), 288))
+    assert (inc["class"], inc["detail"]) == ("local_wifi", "disassociated")
+    assert "not associated for 5 minute(s)" in inc["evidence"][0]
+
+
+def test_a_dropped_carrier_in_a_short_incident_is_the_wifi():
+    wifi = wifi_rows(60, **{"20": {"drops": 2}})
+    inc = only(diagnosis.diagnose([ev(t, 4, 60.0) for t in TARGETS[:5]],
+                                  ctx(wifi=wifi), 288))
+    assert (inc["class"], inc["detail"]) == ("local_wifi", "carrier")
+
+
+def test_weak_signal_while_the_first_hop_cut_is_the_wifi():
+    wifi = wifi_rows(60, **{str(i): {"signal_dbm": -82.0, "weak": 3}
+                            for i in range(17, 21)})
+    cuts = [{"start_epoch": T0 + 3 * STEP + 60, "seconds": 90, "confirmed": True}]
+    inc = only(diagnosis.diagnose([ev(t, 4, 40.0) for t in TARGETS[:2]],
+                                  ctx(wifi=wifi, cuts=cuts), 288))
+    assert (inc["class"], inc["detail"]) == ("local_wifi", "weak_signal")
+    assert "-82 dBm" in inc["evidence"][0]
+
+
+def test_a_lone_microcut_without_wifi_data_is_never_high():
+    cut = {"start_epoch": T0 + 1000, "seconds": 70, "confirmed": True, "windows": 3,
+           "max_loss_pct": 100.0, "total": True}
+    inc = only(diagnosis.diagnose([], ctx(cuts=[cut]), 288))
+    assert inc["confidence"] == "low"
+    assert "cannot be ruled out" in inc["against"][0]
+
+
+def test_a_lone_point_beside_a_deaf_minute_keeps_the_context():
+    deaf = [{"start_epoch": T0 + 3 * STEP + 100, "seconds": 100,
+             "deaf": "received nothing"}]
+    inc = only(diagnosis.diagnose([ev("site1", 4, 20.0)], ctx(deaf=deaf), 288))
+    assert inc["class"] != "probe_miss"
+    assert any("heard nothing" in a for a in inc["against"])
+
+
+def test_chronic_targets_leave_the_denominator():
+    events = [ev("amazon", s, 100.0) for s in range(0, 288)]
+    events += [ev(t, 50, 40.0) for t in TARGETS[:6]]
+    reporting = {T0 + i * STEP: 7 for i in range(0, 300)}
+    inc = only(diagnosis.diagnose(events, ctx(reporting=reporting), 288))
+    assert inc["targets_reporting"] == 6
+    assert inc["class"] == "upstream"
+
+
+def test_one_silent_cycle_does_not_split_an_incident_two_do():
+    one = diagnosis.diagnose([ev("site1", 3, 60.0), ev("site1", 5, 60.0)], ctx(), 288)
+    two = diagnosis.diagnose([ev("site1", 3, 60.0), ev("site1", 6, 60.0)], ctx(), 288)
+    assert len(one["incidents"]) == 1 and len(two["incidents"]) == 2
+
+
+def test_ipv6_only_is_named():
+    c = ctx(ipv6=server._is_ipv6)
+    inc = only(diagnosis.diagnose([ev("google6", s, 100.0) for s in (3, 4)], c, 288))
+    assert (inc["class"], inc["detail"]) == ("destination", "ipv6")
+
+
+def test_diagnose_loss_flux_reads_wifi_by_window_and_leaves_out_the_first_hop(
+        monkeypatch, no_api):
+    seen = []
+
+    def fake(flux):
+        seen.append(flux)
+        return []
+
+    monkeypatch.setattr(server, "query_influx", fake)
+    monkeypatch.setattr(server, "_cadences", lambda: {})
+    server.diagnose_loss(hours=24)
+    assert any("aggregateWindow(every: 60s" in f and "wifi_link" in f for f in seen)
+    counting = next(f for f in seen if 'distinct(column: "target") |> count()' in f)
+    assert 'r.category != "cpe"' in counting
+    seen.clear()
+    server.diagnose_loss(hours=72)
+    assert any("aggregateWindow(every: 300s" in f and "wifi_link" in f for f in seen)

@@ -1229,11 +1229,16 @@ def _is_ipv6(target: str, category: str | None) -> bool:
         k in (category or "").lower() for k in ("fping6", "ipv6"))
 
 
+def _wifi_width(hours: int) -> int:
+    """Seconds per wifi_link row in a diagnosis: a minute up to two days."""
+    return 60 if hours <= 48 else 300
+
+
 def _wifi_minute_fluxes(hours: int) -> list[str]:
     """wifi_link per minute (5 min past two days): min signal, weak-sample
     count, min association, carrier drops, and which interface carried the
     default route -- renamed fields, one row shape for diagnosis.wifi_minutes."""
-    every = "1m" if hours <= 48 else "5m"
+    every = f"{_wifi_width(hours)}s"
     base = _base_flux(["wifi_link"], hours)
     agg = f'|> aggregateWindow(every: {every}, fn: {{fn}}, createEmpty: false) '
     return [
@@ -1313,8 +1318,13 @@ def diagnose_loss(hours: int = 24) -> dict:
     base = (_base_flux(["latency", "dns_latency"], hours)
             + '|> filter(fn: (r) => r._field == "loss") ' + _CLAMP_LOSS_RATIO)
     events_flux = (prelude + base + f"|> filter(fn: (r) => r._value >= {bar}) "
-                   + "|> group() " + f"|> limit(n: {MAX_ROLLUP_ROWS})")
-    targets_flux = (base + '|> group(columns: ["_time"]) '
+                   + '|> group() |> sort(columns: ["_time"], desc: true) '
+                   + f"|> limit(n: {MAX_ROLLUP_ROWS})")
+    # Destinations only: the ISP first hop's ping target (category cpe) is
+    # not one (diagnosis.FIRST_HOP_CATEGORY).
+    targets_flux = (base + f'|> filter(fn: (r) => not exists r.category or '
+                    f'r.category != {flux_str(diagnosis.FIRST_HOP_CATEGORY)}) '
+                    + '|> group(columns: ["_time"]) '
                     + '|> keep(columns: ["_time", "target"]) '
                     + '|> distinct(column: "target") |> count()')
     app_base = (_base_flux(["http_latency", "tcp_latency"], hours)
@@ -1388,6 +1398,7 @@ def diagnose_loss(hours: int = 24) -> dict:
         "app_sites": {diagnosis.site_key(r.get("target")) for r in app_site_rows},
         "ipv6": _is_ipv6,
         "floor": diagnosis.first_hop_floor(floor_rows, step_s),
+        "wifi_width": float(_wifi_width(hours)),
     }
     result = diagnosis.diagnose(events, ctx, window_steps=hours * 3600 // step_s)
     incidents = result["incidents"][:DIAGNOSE_MAX_INCIDENTS]

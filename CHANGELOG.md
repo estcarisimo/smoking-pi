@@ -25,7 +25,9 @@ version gets a matching GitHub release and git tag.
   lacks is never `high`. The ISP first hop's ping target is no longer read
   as a destination (its loss is the gateway's rate-limit floor). Replayed
   on the reference Pi's week: its 2026-10-01 radio hang is `local_wifi`,
-  `high`; five lone two-ping points are `probe_miss`. The OpenClaw skill
+  `high`; five lone two-ping points are `probe_miss`; a night of a ping or
+  two lost on 11 of 18 destinations with a normal first hop is `upstream`/
+  `spread`, `medium`. The OpenClaw skill
   and the server instructions now start from it; after upgrading,
   `sudo smoking-pi openclaw` refreshes the skill. Logic in
   `common/diagnosis.py`; see docs/detection-reliability.md.

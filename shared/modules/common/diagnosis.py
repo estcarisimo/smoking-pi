@@ -45,7 +45,8 @@ from typing import Any
 BROAD_SHARE = 0.6
 # Below this many reporting targets breadth means nothing.
 MIN_TARGETS = 3
-# Steps with no event between two that have one, still the same incident.
+# Events at most this many cycles apart are one incident: one silent cycle
+# between two lossy ones does not split it, two do.
 GAP_STEPS = 2
 # A target that lost everything in this share of the window's steps is not
 # an episode: it does not answer (bare amazon.com) or it is gone. Listed
@@ -123,10 +124,13 @@ def wifi_minutes(rows: list[dict]) -> list[dict] | None:
     return sorted(by_minute.values(), key=lambda m: m["_epoch"]) or None
 
 
-def _wifi_in(minutes: list[dict] | None, lo: float, hi: float) -> dict | None:
+def _wifi_in(minutes: list[dict] | None, lo: float, hi: float,
+             width: float = 60.0) -> dict | None:
+    """The Wi-Fi rows of a span. Rows are ``width`` seconds wide (one
+    minute, five past two days) and stamped at their end."""
     if minutes is None:
         return None
-    own = [m for m in minutes if lo - 60 < m["_epoch"] <= hi + 60]
+    own = [m for m in minutes if lo < m["_epoch"] <= hi + width]
     if not own:
         return None
     signals = [m["signal_dbm"] for m in own if "signal_dbm" in m]
@@ -134,7 +138,7 @@ def _wifi_in(minutes: list[dict] | None, lo: float, hi: float) -> dict | None:
         "minutes": len(own),
         "min_dbm": min(signals) if signals else None,
         "weak": sum(m.get("weak", 0) for m in own),
-        "unassociated_minutes": sum(1 for m in own if m.get("associated", 1) < 1),
+        "unassociated_s": width * sum(1 for m in own if m.get("associated", 1) < 1),
         "drops": sum(m.get("drops", 0) for m in own),
     }
 
@@ -285,7 +289,7 @@ def classify(inc: dict, ctx: dict) -> dict:
     confirmed_cuts = [c for c in cuts if c.get("confirmed")]
     deaf_s = sum(_overlap(lo, hi, d["start_epoch"], d["start_epoch"] + d["seconds"])
                  for d in ctx.get("deaf") or [])
-    wifi = _wifi_in(ctx.get("wifi"), lo, hi)
+    wifi = _wifi_in(ctx.get("wifi"), lo, hi, ctx.get("wifi_width", 60.0))
     floor = ctx.get("floor") or {}
     floor_now = _floor_in(floor, lo, hi, step_s)
     floor_up = (floor_now is not None
@@ -336,14 +340,14 @@ def classify(inc: dict, ctx: dict) -> dict:
     # deafness inside a five-hour episode is context, not the cause.
     wifi_reasons = []
     wifi_context = []
-    unassoc_s = 60.0 * wifi["unassociated_minutes"] if wifi else 0.0
+    unassoc_s = wifi["unassociated_s"] if wifi else 0.0
     if deaf_s:
         line = (f"this host's Wi-Fi heard nothing for {_minutes(deaf_s)} of the "
                 f"{_minutes(span)} minutes (no packet received)")
         (wifi_reasons if deaf_s >= 0.5 * span else wifi_context).append(line)
     if unassoc_s:
         line = (f"this host's Wi-Fi was not associated for "
-                f"{wifi['unassociated_minutes']} minute(s)")
+                f"{_minutes(unassoc_s)} minute(s)")
         (wifi_reasons if unassoc_s >= 0.5 * span else wifi_context).append(line)
     if wifi and wifi["drops"]:
         line = f"this host's Wi-Fi carrier dropped {wifi['drops']} time(s)"
@@ -358,6 +362,16 @@ def classify(inc: dict, ctx: dict) -> dict:
                   if unassoc_s >= 0.5 * span else "carrier")
         return done("local_wifi", detail)
     against.extend(wifi_context)
+
+    def wifi_held() -> str | None:
+        """What the Wi-Fi did, said only when nothing in ``against``
+        contradicts it."""
+        if wifi is None or wifi_context:
+            return None
+        if wifi["weak"] == 0 and wifi["min_dbm"] is not None:
+            return (f"this host's Wi-Fi stayed associated, never weaker than "
+                    f"{wifi['min_dbm']:.0f} dBm, with no carrier drop")
+        return "this host's Wi-Fi stayed associated, with no carrier drop"
     if weak and (confirmed_cuts or broad):
         evidence.append(f"this host's Wi-Fi signal fell to {wifi['min_dbm']:.0f} dBm "
                         f"({wifi['weak']} weak samples)")
@@ -371,10 +385,10 @@ def classify(inc: dict, ctx: dict) -> dict:
         evidence.append(f"nearly every destination lost every packet in "
                         f"{total_steps} cycle(s) (up to {total_peak[0]} of the "
                         f"{total_peak[1]} reporting)")
-        if wifi is not None:
+        if wifi is not None and not wifi_context:
             evidence.append("this host's Wi-Fi was associated and receiving the whole "
                             "time, so the monitor itself was not deaf")
-        else:
+        elif wifi is None:
             against.append("no Wi-Fi data for this host: its own link (cable, port) "
                            "cannot be ruled out")
         if confirmed_cuts:
@@ -395,10 +409,8 @@ def classify(inc: dict, ctx: dict) -> dict:
                         + (" at once" if broad else " over the span"))
         evidence.append(floor_line + ": the air or the line, which every path "
                         "crosses")
-        if wifi is not None and not weak:
-            evidence.append(f"this host's Wi-Fi signal held at "
-                            f"{wifi['min_dbm']:.0f} dBm or better" if wifi["min_dbm"]
-                            is not None else "this host's Wi-Fi stayed associated")
+        if wifi_held():
+            evidence.append(wifi_held())
         return done("local_link", "degraded")
 
     # 3. Broad, with a clean first hop: beyond the line.
@@ -408,9 +420,8 @@ def classify(inc: dict, ctx: dict) -> dict:
                         f"(at most {share:.0%} in a cycle)")
         evidence.append(floor_line + ": the first-hop probe crosses the same Wi-Fi "
                         "and line every 30 s, and they carried it normally")
-        if wifi is not None and wifi["min_dbm"] is not None:
-            evidence.append(f"this host's Wi-Fi signal stayed at "
-                            f"{wifi['min_dbm']:.0f} dBm or better, no drops")
+        if wifi_held():
+            evidence.append(wifi_held())
         out_ = done("upstream", "spread")
         # A shared low-grade loss is an inference, never certain.
         out_["confidence"] = "medium" if out_["confidence"] == "high" else out_["confidence"]
@@ -435,7 +446,8 @@ def classify(inc: dict, ctx: dict) -> dict:
     sibling = {t: app_sibling(t) for t in targets}
 
     # 4. One point on one target with nothing around it: the probe.
-    if n == 1 and len(steps) == 1 and max_loss < TOTAL and not cuts:
+    kept = list(against)
+    if n == 1 and len(steps) == 1 and max_loss < TOTAL and not cuts and not kept:
         t = targets[0]
         evidence.append(f"one point on {t} ({max_loss:.0f}% loss) and nothing else "
                         "around it")
@@ -446,7 +458,7 @@ def classify(inc: dict, ctx: dict) -> dict:
         if not against:
             return done("probe_miss")
         evidence.clear()
-        against.clear()
+        against[:] = kept
 
     # 5. One or two destinations, their peers fine: theirs.
     if n <= 2:
@@ -477,9 +489,8 @@ def classify(inc: dict, ctx: dict) -> dict:
                     "of them")
     if floor_line:
         evidence.append(floor_line)
-    if wifi is not None and wifi["min_dbm"] is not None:
-        evidence.append(f"this host's Wi-Fi signal stayed at {wifi['min_dbm']:.0f} dBm "
-                        "or better")
+    if wifi_held():
+        evidence.append(wifi_held())
     if cuts:
         evidence.append("the first hop had a possible cut then")
     out_ = done("unclear")
@@ -493,7 +504,7 @@ def standalone(cut_or_span: dict, kind: str, ctx: dict) -> dict:
     see it, the 10-second CPE probe did."""
     lo = cut_or_span["start_epoch"]
     hi = lo + cut_or_span["seconds"]
-    wifi = _wifi_in(ctx.get("wifi"), lo, hi)
+    wifi = _wifi_in(ctx.get("wifi"), lo, hi, ctx.get("wifi_width", 60.0))
     seconds = int(cut_or_span["seconds"])
     out = {"start_epoch": lo, "end_epoch": hi, "minutes": _minutes(seconds),
            "seconds": seconds, "targets": [], "targets_affected": 0,
@@ -515,7 +526,10 @@ def standalone(cut_or_span: dict, kind: str, ctx: dict) -> dict:
                         f"{cut_or_span.get('max_loss_pct', 0):.0f}%)")
         if cut_or_span.get("total"):
             evidence.append("every probe in it was lost")
-        if wifi is not None:
+        if wifi is None:
+            against.append("no Wi-Fi data for this host: its own link cannot be "
+                           "ruled out")
+        elif not wifi["unassociated_s"] and not wifi["drops"]:
             evidence.append("this host's Wi-Fi was receiving the whole time")
         cls, detail = "local_link", "microcut"
     out.update({"class": cls, "detail": detail,
@@ -569,6 +583,10 @@ def diagnose(events: list[dict], ctx: dict, window_steps: int) -> dict:
     Returns ``incidents`` (each with ``summary``), ``by_class`` counts and
     ``chronic`` targets left out."""
     chronic = chronic_targets(events, window_steps)
+    if chronic:
+        # They report in every cycle but are not destinations that can fail.
+        ctx = {**ctx, "reporting": {s: max(0, n - len(chronic))
+                                    for s, n in ctx["reporting"].items()}}
     incidents = [classify(inc, ctx)
                  for inc in fold_incidents(events, ctx["step_s"], set(chronic))]
 
