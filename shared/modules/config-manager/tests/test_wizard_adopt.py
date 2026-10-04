@@ -576,3 +576,17 @@ def test_cli_dry_run_says_the_budget_was_not_read(monkeypatch, capsys):
     wizard_adopt.main(["--dry-run"])
     out = capsys.readouterr().out
     assert "could not be read" in out and "Fits" not in out
+
+
+def test_adopt_dry_run_with_force_is_not_a_fit(env, monkeypatch):
+    _budget(monkeypatch, samples=19500.0)
+    env.write(snapshot(["netflix.com"]))
+    body = env.client.post("/wizard/adopt?dry_run=1&force=1").get_json()
+    assert body["budget"] == {"admitted": True, "checked": False}
+
+
+def test_cli_forced_dry_run_says_nothing_about_the_budget(monkeypatch, capsys):
+    _answer(monkeypatch, {"admitted": True, "checked": False})
+    wizard_adopt.main(["--force", "--dry-run"])
+    out = capsys.readouterr().out
+    assert "budget" not in out
