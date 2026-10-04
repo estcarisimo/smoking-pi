@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.23.0] — 2026-10-04
+
+On Pro, the assistant can now say what each loss episode was — this host's
+own Wi-Fi, the line to the ISP, one site, or beyond the line — with how
+sure it is and the evidence, instead of attributing raw numbers on its own.
+
+- Pro: the new MCP tool `diagnose_loss(hours)` classifies every loss
+  episode in up to a week. On the reference Pi's week, its 2026-10-01
+  radio hang is `local_wifi`, `high`. The OpenClaw skill now starts from
+  it.
+- `smoking-pi dns adopt --dry-run` says when an adoption fits the
+  measurement budget.
+- No new images and no new settings. After upgrading, `sudo smoking-pi
+  openclaw` refreshes the OpenClaw skill.
+
 ### Added
 
 - **`diagnose_loss`: what each loss episode was, with the evidence and how
