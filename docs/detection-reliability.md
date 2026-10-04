@@ -310,3 +310,81 @@ coincide with Internet loss above 20%, so they are not all the floor.
    does.
 3. A cut on a wired host has no deaf test: an Ethernet link that stops
    receiving is not measured by anything today.
+
+---
+
+## Diagnosis: what each episode was
+
+Both detectors above answer one question each. The question the assistant is
+actually asked is wider: *what happened last night, and was it me?* Until
+2026-10-04 it answered by reading `get_loss_events`, `get_microcut_stats` and
+`get_wifi_stats` and attributing on its own, which is how a hung radio could
+still be called an outage. `diagnose_loss(hours)` does the attribution once,
+deterministically, in `shared/modules/common/diagnosis.py`.
+
+An **incident** is a run of probe cycles in which some target lost two or
+more pings (the `get_loss_events` rule), across every target at once — or a
+confirmed microcut or deaf span with no such run around it. The ISP's first
+hop as a target (`CPE_IPv4`, category `cpe`) is not a destination: its ping
+loss is the gateway's rate-limit floor, and the 10 s CPE probe is the
+first-hop evidence. Each incident gets one class:
+
+| Class | What it means | Read from |
+| --- | --- | --- |
+| `probe_miss` | One point on one target, nothing else moved | a single lossy point; its TCP/HTTP sibling answering makes it `high` |
+| `local_wifi` | This host's own Wi-Fi: `deaf`, `disassociated`, `carrier`, `weak_signal` | `deaf` and `disassociated`: deaf spans (as in the microcut section) or lost association covering at least half the incident; `carrier`: a carrier drop in an incident of three cycles or fewer; `weak_signal`: a minute of samples under −75 dBm with a first-hop cut or broad loss. Shorter faults inside a longer incident are listed in `against` |
+| `local_link` | The line between the house and the ISP: `outage`, `cuts`, `degraded`, `microcut` | total loss while the radio still received; first-hop cuts with two or more destinations; the first hop's per-cycle loss 10 points over its usual level along with everything else |
+| `destination` | One or two destinations, their peers fine (`dns`, `ipv6`) | breadth, repeat cycles, the TCP/HTTP sibling failing too |
+| `upstream` | Beyond the line: most destinations at once, or `spread` — a low-grade loss on most paths, never most at once — with a normal first hop | breadth per cycle and over the incident; the first hop's loss at its usual level |
+| `unclear` | None fits | listed with the first hop's and the Wi-Fi's state anyway |
+
+**Confidence** is `high` when two or more signals support the class and none
+contradicts it, `medium` with one, and `low` when something contradicts it
+(each such line is in `against`). A class that needs evidence the host does
+not have — the first hop for `local_link`/`upstream`, `wifi_link` to tell a
+dead line from a dead host — is never `high`, and `coverage` says what
+existed. `spread` is an inference from a normal first hop and is capped at
+`medium`; `unclear` is always `low`.
+
+The `spread` rule rests on one observation: the CPE probe sends 5 packets a
+second across the same Wi-Fi and the same line as every other probe. A
+low-grade loss on most paths with the first hop at its usual floor did not
+happen on the air or the line.
+
+### Replayed on the reference and staging Pis
+
+On the reference Pi, the week to 2026-10-04 (18 destinations reporting from
+2 October, 19 before; the first-hop target is not counted):
+
+- the 2026-10-01 radio hang came out `local_wifi`/`deaf`, `high`: 37 of 40
+  minutes deaf, 18 of 18 destinations lost;
+- five lone two-ping points are `probe_miss`; three single-site losses are
+  `destination`, `high` (`uba_ar` and `Facebook` for two cycles each,
+  `Amazon` at 100% for 230 minutes on 2026-09-28);
+- a 35-minute night episode on 2026-10-02 from 00:55 is `upstream`/`spread`,
+  `medium`: 11 of 18 destinations lost a ping or more, at most 38% of them
+  in one cycle, the first hop at 10% against its usual 11%, the Wi-Fi never
+  weaker than −56 dBm;
+- five more short night-time episodes (starting between 01:35 and 03:10)
+  are `unclear`, `low`: 3 to 6 destinations, at most 22% in one cycle, the
+  first hop at its usual 10–12% and the Wi-Fi at −50 to −60 dBm. Not the
+  line or the air, not one site, and below the bar for `spread`;
+- 27–28 September, the days the Pi's SD card was failing, give two long
+  `unclear` episodes and one `local_link`/`outage` at `low` confidence
+  (13 deaf minutes inside it, listed in `against`).
+
+On the staging Pi over the same week a 60-minute night episode (9 of 14
+destinations, at most 20% in a cycle, first hop at 10% against its usual 11%)
+came out `upstream`/`spread`, `medium`; its 2026-09-30 radio hang
+(55 of 60 minutes deaf) `local_wifi`/`deaf`, `high`; and an incident with
+three deaf minutes inside a five-hour span stayed out of `local_wifi`, with
+those minutes listed in `against`.
+
+### Diagnosis backlog
+
+1. The alerter's verdict (`alerter/verdict.py`) and the digest still
+   attribute on their own; move them onto `common.diagnosis` so an alert and
+   the assistant's later answer cannot disagree.
+2. The web-admin assistant does not have the tool yet.
+3. The night-time `unclear` episodes on the reference Pi recur; whether they
+   are this host (a nightly job), the ISP, or something else is unmeasured.

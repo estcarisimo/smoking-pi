@@ -30,7 +30,7 @@ except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
 import backends
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
-from common import aggregates, cadence, charts, microcuts, mutes, openclaw
+from common import aggregates, cadence, charts, diagnosis, microcuts, mutes, openclaw
 
 # Framing for the connecting client. Without it an agent that also has shell
 # access will answer "how is my internet?" by running ping/curl itself, which
@@ -54,7 +54,11 @@ shell. A live probe describes one instant, cannot see the past, competes with
 the very measurement this host is taking, and will disagree with the graphs the
 user is looking at. Use `get_latency_stats` for how a target has been
 performing (ICMP, DNS, HTTP fetches and TCP connects; take exact names from
-`list_targets`), `get_loss_events` for when packets were dropped, and
+`list_targets`), `diagnose_loss` first for "what happened?" and "is it me
+or the internet?" -- every loss episode in the window with its class (a
+probe miss, this host's own Wi-Fi, the line to the ISP, one destination, or
+beyond the line), a confidence and the evidence to cite -- then
+`get_loss_events` for when packets were dropped,
 `get_microcut_stats` for brief local-link dropouts, and `get_wifi_stats` for
 the Pi's own wireless uplink (signal, bitrate, disconnects, roams) when the
 host is on Wi-Fi -- a microcut that lines up with a signal dip is the router
@@ -1211,6 +1215,215 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
     if changes:
         result["uplink_changes"] = changes
     return result
+
+
+# A week of per-minute Wi-Fi rows, CPE windows and loss events is the most
+# one answer should read; diagnose_loss refuses longer windows.
+DIAGNOSE_MAX_HOURS = 168
+DIAGNOSE_MAX_INCIDENTS = 50
+
+
+def _is_ipv6(target: str, category: str | None) -> bool:
+    # The alerter's rule (evaluator._is_ipv6_target), kept in step by hand.
+    return (target or "").endswith("6") or any(
+        k in (category or "").lower() for k in ("fping6", "ipv6"))
+
+
+def _wifi_width(hours: int) -> int:
+    """Seconds per wifi_link row in a diagnosis: a minute up to two days."""
+    return 60 if hours <= 48 else 300
+
+
+def _wifi_minute_fluxes(hours: int) -> list[str]:
+    """wifi_link per minute (5 min past two days): min signal, weak-sample
+    count, min association, carrier drops, and which interface carried the
+    default route -- renamed fields, one row shape for diagnosis.wifi_minutes."""
+    every = f"{_wifi_width(hours)}s"
+    base = _base_flux(["wifi_link"], hours)
+    agg = f'|> aggregateWindow(every: {every}, fn: {{fn}}, createEmpty: false) '
+    return [
+        base + '|> filter(fn: (r) => r._field == "signal_dbm") '
+        + agg.format(fn="min"),
+        base + '|> filter(fn: (r) => r._field == "signal_dbm") '
+        + f'|> map(fn: (r) => ({{r with _value: if r._value < {cadence.flux_float(diagnosis.WEAK_DBM)} then 1 else 0}})) '
+        + agg.format(fn="sum") + '|> set(key: "_field", value: "weak") ',
+        base + '|> filter(fn: (r) => r._field == "associated") '
+        + '|> toFloat() ' + agg.format(fn="min"),
+        base + '|> filter(fn: (r) => r._field == "carrier_down_count") '
+        + '|> difference(nonNegative: true) ' + agg.format(fn="sum")
+        + '|> set(key: "_field", value: "drops") ',
+        base + '|> filter(fn: (r) => r._field == "uplink") '
+        + '|> toFloat() |> group(columns: ["interface", "_field"]) |> max() ',
+    ]
+
+
+@mcp.tool()
+@logged_tool
+def diagnose_loss(hours: int = 24) -> dict:
+    """Say what each loss episode in the window was, with its evidence and
+    how sure that is. Start here for "what happened?", "is it me or the
+    internet?", "why did the call drop last night?".
+
+    Every incident -- a run of probe cycles in which some target lost two
+    or more pings, across all targets at once, or a confirmed microcut or
+    deaf span with none around it -- gets one `class`:
+
+      - `probe_miss`: one point on one target, nothing else moved. Not a
+        problem; mention it only if asked.
+      - `local_wifi`: THIS HOST's own Wi-Fi (`detail`: `deaf` = the radio
+        heard nothing, `disassociated`, `carrier`, `weak_signal`). The
+        monitor, not the line: never call it an outage or a microcut.
+      - `local_link`: the line between the house and the ISP -- router,
+        modem or the ISP's access (`detail`: `outage` = every destination
+        lost everything while the monitor still heard its network, `cuts`,
+        `microcut`).
+      - `destination`: one or two destinations, their peers fine
+        (`detail` `dns` or `ipv6` when that is all it was). Theirs, not yours.
+      - `upstream`: most destinations at once while the first hop stayed
+        up: beyond your line.
+      - `unclear`: no single cause fits; say so and give the evidence.
+
+    Each carries `confidence` (`high`: two or more signals agree and none
+    contradicts; `medium`: one signal, or data a class needs is missing;
+    `low`: something contradicts), `evidence` and `against` (sentences with
+    the numbers -- cite them instead of asserting), `summary`, `start`,
+    `end`, `minutes`, `targets` and `targets_reporting`, and a `graph` link
+    at its moment when links are configured. Newest first, at most 50.
+
+    `by_class` counts every incident; `chronic` lists targets left out
+    because they lost everything nearly all window (they do not answer
+    ICMP, or are gone); `coverage` says which evidence existed: `wifi`
+    (this host's wifi_link), `cpe` (the first-hop probe), `app_layer`
+    (TCP/HTTP siblings). A class that needs missing evidence is never
+    `high`.
+
+    Report the classes, not the raw counts: "two short cuts on your line at
+    03:10 and 03:40 (high confidence: the first hop cut out with 14 of 18
+    destinations)", "this host's Wi-Fi was deaf for 52 min -- the line is
+    unknown for that span". Use get_loss_events or get_microcut_stats only
+    to go deeper into one incident.
+
+    Args:
+        hours: Lookback window in hours (default 24, at most 168).
+    """
+    hours, err = _validate_hours(hours)
+    if err:
+        return {"error": err}
+    if hours > DIAGNOSE_MAX_HOURS:
+        return {"error": f"hours must be at most {DIAGNOSE_MAX_HOURS} for a diagnosis."}
+
+    cadences = _cadences()
+    step_s = cadence.longest_step(cadences)
+    prelude, bar = cadence.event_threshold_flux(cadences)
+    base = (_base_flux(["latency", "dns_latency"], hours)
+            + '|> filter(fn: (r) => r._field == "loss") ' + _CLAMP_LOSS_RATIO)
+    events_flux = (prelude + base + f"|> filter(fn: (r) => r._value >= {bar}) "
+                   + '|> group() |> sort(columns: ["_time"], desc: true) '
+                   + f"|> limit(n: {MAX_ROLLUP_ROWS})")
+    # Destinations only: the ISP first hop's ping target (category cpe) is
+    # not one (diagnosis.FIRST_HOP_CATEGORY).
+    targets_flux = (base + f'|> filter(fn: (r) => not exists r.category or '
+                    f'r.category != {flux_str(diagnosis.FIRST_HOP_CATEGORY)}) '
+                    + '|> group(columns: ["_time"]) '
+                    + '|> keep(columns: ["_time", "target"]) '
+                    + '|> distinct(column: "target") |> count()')
+    app_base = (_base_flux(["http_latency", "tcp_latency"], hours)
+                + '|> filter(fn: (r) => r._field == "loss") ' + _CLAMP_LOSS_RATIO)
+    app_flux = (app_base + f"|> filter(fn: (r) => r._value >= "
+                f"{cadence.flux_float(diagnosis.APP_LOSS)}) |> group() "
+                f"|> limit(n: {MAX_ROLLUP_ROWS})")
+    app_sites_flux = (app_base + '|> group() |> keep(columns: ["target"]) '
+                      + '|> distinct(column: "target")')
+    cpe_count_flux = (_base_flux(["cpe_latency"], hours)
+                      + '|> filter(fn: (r) => r._field == "loss") |> group() |> count()')
+    try:
+        rows = query_influx(events_flux)
+        targets_rows = query_influx(targets_flux)
+        cut_rows = query_influx(microcuts.cut_windows_flux(f"-{hours}h", microcuts.loss_pct()))
+        cpe_rows = query_influx(cpe_count_flux)
+    except Exception as exc:
+        return _tool_error("InfluxDB query failed", exc)
+
+    # The rest refines the answer; without it a class loses confidence and
+    # coverage says why -- never a reason to refuse one.
+    def _optional(flux: str, what: str) -> list[dict]:
+        try:
+            return query_influx(flux)
+        except Exception:  # influx client raises many exception types
+            log.warning("diagnose_loss: %s query failed", what, exc_info=True)
+            return []
+
+    deaf_rows = _optional(microcuts.uplink_flux(f"-{hours}h"), "deaf-radio")
+    wifi_rows = [row for flux in _wifi_minute_fluxes(hours)
+                 for row in _optional(flux, "wifi_link")]
+    app_rows = _optional(app_flux, "app-layer")
+    floor_rows = _optional(
+        _base_flux(["cpe_latency"], hours) + '|> filter(fn: (r) => r._field == "loss") '
+        + f"|> aggregateWindow(every: {int(step_s)}s, fn: mean, createEmpty: false) ",
+        "first-hop floor")
+    for r in floor_rows:
+        r["_epoch"] = _epoch(r.get("_time"))
+    app_site_rows = _optional(app_sites_flux, "app-layer targets")
+
+    events = [{"target": r.get("target"), "category": r.get("category"),
+               "loss_pct": round(float(r.get("_value", 0.0)) * 100.0, 2),
+               "_epoch": _epoch(r.get("_time"))} for r in rows]
+    reporting: dict[int, int] = {}
+    for row in targets_rows:
+        epoch = _epoch(row.get("_time"))
+        if epoch is None or row.get("_value") is None:
+            continue
+        step = int(epoch // step_s) * step_s
+        reporting[step] = max(reporting.get(step, 0), int(row["_value"]))
+
+    attributed = microcuts.attribute(microcuts.fold_cuts(cut_rows), deaf_rows)
+    app: dict[str, list] = {}
+    for r in app_rows:
+        epoch = _epoch(r.get("_time"))
+        if epoch is not None and r.get("_value") is not None:
+            app.setdefault(diagnosis.site_key(r.get("target")), []).append(
+                (epoch, float(r["_value"])))
+    for r in wifi_rows:
+        r["_epoch"] = _epoch(r.get("_time"))
+    wifi = diagnosis.wifi_minutes(wifi_rows)
+    cpe = any(int(r.get("_value") or 0) > 0 for r in cpe_rows)
+    ctx = {
+        "step_s": step_s,
+        "reporting": reporting,
+        "cuts": microcuts.link_cuts(attributed),
+        "deaf": diagnosis.merge_spans(microcuts.host_cuts(attributed)),
+        "cpe": cpe,
+        "wifi": wifi,
+        "app": app,
+        "app_sites": {diagnosis.site_key(r.get("target")) for r in app_site_rows},
+        "ipv6": _is_ipv6,
+        "floor": diagnosis.first_hop_floor(floor_rows, step_s),
+        "wifi_width": float(_wifi_width(hours)),
+    }
+    result = diagnosis.diagnose(events, ctx, window_steps=hours * 3600 // step_s)
+    incidents = result["incidents"][:DIAGNOSE_MAX_INCIDENTS]
+    for inc in incidents:
+        start = datetime.fromtimestamp(inc.pop("start_epoch"), tz=timezone.utc)
+        end = datetime.fromtimestamp(inc.pop("end_epoch"), tz=timezone.utc)
+        inc["start"], inc["end"] = start.isoformat(), end.isoformat()
+        if inc["targets"]:
+            graph = links.target_links(inc["targets"][0], measurement="latency",
+                                       at=start).get("graph")
+        else:
+            graph = None
+        if graph:
+            inc["graph"] = graph
+    return {
+        "window_hours": hours,
+        "incidents": incidents,
+        "truncated": len(result["incidents"]) > DIAGNOSE_MAX_INCIDENTS
+        or len(rows) >= MAX_ROLLUP_ROWS,
+        "by_class": result["by_class"],
+        "chronic": result["chronic"],
+        "coverage": {"wifi": wifi is not None, "cpe": cpe,
+                     "app_layer": bool(app_site_rows)},
+        "targets_reporting": max(reporting.values(), default=0),
+    }
 
 
 @mcp.tool()

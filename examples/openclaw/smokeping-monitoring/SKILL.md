@@ -56,6 +56,25 @@ deployment-independent and should be left alone.
 
 - `system_status` — service health and target counts. Start here when someone
   asks an open question like "how's the network?"
+- `diagnose_loss(hours)` — **call it first for any "what happened?", "is it
+  me or the internet?" or report question.** Every loss episode in the
+  window, already classified, with `confidence` and the `evidence` (and
+  `against`) to cite:
+  - `probe_miss` — one point, nothing else moved. Not a problem; it belongs
+    under *Ignored*, if anywhere.
+  - `local_wifi` — the Pi's own Wi-Fi (`deaf`, `disassociated`, `carrier`,
+    `weak_signal`). The monitor, not the line: never call it an outage or
+    a microcut; say the line is unknown for that span.
+  - `local_link` — the line between the house and the ISP: router, modem or
+    the ISP's access (`outage`, `cuts`, `degraded`, `microcut`).
+  - `destination` — one or two sites, their peers fine. Theirs, not yours.
+  - `upstream` — most destinations with a normal first hop (`spread`: a
+    low-grade loss on most paths, never most at once). Beyond the line.
+  - `unclear` — say so, and give the evidence.
+  State the confidence in words ("almost certainly", "probably", "can't
+  tell") and cite one or two `evidence` lines with their numbers; mention an
+  `against` line when the confidence is low. Use `get_loss_events` and
+  `get_microcut_stats` only to look deeper at one episode.
 - `get_latency_stats(target, hours)` — median latency and loss over a window.
 - `get_loss_events(hours, min_loss_pct)` — the shape of the loss, not just the
   points. Read `widespread` first: a run there means most targets were lossy
@@ -223,6 +242,12 @@ for.
 Quote real numbers with their window ("12% loss over the last hour"), never a
 bare adjective. When a question is about a specific target, query that target
 rather than summarizing everything.
+
+Attribute with `diagnose_loss`, not by eye: its class is where a problem
+lives (*Local link* for `local_wifi` and `local_link`, *Internet* for
+`destination` and `upstream`), and its `confidence` is how firmly to say it.
+A `high` is stated plainly; a `medium` gets "probably"; a `low` or `unclear`
+says what the evidence shows and that it does not settle it.
 
 If the data does not support a conclusion, say what is missing instead of
 guessing. "Only two samples since the restart — not enough to tell yet" is a
