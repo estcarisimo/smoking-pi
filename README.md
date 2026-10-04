@@ -140,7 +140,7 @@ claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp   # token: s
 ./shared/scripts/install-openclaw-skill.sh --check     # non-zero if the copy is stale
 ```
 
-Tools: `get_latency_stats`, `get_loss_events`, `get_microcut_stats`, `system_status`, `get_chart` (a PNG, on request only), `mute_alerts` / `ack_incident`, and target management. Once `PUBLIC_BASE_HOST` (and optionally `TUNNEL_BASE_HOST`) is set, every answer carries deep links into the Grafana view for that target and window; until then, answers are numbers only, on purpose. See [docs/mcp-server.md](docs/mcp-server.md) and [docs/openclaw-integration.md](docs/openclaw-integration.md).
+Tools: `diagnose_loss` (what each loss episode was, with evidence and confidence), `get_latency_stats`, `get_loss_events`, `get_microcut_stats`, `system_status`, `get_chart` (a PNG, on request only), `mute_alerts` / `ack_incident`, and target management. Once `PUBLIC_BASE_HOST` (and optionally `TUNNEL_BASE_HOST`) is set, every answer carries deep links into the Grafana view for that target and window; until then, answers are numbers only, on purpose. See [docs/mcp-server.md](docs/mcp-server.md) and [docs/openclaw-integration.md](docs/openclaw-integration.md).
 
 ### Alerts
 

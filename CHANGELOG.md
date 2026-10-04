@@ -9,6 +9,27 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`diagnose_loss`: what each loss episode was, with the evidence and how
+  sure.** The assistant answered "what happened last night?" by reading
+  loss events, microcuts and Wi-Fi numbers and attributing on its own — the
+  way a hung radio came to be reported as an outage. The new MCP tool folds
+  every loss episode in a window (up to a week) across all targets and
+  classifies it: `probe_miss`, `local_wifi` (this host's own radio: deaf,
+  disassociated, carrier, weak signal), `local_link` (the line to the ISP),
+  `destination`, `upstream` (including `spread`, a low-grade loss on most
+  paths with a normal first hop), or `unclear`. Each carries `high`/
+  `medium`/`low` confidence, the `evidence` and `against` sentences with
+  their numbers, and a graph link; a class that needs evidence the host
+  lacks is never `high`. The ISP first hop's ping target is no longer read
+  as a destination (its loss is the gateway's rate-limit floor). Replayed
+  on the reference Pi's week: its 2026-10-01 radio hang is `local_wifi`,
+  `high`; five lone two-ping points are `probe_miss`. The OpenClaw skill
+  and the server instructions now start from it; after upgrading,
+  `sudo smoking-pi openclaw` refreshes the skill. Logic in
+  `common/diagnosis.py`; see docs/detection-reliability.md.
+
 ### Fixed
 
 - **`smoking-pi dns adopt --dry-run` now says when an adoption fits the
