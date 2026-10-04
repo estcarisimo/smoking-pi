@@ -16,15 +16,17 @@ measurement budget is now refused before it is saved, with the numbers,
 instead of turning the budget card red afterwards.
 
 - Adding or turning on a target, moving it to a costlier probe, a shorter
-  step or more pings, and a DNS wizard adoption are priced against the
-  budget; over a ceiling, config-manager answers `409 over_budget` and
-  nothing is saved. `?force=1` (`smoking-pi dns adopt --force`) admits it
-  anyway; `dns adopt --dry-run` says beforehand whether it fits.
+  step or more pings, and, on Pro, a DNS wizard adoption are priced
+  against the budget; over a ceiling, config-manager answers
+  `409 over_budget` and nothing is saved. `?force=1` admits it anyway (on
+  Pro, `smoking-pi dns adopt --force`; `dns adopt --dry-run` says
+  beforehand whether it fits).
 - A change that lowers the cost is always admitted, nothing already
   measured is throttled, and a budget that cannot be computed never blocks.
-- No new images and no new settings. A Pi close to its ceiling may now
-  see a large DNS wizard adoption refused (the reference Pi runs at 63%):
-  raise `MEASUREMENT_BUDGET_MB_PER_DAY` or pass `--force`.
+- No new images and no new settings. A Pro Pi close to its ceiling may
+  now see a large DNS wizard adoption refused: raise
+  `MEASUREMENT_BUDGET_MB_PER_DAY` (or `_SAMPLES_PER_HOUR`) or pass
+  `--force`.
 
 ### Added
 
