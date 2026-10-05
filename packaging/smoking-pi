@@ -195,6 +195,15 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      one labeled test message: the only proof one arrives.
                      --digest: a daily summary at HH:MM (in ZONE, else TZ),
                      alone or with the rest.
+  connect [NAME]     Connect an assistant (Pro). With no NAME: what is
+                     connected and the URL to give one. 'connect openclaw':
+                     an OpenClaw gateway on this machine (as 'openclaw'
+                     below). Any other NAME (grok, claude, chatgpt...): a
+                     remote assistant that can add a remote MCP server; prints
+                     the URL and a one-time pairing code. It gets read-only
+                     tools. Needs MCP_PUBLIC_URL and a tunnel:
+                     docs/remote-connector.md.
+  disconnect NAME    Sign a remote assistant out; the others keep working.
   openclaw [--check]
                      Connect this stack to an OpenClaw gateway on this machine:
                      the MCP token, the mcp profile, registration and the skill.
@@ -2241,6 +2250,74 @@ dns_adopt() {
     compose exec -T config-manager python wizard_adopt.py "$@"
 }
 
+# --- connect: one way in for every assistant ------------------------------
+# Every assistant is an MCP client. One running on this machine (OpenClaw)
+# uses the local token; any other signs in through the remote connector
+# (mcp-server/connector.py) with a pairing code. The name is a label the
+# owner picks -- there is no per-assistant code here.
+
+connector_ready() {
+    need_edition
+    if [ "$SMOKING_PI_EDITION" != pro ]; then
+        echo "Assistants connect through the MCP server, a Pro service; the $SMOKING_PI_EDITION edition does not ship it." >&2
+        return 1
+    fi
+    if [ -z "$(compose ps -q --status running mcp-server 2>/dev/null)" ]; then
+        echo "The MCP server is not running: add 'mcp' to the profiles ($(cli_name) config set COMPOSE_PROFILES ...), then $(cli_name) up" >&2
+        return 1
+    fi
+}
+
+cmd_connect() {
+    case "${1:-}" in
+        -h|--help)
+            echo "smoking-pi connect [NAME]"
+            echo "  No NAME: what is connected. 'openclaw': OpenClaw on this machine."
+            echo "  Any other NAME: a remote assistant; prints the URL and a pairing code."
+            return 0 ;;
+        openclaw) shift; cmd_openclaw "$@"; return $? ;;
+    esac
+    connector_ready || return 1
+    local url
+    url="$(env_get MCP_PUBLIC_URL)"
+    if [ -z "${1:-}" ]; then
+        if [ -z "$url" ]; then
+            echo "Remote assistants: off (MCP_PUBLIC_URL is not set; docs/remote-connector.md)."
+        else
+            echo "Remote assistants connect at: ${url%/}/mcp"
+            compose exec -T mcp-server python connector.py list
+        fi
+        echo "OpenClaw on this machine: $(cli_name) connect openclaw --check"
+        return 0
+    fi
+    case "$1" in
+        -*) echo "unknown option $1" >&2; return 2 ;;
+    esac
+    if ! printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._-]{1,40}$'; then
+        echo "A name is up to 40 letters, digits, '.', '_' or '-': $1" >&2
+        return 2
+    fi
+    if [ -z "$url" ]; then
+        echo "Remote assistants are off: set MCP_PUBLIC_URL to the HTTPS address a tunnel" >&2
+        echo "publishes this server at ($(cli_name) config set MCP_PUBLIC_URL https://...)." >&2
+        echo "See docs/remote-connector.md." >&2
+        return 1
+    fi
+    compose exec -T mcp-server python connector.py pair "$1"
+}
+
+cmd_disconnect() {
+    case "${1:-}" in
+        ""|-h|--help) echo "smoking-pi disconnect NAME" >&2; [ -n "${1:-}" ]; return $? ;;
+        openclaw)
+            echo "OpenClaw on this machine uses the local MCP token, not a sign-in:" >&2
+            echo "remove it from OpenClaw ('openclaw mcp remove smokeping'), or rotate MCP_API_TOKEN." >&2
+            return 1 ;;
+    esac
+    connector_ready || return 1
+    compose exec -T mcp-server python connector.py revoke "$1"
+}
+
 cmd_budget() {
     # What the configured measurements cost against the ceilings
     # (config-manager/budget.py), asked of the running API from inside its
@@ -2393,6 +2470,8 @@ case "${1:-}" in
     restore) shift; cmd_restore "$@" ;;
     purge) shift; cmd_purge "$@" ;;
     openclaw) shift; cmd_openclaw "$@" ;;
+    connect) shift; cmd_connect "$@" ;;
+    disconnect) shift; cmd_disconnect "$@" ;;
     config) shift; cmd_config "$@" ;;
     links) shift; cmd_links "$@" ;;
     alerts) shift; cmd_alerts "$@" ;;

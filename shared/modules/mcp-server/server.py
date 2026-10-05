@@ -27,7 +27,9 @@ except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
     from mcp.server.mcpserver import Image
     from mcp.server.mcpserver import MCPServer as FastMCP
 
+import auth
 import backends
+import connector
 import guide
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
@@ -58,7 +60,17 @@ def _instructions() -> str:
 
 SERVER_INSTRUCTIONS = _instructions()
 
-mcp = FastMCP("smokeping", instructions=SERVER_INSTRUCTIONS)
+# Remote connectors (connector.py): with MCP_PUBLIC_URL set, the SDK serves
+# the OAuth sign-in and checks every /mcp request's bearer, MCP_API_TOKEN
+# included. Unset, the server is exactly what it was.
+if connector.enabled():
+    _connector = connector.make_provider(auth.configured_token())
+    mcp = FastMCP("smokeping", instructions=SERVER_INSTRUCTIONS,
+                  auth_server_provider=_connector, auth=connector.auth_settings())
+    connector.register_routes(mcp, _connector)
+else:
+    _connector = None
+    mcp = FastMCP("smokeping", instructions=SERVER_INSTRUCTIONS)
 
 log = logging.getLogger("mcp.tools")
 
@@ -124,6 +136,37 @@ def logged_tool(func):
                  func.__name__, _summarize_args(kwargs),
                  _summarize_result(result), elapsed_ms)
         return result
+
+    return wrapper
+
+
+READ_ONLY_ERROR = (
+    "This connection is read-only: it can look at the measurements but not "
+    "change targets, probes, mutes or the configuration. Make the change in "
+    "the Smoking Pi web admin."
+)
+
+
+def _read_only() -> bool:
+    """Whether this call came through a remote connector, whose token has
+    only the read scope. stdio and the local MCP_API_TOKEN keep write."""
+    try:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+    except ImportError:  # an SDK without auth: no connectors either
+        return False
+    token = get_access_token()
+    return token is not None and connector.WRITE not in (token.scopes or [])
+
+
+def writes(func):
+    """Refuse the tool to a read-only connector, before it does anything."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if _read_only():
+            log.info("tool=%s refused: read-only connector", func.__name__)
+            return {"error": READ_ONLY_ERROR, "reason": "read_only"}
+        return func(*args, **kwargs)
 
     return wrapper
 
@@ -337,6 +380,7 @@ def list_targets() -> dict:
 
 @mcp.tool()
 @logged_tool
+@writes
 def add_target(
     name: str,
     host: str,
@@ -431,6 +475,7 @@ def add_target(
 
 @mcp.tool()
 @logged_tool
+@writes
 def remove_target(name: str) -> dict:
     """Permanently delete a monitoring target by name.
 
@@ -458,6 +503,7 @@ def remove_target(name: str) -> dict:
 
 @mcp.tool()
 @logged_tool
+@writes
 def toggle_target(name: str) -> dict:
     """Enable or disable monitoring for a target by name (flips its state).
 
@@ -482,6 +528,7 @@ def toggle_target(name: str) -> dict:
 
 @mcp.tool()
 @logged_tool
+@writes
 def apply_config() -> dict:
     """Regenerate the SmokePing configuration and restart the service.
 
@@ -1938,7 +1985,12 @@ def get_chart(
     if the_links:
         summary["links"] = the_links
 
-    if deliver:
+    if deliver and _read_only():
+        # Posting into the owner's chat acts on their behalf: the picture is
+        # still returned, only the delivery is refused.
+        summary["delivered"] = False
+        summary["delivery_error"] = READ_ONLY_ERROR
+    elif deliver:
         caption = f"{target} — last {hours}h · median latency and loss"
         problem = openclaw.send(
             caption, png, charts.chart_filename(target, hours), silent=True,
@@ -1970,6 +2022,7 @@ def _read_alerter_state() -> dict:
 
 @mcp.tool()
 @logged_tool
+@writes
 def mute_alerts(target: str | None = None, rule: str | None = None,
                 hours: float = 2, reason: str = "") -> dict:
     """Stop alert notifications for a target and/or rule for a while.
@@ -2045,6 +2098,7 @@ def mute_alerts(target: str | None = None, rule: str | None = None,
 
 @mcp.tool()
 @logged_tool
+@writes
 def unmute_alerts(target: str | None = None, rule: str | None = None,
                   all: bool = False) -> dict:
     """Lift a mute early, restoring alert notifications.
@@ -2088,6 +2142,7 @@ def unmute_alerts(target: str | None = None, rule: str | None = None,
 
 @mcp.tool()
 @logged_tool
+@writes
 def ack_incident(key: str, hours: float = 24) -> dict:
     """Acknowledge one specific incident: stop re-notifying until it recovers.
 

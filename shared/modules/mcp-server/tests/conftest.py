@@ -7,10 +7,17 @@ that file -- so it lives here, for every file in the suite. Tests that want
 wifi data patch over it.
 """
 
+import os
+
 import pytest
 
-import backends
-import server
+# Before server is imported: it builds its MCP app from these, and a
+# developer's exported value would turn connector sign-in on for every test.
+for _name in ("MCP_PUBLIC_URL", "MCP_CONNECTOR_STATE", "MCP_API_TOKEN"):
+    os.environ.pop(_name, None)
+
+import backends  # noqa: E402
+import server  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
