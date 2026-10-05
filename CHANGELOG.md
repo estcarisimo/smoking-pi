@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.24.0] — 2026-10-04
+
+On Pro, any assistant that can add a remote MCP server — Claude, ChatGPT,
+Grok and the next one — can now connect to Smoking Pi with a URL and a
+pairing code, read-only, and every assistant gets the same answering guide.
+
+- Pro: `sudo smoking-pi connect NAME` prints the URL and a one-time pairing
+  code; the assistant signs in with it and gets the read tools only.
+  `smoking-pi disconnect NAME` signs one out. Off until `MCP_PUBLIC_URL` is
+  set to the HTTPS address of a tunnel to the Pi (docs/remote-connector.md).
+- Pro: how to answer from the tools is one guide, sent by the server to
+  every assistant; the OpenClaw skill is generated from it.
+- One new setting, `MCP_PUBLIC_URL` (empty = off), and one new volume,
+  `mcp-connector`. No new images. After upgrading, `sudo smoking-pi
+  openclaw` installs the new skill.
+
 ### Added
 
 - **Any assistant can connect, the same way: `smoking-pi connect NAME`.**
