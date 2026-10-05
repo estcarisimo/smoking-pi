@@ -385,6 +385,13 @@ services:
       # before). The port is bound to 127.0.0.1, so this guards against other
       # processes on the host. See docs/openclaw-integration.md
       - MCP_API_TOKEN=${MCP_API_TOKEN:-}
+      # Remote connectors (Claude, ChatGPT, Grok...): the HTTPS address a
+      # tunnel publishes this server at. Empty = off, and nothing below
+      # changes. On: OAuth sign-in with a pairing code from
+      # `smoking-pi connector pair`, read-only tools, one revocable token
+      # per assistant. See docs/remote-connector.md
+      - MCP_PUBLIC_URL=${MCP_PUBLIC_URL:-}
+      - MCP_CONNECTOR_STATE=/var/lib/mcp-connector/connector.json
       # Loopback addresses: under host networking the Compose service names
       # do not resolve, and both services publish on 127.0.0.1 anyway.
       - CONFIG_API_URL=${MCP_CONFIG_API_URL:-http://127.0.0.1:5000}
@@ -435,6 +442,9 @@ services:
     volumes:
       - alerter-mutes:/var/lib/alerter-mutes
       - alerter-state:/var/lib/alerter:ro
+      # Paired connectors and their tokens (hashed). Losing it signs every
+      # connector out; nothing else.
+      - mcp-connector:/var/lib/mcp-connector
     depends_on:
       - config-manager
 
@@ -769,6 +779,7 @@ volumes:
   reports:
   alerter-state:
   alerter-mutes:
+  mcp-connector:
   dns-observer-conf:
   dns-observer-work:
   dns-observer-state:

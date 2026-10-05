@@ -2191,3 +2191,83 @@ STUB
     run grep -q 'traffic.py' "$DOCKER_LOG"
     [ "$status" -ne 0 ]
 }
+
+# --- connect / disconnect: one way in for every assistant ---------------------
+
+connect_setup() {
+    mkdir -p "$BATS_TEST_TMPDIR/bin5"
+    cat > "$BATS_TEST_TMPDIR/bin5/docker" <<STUB
+#!/bin/sh
+case "\$*" in
+    *"ps -q --status running mcp-server"*) echo "docker \$*" >> "\$DOCKER_LOG"; [ -z "\${STUB_MCP_RUNNING:-}" ] || echo mcp123; exit 0 ;;
+    *"exec -T mcp-server python connector.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "CONNECTOR OUT"; exit 0 ;;
+esac
+exec "$BATS_TEST_TMPDIR/bin/docker" "\$@"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin5/docker"
+    export PATH="$BATS_TEST_TMPDIR/bin5:$PATH"
+    export SMOKING_PI_EDITION=pro
+}
+
+@test "connect: needs the MCP server running" {
+    connect_setup
+    run "$CLI" connect grok
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"The MCP server is not running"* ]]
+}
+
+@test "connect NAME: off until MCP_PUBLIC_URL is set, then pairs in the container" {
+    connect_setup
+    export STUB_MCP_RUNNING=1
+    run "$CLI" connect grok
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Remote assistants are off"* ]]
+    run grep -q 'connector.py' "$DOCKER_LOG"
+    [ "$status" -ne 0 ]
+    printf 'MCP_PUBLIC_URL=https://mcp.example.com\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" connect grok
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T mcp-server python connector.py pair grok$' "$DOCKER_LOG"
+}
+
+@test "connect: no name lists what is connected and the URL" {
+    connect_setup
+    export STUB_MCP_RUNNING=1
+    printf 'MCP_PUBLIC_URL=https://mcp.example.com/\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" connect
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"https://mcp.example.com/mcp"* ]]
+    grep -q 'connector.py list$' "$DOCKER_LOG"
+}
+
+@test "connect: a name is a plain label, never a shell word or an option" {
+    connect_setup
+    export STUB_MCP_RUNNING=1
+    printf 'MCP_PUBLIC_URL=https://mcp.example.com\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" connect 'grok;rm -rf /'
+    [ "$status" -eq 2 ]
+    run "$CLI" connect --all
+    [ "$status" -eq 2 ]
+    run grep -q 'connector.py pair' "$DOCKER_LOG"
+    [ "$status" -ne 0 ]
+}
+
+@test "disconnect: revokes in the container; openclaw is not a sign-in" {
+    connect_setup
+    export STUB_MCP_RUNNING=1
+    run "$CLI" disconnect grok
+    [ "$status" -eq 0 ]
+    grep -q 'connector.py revoke grok$' "$DOCKER_LOG"
+    run "$CLI" disconnect openclaw
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"local MCP token"* ]]
+    run "$CLI" disconnect
+    [ "$status" -ne 0 ]
+}
+
+@test "connect: Basic has no MCP server, and says so" {
+    connect_setup
+    SMOKING_PI_EDITION=basic run "$CLI" connect grok
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"the basic edition does not ship it"* ]]
+}
