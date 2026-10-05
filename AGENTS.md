@@ -142,10 +142,16 @@ versions are excluded from Dependabot on purpose; a PG major over a live
 volume initializes an empty cluster while the real data sits orphaned, and CI
 cannot catch it because CI has no data volume.
 
-**The OpenClaw skill is a copy.** After editing
-`examples/openclaw/smokeping-monitoring/SKILL.md`, run
-`./shared/scripts/install-openclaw-skill.sh --reload`; `--check` reports a
-stale copy. The gateway caches the tool set per session.
+**One answering guide for every assistant.** How to answer from the tools
+lives in `shared/modules/mcp-server/guide.py`: the server sends it as its
+instructions to every MCP client (OpenClaw, Claude, ChatGPT, Grok…), so do
+not write per-assistant prompts. The OpenClaw skill
+(`examples/openclaw/smokeping-monitoring/SKILL.md`) is **generated** from it
+plus `openclaw-header.md` (OpenClaw/Telegram only): edit those, run
+`python3 shared/scripts/build-openclaw-skill.py` (the MCP tests fail on a
+stale copy), then `./shared/scripts/install-openclaw-skill.sh --reload`;
+`--check` reports a stale installed copy. The gateway caches the tool set
+per session.
 
 ## Process
 

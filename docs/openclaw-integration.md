@@ -143,8 +143,12 @@ just in the old shape, and the install looks like it silently did nothing:
 ./shared/scripts/install-openclaw-skill.sh --check    # exits non-zero if stale
 ```
 
-It backs up an existing skill to `SKILL.md.bak` before overwriting, since the
-four deployment-specific values are easy to have tuned in place. The manual
+It backs up an existing skill to `SKILL.md.bak` before overwriting, in case
+you tuned it in place. The skill is the answering guide every assistant gets
+from the server (`shared/modules/mcp-server/guide.py`) plus a short OpenClaw
+header; the one value worth tuning is the trigger `description:`, in
+`openclaw-header.md` — then rebuild with
+`python3 shared/scripts/build-openclaw-skill.py`. The manual
 equivalent, if you prefer it:
 
 ```bash
