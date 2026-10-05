@@ -17,6 +17,7 @@ import logging
 import os
 
 import auth
+import connector
 from server import mcp
 
 logger = logging.getLogger("mcp")
@@ -39,6 +40,29 @@ def _serve_http_with_auth(host: str, port: int, token: str) -> None:
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
+def _serve_http_with_connectors(host: str, port: int) -> None:
+    """Serve with remote connectors on (connector.py): the SDK's OAuth
+    endpoints and bearer check, MCP_API_TOKEN accepted as the local client.
+    DNS-rebinding protection stays on, with the public name allowed."""
+    import uvicorn
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=connector.allowed_hosts(),
+        allowed_origins=[f"https://{h}" for h in connector.allowed_hosts()
+                         if not h.endswith(":*")]
+        + ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+    )
+    app = connector.wrap(mcp.streamable_http_app(transport_security=security))
+    if not auth.configured_token():
+        logger.warning("MCP_API_TOKEN is not set: only remote connectors can sign in")
+    logger.info("Remote connectors on at %s/mcp (read-only, pairing code sign-in)",
+                connector.public_url())
+    uvicorn.run(app, host=host, port=port, log_level="info", proxy_headers=True,
+                forwarded_allow_ips="127.0.0.1")
+
+
 def main() -> None:
     # force: importing the SDK already gave the root logger a bare
     # "%(message)s" handler, so a plain basicConfig did nothing and tool=
@@ -53,7 +77,9 @@ def main() -> None:
         host = os.environ.get("MCP_HOST", "0.0.0.0")
         port = int(os.environ.get("MCP_PORT", "8090"))
         token = auth.configured_token()
-        if token:
+        if connector.enabled():
+            _serve_http_with_connectors(host, port)
+        elif token:
             _serve_http_with_auth(host, port, token)
         elif hasattr(mcp, "settings"):
             # mcp 1.x FastMCP: host/port live on the settings object

@@ -9,6 +9,15 @@ stack AI-operable. It wraps two backends:
 
 Source: `shared/modules/mcp-server/`.
 
+Any MCP client can use it: an assistant on the Pi with the local token
+(`sudo smoking-pi connect openclaw`), or one anywhere else through a tunnel,
+signed in with a pairing code and limited to the read tools
+(`sudo smoking-pi connect NAME`) — see
+[remote-connector.md](remote-connector.md). The tools that change something
+(`add_target`, `remove_target`, `toggle_target`, `apply_config`,
+`mute_alerts`, `unmute_alerts`, `ack_incident`, and `get_chart`'s
+`deliver=true`) answer *read-only* to a remote assistant.
+
 ## Tools
 
 | Tool | What it does |
