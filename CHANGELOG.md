@@ -14,7 +14,9 @@ version gets a matching GitHub release and git tag.
 - **Any assistant can connect, the same way: `smoking-pi connect NAME`.**
   Only an assistant on the Pi itself could use Smoking Pi (OpenClaw, with
   the local token); a cloud assistant had no way in short of a shell on the
-  Pi, which gives an AI agent far more than reading measurements needs.
+  Pi, which gives an AI agent far more than reading measurements needs —
+  every target, the configuration and months of history, with no way to
+  take it back short of rotating the machine's keys.
   With `MCP_PUBLIC_URL` set to the HTTPS address a tunnel publishes the MCP
   server at, any assistant that can add a remote MCP server (Claude,
   ChatGPT, Grok, and the next one) adds that URL and signs in with a
@@ -23,7 +25,8 @@ version gets a matching GitHub release and git tag.
   only: the seven that change something answer *read-only*, and
   `get_chart` does not post into the owner's chat for it. Each assistant has
   its own revocable tokens (`smoking-pi disconnect NAME`); the local token
-  keeps full access. Off unless `MCP_PUBLIC_URL` is set; a new
+  keeps full access on the Pi only — through the tunnel it is refused, so a
+  leaked one is not a key from the internet. Off unless `MCP_PUBLIC_URL` is set; a new
   `mcp-connector` volume holds the hashed tokens. `smoking-pi connect
   openclaw` is the old `smoking-pi openclaw`, which stays. See
   docs/remote-connector.md.

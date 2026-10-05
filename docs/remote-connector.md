@@ -82,9 +82,10 @@ Pairing code:   K7QM-4XRA   (for 'grok', valid 10 minutes, once)
 The name is a label you choose; it is how you will recognize and disconnect
 this assistant later. In the assistant, add a custom connector (or remote
 MCP server) with that URL. It opens a Smoking Pi page in your browser that
-asks for the code; type it, and the assistant is connected. The code works
-once, for ten minutes, and five wrong tries burn it — make a new one with
-the same command.
+asks for the code; type it, and the assistant is connected. The page names
+the code's label (`grok` here) and where it will send you back; check both.
+The code works once, for ten minutes, and five wrong tries burn it — make a
+new one with the same command.
 
 Then ask it something the measurements answer: *what happened last night,
 and was it me or the internet?* It should call `diagnose_loss`.
@@ -115,8 +116,19 @@ request; `shared/modules/mcp-server/connector.py` decides who gets a token.
   its own: a registered client has no token until someone types a pairing
   code. A registration that never pairs is dropped after a day, and at most
   50 wait at once.
-- **The local token (`MCP_API_TOKEN`) keeps full access** for the assistant
-  on the Pi, through the same endpoint.
+- **The local token (`MCP_API_TOKEN`) keeps full access on this machine
+  only.** A request that came through the tunnel carries the public name in
+  its `Host` header, and the local token is not honored for it: a leaked
+  local token is not a key to the Pi from the internet.
+- **The sign-in page shows what only you control:** the name the live code
+  was made for, and the address the sign-in returns to. If either is not
+  what you expect, do not type the code. The page cannot be framed or
+  cached.
+- **A known trade-off:** anyone who can reach the URL can use up the live
+  code's five tries, or fill the 50 waiting registrations. Nothing is
+  exposed by it; the sign-in fails and you make a new code. Counting tries
+  per sign-in instead would let someone guessing open as many sign-ins as
+  they like.
 
 ## Troubleshooting
 
@@ -126,5 +138,6 @@ request; `shared/modules/mcp-server/connector.py` decides who gets a token.
 | The assistant cannot reach the URL | The tunnel is down, or forwards somewhere other than `127.0.0.1:8090` |
 | `421` or `403` from `/mcp` | The tunnel rewrote the `Host` header; keep the public name |
 | The metadata names another address | `MCP_PUBLIC_URL` differs from the address the assistant uses |
+| `401` with the local token through the tunnel | By design: the local token works on the Pi only |
 | *This sign-in expired* | More than ten minutes passed, or the server restarted mid-sign-in; start again from the assistant |
 | The assistant says a tool is read-only | It is: make the change in the web admin |

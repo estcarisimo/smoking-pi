@@ -8,16 +8,22 @@ more. The MCP SDK serves the endpoints (metadata, client registration,
 decides who gets a token.
 
 The sign-in page asks for a **pairing code**, which only someone on the Pi
-can make (``smoking-pi connector pair``, which runs ``python connector.py
-pair`` in this container). There are no accounts and no passwords: the
+can make (``smoking-pi connect NAME``, which runs ``python connector.py
+pair NAME`` in this container). There are no accounts and no passwords: the
 code is short-lived (10 minutes), single-use, and burned after five wrong
 tries.
 
 Every connector gets the ``read`` scope only: the tools that change
 anything (targets, probes, mutes, a restart) refuse it (server.py,
-``_writes``). ``MCP_API_TOKEN``, the local OpenClaw's token, keeps
-``read`` and ``write``. Each connector has its own tokens, and ``revoke``
+``writes``). ``MCP_API_TOKEN``, the local assistant's token, keeps
+``read`` and ``write`` -- for requests that did not come through the
+tunnel only (:func:`wrap`): a leaked local token must not be a key to the
+Pi from the internet. Each connector has its own tokens, and ``revoke``
 removes one without touching the others.
+
+A known trade-off: anyone who can reach the URL can use up the pairing
+code's five tries, or fill the waiting registrations; the owner then makes
+a new code. Per-request tries would let guessing scale instead.
 
 Off unless ``MCP_PUBLIC_URL`` is set: the HTTPS address a tunnel publishes
 this server at (docs/remote-connector.md). Tokens are stored hashed, in
@@ -26,6 +32,9 @@ this server at (docs/remote-connector.md). Tokens are stored hashed, in
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+import fcntl
 import hashlib
 import hmac
 import html
@@ -111,6 +120,21 @@ def normalize_code(value: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+@contextlib.contextmanager
+def locked(path: str | None = None):
+    """Hold the state file's lock for a read-modify-write: the server and
+    the CLI are two processes, and a revoke racing a token refresh must not
+    bring the revoked tokens back."""
+    path = path or state_path()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path + ".lock", "a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 def _empty() -> dict:
     return {"clients": {}, "pairing": None, "access": {}, "refresh": {}}
 
@@ -152,6 +176,15 @@ def save(state: dict, path: str | None = None) -> None:
         raise
 
 
+@contextlib.contextmanager
+def transaction(path: str | None = None):
+    """The state, under the lock, saved when the block ends normally."""
+    with locked(path):
+        state = load(path)
+        yield state
+        save(state, path)
+
+
 def _prune(state: dict, now: float) -> None:
     for kind in ("access", "refresh"):
         state[kind] = {h: t for h, t in state[kind].items()
@@ -164,19 +197,18 @@ def _prune(state: dict, now: float) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Pairing, listing, revoking: what `smoking-pi connector` does
+# Pairing, listing, revoking: what `smoking-pi connect` and `disconnect` do
 # ---------------------------------------------------------------------------
 
 
 def new_pairing(label: str, path: str | None = None, now: float | None = None) -> str:
     """A fresh pairing code (replacing any earlier one), for ``label``."""
     now = time.time() if now is None else now
-    state = load(path)
-    _prune(state, now)
     code = _code()
-    state["pairing"] = {"hash": _hash(code), "label": label[:40] or "assistant",
-                        "expires_at": now + PAIRING_TTL_S, "tries_left": PAIRING_TRIES}
-    save(state, path)
+    with transaction(path) as state:
+        _prune(state, now)
+        state["pairing"] = {"hash": _hash(code), "label": label[:40] or "assistant",
+                            "expires_at": now + PAIRING_TTL_S, "tries_left": PAIRING_TRIES}
     return code
 
 
@@ -185,21 +217,26 @@ def check_pairing(code: str, path: str | None = None,
     """The pairing's label when ``code`` is right; None otherwise. A right
     code is used up; a wrong one costs a try."""
     now = time.time() if now is None else now
+    with transaction(path) as state:
+        _prune(state, now)
+        pairing = state.get("pairing")
+        if not pairing:
+            return None
+        if hmac.compare_digest(_hash(normalize_code(code)), pairing["hash"]):
+            state["pairing"] = None
+            return pairing["label"]
+        pairing["tries_left"] -= 1
+        if pairing["tries_left"] <= 0:
+            state["pairing"] = None
+        return None
+
+
+def pairing_label(path: str | None = None, now: float | None = None) -> str | None:
+    """The label the live pairing code was made for, if there is one."""
+    now = time.time() if now is None else now
     state = load(path)
     _prune(state, now)
-    pairing = state.get("pairing")
-    if not pairing:
-        save(state, path)
-        return None
-    if hmac.compare_digest(_hash(normalize_code(code)), pairing["hash"]):
-        state["pairing"] = None
-        save(state, path)
-        return pairing["label"]
-    pairing["tries_left"] -= 1
-    if pairing["tries_left"] <= 0:
-        state["pairing"] = None
-    save(state, path)
-    return None
+    return (state.get("pairing") or {}).get("label")
 
 
 def connectors(path: str | None = None, now: float | None = None) -> list[dict]:
@@ -224,14 +261,14 @@ def connectors(path: str | None = None, now: float | None = None) -> list[dict]:
 def revoke(name: str, path: str | None = None) -> list[str]:
     """Remove every connector whose label or client id is ``name``, with its
     tokens. Returns the labels removed."""
-    state = load(path)
-    gone = [cid for cid, c in state["clients"].items()
-            if name in (cid, c.get("label"))]
-    for cid in gone:
-        state["clients"].pop(cid, None)
-    for kind in ("access", "refresh"):
-        state[kind] = {h: t for h, t in state[kind].items() if t["client_id"] not in gone}
-    save(state, path)
+    with transaction(path) as state:
+        gone = [cid for cid, c in state["clients"].items()
+                if name in (cid, c.get("label"))]
+        for cid in gone:
+            state["clients"].pop(cid, None)
+        for kind in ("access", "refresh"):
+            state[kind] = {h: t for h, t in state[kind].items()
+                           if t["client_id"] not in gone}
     return gone
 
 
@@ -269,15 +306,15 @@ def make_provider(static_token: str = "", path: str | None = None):
             return OAuthClientInformationFull.model_validate(c["info"]) if c else None
 
         async def register_client(self, client_info) -> None:
-            state = load(self.path)
-            _prune(state, time.time())
-            if sum(1 for c in state["clients"].values() if not c.get("label")) >= MAX_UNPAIRED:
-                raise RegistrationError("invalid_client_metadata",
-                                        "too many sign-ins waiting; try again later")
-            state["clients"][client_info.client_id] = {
-                "info": json.loads(client_info.model_dump_json(exclude_none=True)),
-                "registered_at": time.time()}
-            save(state, self.path)
+            with transaction(self.path) as state:
+                _prune(state, time.time())
+                waiting = sum(1 for c in state["clients"].values() if not c.get("label"))
+                if waiting >= MAX_UNPAIRED:
+                    raise RegistrationError("invalid_client_metadata",
+                                            "too many sign-ins waiting; try again later")
+                state["clients"][client_info.client_id] = {
+                    "info": json.loads(client_info.model_dump_json(exclude_none=True)),
+                    "registered_at": time.time()}
 
         # -- authorize: send the browser to the pairing page ---------------
         async def authorize(self, client, params) -> str:
@@ -302,6 +339,8 @@ def make_provider(static_token: str = "", path: str | None = None):
             return where to send the browser."""
             req = self.pending.pop(request_id)
             params = req["params"]
+            now = time.time()
+            self.codes = {k: v for k, v in self.codes.items() if v.expires_at > now}
             code = secrets.token_urlsafe(32)
             self.codes[code] = AuthorizationCode(
                 code=code, scopes=[READ], expires_at=time.time() + CODE_TTL_S,
@@ -309,12 +348,11 @@ def make_provider(static_token: str = "", path: str | None = None):
                 redirect_uri=params.redirect_uri,
                 redirect_uri_provided_explicitly=params.redirect_uri_provided_explicitly,
                 resource=params.resource)
-            state = load(self.path)
-            client = state["clients"].get(req["client_id"])
-            if client is not None:
-                client["label"] = label
-                client["paired_at"] = time.time()
-                save(state, self.path)
+            with transaction(self.path) as state:
+                client = state["clients"].get(req["client_id"])
+                if client is not None:
+                    client["label"] = label
+                    client["paired_at"] = now
             return construct_redirect_uri(str(params.redirect_uri), code=code,
                                           state=params.state)
 
@@ -327,16 +365,17 @@ def make_provider(static_token: str = "", path: str | None = None):
 
         def _issue(self, client_id: str, scopes: list[str], resource: str | None):
             now = time.time()
-            state = load(self.path)
-            if client_id not in state["clients"]:
-                raise TokenError("invalid_grant", "this connector was revoked")
-            _prune(state, now)
             access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
             entry = {"client_id": client_id, "scopes": scopes, "resource": resource}
-            state["access"][_hash(access)] = {**entry, "expires_at": int(now + ACCESS_TTL_S)}
-            state["refresh"][_hash(refresh)] = {**entry, "expires_at": int(now + REFRESH_TTL_S)}
-            state["clients"][client_id]["last_token_at"] = now
-            save(state, self.path)
+            with transaction(self.path) as state:
+                if client_id not in state["clients"]:
+                    raise TokenError("invalid_grant", "this connector was revoked")
+                _prune(state, now)
+                state["access"][_hash(access)] = {**entry,
+                                                  "expires_at": int(now + ACCESS_TTL_S)}
+                state["refresh"][_hash(refresh)] = {**entry,
+                                                    "expires_at": int(now + REFRESH_TTL_S)}
+                state["clients"][client_id]["last_token_at"] = now
             return OAuthToken(access_token=access, token_type="Bearer",
                               expires_in=ACCESS_TTL_S, refresh_token=refresh,
                               scope=" ".join(scopes))
@@ -354,14 +393,14 @@ def make_provider(static_token: str = "", path: str | None = None):
                                 resource=t.get("resource"))
 
         async def exchange_refresh_token(self, client, refresh_token, scopes):
-            state = load(self.path)
-            state["refresh"].pop(_hash(refresh_token.token), None)
-            save(state, self.path)
+            with transaction(self.path) as state:
+                state["refresh"].pop(_hash(refresh_token.token), None)
             # Never more than READ, whatever the client asks for.
             return self._issue(client.client_id, [READ], refresh_token.resource)
 
         async def load_access_token(self, token: str):
-            if self.static_token and hmac.compare_digest(token, self.static_token):
+            if (self.static_token and request_is_local()
+                    and hmac.compare_digest(token.encode(), self.static_token.encode())):
                 return AccessToken(token=token, client_id="local", scopes=[READ, WRITE],
                                    resource=f"{public_url()}/mcp")
             t = load(self.path)["access"].get(_hash(token))
@@ -371,10 +410,9 @@ def make_provider(static_token: str = "", path: str | None = None):
                                expires_at=t["expires_at"], resource=t.get("resource"))
 
         async def revoke_token(self, token) -> None:
-            state = load(self.path)
-            for kind in ("access", "refresh"):
-                state[kind].pop(_hash(token.token), None)
-            save(state, self.path)
+            with transaction(self.path) as state:
+                for kind in ("access", "refresh"):
+                    state[kind].pop(_hash(token.token), None)
 
     return Provider()
 
@@ -396,6 +434,50 @@ def auth_settings():
         revocation_options=RevocationOptions(enabled=True),
         required_scopes=[READ],
     )
+
+
+# Whether the request being served reached the server directly, not through
+# the tunnel. Set by wrap(); False by default, so an app that forgot the
+# wrapper refuses the local token rather than handing it to the internet.
+_local_request: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "connector_local_request", default=False)
+
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+
+
+def request_is_local() -> bool:
+    return _local_request.get()
+
+
+def _host_is_local(host: str) -> bool:
+    if host.startswith("["):
+        name = host.split("]")[0] + "]"
+    else:
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    return name in _LOOPBACK_HOSTS
+
+
+def wrap(app):
+    """The ASGI app, telling the provider which requests are local. The
+    tunnel delivers the public name in ``Host`` (the transport refuses any
+    other), so a loopback ``Host`` is a client on this machine: the only
+    place the local token (MCP_API_TOKEN) is honored."""
+
+    async def wrapped(scope, receive, send):
+        if scope.get("type") != "http":
+            return await app(scope, receive, send)
+        host = ""
+        for name, value in scope.get("headers") or []:
+            if name == b"host":
+                host = value.decode("latin-1").strip().lower()
+                break
+        token = _local_request.set(_host_is_local(host))
+        try:
+            return await app(scope, receive, send)
+        finally:
+            _local_request.reset(token)
+
+    return wrapped
 
 
 def allowed_hosts() -> list[str]:
@@ -422,8 +504,9 @@ margin-top:1rem;padding:.6rem 1.2rem}}.err{{color:#b00020}}.note{{opacity:.75}}<
 </head><body><h1>Connect {client} to Smoking Pi</h1>
 <p>It will be able to <b>read</b> this Pi's measurements: latency, loss,
 outages, Wi-Fi, charts. It cannot change anything.</p>
-<p class="note">On the Pi, run <code>sudo smoking-pi connector pair</code> and
-type the code it shows.</p>{error}
+<p class="note">On the Pi, run <code>sudo smoking-pi connect NAME</code> and
+type the code it shows. {made}After you connect, this page sends you back
+to <b>{back}</b>; if that is not your assistant, stop here.</p>{error}
 <form method="post"><input type="hidden" name="request" value="{request}">
 <input name="code" autocomplete="off" autofocus placeholder="ABCD-2345"
  maxlength="12" required><button type="submit">Connect</button></form>
@@ -437,36 +520,60 @@ expired</h1><p>Start again from your assistant: add or reconnect the
 Smoking Pi connector.</p></body></html>"""
 
 
-def page(request_id: str, client_name: str, error: str = "") -> str:
+def page(request_id: str, client_name: str, error: str = "",
+         label: str | None = None, back: str = "") -> str:
+    """The pairing form. ``client_name`` is whatever the registering client
+    said, so the page also shows what only the owner controls: the name the
+    live code was made for, and where the sign-in returns."""
+    made = (f"The code on the Pi now is for <b>{html.escape(label)}</b>. "
+            if label else "There is no live code on the Pi right now. ")
     return _PAGE.format(
         client=html.escape(client_name or "your assistant"),
-        request=html.escape(request_id),
+        request=html.escape(request_id), made=made,
+        back=html.escape(back or "your assistant"),
         error=f'<p class="err">{html.escape(error)}</p>' if error else "")
+
+
+# The page is a credential form: never framed, cached or referred.
+_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": ("default-src 'none'; style-src 'unsafe-inline'; "
+                                "form-action 'self'; frame-ancestors 'none'"),
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+}
 
 
 def register_routes(mcp: Any, provider: Any) -> None:
     """GET/POST /connector/pair on the MCP app."""
     from starlette.responses import HTMLResponse, RedirectResponse
 
+    def form(request_id: str, req: dict, error: str = "", status: int = 200):
+        back = urlparse(str(req["params"].redirect_uri)).netloc
+        return HTMLResponse(page(request_id, req["client_name"], error,
+                                 label=pairing_label(), back=back),
+                            status_code=status, headers=_HEADERS)
+
     @mcp.custom_route("/connector/pair", methods=["GET", "POST"])
-    async def pair(request):  # pragma: no cover - exercised through the app
+    async def pair(request):
         if request.method == "GET":
             request_id = request.query_params.get("request", "")
             req = provider.pending_request(request_id)
             if not req:
-                return HTMLResponse(_GONE, status_code=410)
-            return HTMLResponse(page(request_id, req["client_name"]))
-        form = await request.form()
-        request_id = str(form.get("request", ""))
+                return HTMLResponse(_GONE, status_code=410, headers=_HEADERS)
+            return form(request_id, req)
+        data = await request.form()
+        request_id = str(data.get("request", ""))
         req = provider.pending_request(request_id)
         if not req:
-            return HTMLResponse(_GONE, status_code=410)
-        label = check_pairing(str(form.get("code", "")))
+            return HTMLResponse(_GONE, status_code=410, headers=_HEADERS)
+        label = check_pairing(str(data.get("code", "")))
         if not label:
-            return HTMLResponse(page(request_id, req["client_name"],
-                                     "That code is not right, or it expired. "
-                                     "Make a new one on the Pi."), status_code=400)
-        return RedirectResponse(provider.complete(request_id, label), status_code=302)
+            return form(request_id, req, "That code is not right, or it expired. "
+                        "Make a new one on the Pi.", status=400)
+        return RedirectResponse(provider.complete(request_id, label), status_code=302,
+                                headers={"Referrer-Policy": "no-referrer",
+                                         "Cache-Control": "no-store"})
 
 
 # ---------------------------------------------------------------------------

@@ -388,7 +388,7 @@ services:
       # Remote connectors (Claude, ChatGPT, Grok...): the HTTPS address a
       # tunnel publishes this server at. Empty = off, and nothing below
       # changes. On: OAuth sign-in with a pairing code from
-      # `smoking-pi connector pair`, read-only tools, one revocable token
+      # `smoking-pi connect NAME`, read-only tools, one revocable token
       # per assistant. See docs/remote-connector.md
       - MCP_PUBLIC_URL=${MCP_PUBLIC_URL:-}
       - MCP_CONNECTOR_STATE=/var/lib/mcp-connector/connector.json

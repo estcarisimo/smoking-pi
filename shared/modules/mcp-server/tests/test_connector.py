@@ -121,7 +121,7 @@ def app(state, monkeypatch):
     from mcp.server.transport_security import TransportSecuritySettings
     security = TransportSecuritySettings(enable_dns_rebinding_protection=True,
                                          allowed_hosts=connector.allowed_hosts())
-    yield module, module.mcp.streamable_http_app(transport_security=security)
+    yield module, connector.wrap(module.mcp.streamable_http_app(transport_security=security))
     monkeypatch.delenv("MCP_PUBLIC_URL")
     monkeypatch.delenv("MCP_API_TOKEN")
     importlib.reload(server)
@@ -170,9 +170,9 @@ def _token(client, client_id, verifier, done):
     return tok.json()
 
 
-def _call(client, token, tool, arguments):
+def _call(client, token, tool, arguments, host="mcp.example.com"):
     headers = {"Authorization": f"Bearer {token}", "Accept":
-               "application/json, text/event-stream", "Host": "mcp.example.com"}
+               "application/json, text/event-stream", "Host": host}
     init = client.post("/mcp", headers=headers, json={
         "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
             "protocolVersion": "2025-06-18", "capabilities": {},
@@ -231,12 +231,12 @@ def test_a_connector_signs_in_reads_and_cannot_write(app, state):
     assert [c["label"] for c in listed] == ["grok"] and listed[0]["connected"]
 
 
-def test_the_local_token_keeps_write(app, state, tmp_path, monkeypatch):
+def test_the_local_token_keeps_write_on_this_machine(app, state, tmp_path, monkeypatch):
     monkeypatch.setenv("ALERT_MUTES_FILE", str(tmp_path / "mutes.json"))
     _, asgi = app
-    with TestClient(asgi, base_url=PUBLIC) as client:
+    with TestClient(asgi, base_url="http://127.0.0.1:8090") as client:
         result = json.loads(_text(_call(client, "local-secret", "unmute_alerts",
-                                        {"all": True})))
+                                        {"all": True}, host="127.0.0.1:8090")))
     assert "error" not in result, result
     assert (tmp_path / "mutes.json").exists()
 
@@ -288,4 +288,67 @@ def test_a_foreign_host_header_is_refused(app, state):
         resp = client.post("/mcp", json={}, headers={
             "Authorization": "Bearer local-secret", "Host": "evil.example.org",
             "Accept": "application/json, text/event-stream"})
-        assert resp.status_code in (403, 421)
+        # Not loopback, so the local token is not honored; and the transport
+        # would refuse the host anyway.
+        assert resp.status_code in (401, 403, 421)
+
+
+def test_the_local_token_does_not_work_through_the_tunnel(app, state):
+    """A leaked MCP_API_TOKEN must not be a key to the Pi from the internet."""
+    _, asgi = app
+    with TestClient(asgi, base_url=PUBLIC) as client:
+        resp = client.post("/mcp", json={}, headers={
+            "Authorization": "Bearer local-secret", "Host": "mcp.example.com",
+            "Accept": "application/json, text/event-stream"})
+        assert resp.status_code == 401
+
+
+def test_a_non_ascii_bearer_is_a_401_not_a_crash(app, state):
+    _, asgi = app
+    with TestClient(asgi, base_url=PUBLIC, raise_server_exceptions=False) as client:
+        resp = client.post("/mcp", json={}, headers={
+            "Authorization": "Bearer café".encode("latin-1"),
+            "Host": "127.0.0.1:8090"})
+        assert resp.status_code == 401
+
+
+def test_the_pairing_page_shows_what_the_owner_controls(app, state):
+    _, asgi = app
+    connector.new_pairing("grok")
+    with TestClient(asgi, base_url=PUBLIC) as client:
+        reg = client.post("/register", json={
+            "redirect_uris": [REDIRECT], "client_name": "<b>Totally Grok</b>",
+            "token_endpoint_auth_method": "none"})
+        _, challenge = _pkce()
+        auth = client.get("/authorize", params={
+            "response_type": "code", "client_id": reg.json()["client_id"],
+            "redirect_uri": REDIRECT, "code_challenge": challenge,
+            "code_challenge_method": "S256", "state": "s"}, follow_redirects=False)
+        page = client.get(auth.headers["location"].replace(PUBLIC, ""))
+    assert "for <b>grok</b>" in page.text
+    assert "assistant.example.net" in page.text
+    assert "&lt;b&gt;Totally Grok&lt;/b&gt;" in page.text
+    assert page.headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+    assert page.headers["cache-control"] == "no-store"
+
+
+def test_a_revoke_is_never_undone_by_a_concurrent_write(state):
+    """Two processes write the file; each read-modify-write holds the lock."""
+    import threading
+    connector.new_pairing("grok")
+    with connector.transaction() as st:
+        st["clients"]["c1"] = {"label": "grok", "info": {}}
+    done = threading.Event()
+
+    def revoke_soon():
+        connector.revoke("grok")
+        done.set()
+
+    with connector.transaction() as st:
+        t = threading.Thread(target=revoke_soon)
+        t.start()
+        assert not done.wait(0.2)  # blocked on the lock
+        st["clients"]["c1"]["last_token_at"] = 1.0
+    t.join(5)
+    assert "c1" not in connector.load()["clients"]

@@ -54,7 +54,7 @@ def _serve_http_with_connectors(host: str, port: int) -> None:
                          if not h.endswith(":*")]
         + ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
     )
-    app = mcp.streamable_http_app(transport_security=security)
+    app = connector.wrap(mcp.streamable_http_app(transport_security=security))
     if not auth.configured_token():
         logger.warning("MCP_API_TOKEN is not set: only remote connectors can sign in")
     logger.info("Remote connectors on at %s/mcp (read-only, pairing code sign-in)",

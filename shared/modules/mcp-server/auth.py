@@ -57,7 +57,9 @@ def token_matches(presented: str | None, expected: str) -> bool:
     """Constant-time comparison, so a wrong token leaks no timing signal."""
     if not presented or not expected:
         return False
-    return hmac.compare_digest(presented, expected)
+    # Bytes: compare_digest raises on a non-ASCII str, which turned a
+    # malformed header into a 500 instead of a 401.
+    return hmac.compare_digest(presented.encode(), expected.encode())
 
 
 def is_authorized(headers: dict, expected: str, path: str = "") -> bool:
