@@ -21,7 +21,7 @@ version gets a matching GitHub release and git tag.
   instructions to every MCP client, with this Pi's timezone added. The
   OpenClaw skill is generated from it plus a short OpenClaw/Telegram header
   (`shared/scripts/build-openclaw-skill.py`; a test fails on a stale copy),
-  and shrinks from 535 to 213 lines. Deployment values are no longer
+  and shrinks from 535 to 263 lines. Deployment values are no longer
   written in: the gateway's loss floor is read from `get_microcut_stats`.
   After upgrading, `sudo smoking-pi openclaw` installs the new skill.
 

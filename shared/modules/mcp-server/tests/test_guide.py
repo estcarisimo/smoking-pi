@@ -45,7 +45,7 @@ def test_the_timezone_line_names_the_pis_zone(monkeypatch):
 
 def test_the_guide_names_only_tools_that_exist():
     registered = {name for name in dir(server) if not name.startswith("_")}
-    named = set(re.findall(r"`((?:get|list|diagnose|system)_[a-z_]+)`", guide.GUIDE))
+    named = set(re.findall(r"`((?:get|list|diagnose|system|add|remove|toggle|apply|mute|unmute|ack)_[a-z_]+)`", guide.GUIDE))
     assert named, "the guide should name the tools it relies on"
     assert named <= registered, named - registered
 

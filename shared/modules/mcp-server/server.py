@@ -33,14 +33,12 @@ import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
 from common import aggregates, cadence, charts, diagnosis, microcuts, mutes, openclaw
 
-# Framing for the connecting client. Without it an agent that also has shell
-# access will answer "how is my internet?" by running ping/curl itself, which
-# only describes this instant and throws the answer away. The whole point of
-# this host is that the measurement already happened, continuously, and is
-# still on disk.
 def _instructions() -> str:
     """What every assistant is told when it connects: one guide for all of
-    them (guide.py), plus this Pi's timezone."""
+    them (guide.py), plus this Pi's timezone. Without it an agent that also
+    has a shell answers "how is my internet?" with ping, which describes one
+    instant; the point of this host is that the measurement already
+    happened, continuously, and is still on disk."""
     tz = (os.environ.get("TZ") or "").strip()
     zone = (f"This Pi's clock is set to {tz}; it may not be where the reader "
             "is -- ask or infer the reader's zone, and name it."
@@ -55,9 +53,6 @@ def _instructions() -> str:
         "about how the connection is, was or has been behaving, including "
         "moments nobody was watching, are answered from it.\n\n"
         + zone + "\n\n" + guide.GUIDE
-        + "\n## Pictures\n\n`get_chart` is the only tool that returns an image, "
-        "and only when asked: the target's latency over its loss as a PNG, for "
-        "the person to look at or forward.\n"
     )
 
 
