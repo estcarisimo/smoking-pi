@@ -326,7 +326,7 @@ def test_the_pairing_page_shows_what_the_owner_controls(app, state):
             "code_challenge_method": "S256", "state": "s"}, follow_redirects=False)
         page = client.get(auth.headers["location"].replace(PUBLIC, ""))
     assert "for <b>grok</b>" in page.text
-    assert "assistant.example.net" in page.text
+    assert page.text.count("assistant.example.net") == 1
     assert "&lt;b&gt;Totally Grok&lt;/b&gt;" in page.text
     assert page.headers["x-frame-options"] == "DENY"
     assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
