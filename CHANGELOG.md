@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **One answering guide for every assistant.** How to answer from the
+  tools — start from `diagnose_loss`, read the units, the false alarms, the
+  report shape, the links — lived in the OpenClaw skill, so any other
+  assistant (Claude, ChatGPT, Grok…) connected to the same server got only
+  the tool descriptions and a short note, and every new assistant would
+  have needed its own copy of the rules to keep in step. The guide is now
+  `shared/modules/mcp-server/guide.py`, sent by the server as its
+  instructions to every MCP client, with this Pi's timezone added. The
+  OpenClaw skill is generated from it plus a short OpenClaw/Telegram header
+  (`shared/scripts/build-openclaw-skill.py`; a test fails on a stale copy),
+  and shrinks from 535 to 213 lines. Deployment values are no longer
+  written in: the gateway's loss floor is read from `get_microcut_stats`.
+  After upgrading, `sudo smoking-pi openclaw` installs the new skill.
+
 ## [2.23.0] — 2026-10-04
 
 On Pro, the assistant can now say what each loss episode was — this host's

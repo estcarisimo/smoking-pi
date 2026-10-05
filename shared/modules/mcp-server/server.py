@@ -28,6 +28,7 @@ except ImportError:  # mcp >= 2.0 renamed FastMCP to MCPServer (same API)
     from mcp.server.mcpserver import MCPServer as FastMCP
 
 import backends
+import guide
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
 from common import aggregates, cadence, charts, diagnosis, microcuts, mutes, openclaw
@@ -37,64 +38,30 @@ from common import aggregates, cadence, charts, diagnosis, microcuts, mutes, ope
 # only describes this instant and throws the answer away. The whole point of
 # this host is that the measurement already happened, continuously, and is
 # still on disk.
-SERVER_INSTRUCTIONS = """\
-This server exposes a Raspberry Pi that has been continuously measuring a home
-network for as long as it has been running. It is a record of the past, not a
-probe you trigger.
+def _instructions() -> str:
+    """What every assistant is told when it connects: one guide for all of
+    them (guide.py), plus this Pi's timezone."""
+    tz = (os.environ.get("TZ") or "").strip()
+    zone = (f"This Pi's clock is set to {tz}; it may not be where the reader "
+            "is -- ask or infer the reader's zone, and name it."
+            if tz and tz != "UTC" else
+            "This Pi's clock is UTC; give times in the reader's zone and name it.")
+    return (
+        "# Smoking Pi\n\n"
+        "A Raspberry Pi that has been continuously measuring a home network: "
+        "latency and loss to many destinations, DNS, HTTP and TCP, a 10-second "
+        "probe of the ISP's first hop, and the Pi's own Wi-Fi. It is a record "
+        "of the past, kept for months, not a probe you trigger -- questions "
+        "about how the connection is, was or has been behaving, including "
+        "moments nobody was watching, are answered from it.\n\n"
+        + zone + "\n\n" + guide.GUIDE
+        + "\n## Pictures\n\n`get_chart` is the only tool that returns an image, "
+        "and only when asked: the target's latency over its loss as a PNG, for "
+        "the person to look at or forward.\n"
+    )
 
-Every monitored target is measured on a fixed cycle (300 seconds unless its
-probe was configured otherwise) and the CPE/gateway link is sampled every 10
-seconds; results are kept for months. So questions about
-how the connection *is*, *was*, or *has been behaving* are answered from
-recorded history here — including questions about last night, yesterday, or a
-moment the user noticed something and you were not watching.
 
-Prefer these tools over running ping, curl, traceroute, or a speed test in a
-shell. A live probe describes one instant, cannot see the past, competes with
-the very measurement this host is taking, and will disagree with the graphs the
-user is looking at. Use `get_latency_stats` for how a target has been
-performing (ICMP, DNS, HTTP fetches and TCP connects; take exact names from
-`list_targets`), `diagnose_loss` first for "what happened?" and "is it me
-or the internet?" -- every loss episode in the window with its class (a
-probe miss, this host's own Wi-Fi, the line to the ISP, one destination, or
-beyond the line), a confidence and the evidence to cite -- then
-`get_loss_events` for when packets were dropped,
-`get_microcut_stats` for brief local-link dropouts, and `get_wifi_stats` for
-the Pi's own wireless uplink (signal, bitrate, disconnects, roams) when the
-host is on Wi-Fi -- a microcut that lines up with a signal dip is the router
-or the air, not the ISP. Start with `system_status` if something looks wrong
-with the monitoring itself.
-
-Two things routinely look like faults and are not: hosts that never answer ICMP
-at all chart a permanently flat 100% loss (a dead-flat line with no variance is
-a monitoring artifact, not an outage), and the CPE gateway rate-limits ICMP,
-which shows as a constant single-digit loss floor on the local link.
-
-Responses may carry a `links` object with URLs into the Grafana panel showing
-that target, the per-ping detail, a comparison against its peers, and the page
-for editing it. Pass the relevant one through to the user — the graph shows the
-shape of a problem far better than a median does, and the links are already
-scoped to the target and time window being discussed. Do not build these URLs
-yourself; if `links` is absent, deep links are not configured on this
-deployment and there is no URL to give.
-
-When the user wants a *picture* -- to look at the shape themselves, or to
-send to a friend or an ISP who has no login here -- call `get_chart`. It draws
-the target's latency (median with the spread of individual pings) over its
-loss as a PNG, on request only; no other tool attaches images. With
-`deliver=true` the file is also posted into the chat so it can be forwarded.
-
-Never draw a chart yourself (no plotting code, no ASCII or emoji charts):
-a question about how something looked is answered with the Grafana link,
-a picture to keep or forward comes from `get_chart`, and without either,
-answer in words with times and numbers.
-
-Keys ending in `_tunnel` are the same page reached from outside the home
-network. When both are present, offer both — label them for where the reader
-is standing ("at home" / "from anywhere"), because the plain link is faster
-and works when the tunnel is down, and the tunnel one is the only one that
-opens on cellular. When a `_tunnel` key is absent there is no such address:
-say nothing about it rather than constructing one."""
+SERVER_INSTRUCTIONS = _instructions()
 
 mcp = FastMCP("smokeping", instructions=SERVER_INSTRUCTIONS)
 
