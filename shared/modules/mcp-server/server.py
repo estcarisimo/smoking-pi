@@ -33,7 +33,7 @@ import connector
 import guide
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
-from common import aggregates, cadence, charts, diagnosis, microcuts, mutes, openclaw
+from common import aggregates, cadence, charts, diagnosis, diagnosis_query, microcuts, mutes, openclaw
 
 def _instructions() -> str:
     """What every assistant is told when it connects: one guide for all of
@@ -1247,40 +1247,6 @@ DIAGNOSE_MAX_HOURS = 168
 DIAGNOSE_MAX_INCIDENTS = 50
 
 
-def _is_ipv6(target: str, category: str | None) -> bool:
-    # The alerter's rule (evaluator._is_ipv6_target), kept in step by hand.
-    return (target or "").endswith("6") or any(
-        k in (category or "").lower() for k in ("fping6", "ipv6"))
-
-
-def _wifi_width(hours: int) -> int:
-    """Seconds per wifi_link row in a diagnosis: a minute up to two days."""
-    return 60 if hours <= 48 else 300
-
-
-def _wifi_minute_fluxes(hours: int) -> list[str]:
-    """wifi_link per minute (5 min past two days): min signal, weak-sample
-    count, min association, carrier drops, and which interface carried the
-    default route -- renamed fields, one row shape for diagnosis.wifi_minutes."""
-    every = f"{_wifi_width(hours)}s"
-    base = _base_flux(["wifi_link"], hours)
-    agg = f'|> aggregateWindow(every: {every}, fn: {{fn}}, createEmpty: false) '
-    return [
-        base + '|> filter(fn: (r) => r._field == "signal_dbm") '
-        + agg.format(fn="min"),
-        base + '|> filter(fn: (r) => r._field == "signal_dbm") '
-        + f'|> map(fn: (r) => ({{r with _value: if r._value < {cadence.flux_float(diagnosis.WEAK_DBM)} then 1 else 0}})) '
-        + agg.format(fn="sum") + '|> set(key: "_field", value: "weak") ',
-        base + '|> filter(fn: (r) => r._field == "associated") '
-        + '|> toFloat() ' + agg.format(fn="min"),
-        base + '|> filter(fn: (r) => r._field == "carrier_down_count") '
-        + '|> difference(nonNegative: true) ' + agg.format(fn="sum")
-        + '|> set(key: "_field", value: "drops") ',
-        base + '|> filter(fn: (r) => r._field == "uplink") '
-        + '|> toFloat() |> group(columns: ["interface", "_field"]) |> max() ',
-    ]
-
-
 @mcp.tool()
 @logged_tool
 def diagnose_loss(hours: int = 24) -> dict:
@@ -1336,95 +1302,10 @@ def diagnose_loss(hours: int = 24) -> dict:
     if hours > DIAGNOSE_MAX_HOURS:
         return {"error": f"hours must be at most {DIAGNOSE_MAX_HOURS} for a diagnosis."}
 
-    cadences = _cadences()
-    step_s = cadence.longest_step(cadences)
-    prelude, bar = cadence.event_threshold_flux(cadences)
-    base = (_base_flux(["latency", "dns_latency"], hours)
-            + '|> filter(fn: (r) => r._field == "loss") ' + _CLAMP_LOSS_RATIO)
-    events_flux = (prelude + base + f"|> filter(fn: (r) => r._value >= {bar}) "
-                   + '|> group() |> sort(columns: ["_time"], desc: true) '
-                   + f"|> limit(n: {MAX_ROLLUP_ROWS})")
-    # Destinations only: the ISP first hop's ping target (category cpe) is
-    # not one (diagnosis.FIRST_HOP_CATEGORY).
-    targets_flux = (base + f'|> filter(fn: (r) => not exists r.category or '
-                    f'r.category != {flux_str(diagnosis.FIRST_HOP_CATEGORY)}) '
-                    + '|> group(columns: ["_time"]) '
-                    + '|> keep(columns: ["_time", "target"]) '
-                    + '|> distinct(column: "target") |> count()')
-    app_base = (_base_flux(["http_latency", "tcp_latency"], hours)
-                + '|> filter(fn: (r) => r._field == "loss") ' + _CLAMP_LOSS_RATIO)
-    app_flux = (app_base + f"|> filter(fn: (r) => r._value >= "
-                f"{cadence.flux_float(diagnosis.APP_LOSS)}) |> group() "
-                f"|> limit(n: {MAX_ROLLUP_ROWS})")
-    app_sites_flux = (app_base + '|> group() |> keep(columns: ["target"]) '
-                      + '|> distinct(column: "target")')
-    cpe_count_flux = (_base_flux(["cpe_latency"], hours)
-                      + '|> filter(fn: (r) => r._field == "loss") |> group() |> count()')
     try:
-        rows = query_influx(events_flux)
-        targets_rows = query_influx(targets_flux)
-        cut_rows = query_influx(microcuts.cut_windows_flux(f"-{hours}h", microcuts.loss_pct()))
-        cpe_rows = query_influx(cpe_count_flux)
+        result = diagnosis_query.run(lambda flux: query_influx(flux), hours, _cadences())
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
-
-    # The rest refines the answer; without it a class loses confidence and
-    # coverage says why -- never a reason to refuse one.
-    def _optional(flux: str, what: str) -> list[dict]:
-        try:
-            return query_influx(flux)
-        except Exception:  # influx client raises many exception types
-            log.warning("diagnose_loss: %s query failed", what, exc_info=True)
-            return []
-
-    deaf_rows = _optional(microcuts.uplink_flux(f"-{hours}h"), "deaf-radio")
-    wifi_rows = [row for flux in _wifi_minute_fluxes(hours)
-                 for row in _optional(flux, "wifi_link")]
-    app_rows = _optional(app_flux, "app-layer")
-    floor_rows = _optional(
-        _base_flux(["cpe_latency"], hours) + '|> filter(fn: (r) => r._field == "loss") '
-        + f"|> aggregateWindow(every: {int(step_s)}s, fn: mean, createEmpty: false) ",
-        "first-hop floor")
-    for r in floor_rows:
-        r["_epoch"] = _epoch(r.get("_time"))
-    app_site_rows = _optional(app_sites_flux, "app-layer targets")
-
-    events = [{"target": r.get("target"), "category": r.get("category"),
-               "loss_pct": round(float(r.get("_value", 0.0)) * 100.0, 2),
-               "_epoch": _epoch(r.get("_time"))} for r in rows]
-    reporting: dict[int, int] = {}
-    for row in targets_rows:
-        epoch = _epoch(row.get("_time"))
-        if epoch is None or row.get("_value") is None:
-            continue
-        step = int(epoch // step_s) * step_s
-        reporting[step] = max(reporting.get(step, 0), int(row["_value"]))
-
-    attributed = microcuts.attribute(microcuts.fold_cuts(cut_rows), deaf_rows)
-    app: dict[str, list] = {}
-    for r in app_rows:
-        epoch = _epoch(r.get("_time"))
-        if epoch is not None and r.get("_value") is not None:
-            app.setdefault(diagnosis.site_key(r.get("target")), []).append(
-                (epoch, float(r["_value"])))
-    for r in wifi_rows:
-        r["_epoch"] = _epoch(r.get("_time"))
-    wifi = diagnosis.wifi_minutes(wifi_rows)
-    cpe = any(int(r.get("_value") or 0) > 0 for r in cpe_rows)
-    ctx = {
-        "step_s": step_s,
-        "reporting": reporting,
-        "cuts": microcuts.link_cuts(attributed),
-        "deaf": diagnosis.merge_spans(microcuts.host_cuts(attributed)),
-        "cpe": cpe,
-        "wifi": wifi,
-        "app": app,
-        "app_sites": {diagnosis.site_key(r.get("target")) for r in app_site_rows},
-        "ipv6": _is_ipv6,
-        "floor": diagnosis.first_hop_floor(floor_rows, step_s),
-        "wifi_width": float(_wifi_width(hours)),
-    }
-    result = diagnosis.diagnose(events, ctx, window_steps=hours * 3600 // step_s)
     incidents = result["incidents"][:DIAGNOSE_MAX_INCIDENTS]
     for inc in incidents:
         start = datetime.fromtimestamp(inc.pop("start_epoch"), tz=timezone.utc)
@@ -1441,12 +1322,11 @@ def diagnose_loss(hours: int = 24) -> dict:
         "window_hours": hours,
         "incidents": incidents,
         "truncated": len(result["incidents"]) > DIAGNOSE_MAX_INCIDENTS
-        or len(rows) >= MAX_ROLLUP_ROWS,
+        or result["rows_truncated"],
         "by_class": result["by_class"],
         "chronic": result["chronic"],
-        "coverage": {"wifi": wifi is not None, "cpe": cpe,
-                     "app_layer": bool(app_site_rows)},
-        "targets_reporting": max(reporting.values(), default=0),
+        "coverage": result["coverage"],
+        "targets_reporting": result["targets_reporting"],
     }
 
 

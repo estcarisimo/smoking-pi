@@ -11,6 +11,24 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Alerts say what the episode was, with evidence and confidence.** The
+  assistants' `diagnose_loss` sorted every loss episode into this host's
+  Wi-Fi, the line, upstream or one destination, with a confidence. It saw
+  what the alert's verdict could not: the first hop's loss against its
+  usual level, a deaf radio, and the app layer. But only an assistant asked
+  it, so an alert could say "your line" about minutes the diagnosis would
+  call a deaf radio, and the person reading it would call the ISP for
+  nothing.
+  - When a loss alert fires, the alerter now diagnoses the last
+    `ALERT_DIAGNOSIS_HOURS` (default 3) through the same code
+    (`common/diagnosis_query.py`, moved out of the MCP server unchanged).
+  - The matching incident's summary replaces the verdict line when it is
+    high or medium confidence, followed by a "Why:" line with its evidence.
+  - At low confidence the verdict stays. "No measurements are arriving"
+    still outranks everything.
+  - It runs only when an alert is being sent, and a failure leaves the
+    alert as it was.
+
 - **Alerts straight to Telegram, no OpenClaw: `sudo smoking-pi alerts
   --telegram`.** Before this, a push reached a phone only through an
   OpenClaw gateway on the Pi, or through a webhook the owner built. Remote

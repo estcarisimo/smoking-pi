@@ -273,6 +273,7 @@ missing reports directory is skipped quietly.
 | `CHART_MAX_BYTES` | `700000` | Cap before a chart is dropped rather than shrunk further (must stay inside the gateway's 2 MB invoke body once base64-encoded) |
 | `ALERT_IMAGE_AS_DOCUMENT` | `false` | Send images as documents (a file card to tap open) instead of inline photos. Telegram re-encodes photos as JPEG; the charts are drawn large enough for that, so inline is the default |
 | `ALERT_SILENT` | `false` | Deliver without a notification buzz |
+| `ALERT_DIAGNOSIS_HOURS` | `3` | Hours diagnosed when a loss alert fires; the alert then says what the episode was and how sure (see [The diagnosis](#the-diagnosis-what-the-episode-was-and-how-sure)). `0` turns it off |
 | `VERDICT_BROAD_PCT` | `60` | Share of measurable targets impaired before a problem counts as broad |
 | `VERDICT_MIN_TARGETS` | `3` | Below this many measurable targets, breadth means nothing |
 | `VERDICT_IMPAIRED_LOSS_PCT` | `10` | Mean loss percent at which a target counts as impaired |
@@ -351,6 +352,39 @@ Every verdict logs its own inputs at INFO (`verdict inputs: 12/16 impaired
 0 drops`), so a verdict you disagree with
 can be diagnosed from `docker compose logs alerter` without reproducing the
 moment it was made.
+
+### The diagnosis: what the episode was, and how sure
+
+When a loss alert fires (`target_down`, `high_loss`, `microcut_burst`,
+`outage`, `uplink_down`, `ipv6_down`), the alerter diagnoses the last
+`ALERT_DIAGNOSIS_HOURS` (default 3) exactly as the assistants'
+`diagnose_loss` tool does. Both use one code path,
+`common/diagnosis_query.py`. The alert then carries the incident that covers
+it: the one that names its target (by site, so `google_h2` finds `google`),
+or for a rule about everything the newest incident of any other kind.
+
+The diagnosis sees more than the verdict: the first hop's loss against its
+usual level, whether this host's radio was deaf, and the TCP/HTTP siblings.
+It also says how sure it is. So when it is **high or medium confidence** it
+replaces the verdict line, and the evidence follows the numbers:
+
+```text
+🔴 critical — google
+📶 This host's own Wi-Fi, not the line: the monitor could not hear, so nothing beyond it can be judged for that span. The radio was associated but received nothing (or not associated): the monitor was deaf. (high confidence)
+google: 100% loss across all 4 probes
+Why: this host's Wi-Fi heard nothing for 312 s (deaf); the first-hop probe lost everything for exactly that span.
+target_down · 18 of 18 affected · local link cutting out
+mute: say "mute google for 2h"
+```
+
+(Rendered with `ALERT_MARKUP=plain` and no links configured.)
+
+At **low confidence**, or with no incident to match, the verdict line stays
+and nothing is added. When no measurements are arriving, the verdict's
+"the monitor, not the network" always wins. The queries run only when an
+alert is being sent, once per evaluation however many alerts fire. If they
+fail, the alert goes out with the verdict alone. `ALERT_DIAGNOSIS_HOURS=0`
+turns the diagnosis off.
 
 ## The daily digest
 

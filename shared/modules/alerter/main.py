@@ -16,6 +16,7 @@ import os
 import sys
 import time
 
+import alert_diagnosis
 import charts
 import digest
 import evaluator
@@ -162,11 +163,19 @@ def run_iteration() -> None:
         min_resolve_after=evaluator.MEAN_STEPS * context["windows"]["step"],
     )
     peers = _peers_by_target(context["mean_rows"])
+    # Diagnosed once per iteration, and only when a loss alert is going
+    # out: the queries are diagnose_loss's, and a quiet minute needs none.
+    diagnosed = None
+    if any(e.get("rule") in alert_diagnosis.LOSS_RULES for e in actions["alerts"]):
+        diagnosed = alert_diagnosis.run(context.get("cadences"))
     for event in actions["alerts"]:
         payload = {
             **event, "type": "alert", "verdict": call,
             "links": _links_for(event),
         }
+        found = alert_diagnosis.for_event(event, diagnosed, context["windows"]["step"])
+        if found:
+            payload["diagnosis"] = found
         notifier.notify(payload, image=_chart_for(event, peers))
         # Recorded regardless of delivery success -- notify()'s return value
         # is deliberately not captured, so history says what the alerter

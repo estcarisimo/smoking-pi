@@ -851,6 +851,7 @@ def evaluate_with_context(open_keys: Collection[str] = ()) -> tuple[list[dict], 
         "wifi_rows": wifi_rows,
         "uplink_changes": uplink_changes,
         "windows": windows,
+        "cadences": cadences,
     }
     return incidents, context
 

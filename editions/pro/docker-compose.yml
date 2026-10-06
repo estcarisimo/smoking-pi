@@ -562,6 +562,10 @@ services:
       # rescale the notion of "consecutive" (common/microcuts.py GAP_S) if
       # CPE_PROBE_IDLE changes.
       - MICROCUT_BURST_N=${MICROCUT_BURST_N:-3}
+      # Hours diagnosed (diagnose_loss, common/diagnosis.py) when a loss
+      # alert fires, so it says what the episode was and how sure that is.
+      # 0 turns it off; the verdict line is used alone then.
+      - ALERT_DIAGNOSIS_HOURS=${ALERT_DIAGNOSIS_HOURS:-3}
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
       - REPORT_MAX_CHARS=${REPORT_MAX_CHARS:-3500}
       # Message rendering: html (Telegram's default parse mode) | plain
