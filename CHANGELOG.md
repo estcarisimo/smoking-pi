@@ -9,6 +9,34 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`sudo smoking-pi connect --tailscale`: the tunnel for remote assistants
+  in one command.** Publishing the MCP server took five commands by hand on
+  the reference Pi, and three traps: Tailscale's DNS taking over the Pi's
+  resolver (which once left every container with a dead one), a tailnet
+  name typed as a placeholder twice, and a `-1` suffix nobody expected. The
+  command installs Tailscale if asked, keeps it off the Pi's DNS, signs in
+  (printing the link, which also works over SSH), turns Funnel on, sets
+  `MCP_PUBLIC_URL` from the name Tailscale reports, and checks the address
+  from outside. `--off` undoes it. Other tunnels are unchanged
+  (docs/remote-connector.md).
+- **What to paste into an assistant's own instructions.** The server tells
+  every assistant how to answer, but nothing made one think of Smoking Pi
+  when asked about the internet in passing. `smoking-pi connect NAME` now
+  prints a short paragraph for the assistant's custom instructions (rules,
+  system prompt): when to use the tools, and that it cannot change
+  anything. It is one text for every assistant (`ASSISTANT_INSTRUCTIONS` in
+  mcp-server/guide.py), quoted word for word in the docs.
+
+### Fixed
+
+- **A failed sign-in no longer leaves a connector behind.** Each of the
+  failed attempts on the reference Pi left a `grok  signed out` row that no
+  token could ever reach, next to the one that worked. `disconnect grok`
+  would have removed all three. A pairing whose authorization code expired
+  unused is now dropped, including ones already there.
+
 ## [2.24.2] — 2026-10-05
 
 A remote assistant whose own sign-in callback redirects, as Cursor's does

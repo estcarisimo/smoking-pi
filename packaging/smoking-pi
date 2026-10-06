@@ -195,6 +195,12 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      one labeled test message: the only proof one arrives.
                      --digest: a daily summary at HH:MM (in ZONE, else TZ),
                      alone or with the rest.
+  connect --tailscale [--off] [--yes]
+                     Publish the MCP server for remote assistants through
+                     Tailscale Funnel (Pro): installs Tailscale if asked, signs
+                     in (printing the link), keeps Tailscale off this Pi's DNS,
+                     turns Funnel on, sets MCP_PUBLIC_URL to the real ts.net
+                     name and checks it from outside. --off undoes it.
   connect [NAME]     Connect an assistant (Pro). With no NAME: what is
                      connected and the URL to give one. 'connect openclaw':
                      an OpenClaw gateway on this machine (as 'openclaw'
@@ -2268,14 +2274,148 @@ connector_ready() {
     fi
 }
 
+# --- connect --tailscale: the tunnel, done for the owner -------------------
+# Tailscale Funnel publishes this Pi's MCP server (127.0.0.1:8090) at
+# https://<machine>.<tailnet>.ts.net, with nothing to open on the router.
+# By hand it was five commands and three traps: Tailscale's DNS takes over
+# the Pi's resolver (and when it logs out, every container keeps a dead one:
+# half the monitoring went silent for ten days once); the address has a
+# tailnet part nobody knows by heart, typed as a placeholder twice on the
+# reference Pi; and a second device with the same name gets "-1". This
+# reads the real name from Tailscale itself.
+
+ts() { tailscale "$@"; }
+
+ts_field() {
+    # One field of `tailscale status --json`: BackendState, AuthURL, or
+    # Self.DNSName (without its trailing dot). Empty when unknown.
+    ts status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+if sys.argv[1] == "DNSName":
+    print(((d.get("Self") or {}).get("DNSName") or "").rstrip("."))
+else:
+    print(d.get(sys.argv[1]) or "")' "$1"
+}
+
+connect_tailscale() {
+    local yes=0 off=0 a
+    for a in "$@"; do
+        case "$a" in
+            --yes) yes=1 ;; --off) off=1 ;;
+            *) echo "unknown option $a (connect --tailscale [--off] [--yes])" >&2; return 2 ;;
+        esac
+    done
+    if [ "$(id -u)" != 0 ]; then
+        echo "Tailscale is set up as root: sudo $(cli_name) connect --tailscale" >&2
+        return 1
+    fi
+    connector_ready || return 1
+    if [ "$off" = 1 ]; then
+        if command -v tailscale >/dev/null; then
+            ts funnel --https=443 off >/dev/null 2>&1 || true
+            echo "Funnel off: nothing of this Pi is published through Tailscale."
+        fi
+        cmd_config unset MCP_PUBLIC_URL
+        return $?
+    fi
+    if ! command -v tailscale >/dev/null; then
+        echo "Tailscale is not installed. Its own installer adds its apt repository and the package:"
+        echo "  curl -fsSL https://tailscale.com/install.sh | sh"
+        if [ "$yes" = 0 ]; then
+            local answer=""
+            [ -t 0 ] && read -r -p "Run it now? [y/N] " answer
+            case "$answer" in y|Y|yes) ;; *) echo "Not installed; run it, or add --yes." >&2; return 1 ;; esac
+        fi
+        curl -fsSL https://tailscale.com/install.sh | sh || { echo "The Tailscale installer failed." >&2; return 1; }
+    fi
+    # Before anything else: Tailscale must never own this Pi's DNS.
+    ts set --accept-dns=false 2>/dev/null || true
+    if [ "$(ts_field BackendState)" != Running ]; then
+        # `up` waits for the sign-in and prints its link only to a terminal,
+        # so it runs aside and the link is read from the daemon instead:
+        # this works the same over SSH, in a script, or at the console.
+        local log url="" shown="" i up_pid
+        log="$(mktemp)"
+        setsid tailscale up --accept-dns=false > "$log" 2>&1 < /dev/null &
+        up_pid=$!
+        for i in $(seq 1 600); do
+            [ "$(ts_field BackendState)" = Running ] && break
+            url="$(ts_field AuthURL)"
+            if [ -n "$url" ] && [ "$url" != "$shown" ]; then
+                echo "Sign this Pi in to your Tailscale account (any browser, any device):"
+                echo "  $url"
+                echo "Waiting for the sign-in..."
+                shown="$url"
+            fi
+            if ! kill -0 "$up_pid" 2>/dev/null && ! wait "$up_pid"; then
+                cat "$log" >&2; rm -f "$log"
+                echo "If it asks for flags it already has: sudo tailscale up --reset --accept-dns=false, then run this again." >&2
+                return 1
+            fi
+            sleep 1
+        done
+        kill "$up_pid" 2>/dev/null || true
+        rm -f "$log"
+        if [ "$(ts_field BackendState)" != Running ]; then
+            echo "Tailscale is not signed in yet ($(ts_field BackendState)); run this again after signing in." >&2
+            return 1
+        fi
+        echo "Signed in to Tailscale."
+    fi
+    local name
+    name="$(ts_field DNSName)"
+    if [ -z "$name" ]; then
+        echo "Tailscale is up but reports no machine name; check 'tailscale status'." >&2
+        return 1
+    fi
+    # --yes: no prompt over SSH. When Funnel is not yet allowed on the
+    # tailnet, Tailscale prints the page that allows it and waits for it.
+    if ! ts funnel --bg --yes 127.0.0.1:8090; then
+        echo "Tailscale did not turn Funnel on; 'tailscale funnel status' says why." >&2
+        return 1
+    fi
+    local public="https://$name"
+    echo "Published at $public"
+    if [ "$(env_get MCP_PUBLIC_URL)" != "$public" ]; then
+        cmd_config set MCP_PUBLIC_URL "$public" || return 1
+    else
+        echo "MCP_PUBLIC_URL is already $public."
+    fi
+    # From the internet's side: the first request also gets Funnel its
+    # certificate, which can take a few seconds.
+    local issuer=""
+    for i in $(seq 1 "${SMOKING_PI_TS_CHECK_TRIES:-12}"); do
+        issuer="$(curl -s -m 10 "$public/.well-known/oauth-authorization-server" 2>/dev/null \
+            | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("issuer",""))
+except ValueError: pass' 2>/dev/null || true)"
+        [ "$issuer" = "$public" ] && break
+        [ "$i" -lt "${SMOKING_PI_TS_CHECK_TRIES:-12}" ] && sleep 5
+    done
+    if [ "$issuer" != "$public" ]; then
+        echo "Published, but $public does not answer as this server yet; try again in a minute:" >&2
+        echo "  curl -s $public/.well-known/oauth-authorization-server" >&2
+        return 1
+    fi
+    echo "Checked from outside: $public answers as this Pi's MCP server."
+    echo "Next: sudo $(cli_name) connect NAME   (grok, claude, chatgpt...)"
+}
+
 cmd_connect() {
     case "${1:-}" in
         -h|--help)
-            echo "smoking-pi connect [NAME]"
+            echo "smoking-pi connect [NAME | --tailscale [--off] [--yes]]"
             echo "  No NAME: what is connected. 'openclaw': OpenClaw on this machine."
             echo "  Any other NAME: a remote assistant; prints the URL and a pairing code."
+            echo "  --tailscale: publish the server through Tailscale Funnel and set"
+            echo "  MCP_PUBLIC_URL (--off undoes it)."
             return 0 ;;
         openclaw) shift; cmd_openclaw "$@"; return $? ;;
+        --tailscale) shift; connect_tailscale "$@"; return $? ;;
     esac
     connector_ready || return 1
     local url

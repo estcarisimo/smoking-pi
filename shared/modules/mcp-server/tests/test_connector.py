@@ -83,6 +83,30 @@ def test_pair_prints_the_url_and_a_code(state, monkeypatch, capsys):
     assert connector.main(["pair", "grok"]) == 0
     out = capsys.readouterr().out
     assert f"{PUBLIC}/mcp" in out and "Pairing code:" in out
+    # ...and what to paste into the assistant's own instructions.
+    import guide
+    assert out.count(guide.ASSISTANT_INSTRUCTIONS) == 1
+
+
+def _client(state_path, cid, **fields):
+    with connector.transaction() as st:
+        st["clients"][cid] = {"info": {"client_id": cid}, **fields}
+
+
+def test_a_sign_in_that_never_got_a_token_leaves_no_connector(state):
+    """Three failed sign-ins on the reference Pi left two 'grok  signed
+    out' rows that no token could ever reach."""
+    now = 100_000
+    _client(state, "failed", label="grok", paired_at=now - connector.CODE_TTL_S - 1,
+            registered_at=now - 3600)
+    _client(state, "pairing", label="grok", paired_at=now - 10, registered_at=now - 20)
+    _client(state, "works", label="grok", paired_at=now - 3600, last_token_at=now - 5)
+    _client(state, "waiting", registered_at=now - 60)
+    ids = {c["client_id"] for c in connector.connectors(now=now)}
+    assert ids == {"pairing", "works"}
+    with connector.transaction() as st:
+        connector._prune(st, now)
+        assert set(st["clients"]) == {"pairing", "works", "waiting"}
 
 
 @pytest.mark.parametrize("url", ["dummy", "http://mcp.example.com",

@@ -13,6 +13,20 @@ Deployment values are not written in: the gateway's loss floor is read from
 server.py.
 """
 
+# What the owner pastes into a remote assistant's own instructions (its
+# "custom instructions", "rules" or system prompt). Only WHEN to use this
+# server: HOW to answer is GUIDE, which the server sends itself. Printed by
+# `smoking-pi connect NAME` and quoted in docs/remote-connector.md (a test
+# keeps the doc in step).
+ASSISTANT_INSTRUCTIONS = """\
+You have a Smoking Pi connector: read-only measurements of my home internet,
+recorded continuously (latency, loss, outages, Wi-Fi, DNS). For any question
+about my internet, Wi-Fi, an outage, or whether a problem was mine or my
+provider's, use the Smoking Pi tools before answering, and follow the
+instructions the Smoking Pi server gives. Give numbers with their time
+window. If the tools cannot answer, say so instead of guessing. It cannot
+change anything: for changes, point me to the Smoking Pi web admin."""
+
 GUIDE = """\
 ## Use the tools, not a shell
 
