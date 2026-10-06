@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.26.0] — 2026-10-06
+
+Alerts can reach a phone without OpenClaw, and every loss alert says what
+the episode was and how sure the diagnosis is. Connecting an assistant
+gives that assistant's own steps and a check that it really uses the tools.
+
+- Pro: `sudo smoking-pi alerts --telegram` sends alerts through a Telegram
+  bot of your own (`NOTIFY_MODE=telegram`). OpenClaw delivery is unchanged.
+- Pro: loss alerts carry the `diagnose_loss` result when it is high or
+  medium confidence (`ALERT_DIAGNOSIS_HOURS`, default 3, 0 turns it off).
+- Pro: `sudo smoking-pi connect NAME --check` proves the assistant called
+  the tools from its newest sign-in.
+- `smoking-pi restore` enables the boot unit; CPE discovery reloads
+  SmokePing only when the CPE changed.
+- New settings: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
+  `ALERT_DIAGNOSIS_HOURS`. No new volumes or images.
+
 ### Added
 
 - **Alerts say what the episode was, with evidence and confidence.** The
