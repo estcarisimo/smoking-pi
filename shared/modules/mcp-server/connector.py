@@ -40,6 +40,7 @@ import hmac
 import html
 import json
 import os
+import re
 import secrets
 import sys
 import tempfile
@@ -299,6 +300,10 @@ def make_provider(static_token: str = "", path: str | None = None):
             # codes waiting for /token: minutes-long, so in memory.
             self.pending: dict[str, dict] = {}
             self.codes: dict[str, AuthorizationCode] = {}
+            # Sign-ins whose code was right, kept until the authorization
+            # code expires: a second click with the same code sends the
+            # browser back again instead of saying the sign-in expired.
+            self.completed: dict[str, dict] = {}
 
         # -- clients -------------------------------------------------------
         async def get_client(self, client_id: str):
@@ -334,7 +339,7 @@ def make_provider(static_token: str = "", path: str | None = None):
                 return req
             return None
 
-        def complete(self, request_id: str, label: str) -> str:
+        def complete(self, request_id: str, label: str, typed: str) -> str:
             """The pairing code was right: issue the authorization code and
             return where to send the browser."""
             req = self.pending.pop(request_id)
@@ -353,8 +358,27 @@ def make_provider(static_token: str = "", path: str | None = None):
                 if client is not None:
                     client["label"] = label
                     client["paired_at"] = now
-            return construct_redirect_uri(str(params.redirect_uri), code=code,
+            back = construct_redirect_uri(str(params.redirect_uri), code=code,
                                           state=params.state)
+            self.completed = {k: v for k, v in self.completed.items()
+                              if v["expires_at"] > now}
+            self.completed[request_id] = {"back": back, "code": code,
+                                          "typed": _hash(normalize_code(typed)),
+                                          "expires_at": now + CODE_TTL_S}
+            return back
+
+        def completed_request(self, request_id: str, typed: str | None) -> str | None:
+            """For a sign-in already completed: the same address again when
+            ``typed`` is the pairing code that completed it and the assistant
+            has not used its code yet; "" otherwise (a reload, another code,
+            or already used); None if there is no such sign-in."""
+            done = self.completed.get(request_id or "")
+            if not done or done["expires_at"] <= time.time():
+                return None
+            if typed is None or not hmac.compare_digest(
+                    _hash(normalize_code(typed)), done["typed"]):
+                return ""
+            return done["back"] if done["code"] in self.codes else ""
 
         # -- codes and tokens ----------------------------------------------
         async def load_authorization_code(self, client, authorization_code: str):
@@ -534,14 +558,55 @@ def page(request_id: str, client_name: str, error: str = "",
         error=f'<p class="err">{html.escape(error)}</p>' if error else "")
 
 
-# The page is a credential form: never framed, cached or referred.
-_HEADERS = {
-    "X-Frame-Options": "DENY",
-    "Content-Security-Policy": ("default-src 'none'; style-src 'unsafe-inline'; "
-                                "form-action 'self'; frame-ancestors 'none'"),
-    "Referrer-Policy": "no-referrer",
-    "Cache-Control": "no-store",
-}
+_USED = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connect to Smoking Pi</title></head><body style="font-family:system-ui,
+sans-serif;max-width:28rem;margin:3rem auto;padding:0 1rem"><h1>This sign-in
+was already used</h1><p>If your assistant shows Smoking Pi as connected, you
+are done. If not, start again from it and make a new code on the Pi.</p>
+</body></html>"""
+
+_HOST_SOURCE = re.compile(r"[A-Za-z0-9.-]+(:[0-9]{1,5})?|\[[0-9A-Fa-f:.]+\](:[0-9]{1,5})?")
+_SCHEME = re.compile(r"[a-z][a-z0-9+.-]*")
+# Schemes that are never an assistant's way back: they run or show content
+# in the browser instead of handing the code to an app.
+_NOT_A_RETURN = frozenset({"javascript", "vbscript", "data", "blob", "filesystem",
+                           "file", "about"})
+
+
+def return_source(redirect_uri: str) -> str:
+    """The CSP source for where a sign-in returns: ``https://host[:port]``,
+    or ``scheme:`` for an app's own scheme; "" when it cannot be written as
+    one. Browsers apply ``form-action`` to the redirect after the POST as
+    well, so a page allowing only 'self' silently blocks the return to the
+    assistant and the sign-in never completes."""
+    url = urlparse(redirect_uri)
+    scheme = url.scheme.lower()
+    if scheme in ("http", "https"):
+        return f"{scheme}://{url.netloc}" if _HOST_SOURCE.fullmatch(url.netloc) else ""
+    if scheme in _NOT_A_RETURN or not _SCHEME.fullmatch(scheme):
+        return ""
+    return f"{scheme}:"
+
+
+def _headers(redirect_uri: str = "") -> dict[str, str]:
+    """The page is a credential form: never framed, cached or referred, and
+    its form goes nowhere but here and the assistant it returns to."""
+    back = return_source(redirect_uri)
+    return {
+        "X-Frame-Options": "DENY",
+        "Content-Security-Policy": ("default-src 'none'; style-src 'unsafe-inline'; "
+                                    f"form-action 'self'{' ' + back if back else ''}; "
+                                    "frame-ancestors 'none'"),
+        "Referrer-Policy": "no-referrer",
+        "Cache-Control": "no-store",
+    }
+
+
+_HEADERS = _headers()
+
+
+_REDIRECT_HEADERS = {"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}
 
 
 def register_routes(mcp: Any, provider: Any) -> None:
@@ -552,7 +617,17 @@ def register_routes(mcp: Any, provider: Any) -> None:
         back = urlparse(str(req["params"].redirect_uri)).netloc
         return HTMLResponse(page(request_id, req["client_name"], error,
                                  label=pairing_label(), back=back),
-                            status_code=status, headers=_HEADERS)
+                            status_code=status,
+                            headers=_headers(str(req["params"].redirect_uri)))
+
+    def again(request_id: str, typed: str | None = None):
+        """A sign-in already completed (a second click, a reload), or None."""
+        back = provider.completed_request(request_id, typed)
+        if back is None:
+            return None
+        if back:
+            return RedirectResponse(back, status_code=303, headers=_REDIRECT_HEADERS)
+        return HTMLResponse(_USED, headers=_HEADERS)
 
     @mcp.custom_route("/connector/pair", methods=["GET", "POST"])
     async def pair(request):
@@ -560,20 +635,22 @@ def register_routes(mcp: Any, provider: Any) -> None:
             request_id = request.query_params.get("request", "")
             req = provider.pending_request(request_id)
             if not req:
-                return HTMLResponse(_GONE, status_code=410, headers=_HEADERS)
+                return again(request_id) or HTMLResponse(_GONE, status_code=410,
+                                                         headers=_HEADERS)
             return form(request_id, req)
         data = await request.form()
         request_id = str(data.get("request", ""))
         req = provider.pending_request(request_id)
         if not req:
-            return HTMLResponse(_GONE, status_code=410, headers=_HEADERS)
+            return (again(request_id, str(data.get("code", "")))
+                    or HTMLResponse(_GONE, status_code=410, headers=_HEADERS))
         label = check_pairing(str(data.get("code", "")))
         if not label:
             return form(request_id, req, "That code is not right, or it expired. "
                         "Make a new one on the Pi.", status=400)
-        return RedirectResponse(provider.complete(request_id, label), status_code=302,
-                                headers={"Referrer-Policy": "no-referrer",
-                                         "Cache-Control": "no-store"})
+        return RedirectResponse(provider.complete(request_id, label,
+                                                  str(data.get("code", ""))), status_code=302,
+                                headers=_REDIRECT_HEADERS)
 
 
 # ---------------------------------------------------------------------------

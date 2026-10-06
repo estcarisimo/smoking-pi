@@ -140,4 +140,5 @@ request; `shared/modules/mcp-server/connector.py` decides who gets a token.
 | The metadata names another address | `MCP_PUBLIC_URL` differs from the address the assistant uses |
 | `401` with the local token through the tunnel | By design: the local token works on the Pi only |
 | *This sign-in expired* | More than ten minutes passed, or the server restarted mid-sign-in; start again from the assistant |
+| The code is accepted but the assistant never finishes connecting | Smoking Pi before 2.24.1: the browser blocked the return to the assistant. Upgrade, make a new code and reconnect |
 | The assistant says a tool is read-only | It is: make the change in the web admin |
