@@ -33,6 +33,7 @@ REDIRECT = "https://assistant.example.net/callback"
 def state(tmp_path, monkeypatch):
     path = str(tmp_path / "connector.json")
     monkeypatch.setenv("MCP_CONNECTOR_STATE", path)
+    connector._tool_noted.clear()
     return path
 
 
@@ -86,6 +87,92 @@ def test_pair_prints_the_url_and_a_code(state, monkeypatch, capsys):
     # ...and what to paste into the assistant's own instructions.
     import guide
     assert out.count(guide.ASSISTANT_INSTRUCTIONS) == 1
+
+
+def test_pair_prints_the_steps_of_the_assistant_the_label_names(state, monkeypatch, capsys):
+    monkeypatch.setenv("MCP_PUBLIC_URL", PUBLIC)
+    assert connector.main(["pair", "claude-work"]) == 0
+    out = capsys.readouterr().out
+    assert "Claude (claude.ai" in out and "Add custom connector" in out
+    assert "returns to claude.ai" in out
+    assert "personal preferences" in out
+    assert "sudo smoking-pi connect claude-work --check" in out
+
+
+def test_pair_puts_the_url_into_the_assistants_command(state, monkeypatch, capsys):
+    monkeypatch.setenv("MCP_PUBLIC_URL", PUBLIC)
+    assert connector.main(["pair", "laptop", "--as", "claude-code"]) == 0
+    out = capsys.readouterr().out
+    assert f"claude mcp add --transport http smoking-pi {PUBLIC}/mcp" in out
+    assert "{url}" not in out
+    # --as chose the template; the label is still the owner's.
+    assert connector.pairing_label() == "laptop"
+
+
+def test_pair_an_unknown_name_gets_the_generic_steps(state, monkeypatch, capsys):
+    monkeypatch.setenv("MCP_PUBLIC_URL", PUBLIC)
+    assert connector.main(["pair", "kitchen"]) == 0
+    out = capsys.readouterr().out
+    assert "custom connector (or remote MCP server)" in out
+    assert "returns to" not in out and "Menus move" not in out
+
+
+def test_pair_refuses_an_unknown_kind_and_a_local_assistant(state, monkeypatch, capsys):
+    monkeypatch.setenv("MCP_PUBLIC_URL", PUBLIC)
+    assert connector.main(["pair", "x", "--as", "nope"]) == 2
+    assert "known: claude" in capsys.readouterr().err
+    assert connector.main(["pair", "openclaw"]) == 2
+    assert "sudo smoking-pi connect openclaw" in capsys.readouterr().err
+    assert connector.pairing_label() is None
+
+
+@pytest.mark.parametrize("label, key", [
+    ("claude", "claude"), ("Claude", "claude"), ("claude-code", "claude-code"),
+    ("claude-code-laptop", "claude-code"), ("claudecode", "claude-code"),
+    ("chatgpt", "chatgpt"), ("openai.home", "chatgpt"), ("grokbot", "grok"),
+    ("cursor", "cursor"), ("claudette", ""), ("kitchen", "")])
+def test_a_label_names_its_template_longest_first(label, key):
+    import assistants
+    assert assistants.for_label(label).key == key
+
+
+def test_every_template_has_steps_and_a_place_for_instructions():
+    import assistants
+    keys = [a.key for a in assistants.ASSISTANTS]
+    assert len(keys) == len(set(keys))
+    for a in assistants.ASSISTANTS:
+        assert a.instructions
+        assert a.local or a.add
+
+
+def test_check_tells_signed_in_from_using_the_tools(state):
+    now = 200_000
+    ok, why = connector.check("grok", now=now)
+    assert not ok and "sudo smoking-pi connect grok" in why
+    connector.new_pairing("grok", now=now)
+    ok, why = connector.check("grok", now=now)
+    assert not ok and "waiting to be typed" in why
+    _client("c1", label="grok", paired_at=now, last_token_at=now)
+    with connector.transaction() as st:
+        st["access"]["h"] = {"client_id": "c1", "scopes": ["read"], "expires_at": now + 60}
+    ok, why = connector.check("grok", now=now)
+    assert not ok and "has not called a tool" in why
+    connector.note_tool("c1", "diagnose_loss", now=now + 1)
+    ok, why = connector.check("grok", now=now + 2)
+    assert ok and "diagnose_loss" in why
+    ok, why = connector.check("grok", now=now + 120)  # the access token expired
+    assert not ok and "signed out" in why and "last called a tool" in why
+
+
+def test_tool_calls_are_written_at_most_once_a_minute(state):
+    _client("c1", label="grok", paired_at=1, last_token_at=1)
+    connector.note_tool("c1", "diagnose_loss", now=1000)
+    connector.note_tool("c1", "get_latency_stats", now=1030)
+    assert connector.load()["clients"]["c1"]["last_tool"] == "diagnose_loss"
+    connector.note_tool("c1", "get_latency_stats", now=1061)
+    assert connector.load()["clients"]["c1"]["last_tool"] == "get_latency_stats"
+    connector.note_tool("ghost", "x", now=2000)  # revoked meanwhile: nothing appears
+    assert "ghost" not in connector.load()["clients"]
 
 
 def _client(cid, **fields):
@@ -267,6 +354,9 @@ def test_a_connector_signs_in_reads_and_cannot_write(app, state):
         assert write["reason"] == "read_only"
     listed = connector.connectors()
     assert [c["label"] for c in listed] == ["grok"] and listed[0]["connected"]
+    # The call is on record: what `connect grok --check` reads.
+    assert listed[0]["last_tool"] == "diagnose_loss"
+    assert connector.check("grok")[0]
 
 
 def test_the_local_token_keeps_write_on_this_machine(app, state, tmp_path, monkeypatch):
@@ -495,3 +585,14 @@ def test_a_revoke_is_never_undone_by_a_concurrent_write(state):
         st["clients"]["c1"]["last_token_at"] = 1.0
     t.join(5)
     assert "c1" not in connector.load()["clients"]
+
+
+def test_the_docs_list_every_assistant_the_cli_has_steps_for():
+    """docs/remote-connector.md has a row per template: a new entry in
+    assistants.py that the docs do not name is one nobody finds."""
+    from pathlib import Path
+
+    import assistants
+    doc = (Path(__file__).resolve().parents[4] / "docs" / "remote-connector.md").read_text()
+    for a in assistants.ASSISTANTS:
+        assert f"| `{a.key}` | {a.name} |" in doc, a.key

@@ -2221,7 +2221,9 @@ STUB
     export STUB_MCP_RUNNING=1
     run "$CLI" connect grok
     [ "$status" -eq 1 ]
-    [[ "$output" == *"Remote assistants are off"* ]]
+    [[ "$output" == *"need an HTTPS address"* ]]
+    # Not a terminal: no question, the one command that does it instead.
+    [[ "$output" == *"connect --tailscale"* ]]
     run grep -q 'connector.py' "$DOCKER_LOG"
     [ "$status" -ne 0 ]
     printf 'MCP_PUBLIC_URL=https://mcp.example.com\n' >> "$SMOKING_PI_ENV_FILE"
@@ -2248,6 +2250,35 @@ STUB
     [ "$status" -eq 2 ]
     run "$CLI" connect --all
     [ "$status" -eq 2 ]
+    run grep -q 'connector.py pair' "$DOCKER_LOG"
+    [ "$status" -ne 0 ]
+}
+
+@test "connect NAME --as KIND picks the assistant's steps; a bad KIND never reaches the container" {
+    connect_setup
+    export STUB_MCP_RUNNING=1
+    printf 'MCP_PUBLIC_URL=https://mcp.example.com\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" connect laptop --as claude-code
+    [ "$status" -eq 0 ]
+    grep -q 'connector.py pair laptop --as claude-code$' "$DOCKER_LOG"
+    run "$CLI" connect laptop --as 'x;y'
+    [ "$status" -eq 2 ]
+    run "$CLI" connect laptop --as
+    [ "$status" -eq 2 ]
+    run "$CLI" connect laptop other
+    [ "$status" -eq 2 ]
+    [ "$(grep -c 'connector.py pair' "$DOCKER_LOG")" -eq 1 ]
+}
+
+@test "connect NAME --check and --list ask the container, with or without a public address" {
+    connect_setup
+    export STUB_MCP_RUNNING=1
+    run "$CLI" connect grok --check
+    [ "$status" -eq 0 ]
+    grep -q 'connector.py check grok$' "$DOCKER_LOG"
+    run "$CLI" connect --list
+    [ "$status" -eq 0 ]
+    grep -q 'connector.py assistants$' "$DOCKER_LOG"
     run grep -q 'connector.py pair' "$DOCKER_LOG"
     [ "$status" -ne 0 ]
 }

@@ -9,6 +9,34 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`smoking-pi connect NAME` prints that assistant's own steps.** The
+  printout said "add a custom connector" for every assistant. Each one hides
+  it in a different menu and names its instructions field differently, and
+  the owner had to know where the sign-in should return to before checking
+  it on the pairing page. A name now picks its assistant's steps: `claude`,
+  `claude-code`, `chatgpt`, `cursor` or `grok`, or a name that starts with
+  one (`claude-work`). The steps say where the connector goes, where the
+  paragraph for its instructions goes, and where its sign-in returns to.
+  `--as KIND` picks the steps for any name, and `connect --list` shows them.
+  Other names get the general steps, as before. The templates are data
+  (mcp-server/assistants.py): adding an assistant changes nothing in the
+  server, and a test fails if the docs do not list it.
+- **`smoking-pi connect NAME --check`: proof that an assistant uses the
+  measurements.** A connector that signed in looked the same as one that
+  answers from the measurements. The OpenClaw integration once looked
+  healthy for days while the agent answered from its own shell. The server
+  now records each remote connector's last tool call (at most one write a
+  minute), and `connect` shows it. `--check` succeeds only once the
+  assistant has called a tool; otherwise it says what is missing: the code
+  was never typed, it signed in but never called a tool, or it holds no
+  live token.
+- **`connect NAME` without a tunnel offers to make one.** It used to stop
+  at "set MCP_PUBLIC_URL". In a terminal with Tailscale installed, it now
+  offers to run `connect --tailscale` first and then continues to the
+  pairing. Otherwise it names that command.
+
 ## [2.25.0] — 2026-10-06
 
 On Pro, publishing Smoking Pi for remote assistants is one command, and
