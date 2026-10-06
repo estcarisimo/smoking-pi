@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.24.2] — 2026-10-05
+
+A remote assistant whose own sign-in callback redirects, as Cursor's does
+(and so Grokbot's), can now finish signing in. 2.24.1 fixed only the first
+hop of the way back.
+
+- Pro, remote assistants only; nothing changes for OpenClaw on the Pi.
+- No new settings, volumes or images. After upgrading, make a new code
+  (`sudo smoking-pi connect NAME`) and reconnect from the assistant.
+
 ### Fixed
 
 - **A remote assistant still could not finish signing in when its own
