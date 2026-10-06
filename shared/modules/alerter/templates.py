@@ -277,7 +277,13 @@ def alert_sections(event: dict) -> list[Section]:
         context.append(str(event["rule"]))
     total = verdict.get("total")
     if total:
-        context.append(f"{verdict.get('affected', 0)} of {total} affected")
+        # The count is the verdict's: targets over the impaired threshold on
+        # their 15-minute mean. A brief cut (outage) or one target's run of
+        # lost cycles (target_down) fires the rule without moving that mean,
+        # and "0 of 16 affected" under an alert reads as "nothing happened".
+        # The message carries the rule's own count; zero is left unsaid.
+        if verdict.get("affected"):
+            context.append(f"{verdict['affected']} of {total} affected")
         # The verdict's reading of the line; when the diagnosis leads it has
         # already said where the fault is, and "local link cutting out" next
         # to "this host's Wi-Fi, not the line" reads as a contradiction.

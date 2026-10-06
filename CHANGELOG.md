@@ -19,6 +19,15 @@ version gets a matching GitHub release and git tag.
   Netflix host is not the OCA that serves this network, and a hard-coded
   site list would look like a real ranking.
 
+- **An alert no longer says "0 of 16 affected".** The breadth count in an
+  alert's context line is the verdict's: targets whose 15-minute mean loss
+  is over the impaired threshold. A brief cut (`outage`) or one target's
+  run of lost cycles (`target_down`) fires its rule without moving that
+  mean, so the alert could read "12 of 16 targets lost packets" above
+  "outage · 0 of 16 affected", as if nothing had happened (seen in the
+  v2.13.0-rc.3 acceptance). A zero count is now left out; the message
+  keeps the rule's own count, and the link note stays.
+
 ## [2.26.0] — 2026-10-06
 
 Alerts can reach a phone without OpenClaw, and every loss alert says what

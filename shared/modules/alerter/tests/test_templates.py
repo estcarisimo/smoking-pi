@@ -307,3 +307,27 @@ def test_monitor_uplink_scope_has_its_own_light_and_no_mute_hint():
     assert "🔌" in text
     assert "radio is hung" in text
     assert "mute:" not in text
+
+
+def test_a_zero_breadth_count_is_not_printed_under_an_alert():
+    """#273: the rule fired (one target's lost cycles, a brief cut) while no
+    target's 15 min mean crossed the impaired threshold. "0 of 16 affected"
+    under that alert reads as "nothing happened"; the link note stays."""
+    verdict = {
+        "scope": "unclear",
+        "line": "No target is above 5% mean loss over 15m.",
+        "affected": 0,
+        "total": 16,
+        "cpe_cutting": [],
+    }
+    for rule, target in (("target_down", "Cloudflare"), ("outage", None)):
+        text = templates.format_message(
+            _alert(rule=rule, target=target, verdict=verdict))
+        assert "0 of 16" not in text
+        assert "affected" not in text
+        assert f"{rule} · local link clean" in text
+
+
+def test_a_nonzero_breadth_count_is_still_printed():
+    text = templates.format_message(_alert())
+    assert "target_down · 12 of 16 affected · local link clean" in text
