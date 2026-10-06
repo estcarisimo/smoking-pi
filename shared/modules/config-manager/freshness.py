@@ -197,7 +197,8 @@ def classify(
     that file -- any other target's edit, the IPv6 recheck -- and keying
     "pending" to it made a target broken for weeks read as "just added"
     after each unrelated change. The same goes for CPE_Targets, which
-    cpe_discovery.py rewrites every hour whether or not the router changed.
+    cpe_discovery.py rewrites whenever the first hop changes (and, before
+    #272, every hour whether or not it had).
     """
     changed_at = changed_at or {}
     rows: List[TargetFreshness] = []

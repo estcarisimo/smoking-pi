@@ -193,10 +193,12 @@ def update_smokeping_targets(ipv4: str | None, ipv6: str | None):
     # Unchanged (the usual hour): no write and no reload. A reload restarts
     # SmokePing's probe cycles, which can cost a point in every series, and
     # an hourly one for nothing hides the reloads that mean something.
+    # SmokePing reads this file through @include whenever it starts, so a
+    # restarted SmokePing has it without a HUP.
     try:
         with open(cpe_path) as f:
             if f.read() == content:
-                log.info("CPE targets unchanged; SmokePing not reloaded")
+                log.debug("CPE targets unchanged; SmokePing not reloaded")
                 return
     except OSError:
         pass  # missing or unreadable: write it
