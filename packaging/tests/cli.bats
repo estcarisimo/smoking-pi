@@ -445,7 +445,8 @@ make_backup_dir() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"some volumes could not be removed"* ]]
     [ ! -f "$SMOKING_PI_ENV_FILE" ]
-    [ -d "$SMOKING_PI_CONFIG_DIR" ] && [ ! -e "$SMOKING_PI_CONFIG_DIR/targets.yaml" ]
+    [ -d "$SMOKING_PI_CONFIG_DIR" ]
+    [ ! -e "$SMOKING_PI_CONFIG_DIR/targets.yaml" ]
     [ -d "$SMOKING_PI_OUTPUT_DIR" ]
 }
 
