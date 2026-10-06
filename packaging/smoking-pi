@@ -201,14 +201,20 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      in (printing the link), keeps Tailscale off this Pi's DNS,
                      turns Funnel on, sets MCP_PUBLIC_URL to the real ts.net
                      name and checks it from outside. --off undoes it.
-  connect [NAME]     Connect an assistant (Pro). With no NAME: what is
+  connect [NAME [--as KIND] [--check] | --list]
+                     Connect an assistant (Pro). With no NAME: what is
                      connected and the URL to give one. 'connect openclaw':
                      an OpenClaw gateway on this machine (as 'openclaw'
-                     below). Any other NAME (grok, claude, chatgpt...): a
-                     remote assistant that can add a remote MCP server; prints
-                     the URL and a one-time pairing code. It gets read-only
-                     tools. Needs MCP_PUBLIC_URL and a tunnel:
-                     docs/remote-connector.md.
+                     below). Any other NAME: a remote assistant that can add
+                     a remote MCP server; prints the URL, a one-time pairing
+                     code, and the steps for that assistant (claude,
+                     claude-code, chatgpt, cursor, grok, or a name that
+                     starts with one, like claude-work; --as KIND for any
+                     other name; --list shows them). It gets read-only
+                     tools. Needs MCP_PUBLIC_URL and a tunnel: without one,
+                     it offers 'connect --tailscale' (docs/remote-connector.md).
+                     --check: whether NAME has called a tool since it signed
+                     in, the only proof it uses your measurements.
   disconnect NAME    Sign a remote assistant out; the others keep working.
   openclaw [--check]
                      Connect this stack to an OpenClaw gateway on this machine:
@@ -2456,21 +2462,56 @@ except ValueError: pass' 2>/dev/null || true)"
 cmd_connect() {
     case "${1:-}" in
         -h|--help)
-            echo "smoking-pi connect [NAME | --tailscale [--off] [--yes]]"
+            echo "smoking-pi connect [NAME [--as KIND] [--check] | --list | --tailscale [--off] [--yes]]"
             echo "  No NAME: what is connected. 'openclaw': OpenClaw on this machine."
-            echo "  Any other NAME: a remote assistant; prints the URL and a pairing code."
+            echo "  Any other NAME: a remote assistant; prints the URL, a pairing code and"
+            echo "  that assistant's steps (claude, claude-code, chatgpt, cursor, grok; a"
+            echo "  name like claude-work picks Claude's; --as KIND picks one for any name)."
+            echo "  --check: whether NAME has called a tool, the only proof it is used."
+            echo "  --list: the assistants with steps of their own."
             echo "  --tailscale: publish the server through Tailscale Funnel and set"
             echo "  MCP_PUBLIC_URL (--off undoes it)."
             return 0 ;;
         openclaw) shift; cmd_openclaw "$@"; return $? ;;
         --tailscale) shift; connect_tailscale "$@"; return $? ;;
     esac
+    local name="" kind="" check=0 list=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --check) check=1 ;;
+            --list) list=1 ;;
+            --as) case "${2:-}" in ""|-*) echo "--as needs a KIND ($(cli_name) connect --list)" >&2; return 2 ;; esac
+                  kind="$2"; shift ;;
+            -h|--help) cmd_connect --help; return 0 ;;
+            -*) echo "unknown option $1" >&2; return 2 ;;
+            *) [ -z "$name" ] || { echo "one NAME at a time: $1" >&2; return 2; }
+               name="$1" ;;
+        esac
+        shift
+    done
+    if [ "$list" = 1 ] && { [ -n "$name" ] || [ -n "$kind" ] || [ "$check" = 1 ]; }; then
+        echo "--list stands alone: $(cli_name) connect --list" >&2
+        return 2
+    fi
+    if [ -z "$name" ] && { [ "$check" = 1 ] || [ -n "$kind" ]; }; then
+        echo "--check and --as need a NAME: $(cli_name) connect NAME --check" >&2
+        return 2
+    fi
+    if [ "$check" = 1 ] && [ -n "$kind" ]; then
+        echo "--check takes a NAME only: $(cli_name) connect $name --check" >&2
+        return 2
+    fi
     connector_ready || return 1
+    if [ "$list" = 1 ]; then
+        compose exec -T mcp-server python connector.py assistants
+        return $?
+    fi
     local url
     url="$(env_get MCP_PUBLIC_URL)"
-    if [ -z "${1:-}" ]; then
+    if [ -z "$name" ]; then
         if [ -z "$url" ]; then
-            echo "Remote assistants: off (MCP_PUBLIC_URL is not set; docs/remote-connector.md)."
+            echo "Remote assistants: off (MCP_PUBLIC_URL is not set: $(cli_name) connect --tailscale,"
+            echo "or any tunnel: docs/remote-connector.md)."
         else
             echo "Remote assistants connect at: ${url%/}/mcp"
             compose exec -T mcp-server python connector.py list
@@ -2478,20 +2519,42 @@ cmd_connect() {
         echo "OpenClaw on this machine: $(cli_name) connect openclaw --check"
         return 0
     fi
-    case "$1" in
-        -*) echo "unknown option $1" >&2; return 2 ;;
-    esac
-    if ! printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._-]{1,40}$'; then
-        echo "A name is up to 40 letters, digits, '.', '_' or '-': $1" >&2
+    if ! printf '%s' "$name" | grep -Eq '^[A-Za-z0-9._-]{1,40}$'; then
+        echo "A name is up to 40 letters, digits, '.', '_' or '-': $name" >&2
         return 2
     fi
-    if [ -z "$url" ]; then
-        echo "Remote assistants are off: set MCP_PUBLIC_URL to the HTTPS address a tunnel" >&2
-        echo "publishes this server at ($(cli_name) config set MCP_PUBLIC_URL https://...)." >&2
-        echo "See docs/remote-connector.md." >&2
-        return 1
+    if [ -n "$kind" ] && ! printf '%s' "$kind" | grep -Eq '^[A-Za-z0-9._-]{1,40}$'; then
+        echo "Not an assistant kind: $kind ($(cli_name) connect --list)" >&2
+        return 2
     fi
-    compose exec -T mcp-server python connector.py pair "$1"
+    if [ "$check" = 1 ]; then
+        compose exec -T mcp-server python connector.py check "$name"
+        return $?
+    fi
+    if [ -z "$url" ]; then
+        echo "Remote assistants need an HTTPS address that reaches this Pi (MCP_PUBLIC_URL)." >&2
+        local answer=""
+        if [ -t 0 ] && command -v tailscale >/dev/null; then
+            read -r -p "Publish it through Tailscale Funnel now ($(cli_name) connect --tailscale)? [y/N] " answer || answer=""
+        fi
+        case "$answer" in
+            y|Y|yes)
+                connect_tailscale || return 1
+                url="$(env_get MCP_PUBLIC_URL)"
+                [ -n "$url" ] || return 1
+                connector_ready || return 1 ;;
+            *)
+                echo "One command does it with Tailscale: sudo $(cli_name) connect --tailscale" >&2
+                echo "Any other tunnel: docs/remote-connector.md, then" >&2
+                echo "  $(cli_name) config set MCP_PUBLIC_URL https://..." >&2
+                return 1 ;;
+        esac
+    fi
+    if [ -n "$kind" ]; then
+        compose exec -T mcp-server python connector.py pair "$name" --as "$kind"
+    else
+        compose exec -T mcp-server python connector.py pair "$name"
+    fi
 }
 
 cmd_disconnect() {

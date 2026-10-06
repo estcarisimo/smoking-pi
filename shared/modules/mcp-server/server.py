@@ -130,14 +130,29 @@ def logged_tool(func):
             log.warning("tool=%s args=%s -> raised:%s in %.0fms",
                         func.__name__, _summarize_args(kwargs),
                         type(exc).__name__, elapsed_ms)
+            # A call that failed is still the assistant asking.
+            _note_connector_tool(func.__name__)
             raise
         elapsed_ms = (time.monotonic() - started) * 1000
         log.info("tool=%s args=%s -> %s in %.0fms",
                  func.__name__, _summarize_args(kwargs),
                  _summarize_result(result), elapsed_ms)
+        _note_connector_tool(func.__name__)
         return result
 
     return wrapper
+
+
+def _note_connector_tool(tool: str) -> None:
+    """Record the call against the remote connector that made it, which is
+    what `smoking-pi connect NAME --check` reads. Never fails the tool."""
+    try:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+        token = get_access_token()
+        if token is not None and token.client_id != "local":
+            connector.note_tool(token.client_id, tool)
+    except Exception:  # noqa: BLE001 -- bookkeeping must not cost an answer
+        log.warning("could not record the connector's tool call", exc_info=True)
 
 
 READ_ONLY_ERROR = (

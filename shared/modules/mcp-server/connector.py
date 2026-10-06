@@ -267,8 +267,70 @@ def connectors(path: str | None = None, now: float | None = None) -> list[dict]:
         out.append({"label": c["label"], "client_id": cid,
                     "client_name": c.get("info", {}).get("client_name"),
                     "paired_at": c.get("paired_at"), "last_token_at": c.get("last_token_at"),
+                    "last_tool": c.get("last_tool"), "last_tool_at": c.get("last_tool_at"),
                     "connected": bool(live)})
     return sorted(out, key=lambda c: c.get("paired_at") or 0)
+
+
+# A tool call is the only proof an assistant uses the measurements: a token
+# says it signed in, not that it asks. Recorded per connector, at most once
+# a minute each, so a burst of calls is one write.
+TOOL_NOTE_EVERY_S = 60
+_tool_noted: dict[str, float] = {}
+
+
+def note_tool(client_id: str, tool: str, path: str | None = None,
+              now: float | None = None) -> None:
+    """Remember that connector ``client_id`` called ``tool``."""
+    now = time.time() if now is None else now
+    if now - _tool_noted.get(client_id, 0.0) < TOOL_NOTE_EVERY_S:
+        return
+    with transaction(path) as state:
+        c = state["clients"].get(client_id)
+        if c is not None:  # revoked meanwhile: never brought back
+            c["last_tool"], c["last_tool_at"] = tool, now
+    # After the write: a failed one is retried on the next call, not a
+    # minute later.
+    _tool_noted[client_id] = now
+
+
+# A tool call older than this is history, not proof of use: an assistant
+# keeps a live refresh token for 90 days after it last asked anything.
+CHECK_RECENT_S = 7 * 86400
+
+
+def check(label: str, path: str | None = None, now: float | None = None) -> tuple[bool, str]:
+    """Whether the connector called ``label`` is using the tools, and the
+    evidence in a sentence: signed in is not enough, and neither is a call
+    from weeks ago."""
+    now = time.time() if now is None else now
+    if pairing_label(path, now) == label:
+        return False, (f"A code for '{label}' is waiting to be typed on the Smoking Pi "
+                       "page the assistant opens. Nothing has signed in with it yet.")
+    mine = [c for c in connectors(path, now) if c["label"] == label]
+    if not mine:
+        return False, (f"No assistant named '{label}' is connected. "
+                       f"Pair one: sudo smoking-pi connect {label}")
+    # The newest sign-in that still holds a token; a re-paired label keeps
+    # its older client (and its tool calls) until that one's tokens expire.
+    c = max(mine, key=lambda c: (c["connected"], c.get("paired_at") or 0))
+    if not c["connected"]:
+        used = f", and last called a tool {_when(c['last_tool_at'])}" if c["last_tool_at"] else ""
+        return False, (f"'{label}' is signed out: it holds no live token{used}. "
+                       f"Reconnect it: sudo smoking-pi connect {label}")
+    if not c["last_tool_at"]:
+        return False, (f"'{label}' signed in ({_when(c['last_token_at'])}) but has not "
+                       "called a tool yet. Ask it something the measurements answer -- "
+                       "\"what happened last night, and was it me or the internet?\" -- "
+                       "then check again. If it answers without calling, paste the "
+                       f"instructions that 'sudo smoking-pi connect {label}' printed.")
+    if c["last_tool_at"] < now - CHECK_RECENT_S:
+        days = int((now - c["last_tool_at"]) // 86400)
+        return False, (f"'{label}' is signed in, but its last tool call was {days} days ago "
+                       f"({c['last_tool']}, {_when(c['last_tool_at'])}). Ask it something "
+                       "the measurements answer, then check again.")
+    return True, (f"'{label}' is connected and using the tools: it last called "
+                  f"{c['last_tool']} at {_when(c['last_tool_at'])}.")
 
 
 def revoke(name: str, path: str | None = None) -> list[str]:
@@ -717,31 +779,83 @@ def _when(epoch: float | None) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(epoch))
 
 
-def main(argv: list[str]) -> int:
-    if not argv or argv[0] not in ("pair", "list", "revoke"):
-        print("usage: connector.py pair [LABEL] | list [--json] | revoke NAME",
+USAGE = ("usage: connector.py pair [LABEL] [--as KIND] | list [--json] | check LABEL"
+         " | assistants | revoke NAME")
+
+
+def _pair(rest: list[str]) -> int:
+    import assistants
+    import guide
+
+    kind = None
+    if "--as" in rest:
+        i = rest.index("--as")
+        if i + 1 >= len(rest):
+            print(USAGE, file=sys.stderr)
+            return 2
+        kind = assistants.by_key(rest[i + 1])
+        if kind is None:
+            known = ", ".join(a.key for a in assistants.ASSISTANTS)
+            print(f"No assistant called {rest[i + 1]!r} (known: {known}).", file=sys.stderr)
+            return 2
+        rest = rest[:i] + rest[i + 2:]
+    label = (rest[0] if rest else "assistant").strip()
+    a = kind or assistants.for_label(label)
+    if a.local:
+        print(f"{a.name} uses the local token, not a pairing code: "
+              f"sudo smoking-pi connect {a.key}", file=sys.stderr)
+        return 2
+    if not enabled():
+        why = url_problem(public_url()) if public_url() else "set MCP_PUBLIC_URL first"
+        print(f"Remote assistants are off: {why} (docs/remote-connector.md).",
               file=sys.stderr)
+        return 1
+    url = f"{public_url()}/mcp"
+    code = new_pairing(label)
+    print(f"Connecting '{label}': {a.name}. It gets read-only access.")
+    print()
+    print(f"Connector URL:  {url}")
+    print(f"Pairing code:   {code[:4]}-{code[4:]}   (valid 10 minutes, once)")
+    print()
+    print("\n".join(assistants.steps(a, url)))
+    back = f" and that it returns to {a.returns_to}" if a.returns_to else ""
+    print(f"The Smoking Pi page names '{label}'{back}; if not, do not type the code.")
+    if a.note:
+        print(a.note)
+    if a.key:
+        print("Menus move between versions: if a step does not match, look for "
+              "'custom connector' or 'remote MCP server'.")
+    print()
+    print(f"Then paste this into {a.instructions}, so it knows when to ask:")
+    print()
+    print(guide.ASSISTANT_INSTRUCTIONS)
+    print()
+    print("To prove it works, ask it \"what happened last night, and was it me or the")
+    print(f"internet?\", then run: sudo smoking-pi connect {label} --check")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] not in ("pair", "list", "check", "assistants", "revoke"):
+        print(USAGE, file=sys.stderr)
         return 2
     cmd, rest = argv[0], argv[1:]
     if cmd == "pair":
-        if not enabled():
-            why = url_problem(public_url()) if public_url() else "set MCP_PUBLIC_URL first"
-            print(f"Remote assistants are off: {why} (docs/remote-connector.md).",
-                  file=sys.stderr)
-            return 1
-        label = (rest[0] if rest else "assistant").strip()
-        code = new_pairing(label)
-        print(f"Connector URL:  {public_url()}/mcp")
-        print(f"Pairing code:   {code[:4]}-{code[4:]}   (for '{label}', valid 10 minutes, once)")
-        print("Add the URL as a custom connector in your assistant; when its sign-in")
-        print("page asks, type the code. It gets read-only access.")
-        print()
-        print("Then paste this into the assistant's own instructions (custom")
-        print("instructions, rules or system prompt), so it knows when to ask:")
-        print()
-        import guide
-        print(guide.ASSISTANT_INSTRUCTIONS)
+        return _pair(rest)
+    if cmd == "assistants":
+        import assistants
+        for a in assistants.ASSISTANTS:
+            how = "on this machine, with the local token" if a.local else "remote, pairing code"
+            print(f"{a.key:<12} {a.name}  ({how})")
+        print(f"{'(any other)':<12} any assistant that adds a remote MCP server")
         return 0
+    if cmd == "check":
+        if not rest:
+            print(USAGE, file=sys.stderr)
+            return 2
+        ok, why = check(rest[0])
+        print(why)
+        return 0 if ok else 1
     if cmd == "list":
         items = connectors()
         if rest[:1] == ["--json"]:
@@ -751,9 +865,11 @@ def main(argv: list[str]) -> int:
             print("No connectors.")
             return 0
         for c in items:
+            used = (f", last tool {c['last_tool']} {_when(c['last_tool_at'])}"
+                    if c["last_tool_at"] else ", no tool called yet")
             print(f"{c['label']:<16} {'connected' if c['connected'] else 'signed out':<11}"
                   f" paired {_when(c['paired_at'])}, last token {_when(c['last_token_at'])}"
-                  f"  ({c['client_name'] or c['client_id']})")
+                  f"{used}  ({c['client_name'] or c['client_id']})")
         return 0
     if not rest:
         print("usage: connector.py revoke NAME", file=sys.stderr)

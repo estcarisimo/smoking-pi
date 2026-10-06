@@ -105,8 +105,14 @@ sudo smoking-pi connect grok
 ```
 
 ```text
+Connecting 'grok': Grok, or an agent built on it. It gets read-only access.
+
 Connector URL:  https://mcp.example.com/mcp
-Pairing code:   K7QM-4XRA   (for 'grok', valid 10 minutes, once)
+Pairing code:   K7QM-4XRA   (valid 10 minutes, once)
+
+  1. Add the URL wherever the agent takes a remote MCP server (a custom connector or MCP server).
+  2. Its sign-in opens a Smoking Pi page: type the code there.
+The Smoking Pi page names 'grok'; if not, do not type the code.
 ```
 
 The name is a label you choose; it is how you will recognize and disconnect
@@ -116,6 +122,33 @@ asks for the code; type it, and the assistant is connected. The page names
 the code's label (`grok` here) and where it will send you back; check both.
 The code works once, for ten minutes, and five wrong tries burn it — make a
 new one with the same command.
+
+If `MCP_PUBLIC_URL` is not set yet, `connect NAME` says so and, in a
+terminal with Tailscale installed, offers to run `connect --tailscale`
+first, then goes on to the pairing.
+
+### Assistant by assistant
+
+The name also picks the steps it prints: for a name below, or one that starts
+with it (`claude-work`, `cursor.laptop`), you get that assistant's menus,
+where its instructions go, and where its sign-in should say it returns to.
+Any other name gets the general steps above. `--as` picks the steps for any
+name (`sudo smoking-pi connect laptop --as claude-code`), and
+`smoking-pi connect --list` shows them all.
+
+| Name | Assistant | Where the connector goes | The sign-in returns to |
+| --- | --- | --- | --- |
+| `claude` | Claude (claude.ai and the Claude apps) | claude.ai: Settings > Connectors > Add custom connector | claude.ai |
+| `claude-code` | Claude Code | `claude mcp add --transport http smoking-pi URL`, then `/mcp` > Authenticate | localhost |
+| `chatgpt` | ChatGPT | Settings > Apps & Connectors, with Developer mode on | chatgpt.com |
+| `cursor` | Cursor, or an agent on Cursor's agent platform | Cursor Settings > Tools & MCP, or `~/.cursor/mcp.json` | cursor.com, or the Cursor app |
+| `grok` | Grok, or an agent built on it | wherever the agent takes a remote MCP server | depends on the platform it runs on |
+| `openclaw` | OpenClaw on this machine | `sudo smoking-pi connect openclaw` (local token, no pairing code) | — |
+
+Menus move between versions. If a step does not match what you see, look
+for *custom connector* or *remote MCP server*. Adding an assistant to this
+list is one entry in `shared/modules/mcp-server/assistants.py`; nothing in
+the server changes.
 
 ### Tell the assistant when to use it
 
@@ -136,10 +169,27 @@ change anything: for changes, point me to the Smoking Pi web admin.
 ```
 
 Then ask it something the measurements answer: *what happened last night,
-and was it me or the internet?* It should call `diagnose_loss`.
+and was it me or the internet?* It should call `diagnose_loss`. Check that
+it did:
 
 ```bash
-sudo smoking-pi connect              # who is connected, and the URL
+sudo smoking-pi connect grok --check
+```
+
+```text
+'grok' is connected and using the tools: it last called diagnose_loss at 2026-10-06 14:05.
+```
+
+Signed in is not the same as used: an assistant can hold a token and still
+answer from what it already knows. The server records each connector's last
+tool call, and `--check` reads that record. It fails (exit status 1), saying
+why, when a code is still waiting to be typed, when the assistant signed in
+but has not called a tool, when its last call is more than seven days old,
+or when it has no live token any more. A name paired again is judged by its
+newest sign-in, not by what the older one did.
+
+```bash
+sudo smoking-pi connect              # who is connected, the URL, and each one's last tool call
 sudo smoking-pi disconnect grok      # sign one out
 ```
 
