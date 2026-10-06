@@ -5,11 +5,18 @@
 # (`compose config --format json`, `--services`, `ps`). Run from the repo:
 #   bats packaging/tests/cli.bats
 # CI runs it; the real-daemon proof is the deploy on the reference Pi.
+#
+# "This never happens" is written `if cmd; then false; fi`, never `! cmd`:
+# errexit ignores a pipeline negated with `!`, so `! grep -q x log` fails a
+# test only when it is the test's last line, and anywhere else proves
+# nothing. The log exists from setup on, so a grep for what must be absent
+# answers "not there" (1), never "no such file" (2).
 
 setup() {
     REPO="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
     CLI="$REPO/packaging/smoking-pi"
     export DOCKER_LOG="$BATS_TEST_TMPDIR/docker.log"
+    : > "$DOCKER_LOG"
     export STUB_HOME="$BATS_TEST_TMPDIR/home"
     # A minimal tree: the command only needs the edition directories, the
     # scripts it calls, and CITATION.cff for `version`.
@@ -194,7 +201,7 @@ fail_docker_on() {
     run "$CLI" install --yes
     [ "$status" -eq 1 ]
     [[ "$output" == *"already installed"* ]]
-    ! grep -q SETUP "$DOCKER_LOG"
+    if grep -q SETUP "$DOCKER_LOG"; then false; fi
 }
 
 @test "install validates edition, database and profiles before doing anything" {
@@ -206,11 +213,11 @@ fail_docker_on() {
     run "$CLI" install --yes --profiles mcp,bogus
     [ "$status" -eq 2 ]
     [[ "$output" == *"unknown profile: bogus"* ]]
-    [ ! -f "$DOCKER_LOG" ]
+    [ ! -s "$DOCKER_LOG" ]
     run "$CLI" install --yes --edition basic --profiles mcp
     [ "$status" -eq 0 ]
     [[ "$output" == *"--profiles applies to the pro edition only"* ]]
-    ! grep -q ' up -d' "$DOCKER_LOG"
+    if grep -q ' up -d' "$DOCKER_LOG"; then false; fi
 }
 
 @test "packaged install records the edition beside the env file; the conffile is never edited" {
@@ -294,15 +301,15 @@ fail_docker_on() {
     [[ "${lines[5]}" == *" up -d" ]]
     # The ClickHouse volume is declared in the config but mounted by no
     # active service: not copied (it cost ten minutes of downtime once).
-    ! grep -q 'clickhouse' "$DOCKER_LOG"
+    if grep -q 'clickhouse' "$DOCKER_LOG"; then false; fi
     [ "$(stat -c %a "$BATS_TEST_TMPDIR/bk")" = 700 ]
 }
 
 @test "backup --online never stops the stack and says so in the manifest" {
     run "$CLI" backup "$BATS_TEST_TMPDIR/bk" --online
     [ "$status" -eq 0 ]
-    ! grep -q ' down$' "$DOCKER_LOG"
-    ! grep -q ' up -d$' "$DOCKER_LOG"
+    if grep -q ' down$' "$DOCKER_LOG"; then false; fi
+    if grep -q ' up -d$' "$DOCKER_LOG"; then false; fi
     grep -qx 'online=1' "$BATS_TEST_TMPDIR/bk/manifest"
 }
 
@@ -365,15 +372,15 @@ make_backup_dir() {
     [[ "$output" == *"smokeping-pro-config  <- volumes/smokeping-config.tgz"* ]]
     [[ "$output" == *"Skipped (no active service mounts them here): clickhouse-data"* ]]
     [[ "$output" == *"aborted."* ]]
-    ! grep -q ' down$' "$DOCKER_LOG"
-    ! grep -q 'volume create' "$DOCKER_LOG"
+    if grep -q ' down$' "$DOCKER_LOG"; then false; fi
+    if grep -q 'volume create' "$DOCKER_LOG"; then false; fi
     run bash -c "echo pro | '$CLI' restore '$BATS_TEST_TMPDIR/bk'"
     [ "$status" -eq 0 ]
     [[ "$output" == *"keeping the existing"* ]]
-    ! grep -q FROM=backup "$SMOKING_PI_ENV_FILE"
+    if grep -q FROM=backup "$SMOKING_PI_ENV_FILE"; then false; fi
     grep -q 'volume create --label com.docker.compose.project=pro --label com.docker.compose.volume=postgres-data pro_postgres-data' "$DOCKER_LOG"
     grep -q 'volume create --label com.docker.compose.project=pro --label com.docker.compose.volume=smokeping-config smokeping-pro-config' "$DOCKER_LOG"
-    ! grep -q 'clickhouse' "$DOCKER_LOG"
+    if grep -q 'clickhouse' "$DOCKER_LOG"; then false; fi
     # Empty first, extract second, each its own run; the tarball is the
     # key's, the target the resolved name's.
     grep -q -- '-v smokeping-pro-config:/to alpine:3.20 sh -c find /to -mindepth 1 -delete' "$DOCKER_LOG"
@@ -390,7 +397,7 @@ make_backup_dir() {
     grep -q FROM=backup "$SMOKING_PI_ENV_FILE"
     [[ "$output" == *"WARNING: this backup was taken --online"* ]]
     [[ "$output" == *"the stack is stopped"* ]]
-    ! grep -q ' up -d$' "$DOCKER_LOG"
+    if grep -q ' up -d$' "$DOCKER_LOG"; then false; fi
 }
 
 @test "restore reports a volume that failed to extract, goes on with the rest, leaves the stack stopped, exits 1" {
@@ -401,7 +408,7 @@ make_backup_dir() {
     [[ "$output" == *"smokeping-pro-config: emptied but the tarball did not extract"* ]]
     [[ "$output" == *"volume pro_postgres-data restored"* ]]
     [[ "$output" == *"restore INCOMPLETE; the stack is stopped. Failed: smokeping-pro-config"* ]]
-    ! grep -q ' up -d$' "$DOCKER_LOG"
+    if grep -q ' up -d$' "$DOCKER_LOG"; then false; fi
 }
 
 @test "a packaged restore that failed enables no unit" {
@@ -411,14 +418,14 @@ make_backup_dir() {
     fail_docker_on 'smokeping-config.tgz:/from.tgz:ro'
     run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --force
     [ "$status" -eq 1 ]
-    ! grep -q '^systemctl' "$DOCKER_LOG"
+    if grep -q '^systemctl' "$DOCKER_LOG"; then false; fi
 }
 
 @test "purge asks for the project name and aborts on anything else" {
     run bash -c "echo nope | '$CLI' purge"
     [ "$status" -eq 1 ]
     [[ "$output" == *"aborted."* ]]
-    ! grep -q 'volume rm' "$DOCKER_LOG"
+    if grep -q 'volume rm' "$DOCKER_LOG"; then false; fi
     [ -f "$SMOKING_PI_ENV_FILE" ]
 }
 
@@ -426,7 +433,7 @@ make_backup_dir() {
     run bash -c "echo pro | '$CLI' purge"
     [ "$status" -eq 0 ]
     grep -q 'volume rm pro_postgres-data pro_grafana-data smokeping-pro-config' "$DOCKER_LOG"
-    ! grep -q 'clickhouse' "$DOCKER_LOG"
+    if grep -q 'clickhouse' "$DOCKER_LOG"; then false; fi
     [ -f "$SMOKING_PI_ENV_FILE" ]
 }
 
@@ -438,7 +445,8 @@ make_backup_dir() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"some volumes could not be removed"* ]]
     [ ! -f "$SMOKING_PI_ENV_FILE" ]
-    [ -d "$SMOKING_PI_CONFIG_DIR" ] && [ ! -e "$SMOKING_PI_CONFIG_DIR/targets.yaml" ]
+    [ -d "$SMOKING_PI_CONFIG_DIR" ]
+    [ ! -e "$SMOKING_PI_CONFIG_DIR/targets.yaml" ]
     [ -d "$SMOKING_PI_OUTPUT_DIR" ]
 }
 
@@ -464,7 +472,7 @@ make_backup_dir() {
     run "$CLI" purge --yes
     [ "$status" -eq 0 ]
     [ -e "$BATS_TEST_TMPDIR/edition" ]
-    ! grep -q '^systemctl disable' "$DOCKER_LOG"
+    if grep -q '^systemctl disable' "$DOCKER_LOG"; then false; fi
 }
 
 @test "doctor runs without writing bytecode (under sudo it would be root's, inside /opt)" {
@@ -489,7 +497,7 @@ make_backup_dir() {
     [ "$status" -eq 0 ]
     # The banner is `passwords`' job; at the end of an install it buried
     # the address under a hundred lines.
-    ! grep -q PASSWORDS "$DOCKER_LOG"
+    if grep -q PASSWORDS "$DOCKER_LOG"; then false; fi
     [[ "$output" == *"smoking-pi passwords --show-secrets"* ]]
     [[ "$output" == *"doctor --live"* ]]
     [[ "$output" != *"Still to do"* ]]
@@ -579,7 +587,7 @@ install_on_a_tty() {
     [ "$status" -eq 0 ]
     grep -qx 'systemctl enable smoking-pi' "$DOCKER_LOG"
     grep -qx 'systemctl start --no-block smoking-pi' "$DOCKER_LOG"
-    ! grep -q 'systemctl enable --now' "$DOCKER_LOG"
+    if grep -q 'systemctl enable --now' "$DOCKER_LOG"; then false; fi
     [[ "$output" == *"Starts at boot"* ]]
     # A package install's env file is root's: the advice says sudo.
     [[ "$output" == *"sudo smoking-pi passwords --show-secrets"* ]]
@@ -593,7 +601,7 @@ install_on_a_tty() {
     run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --force --no-start
     [ "$status" -eq 0 ]
     grep -qx 'systemctl enable smoking-pi' "$DOCKER_LOG"
-    ! grep -q 'systemctl start' "$DOCKER_LOG"
+    if grep -q 'systemctl start' "$DOCKER_LOG"; then false; fi
     [[ "$output" == *"Starts at boot"* ]]
     : > "$DOCKER_LOG"
     run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --force
@@ -608,7 +616,7 @@ install_on_a_tty() {
     printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"
     run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --force --no-start
     [ "$status" -eq 0 ]
-    ! grep -q 'systemctl enable' "$DOCKER_LOG"
+    if grep -q 'systemctl enable' "$DOCKER_LOG"; then false; fi
 }
 
 @test "install from a clone touches no unit" {
@@ -616,7 +624,7 @@ install_on_a_tty() {
     printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"
     run "$CLI" install --yes --edition pro
     [ "$status" -eq 0 ]
-    ! grep -q 'systemctl enable' "$DOCKER_LOG"
+    if grep -q 'systemctl enable' "$DOCKER_LOG"; then false; fi
 }
 
 # The URL an install ends on. It used to be http://localhost:8080 -- which,
@@ -752,7 +760,7 @@ stub_openclaw() {
     [[ "$output" == *"remote-openclaw.md"* ]]
     [[ "$output" == *"nothing is broken"* ]]
     # No token, no profile change: it did not half-configure anything.
-    ! grep -q 'MCP_API_TOKEN' "$SMOKING_PI_ENV_FILE"
+    if grep -q 'MCP_API_TOKEN' "$SMOKING_PI_ENV_FILE"; then false; fi
     grep -qx 'COMPOSE_PROFILES=influxdb' "$SMOKING_PI_ENV_FILE"
 }
 
@@ -772,7 +780,7 @@ stub_openclaw() {
     # registration over the retired connectTimeout/timeout.
     grep -q '"connectionTimeoutMs": 5000' "$DOCKER_LOG"
     grep -q '"requestTimeoutMs": 30000' "$DOCKER_LOG"
-    ! grep -qE '"(connectTimeout|timeout)"' "$DOCKER_LOG"
+    if grep -qE '"(connectTimeout|timeout)"' "$DOCKER_LOG"; then false; fi
     grep -q 'SKILL --reload' "$DOCKER_LOG"
 }
 
@@ -810,7 +818,7 @@ stub_nvm_openclaw() {
     [ "$status" -eq 0 ]
     # The newest 24, not the newest overall: 24 is what nvm runs.
     grep -q 'nvm-v24.18.0 openclaw mcp set smokeping' "$DOCKER_LOG"
-    ! grep -q 'nvm-v25' "$DOCKER_LOG"
+    if grep -q 'nvm-v25' "$DOCKER_LOG"; then false; fi
 }
 
 @test "openclaw reads nvm's default alias as a version, not a prefix" {
@@ -963,7 +971,7 @@ STUB
     run "$CLI" openclaw
     [ "$status" -eq 0 ]
     # Not in argv...
-    ! grep -q '^CURL .*tok123deadbeef' "$DOCKER_LOG"
+    if grep -q '^CURL .*tok123deadbeef' "$DOCKER_LOG"; then false; fi
     # ...and curl was driven from stdin, with the header actually present.
     grep -q '^CURL -K -' "$DOCKER_LOG"
     grep -q 'CURLCFG .*Authorization: Bearer tok123deadbeef' "$DOCKER_LOG"
@@ -978,7 +986,7 @@ STUB
     [ "$status" -eq 1 ]
     [[ "$output" == *"cannot be"* ]]
     # It refused before touching the gateway.
-    ! grep -q 'openclaw mcp set' "$DOCKER_LOG"
+    if grep -q 'openclaw mcp set' "$DOCKER_LOG"; then false; fi
 }
 
 # --- config: env-file settings by name ---------------------------------------
@@ -1014,7 +1022,7 @@ config_setup() {
     [ "$status" -eq 0 ]
     grep -qx 'NOTIFY_MODE=openclaw' "$SMOKING_PI_ENV_FILE"
     [[ "$output" == *"alerter"*"which no enabled profile runs"* ]]
-    ! grep -q ' up -d' "$DOCKER_LOG"
+    if grep -q ' up -d' "$DOCKER_LOG"; then false; fi
 }
 
 @test "config set refuses a secret on the command line and writes nothing" {
@@ -1022,7 +1030,7 @@ config_setup() {
     run "$CLI" config set ANTHROPIC_API_KEY sk-on-argv
     [ "$status" -eq 2 ]
     [[ "$output" == *"not taken from the command line"* ]]
-    ! grep -q 'sk-on-argv' "$SMOKING_PI_ENV_FILE"
+    if grep -q 'sk-on-argv' "$SMOKING_PI_ENV_FILE"; then false; fi
 }
 
 @test "config set reads a secret from stdin, stores it, and never prints or passes it" {
@@ -1032,7 +1040,7 @@ config_setup() {
     grep -qx 'ANTHROPIC_API_KEY=sk-from-stdin' "$SMOKING_PI_ENV_FILE"
     [[ "$output" == *"set (hidden)"* ]]
     [[ "$output" != *"sk-from-stdin"* ]]
-    ! grep -q 'sk-from-stdin' "$DOCKER_LOG" 2>/dev/null
+    if grep -q 'sk-from-stdin' "$DOCKER_LOG"; then false; fi
 }
 
 @test "config set refuses what install generated: the data volumes hold it" {
@@ -1051,7 +1059,7 @@ config_setup() {
     run "$CLI" config set NOTIFY_MOD openclaw
     [ "$status" -eq 2 ]
     [[ "$output" == *"Did you mean NOTIFY_MODE?"* ]]
-    ! grep -q 'NOTIFY_MOD=' "$SMOKING_PI_ENV_FILE"
+    if grep -q 'NOTIFY_MOD=' "$SMOKING_PI_ENV_FILE"; then false; fi
 }
 
 @test "config set COMPOSE_PROFILES applies to the whole stack" {
@@ -1124,7 +1132,7 @@ links_setup() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"at home:       none (smoking-pi links --lan auto)"* ]]
     [[ "$output" == *"from anywhere: none"* ]]
-    ! grep -q ' up -d' "$DOCKER_LOG" 2>/dev/null
+    if grep -q ' up -d' "$DOCKER_LOG"; then false; fi
 }
 
 @test "links --lan auto takes the default route's source address, not the SSH one" {
@@ -1266,7 +1274,7 @@ STUB
     # Only what the new container logged: --since the moment before the recreate.
     grep -Eq 'logs alerter --since 20[0-9-]+T[0-9:]+Z' "$DOCKER_LOG"
     # No test message unless asked.
-    ! grep -q 'main.py --test' "$DOCKER_LOG"
+    if grep -q 'main.py --test' "$DOCKER_LOG"; then false; fi
     # The token is never printed.
     [[ "$output" != *"gw-secret"* ]]
 }
@@ -1283,7 +1291,7 @@ STUB
     grep -qx 'COMPOSE_PROFILES=influxdb,mcp,alerts' "$SMOKING_PI_ENV_FILE"
     [[ "$output" == *"@pi_bot can write to chat 4242"* ]]
     [[ "$output" != *"$tok"* ]]
-    ! grep -q "$tok" "$DOCKER_LOG"
+    if grep -q "$tok" "$DOCKER_LOG"; then false; fi
     # Set once, the token is not asked for again.
     run "$CLI" alerts --telegram --to -100123 --yes </dev/null
     [ "$status" -eq 0 ]
@@ -1294,7 +1302,7 @@ STUB
     alerts_setup
     run sh -c "printf 'not-a-token\n' | '$CLI' alerts --telegram --to 4242 --yes"
     [ "$status" -eq 2 ]
-    ! grep -q 'TELEGRAM_BOT_TOKEN=not' "$SMOKING_PI_ENV_FILE"
+    if grep -q 'TELEGRAM_BOT_TOKEN=not' "$SMOKING_PI_ENV_FILE"; then false; fi
     grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
     printf 'TELEGRAM_BOT_TOKEN=123456:AAAbbbCCCdddEEEfffGGGhhhIIIjjjKKKlll\n' >> "$SMOKING_PI_ENV_FILE"
     run "$CLI" alerts --telegram --to 'x;y' --yes
@@ -1304,7 +1312,7 @@ STUB
     run "$CLI" alerts --telegram --yes </dev/null
     [ "$status" -eq 2 ]
     [[ "$output" == *"--to CHAT_ID"* ]]
-    ! grep -q 'find-chat' "$DOCKER_LOG"
+    if grep -q 'find-chat' "$DOCKER_LOG"; then false; fi
 }
 
 @test "alerts --telegram on a terminal finds the chat in the alerter image and asks before using it" {
@@ -1328,7 +1336,7 @@ STUB
     run sh -c "printf 'n\n' | SHELL=/bin/bash timeout 60 script -qec '$CLI alerts --telegram' /dev/null"
     grep -q 'find-chat 120' "$DOCKER_LOG"
     grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
-    ! grep -q 'TELEGRAM_CHAT_ID=4242' "$SMOKING_PI_ENV_FILE"
+    if grep -q 'TELEGRAM_CHAT_ID=4242' "$SMOKING_PI_ENV_FILE"; then false; fi
     # Accepted: the number, not Compose's line before it.
     run sh -c "printf 'y\nn\n' | SHELL=/bin/bash timeout 60 script -qec '$CLI alerts --telegram' /dev/null"
     [[ "$output" == *"The message came from: Ana"* ]]
@@ -1366,7 +1374,7 @@ STUB
     run "$CLI" alerts --openclaw --to telegram:1 --yes
     [ "$status" -eq 1 ]
     [[ "$output" == *"not working yet"* ]]
-    ! grep -q 'main.py --test' "$DOCKER_LOG"
+    if grep -q 'main.py --test' "$DOCKER_LOG"; then false; fi
 }
 
 @test "alerts --test sends one through the alerter and reports a failed send" {
@@ -1390,12 +1398,12 @@ STUB
     grep -qx 'ALERT_WEBHOOK_URL=https://hooks.example/T0/s3cret' "$SMOKING_PI_ENV_FILE"
     grep -qx 'NOTIFY_MODE=webhook' "$SMOKING_PI_ENV_FILE"
     [[ "$output" != *"s3cret"* ]]
-    ! grep -q 's3cret' "$DOCKER_LOG"
+    if grep -q 's3cret' "$DOCKER_LOG"; then false; fi
     : > "$DOCKER_LOG"
     run "$CLI" alerts --off --yes
     [ "$status" -eq 0 ]
     grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
-    ! grep -q 'logs alerter' "$DOCKER_LOG"
+    if grep -q 'logs alerter' "$DOCKER_LOG"; then false; fi
 }
 
 @test "alerts on an edition without the alerter says so and changes nothing" {
@@ -1453,7 +1461,7 @@ STUB
     [[ "$output" == *"07:45 Europe/London"* ]]
     [[ "$output" == *"logged, not sent"* ]]
     # The alerts profile is not in the stub's enabled services: nothing started.
-    ! grep -q ' up -d' "$DOCKER_LOG"
+    if grep -q ' up -d' "$DOCKER_LOG"; then false; fi
 }
 
 @test "alerts --digest refuses a time or zone it cannot read, before writing anything" {
@@ -1470,7 +1478,7 @@ STUB
     [ "$status" -eq 2 ]
     run "$CLI" alerts --digest --openclaw
     [ "$status" -eq 2 ]
-    ! grep -q '^DIGEST_' "$SMOKING_PI_ENV_FILE"
+    if grep -q '^DIGEST_' "$SMOKING_PI_ENV_FILE"; then false; fi
 }
 
 @test "alerts --digest off turns it off; with a mode, both are set in one go" {
@@ -1511,7 +1519,7 @@ STUB
     grep -qx 'docker stop pro-ai-insights-1 pro-alerter-1' "$DOCKER_LOG"
     grep -qx 'docker rm pro-ai-insights-1 pro-alerter-1' "$DOCKER_LOG"
     # Never a volume, never an enabled service's container.
-    ! grep -q 'rm -v\|volume rm\|pro-postgres-1\|pro-grafana-1' "$DOCKER_LOG"
+    if grep -q 'rm -v\|volume rm\|pro-postgres-1\|pro-grafana-1' "$DOCKER_LOG"; then false; fi
     # The up comes first; stop, then rm.
     up=$(grep -n 'up -d --remove-orphans' "$DOCKER_LOG" | cut -d: -f1)
     stop=$(grep -n '^docker stop' "$DOCKER_LOG" | cut -d: -f1)
@@ -1524,7 +1532,7 @@ STUB
     run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]
     [[ "$output" != *"Removing containers"* ]]
-    ! grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"
+    if grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"; then false; fi
 }
 
 @test "when Compose cannot list the enabled services, nothing is removed: an empty list is not 'all disabled'" {
@@ -1533,7 +1541,7 @@ STUB
     run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]
     [[ "$output" == *"containers of disabled profiles were not checked"* ]]
-    ! grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"
+    if grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"; then false; fi
 }
 
 @test "when docker cannot list the project's containers, nothing is removed and it says so" {
@@ -1542,7 +1550,7 @@ STUB
     run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]
     [[ "$output" == *"docker could not list the pro containers"* ]]
-    ! grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"
+    if grep -q '^docker stop\|^docker rm' "$DOCKER_LOG"; then false; fi
 }
 
 @test "up also removes a disabled profile's container" {
@@ -1550,7 +1558,7 @@ STUB
     run "$CLI" up
     [ "$status" -eq 0 ]
     grep -qx 'docker rm pro-ai-insights-1' "$DOCKER_LOG"
-    ! grep -q 'pro-smokeping-1$' <(grep '^docker \(stop\|rm\)' "$DOCKER_LOG")
+    if grep -q 'pro-smokeping-1$' <(grep '^docker \(stop\|rm\)' "$DOCKER_LOG"); then false; fi
 }
 
 @test "config set COMPOSE_PROFILES turning a profile off removes its container" {
@@ -1814,7 +1822,7 @@ STUB
     [ "$status" -eq 1 ]
     [[ "$output" == *"dnsmasq"* ]]
     grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
-    ! grep -q 'up -d dns-observer' "$DOCKER_LOG"
+    if grep -q 'up -d dns-observer' "$DOCKER_LOG"; then false; fi
 }
 
 @test "dns disable asks first (the router may still point here), --yes removes the profile" {
@@ -1859,7 +1867,7 @@ STUB
     [ "$status" -eq 1 ]
     [[ "$output" == *"not running"* ]]
     [[ "$output" == *"smoking-pi dns enable"* ]]
-    ! grep -q 'connection_test.py' "$DOCKER_LOG"
+    if grep -q 'connection_test.py' "$DOCKER_LOG"; then false; fi
     export STUB_DNS_RUNNING=1
     run "$CLI" dns test --via 192.168.1.1
     [ "$status" -eq 0 ]
@@ -1950,7 +1958,7 @@ release_lock() {
         /bin/sleep 0.1
     done
     grep -q "Another smoking-pi command is changing this stack" "$BATS_TEST_TMPDIR/out"
-    ! grep -q ' up -d' "$DOCKER_LOG"
+    if grep -q ' up -d' "$DOCKER_LOG"; then false; fi
     release_lock
     wait "$pid"
     grep -q ' up -d' "$DOCKER_LOG"
@@ -1970,7 +1978,7 @@ release_lock() {
     printf '#!/bin/sh\necho "fd9 $([ -e /proc/self/fd/9 ] && echo open || echo closed)" >> "$DOCKER_LOG"\nexit 0\n' > "$BATS_TEST_TMPDIR/bin/docker"
     run "$CLI" up
     grep -q 'fd9 closed' "$DOCKER_LOG"
-    ! grep -q 'fd9 open' "$DOCKER_LOG"
+    if grep -q 'fd9 open' "$DOCKER_LOG"; then false; fi
 }
 
 @test "after up, a container left under Compose's temporary name gets its name back" {
@@ -1979,7 +1987,7 @@ release_lock() {
     [ "$status" -eq 0 ]
     grep -qx 'docker rename b2a14da7a0ee_pro-influxdb-1 pro-influxdb-1' "$DOCKER_LOG"
     [[ "$output" == *"Renamed b2a14da7a0ee_pro-influxdb-1 to pro-influxdb-1"* ]]
-    ! grep -q '^docker rm\|pro-postgres-1' <(grep '^docker \(rm\|rename\)' "$DOCKER_LOG")
+    if grep -q '^docker rm\|pro-postgres-1' <(grep '^docker \(rm\|rename\)' "$DOCKER_LOG"); then false; fi
 }
 
 @test "a temporary copy that never started, beside the named container, is removed" {
@@ -1987,7 +1995,7 @@ release_lock() {
     run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]
     grep -qx 'docker rm 53642260c024_pro-dns-observer-1' "$DOCKER_LOG"
-    ! grep -q '^docker rename\|^docker rm pro-dns-observer-1' "$DOCKER_LOG"
+    if grep -q '^docker rename\|^docker rm pro-dns-observer-1' "$DOCKER_LOG"; then false; fi
 }
 
 @test "two running copies are left for a person, with a warning" {
@@ -1995,7 +2003,7 @@ release_lock() {
     run "$CLI" up
     [ "$status" -eq 0 ]
     [[ "$output" == *"both exist"* ]]
-    ! grep -q '^docker \(rm\|rename\)' "$DOCKER_LOG"
+    if grep -q '^docker \(rm\|rename\)' "$DOCKER_LOG"; then false; fi
 }
 
 @test "upgrade: up failing mid-recreate is retried once, after the leftovers are repaired" {
@@ -2045,7 +2053,7 @@ release_lock() {
     grep -q '<txt-record>edition=pro</txt-record>' "$f"
     grep -q '<txt-record>version=9.9.9</txt-record>' "$f"
     grep -q '<txt-record>grafana=3000</txt-record>' "$f"
-    ! grep -q -e s3cr3t -e t0k3n "$f"
+    if grep -q -e s3cr3t -e t0k3n "$f"; then false; fi
     [ "$(stat -c '%a' "$f")" = 644 ]
     # Unchanged content is not rewritten (Avahi reloads on every write).
     touch -d '2001-01-01' "$f"
@@ -2070,7 +2078,7 @@ release_lock() {
     run "$CLI" up
     grep -q '<port>80</port>' "$SMOKING_PI_AVAHI_FILE"
     grep -q 'edition=basic' "$SMOKING_PI_AVAHI_FILE"
-    ! grep -q grafana "$SMOKING_PI_AVAHI_FILE"
+    if grep -q grafana "$SMOKING_PI_AVAHI_FILE"; then false; fi
 }
 
 @test "discover lists each node once, its IPv4 answer, name unescaped" {
@@ -2164,7 +2172,7 @@ teardown() { chmod -R u+rwx "$BATS_TEST_TMPDIR" 2>/dev/null || true; }
             [[ "$output" != *"unset"* ]]
         done
         # Nothing reached docker: no command ran on a guess.
-        ! grep -q '^docker ' "$DOCKER_LOG"
+        if grep -q '^docker ' "$DOCKER_LOG"; then false; fi
         unlock_env
         chmod 600 "$SMOKING_PI_ENV_FILE"
     done

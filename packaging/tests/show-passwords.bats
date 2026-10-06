@@ -141,13 +141,14 @@ exit 1
 STUB
     chmod +x "$BATS_TEST_TMPDIR/bin/curl"
     export CURL_LOG="$BATS_TEST_TMPDIR/curl.log"
+    : > "$CURL_LOG"
     printf 'TSDB_TYPE=clickhouse\n' >> "$SMOKING_PI_ENV_FILE"
     run_sp --show-secrets --force
-    ! grep -q 'SENTINEL-' "$CURL_LOG" || { echo "a secret reached argv:"; cat "$CURL_LOG"; return 1; }
+    if grep -q 'SENTINEL-' "$CURL_LOG"; then echo "a secret reached argv:"; cat "$CURL_LOG"; false; fi
     sed -i 's/TSDB_TYPE=clickhouse//' "$SMOKING_PI_ENV_FILE"
     : > "$CURL_LOG"
     run_sp --show-secrets --force
-    ! grep -q 'SENTINEL-' "$CURL_LOG" || { echo "a secret reached argv:"; cat "$CURL_LOG"; return 1; }
+    if grep -q 'SENTINEL-' "$CURL_LOG"; then echo "a secret reached argv:"; cat "$CURL_LOG"; false; fi
 }
 
 @test "--show-secrets alone refuses when stdout is not a terminal, and prints nothing" {
@@ -249,7 +250,7 @@ refute_sentinels() {
 @test "piped, the output carries no color codes" {
     run_sp
     [ "$status" -eq 0 ]
-    ! printf '%s' "$output" | grep -q $'\x1b\['
+    if printf '%s' "$output" | grep -q $'\x1b\['; then false; fi
 }
 
 @test "on a terminal it is colored, unless NO_COLOR is set" {
@@ -261,5 +262,5 @@ refute_sentinels() {
     run script -qec "NO_COLOR=1 bash '$SCRIPT'" /dev/null
     [ "$status" -eq 0 ]
     printf '%s' "$output" | grep -q 'Credentials'
-    ! printf '%s' "$output" | grep -q $'\x1b\['
+    if printf '%s' "$output" | grep -q $'\x1b\['; then false; fi
 }
