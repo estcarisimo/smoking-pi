@@ -1475,6 +1475,19 @@ alerts_telegram() {
             echo "(The bot token is saved; it is not asked for again.)" >&2
             return 2
         fi
+        # Finding the chat reads the bot's messages, which only one program
+        # may do, and marks them read: a bot OpenClaw (or anything else)
+        # already listens on would lose them. Sending is never a conflict.
+        local shared=""
+        read -r -p "Is this bot already used by OpenClaw or another program? [y/N] " shared || shared=""
+        case "$shared" in
+            [yY]|[yY][eE][sS])
+                echo "Then give the chat instead of reading the bot's messages:" >&2
+                echo "  $(cli_name) alerts --telegram --to CHAT_ID" >&2
+                echo "The chat id: OpenClaw's OPENCLAW_TO is telegram:CHAT_ID; otherwise forward" >&2
+                echo "one of your messages to @userinfobot. The bot token is saved." >&2
+                return 2 ;;
+        esac
         echo "Starting the alerter's image to read the bot's messages (the first time,"
         echo "it may download it). Then open your bot in Telegram and send it any message"
         echo "(a bot can only write to someone who wrote to it first). Waiting up to two minutes..."
