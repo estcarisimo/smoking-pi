@@ -191,18 +191,33 @@ def test_the_test_message_goes_to_telegram(bot):
     assert bot.calls[0]["json"]["text"] == notifier.TEST_MESSAGE
 
 
-def test_find_chat_reads_the_newest_message(bot):
-    bot.answer = lambda method, **kw: _Resp(200, {"ok": True, "result": [
-        {"message": {"chat": {"id": 1, "first_name": "Old"}}},
-        {"message": {"chat": {"id": 4242, "first_name": "Ana", "last_name": "B"}}}]})
+def _updates(baseline, fresh):
+    """getUpdates as Telegram answers it: offset=-1 returns the newest held
+    update (the baseline); a poll returns what came after the offset."""
+    def answer(method, json=None, **kw):
+        if json.get("offset") == -1:
+            return _Resp(200, {"ok": True, "result": baseline})
+        return _Resp(200, {"ok": True, "result": fresh})
+    return answer
+
+
+def test_find_chat_ignores_messages_from_before_it_asked(bot):
+    """A message held from yesterday, or a stranger's, is not the answer to
+    'send the bot a message now'."""
+    bot.answer = _updates(
+        [{"update_id": 50, "message": {"chat": {"id": 666, "first_name": "Stranger"}}}],
+        [{"update_id": 51, "message": {"chat": {"id": 4242, "first_name": "Ana",
+                                                 "last_name": "B"}}}])
     assert telegram.find_chat(5) == {"id": "4242", "name": "Ana B"}
-    assert bot.calls[0]["method"] == "getUpdates"
+    first, poll = bot.calls[0]["json"], bot.calls[1]["json"]
+    assert first["offset"] == -1 and poll["offset"] == 51
 
 
 def test_find_chat_a_group_is_named_by_its_title(bot):
-    bot.answer = lambda method, **kw: _Resp(200, {"ok": True, "result": [
-        {"message": {"chat": {"id": -100123, "title": "House"}}}]})
+    bot.answer = _updates([], [{"update_id": 1, "message": {
+        "chat": {"id": -100123, "title": "House"}}}])
     assert telegram.find_chat(5) == {"id": "-100123", "name": "House"}
+    assert "offset" not in bot.calls[1]["json"]  # nothing held: from the start
 
 
 def test_find_chat_a_bot_with_a_webhook_says_so(bot):
@@ -211,11 +226,45 @@ def test_find_chat_a_bot_with_a_webhook_says_so(bot):
         telegram.find_chat(5)
 
 
-def test_find_chat_cli_prints_the_id_first(bot, capsys):
-    bot.answer = lambda method, **kw: _Resp(200, {"ok": True, "result": [
-        {"message": {"chat": {"id": 4242, "username": "ana"}}}]})
+def test_find_chat_cli_prints_the_id_last(bot, capsys):
+    bot.answer = _updates([], [{"update_id": 1, "message": {
+        "chat": {"id": 4242, "username": "ana"}}}])
     assert telegram.main(["find-chat", "5"]) == 0
     captured = capsys.readouterr()
-    assert captured.out.splitlines()[0] == "4242"
+    assert captured.out.splitlines()[-1] == "4242"
     assert "ana" in captured.err
     assert TOKEN not in captured.out + captured.err
+
+
+def test_html_telegram_cannot_parse_is_resent_as_plain_text(bot):
+    answers = iter([_Resp(400, {"ok": False, "description":
+                                "Bad Request: can't parse entities: unclosed tag"}),
+                    _Resp()])
+    bot.answer = lambda method, **kw: next(answers)
+    assert telegram.send("<b>down</b> a&amp;b")
+    first, second = bot.calls[0]["json"], bot.calls[1]["json"]
+    assert first["parse_mode"] == "HTML"
+    assert "parse_mode" not in second and second["text"] == "down a&b"
+
+
+def test_a_preflight_401_says_how_to_replace_the_token(bot, caplog):
+    bot.answer = lambda method, **kw: _Resp(401, {"ok": False})
+    with caplog.at_level(logging.ERROR):
+        assert not telegram.preflight()
+    assert "config set TELEGRAM_BOT_TOKEN" in caplog.text
+
+
+def test_httpx_own_request_log_never_carries_the_token(bot, monkeypatch, caplog):
+    """httpx logs 'HTTP Request: POST <url>' at INFO. Through a real
+    httpx.Client (a mock transport, no network), at INFO, the URL it logs
+    must not hold the token."""
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"ok": True}))
+
+    def real_post(url, **kw):
+        with httpx.Client(transport=transport) as client:
+            return client.post(url, **kw)
+    monkeypatch.setattr(telegram.httpx, "post", real_post)
+    with caplog.at_level(logging.INFO, logger="httpx"):
+        assert telegram.send("x")
+    assert "HTTP Request" in caplog.text and "/bot<redacted>/sendMessage" in caplog.text
+    _no_token_in(caplog)

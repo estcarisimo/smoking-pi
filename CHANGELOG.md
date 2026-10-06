@@ -25,8 +25,17 @@ version gets a matching GitHub release and git tag.
   - A preflight at start checks that the token belongs to a bot and that
     the bot can reach the chat. A bot may write only to someone who wrote
     to it first.
-  - The token is in every Bot API URL, so the alerter never logs a URL or
-    an exception's text.
+  - The token is in every Bot API URL. The alerter logs at INFO, which is
+    also the level at which httpx logs every request URL, so the token
+    would have been in `docker compose logs alerter` on every alert (the
+    independent review found this). httpx's log is now turned down to
+    warnings and redacts `/bot<token>`. The alerter's own code logs no URL
+    and no exception text.
+  - The chat id comes only from a message sent after the command asked, and
+    the owner confirms whose it is. A message held from earlier, or from a
+    stranger who found the bot, is not used.
+  - HTML that Telegram cannot parse is sent again as plain text, so a
+    formatting mistake never costs an alert.
   - Telegram is the first choice in the `alerts` menu, and Alerts is now
     preselected in the guided install, which then asks where to send them.
 

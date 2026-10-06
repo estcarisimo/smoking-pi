@@ -1272,6 +1272,35 @@ STUB
     ! grep -q 'find-chat' "$DOCKER_LOG"
 }
 
+@test "alerts --telegram on a terminal finds the chat in the alerter image and asks before using it" {
+    command -v script >/dev/null || skip "no script(1) for a pty"
+    alerts_setup
+    export STUB_PREFLIGHT="Delivery preflight: Telegram bot @pi_bot can write to chat 4242"
+    printf 'TELEGRAM_BOT_TOKEN=123456:AAAbbbCCCdddEEEfffGGGhhhIIIjjjKKKlll\n' >> "$SMOKING_PI_ENV_FILE"
+    mkdir -p "$BATS_TEST_TMPDIR/bin3"
+    cat > "$BATS_TEST_TMPDIR/bin3/docker" <<STUB
+#!/bin/sh
+case "\$*" in
+    *"run --rm --no-deps -T alerter python telegram.py find-chat"*)
+        echo "docker \$*" >> "\$DOCKER_LOG"
+        echo " alerter Pulling 12345"; echo "The message came from: Ana (chat 4242)." >&2; echo 4242; exit 0 ;;
+esac
+exec "$BATS_TEST_TMPDIR/bin2/docker" "\$@"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin3/docker"
+    export PATH="$BATS_TEST_TMPDIR/bin3:$PATH"
+    # Declined: nothing changes.
+    run sh -c "printf 'n\n' | SHELL=/bin/bash timeout 60 script -qec '$CLI alerts --telegram' /dev/null"
+    grep -q 'find-chat 120' "$DOCKER_LOG"
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    ! grep -q 'TELEGRAM_CHAT_ID=4242' "$SMOKING_PI_ENV_FILE"
+    # Accepted: the number, not Compose's line before it.
+    run sh -c "printf 'y\nn\n' | SHELL=/bin/bash timeout 60 script -qec '$CLI alerts --telegram' /dev/null"
+    [[ "$output" == *"The message came from: Ana"* ]]
+    grep -qx 'TELEGRAM_CHAT_ID=4242' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'NOTIFY_MODE=telegram' "$SMOKING_PI_ENV_FILE"
+}
+
 @test "alerts refuses a bare chat id: OpenClaw does not deliver to one" {
     alerts_setup
     run "$CLI" alerts --openclaw --to 123456 --yes

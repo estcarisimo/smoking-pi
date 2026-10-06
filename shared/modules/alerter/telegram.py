@@ -13,7 +13,10 @@ the owner sends the bot, so nobody has to look one up.
 **The token is in every URL** (``/bot<TOKEN>/sendMessage``: that is the Bot
 API). So nothing here logs a URL or an exception's text, both of which
 would carry it: a log line names the method, the HTTP status and Telegram's
-own ``description``, which never contains the token.
+own ``description``, which never contains the token. httpx itself logs every
+request URL at INFO (``HTTP Request: POST https://...``), and the alerter
+logs at INFO: :class:`RedactBotToken` is installed on httpx's loggers on
+import, whatever level they end up at.
 
 Messages are the same Telegram HTML the OpenClaw path sends (templates.py);
 ``ALERT_MARKUP=plain`` sends them without a parse mode.
@@ -21,8 +24,10 @@ Messages are the same Telegram HTML the OpenClaw path sends (templates.py);
 
 from __future__ import annotations
 
+import html
 import logging
 import os
+import re
 import sys
 import time
 
@@ -38,6 +43,27 @@ MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 1.0
 # Telegram says how long to wait on a 429; past this, give up this message.
 MAX_RETRY_AFTER_S = 30
+
+_BOT_PATH = re.compile(r"/bot[^/\s\"']+")
+
+
+class RedactBotToken(logging.Filter):
+    """Replace ``/bot<token>`` with ``/bot<redacted>`` in a record, args
+    included (httpx passes the URL as an argument, not in the message)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.args:
+            record.msg = record.getMessage()
+            record.args = None
+        if isinstance(record.msg, str):
+            record.msg = _BOT_PATH.sub("/bot<redacted>", record.msg)
+        return True
+
+
+for _name in ("httpx", "httpcore"):
+    _logger = logging.getLogger(_name)
+    if not any(isinstance(f, RedactBotToken) for f in _logger.filters):
+        _logger.addFilter(RedactBotToken())
 
 
 def bot_token() -> str:
@@ -88,14 +114,14 @@ def _fields(silent: bool) -> dict:
     return data
 
 
-def _send(method: str, data: dict, files: dict | None = None) -> bool:
+def _send(method: str, data: dict, files: dict | None = None) -> tuple[bool, str]:
     """Send with retries. A 4xx other than 429 is the request's fault (a
     wrong chat, a bot the owner never wrote to, bad HTML): retrying cannot
     fix it, so it is reported once."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         status, body = _call(method, data, files)
         if status == 200 and body.get("ok") is True:
-            return True
+            return True, ""
         log.warning("Telegram %s failed: %s (attempt %d/%d)", method,
                     _describe(status, body), attempt, MAX_ATTEMPTS)
         if 400 <= status < 500 and status != 429:
@@ -111,7 +137,27 @@ def _send(method: str, data: dict, files: dict | None = None) -> bool:
                 wait = float(retry_after)
         time.sleep(wait)
     log.error("Telegram delivery (%s) failed", method)
-    return False
+    return False, str(body.get("description") or "")
+
+
+def _plain(text: str) -> str:
+    """The message without its HTML: what is left to send when Telegram
+    cannot parse the markup."""
+    return html.unescape(re.sub(r"<[^>]+>", "", text))
+
+
+def _send_text_or_plain(method: str, data: dict, key: str,
+                        files: dict | None = None) -> bool:
+    """Send; if Telegram cannot parse the HTML (a rendering bug, or a
+    target name that slipped past escaping), send the same words without
+    markup once. A formatting mistake must never cost the alert."""
+    ok, why = _send(method, data, files)
+    if ok or "parse_mode" not in data or "parse entities" not in why.lower():
+        return ok
+    log.warning("Telegram could not parse the message's HTML; sending it as plain text")
+    plain = {k: v for k, v in data.items() if k != "parse_mode"}
+    plain[key] = _plain(str(data[key]))
+    return _send(method, plain, files)[0]
 
 
 def send(text: str, image: bytes | None = None, filename: str = "smokeping.png",
@@ -126,15 +172,15 @@ def send(text: str, image: bytes | None = None, filename: str = "smokeping.png",
         data["text"] = text
         # Alert links point at this house's Grafana: a preview cannot load.
         data["link_preview_options"] = {"is_disabled": True}
-        return _send("sendMessage", data)
+        return _send_text_or_plain("sendMessage", data, "text")
     data["caption"] = text
     as_document = (os.environ.get("ALERT_IMAGE_AS_DOCUMENT") or "").strip().lower() \
         in ("1", "true", "yes", "on")
     field = "document" if as_document else "photo"
     # Multipart: every field is a string.
     form = {k: ("true" if v is True else str(v)) for k, v in data.items()}
-    return _send("sendDocument" if as_document else "sendPhoto", form,
-                 files={field: (filename, image, "image/png")})
+    return _send_text_or_plain("sendDocument" if as_document else "sendPhoto", form,
+                               "caption", files={field: (filename, image, "image/png")})
 
 
 def preflight() -> bool:
@@ -152,7 +198,8 @@ def preflight() -> bool:
     status, body = _call("getMe")
     if status == 401:
         log.error("Delivery preflight: Telegram rejected the bot token (401). Copy it "
-                  "again from @BotFather.")
+                  "again from @BotFather, then: sudo smoking-pi config set "
+                  "TELEGRAM_BOT_TOKEN")
         return False
     if status != 200 or body.get("ok") is not True:
         log.error("Delivery preflight: Telegram getMe failed: %s", _describe(status, body))
@@ -168,25 +215,46 @@ def preflight() -> bool:
     return True
 
 
+def _latest_update_id(token: str | None) -> int | None:
+    """The id of the newest update Telegram still holds (it keeps them a
+    day), without waiting. None when there is none."""
+    status, body = _call("getUpdates", {"offset": -1, "timeout": 0}, token=token)
+    if status == 401:
+        raise ValueError("Telegram rejected the bot token")
+    if status == 409:
+        raise ValueError("this bot has a webhook set, so its messages cannot be "
+                         "read here; remove it (deleteWebhook) or use another bot")
+    ids = [u.get("update_id") for u in (body.get("result") or []) if body.get("ok")]
+    ids = [i for i in ids if isinstance(i, int)]
+    return max(ids) if ids else None
+
+
 def find_chat(wait_s: int = 120, token: str | None = None) -> dict | None:
-    """The chat of the newest message sent to the bot, waiting up to
-    ``wait_s`` for one: ``{"id", "name"}``. Long-polls getUpdates; the bot
+    """The chat of the first message sent to the bot *after* this starts,
+    waiting up to ``wait_s``: ``{"id", "name"}``. An older message -- the
+    owner's from yesterday, or a stranger's who found the bot -- is not an
+    answer to "send the bot a message now". Long-polls getUpdates; the bot
     must not have a webhook (a fresh bot has none)."""
     deadline = time.monotonic() + wait_s
+    last = _latest_update_id(token)
+    offset = (last + 1) if last is not None else None
     while True:
         left = int(deadline - time.monotonic())
         if left <= 0:
             return None
         poll = max(1, min(25, left))
-        status, body = _call("getUpdates", {"timeout": poll, "allowed_updates": ["message"]},
-                             token=token, timeout=poll + 10)
+        req: dict = {"timeout": poll, "allowed_updates": ["message"]}
+        if offset is not None:
+            req["offset"] = offset
+        status, body = _call("getUpdates", req, token=token, timeout=poll + 10)
         if status == 401:
             raise ValueError("Telegram rejected the bot token")
         if status == 409:
             raise ValueError("this bot has a webhook set, so its messages cannot be "
                              "read here; remove it (deleteWebhook) or use another bot")
-        updates = body.get("result") if body.get("ok") else None
-        for update in reversed(updates or []):
+        for update in (body.get("result") if body.get("ok") else None) or []:
+            if isinstance(update.get("update_id"), int):
+                offset = max(offset or 0, update["update_id"] + 1)
             chat = (update.get("message") or {}).get("chat") or {}
             if "id" in chat:
                 name = chat.get("title") or " ".join(
@@ -215,9 +283,10 @@ def main(argv: list[str]) -> int:
     if not found:
         print(f"No message reached the bot in {wait_s} s.", file=sys.stderr)
         return 1
-    # Machine-readable first line for the CLI, then a sentence.
+    # Machine-readable last line for the CLI; the name for the owner to check.
+    print(f"The message came from: {found['name']} (chat {found['id']}).",
+          file=sys.stderr)
     print(found["id"])
-    print(f"Found: {found['name']} (chat {found['id']}).", file=sys.stderr)
     return 0
 
 

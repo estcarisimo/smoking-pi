@@ -73,7 +73,8 @@ sudo smoking-pi alerts --telegram
 It explains how to make the bot (in Telegram, `@BotFather`, then `/newbot`)
 and asks for the bot's token, hidden as you type. Then it asks you to send
 the bot any message and reads your chat id from it, so there is nothing to
-look up. The steps after that are the same as for OpenClaw below: the
+look up. It counts only a message sent after it asked, shows whose message
+it was, and asks before using that chat. The steps after that are the same as for OpenClaw below: the
 `alerts` profile, the alerter's preflight, and an optional `--test`. No
 OpenClaw needed. With OpenClaw on the Pi instead:
 
@@ -119,14 +120,20 @@ TELEGRAM_CHAT_ID=<your chat id; -100... for a group>
 - **The token is part of every Bot API URL** (`/bot<token>/sendMessage`),
   so the alerter never logs a URL or an exception's text. A failure is
   logged as the method, the HTTP status and Telegram's own description.
+  httpx's own request log, which names every URL, is turned down to
+  warnings, and a filter on it replaces the token with `<redacted>` in case
+  that log is turned up again.
 - **A bot can write only to someone who wrote to it first.** The preflight
   checks both halves at start: `getMe` (is the token a bot's?) and
   `getChat` (can it reach the chat?). The usual failure is
   `chat not found` because nobody has messaged the bot yet.
 - A 4xx is the request's fault (a wrong chat, a blocked bot) and is not
   retried. A 429 waits as long as Telegram asks, up to 30 s, and a 5xx or no
-  answer is retried three times. As with OpenClaw, a chart that fails to
-  send never costs the alert: it is retried as text.
+  answer is retried three times. A retry after no answer can deliver the
+  same alert twice, because Telegram may have sent the first one. As with
+  OpenClaw, a chart that fails to send never costs the alert: it is retried
+  as text. If Telegram cannot parse the message's HTML, the same words are
+  sent once more without markup.
 - `sudo smoking-pi config set TELEGRAM_BOT_TOKEN` replaces the token, read
   from a prompt or stdin, never the command line.
 

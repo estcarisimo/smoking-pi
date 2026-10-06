@@ -193,8 +193,9 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      on the alerts profile, recreate the alerter and print its
                      own delivery preflight. --telegram: a bot of your own,
                      no OpenClaw; asks for its token (hidden, or on stdin)
-                     and finds the chat id from a message you send the bot. --test (or answering yes) sends
-                     one labeled test message: the only proof one arrives.
+                     and finds the chat id from a message you send the bot.
+                     --test (or answering yes) sends one labeled test
+                     message: the only proof one arrives.
                      --digest: a daily summary at HH:MM (in ZONE, else TZ),
                      alone or with the rest.
   connect --tailscale [--off] [--yes]
@@ -1468,12 +1469,20 @@ alerts_telegram() {
     if [ -z "$to" ]; then
         if [ "$yes" = 1 ] || [ ! -t 0 ]; then
             echo "No chat: --to CHAT_ID, or run this in a terminal to find it by messaging the bot." >&2
+            echo "(The bot token is saved; it is not asked for again.)" >&2
             return 2
         fi
-        echo "Now open your bot in Telegram and send it any message (a bot can only write"
-        echo "to someone who wrote to it first). Waiting up to two minutes..."
-        to="$(compose run --rm --no-deps -T alerter python telegram.py find-chat 120 | head -1)" || to=""
+        echo "Starting the alerter's image to read the bot's messages (the first time,"
+        echo "it may download it). Then open your bot in Telegram and send it any message"
+        echo "(a bot can only write to someone who wrote to it first). Waiting up to two minutes..."
+        # The chat id is the last line that is only a number; anything else
+        # Compose prints on stdout (a pull, a warning) is not it.
+        to="$(compose run --rm --no-deps -T alerter python telegram.py find-chat 120 \
+            | grep -E '^-?[0-9]+$' | tail -1)" || to=""
         [ -n "$to" ] || { echo "No chat found; run this again, or give it: --to CHAT_ID" >&2; return 1; }
+        local a=""
+        read -r -p "Send alerts to that chat? [Y/n] " a || a=n
+        case "$a" in n|N|no) echo "Nothing changed. Run this again and message the bot, or give it: --to CHAT_ID" >&2; return 1 ;; esac
     fi
     if ! printf '%s' "$to" | grep -Eq '^(-?[0-9]{1,20}|@[A-Za-z0-9_]{5,32})$'; then
         echo "$to is not a Telegram chat id (digits, -100... for a group, or @channel)." >&2
