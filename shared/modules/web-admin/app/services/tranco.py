@@ -39,7 +39,8 @@ class TrancoService:
                 logger.info(f"Using cached Tranco data (offset={offset}, limit={limit})")
                 return self._read_cached_sites(cache_file, limit, offset)
             
-            # Two-step download process as per TODO-220.md
+            # Two steps: find the latest list's page from the home page, then
+            # the "Download ZIP" link on that page
             logger.info("Starting two-step Tranco download process")
             
             # Step 1: Land on tranco-list.eu and find latest list URL
@@ -220,6 +221,7 @@ class TrancoService:
             return None
 
     def _get_fallback_sites(self) -> List[str]:
-        """Return empty list - no fallback sites per TODO-223"""
+        """Return an empty list: no built-in fallback sites, because a stale
+        hard-coded list would look like a real ranking."""
         logger.error("ERROR: Tranco service failed - returning empty list (no fallback sites)")
         return []

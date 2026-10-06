@@ -231,10 +231,14 @@ class OCAFetcher:
         return targets
     
     def get_fallback_oca_targets(self) -> List[Dict]:
-        """DISABLED: No fallback targets per TODO-257"""
-        logger.warning("Fallback OCA targets completely disabled per TODO-257")
+        """No fallback targets: a guessed Netflix host (netflix.com, fast.com)
+        is not the OCA that serves this network, so it would measure the
+        wrong thing under the OCA label."""
+        logger.warning(
+            "No fallback OCA targets: a guessed Netflix host (netflix.com, fast.com) "
+            "is not the OCA that serves this network"
+        )
         logger.warning("Netflix OCA section will remain empty when real OCA discovery fails")
-        logger.warning("This prevents addition of generic Netflix domains (netflix.com, fast.com, etc.)")
         return []
     
     def generate_smokeping_config(self) -> bool:
@@ -437,7 +441,7 @@ class OCAFetcher:
         oca_data = self.fetch_oca_servers()
         if not oca_data:
             logger.error("Netflix OCA discovery failed - no real OCA servers found")
-            logger.info("Netflix OCA section will be cleared (no fallback domains per TODO-257)")
+            logger.info("Netflix OCA section will be cleared (no fallback: a guessed host is not the OCA that serves this network)")
             logger.info("Check container logs and network connectivity for OCA discovery issues")
             # Use empty targets list (no fallback)
             oca_targets = []

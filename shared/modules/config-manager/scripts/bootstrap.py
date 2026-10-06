@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Bootstrap Module for Config Manager
-Handles first-run setup and config file recovery per TODO-218.md
+Handles first-run setup and config file recovery: a missing or invalid-YAML
+config file is restored from the seed templates.
 """
 
 import logging
