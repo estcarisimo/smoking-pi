@@ -9,6 +9,24 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A remote assistant still could not finish signing in when its own
+  callback redirects (Cursor, so Grokbot).** 2.24.1 let the pairing form
+  return to the assistant's callback origin, but browsers apply
+  `form-action` to every hop after a form POST, and Cursor's callback at
+  `www.cursor.com` redirects to `cursor.com`: that second hop was blocked
+  the same silent way, and the owner's third attempt on the reference Pi
+  failed like the first two. No list of sources can foresee an
+  assistant's redirects. Now the form never leaves the Pi: a right code
+  goes to a *Connected* page on the Pi (`303`), which sends the browser on
+  to the assistant, so the form's policy is back to `form-action 'self'`.
+  The token to that page rides in an HttpOnly, Secure cookie, not the URL,
+  so the access log never holds what leads to the code. Proven in
+  Chromium against the real server with a callback that redirects to
+  another origin: 2.24.1 logs the CSP violation and the assistant never
+  gets a code; this version arrives and the code exchanges for a token.
+
 ## [2.24.1] — 2026-10-05
 
 A remote assistant can now finish signing in. In 2.24.0 the right pairing
