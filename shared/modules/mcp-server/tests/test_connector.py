@@ -380,9 +380,10 @@ def test_the_form_never_redirects_off_the_pi(app, state):
         assert done.status_code == 303
         assert done.headers["location"] == f"/connector/pair?request={request_id}"
         # The token to the code is a cookie, never in the logged URL.
-        assert "smoking_pi_pair=" in done.headers["set-cookie"]
-        assert "HttpOnly" in done.headers["set-cookie"]
-        assert "Secure" in done.headers["set-cookie"]
+        cookie = done.headers["set-cookie"]
+        assert cookie.startswith("smoking_pi_pair_" + request_id[:12] + "=")
+        for attr in ("HttpOnly", "Secure", "SameSite=lax", "Path=/connector/pair"):
+            assert cookie.count(attr) == 1, cookie
         back = _back(client, done)
     assert back.startswith(REDIRECT + "?")
     assert parse_qs(urlparse(back).query)["state"] == ["xyz"]
@@ -398,6 +399,18 @@ def test_the_continue_page_needs_the_cookie(app, state):
         page = client.get(done.headers["location"])
         assert page.status_code == 200 and "already used" in page.text
         assert "url=" not in page.text
+
+
+def test_the_continue_page_never_links_a_script_scheme(app, state):
+    """Defense in depth behind the SDK's redirect_uri check."""
+    module, asgi = app
+    code = connector.new_pairing("grok")
+    with TestClient(asgi, base_url=PUBLIC) as client:
+        _, _, request_id, done = _sign_in(client, code)
+        module._connector.completed[request_id]["back"] = "javascript:alert(1)"
+        page = client.get(done.headers["location"])
+    assert page.status_code == 200 and "already used" in page.text
+    assert "url=" not in page.text and "<a href" not in page.text
 
 
 def test_a_second_click_returns_to_the_assistant_again(app, state):

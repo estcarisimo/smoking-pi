@@ -625,8 +625,12 @@ _HEADERS = {
 }
 _REDIRECT_HEADERS = {"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}
 # The continuation token rides in a cookie, not the URL, so the access log
-# (which records the query string) never holds what leads to the code.
-_GO_COOKIE = "smoking_pi_pair"
+# (which records the query string) never holds what leads to the code. One
+# cookie per sign-in, so two in the same browser do not overwrite each other.
+
+
+def _go_cookie(request_id: str) -> str:
+    return "smoking_pi_pair_" + re.sub(r"[^A-Za-z0-9_-]", "", request_id)[:12]
 
 
 def register_routes(mcp: Any, provider: Any) -> None:
@@ -642,7 +646,7 @@ def register_routes(mcp: Any, provider: Any) -> None:
     def to_continue(request_id: str, go: str):
         resp = RedirectResponse(f"/connector/pair?request={request_id}",
                                 status_code=303, headers=_REDIRECT_HEADERS)
-        resp.set_cookie(_GO_COOKIE, go, max_age=CODE_TTL_S, path="/connector/pair",
+        resp.set_cookie(_go_cookie(request_id), go, max_age=CODE_TTL_S, path="/connector/pair",
                         secure=True, httponly=True, samesite="lax")
         return resp
 
@@ -673,7 +677,7 @@ def register_routes(mcp: Any, provider: Any) -> None:
             request_id = request.query_params.get("request", "")
             req = provider.pending_request(request_id)
             if not req:
-                return (continue_page(request_id, request.cookies.get(_GO_COOKIE, ""))
+                return (continue_page(request_id, request.cookies.get(_go_cookie(request_id), ""))
                         or HTMLResponse(_GONE, status_code=410, headers=_HEADERS))
             return form(request_id, req)
         data = await request.form()
