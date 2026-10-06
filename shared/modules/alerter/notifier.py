@@ -22,6 +22,10 @@
   tool is filtered out by tool policy rather than missing. :func:`preflight`
   distinguishes bad token, blocked tool, and unreachable gateway at
   startup, instead of letting every incident quietly exhaust its retries.
+- ``telegram``: straight to the owner's own Telegram bot
+  (``TELEGRAM_BOT_TOKEN``, ``TELEGRAM_CHAT_ID``), no OpenClaw: see
+  telegram.py, which also keeps the token (part of every Bot API URL) out
+  of the logs.
 - ``webhook``: POST ``ALERT_WEBHOOK_URL`` with a generic JSON payload
   ``{type, rule, severity, target, message, state, ts}`` and an optional
   ``Authorization: Bearer {ALERT_WEBHOOK_TOKEN}`` header.
@@ -39,6 +43,7 @@ from datetime import datetime
 
 import httpx
 
+import telegram
 import templates
 from common import openclaw
 
@@ -98,6 +103,17 @@ def notify(event: dict, image: bytes | None = None) -> bool:
         return _notify_openclaw(
             format_message(event, templates.TG_TEXT_LIMIT), event=event
         )
+    if mode == "telegram":
+        silent = _silent(event)
+        if image is None:
+            return telegram.send(text, silent=silent)
+        if telegram.send(text, image=image, filename=_chart_filename(event),
+                         silent=silent):
+            return True
+        # As for OpenClaw: a chart failure must never cost the alert.
+        log.warning("Image delivery failed; retrying text-only (chart_dropped=1)")
+        return telegram.send(format_message(event, templates.TG_TEXT_LIMIT),
+                             silent=silent)
     if mode == "webhook":
         # A generic webhook receives JSON; an image has nowhere to go in it.
         return _notify_webhook(event, text)
@@ -123,6 +139,8 @@ def send_test() -> bool:
     mode = notify_mode()
     if mode == "openclaw":
         return _notify_openclaw(TEST_MESSAGE)
+    if mode == "telegram":
+        return telegram.send(TEST_MESSAGE)
     if mode == "webhook":
         return _notify_webhook({"type": "test", "message": TEST_MESSAGE}, TEST_MESSAGE)
     log.error("NOTIFY_MODE=%s: there is no delivery to test", mode)
@@ -160,6 +178,14 @@ def openclaw_invoke_payload(
     the same values it uses.
     """
     return openclaw.invoke_payload(text, image, filename, silent)
+
+
+def _silent(event: dict) -> bool:
+    """The message's own ``silent`` wins over ALERT_SILENT (a digest should
+    not buzz; the 3 a.m. outage should), as in common.openclaw."""
+    if event.get("silent") is not None:
+        return bool(event["silent"])
+    return _env_bool("ALERT_SILENT", False)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -313,6 +339,9 @@ def preflight() -> bool:
 
     if mode == "openclaw":
         return _preflight_openclaw()
+
+    if mode == "telegram":
+        return telegram.preflight()
 
     if mode == "webhook":
         url = os.environ.get("ALERT_WEBHOOK_URL", "")

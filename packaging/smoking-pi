@@ -187,12 +187,15 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      address on the local network. --lan mdns: the .local
                      name the mdns service holds. --tunnel: the address that
                      works from anywhere (a Cloudflare tunnel), scheme included.
-  alerts [--openclaw [--to RECIPIENT] | --webhook | --off] [--test] [--yes]
-         [--digest HH:MM|off [--digest-tz ZONE]]
+  alerts [--telegram [--to CHAT_ID] | --openclaw [--to RECIPIENT] | --webhook
+         | --off] [--test] [--yes] [--digest HH:MM|off [--digest-tz ZONE]]
                      Where alerts go (Pro): set NOTIFY_MODE and its keys, turn
                      on the alerts profile, recreate the alerter and print its
-                     own delivery preflight. --test (or answering yes) sends
-                     one labeled test message: the only proof one arrives.
+                     own delivery preflight. --telegram: a bot of your own,
+                     no OpenClaw; asks for its token (hidden, or on stdin)
+                     and finds the chat id from a message you send the bot.
+                     --test (or answering yes) sends one labeled test
+                     message: the only proof one arrives.
                      --digest: a daily summary at HH:MM (in ZONE, else TZ),
                      alone or with the rest.
   connect --tailscale [--off] [--yes]
@@ -904,7 +907,7 @@ cmd_install() {
             profiles=$(whiptail --title "Smoking Pi" --checklist \
                 "Optional services. Space toggles; each one you pick is set up after the stack starts." 16 78 4 \
                 mcp "Assistant: a chat assistant can read your history" OFF \
-                alerts "Alerts: outages, microcuts, Wi-Fi (asks where to send)" OFF \
+                alerts "Alerts: outages, microcuts, Wi-Fi (asks where to send)" ON \
                 ai "AI reports: written summaries (asks for an API key)" OFF \
                 dns "DNS observer: what this house uses (router change)" OFF 3>&1 1>&2 2>&3) || exit 1
             profiles=$(echo "$profiles" | tr -d '"' | tr ' ' ',')
@@ -1416,7 +1419,7 @@ alerter_preflight_line() {
     local since="$1" i line
     for i in $(seq 1 30); do
         line="$(compose logs alerter --since "$since" 2>/dev/null \
-            | grep -E 'Delivery preflight|NOTIFY_MODE=(openclaw|webhook) but' | tail -1 || true)"
+            | grep -E 'Delivery preflight|NOTIFY_MODE=(openclaw|webhook|telegram) but' | tail -1 || true)"
         [ -z "$line" ] || { echo "$line"; return 0; }
         sleep 2
     done
@@ -1436,8 +1439,58 @@ alerts_set_digest() {
     zone="$(env_get DIGEST_TZ)"; zone="${zone:-$(env_get TZ)}"
     echo "Daily digest at $1 ${zone:-UTC}: a summary of the last day, so a quiet day reads as \"nothing broke\"."
     case "$(env_get NOTIFY_MODE)" in
-        ""|off) echo "Note: NOTIFY_MODE is off, so the digest is logged, not sent. smoking-pi alerts --openclaw (or --webhook) sends it." ;;
+        ""|off) echo "Note: NOTIFY_MODE is off, so the digest is logged, not sent. $(cli_name) alerts --telegram (or --openclaw, --webhook) sends it." ;;
     esac
+}
+
+alerts_telegram() {
+    # $1: a chat id from --to, or empty; $2: --yes. The token is a secret:
+    # typed (hidden) or read from stdin, never argv, never printed. The chat
+    # id is found for the owner: they message the bot, and the alerter's own
+    # image reads it (telegram.py find-chat), so the token stays off any
+    # command line.
+    local to="$1" yes="$2" token
+    if [ -z "$(env_get TELEGRAM_BOT_TOKEN)" ]; then
+        echo "Alerts go to a Telegram bot of your own. To make one: in Telegram, open"
+        echo "@BotFather, send /newbot, pick a name, and copy the token it gives you."
+        if [ -t 0 ]; then
+            read -r -s -p "Bot token (hidden): " token || token=""; echo
+        else
+            IFS= read -r token || true
+        fi
+        if ! printf '%s' "$token" | grep -Eq '^[0-9]{5,}:[A-Za-z0-9_-]{30,}$'; then
+            echo "That is not a bot token (digits, a colon, then about 35 letters and digits); nothing changed." >&2
+            return 2
+        fi
+        env_set TELEGRAM_BOT_TOKEN "$token"
+        echo "Bot token saved."
+    fi
+    [ -n "$to" ] || to="$(env_get TELEGRAM_CHAT_ID)"
+    if [ -z "$to" ]; then
+        if [ "$yes" = 1 ] || [ ! -t 0 ]; then
+            echo "No chat: --to CHAT_ID, or run this in a terminal to find it by messaging the bot." >&2
+            echo "(The bot token is saved; it is not asked for again.)" >&2
+            return 2
+        fi
+        echo "Starting the alerter's image to read the bot's messages (the first time,"
+        echo "it may download it). Then open your bot in Telegram and send it any message"
+        echo "(a bot can only write to someone who wrote to it first). Waiting up to two minutes..."
+        # The chat id is the last line that is only a number; anything else
+        # Compose prints on stdout (a pull, a warning) is not it.
+        to="$(compose run --rm --no-deps -T alerter python telegram.py find-chat 120 \
+            | grep -E '^-?[0-9]+$' | tail -1)" || to=""
+        [ -n "$to" ] || { echo "No chat found; run this again, or give it: --to CHAT_ID" >&2; return 1; }
+        local a=""
+        read -r -p "Send alerts to that chat? [Y/n] " a || a=n
+        case "$a" in n|N|no) echo "Nothing changed. Run this again and message the bot, or give it: --to CHAT_ID" >&2; return 1 ;; esac
+    fi
+    if ! printf '%s' "$to" | grep -Eq '^(-?[0-9]{1,20}|@[A-Za-z0-9_]{5,32})$'; then
+        echo "$to is not a Telegram chat id (digits, -100... for a group, or @channel)." >&2
+        return 2
+    fi
+    env_set TELEGRAM_CHAT_ID "$to"
+    env_set NOTIFY_MODE telegram
+    echo "Alerts go to Telegram chat $to through your bot."
 }
 
 cmd_alerts() {
@@ -1448,6 +1501,7 @@ cmd_alerts() {
                       digest="$2"; shift 2 ;;
             --digest-tz) case "${2:-}" in ""|-*) echo "--digest-tz needs a zone (Europe/London)" >&2; return 2 ;; esac
                          digest_tz="$2"; shift 2 ;;
+            --telegram) mode=telegram; shift ;;
             --openclaw) mode=openclaw; shift ;;
             --webhook) mode=webhook; shift ;;
             --off) mode=off; shift ;;
@@ -1489,16 +1543,21 @@ cmd_alerts() {
         return 0
     fi
     if [ -z "$mode" ]; then
-        [ "$yes" = 0 ] && [ -t 0 ] || { echo "Say where: --openclaw, --webhook or --off." >&2; return 2; }
+        [ "$yes" = 0 ] && [ -t 0 ] || { echo "Say where: --telegram, --openclaw, --webhook or --off." >&2; return 2; }
         echo "Where should alerts go?"
-        echo "  1) OpenClaw (Telegram, or whatever channel your gateway has)"
-        echo "  2) A webhook"
-        echo "  3) Nowhere: evaluate and log only"
+        echo "  1) Telegram, directly: a bot of your own (no OpenClaw needed)"
+        echo "  2) OpenClaw (Telegram, or whatever channel your gateway has)"
+        echo "  3) A webhook"
+        echo "  4) Nowhere: evaluate and log only"
         local choice; read -r -p "Choice [1]: " choice
-        case "${choice:-1}" in 1) mode=openclaw ;; 2) mode=webhook ;; 3) mode=off ;; *) echo "no such choice" >&2; return 2 ;; esac
+        case "${choice:-1}" in 1) mode=telegram ;; 2) mode=openclaw ;; 3) mode=webhook ;; 4) mode=off ;; *) echo "no such choice" >&2; return 2 ;; esac
     fi
 
     case "$mode" in
+        telegram)
+            alerts_telegram "$to" "$yes" || return $?
+            to="$(env_get TELEGRAM_CHAT_ID)"
+            ;;
         openclaw)
             if [ -z "$(env_get OPENCLAW_GATEWAY_TOKEN)" ]; then
                 local token; token="$(openclaw_config_token)"
@@ -1581,6 +1640,7 @@ cmd_alerts() {
     if [ -n "$test_msg" ]; then
         if compose exec -T alerter python main.py --test >/dev/null 2>&1; then
             if [ "$mode" = webhook ]; then echo "Test message sent to the webhook."
+            elif [ "$mode" = telegram ]; then echo "Test message sent: it should be in Telegram chat $to now."
             else echo "Test message sent: it should be on its way to $to."; fi
         else
             echo "The test message was NOT delivered: smoking-pi logs alerter" >&2

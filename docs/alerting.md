@@ -64,7 +64,19 @@ and `notified_count`.
 
 ## Notifier modes (`NOTIFY_MODE`)
 
-**The short way** (Pro):
+**The short way** (Pro), straight to Telegram with a bot of your own:
+
+```bash
+sudo smoking-pi alerts --telegram
+```
+
+It explains how to make the bot (in Telegram, `@BotFather`, then `/newbot`)
+and asks for the bot's token, hidden as you type. Then it asks you to send
+the bot any message and reads your chat id from it, so there is nothing to
+look up. It counts only a message sent after it asked, shows whose message
+it was, and asks before using that chat. The steps after that are the same as for OpenClaw below: the
+`alerts` profile, the alerter's preflight, and an optional `--test`. No
+OpenClaw needed. With OpenClaw on the Pi instead:
 
 ```bash
 sudo smoking-pi alerts --openclaw --to telegram:<your chat id>
@@ -89,6 +101,41 @@ and [Message rendering](#message-rendering) below.
 
 Log-only. Rules are still evaluated and incidents logged, so you can watch
 `docker compose logs alerter` before wiring up delivery.
+
+### `telegram`
+
+Sends straight to the Telegram Bot API with your own bot, no gateway in
+between: `sendMessage`, or `sendPhoto` with the message as the caption when
+there is a chart (`sendDocument` with `ALERT_IMAGE_AS_DOCUMENT=true`). The
+text is the same Telegram HTML the OpenClaw path sends. Link previews are
+off, because the links point at this house's Grafana. A digest is sent
+silently.
+
+```env
+NOTIFY_MODE=telegram
+TELEGRAM_BOT_TOKEN=<from @BotFather>
+TELEGRAM_CHAT_ID=<your chat id; -100... for a group>
+```
+
+- **The token is part of every Bot API URL** (`/bot<token>/sendMessage`),
+  so the alerter never logs a URL or an exception's text. A failure is
+  logged as the method, the HTTP status and Telegram's own description.
+  httpx's own request log, which names every URL, is turned down to
+  warnings, and a filter on it replaces the token with `<redacted>` in case
+  that log is turned up again.
+- **A bot can write only to someone who wrote to it first.** The preflight
+  checks both halves at start: `getMe` (is the token a bot's?) and
+  `getChat` (can it reach the chat?). The usual failure is
+  `chat not found` because nobody has messaged the bot yet.
+- A 4xx is the request's fault (a wrong chat, a blocked bot) and is not
+  retried. A 429 waits as long as Telegram asks, up to 30 s, and a 5xx or no
+  answer is retried three times. A retry after no answer can deliver the
+  same alert twice, because Telegram may have sent the first one. As with
+  OpenClaw, a chart that fails to send never costs the alert: it is retried
+  as text. If Telegram cannot parse the message's HTML, the same words are
+  sent once more without markup.
+- `sudo smoking-pi config set TELEGRAM_BOT_TOKEN` replaces the token, read
+  from a prompt or stdin, never the command line.
 
 ### `openclaw`
 
@@ -152,7 +199,7 @@ INFO alerter.notifier: Delivery preflight: http://127.0.0.1:18789/tools/invoke
 reachable, 'message' tool permitted (HTTP 200)
 ```
 
-Use `webhook` mode below if you want something with no OpenClaw version
+Use `telegram` mode above, or `webhook` below, if you want something with no OpenClaw version
 dependency. Full recipe, including MCP registration:
 [docs/openclaw-integration.md](openclaw-integration.md).
 
@@ -192,7 +239,9 @@ missing reports directory is skipped quietly.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `NOTIFY_MODE` | `off` | `off`, `openclaw`, or `webhook` |
+| `NOTIFY_MODE` | `off` | `off`, `telegram`, `openclaw`, or `webhook` |
+| `TELEGRAM_BOT_TOKEN` | — | Your bot's token from @BotFather (`telegram` mode) |
+| `TELEGRAM_CHAT_ID` | — | The chat it writes to; `alerts --telegram` finds it |
 | `OPENCLAW_URL` | `http://127.0.0.1:18789` | OpenClaw gateway base URL |
 | `OPENCLAW_HOOK_PATH` | `/tools/invoke` | Path appended to `OPENCLAW_URL`; override only for a proxy or bridge |
 | `OPENCLAW_GATEWAY_TOKEN` | — | Gateway token (`gateway.auth.token` in `openclaw.json`) |

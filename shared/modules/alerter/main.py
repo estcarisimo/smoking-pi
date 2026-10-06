@@ -214,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # httpx logs every request URL at INFO. Every minute's InfluxDB query
+    # would fill the log, and a Telegram URL carries the bot token
+    # (telegram.RedactBotToken redacts it even if this is lowered again).
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     interval = int(os.environ.get("ALERT_INTERVAL", "") or DEFAULT_INTERVAL)
     log.info(
