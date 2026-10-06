@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.24.1] — 2026-10-05
+
+A remote assistant can now finish signing in. In 2.24.0 the right pairing
+code was accepted, but the browser was not allowed back to the assistant,
+and a second click said the sign-in had expired.
+
+- Pro, remote assistants only; nothing changes for OpenClaw on the Pi.
+- No new settings, volumes or images. After upgrading, make a new code
+  (`sudo smoking-pi connect NAME`) and reconnect from the assistant.
+
 ### Fixed
 
 - **A remote assistant could not finish signing in: the browser never went
