@@ -23,7 +23,7 @@ class CruxService:
         self.cache_dir = Path('/tmp/crux_cache')
         self.cache_dir.mkdir(mode=0o700, exist_ok=True)
         self.cache_duration = timedelta(days=1)  # Cache daily at UTC midnight
-        # Updated URL from TODO-220.md
+        # The global list's current snapshot in zakird/crux-top-lists
         self.global_url = "https://github.com/zakird/crux-top-lists/raw/refs/heads/main/data/global/current.csv.gz"
         # Per-country lists are monthly snapshots: data/country/<cc>/<YYYYMM>.csv.gz
         self.country_url_template = (

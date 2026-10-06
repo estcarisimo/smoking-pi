@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Log messages no longer cite design notes nobody has.** The Netflix OCA
+  fetcher logged "disabled per TODO-257" when discovery failed, and code
+  comments pointed to TODO-218/220/223 files that were never in the
+  repository. Someone reading the log could not find out why no fallback
+  OCA was measured. The messages and comments now say why: a guessed
+  Netflix host is not the OCA that serves this network, and a hard-coded
+  site list would look like a real ranking.
+
 ## [2.26.0] — 2026-10-06
 
 Alerts can reach a phone without OpenClaw, and every loss alert says what
