@@ -23,10 +23,12 @@ version gets a matching GitHub release and git tag.
   alert's context line is the verdict's: targets whose 15-minute mean loss
   is over the impaired threshold. A brief cut (`outage`) or one target's
   run of lost cycles (`target_down`) fires its rule without moving that
-  mean, so the alert could read "12 of 16 targets lost packets" above
-  "outage · 0 of 16 affected", as if nothing had happened (seen in the
-  v2.13.0-rc.3 acceptance). A zero count is now left out; the message
-  keeps the rule's own count, and the link note stays.
+  mean, so the alert could end with "outage · 0 of 16 affected" (seen in
+  the v2.13.0-rc.3 acceptance) above a verdict line saying "No target is
+  above 5% mean loss over 15m". Read on a phone, a real cut looked
+  dismissed by its own alert. Both are now left out when the mean saw
+  nothing; the message keeps the rule's own count, and the link note
+  stays. A nonzero count can still differ from the rule's (#286).
 
 ## [2.26.0] — 2026-10-06
 

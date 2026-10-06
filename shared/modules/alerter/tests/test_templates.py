@@ -326,6 +326,17 @@ def test_a_zero_breadth_count_is_not_printed_under_an_alert():
         assert "0 of 16" not in text
         assert "affected" not in text
         assert f"{rule} · local link clean" in text
+        # The verdict line said the same thing in other words.
+        assert "mean loss" not in text
+        assert "Cloudflare down: 100% loss across all 4 probes" in text
+
+
+def test_a_verdict_with_no_measurements_still_says_so():
+    """Unclear for want of data (total 0) is information, not a contradiction."""
+    verdict = {"scope": "unclear", "line": "No comparable measurements in the last 15m.",
+               "affected": 0, "total": 0, "cpe_cutting": []}
+    text = templates.format_message(_alert(verdict=verdict))
+    assert "No comparable measurements in the last 15m." in text
 
 
 def test_a_nonzero_breadth_count_is_still_printed():

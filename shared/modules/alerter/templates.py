@@ -255,7 +255,7 @@ def alert_sections(event: dict) -> list[Section]:
         sections.append(Section(0, f"{emoji} {esc(diag['summary'])} "
                                    f"{_i(esc('(' + str(diag['confidence']) + ' confidence)'))}"
                                 .strip()))
-    elif verdict.get("line"):
+    elif verdict.get("line") and not _mean_saw_nothing(verdict):
         scope_emoji = SCOPE_EMOJI.get(verdict.get("scope", ""), "")
         line = f"{scope_emoji} {esc(verdict['line'])}".strip()
         sections.append(Section(0, line))
@@ -311,6 +311,15 @@ def alert_sections(event: dict) -> list[Section]:
             Section(3, esc(f'mute: say "mute {target} for 2h"'))
         )
     return sections
+
+
+def _mean_saw_nothing(verdict: dict) -> bool:
+    """The verdict compared every target's 15-minute mean and found none
+    impaired. Under an alert that fired on a shorter span (a brief cut, one
+    target's lost cycles), "no target is above 5% mean loss" reads as
+    "nothing happened"; the alert's own message is the better account."""
+    return (verdict.get("scope") == "unclear" and bool(verdict.get("total"))
+            and not verdict.get("affected"))
 
 
 def format_message(event: dict, limit: int = TG_TEXT_LIMIT) -> str:
