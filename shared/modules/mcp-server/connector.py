@@ -193,7 +193,9 @@ def _keep_client(c: dict, now: float) -> bool:
     left in the list it reads as one more "signed out" assistant."""
     if not c.get("label"):
         return c.get("registered_at", now) > now - UNPAIRED_TTL_S
-    return bool(c.get("last_token_at")) or c.get("paired_at", now) > now - CODE_TTL_S
+    # A minute past the code's own lifetime: /token in its last second must
+    # still find the client it was issued for.
+    return bool(c.get("last_token_at")) or c.get("paired_at", now) > now - CODE_TTL_S - 60
 
 
 def _prune(state: dict, now: float) -> None:

@@ -51,8 +51,10 @@ def test_the_guide_names_only_tools_that_exist():
 
 
 def test_the_guide_is_not_written_for_one_assistant_or_channel():
-    for word in ("OpenClaw", "Telegram", "parse_mode", "<b>"):
-        assert word not in guide.GUIDE
+    for text in (guide.GUIDE, guide.ASSISTANT_INSTRUCTIONS):
+        for word in ("OpenClaw", "Telegram", "Grok", "Cursor", "Claude", "ChatGPT",
+                     "parse_mode", "<b>"):
+            assert word not in text
 
 
 def test_the_doc_quotes_the_assistant_instructions_word_for_word():

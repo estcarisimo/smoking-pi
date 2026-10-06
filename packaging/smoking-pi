@@ -2286,6 +2286,18 @@ connector_ready() {
 
 ts() { tailscale "$@"; }
 
+# Funnel's one listener here is :443; --off turns that listener off.
+ts_off() {
+    if ! command -v tailscale >/dev/null; then
+        echo "Tailscale is not installed: nothing is published through it."
+    elif ts funnel --https=443 off >/dev/null 2>&1; then
+        echo "Funnel off: this Pi publishes nothing on its ts.net address (port 443)."
+    else
+        echo "Tailscale did not turn Funnel off; 'tailscale funnel status' says what is still on." >&2
+        return 1
+    fi
+}
+
 ts_field() {
     # One field of `tailscale status --json`: BackendState, AuthURL, or
     # Self.DNSName (without its trailing dot). Empty when unknown.
@@ -2298,11 +2310,11 @@ except ValueError:
 if sys.argv[1] == "DNSName":
     print(((d.get("Self") or {}).get("DNSName") or "").rstrip("."))
 else:
-    print(d.get(sys.argv[1]) or "")' "$1"
+    print(d.get(sys.argv[1]) or "")' "$1" || true
 }
 
 connect_tailscale() {
-    local yes=0 off=0 a
+    local yes=0 off=0 a i
     for a in "$@"; do
         case "$a" in
             --yes) yes=1 ;; --off) off=1 ;;
@@ -2310,18 +2322,22 @@ connect_tailscale() {
         esac
     done
     if [ "$(id -u)" != 0 ]; then
-        echo "Tailscale is set up as root: sudo $(cli_name) connect --tailscale" >&2
+        echo "Tailscale is set up as root: run it with sudo." >&2
         return 1
     fi
-    connector_ready || return 1
+    # --off before the MCP server check: a stopped server is exactly when
+    # someone wants it unpublished.
     if [ "$off" = 1 ]; then
-        if command -v tailscale >/dev/null; then
-            ts funnel --https=443 off >/dev/null 2>&1 || true
-            echo "Funnel off: nothing of this Pi is published through Tailscale."
-        fi
-        cmd_config unset MCP_PUBLIC_URL
-        return $?
+        need_edition
+        ts_off || return 1
+        case "$(env_get MCP_PUBLIC_URL)" in
+            "") ;;
+            https://*.ts.net|https://*.ts.net/) cmd_config unset MCP_PUBLIC_URL || return 1 ;;
+            *) echo "MCP_PUBLIC_URL is $(env_get MCP_PUBLIC_URL), another tunnel's: left as it is." ;;
+        esac
+        return 0
     fi
+    connector_ready || return 1
     if ! command -v tailscale >/dev/null; then
         echo "Tailscale is not installed. Its own installer adds its apt repository and the package:"
         echo "  curl -fsSL https://tailscale.com/install.sh | sh"
@@ -2333,17 +2349,35 @@ connect_tailscale() {
         curl -fsSL https://tailscale.com/install.sh | sh || { echo "The Tailscale installer failed." >&2; return 1; }
     fi
     # Before anything else: Tailscale must never own this Pi's DNS.
-    ts set --accept-dns=false 2>/dev/null || true
+    if ! ts set --accept-dns=false 2>/dev/null; then
+        echo "Warning: Tailscale did not accept --accept-dns=false; check 'tailscale debug prefs' (CorpDNS)." >&2
+    fi
     if [ "$(ts_field BackendState)" != Running ]; then
-        # `up` waits for the sign-in and prints its link only to a terminal,
-        # so it runs aside and the link is read from the daemon instead:
-        # this works the same over SSH, in a script, or at the console.
+        # `login`, not `up`: with saved settings (a hostname, say) `up`
+        # refuses unless every one is repeated, even bare -- the staging
+        # Pi's first two runs stopped there -- and the link it showed was a
+        # stale one. `login` asks for a fresh link, but it resets every
+        # setting it is not given: the `set` above was undone and the
+        # staging Pi's DNS went to Tailscale. So the flag goes here too, and
+        # it is checked again once signed in.
+        # It runs aside and the link is read from the daemon, so this works
+        # the same over SSH, in a script, or at the console.
         local log url="" shown="" i up_pid
         log="$(mktemp)"
-        setsid tailscale up --accept-dns=false > "$log" 2>&1 < /dev/null &
+        setsid tailscale login --accept-dns=false > "$log" 2>&1 < /dev/null &
         up_pid=$!
+        # setsid keeps Ctrl-C and a dropped SSH session from reaching it.
+        # shellcheck disable=SC2064  # expand now: these are this run's
+        trap "kill $up_pid 2>/dev/null; rm -f '$log'" EXIT INT TERM
+        sleep 2
+        local state noted=""
         for i in $(seq 1 600); do
-            [ "$(ts_field BackendState)" = Running ] && break
+            state="$(ts_field BackendState)"
+            [ "$state" = Running ] && break
+            if [ "$state" = NeedsMachineAuth ] && [ -z "$noted" ]; then
+                echo "Signed in; your tailnet must approve this device in Tailscale's admin console."
+                noted=1
+            fi
             url="$(ts_field AuthURL)"
             if [ -n "$url" ] && [ "$url" != "$shown" ]; then
                 echo "Sign this Pi in to your Tailscale account (any browser, any device):"
@@ -2352,20 +2386,33 @@ connect_tailscale() {
                 shown="$url"
             fi
             if ! kill -0 "$up_pid" 2>/dev/null && ! wait "$up_pid"; then
-                cat "$log" >&2; rm -f "$log"
-                echo "If it asks for flags it already has: sudo tailscale up --reset --accept-dns=false, then run this again." >&2
+                cat "$log" >&2; rm -f "$log"; trap - EXIT INT TERM
                 return 1
             fi
             sleep 1
         done
         kill "$up_pid" 2>/dev/null || true
         rm -f "$log"
+        trap - EXIT INT TERM
         if [ "$(ts_field BackendState)" != Running ]; then
             echo "Tailscale is not signed in yet ($(ts_field BackendState)); run this again after signing in." >&2
             return 1
         fi
         echo "Signed in to Tailscale."
     fi
+    # Checked, not assumed, before anything is recreated: a container takes
+    # the host's resolver when it is created and keeps it.
+    ts set --accept-dns=false 2>/dev/null || true
+    local corp
+    corp="$(ts debug prefs 2>/dev/null | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("CorpDNS"))
+except ValueError: pass' 2>/dev/null || true)"
+    if [ "$corp" != False ]; then
+        echo "Tailscale still owns this Pi's DNS (CorpDNS=${corp:-unknown}); stopping before anything is published." >&2
+        echo "Fix: sudo tailscale set --accept-dns=false, then run this again." >&2
+        return 1
+    fi
+    echo "Tailscale keeps out of this Pi's DNS."
     local name
     name="$(ts_field DNSName)"
     if [ -z "$name" ]; then
@@ -2397,12 +2444,13 @@ except ValueError: pass' 2>/dev/null || true)"
         [ "$i" -lt "${SMOKING_PI_TS_CHECK_TRIES:-12}" ] && sleep 5
     done
     if [ "$issuer" != "$public" ]; then
-        echo "Published, but $public does not answer as this server yet; try again in a minute:" >&2
+        echo "Published, but $public does not answer as this server yet. A new name can take" >&2
+        echo "up to 10 minutes to appear in public DNS; run this again then, or check:" >&2
         echo "  curl -s $public/.well-known/oauth-authorization-server" >&2
         return 1
     fi
     echo "Checked from outside: $public answers as this Pi's MCP server."
-    echo "Next: sudo $(cli_name) connect NAME   (grok, claude, chatgpt...)"
+    echo "Next: $(cli_name) connect NAME   (grok, claude, chatgpt...)"
 }
 
 cmd_connect() {

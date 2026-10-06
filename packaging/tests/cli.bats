@@ -2289,12 +2289,13 @@ echo "tailscale $*" >> "$TS_LOG"
 case "$1" in
     status)
         n=$(cat "$TS_STATE" 2>/dev/null || echo 0)
-        if [ "$n" = running ] || { grep -q '^tailscale up' "$TS_LOG" && [ "$(grep -c '^tailscale status' "$TS_LOG")" -gt 4 ]; }; then
+        if [ "$n" = running ] || { grep -q '^tailscale login' "$TS_LOG" && [ "$(grep -c '^tailscale status' "$TS_LOG")" -gt 4 ]; }; then
             echo '{"BackendState":"Running","Self":{"DNSName":"pi-1.tail99.ts.net."}}'
         else
             echo '{"BackendState":"NeedsLogin","AuthURL":"https://login.tailscale.com/a/abc123"}'
         fi ;;
-    up) sleep 30 ;;
+    login) sleep 30 ;;
+    debug) [ "$2" = prefs ] && echo "{\"CorpDNS\": ${STUB_CORPDNS:-false}}" ;;
 esac
 exit 0
 STUB
@@ -2313,7 +2314,7 @@ STUB
     export STUB_MCP_RUNNING=1
     run "$CLI" connect --tailscale
     [ "$status" -eq 1 ]
-    [[ "$output" == *"sudo"*"connect --tailscale"* ]]
+    [[ "$output" == *"run it with sudo"* ]]
 }
 
 @test "connect --tailscale: signs in with the link, keeps DNS, publishes, sets the real name" {
@@ -2323,7 +2324,11 @@ STUB
     [[ "$output" == *"https://login.tailscale.com/a/abc123"* ]]
     [[ "$output" == *"Checked from outside: https://pi-1.tail99.ts.net"* ]]
     grep -q '^tailscale set --accept-dns=false$' "$TS_LOG"
-    grep -q '^tailscale up --accept-dns=false$' "$TS_LOG"
+    # `login`, never `up`: with saved settings `up` refuses unless each is repeated.
+    grep -q '^tailscale login --accept-dns=false$' "$TS_LOG"
+    # ...and set again once signed in: `login` resets what it is not given.
+    [ "$(grep -c '^tailscale set --accept-dns=false$' "$TS_LOG")" -ge 2 ]
+    [[ "$output" == *"Tailscale keeps out of this Pi's DNS"* ]]
     grep -q '^tailscale funnel --bg --yes 127.0.0.1:8090$' "$TS_LOG"
     grep -q "^MCP_PUBLIC_URL='\?https://pi-1.tail99.ts.net'\?$" "$SMOKING_PI_ENV_FILE"
     # DNS is turned off before the sign-in, never after.
@@ -2335,7 +2340,7 @@ STUB
     echo running > "$TS_STATE"
     run "$CLI" connect --tailscale
     [ "$status" -eq 0 ]
-    run grep -q '^tailscale up' "$TS_LOG"
+    run grep -qE '^tailscale (up|login)' "$TS_LOG"
     [ "$status" -ne 0 ]
     grep -q '^tailscale funnel --bg --yes 127.0.0.1:8090$' "$TS_LOG"
 }
@@ -2350,6 +2355,19 @@ STUB
     [[ "$output" == *"does not answer as this server yet"* ]]
 }
 
+@test "connect --tailscale: stops before publishing if Tailscale still owns the DNS" {
+    tailscale_setup
+    echo running > "$TS_STATE"
+    export STUB_CORPDNS=true
+    run "$CLI" connect --tailscale
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"still owns this Pi's DNS"* ]]
+    run grep -q '^tailscale funnel' "$TS_LOG"
+    [ "$status" -ne 0 ]
+    run grep -q '^MCP_PUBLIC_URL=' "$SMOKING_PI_ENV_FILE"
+    [ "$status" -ne 0 ]
+}
+
 @test "connect --tailscale --off: Funnel off and the address cleared" {
     tailscale_setup
     printf 'MCP_PUBLIC_URL=https://pi-1.tail99.ts.net\n' >> "$SMOKING_PI_ENV_FILE"
@@ -2358,6 +2376,16 @@ STUB
     grep -q '^tailscale funnel --https=443 off$' "$TS_LOG"
     run grep -q '^MCP_PUBLIC_URL=.\+' "$SMOKING_PI_ENV_FILE"
     [ "$status" -ne 0 ]
+}
+
+@test "connect --tailscale --off: works with the MCP server down, keeps another tunnel's address" {
+    tailscale_setup
+    unset STUB_MCP_RUNNING
+    printf 'MCP_PUBLIC_URL=https://mcp.example.com\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" connect --tailscale --off
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"another tunnel's: left as it is"* ]]
+    grep -q '^MCP_PUBLIC_URL=https://mcp.example.com$' "$SMOKING_PI_ENV_FILE"
 }
 
 @test "connect --tailscale: not installed and no terminal, it says how and stops" {
