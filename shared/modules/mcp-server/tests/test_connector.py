@@ -10,6 +10,7 @@ import hashlib
 import importlib
 import json
 import secrets
+import time
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -342,6 +343,14 @@ def test_the_pairing_page_shows_what_the_owner_controls(app, state):
     ("http://127.0.0.1:33418/callback", "http://127.0.0.1:33418"),
     ("http://[::1]:8080/cb", "http://[::1]:8080"),
     ("cursor://anysphere.cursor-mcp/oauth/callback", "cursor:"),
+    ("HTTPS://WWW.Cursor.com/cb", "https://WWW.Cursor.com"),
+    ("javascript:alert(1)", ""),
+    ("data:text/html,hi", ""),
+    ("blob:https://a.example/x", ""),
+    ("filesystem:https://a.example/x", ""),
+    ("file:///etc/passwd", ""),
+    ("about:blank", ""),
+    ("vbscript:x", ""),
     ("https://user@evil.example/cb", ""),
     ("https://a.example;script-src */cb", ""),
 ])
@@ -362,9 +371,35 @@ def test_a_second_click_returns_to_the_assistant_again(app, state):
                             follow_redirects=False)
         assert again.status_code == 303
         assert again.headers["location"] == done.headers["location"]
+        # Only the code that completed it gets the address again; a reload
+        # or another code does not.
+        other = client.post("/connector/pair", data={"request": request_id,
+                                                     "code": "AAAA-BBBB"},
+                            follow_redirects=False)
+        reload = client.get("/connector/pair", params={"request": request_id},
+                            follow_redirects=False)
+        for resp in (other, reload):
+            assert resp.status_code == 200 and "already used" in resp.text
+            assert "location" not in resp.headers
         _token(client, client_id, verifier, done)
-        after = client.get("/connector/pair", params={"request": request_id})
-        assert after.status_code == 200 and "Connected" in after.text
+        after = client.post("/connector/pair", data={"request": request_id,
+                                                     "code": code},
+                            follow_redirects=False)
+        assert after.status_code == 200 and "already used" in after.text
+
+
+def test_a_completed_sign_in_is_forgotten_with_its_code(app, state, monkeypatch):
+    _, asgi = app
+    code = connector.new_pairing("grok")
+    with TestClient(asgi, base_url=PUBLIC) as client:
+        _, _, request_id, done = _sign_in(client, code)
+        assert done.status_code == 302
+        later = time.time() + connector.CODE_TTL_S + 1
+        monkeypatch.setattr(connector.time, "time", lambda: later)
+        resp = client.post("/connector/pair", data={"request": request_id,
+                                                    "code": code},
+                           follow_redirects=False)
+        assert resp.status_code == 410
 
 
 def test_a_revoke_is_never_undone_by_a_concurrent_write(state):

@@ -20,9 +20,10 @@ version gets a matching GitHub release and git tag.
   browser. The owner then clicked again and was told *This sign-in
   expired*, though the code had been accepted and used up. Now the page also
   allows exactly the address the sign-in returns to (its origin, or an
-  app's own scheme), checked in headless Chromium before and after; and a
-  second click or a reload sends the browser back again while the
-  assistant has not used the code, or says *Connected* once it has.
+  app's own scheme; never `javascript:`, `data:` and the like), checked in
+  headless Chromium before and after; and a second click with the same code
+  sends the browser back again while the assistant has not used it, or
+  says the sign-in was already used.
 
 ## [2.24.0] — 2026-10-04
 
