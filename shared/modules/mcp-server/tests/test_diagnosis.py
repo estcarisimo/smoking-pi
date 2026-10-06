@@ -13,7 +13,7 @@ import pytest
 
 import backends
 import server
-from common import diagnosis
+from common import diagnosis, diagnosis_query
 from test_tools import ExplodingConfigAPI
 
 STEP = 300
@@ -357,7 +357,7 @@ def test_one_silent_cycle_does_not_split_an_incident_two_do():
 
 
 def test_ipv6_only_is_named():
-    c = ctx(ipv6=server._is_ipv6)
+    c = ctx(ipv6=diagnosis_query.is_ipv6)
     inc = only(diagnosis.diagnose([ev("google6", s, 100.0) for s in (3, 4)], c, 288))
     assert (inc["class"], inc["detail"]) == ("destination", "ipv6")
 

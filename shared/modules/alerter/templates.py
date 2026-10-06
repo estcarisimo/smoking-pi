@@ -189,6 +189,30 @@ def _link_line(links: dict | None) -> str:
     return " · ".join(parts)
 
 
+# One per diagnosis class (common/diagnosis.py), in the verdict's scheme.
+DIAGNOSIS_EMOJI = {
+    "local_wifi": "📶",
+    "local_link": "🏠",
+    "destination": "🎯",
+    "upstream": "🌐",
+    "unclear": "❔",
+}
+
+
+def _diagnosis_leads(diag: dict, verdict: dict) -> bool:
+    """Whether the diagnosis, not the verdict, heads the message: it has a
+    class worth stating and is at least medium-confident, and the monitor
+    is not the one at fault (no measurements arriving outranks everything,
+    as in verdict.py)."""
+    return bool(
+        diag.get("summary")
+        # "No single cause fits" says less than the verdict it would replace.
+        and diag.get("class") not in (None, "probe_miss", "unclear")
+        and diag.get("confidence") in ("high", "medium")
+        and verdict.get("scope") != "monitoring"
+    )
+
+
 def alert_sections(event: dict) -> list[Section]:
     """Build the prioritized blocks for one alert or recovery."""
     etype = event.get("type", "alert")
@@ -220,12 +244,30 @@ def alert_sections(event: dict) -> list[Section]:
         head += f" — {esc(target)}"
     sections.append(Section(0, head))
 
-    if verdict.get("line"):
+    diag = event.get("diagnosis") or {}
+    leads = _diagnosis_leads(diag, verdict)
+    if leads:
+        # The diagnosis replaces the verdict line: it saw the same minutes
+        # with more evidence (the first hop's usual loss, a deaf radio, the
+        # app layer) and says how sure it is. Two answers would read as two
+        # opinions.
+        emoji = DIAGNOSIS_EMOJI.get(str(diag.get("class")), "")
+        sections.append(Section(0, f"{emoji} {esc(diag['summary'])} "
+                                   f"{_i(esc('(' + str(diag['confidence']) + ' confidence)'))}"
+                                .strip()))
+    elif verdict.get("line"):
         scope_emoji = SCOPE_EMOJI.get(verdict.get("scope", ""), "")
         line = f"{scope_emoji} {esc(verdict['line'])}".strip()
         sections.append(Section(0, line))
 
     sections.append(Section(0, esc(event.get("message", ""))))
+
+    # The evidence behind the diagnosis: what a reader checks before
+    # believing it. Below the numbers, above the context line.
+    if leads and diag.get("evidence"):
+        sections.append(Section(2, "Why: " + esc("; ".join(diag["evidence"])) + "."))
+    if leads and diag.get("against"):
+        sections.append(Section(2, "But: " + esc("; ".join(diag["against"])) + "."))
 
     # Context line: the rule name (for correlating with `docker logs` and for
     # `mute rule:<name>`) plus breadth. Low priority -- it is the first thing
@@ -236,11 +278,15 @@ def alert_sections(event: dict) -> list[Section]:
     total = verdict.get("total")
     if total:
         context.append(f"{verdict.get('affected', 0)} of {total} affected")
-        context.append(
-            "local link cutting out"
-            if verdict.get("cpe_cutting")
-            else "local link clean"
-        )
+        # The verdict's reading of the line; when the diagnosis leads it has
+        # already said where the fault is, and "local link cutting out" next
+        # to "this host's Wi-Fi, not the line" reads as a contradiction.
+        if not leads:
+            context.append(
+                "local link cutting out"
+                if verdict.get("cpe_cutting")
+                else "local link clean"
+            )
     # The Wi-Fi hop, whenever it was checked: a reader should see that a
     # "your line" verdict was reached with the wireless link in view.
     wifi = verdict.get("wifi") or {}
