@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A remote assistant could not finish signing in: the browser never went
+  back to it.** The pairing page allowed its form to go only to the Pi
+  (`form-action 'self'`), and browsers apply that to the redirect after the
+  form too, so with the right code the return to the assistant was blocked
+  without a word. The first real connection (Grokbot, through Cursor's
+  callback) failed this way twice; the in-process tests never ran a
+  browser. The owner then clicked again and was told *This sign-in
+  expired*, though the code had been accepted and used up. Now the page also
+  allows exactly the address the sign-in returns to (its origin, or an
+  app's own scheme), checked in headless Chromium before and after; and a
+  second click or a reload sends the browser back again while the
+  assistant has not used the code, or says *Connected* once it has.
+
 ## [2.24.0] — 2026-10-04
 
 On Pro, any assistant that can add a remote MCP server — Claude, ChatGPT,

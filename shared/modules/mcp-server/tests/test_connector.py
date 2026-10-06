@@ -331,6 +331,40 @@ def test_the_pairing_page_shows_what_the_owner_controls(app, state):
     assert page.headers["x-frame-options"] == "DENY"
     assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
     assert page.headers["cache-control"] == "no-store"
+    # Browsers apply form-action to the redirect after the POST: 'self'
+    # alone silently blocked the return to the assistant (v2.24.0, Grokbot).
+    assert page.headers["content-security-policy"].count(
+        "form-action 'self' https://assistant.example.net;") == 1
+
+
+@pytest.mark.parametrize("uri,source", [
+    ("https://www.cursor.com/agents/mcp/oauth/callback", "https://www.cursor.com"),
+    ("http://127.0.0.1:33418/callback", "http://127.0.0.1:33418"),
+    ("http://[::1]:8080/cb", "http://[::1]:8080"),
+    ("cursor://anysphere.cursor-mcp/oauth/callback", "cursor:"),
+    ("https://user@evil.example/cb", ""),
+    ("https://a.example;script-src */cb", ""),
+])
+def test_the_return_source_is_one_csp_source_or_nothing(uri, source):
+    assert connector.return_source(uri) == source
+
+
+def test_a_second_click_returns_to_the_assistant_again(app, state):
+    """The browser re-posted the form 1-3 s after the code was taken and
+    showed 'expired': the sign-in had worked, the owner was told it had not."""
+    _, asgi = app
+    code = connector.new_pairing("grok")
+    with TestClient(asgi, base_url=PUBLIC) as client:
+        client_id, verifier, request_id, done = _sign_in(client, code)
+        assert done.status_code == 302
+        again = client.post("/connector/pair", data={"request": request_id,
+                                                     "code": code},
+                            follow_redirects=False)
+        assert again.status_code == 303
+        assert again.headers["location"] == done.headers["location"]
+        _token(client, client_id, verifier, done)
+        after = client.get("/connector/pair", params={"request": request_id})
+        assert after.status_code == 200 and "Connected" in after.text
 
 
 def test_a_revoke_is_never_undone_by_a_concurrent_write(state):
