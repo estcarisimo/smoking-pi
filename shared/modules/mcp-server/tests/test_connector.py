@@ -6,9 +6,11 @@ page, the token, then MCP calls with that token. Nothing leaves the test.
 """
 
 import base64
+import html
 import hashlib
 import importlib
 import json
+import re
 import secrets
 import time
 from urllib.parse import parse_qs, urlparse
@@ -160,8 +162,20 @@ def _sign_in(client, code_for_pairing):
     return client_id, verifier, request_id, done
 
 
+def _back(client, done):
+    """Follow the sign-in the way a browser does: the POST goes to the
+    continue page on the Pi, which sends the browser back to the assistant."""
+    assert done.status_code == 303, done.text
+    assert urlparse(done.headers["location"]).path == "/connector/pair"
+    page = client.get(done.headers["location"], follow_redirects=False)
+    assert page.status_code == 200 and "Connected" in page.text, page.text
+    found = re.search(r'http-equiv="refresh" content="0;url=([^"]+)"', page.text)
+    assert found, page.text
+    return html.unescape(found.group(1))
+
+
 def _token(client, client_id, verifier, done):
-    back = parse_qs(urlparse(done.headers["location"]).query)
+    back = parse_qs(urlparse(_back(client, done)).query)
     assert back["state"] == ["xyz"]
     tok = client.post("/token", data={
         "grant_type": "authorization_code", "code": back["code"][0],
@@ -220,7 +234,6 @@ def test_a_connector_signs_in_reads_and_cannot_write(app, state):
     code = connector.new_pairing("grok")
     with TestClient(asgi, base_url=PUBLIC) as client:
         client_id, verifier, _, done = _sign_in(client, code)
-        assert done.status_code == 302
         token = _token(client, client_id, verifier, done)
         assert token["scope"] == "read"
         read = _call(client, token["access_token"], "diagnose_loss", {"hours": 24})
@@ -332,10 +345,8 @@ def test_the_pairing_page_shows_what_the_owner_controls(app, state):
     assert page.headers["x-frame-options"] == "DENY"
     assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
     assert page.headers["cache-control"] == "no-store"
-    # Browsers apply form-action to the redirect after the POST: 'self'
-    # alone silently blocked the return to the assistant (v2.24.0, Grokbot).
-    assert page.headers["content-security-policy"].count(
-        "form-action 'self' https://assistant.example.net;") == 1
+    # The form posts only here; the way back is the continue page.
+    assert page.headers["content-security-policy"].count("form-action 'self';") == 1
 
 
 @pytest.mark.parametrize("uri,source", [
@@ -358,6 +369,50 @@ def test_the_return_source_is_one_csp_source_or_nothing(uri, source):
     assert connector.return_source(uri) == source
 
 
+def test_the_form_never_redirects_off_the_pi(app, state):
+    """Browsers apply form-action to every hop after a form POST, and
+    Cursor's callback redirects www.cursor.com -> cursor.com: a redirect
+    to the assistant from the POST was blocked (v2.24.0 and v2.24.1)."""
+    _, asgi = app
+    code = connector.new_pairing("grok")
+    with TestClient(asgi, base_url=PUBLIC) as client:
+        _, _, request_id, done = _sign_in(client, code)
+        assert done.status_code == 303
+        assert done.headers["location"] == f"/connector/pair?request={request_id}"
+        # The token to the code is a cookie, never in the logged URL.
+        cookie = done.headers["set-cookie"]
+        assert cookie.startswith("smoking_pi_pair_" + request_id[:12] + "=")
+        for attr in ("HttpOnly", "Secure", "SameSite=lax", "Path=/connector/pair"):
+            assert cookie.count(attr) == 1, cookie
+        back = _back(client, done)
+    assert back.startswith(REDIRECT + "?")
+    assert parse_qs(urlparse(back).query)["state"] == ["xyz"]
+
+
+def test_the_continue_page_needs_the_cookie(app, state):
+    """Knowing the request id (it is in the access log) is not enough."""
+    _, asgi = app
+    code = connector.new_pairing("grok")
+    with TestClient(asgi, base_url=PUBLIC) as client:
+        _, _, request_id, done = _sign_in(client, code)
+        client.cookies.clear()
+        page = client.get(done.headers["location"])
+        assert page.status_code == 200 and "already used" in page.text
+        assert "url=" not in page.text
+
+
+def test_the_continue_page_never_links_a_script_scheme(app, state):
+    """Defense in depth behind the SDK's redirect_uri check."""
+    module, asgi = app
+    code = connector.new_pairing("grok")
+    with TestClient(asgi, base_url=PUBLIC) as client:
+        _, _, request_id, done = _sign_in(client, code)
+        module._connector.completed[request_id]["back"] = "javascript:alert(1)"
+        page = client.get(done.headers["location"])
+    assert page.status_code == 200 and "already used" in page.text
+    assert "url=" not in page.text and "<a href" not in page.text
+
+
 def test_a_second_click_returns_to_the_assistant_again(app, state):
     """The browser re-posted the form 1-3 s after the code was taken and
     showed 'expired': the sign-in had worked, the owner was told it had not."""
@@ -365,23 +420,18 @@ def test_a_second_click_returns_to_the_assistant_again(app, state):
     code = connector.new_pairing("grok")
     with TestClient(asgi, base_url=PUBLIC) as client:
         client_id, verifier, request_id, done = _sign_in(client, code)
-        assert done.status_code == 302
         again = client.post("/connector/pair", data={"request": request_id,
                                                      "code": code},
                             follow_redirects=False)
         assert again.status_code == 303
         assert again.headers["location"] == done.headers["location"]
-        # Only the code that completed it gets the address again; a reload
-        # or another code does not.
+        # Only the code that completed it gets the way back again.
         other = client.post("/connector/pair", data={"request": request_id,
                                                      "code": "AAAA-BBBB"},
                             follow_redirects=False)
-        reload = client.get("/connector/pair", params={"request": request_id},
-                            follow_redirects=False)
-        for resp in (other, reload):
-            assert resp.status_code == 200 and "already used" in resp.text
-            assert "location" not in resp.headers
-        _token(client, client_id, verifier, done)
+        assert other.status_code == 200 and "already used" in other.text
+        assert "location" not in other.headers
+        _token(client, client_id, verifier, again)
         after = client.post("/connector/pair", data={"request": request_id,
                                                      "code": code},
                             follow_redirects=False)
@@ -393,7 +443,7 @@ def test_a_completed_sign_in_is_forgotten_with_its_code(app, state, monkeypatch)
     code = connector.new_pairing("grok")
     with TestClient(asgi, base_url=PUBLIC) as client:
         _, _, request_id, done = _sign_in(client, code)
-        assert done.status_code == 302
+        assert done.status_code == 303
         later = time.time() + connector.CODE_TTL_S + 1
         monkeypatch.setattr(connector.time, "time", lambda: later)
         resp = client.post("/connector/pair", data={"request": request_id,
