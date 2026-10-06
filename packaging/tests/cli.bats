@@ -531,7 +531,7 @@ install_on_a_tty() {
     rm -f "$SMOKING_PI_ENV_FILE"
     stub_whiptail
     export STUB_PICKS='"alerts" "ai"'
-    run install_on_a_tty '3\nn\n'
+    run install_on_a_tty '4\nn\n'
     [[ "$output" == *"Where should alerts go?"* ]]
     [[ "$output" == *"Enter it now?"* ]]
     # Answered, so not left to do; declined, so listed.
@@ -1234,6 +1234,42 @@ STUB
     ! grep -q 'main.py --test' "$DOCKER_LOG"
     # The token is never printed.
     [[ "$output" != *"gw-secret"* ]]
+}
+
+@test "alerts --telegram reads the token from stdin, never prints it, and sets the chat" {
+    alerts_setup
+    export STUB_PREFLIGHT="Delivery preflight: Telegram bot @pi_bot can write to chat 4242"
+    tok="123456:AAAbbbCCCdddEEEfffGGGhhhIIIjjjKKKlll"
+    run sh -c "printf '%s\n' '$tok' | '$CLI' alerts --telegram --to 4242 --yes"
+    [ "$status" -eq 0 ]
+    grep -qx "TELEGRAM_BOT_TOKEN=$tok" "$SMOKING_PI_ENV_FILE"
+    grep -qx 'TELEGRAM_CHAT_ID=4242' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'NOTIFY_MODE=telegram' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,alerts' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"@pi_bot can write to chat 4242"* ]]
+    [[ "$output" != *"$tok"* ]]
+    ! grep -q "$tok" "$DOCKER_LOG"
+    # Set once, the token is not asked for again.
+    run "$CLI" alerts --telegram --to -100123 --yes </dev/null
+    [ "$status" -eq 0 ]
+    grep -qx 'TELEGRAM_CHAT_ID=-100123' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "alerts --telegram refuses what is not a token or a chat, before writing the mode" {
+    alerts_setup
+    run sh -c "printf 'not-a-token\n' | '$CLI' alerts --telegram --to 4242 --yes"
+    [ "$status" -eq 2 ]
+    ! grep -q 'TELEGRAM_BOT_TOKEN=not' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    printf 'TELEGRAM_BOT_TOKEN=123456:AAAbbbCCCdddEEEfffGGGhhhIIIjjjKKKlll\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts --telegram --to 'x;y' --yes
+    [ "$status" -eq 2 ]
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    # No chat and no terminal: it says how, and does not wait for a message.
+    run "$CLI" alerts --telegram --yes </dev/null
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"--to CHAT_ID"* ]]
+    ! grep -q 'find-chat' "$DOCKER_LOG"
 }
 
 @test "alerts refuses a bare chat id: OpenClaw does not deliver to one" {

@@ -484,7 +484,7 @@ services:
         required: false
 
   # Alerting engine (opt-in: COMPOSE_PROFILES=alerts). Deterministic rules
-  # over InfluxDB with OpenClaw-hook / generic-webhook delivery.
+  # over InfluxDB with Telegram / OpenClaw / generic-webhook delivery.
   # See docs/alerting.md. Uses network_mode: host (InfluxDB + the local
   # OpenClaw gateway both live on localhost), so no ports/networks keys.
   alerter:
@@ -501,8 +501,12 @@ services:
     logging: *default-logging
     profiles: [alerts]
     environment:
-      # Delivery: off (log-only, default) | openclaw | webhook
+      # Delivery: off (log-only, default) | telegram | openclaw | webhook
       - NOTIFY_MODE=${NOTIFY_MODE:-off}
+      # Telegram, directly: the owner's own bot (@BotFather) and chat.
+      # `smoking-pi alerts --telegram` sets both and finds the chat id.
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
       - OPENCLAW_URL=${OPENCLAW_URL:-http://127.0.0.1:18789}
       # /tools/invoke is OpenClaw's HTTP tool endpoint, always enabled and
       # multiplexed onto the gateway port. Override only for a proxy/bridge.

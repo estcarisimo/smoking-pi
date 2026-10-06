@@ -207,7 +207,7 @@ docker compose build web-admin && docker compose up -d web-admin
 | `CONFIG_API_TOKEN`, `MCP_API_TOKEN` | Bearer tokens for the config-manager API and the MCP server |
 | `WEB_ADMIN_USERNAME`, `WEB_ADMIN_PASSWORD_HASH` | Web admin login |
 | `PUBLIC_BASE_HOST`, `TUNNEL_BASE_HOST` | Where readers reach Grafana/web-admin; enables deep links (at home / from anywhere) |
-| `NOTIFY_MODE`, `OPENCLAW_*`, `ALERT_WEBHOOK_URL` | Alert delivery |
+| `NOTIFY_MODE`, `TELEGRAM_*`, `OPENCLAW_*`, `ALERT_WEBHOOK_URL` | Alert delivery |
 | `ALERT_CHARTS`, `CHART_THEME`, `CHART_HOURS` | Charts attached to alerts |
 | `IPV6_MODE` | `auto` (gate on real global IPv6), `force`, or `off` |
 | `ANTHROPIC_API_KEY` | AI reports and the web-admin assistant |
