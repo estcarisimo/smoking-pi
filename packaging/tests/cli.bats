@@ -576,6 +576,30 @@ install_on_a_tty() {
     [[ "$output" == *"sudo smoking-pi doctor --live"* ]]
 }
 
+@test "restore on a packaged install enables the unit; --no-start enables it without starting it" {
+    make_backup_dir
+    export SMOKING_PI_PACKAGED=1
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --force --no-start
+    [ "$status" -eq 0 ]
+    grep -qx 'systemctl enable smoking-pi' "$DOCKER_LOG"
+    ! grep -q 'systemctl start' "$DOCKER_LOG"
+    [[ "$output" == *"Starts at boot"* ]]
+    : > "$DOCKER_LOG"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --force
+    [ "$status" -eq 0 ]
+    grep -qx 'systemctl enable smoking-pi' "$DOCKER_LOG"
+    grep -qx 'systemctl start --no-block smoking-pi' "$DOCKER_LOG"
+}
+
+@test "restore from a clone touches no unit" {
+    make_backup_dir
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes --force --no-start
+    [ "$status" -eq 0 ]
+    ! grep -q 'systemctl enable' "$DOCKER_LOG"
+}
+
 @test "install from a clone touches no unit" {
     rm -f "$SMOKING_PI_ENV_FILE"
     printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"

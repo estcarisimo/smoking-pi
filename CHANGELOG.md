@@ -91,6 +91,21 @@ version gets a matching GitHub release and git tag.
   offers to run `connect --tailscale` first and then continues to the
   pairing. Otherwise it names that command.
 
+### Fixed
+
+- **A restored install comes back after a reboot.** `smoking-pi restore`
+  started the stack but never enabled the `smoking-pi` systemd unit, which
+  only `install` did. A backup restored onto a new card ran until the first
+  power cut, then stayed down, losing history with nobody told (#271).
+  `restore` now enables the unit on a package install. It also starts the
+  unit, unless `--no-start`, which enables it for the next boot only.
+- **SmokePing is reloaded only when the CPE changed.** The CPE discovery
+  rewrote its targets file and sent SmokePing a reload (`HUP`) every hour,
+  even when it found the same first hop. A reload restarts the probe
+  cycles, so it could cost a point in every series, and the hourly noise
+  hid the reloads that meant something (#272). An unchanged discovery now
+  writes nothing and reloads nothing.
+
 ## [2.25.0] — 2026-10-06
 
 On Pro, publishing Smoking Pi for remote assistants is one command, and

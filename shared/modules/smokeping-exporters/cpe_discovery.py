@@ -190,6 +190,16 @@ def update_smokeping_targets(ipv4: str | None, ipv6: str | None):
     # Write the CPE targets file; the generated Targets file @includes it
     # (see smokeping_targets.j2 — Targets itself is a read-only bind mount).
     content = build_cpe_targets(ipv4, ipv6)
+    # Unchanged (the usual hour): no write and no reload. A reload restarts
+    # SmokePing's probe cycles, which can cost a point in every series, and
+    # an hourly one for nothing hides the reloads that mean something.
+    try:
+        with open(cpe_path) as f:
+            if f.read() == content:
+                log.info("CPE targets unchanged; SmokePing not reloaded")
+                return
+    except OSError:
+        pass  # missing or unreadable: write it
     tmp_path = cpe_path + ".tmp"
     with open(tmp_path, "w") as f:
         f.write(content)
