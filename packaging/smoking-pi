@@ -860,6 +860,7 @@ install_followups() {
 # reboot. Started without waiting (--no-block): its ExecStart is
 # `smoking-pi up`, which takes the stack lock this install holds until it
 # exits -- `enable --now` would wait for a unit that waits for us.
+# --enable-only: at boot, not now (a restore told --no-start).
 enable_unit() {
     [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] || return 0
     command -v systemctl >/dev/null 2>&1 || return 0
@@ -867,6 +868,8 @@ enable_unit() {
     if ! systemctl enable smoking-pi >/dev/null 2>&1; then
         echo "Could not enable the smoking-pi service. To start it at boot:" >&2
         echo "  sudo systemctl enable --now smoking-pi" >&2
+    elif [ "${1:-}" = --enable-only ]; then
+        echo "Starts at boot: the smoking-pi service is enabled."
     elif ! systemctl start --no-block smoking-pi >/dev/null 2>&1; then
         echo "Starts at boot: the smoking-pi service is enabled (systemd did not start it now;"
         echo "the stack is running without it)."
@@ -2205,11 +2208,16 @@ cmd_restore() {
         echo "restore INCOMPLETE; the stack is stopped. Failed:$failed" >&2
         exit 1
     fi
+    # A restore is how a new card becomes this install: like install, it
+    # leaves the unit enabled, or the restored stack is gone after the
+    # first reboot (a fresh card's unit was never enabled).
     if [ "$start" = 1 ]; then
         compose up -d
-        echo "Restored from $dir. Check: smoking-pi doctor --live"
+        enable_unit
+        echo "Restored from $dir. Check: $(cli_name) doctor --live"
     else
-        echo "Restored from $dir; the stack is stopped. Start it: smoking-pi up"
+        enable_unit --enable-only
+        echo "Restored from $dir; the stack is stopped. Start it: $(cli_name) up"
     fi
 }
 
