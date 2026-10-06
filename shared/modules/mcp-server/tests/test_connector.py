@@ -130,7 +130,8 @@ def test_pair_refuses_an_unknown_kind_and_a_local_assistant(state, monkeypatch, 
     ("claude", "claude"), ("Claude", "claude"), ("claude-code", "claude-code"),
     ("claude-code-laptop", "claude-code"), ("claudecode", "claude-code"),
     ("chatgpt", "chatgpt"), ("openai.home", "chatgpt"), ("grokbot", "grok"),
-    ("cursor", "cursor"), ("claudette", ""), ("kitchen", "")])
+    ("cursor", "cursor"), ("gpt-notes", "chatgpt"), ("openclaw", "openclaw"),
+    ("openclaw-remote", ""), ("claudette", ""), ("kitchen", "")])
 def test_a_label_names_its_template_longest_first(label, key):
     import assistants
     assert assistants.for_label(label).key == key
@@ -145,6 +146,17 @@ def test_every_template_has_steps_and_a_place_for_instructions():
         assert a.local or a.add
 
 
+def _signed_in(cid, label, now):
+    """A connector as a real sign-in leaves it: an access token and a
+    90-day refresh token (connector._issue)."""
+    _client(cid, label=label, paired_at=now, last_token_at=now)
+    with connector.transaction() as st:
+        st["access"][cid + "-a"] = {"client_id": cid, "scopes": ["read"],
+                                    "expires_at": now + connector.ACCESS_TTL_S}
+        st["refresh"][cid + "-r"] = {"client_id": cid, "scopes": ["read"],
+                                     "expires_at": now + connector.REFRESH_TTL_S}
+
+
 def test_check_tells_signed_in_from_using_the_tools(state):
     now = 200_000
     ok, why = connector.check("grok", now=now)
@@ -152,16 +164,77 @@ def test_check_tells_signed_in_from_using_the_tools(state):
     connector.new_pairing("grok", now=now)
     ok, why = connector.check("grok", now=now)
     assert not ok and "waiting to be typed" in why
-    _client("c1", label="grok", paired_at=now, last_token_at=now)
-    with connector.transaction() as st:
-        st["access"]["h"] = {"client_id": "c1", "scopes": ["read"], "expires_at": now + 60}
+    connector.check_pairing("wrong", now=now)  # five wrong tries burn it
+    for _ in range(4):
+        connector.check_pairing("wrong", now=now)
+    _signed_in("c1", "grok", now)
     ok, why = connector.check("grok", now=now)
     assert not ok and "has not called a tool" in why
     connector.note_tool("c1", "diagnose_loss", now=now + 1)
     ok, why = connector.check("grok", now=now + 2)
     assert ok and "diagnose_loss" in why
-    ok, why = connector.check("grok", now=now + 120)  # the access token expired
+    # The access token expires hourly; the refresh token keeps it connected.
+    ok, why = connector.check("grok", now=now + 2 * connector.ACCESS_TTL_S)
+    assert ok
+
+
+def test_check_a_call_from_weeks_ago_is_not_proof(state):
+    now = 200_000
+    _signed_in("c1", "grok", now)
+    connector.note_tool("c1", "diagnose_loss", now=now)
+    later = now + connector.CHECK_RECENT_S + 86400
+    ok, why = connector.check("grok", now=later)
+    assert not ok and "8 days ago" in why
+
+
+def test_check_after_a_revoke_says_signed_out(state):
+    now = 200_000
+    _signed_in("c1", "grok", now)
+    connector.note_tool("c1", "diagnose_loss", now=now)
+    connector.revoke("grok")
+    ok, why = connector.check("grok", now=now + 1)
+    assert not ok and "No assistant named 'grok'" in why
+
+
+def test_check_a_signed_out_connector_names_its_last_call(state):
+    now = 200_000
+    _signed_in("c1", "grok", now)
+    connector.note_tool("c1", "diagnose_loss", now=now)
+    with connector.transaction() as st:
+        st["access"].clear()
+        st["refresh"].clear()
+    ok, why = connector.check("grok", now=now + 1)
     assert not ok and "signed out" in why and "last called a tool" in why
+
+
+def test_check_a_re_paired_label_is_judged_by_its_new_sign_in(state):
+    """The old client keeps a live refresh token, and its old calls must
+    not vouch for the new sign-in."""
+    now = 200_000
+    _signed_in("old", "grok", now)
+    connector.note_tool("old", "diagnose_loss", now=now + 10)
+    connector.new_pairing("grok", now=now + 20)
+    ok, why = connector.check("grok", now=now + 21)
+    assert not ok and "waiting to be typed" in why  # the new code first
+    with connector.transaction() as st:
+        st["pairing"] = None
+    _signed_in("new", "grok", now + 30)
+    ok, why = connector.check("grok", now=now + 31)
+    assert not ok and "has not called a tool" in why
+
+
+def test_a_failed_write_is_retried_on_the_next_call(state, monkeypatch):
+    _client("c1", label="grok", paired_at=1, last_token_at=1)
+    real = connector.transaction
+
+    def broken(path=None):
+        raise OSError("disk full")
+    monkeypatch.setattr(connector, "transaction", broken)
+    with pytest.raises(OSError):
+        connector.note_tool("c1", "diagnose_loss", now=1000)
+    monkeypatch.setattr(connector, "transaction", real)
+    connector.note_tool("c1", "diagnose_loss", now=1001)
+    assert connector.load()["clients"]["c1"]["last_tool"] == "diagnose_loss"
 
 
 def test_tool_calls_are_written_at_most_once_a_minute(state):

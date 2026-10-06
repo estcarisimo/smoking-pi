@@ -130,6 +130,8 @@ def logged_tool(func):
             log.warning("tool=%s args=%s -> raised:%s in %.0fms",
                         func.__name__, _summarize_args(kwargs),
                         type(exc).__name__, elapsed_ms)
+            # A call that failed is still the assistant asking.
+            _note_connector_tool(func.__name__)
             raise
         elapsed_ms = (time.monotonic() - started) * 1000
         log.info("tool=%s args=%s -> %s in %.0fms",

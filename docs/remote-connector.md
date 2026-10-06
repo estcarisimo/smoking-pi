@@ -184,7 +184,9 @@ Signed in is not the same as used: an assistant can hold a token and still
 answer from what it already knows. The server records each connector's last
 tool call, and `--check` reads that record. It fails (exit status 1), saying
 why, when a code is still waiting to be typed, when the assistant signed in
-but has not called a tool, or when it has no live token any more.
+but has not called a tool, when its last call is more than seven days old,
+or when it has no live token any more. A name paired again is judged by its
+newest sign-in, not by what the older one did.
 
 ```bash
 sudo smoking-pi connect              # who is connected, the URL, and each one's last tool call

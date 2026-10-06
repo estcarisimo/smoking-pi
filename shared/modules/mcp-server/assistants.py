@@ -52,7 +52,8 @@ ASSISTANTS: tuple[Assistant, ...] = (
         instructions="the personal preferences in Claude's settings, or a project's instructions",
         returns_to="claude.ai",
         note="A connector added on claude.ai also shows up in the desktop and mobile apps; "
-             "if a chat does not use it, turn it on in that chat's tools menu.",
+             "if a chat does not use it, turn it on in that chat's tools menu. Custom "
+             "connectors depend on the plan.",
     ),
     Assistant(
         key="claude-code",
@@ -75,7 +76,8 @@ ASSISTANTS: tuple[Assistant, ...] = (
              "Its sign-in opens a Smoking Pi page: type the code there."),
         instructions="Settings > Personalization > Custom instructions",
         returns_to="chatgpt.com",
-        note="In a chat, pick Developer mode in the tools menu and turn Smoking Pi on.",
+        note="In a chat, pick Developer mode in the tools menu and turn Smoking Pi on. "
+             "Developer mode depends on the plan.",
     ),
     Assistant(
         key="cursor",
@@ -123,15 +125,18 @@ def by_key(kind: str) -> Assistant | None:
 
 def for_label(label: str) -> Assistant:
     """The template a connector label names: the label itself (``claude``),
-    or one with a suffix (``claude-work``, ``grok.home``). The longest name
-    wins, so ``claude-code-laptop`` is Claude Code, not Claude. Anything
-    else is GENERIC."""
+    or one with a suffix (``claude-work``, ``grok.home``), aliases included
+    (``gpt-notes`` is ChatGPT). The longest name wins, so
+    ``claude-code-laptop`` is Claude Code, not Claude. Anything else is
+    GENERIC."""
     label = label.strip().lower()
     best, best_len = GENERIC, 0
     for a in ASSISTANTS:
         for n in _all_names(a):
-            if (label == n or label.startswith((n + "-", n + "_", n + "."))) \
-                    and len(n) > best_len:
+            # A local assistant only by its exact name: "openclaw-remote"
+            # is an OpenClaw elsewhere, which pairs like any other.
+            prefixed = not a.local and label.startswith((n + "-", n + "_", n + "."))
+            if (label == n or prefixed) and len(n) > best_len:
                 best, best_len = a, len(n)
     return best
 

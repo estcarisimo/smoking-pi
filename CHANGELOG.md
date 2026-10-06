@@ -28,10 +28,12 @@ version gets a matching GitHub release and git tag.
   answers from the measurements. The OpenClaw integration once looked
   healthy for days while the agent answered from its own shell. The server
   now records each remote connector's last tool call (at most one write a
-  minute), and `connect` shows it. `--check` succeeds only once the
-  assistant has called a tool; otherwise it says what is missing: the code
-  was never typed, it signed in but never called a tool, or it holds no
-  live token.
+  minute), and `connect` shows it. `--check` succeeds only when the
+  assistant called a tool in the last seven days. Otherwise it says what is
+  missing: the code was never typed, the assistant signed in but never
+  called a tool, its last call is older than that, or it holds no live
+  token. A refresh token keeps an assistant connected for 90 days after it
+  last asked anything, so being connected proves nothing.
 - **`connect NAME` without a tunnel offers to make one.** It used to stop
   at "set MCP_PUBLIC_URL". In a terminal with Tailscale installed, it now
   offers to run `connect --tailscale` first and then continues to the

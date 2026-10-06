@@ -285,25 +285,35 @@ def note_tool(client_id: str, tool: str, path: str | None = None,
     now = time.time() if now is None else now
     if now - _tool_noted.get(client_id, 0.0) < TOOL_NOTE_EVERY_S:
         return
-    _tool_noted[client_id] = now
     with transaction(path) as state:
         c = state["clients"].get(client_id)
-        if c is not None:
+        if c is not None:  # revoked meanwhile: never brought back
             c["last_tool"], c["last_tool_at"] = tool, now
+    # After the write: a failed one is retried on the next call, not a
+    # minute later.
+    _tool_noted[client_id] = now
+
+
+# A tool call older than this is history, not proof of use: an assistant
+# keeps a live refresh token for 90 days after it last asked anything.
+CHECK_RECENT_S = 7 * 86400
 
 
 def check(label: str, path: str | None = None, now: float | None = None) -> tuple[bool, str]:
     """Whether the connector called ``label`` is using the tools, and the
-    evidence in a sentence: signed in is not enough."""
+    evidence in a sentence: signed in is not enough, and neither is a call
+    from weeks ago."""
     now = time.time() if now is None else now
+    if pairing_label(path, now) == label:
+        return False, (f"A code for '{label}' is waiting to be typed on the Smoking Pi "
+                       "page the assistant opens. Nothing has signed in with it yet.")
     mine = [c for c in connectors(path, now) if c["label"] == label]
     if not mine:
-        if pairing_label(path, now) == label:
-            return False, (f"A code for '{label}' is waiting to be typed on the Smoking Pi "
-                           "page the assistant opens. Nothing has signed in yet.")
         return False, (f"No assistant named '{label}' is connected. "
                        f"Pair one: sudo smoking-pi connect {label}")
-    c = max(mine, key=lambda c: c.get("last_tool_at") or c.get("last_token_at") or 0)
+    # The newest sign-in that still holds a token; a re-paired label keeps
+    # its older client (and its tool calls) until that one's tokens expire.
+    c = max(mine, key=lambda c: (c["connected"], c.get("paired_at") or 0))
     if not c["connected"]:
         used = f", and last called a tool {_when(c['last_tool_at'])}" if c["last_tool_at"] else ""
         return False, (f"'{label}' is signed out: it holds no live token{used}. "
@@ -314,6 +324,11 @@ def check(label: str, path: str | None = None, now: float | None = None) -> tupl
                        "\"what happened last night, and was it me or the internet?\" -- "
                        "then check again. If it answers without calling, paste the "
                        f"instructions that 'sudo smoking-pi connect {label}' printed.")
+    if c["last_tool_at"] < now - CHECK_RECENT_S:
+        days = int((now - c["last_tool_at"]) // 86400)
+        return False, (f"'{label}' is signed in, but its last tool call was {days} days ago "
+                       f"({c['last_tool']}, {_when(c['last_tool_at'])}). Ask it something "
+                       "the measurements answer, then check again.")
     return True, (f"'{label}' is connected and using the tools: it last called "
                   f"{c['last_tool']} at {_when(c['last_tool_at'])}.")
 

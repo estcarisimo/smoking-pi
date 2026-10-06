@@ -2267,6 +2267,15 @@ STUB
     [ "$status" -eq 2 ]
     run "$CLI" connect laptop other
     [ "$status" -eq 2 ]
+    run "$CLI" connect laptop --as --check
+    [ "$status" -eq 2 ]
+    run "$CLI" connect --check
+    [ "$status" -eq 2 ]
+    run "$CLI" connect --list grok
+    [ "$status" -eq 2 ]
+    run "$CLI" connect grok -h
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--check"* ]]
     [ "$(grep -c 'connector.py pair' "$DOCKER_LOG")" -eq 1 ]
 }
 
