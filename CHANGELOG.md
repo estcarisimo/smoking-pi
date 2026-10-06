@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.25.0] — 2026-10-06
+
+On Pro, publishing Smoking Pi for remote assistants is one command, and
+connecting one tells you what to paste into its instructions.
+
+- Pro: `sudo smoking-pi connect --tailscale` signs the Pi in to Tailscale,
+  keeps Tailscale out of the Pi's DNS (checked before anything is
+  published), turns Funnel on, sets `MCP_PUBLIC_URL` and checks it from
+  outside. `--off` undoes it. Other tunnels work as before.
+- Pro: `sudo smoking-pi connect NAME` also prints a paragraph for the
+  assistant's own instructions. Failed sign-ins no longer leave connectors
+  behind.
+- No new settings, volumes or images.
+
 ### Added
 
 - **`sudo smoking-pi connect --tailscale`: the tunnel for remote assistants
