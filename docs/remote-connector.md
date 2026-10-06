@@ -38,9 +38,39 @@ NAME` cuts one off; the others keep working.
 
 You need an HTTPS address that reaches this Pi's MCP server: a **tunnel**
 that runs on the Pi, accepts HTTPS at a public name and forwards to
-`http://127.0.0.1:8090`. Any tunnel that does that works (Cloudflare Tunnel,
-Tailscale Funnel and ngrok are common choices); set it up by its own
-instructions, with three requirements:
+`http://127.0.0.1:8090`.
+
+### With Tailscale: one command
+
+```bash
+sudo smoking-pi connect --tailscale
+```
+
+It does the whole tunnel, and stops to say why if a step fails:
+
+1. It installs Tailscale with Tailscale's own installer, if it is missing
+   and you agree (`--yes` agrees in advance).
+2. It keeps Tailscale away from this Pi's DNS (`--accept-dns=false`). When
+   a Tailscale that owns the Pi's DNS logs out, the containers keep a
+   resolver that no longer answers.
+3. It signs the Pi in to your Tailscale account, printing the link to open
+   in any browser.
+4. It turns on **Funnel** for `127.0.0.1:8090`. The first time on a
+   tailnet, Tailscale prints a page that allows Funnel and waits for you.
+5. It reads the Pi's real name (`<machine>.<tailnet>.ts.net`) from Tailscale
+   and sets `MCP_PUBLIC_URL` to it.
+6. It checks the address from outside: it must answer as this server.
+
+`sudo smoking-pi connect --tailscale --off` turns Funnel off and clears the
+address. If your tailnet already has a device with the Pi's name, the new
+one gets `-1` added; remove the old device in Tailscale's admin console
+*before* connecting assistants, because the address is what they keep.
+
+### With any other tunnel
+
+Any tunnel that publishes the server works (Cloudflare Tunnel and ngrok are
+common choices). Set it up by its own instructions, with three
+requirements:
 
 1. **It forwards to `127.0.0.1:8090` on the Pi**, and nothing else from this
    hostname. Do not change `MCP_HOST`: the server stays on loopback and the
@@ -86,6 +116,24 @@ asks for the code; type it, and the assistant is connected. The page names
 the code's label (`grok` here) and where it will send you back; check both.
 The code works once, for ten minutes, and five wrong tries burn it — make a
 new one with the same command.
+
+### Tell the assistant when to use it
+
+The server tells every assistant *how* to answer from its tools. What it
+cannot do is make the assistant think of Smoking Pi when you ask about your
+internet in passing. For that, paste this paragraph into the assistant's own
+instructions (called *custom instructions*, *rules* or a *system prompt*,
+depending on the assistant). `smoking-pi connect NAME` prints it too:
+
+```text
+You have a Smoking Pi connector: read-only measurements of my home internet,
+recorded continuously (latency, loss, outages, Wi-Fi, DNS). For any question
+about my internet, Wi-Fi, an outage, or whether a problem was mine or my
+provider's, use the Smoking Pi tools before answering, and follow the
+instructions the Smoking Pi server gives. Give numbers with their time
+window. If the tools cannot answer, say so instead of guessing. It cannot
+change anything: for changes, point me to the Smoking Pi web admin.
+```
 
 Then ask it something the measurements answer: *what happened last night,
 and was it me or the internet?* It should call `diagnose_loss`.

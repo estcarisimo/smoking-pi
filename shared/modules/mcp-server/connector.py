@@ -186,12 +186,24 @@ def transaction(path: str | None = None):
         save(state, path)
 
 
+def _keep_client(c: dict, now: float) -> bool:
+    """A registration waits a day for its pairing code. A paired one whose
+    authorization code expired unused can never get a token (the sign-in
+    failed on the way back to the assistant): it is not a connector, and
+    left in the list it reads as one more "signed out" assistant."""
+    if not c.get("label"):
+        return c.get("registered_at", now) > now - UNPAIRED_TTL_S
+    # A minute past the code's own lifetime: /token in its last second must
+    # still find the client it was issued for.
+    return bool(c.get("last_token_at")) or c.get("paired_at", now) > now - CODE_TTL_S - 60
+
+
 def _prune(state: dict, now: float) -> None:
     for kind in ("access", "refresh"):
         state[kind] = {h: t for h, t in state[kind].items()
                        if not t.get("expires_at") or t["expires_at"] > now}
     state["clients"] = {cid: c for cid, c in state["clients"].items()
-                        if c.get("label") or c.get("registered_at", now) > now - UNPAIRED_TTL_S}
+                        if _keep_client(c, now)}
     pairing = state.get("pairing")
     if pairing and (pairing["expires_at"] <= now or pairing["tries_left"] <= 0):
         state["pairing"] = None
@@ -723,6 +735,12 @@ def main(argv: list[str]) -> int:
         print(f"Pairing code:   {code[:4]}-{code[4:]}   (for '{label}', valid 10 minutes, once)")
         print("Add the URL as a custom connector in your assistant; when its sign-in")
         print("page asks, type the code. It gets read-only access.")
+        print()
+        print("Then paste this into the assistant's own instructions (custom")
+        print("instructions, rules or system prompt), so it knows when to ask:")
+        print()
+        import guide
+        print(guide.ASSISTANT_INSTRUCTIONS)
         return 0
     if cmd == "list":
         items = connectors()
