@@ -45,7 +45,10 @@ version gets a matching GitHub release and git tag.
   `TELEGRAM_CHAT_ID`), with the same messages, charts and silent digest as
   the OpenClaw path.
   - The command asks for the token (hidden, or on stdin; never the command
-    line) and finds the chat id from a message the owner sends the bot.
+    line) and finds the chat id from a message the owner sends the bot. It first
+    asks whether another program (OpenClaw) already uses the bot. If one
+    does, it says to give `--to CHAT_ID` instead, because Telegram lets only
+    one program read a bot's messages.
   - A preflight at start checks that the token belongs to a bot and that
     the bot can reach the chat. A bot may write only to someone who wrote
     to it first.

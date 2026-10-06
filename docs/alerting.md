@@ -74,7 +74,16 @@ It explains how to make the bot (in Telegram, `@BotFather`, then `/newbot`)
 and asks for the bot's token, hidden as you type. Then it asks you to send
 the bot any message and reads your chat id from it, so there is nothing to
 look up. It counts only a message sent after it asked, shows whose message
-it was, and asks before using that chat. The steps after that are the same as for OpenClaw below: the
+it was, and asks before using that chat.
+
+**A bot that OpenClaw (or anything else) already uses:** give the chat
+yourself, with `--to CHAT_ID`. If OpenClaw is set up, `OPENCLAW_TO` is
+`telegram:CHAT_ID`. Finding the chat reads the bot's incoming messages,
+which Telegram allows one program at a time and marks as read, so the
+other program could lose a message. Sending alerts through a shared bot is
+fine. Alerts sent this way do not enter OpenClaw's conversation, though,
+so the assistant does not know about them. A bot only for alerts keeps them
+apart. The steps after that are the same as for OpenClaw below: the
 `alerts` profile, the alerter's preflight, and an optional `--test`. No
 OpenClaw needed. With OpenClaw on the Pi instead:
 
