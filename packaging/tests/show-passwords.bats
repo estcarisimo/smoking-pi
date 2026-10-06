@@ -249,7 +249,7 @@ refute_sentinels() {
 @test "piped, the output carries no color codes" {
     run_sp
     [ "$status" -eq 0 ]
-    ! printf '%s' "$output" | grep -q $'\x1b\['
+    if printf '%s' "$output" | grep -q $'\x1b\['; then false; fi
 }
 
 @test "on a terminal it is colored, unless NO_COLOR is set" {
@@ -261,5 +261,5 @@ refute_sentinels() {
     run script -qec "NO_COLOR=1 bash '$SCRIPT'" /dev/null
     [ "$status" -eq 0 ]
     printf '%s' "$output" | grep -q 'Credentials'
-    ! printf '%s' "$output" | grep -q $'\x1b\['
+    if printf '%s' "$output" | grep -q $'\x1b\['; then false; fi
 }

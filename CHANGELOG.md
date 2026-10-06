@@ -105,6 +105,22 @@ version gets a matching GitHub release and git tag.
   cycles, so it could cost a point in every series, and the hourly noise
   hid the reloads that meant something (#272). An unchanged discovery now
   writes nothing and reloads nothing.
+- **The command's "this never happens" tests can fail now.** Fifty-five
+  checks in `packaging/tests/cli.bats` were written `! grep -q …`. Bash's
+  errexit ignores a pipeline negated with `!`, so one of those fails a test
+  only as its last line, and anywhere else it proved nothing. Among them were
+  "the MCP token never reaches curl's command line", "a refused command
+  touches no container" and "a secret is never passed on". A regression in
+  any of them would have shipped green. Proven by injecting the token into
+  curl's logged command line: the old check passed, the new one fails.
+  - Every such check is now `if cmd; then false; fi`, which works with the
+    bats that Ubuntu's apt installs in CI. Two in `show-passwords.bats` were
+    changed the same way.
+  - The docker log is created in `setup`, so a check for what must be
+    absent gets a clean "not there". Before, six checks grepped a file that
+    did not exist, and grep's "no such file" also passed.
+  - Every rewritten check passes against the current command, so none of
+    them was hiding a bug.
 
 ## [2.25.0] — 2026-10-06
 
