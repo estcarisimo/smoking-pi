@@ -1478,10 +1478,11 @@ alerts_telegram() {
         local shared=""
         read -r -p "Is this bot already used by OpenClaw or another program? [y/N] " shared || shared=""
         case "$shared" in
-            y|Y|yes)
+            [yY]|[yY][eE][sS])
                 echo "Then give the chat instead of reading the bot's messages:" >&2
                 echo "  $(cli_name) alerts --telegram --to CHAT_ID" >&2
-                echo "(OpenClaw's OPENCLAW_TO is telegram:CHAT_ID.) The bot token is saved." >&2
+                echo "The chat id: OpenClaw's OPENCLAW_TO is telegram:CHAT_ID; otherwise forward" >&2
+                echo "one of your messages to @userinfobot. The bot token is saved." >&2
                 return 2 ;;
         esac
         echo "Starting the alerter's image to read the bot's messages (the first time,"

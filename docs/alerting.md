@@ -80,7 +80,8 @@ it was, and asks before using that chat.
 yourself, with `--to CHAT_ID`. If OpenClaw is set up, `OPENCLAW_TO` is
 `telegram:CHAT_ID`. Finding the chat reads the bot's incoming messages,
 which Telegram allows one program at a time and marks as read, so the
-other program could lose a message. Sending alerts through a shared bot is
+other program could lose a message. If the bot has a webhook set, finding
+the chat fails outright. The command asks about this before reading. Sending alerts through a shared bot is
 fine. Alerts sent this way do not enter OpenClaw's conversation, though,
 so the assistant does not know about them. A bot only for alerts keeps them
 apart. The steps after that are the same as for OpenClaw below: the

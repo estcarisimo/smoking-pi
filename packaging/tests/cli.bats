@@ -1290,9 +1290,12 @@ STUB
     chmod +x "$BATS_TEST_TMPDIR/bin3/docker"
     export PATH="$BATS_TEST_TMPDIR/bin3:$PATH"
     # A bot something else already reads: no reading, it says how to give the chat.
-    run sh -c "printf 'y\n' | SHELL=/bin/bash timeout 60 script -qec '$CLI alerts --telegram' /dev/null"
+    run sh -c "printf 'Yes\n' | SHELL=/bin/bash timeout 60 script -qec '$CLI alerts --telegram' /dev/null"
+    [ "$status" -eq 2 ]
     [[ "$output" == *"--to CHAT_ID"* ]]
-    ! grep -q 'find-chat' "$DOCKER_LOG"
+    # `! grep` mid-test cannot fail a bats test (errexit ignores `!`).
+    if grep -q 'find-chat' "$DOCKER_LOG"; then false; fi
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
     # Declined: nothing changes.
     run sh -c "printf 'n\nn\n' | SHELL=/bin/bash timeout 60 script -qec '$CLI alerts --telegram' /dev/null"
     grep -q 'find-chat 120' "$DOCKER_LOG"
