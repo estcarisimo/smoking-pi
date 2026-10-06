@@ -26,8 +26,14 @@ version gets a matching GitHub release and git tag.
     high or medium confidence, followed by a "Why:" line with its evidence.
   - At low confidence the verdict stays. "No measurements are arriving"
     still outranks everything.
-  - It runs only when an alert is being sent, and a failure leaves the
-    alert as it was.
+  - The match is strict, because a wrong cause stated with confidence is
+    worse than none. An alert about a target gets only an incident naming
+    that target. `microcut_burst` gets a cut on the line or a deaf radio,
+    `ipv6_down` an IPv6-only incident, and `outage`/`uplink_down` a broad
+    one. `unclear` never replaces the verdict.
+  - Cost: about ten InfluxDB queries, only when an alert is being sent and
+    once per evaluation, with a 20 s budget before the alerts go out
+    without it. A failure leaves the alert as it was.
 
 - **Alerts straight to Telegram, no OpenClaw: `sudo smoking-pi alerts
   --telegram`.** Before this, a push reached a phone only through an

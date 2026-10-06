@@ -360,8 +360,16 @@ When a loss alert fires (`target_down`, `high_loss`, `microcut_burst`,
 `ALERT_DIAGNOSIS_HOURS` (default 3) exactly as the assistants'
 `diagnose_loss` tool does. Both use one code path,
 `common/diagnosis_query.py`. The alert then carries the incident that covers
-it: the one that names its target (by site, so `google_h2` finds `google`),
-or for a rule about everything the newest incident of any other kind.
+it, from the last four probe steps, or nothing. Attaching the wrong one is
+worse than attaching none, so the match is strict:
+
+- An alert about a target gets only an incident that names that target's
+  site (`google_h2` finds `google`), never another target's.
+- `microcut_burst` (the first hop) gets a cut on the line or this host's
+  deaf radio.
+- `ipv6_down` gets only an incident that was IPv6 alone.
+- `outage` and `uplink_down` get the newest incident on this host's Wi-Fi,
+  the line, or upstream.
 
 The diagnosis sees more than the verdict: the first hop's loss against its
 usual level, whether this host's radio was deaf, and the TCP/HTTP siblings.
@@ -373,18 +381,28 @@ replaces the verdict line, and the evidence follows the numbers:
 📶 This host's own Wi-Fi, not the line: the monitor could not hear, so nothing beyond it can be judged for that span. The radio was associated but received nothing (or not associated): the monitor was deaf. (high confidence)
 google: 100% loss across all 4 probes
 Why: this host's Wi-Fi heard nothing for 312 s (deaf); the first-hop probe lost everything for exactly that span.
-target_down · 18 of 18 affected · local link cutting out
+target_down · 18 of 18 affected
 mute: say "mute google for 2h"
 ```
 
 (Rendered with `ALERT_MARKUP=plain` and no links configured.)
 
-At **low confidence**, or with no incident to match, the verdict line stays
-and nothing is added. When no measurements are arriving, the verdict's
-"the monitor, not the network" always wins. The queries run only when an
-alert is being sent, once per evaluation however many alerts fire. If they
-fail, the alert goes out with the verdict alone. `ALERT_DIAGNOSIS_HOURS=0`
-turns the diagnosis off.
+The context line keeps the breadth (`18 of 18 affected`) but drops the
+verdict's own reading of the line, which would otherwise contradict the
+diagnosis.
+
+At **low confidence**, for an `unclear` incident, or with no incident to
+match, the verdict line stays and nothing is added. When no measurements
+are arriving, the verdict's "the monitor, not the network" always wins.
+
+**Cost:** about ten InfluxDB queries over three hours. They run only when an
+alert is being sent, once per evaluation however many alerts fire, and never
+on a quiet minute. They get **20 seconds**: the alerts are sent after them,
+and on a struggling Pi a single query can take a minute to time out, which
+is exactly when an outage alert matters. Past the budget, or on any
+failure, the alerts go out with the verdict alone, and a diagnosis still
+running is not started again. `ALERT_DIAGNOSIS_HOURS=0` turns the diagnosis
+off.
 
 ## The daily digest
 

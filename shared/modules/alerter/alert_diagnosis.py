@@ -19,6 +19,7 @@ was, with the verdict alone.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import os
 import time
@@ -37,6 +38,23 @@ DEFAULT_ALERT_DIAGNOSIS_HOURS = 3  # 0 turns it off
 # many probe steps ago: the alert's window looks back further than its last
 # lossy point.
 RECENT_STEPS = 4
+# Wall-clock budget for the diagnosis. It runs before the alerts are sent,
+# and each InfluxDB query may take a minute to time out on a struggling Pi
+# -- exactly when an outage alert matters most. Past this, the alerts go
+# out with the verdict alone.
+BUDGET_S = 20.0
+# Rules about everything (no target of their own) and the classes that can
+# explain them. A destination incident is about some other target, and
+# "unclear" adds nothing to the verdict.
+UNTARGETED_RULES = frozenset({"outage", "uplink_down"})
+BROAD_CLASSES = frozenset({"local_wifi", "local_link", "upstream"})
+# microcut_burst is about the first hop, which no incident names as a
+# target: it is explained by a cut on the line or this host's deaf radio.
+MICROCUT_CLASSES = frozenset({"local_wifi", "local_link"})
+
+_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1,
+                                              thread_name_prefix="diagnosis")
+_pending: concurrent.futures.Future | None = None
 
 
 def hours() -> int:
@@ -47,13 +65,24 @@ def hours() -> int:
     return max(0, min(value, diagnosis_query.MAX_HOURS))
 
 
-def run(cadences: dict | None) -> dict | None:
-    """The diagnosis of the last ``hours()``, or None (off, or it failed)."""
+def run(cadences: dict | None, budget_s: float | None = None) -> dict | None:
+    """The diagnosis of the last ``hours()``, or None: off, failed, or not
+    done within ``budget_s`` (BUDGET_S). A diagnosis still running from an
+    earlier iteration is not started again; its late answer is dropped."""
+    global _pending
     window = hours()
     if window == 0:
         return None
+    if _pending is not None and not _pending.done():
+        log.warning("the previous diagnosis is still running; sending the verdict alone")
+        return None
+    _pending = _pool.submit(diagnosis_query.run, flux.query_influx, window, cadences)
     try:
-        return diagnosis_query.run(flux.query_influx, window, cadences)
+        return _pending.result(timeout=BUDGET_S if budget_s is None else budget_s)
+    except concurrent.futures.TimeoutError:
+        log.warning("diagnosis took longer than %.0f s; sending the verdict alone",
+                    BUDGET_S if budget_s is None else budget_s)
+        return None
     except Exception:  # noqa: BLE001 -- a diagnosis must never cost an alert
         log.warning("diagnosis for the alert failed; sending the verdict alone",
                     exc_info=True)
@@ -66,27 +95,40 @@ def _site(target: str | None) -> str:
 
 def for_event(event: dict, result: dict | None, step_s: int,
               now: float | None = None) -> dict | None:
-    """The incident that explains ``event``: the newest recent one naming
-    its target (by site, so google_h2 finds google), else -- for a rule
-    about everything, or a target the incidents do not name -- the newest
-    recent incident of any kind except a lone probe miss."""
-    if not result or event.get("rule") not in LOSS_RULES:
+    """The incident that explains ``event``, or None. Attaching the wrong
+    one is worse than attaching none: the message would state a cause with
+    confidence about something else.
+
+    - An alert about a target gets only a recent incident naming that
+      target's site (google_h2 finds google), never another target's.
+    - ``microcut_burst`` (the first hop, which no incident names) gets a
+      recent cut on the line or a deaf radio.
+    - ``ipv6_down`` (IPv6 as a whole) gets only an IPv6-only incident.
+    - ``outage`` and ``uplink_down`` (about everything) get the newest
+      recent incident of a broad class: this host's Wi-Fi, the line, or
+      upstream."""
+    rule = event.get("rule")
+    if not result or rule not in LOSS_RULES:
         return None
     now = time.time() if now is None else now
     recent = [i for i in result.get("incidents") or []
-              if i.get("end_epoch", 0) >= now - RECENT_STEPS * step_s]
-    if not recent:
+              if i.get("end_epoch", 0) >= now - RECENT_STEPS * step_s
+              and i.get("class") != "probe_miss"]
+    if rule == "microcut_burst":
+        fits = [i for i in recent if i.get("class") in MICROCUT_CLASSES]
+    elif rule == "ipv6_down":
+        # About IPv6 as a whole (its target is the word "ipv6"): only an
+        # incident that was IPv6 alone.
+        fits = [i for i in recent if i.get("detail") == "ipv6"]
+    elif rule in UNTARGETED_RULES or not event.get("target"):
+        fits = [i for i in recent if i.get("class") in BROAD_CLASSES]
+    else:
+        site = _site(event.get("target"))
+        fits = [i for i in recent
+                if site in {_site(t) for t in i.get("targets") or []}]
+    if not fits:
         return None
-    target = event.get("target")
-    if target:
-        mine = [i for i in recent
-                if _site(target) in {_site(t) for t in i.get("targets") or []}]
-        if mine:
-            return _brief(max(mine, key=lambda i: i["end_epoch"]))
-    broad = [i for i in recent if i.get("class") != "probe_miss"]
-    if not broad:
-        return None
-    return _brief(max(broad, key=lambda i: i["end_epoch"]))
+    return _brief(max(fits, key=lambda i: i["end_epoch"]))
 
 
 def _brief(inc: dict) -> dict:

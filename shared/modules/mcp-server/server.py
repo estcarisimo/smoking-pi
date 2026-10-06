@@ -33,7 +33,16 @@ import connector
 import guide
 import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
-from common import aggregates, cadence, charts, diagnosis, diagnosis_query, microcuts, mutes, openclaw
+from common import (
+    aggregates,
+    cadence,
+    charts,
+    diagnosis,
+    diagnosis_query,
+    microcuts,
+    mutes,
+    openclaw,
+)
 
 def _instructions() -> str:
     """What every assistant is told when it connects: one guide for all of
@@ -1243,7 +1252,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
 
 # A week of per-minute Wi-Fi rows, CPE windows and loss events is the most
 # one answer should read; diagnose_loss refuses longer windows.
-DIAGNOSE_MAX_HOURS = 168
+DIAGNOSE_MAX_HOURS = diagnosis_query.MAX_HOURS
 DIAGNOSE_MAX_INCIDENTS = 50
 
 

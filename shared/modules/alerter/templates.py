@@ -206,7 +206,8 @@ def _diagnosis_leads(diag: dict, verdict: dict) -> bool:
     as in verdict.py)."""
     return bool(
         diag.get("summary")
-        and diag.get("class") not in (None, "probe_miss")
+        # "No single cause fits" says less than the verdict it would replace.
+        and diag.get("class") not in (None, "probe_miss", "unclear")
         and diag.get("confidence") in ("high", "medium")
         and verdict.get("scope") != "monitoring"
     )
@@ -277,11 +278,15 @@ def alert_sections(event: dict) -> list[Section]:
     total = verdict.get("total")
     if total:
         context.append(f"{verdict.get('affected', 0)} of {total} affected")
-        context.append(
-            "local link cutting out"
-            if verdict.get("cpe_cutting")
-            else "local link clean"
-        )
+        # The verdict's reading of the line; when the diagnosis leads it has
+        # already said where the fault is, and "local link cutting out" next
+        # to "this host's Wi-Fi, not the line" reads as a contradiction.
+        if not leads:
+            context.append(
+                "local link cutting out"
+                if verdict.get("cpe_cutting")
+                else "local link clean"
+            )
     # The Wi-Fi hop, whenever it was checked: a reader should see that a
     # "your line" verdict was reached with the wireless link in view.
     wifi = verdict.get("wifi") or {}
