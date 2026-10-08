@@ -77,7 +77,7 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_datasource_plugins_installed(repo, datasources),
         check_dashboards_are_scanned(repo, influx, clickhouse),
         check_panel_measurements_are_written(repo, influx),
-        check_panel_tags_are_written(repo, influx),
+        check_panel_tags_are_written(repo, influx, clickhouse),
         check_text_stats_name_their_field(influx),
         check_overrides_match_a_series(influx),
         check_alerter_env_defaults_match(repo),
@@ -345,16 +345,25 @@ def check_panel_measurements_are_written(repo: Repo, influx) -> CheckResult:
     )
 
 
-def check_panel_tags_are_written(repo: Repo, influx) -> CheckResult:
-    """Same for tag names: `r.measurement_type` is a filter that can never match."""
+def check_panel_tags_are_written(repo: Repo, influx, clickhouse=()) -> CheckResult:
+    """Same for tag names: `r.measurement_type` is a filter that can never match.
+
+    ClickHouse has columns, not tags, so a predicate there is always a valid
+    name; what goes wrong is the value. ``category = 'DNS_Resolvers'`` (the
+    RRD directory) where the exporter writes ``dns`` matched nothing, in a
+    template variable, from v2.5.0 until this check read SQL too. Every
+    ``category``/``measurement_type`` literal a ClickHouse query compares
+    against must be one the exporter's ``*_for()`` classifiers can return.
+    """
     vocab = sources.exporter_vocabulary(*repo.writers)
-    if not vocab.tag_names:
+    ch_vocab = sources.clickhouse_vocabulary(repo.exporters)
+    if not vocab.tag_names and not ch_vocab:
         return skipped(
             "panel-tags-written", f"no .tag() literals found under {repo.exporters}"
         )
     findings = []
     checked = 0
-    for dashboard in influx:
+    for dashboard in influx if vocab.tag_names else ():
         for where, query in sources.iter_queries(dashboard):
             for tag in sources.tag_refs_in(query):
                 checked += 1
@@ -366,11 +375,33 @@ def check_panel_tags_are_written(repo: Repo, influx) -> CheckResult:
                             where=f"{dashboard.rel} / {where}",
                         )
                     )
-    return result(
-        "panel-tags-written",
-        findings,
-        f"{checked} tag references match {', '.join(vocab.sources)}",
-    )
+    ch_exporters = sorted(repo.exporters.glob("*clickhouse*.py"))
+    if ch_exporters and not ch_vocab:
+        findings.append(
+            Finding(
+                "no `<column>_for()` classifier returns a literal, so ClickHouse "
+                "predicates cannot be checked",
+                where=", ".join(p.name for p in ch_exporters),
+            )
+        )
+    ch_checked = 0
+    for dashboard in clickhouse if ch_vocab else ():
+        for where, query in sources.iter_queries(dashboard):
+            for column, value in sorted(sources.sql_values_in(query, ch_vocab)):
+                ch_checked += 1
+                if value not in ch_vocab[column]:
+                    findings.append(
+                        Finding(
+                            f"compares {column} to {value!r}, which the ClickHouse "
+                            f"exporter never writes (written: "
+                            f"{', '.join(sorted(ch_vocab[column]))})",
+                            where=f"{dashboard.rel} / {where}",
+                        )
+                    )
+    summary = f"{checked} tag references match {', '.join(vocab.sources)}"
+    if ch_vocab:
+        summary += f"; {ch_checked} ClickHouse column values match the exporter"
+    return result("panel-tags-written", findings, summary)
 
 
 def check_text_stats_name_their_field(influx) -> CheckResult:

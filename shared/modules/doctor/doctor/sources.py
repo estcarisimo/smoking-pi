@@ -346,6 +346,72 @@ def exporter_vocabulary(*exporter_dirs: pathlib.Path) -> ExporterVocabulary:
     return vocab
 
 
+def _function_results(func: ast.FunctionDef, dicts: dict[str, dict]) -> set[str]:
+    """String values a classifier can return: literals, both ternary
+    branches, and ``TABLE.get(key, "default")`` over a module-level dict
+    literal (every value of the table, plus the default)."""
+    values = _string_returns(func)
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value.func
+        if (
+            isinstance(call, ast.Attribute)
+            and call.attr == "get"
+            and isinstance(call.value, ast.Name)
+            and call.value.id in dicts
+        ):
+            values |= {v for v in dicts[call.value.id].values() if isinstance(v, str)}
+            if len(node.value.args) > 1:
+                default = _literal(node.value.args[1])
+                if default:
+                    values.add(default)
+    return values
+
+
+def _module_dicts(tree: ast.Module) -> dict[str, dict]:
+    """Top-level ``NAME = {...}`` tables made of literals only."""
+    tables: dict[str, dict] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Dict)
+        ):
+            try:
+                tables[node.targets[0].id] = ast.literal_eval(node.value)
+            except ValueError:
+                continue
+    return tables
+
+
+def clickhouse_vocabulary(*exporter_dirs: pathlib.Path) -> dict[str, set[str]]:
+    """Column -> the values the ClickHouse exporter writes into it.
+
+    rrd2clickhouse.py classifies each RRD with ``<column>_for()`` helpers
+    (``category_for``, ``measurement_type_for``), so every such helper names
+    a column and its returns are that column's whole vocabulary. Read from
+    the source like the InfluxDB vocabulary, for the same reason.
+    """
+    vocab: dict[str, set[str]] = {}
+    paths = sorted(p for d in exporter_dirs if d.is_dir() for p in d.glob("*.py"))
+    for path in paths:
+        if "clickhouse" not in path.name:
+            continue
+        try:
+            tree = ast.parse(path.read_text())
+        except (OSError, SyntaxError):
+            continue
+        dicts = _module_dicts(tree)
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name.endswith("_for"):
+                values = _function_results(node, dicts)
+                if values:
+                    vocab.setdefault(node.name[: -len("_for")], set()).update(values)
+    return vocab
+
+
 # ---------------------------------------------------------------------------
 # What the dashboards ask for
 # ---------------------------------------------------------------------------
@@ -423,6 +489,34 @@ def _refs_from(datasource, where: str):
 
 def measurements_in(query: str) -> set[str]:
     return set(_MEASUREMENT_RE.findall(query))
+
+
+# ``category = 'dns'``, ``l.category != 'x'``, ``measurement_type <> 'y'``,
+# ``category IN ('a', 'b')``. Only queries over the exporter's own tables
+# (``smokeping.<table>``) are read: a PostgreSQL variable speaks the
+# database's vocabulary (``dns_resolvers``), which is a different one.
+_SQL_TABLE_RE = re.compile(r"\bsmokeping\.[A-Za-z_]")
+_SQL_COMPARE_RE = re.compile(
+    r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|!=|<>)\s*'([^']*)'"
+)
+_SQL_IN_RE = re.compile(
+    r"\b([A-Za-z_][A-Za-z0-9_]*)\s+(?:NOT\s+)?IN\s*\(([^)]*)\)", re.IGNORECASE
+)
+
+
+def sql_values_in(query: str, columns) -> set[tuple[str, str]]:
+    """``(column, literal)`` pairs a ClickHouse query compares ``columns`` to."""
+    if not _SQL_TABLE_RE.search(query):
+        return set()
+    pairs = {
+        (column, value)
+        for column, value in _SQL_COMPARE_RE.findall(query)
+        if column in columns
+    }
+    for column, items in _SQL_IN_RE.findall(query):
+        if column in columns:
+            pairs |= {(column, value) for value in re.findall(r"'([^']*)'", items)}
+    return pairs
 
 
 _PIVOT_RE = re.compile(r'pivot\([^)]*columnKey:\s*\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]')

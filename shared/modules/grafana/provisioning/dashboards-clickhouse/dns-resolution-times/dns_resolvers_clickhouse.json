@@ -62,7 +62,7 @@
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse"
         },
-        "query": "SELECT DISTINCT target FROM smokeping.latency WHERE category = 'DNS_Resolvers' AND measurement_type = 'latency' ORDER BY target",
+        "query": "SELECT DISTINCT target FROM smokeping.latency WHERE category = 'dns' AND measurement_type = 'dns_latency' ORDER BY target",
         "current": {
           "selected": true,
           "text": "All",

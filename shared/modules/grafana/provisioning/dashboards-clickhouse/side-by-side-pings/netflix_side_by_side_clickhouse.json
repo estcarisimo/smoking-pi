@@ -61,7 +61,7 @@
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse"
         },
-        "query": "SELECT DISTINCT target FROM smokeping.latency WHERE category = 'Netflix' AND measurement_type <> 'dns_latency' ORDER BY target",
+        "query": "SELECT DISTINCT target FROM smokeping.latency WHERE category = 'netflix' AND measurement_type <> 'dns_latency' ORDER BY target",
         "hide": 0,
         "multi": true,
         "includeAll": true,

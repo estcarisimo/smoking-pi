@@ -61,7 +61,7 @@ Each one exists because the corresponding failure actually happened here.
 | `datasource-plugins-installed` | A datasource whose plugin the image does not install — it provisions fine and then cannot answer a query | ClickHouse before the plugin was baked in |
 | `dashboards-are-scanned` | Dashboard JSON in a directory no provider walks | The entire ClickHouse dashboard set, on disk and never loaded |
 | `panel-measurements-written` | `r._measurement == "X"` where no exporter writes `X` | — |
-| `panel-tags-written` | `r.measurement_type` and friends — a filter that can never match | DNS panels filtered on `measurement_type='latency'` / `category='DNS_Resolvers'`, where the exporter writes `dns_latency` / `dns` |
+| `panel-tags-written` | `r.measurement_type` and friends — a filter that can never match; on the ClickHouse dashboards, a `category` / `measurement_type` value the ClickHouse exporter never writes | DNS panels filtered on `measurement_type='latency'` / `category='DNS_Resolvers'`, where the exporter writes `dns_latency` / `dns`; the panels were fixed in v2.5.0; four ClickHouse `$target` variables kept the raw names, unnoticed, until the check read SQL too |
 | `text-stats-name-their-field` | A stat panel whose query answers with text (a tag kept, or `_value` built from a tag or a string) and whose `reduceOptions.fields` is empty: Grafana reduces numeric fields only, so the panel shows its "no value" text over data that is there | The Overview's whole first row ("unknown", "not collected yet") and the Wi-Fi dashboard's SSID and BSSID ("No data"), v2.14.0–v2.15.6. Recognized from the query alone: a string *field* shown as-is (`r._field == "owner"`) looks like any number and is not caught |
 | `overrides-match-a-series` | A field override matched `byName` on a `yield(name:)` value the query does not otherwise produce: Grafana names a Flux series by its field and tags, so the override never applies and the panel draws with the wrong unit, axis or scale. Panels that set `displayName` are skipped | The CPE microcuts' TX failures drawn in dBm on the signal's axis, and six Wi-Fi Link overrides (noise/SNR units, channel busy's 0–100 % scale, link quality's axis) |
 
@@ -82,6 +82,15 @@ did, on the first run, before the resolution was added.
 Panel queries **and** template-variable queries are both checked, including
 panels nested inside collapsed rows. The `DNS_Resolvers` mistake lived in a
 variable query, not a panel.
+
+ClickHouse queries are SQL, and a column name there is always valid, so the
+check compares *values* instead: every `category` / `measurement_type`
+literal a query over `smokeping.*` compares with `=`, `!=`, `<>` or `IN`
+must be one the exporter's `category_for()` / `measurement_type_for()` can
+return, read from `rrd2clickhouse.py` the same way (literal returns, and every
+value of a `CATEGORY_MAP.get(..., "unknown")` table). PostgreSQL variables on
+those dashboards speak the database's vocabulary (`dns_resolvers`) and are
+skipped. A valid value on the wrong dashboard is not caught.
 
 ## Live checks (`--live`)
 
@@ -266,9 +275,10 @@ The remaining live checks are not built. They are the other half of the plan:
   a recent window and distinguish "query error", "ran but zero rows", and "ok".
 - **Dashboards not provisioned**: dashboard JSON on disk vs what Grafana's API
   reports.
-- **Tag *values* nothing writes**: the static checks verify measurement and tag
-  *names* against the exporter source; whether `category == "topsites"` ever
-  actually occurs can only be answered by the TSDB.
+- **Tag *values* nothing writes**: the static checks verify InfluxDB
+  measurement and tag *names* against the exporter source (and ClickHouse
+  `category` / `measurement_type` values); whether `category == "topsites"`
+  ever actually occurs in InfluxDB can only be answered by the TSDB.
 - **Measurement written but never displayed**: the reverse direction — a new
   metric someone added and forgot to chart.
 - **Unit/semantics drift**: loss outside its declared range per measurement
