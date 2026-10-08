@@ -45,7 +45,8 @@ did, and is the way to run an unreleased branch.
 - **Latency and loss** to your targets, every 300 s, with every individual
   ping kept (the "smoke"), over IPv4 and, when the host really has it, IPv6
   ([IPv6 gating](ipv6-gating.md)).
-- **DNS resolution time** against public resolvers.
+- **DNS resolution time** against public resolvers
+  ([DNS resolver probes](dns-probes.md)).
 - **The same page over HTTP/1.1, HTTP/2 and HTTP/3**, each version enforced
   rather than requested, with the bare TCP handshake underneath as the floor
   ([HTTP and TCP probes](http-probes.md)).

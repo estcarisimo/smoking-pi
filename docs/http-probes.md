@@ -26,7 +26,7 @@ version, and how fast. SmokePing's `Curl` probe records
 `time_total − time_namelookup`, and the request is a `HEAD` (`-I`), so
 that is TCP or QUIC connect, TLS handshake, request, and the response
 headers. DNS is excluded, so a slow resolver does not show up as a slow
-site (the DNS probes are for that). Redirects are not followed; a `301` is
+site (the [DNS probes](dns-probes.md) are for that). Redirects are not followed; a `301` is
 timed as a `301`.
 
 The status code is not checked. Some servers answer `HEAD /` with a `405`

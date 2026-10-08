@@ -4,7 +4,8 @@ Which names does this house actually resolve? That is the first step toward
 measuring the services that matter here, not a generic list of sites. The DNS
 observer answers it from the house's own DNS queries. Nobody's traffic is
 sniffed or intercepted: the router is configured, on purpose, to forward DNS
-to the Pi.
+to the Pi. (How fast the public resolvers answer the Pi's own queries is a
+different measurement: [DNS resolver probes](dns-probes.md).)
 
 It runs as one container with two pieces:
 
