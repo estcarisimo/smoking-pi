@@ -39,12 +39,11 @@ the rest are in `smoking-pi --help`.
 | `verify-postgres.sh` | Run by `setup.sh`: checks PostgreSQL's health |
 | `custom-cont-init.d/` | SmokePing container start-up: link the generated config, guard the RRDs, run the exporter |
 | `config-manager/` | Runtime state (gitignored): `config/` YAML import/export, `output/` the generated SmokePing config |
-| `DNS_MONITORING.md` | Notes on the DNS resolver probes and their dashboard |
 
 ## Read next
 
 - [Getting started](../../docs/getting-started.md), [Maintenance and cleanup](../../docs/maintenance.md), [Upgrading](../../docs/upgrades.md), [Packaging](../../docs/packaging.md)
 - [Alerting](../../docs/alerting.md), [MCP server](../../docs/mcp-server.md), [Connecting any assistant](../../docs/remote-connector.md), [OpenClaw](../../docs/openclaw-integration.md)
-- [ClickHouse backend](../../docs/clickhouse.md), [DNS observer](../../docs/dns-observer.md), [Instrumentation doctor](../../docs/doctor.md)
+- [ClickHouse backend](../../docs/clickhouse.md), [DNS resolver probes](../../docs/dns-probes.md), [DNS observer](../../docs/dns-observer.md), [Instrumentation doctor](../../docs/doctor.md)
 - [Measurement budget](../../docs/measurement-budget.md), [HTTP and TCP probes](../../docs/http-probes.md), [Congestion inference](../../docs/inference.md)
 - [Quick tunnels](../../docs/quick-tunnels.md) and [Cloudflare tunnels](../../docs/cloudflare-tunnel-setup.md)

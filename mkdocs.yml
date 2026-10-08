@@ -18,6 +18,7 @@ nav:
   - Measuring:
       - Measurement frequency: measurement-frequency.md
       - Measurement budget: measurement-budget.md
+      - DNS resolver probes: dns-probes.md
       - HTTP/1.1, HTTP/2, HTTP/3 and TCP probes: http-probes.md
       - Wi-Fi uplink stats: wifi.md
       - The last mile from the CPE: cpe-last-mile.md
