@@ -44,6 +44,10 @@ jobs:
             while IFS= read -r -d '' f; do
               bash -n "$f" || { echo "SYNTAX ERROR: $f"; exit 1; }
             done
+          # The command's entry points have no .sh to find them by.
+          for f in cli/smoking-pi packaging/smoking-pi; do
+            bash -n "$f" || { echo "SYNTAX ERROR: $f"; exit 1; }
+          done
           echo "All shell scripts parse."
 
   citation:

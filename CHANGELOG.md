@@ -19,9 +19,10 @@ version gets a matching GitHub release and git tag.
   for a person to find. Now `cli/smoking-pi` sets up the paths and
   dispatches, each area of commands is one file in `cli/lib/`
   (`config.sh`, `alerts.sh`, `lifecycle.sh`…), and the tests are in
-  `cli/tests/`. The move changes no behavior: every one of the 86
-  functions is byte-for-byte what it was (checked by comparing
-  `declare -f` before and after). The package installs `cli/` as
+  `cli/tests/`. The move changes no behavior: comparing `declare -f`
+  before and after, every function is byte-for-byte what it was except
+  the two that name the command's own path (`link_cli`, and the tip in
+  `brief`), which now say `cli/smoking-pi`. The package installs `cli/` as
   `/usr/lib/smoking-pi` with `/usr/bin/smoking-pi` a link to it.
   `packaging/smoking-pi` stays as a one-line forward, because a clone's
   `/usr/local/bin` link still points there; `smoking-pi upgrade` (or
