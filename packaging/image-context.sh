@@ -14,7 +14,7 @@ service="${1:?usage: image-context.sh SERVICE}"
 dockerfile="shared/modules/$service/Dockerfile"
 [ -f "$dockerfile" ] || { echo "no Dockerfile for '$service' at $dockerfile" >&2; exit 1; }
 case "$service" in
-    ai-insights|alerter|mcp-server|web-admin|smokeping) context=shared ;;
+    ai-insights|alerter|inference|mcp-server|web-admin|smokeping) context=shared ;;
     *) context="shared/modules/$service" ;;
 esac
 echo "$context $dockerfile"

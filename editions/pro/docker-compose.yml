@@ -661,6 +661,48 @@ services:
       - netmeter-state:/var/lib/netmeter
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
 
+  # EXPERIMENTAL (opt-in: COMPOSE_PROFILES=...,inference). Two detectors per
+  # ICMP target, every hour: persistent congestion with Jitterbug (the
+  # published package, BCP + KS as in its paper) and loss degradation with
+  # Bayesian change points on packet loss. Results go to InfluxDB and shade
+  # the Target Detail dashboard; nothing here alerts. Reads InfluxDB only.
+  # Low CPU priority and one core at most, so it never competes with the
+  # measurements. See docs/inference.md.
+  inference:
+    build:
+      # Context is `shared/` so the image can copy shared/modules/common.
+      context: ../../shared
+      dockerfile: modules/inference/Dockerfile
+    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/inference:${SMOKING_PI_VERSION:-dev}
+    pull_policy: missing
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [inference]
+    cpus: 1.0
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      - INFERENCE_INTERVAL=${INFERENCE_INTERVAL:-3600}
+      - INFERENCE_CONGESTION_DAYS=${INFERENCE_CONGESTION_DAYS:-14}
+      - INFERENCE_DEGRADATION_DAYS=${INFERENCE_DEGRADATION_DAYS:-7}
+      - INFERENCE_SINCE=${INFERENCE_SINCE:-}
+      - INFERENCE_CATEGORIES=${INFERENCE_CATEGORIES:-topsites,custom,cpe}
+      - INFERENCE_TARGETS=${INFERENCE_TARGETS:-}
+      - INFERENCE_DEGRADATION_MIN_MINUTES=${INFERENCE_DEGRADATION_MIN_MINUTES:-30}
+      - INFERENCE_DEGRADATION_LOSS_PCT=${INFERENCE_DEGRADATION_LOSS_PCT:-2}
+      - TSDB_TYPE=${TSDB_TYPE:-influxdb}
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG:-smokeping}
+      - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - inference-state:/var/lib/inference
+    depends_on:
+      influxdb:
+        condition: service_started
+        required: false
+
   # The Pi's name on the LAN: answers for <MDNS_NAME>.local (default
   # smoking-pi.local) over multicast DNS, whatever the hostname is and
   # whether or not the host runs Avahi. A second Smoking Pi on the same
@@ -792,6 +834,7 @@ volumes:
   dns-observer-work:
   dns-observer-state:
   netmeter-state:
+  inference-state:
   clickhouse-data:
     name: smokeping-pro-clickhouse-data
   clickhouse-logs:

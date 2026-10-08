@@ -244,6 +244,7 @@ smoking-pi/
 │   │   ├── dns-observer/      # AdGuard Home + the DNS wizard: what the house resolves
 │   │   ├── mdns/              # answers for smoking-pi.local on the LAN (multicast DNS)
 │   │   ├── netmeter/          # uplink traffic per service: counter-only nftables table (Pro)
+│   │   ├── inference/         # experimental: persistent congestion (Jitterbug) and loss degradation (Pro)
 │   │   ├── doctor/            # Static + live instrumentation checks
 │   │   └── common/            # Flux helpers, chart renderer, deep links, mutes, OpenClaw client
 │   ├── scripts/               # setup helpers, container management, tunnels, skill install
@@ -273,7 +274,7 @@ uv sync            # or: python -m venv .venv && pip install -e ".[dev]"
 Every module with a `tests/` directory is discovered by CI. Tests mock the network, the database and Docker; none needs a running stack.
 
 ```bash
-for m in alerter mcp-server web-admin config-manager doctor smokeping-exporters dns-observer mdns netmeter; do
+for m in alerter mcp-server web-admin config-manager doctor smokeping-exporters dns-observer mdns netmeter inference; do
   (cd shared/modules/$m && pytest tests/ -q)
 done
 ```

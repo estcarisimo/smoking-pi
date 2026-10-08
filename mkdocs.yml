@@ -29,6 +29,7 @@ nav:
   - Alerts and the assistant:
       - Alerting: alerting.md
       - Detection reliability: detection-reliability.md
+      - Congestion and degradation (experimental): inference.md
       - MCP server: mcp-server.md
       - OpenClaw integration: openclaw-integration.md
       - OpenClaw on another machine: remote-openclaw.md

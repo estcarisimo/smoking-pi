@@ -56,6 +56,11 @@ what it measures are not counted as the house's.
 container counts the uplink's bytes per service with a counter-only
 nftables table, and asks config-manager which container is which.
 
+**Experimental detectors.** The [inference](inference.md) container,
+behind its own profile, reads the ICMP targets' pings and loss from InfluxDB
+and writes back persistent congestion (Jitterbug) and loss degradation
+periods, which shade the Target Detail dashboard.
+
 **The Pi's name.** The [mdns](mdns.md) container answers for
 `smoking-pi.local` on the LAN, so the two `you` badges are reachable by
 name as well as by address.

@@ -40,6 +40,34 @@
           "queryType": "flux",
           "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolver\" and (r._field == \"previous\" or r._field == \"owner\")) |> pivot(rowKey: [\"_time\", \"path\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => exists r.previous) |> map(fn: (r) => ({_time: r._time, text: \"Resolver via \" + r.path + \": \" + r.previous + \" → \" + r.owner, tags: \"resolver\"}))"
         }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#FF9830",
+        "name": "Persistent congestion (Jitterbug, experimental)",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "import \"date\"\nimport \"regexp\"\n// Same target matching as the panels: any probe of this base name.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still shaded.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r.target =~ re and (r._field == \"end\" or r._field == \"confidence\" or r._field == \"jump_ms\"))\n  |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end * 1000000000), text: \"Persistent congestion (Jitterbug, experimental) on \" + r.target + \": the minimum RTT rose \" + string(v: float(v: int(v: r.jump_ms * 10.0)) / 10.0) + \" ms and stayed; confidence \" + string(v: float(v: int(v: r.confidence * 100.0)) / 100.0), tags: \"experimental\"}))"
+        }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#F2495C",
+        "name": "Loss degradation (experimental)",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "import \"date\"\nimport \"regexp\"\n// Same target matching as the panels: any probe of this base name.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still shaded.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r.target =~ re and (r._field == \"end\" or r._field == \"mean_loss_pct\"))\n  |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end * 1000000000), text: \"Loss degradation (experimental) on \" + r.target + \": \" + string(v: float(v: int(v: r.mean_loss_pct * 10.0)) / 10.0) + \" % mean loss\", tags: \"experimental\"}))"
+        }
       }
     ]
   },
@@ -84,7 +112,10 @@
           "uid": "influxdb"
         },
         "query": "import \"regexp\"\nimport \"strings\"\nimport \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -7d, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r._value, t: \"\") })) |> map(fn: (r) => ({ r with key: strings.toLower(v: r._value) })) |> group(columns: [\"key\"]) |> sort(columns: [\"_value\"]) |> first() |> group() |> keep(columns: [\"_value\"]) |> sort()",
-        "current": { "text": "Google", "value": "Google" },
+        "current": {
+          "text": "Google",
+          "value": "Google"
+        },
         "options": [],
         "includeAll": false,
         "multi": false,

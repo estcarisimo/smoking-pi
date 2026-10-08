@@ -9,6 +9,37 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Experimental: persistent congestion and loss degradation, per target
+  (`inference` profile, off by default).** Smoking Pi measured loss and
+  latency per target, but nothing said when a path stayed congested or when
+  a target's loss rose and stayed up, as opposed to one bad probe cycle. An
+  alert fires on a threshold; it cannot tell a queue that stays full from a
+  radio dropping packets. Two separate detectors run once an hour on every
+  ICMP target and shade the Target Detail dashboard:
+  - **Persistent congestion** is [Jitterbug](https://github.com/estcarisimo/jitterbug)
+    (PAM 2022) used as its package publishes it, in the paper's
+    configuration: Bayesian change points on the 15-minute minimum RTT, then
+    the latency jump and the KS jitter test. A path whose floor never moves
+    gets no period, however jittery it is.
+  - **Loss degradation** runs the same Bayesian change-point detection on
+    packet loss in 15-minute bins. A segment at 2 % mean loss or more that
+    lasts 30 minutes or more is a degradation. One lost ping reads 3.3 % in
+    its bin, which is why the duration floor matters. Loss can come from the
+    radio, a faulty line or an overloaded router, so it is a separate signal
+    and never feeds Jitterbug's verdict.
+  - Results go to InfluxDB (`persistent_congestion`, `loss_degradation`) and
+    each pass replaces its window's earlier results. `INFERENCE_SINCE` keeps
+    the windows from reaching before a date, after a move or a change of
+    provider.
+  - Not in the alert path. It runs at a lower CPU priority on at most one
+    core. InfluxDB only. The image is the thirteenth, and the only one on
+    Python 3.13: ruptures, which Jitterbug requires, has no 3.14 wheels yet.
+    It carries PyTorch (the CPU-only build).
+  - docs/inference.md explains both detectors, how to read the shading
+    across targets, the settings and the cost.
+
 ### Fixed
 
 - **A recovery says how long the problem lasted, not how long the alert
