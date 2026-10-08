@@ -36,7 +36,7 @@ log = logging.getLogger("inference")
 DEFAULT_INTERVAL = 3600
 DEFAULT_CONGESTION_DAYS = 14
 DEFAULT_DEGRADATION_DAYS = 7
-DEFAULT_START_DELAY = 120
+START_DELAY = 120  # seconds: let InfluxDB come up first
 DAY = 86400
 
 
@@ -78,7 +78,16 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
     started = time.monotonic()
     report = {"at": now, "targets": {}, "errors": 0,
               "windows": {"congestion_start": c_start, "degradation_start": d_start}}
-    for target, category in list_targets(min(c_start, d_start)):
+    try:
+        selected = list_targets(min(c_start, d_start))
+    except Exception:  # noqa: BLE001 -- InfluxDB down: report it, try next pass
+        log.warning("could not list the targets; skipping this pass", exc_info=True)
+        report["errors"] += 1
+        report["failed"] = "listing targets"
+        selected = []
+    if not selected and "failed" not in report:
+        log.warning("no target matched INFERENCE_CATEGORIES / INFERENCE_TARGETS")
+    for target, category in selected:
         row = {}
         try:
             pings, loss = fetch(target, min(c_start, d_start))
@@ -96,6 +105,8 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             report["errors"] += 1
         report["targets"][target] = row
     report["seconds"] = round(time.monotonic() - started, 1)
+    if not report["errors"]:
+        report["last_ok"] = now
     log.info("inference pass: %d targets in %.0f s, %d failed",
              len(report["targets"]), report["seconds"], report["errors"])
     return report
@@ -117,7 +128,7 @@ def main() -> None:
     except OSError:
         pass
     status.write({"starting": int(time.time()), "interval": interval})
-    time.sleep(_env_int("INFERENCE_START_DELAY", DEFAULT_START_DELAY))
+    time.sleep(START_DELAY)
     while True:
         began = time.time()
         report = run_once()

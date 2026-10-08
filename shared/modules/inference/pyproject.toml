@@ -12,6 +12,7 @@ dependencies = [
 [project.optional-dependencies]
 # The detectors themselves. Jitterbug's `bcp` extra brings bayesian-changepoint
 # and torch; the image installs torch from the CPU-only index. Tests fake both.
+# The Dockerfile lists these dependencies again: keep the two in step.
 detect = [
     "jitterbug-inference[bcp]>=2.3",
 ]

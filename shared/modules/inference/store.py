@@ -8,8 +8,12 @@ the new ones: a period found again is replaced, not duplicated, and one the
 detector no longer finds disappears. Points before the window are kept.
 
 A period that begins at the window's first bin was cut by the window: its
-real start is earlier and an earlier run recorded it whole. It is not
-written, so the earlier, complete record stays.
+real start is earlier and an earlier run recorded it. It is not written, so
+the earlier record stays, with the end that run saw.
+
+Delete-then-write is not atomic: if the write fails, the window shows no
+period until the next pass an hour later. These are experimental shades,
+not alerts, so that is accepted rather than worked around.
 """
 
 from __future__ import annotations

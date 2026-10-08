@@ -99,7 +99,7 @@ All optional; empty means the default.
 | `INFERENCE_CONGESTION_DAYS` | `14` | Jitterbug's window, close to the 16 days of the paper's dataset |
 | `INFERENCE_DEGRADATION_DAYS` | `7` | The loss window |
 | `INFERENCE_SINCE` | — | `YYYY-MM-DD`: never look before this date. Set it after moving the Pi or changing provider: the old connection's history is not this one's baseline |
-| `INFERENCE_CATEGORIES` | `topsites,custom,cpe` | Which ICMP targets, by InfluxDB category tag |
+| `INFERENCE_CATEGORIES` | `topsites,custom,cpe` | Which ICMP targets, by InfluxDB category tag. Netflix OCAs (their names rotate) and the DNS wizard's targets are left out by default |
 | `INFERENCE_TARGETS` | — | Exactly these targets instead (comma-separated) |
 | `INFERENCE_DEGRADATION_MIN_MINUTES` | `30` | Shortest degradation |
 | `INFERENCE_DEGRADATION_LOSS_PCT` | `2` | Lowest mean loss of a degradation |
@@ -116,7 +116,10 @@ nothing to the network.
 
 Each pass replaces the results inside its window: a period found again is
 rewritten, not duplicated, and one no longer found disappears. A period cut
-by the start of the window is left as an earlier pass recorded it.
+by the start of the window is left as an earlier pass recorded it. If a
+pass fails after clearing its window, the window shows nothing until the
+next pass. `status.py` reports the time of the last pass without errors
+(`last_ok`).
 
 ## Limits
 

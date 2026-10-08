@@ -94,3 +94,17 @@ def test_the_floors_come_from_the_environment(monkeypatch):
     series = [0.0] * 20 + [3.3] + [0.0] * 20
     (p,) = degradation.detect(_loss(series), _probs_at(20, 21))["periods"]
     assert round(p["mean_loss_pct"], 1) == 3.3
+
+
+def test_a_gap_in_the_data_is_not_degraded_time(monkeypatch):
+    """A segment of two bins with data on either side of a 4-hour gap spans
+    over four hours but holds 30 minutes of measurements: under a 45-minute
+    floor it is not a degradation."""
+    monkeypatch.setenv("INFERENCE_DEGRADATION_MIN_MINUTES", "45")
+    base = (T0 // BIN) * BIN
+    rows = [(base + i * BIN, 0.0) for i in range(20)]
+    rows.append((base + 20 * BIN, 6.0))                         # before the gap
+    rows.append((base + 37 * BIN, 6.0))                         # after the gap
+    rows += [(base + (38 + i) * BIN, 0.0) for i in range(20)]
+    loss = pd.DataFrame(rows, columns=["epoch", "loss_pct"])
+    assert degradation.detect(loss, _probs_at(20, 22))["periods"] == []

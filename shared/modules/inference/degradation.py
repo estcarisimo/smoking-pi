@@ -14,7 +14,13 @@ when it lasts at least ``INFERENCE_DEGRADATION_MIN_MINUTES`` (30) and its
 mean loss is at least ``INFERENCE_DEGRADATION_LOSS_PCT`` (2 %). With 10 pings
 a cycle and 3 cycles a bin, a single lost ping reads 3.3 % in its bin: the
 duration floor is what keeps one lost ping from being a degradation.
-Adjacent degraded segments are reported as one.
+Adjacent degraded segments are reported as one. A segment's duration counts
+the bins that have data, so a gap in the measurements is never degraded time.
+
+The change-point call is Jitterbug's own (its BayesianChangePointDetector),
+copied rather than imported: that class takes a minimum-RTT dataset, and
+loss is not one. A change point at index i starts the new segment at bin i,
+as in Jitterbug, so a segment can begin one bin early.
 """
 
 from __future__ import annotations
@@ -96,7 +102,8 @@ def detect(loss: pd.DataFrame, probabilities=bcp_probabilities) -> dict:
         mean = float(values[a:b].mean())
         segments.append((start, end, mean, b - a))
     for i, (start, end, mean, n) in enumerate(segments):
-        if end - start < floor_s or mean < floor_pct:
+        # Bins with data, not the span: a gap in the data is not degraded time.
+        if n * BIN_S < floor_s or mean < floor_pct:
             continue
         if periods and periods[-1]["end"] == start:
             prev = periods[-1]

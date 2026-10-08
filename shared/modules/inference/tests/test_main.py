@@ -79,3 +79,17 @@ def test_health_needs_a_pass_within_two_intervals_and_a_half(tmp_path, monkeypat
     assert not status.healthy(status.read(), now=NOW + 3 * 3600)
     assert status.healthy({"idle": "InfluxDB only"}, now=NOW + 10 * DAY)
     assert not status.healthy({}, now=NOW)
+
+
+def test_influx_down_at_the_start_of_a_pass_is_a_failed_pass_not_a_crash():
+    def boom(start):
+        raise ConnectionError("influxdb down")
+    report = main.run_once(now=NOW, list_targets=boom)
+    assert report["errors"] == 1
+    assert report["failed"] == "listing targets"
+    assert "last_ok" not in report
+
+
+def test_a_clean_pass_records_last_ok():
+    report = main.run_once(now=NOW, list_targets=lambda s: [])
+    assert report["last_ok"] == NOW
