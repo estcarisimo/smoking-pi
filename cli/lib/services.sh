@@ -64,6 +64,18 @@ cmd_services() {
     esac
     local name changed=() next
     next="$(env_get COMPOSE_PROFILES)"
+    # No backend profile in the list is an env file something else broke:
+    # applying it would remove InfluxDB or ClickHouse with everything else
+    # the list leaves out. Fixed by hand, not compounded here.
+    case ",$next," in
+        *,influxdb,*|*,clickhouse,*) ;;
+        *) if [ "$SMOKING_PI_EDITION" = pro ]; then
+               echo "COMPOSE_PROFILES ('$next') names no measurement backend (influxdb or clickhouse)," >&2
+               echo "so applying it would stop the database. Put the backend back first, matching TSDB_TYPE:" >&2
+               echo "  $(cli_name) config set COMPOSE_PROFILES influxdb${next:+,$next}" >&2
+               return 1
+           fi ;;
+    esac
     for name in "$@"; do
         case "$name" in
             influxdb|clickhouse)

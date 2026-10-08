@@ -12,7 +12,18 @@ cmd_restart() {
     # command, only shared/scripts/manage-containers.sh did it.
     compose restart "$@"
     if [ $# -eq 0 ] && [ -x "$EDITION_DIR/sync-influx-token.sh" ] && profile_on influxdb; then
-        "$EDITION_DIR/sync-influx-token.sh" || echo "warning: the InfluxDB token check failed; Grafana's InfluxDB panels may be empty (see above)" >&2
+        # `restart` returns once the containers run, not once influxd
+        # answers; asked too early, the script reads "no usable token".
+        local i
+        for i in $(seq 1 45); do
+            compose exec -T influxdb influx ping >/dev/null 2>&1 && break
+            sleep 2
+        done
+        if ! compose exec -T influxdb influx ping >/dev/null 2>&1; then
+            echo "warning: InfluxDB did not answer within 90 s; its token was not checked ($(cli_name) logs influxdb)" >&2
+        else
+            "$EDITION_DIR/sync-influx-token.sh" || echo "warning: the InfluxDB token check failed; Grafana's InfluxDB panels may be empty (see above)" >&2
+        fi
     fi
 }
 

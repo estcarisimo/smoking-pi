@@ -42,8 +42,9 @@ per page, for example on Pro:
   grafana    https://quick-foxes-jump-highly.trycloudflare.com
 ```
 
-The containers restart with Docker, so the tunnels survive a reboot until
-you stop them, but each restart asks Cloudflare for a new address.
+The containers restart with Docker, so the tunnels survive a reboot, and
+`smoking-pi down` does not stop them either: they keep publishing until
+`smoking-pi tunnel stop`, but each restart asks Cloudflare for a new address.
 `smoking-pi tunnel` always shows the current one. A page that shows
 `no URL` has not reached Cloudflare yet: wait a few seconds, or read
 `docker logs` on the container it names. The stack must be up first
@@ -53,8 +54,11 @@ you stop them, but each restart asks Cloudflare for a new address.
 
 That makes them wrong for anything that keeps a link:
 
-- **Links in alerts and assistant answers.** `smoking-pi links --tunnel`
-  accepts a quick tunnel's address, and those links work until the next
+- **Links in alerts and assistant answers.** Each page gets its own
+  hostname, so a quick tunnel fits the per-page keys rather than
+  `smoking-pi links --tunnel` (one host for every page):
+  `smoking-pi config set GRAFANA_TUNNEL_URL https://….trycloudflare.com`
+  and the same for `WEB_ADMIN_TUNNEL_URL`. Those links work until the next
   start, then lead nowhere. For links that last, set up a named tunnel
   ([Permanent Cloudflare tunnels](cloudflare-tunnel-setup.md)) and give its
   address to `smoking-pi links --tunnel`. The two tiers of links, at home

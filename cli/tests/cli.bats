@@ -68,8 +68,9 @@ case "$*" in
     # container name (STUB_NAMES), and a log with two hostnames, the
     # current one last.
     *"ps -a --filter label=io.smoking-pi.quick-tunnel "*) printf '%b' "${STUB_TUNNELS:-}" ;;
-    "ps -a --format {{.Names}}") printf '%b' "${STUB_NAMES:-}" ;;
-    "logs "*tunnel-*) printf 'INF https://old-one.trycloudflare.com\nINF https://%s-now.trycloudflare.com\n' "${2##*-}" ;;
+    "ps -a --format {{.Names}} {{.Image}}") printf '%b' "${STUB_NAMES:-}" ;;
+    # cloudflared logs its own API endpoint too (on a failed request).
+    "logs "*tunnel-*) printf 'INF https://old-one.trycloudflare.com\nINF https://%s-now.trycloudflare.com\nERR POST https://api.trycloudflare.com/tunnel\n' "${2##*-}" ;;
     *"system df -v"*) printf 'VOLUME NAME LINKS SIZE\npro_postgres-data 1 48MB\npro_grafana-data 1 240MB\n' ;;
     *"tar czf /to/"*)
         # backup's tar: create the file where the host bind of /to says,
@@ -1829,10 +1830,27 @@ stub_clone() {
     [ "$status" -eq 0 ]
     [ "$(grep -n 'compose.* restart$' "$DOCKER_LOG" | cut -d: -f1)" -lt "$(grep -n '^SYNC' "$DOCKER_LOG" | cut -d: -f1)" ]
     grep -qx "SYNC $SMOKING_PI_ENV_FILE" "$DOCKER_LOG"
+    # Waited for influxd to answer first: asked too early, the script
+    # finds no usable token and cries wolf.
+    grep -q 'exec -T influxdb influx ping' "$DOCKER_LOG"
     # On ClickHouse there is no InfluxDB token to check.
     : > "$DOCKER_LOG"
     printf 'COMPOSE_PROFILES=clickhouse\n' > "$SMOKING_PI_ENV_FILE"
     run "$CLI" restart
+    if grep -q '^SYNC' "$DOCKER_LOG"; then false; fi
+}
+
+@test "restart: a failing token check or an InfluxDB that never answers warns, and the restart still succeeds" {
+    printf '#!/bin/sh\necho SYNC >> "%s"\nexit 1\n' "$DOCKER_LOG" > "$STUB_HOME/editions/pro/sync-influx-token.sh"
+    chmod +x "$STUB_HOME/editions/pro/sync-influx-token.sh"
+    run "$CLI" restart
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"token check failed"* ]]
+    : > "$DOCKER_LOG"
+    fail_docker_on "influx ping"
+    run "$CLI" restart
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"did not answer within 90 s"* ]]
     if grep -q '^SYNC' "$DOCKER_LOG"; then false; fi
 }
 
@@ -1884,6 +1902,15 @@ stub_clone() {
     if compose_calls | grep -q ' up '; then false; fi
 }
 
+@test "enable refuses a profile list with no backend: applying it would stop the database" {
+    printf 'COMPOSE_PROFILES=mcp\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" enable alerts
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"config set COMPOSE_PROFILES influxdb,mcp"* ]]
+    grep -qx 'COMPOSE_PROFILES=mcp' "$SMOKING_PI_ENV_FILE"
+    if compose_calls | grep -q ' up '; then false; fi
+}
+
 @test "enable dns hands over to dns enable (the port check and the router steps)" {
     run "$CLI" enable dns alerts
     [ "$status" -eq 2 ]
@@ -1908,10 +1935,20 @@ stub_clone() {
     if grep -q 'cloudflared:latest' "$DOCKER_LOG"; then false; fi
     [[ "$output" == *"grafana    https://grafana-now.trycloudflare.com"* ]]
     [[ "$output" != *"old-one"* ]]
+    [[ "$output" != *"api.trycloudflare"* ]]
+}
+
+@test "tunnel start after a partial failure starts only the missing pages" {
+    export STUB_TUNNELS='grafana pro-tunnel-grafana\nwebadmin pro-tunnel-webadmin\n'
+    run "$CLI" tunnel start --yes
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^docker run' "$DOCKER_LOG")" -eq 1 ]
+    grep -q '^docker run -d --name pro-tunnel-smokeping ' "$DOCKER_LOG"
+    [[ "$output" == *"grafana    https://grafana-now.trycloudflare.com (already running)"* ]]
 }
 
 @test "tunnel start with tunnels already up only shows them" {
-    export STUB_TUNNELS='grafana pro-tunnel-grafana\n'
+    export STUB_TUNNELS='grafana pro-tunnel-grafana\nwebadmin pro-tunnel-webadmin\nsmokeping pro-tunnel-smokeping\n'
     run "$CLI" tunnel start --yes
     [ "$status" -eq 0 ]
     [[ "$output" == *"already running"* ]]
@@ -1920,7 +1957,9 @@ stub_clone() {
 
 @test "tunnel stop removes labeled tunnels and the old script's tunnel-* ones, nothing else" {
     export STUB_TUNNELS='grafana pro-tunnel-grafana\n'
-    export STUB_NAMES='pro-grafana-1\ntunnel-webadmin\nmy-tunnel-thing\n'
+    # The old script's (cloudflared, named tunnel-<page>) go too; a container
+    # that only shares such a name, or only the word, stays.
+    export STUB_NAMES='pro-grafana-1 grafana/grafana:13\ntunnel-webadmin cloudflare/cloudflared:latest\ntunnel-grafana nginx:1\nmy-tunnel-thing cloudflare/cloudflared:latest\n'
     run "$CLI" tunnel stop
     [ "$status" -eq 0 ]
     grep -qx 'docker rm -f pro-tunnel-grafana tunnel-webadmin' "$DOCKER_LOG"

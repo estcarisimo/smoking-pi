@@ -35,16 +35,22 @@ tunnel_targets() {
 tunnel_url() {
     # The tunnel's CURRENT hostname: the last one in its log, not the first.
     # A restarted cloudflared asks for a new one and the log keeps the old.
-    docker logs "$1" 2>&1 | { grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' || true; } | tail -1
+    # api.trycloudflare.com is cloudflared's own endpoint, logged when the
+    # request for a tunnel fails: never a page's address.
+    { docker logs "$1" 2>&1 || true; } \
+        | { grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' || true; } \
+        | { grep -v '^https://api\.' || true; } | tail -1
 }
 
 tunnel_containers() {
     # "page container" per running or stopped quick tunnel of this host.
     docker ps -a --filter "label=$TUNNEL_LABEL" --format "{{.Label \"$TUNNEL_LABEL\"}} {{.Names}}" 2>/dev/null || true
     # And the ones shared/scripts/create-tunnel.sh started before this
-    # command replaced it (v2.28.0): no label, named tunnel-<page>.
-    docker ps -a --format '{{.Names}}' 2>/dev/null \
-        | { grep -xE 'tunnel-(smokeping|webadmin|grafana)' || true; } | sed 's/^tunnel-\(.*\)/\1 &/'
+    # command replaced it (v2.28.0): no label, named tunnel-<page>, and
+    # running cloudflared -- a container of yours that only shares the
+    # name is not one.
+    docker ps -a --format '{{.Names}} {{.Image}}' 2>/dev/null \
+        | awk '$1 ~ /^tunnel-(smokeping|webadmin|grafana)$/ && $2 ~ /^cloudflare\/cloudflared(:|$)/ { p = $1; sub(/^tunnel-/, "", p); print p, $1 }'
 }
 
 tunnel_status() {
@@ -69,7 +75,13 @@ tunnel_start() {
         case "$1" in --yes|-y) yes=1; shift ;; *) echo "unknown option $1" >&2; return 2 ;; esac
     done
     need_edition
-    if [ -n "$(tunnel_containers)" ]; then
+    local proj existing
+    proj="$(project)" || proj=""
+    [ -n "$proj" ] || { echo "Compose could not name the project: is the stack installed? ($(cli_name) status)" >&2; return 1; }
+    existing="$(tunnel_containers)"
+    # Every page already has its tunnel: nothing to ask. A page whose
+    # tunnel failed last time is started now, the others are left alone.
+    if [ -n "$existing" ] && ! tunnel_targets "$proj" | awk '{ print $1 }' | grep -vxF -f <(awk '{ print $1 }' <<<"$existing") >/dev/null; then
         echo "Quick tunnels are already running:"
         tunnel_status
         return 0
@@ -82,11 +94,13 @@ tunnel_start() {
         read -r -p "Start them? [y/N] " a
         case "$a" in y|Y|yes) ;; *) echo "Nothing started."; return 1 ;; esac
     fi
-    local proj page target network extra name i url failed=0
-    proj="$(project)" || proj=""
-    [ -n "$proj" ] || { echo "Compose could not name the project: is the stack installed? ($(cli_name) status)" >&2; return 1; }
+    local page target network extra name i url failed=0
     while read -r page target network extra; do
         name="${proj}-tunnel-$page"
+        if awk -v p="$page" '$1 == p { found = 1 } END { exit !found }' <<<"$existing"; then
+            printf '  %-10s %s\n' "$page" "$(tunnel_url "$(awk -v p="$page" '$1 == p { print $2; exit }' <<<"$existing")") (already running)"
+            continue
+        fi
         # shellcheck disable=SC2086  # extra: zero or one word
         if ! docker run -d --name "$name" --label "$TUNNEL_LABEL=$page" \
                 --network "$network" $extra --restart unless-stopped \
@@ -104,7 +118,8 @@ tunnel_start() {
         printf '  %-10s %s\n' "$page" "${url:-(no URL within 30 s: docker logs $name)}"
     done < <(tunnel_targets "$proj")
     echo
-    echo "These change on every restart. Stop them: $(cli_name) tunnel stop"
+    echo "These change on every restart, and keep running when the stack is down."
+    echo "Stop them: $(cli_name) tunnel stop"
     return "$failed"
 }
 
