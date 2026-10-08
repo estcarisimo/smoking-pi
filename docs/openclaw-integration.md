@@ -74,8 +74,7 @@ MCP_API_TOKEN=<your-mcp-token>
 ```
 
 ```bash
-cd editions/pro
-COMPOSE_PROFILES=mcp docker compose up -d --build mcp-server
+sudo smoking-pi enable mcp
 ```
 
 With `MCP_API_TOKEN` set, every HTTP request needs

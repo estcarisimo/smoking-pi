@@ -31,7 +31,7 @@ Configuration (see ``docs/mcp-server.md``):
   ``PUBLIC_BASE_HOST``.
 - ``TUNNEL_BASE_HOST``, ``GRAFANA_TUNNEL_URL`` / ``WEB_ADMIN_TUNNEL_URL`` --
   the same three, for the address that works from *outside* the home network
-  (``./shared/scripts/create-tunnel.sh`` prints these). Set only these and they
+  (``smoking-pi tunnel`` prints these). Set only these and they
   become the primary links; set both and every link gets a ``_tunnel`` twin.
 """
 

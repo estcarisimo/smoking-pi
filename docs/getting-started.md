@@ -178,8 +178,9 @@ how to read them.
 | **standard** | A small team | + web admin with login, PostgreSQL as the source of truth, a REST API |
 | **pro** | Everything | + Grafana, InfluxDB or ClickHouse, HTTP/TCP/DNS/IPv6 probes, Wi-Fi stats, alerting, MCP server, AI reports, the doctor |
 
-Pick **pro** unless you know you want less; this guide assumes it. You can
-move up later with `shared/scripts/migrate-to-edition.sh`.
+Pick **pro** unless you know you want less; this guide assumes it. Each
+edition has its own volumes, so moving up later is a new install of the
+bigger edition, not a conversion.
 
 **Which time-series backend?** InfluxDB, unless you have a reason —
 ClickHouse works but is the [less traveled path](clickhouse.md).

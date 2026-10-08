@@ -1,6 +1,20 @@
 # shellcheck shell=bash
-# smoking-pi lifecycle: `upgrade`, `backup`, `restore`, `purge`.
+# smoking-pi lifecycle: `restart`, `upgrade`, `backup`, `restore`, `purge`.
 # Sourced by cli/smoking-pi, never run on its own.
+
+cmd_restart() {
+    # In place: `compose restart` does not recreate, so a changed image,
+    # compose file or env file needs `down` + `up`. A whole-stack restart on
+    # Pro with InfluxDB then checks that Grafana's token is one InfluxDB
+    # accepts (sync-influx-token.sh: a no-op when it is, and it only ever
+    # writes a token InfluxDB has proven it takes). Their divergence shows
+    # as empty InfluxDB panels while the data keeps arriving. Before this
+    # command, only shared/scripts/manage-containers.sh did it.
+    compose restart "$@"
+    if [ $# -eq 0 ] && [ -x "$EDITION_DIR/sync-influx-token.sh" ] && profile_on influxdb; then
+        "$EDITION_DIR/sync-influx-token.sh" || echo "warning: the InfluxDB token check failed; Grafana's InfluxDB panels may be empty (see above)" >&2
+    fi
+}
 
 cmd_upgrade() {
     local doctor=1

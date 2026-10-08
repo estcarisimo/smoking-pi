@@ -24,7 +24,7 @@ Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [
 - 🖼️ **Charts you can forward**: `get_chart` renders a PNG of any target — median with the spread of individual pings — for someone with no login here
 - 🩺 **Instrumentation doctor**: static and live checks that the dashboards, exporters, containers and DNS actually agree with each other
 - 🌐 **Remote access built in**: temporary Cloudflare tunnels with no account, or permanent ones with yours
-- 🔐 **Secure defaults**: `setup.sh` generates every password and API token, the config API and MCP server bind to loopback, Grafana snapshots are off, and error responses never echo internals
+- 🔐 **Secure defaults**: `smoking-pi install` generates every password and API token, the config API and MCP server bind to loopback, Grafana snapshots are off, and error responses never echo internals
 - 🍿 **Netflix CDN monitoring**: discovers the Open Connect Appliances serving your network and tracks them
 - 🔎 **Measure what your house actually uses** (Pro, opt-in): point the router's DNS at the Pi and the DNS observer learns which services the house resolves and scores them (by query volume at first, by how many hours a week they appear once it has three days of data), and `smoking-pi dns adopt` turns the top-scoring ones into targets. It sees only the DNS queries the router forwards to it, never traffic, so browsers or apps with their own encrypted DNS, VPNs and iCloud Private Relay stay out of view. Off until you run `smoking-pi dns enable`; see [docs/dns-observer.md](docs/dns-observer.md)
 
@@ -52,16 +52,16 @@ sudo smoking-pi install            # edition, backend, optional services; then t
 git clone https://github.com/estcarisimo/smoking-pi.git
 cd smoking-pi
 
-# Pro edition (full stack, InfluxDB)
-(cd editions/pro && ./setup.sh)
+./cli/smoking-pi link          # `smoking-pi` in every directory
+smoking-pi install             # the same questions as the package; no sudo, the env file is yours
 
-# Or start smaller (each line from the checkout root)
-(cd editions/basic    && ./setup.sh)                        # SmokePing + YAML config
-(cd editions/standard && ./setup.sh)                        # + web admin, PostgreSQL, REST API
-(cd editions/pro      && ./setup.sh --database clickhouse)  # Pro with ClickHouse instead of InfluxDB
+# Or say it up front
+smoking-pi install --edition basic --yes                          # SmokePing + YAML config
+smoking-pi install --edition standard --yes                       # + web admin, PostgreSQL, REST API
+smoking-pi install --edition pro --database clickhouse --yes      # Pro with ClickHouse instead of InfluxDB
 ```
 
-From a clone the images are built locally rather than pulled (on a release tag, that release's are pulled), and `setup.sh` makes `smoking-pi` a command in every directory (a link to the checkout's `cli/smoking-pi` in `/usr/local/bin`, or `~/.local/bin` without a passwordless sudo). A clone set up before that: `./cli/smoking-pi link` once, or the next `upgrade` does it; a link made before v2.28.0 to the old `packaging/smoking-pi` keeps working and is repointed the same way.
+From a clone the images are built locally rather than pulled (on a release tag, that release's are pulled), and `link` makes `smoking-pi` a command in every directory (a link to the checkout's `cli/smoking-pi` in `/usr/local/bin`, or `~/.local/bin` without a passwordless sudo). A clone set up before that: `./cli/smoking-pi link` once, or the next `upgrade` does it; a link made before v2.28.0 to the old `packaging/smoking-pi` keeps working and is repointed the same way.
 
 **macOS, untested** (no Mac has run it yet — the formula exists, `Formula/smoking-pi.rb`; Docker Desktop required, and Pro's host-network measurements see Docker's Linux VM, not the Mac):
 
@@ -89,7 +89,7 @@ smoking-pi install
 | 🟡 **[Standard](editions/standard/)** | Small teams | + web admin with login, PostgreSQL as the source of truth, REST API, bulk target management | 5 min |
 | 🔴 **[Pro](editions/pro/)** | Everything | + Grafana dashboards, InfluxDB or ClickHouse, IPv6 + DNS probes, alerting, MCP server, AI reports, doctor | 10 min |
 
-Upgrade path is `Basic → Standard → Pro`; `shared/scripts/migrate-to-edition.sh` backs up and migrates your data between editions.
+Upgrade path is `Basic → Standard → Pro`: each edition keeps its own volumes, so moving up is a fresh `smoking-pi install --edition …` (see [docs/getting-started.md](docs/getting-started.md)).
 
 ## 📖 Usage
 
@@ -108,9 +108,9 @@ smoking-pi status
 smoking-pi logs grafana
 smoking-pi restart
 
-# Plain Compose works too, from the edition directory
-docker compose ps
-docker compose logs -f smokeping
+# Settings, by name (the env file is the command's to edit)
+smoking-pi config list
+sudo smoking-pi config set TZ Europe/London
 ```
 
 ### Managing Targets
@@ -119,8 +119,8 @@ docker compose logs -f smokeping
 - **Standard / Pro**: the web admin at `http://<host>:8080` (targets, sources, countries, bulk operations), or the config-manager REST API on `127.0.0.1:5000` with a bearer token. PostgreSQL is the source of truth; the YAML files are import/export only
 
 ```bash
-# REST API, from the host. .env is not exported into your shell, so read the token out of it.
-TOKEN=$(grep ^CONFIG_API_TOKEN editions/pro/.env | cut -d= -f2)
+# REST API, from the host.
+TOKEN=$(sudo smoking-pi config get CONFIG_API_TOKEN --show-secrets)
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/targets
 curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/generate
 ```
@@ -130,14 +130,9 @@ curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/generate
 Pro ships an MCP server and a ready-made agent skill, so *"how was the week?"* is answered from recorded history rather than a live probe:
 
 ```bash
-# Opt in by adding the profile to .env, so a later bare `docker compose up -d` keeps it
-sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=influxdb,mcp/' editions/pro/.env
-(cd editions/pro && docker compose up -d mcp-server)
-claude mcp add --transport http smokeping http://127.0.0.1:8090/mcp   # token: smoking-pi passwords --show-secrets
-
-# Install the OpenClaw skill so a Telegram chat can ask; re-run after any change (from the checkout root)
-./shared/scripts/install-openclaw-skill.sh --reload
-./shared/scripts/install-openclaw-skill.sh --check     # non-zero if the copy is stale
+sudo smoking-pi enable mcp        # the MCP server, kept across every later up/down
+sudo smoking-pi connect claude    # a remote assistant: URL, pairing code, steps (or chatgpt, grok, cursor…)
+sudo smoking-pi openclaw          # an OpenClaw gateway on this machine: token, registration, skill
 ```
 
 Tools: `diagnose_loss` (what each loss episode was, with evidence and confidence), `get_latency_stats`, `get_loss_events`, `get_microcut_stats`, `system_status`, `get_chart` (a PNG, on request only), `mute_alerts` / `ack_incident`, and target management. Once `PUBLIC_BASE_HOST` (and optionally `TUNNEL_BASE_HOST`) is set, every answer carries deep links into the Grafana view for that target and window; until then, answers are numbers only, on purpose. See [docs/mcp-server.md](docs/mcp-server.md) and [docs/openclaw-integration.md](docs/openclaw-integration.md).
@@ -145,10 +140,8 @@ Tools: `diagnose_loss` (what each loss episode was, with evidence and confidence
 ### Alerts
 
 ```bash
-# Opt in (persisted in .env); log-only until NOTIFY_MODE points it somewhere
-sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=influxdb,alerts/' editions/pro/.env
-(cd editions/pro && docker compose up -d alerter)
-# Deliver to a chat via OpenClaw, or to any webhook -- see docs/alerting.md
+# Turns on the alerter and says where alerts go; --test sends one to prove it
+sudo smoking-pi alerts --telegram --test     # or --openclaw, --webhook; see docs/alerting.md
 ```
 
 Rules: target down, high loss, CPE microcut bursts, exporter stale. Each alert leads with a verdict (*🌐 not you — 12 of 16 destinations affected but your local link is clean*), attaches the chart, and links home and from-anywhere. A daily digest makes a quiet day distinguishable from a dead monitor. Muting is done by asking the assistant, capped at 24 h, and read back to you. See [docs/alerting.md](docs/alerting.md).
@@ -156,10 +149,13 @@ Rules: target down, high loss, CPE microcut bursts, exporter stale. Each alert l
 ### Remote Access
 
 ```bash
-# From the checkout root. Temporary URLs, no account needed (*.trycloudflare.com)
-./shared/scripts/create-tunnel.sh create
-./shared/scripts/show-tunnel-urls.sh
-./shared/scripts/create-tunnel.sh stop
+# Temporary public URLs, no account needed (*.trycloudflare.com)
+sudo smoking-pi tunnel start
+sudo smoking-pi tunnel            # the current URLs
+sudo smoking-pi tunnel stop
+
+# For assistants: the MCP server through Tailscale Funnel
+sudo smoking-pi connect --tailscale
 
 # Permanent tunnel with your own Cloudflare account and domain
 (cd shared/cloudflare-tunnel && cp .env.template .env)   # then add CLOUDFLARE_TUNNEL_TOKEN
@@ -170,36 +166,34 @@ Anything you put a tunnel in front of should have authentication in front of the
 
 ### 🐳 Docker Usage
 
-Everything is Compose. Optional services are behind profiles so the default stack stays small. `setup.sh` writes `COMPOSE_PROFILES` into `.env`; edit that line to opt in, because a profile given only on the command line is forgotten by the next bare `docker compose up -d`:
+Everything is Compose, run by `smoking-pi`. Optional services are behind profiles so the default stack stays small; `smoking-pi enable NAME` / `disable NAME` records them in `COMPOSE_PROFILES`, so every later `up` and `down` keeps them (a profile given only on a `docker compose` command line is forgotten by the next one):
 
 | Profile | Adds | Needs |
 |---|---|---|
-| `influxdb` *(default via setup.sh)* | InfluxDB 2.x + the RRD→Influx exporter | — |
+| `influxdb` *(the default backend)* | InfluxDB 2.x + the RRD→Influx exporter | — |
 | `clickhouse` | ClickHouse + its exporter and dashboards (`-f docker-compose.clickhouse.yml`) | see [docs/clickhouse.md](docs/clickhouse.md) |
-| `alerts` | The alerting engine and daily digest | `NOTIFY_MODE` + delivery settings |
-| `mcp` | MCP server on `127.0.0.1:8090` | `MCP_API_TOKEN` |
-| `ai` | AI health reports | `ANTHROPIC_API_KEY` |
+| `alerts` | The alerting engine and daily digest | `smoking-pi alerts …` (where they go) |
+| `mcp` | MCP server on `127.0.0.1:8090` | `smoking-pi enable mcp`, then `connect` or `openclaw` |
+| `ai` | AI health reports | `smoking-pi config set ANTHROPIC_API_KEY`, `smoking-pi enable ai` |
+| `inference` | Experimental congestion and degradation detectors | `smoking-pi enable inference`; see [docs/inference.md](docs/inference.md) |
 | `dns` | DNS observer (AdGuard Home) on port 53, for the router to forward the house's DNS to | `smoking-pi dns enable`; see [docs/dns-observer.md](docs/dns-observer.md) |
 
 ```bash
-# In editions/pro/.env
-COMPOSE_PROFILES=influxdb,alerts,mcp
-
-# then, from editions/pro
-docker compose up -d
-
-# Pro on ClickHouse (setup.sh --database clickhouse writes COMPOSE_PROFILES=clickhouse)
-docker compose -f docker-compose.yml -f docker-compose.clickhouse.yml up -d
-
-# Rebuild one service after pulling changes
-docker compose build web-admin && docker compose up -d web-admin
+smoking-pi enable                 # which optional services are on
+sudo smoking-pi enable alerts mcp # records them and starts them
+sudo smoking-pi up                # the whole stack, ClickHouse overlay and profiles included
+sudo smoking-pi upgrade           # after a new package or checkout: pull or rebuild, recreate, doctor
 ```
+
+Working on the code from a clone, rebuilding one service by hand is still
+`docker compose build <service> && docker compose up -d <service>` from
+`editions/pro` (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## 🔧 Configuration
 
 ### Environment Variables
 
-`setup.sh` writes `editions/<edition>/.env` from `.env.template`; every secret in the template ships empty (non-secret defaults such as `TZ=UTC` and `INFLUX_ORG=smokeping` are filled in) and each key is documented inline. The ones you are most likely to touch:
+`smoking-pi install` writes the env file (`editions/<edition>/.env` from a clone, `/etc/smoking-pi/env` packaged) from `.env.template`, and `smoking-pi config list | get | set` reads and changes it by name; every secret in the template ships empty (non-secret defaults such as `TZ=UTC` and `INFLUX_ORG=smokeping` are filled in) and each key is documented inline. The ones you are most likely to touch:
 
 | Variable | Purpose |
 |---|---|
@@ -227,6 +221,7 @@ Each edition is a Compose file that assembles services from `shared/modules/`; c
 
 ```text
 smoking-pi/
+├── cli/                       # the smoking-pi command: entry + lib/<area>.sh + tests
 ├── editions/
 │   ├── basic/                 # SmokePing + YAML
 │   ├── standard/              # + config-manager, web-admin, PostgreSQL
@@ -247,9 +242,9 @@ smoking-pi/
 │   │   ├── inference/         # experimental: persistent congestion (Jitterbug) and loss degradation (Pro)
 │   │   ├── doctor/            # Static + live instrumentation checks
 │   │   └── common/            # Flux helpers, chart renderer, deep links, mutes, OpenClaw client
-│   ├── scripts/               # setup helpers, container management, tunnels, skill install
-│   ├── docs/                  # maintenance (pending refresh)
+│   ├── scripts/               # helpers the command and setup.sh run; skill build/install (maintainers)
 │   └── cloudflare-tunnel/     # permanent tunnel Compose
+├── packaging/                 # .deb, apt repository, Homebrew, systemd unit, release checks
 ├── docs/                      # the documentation site (mkdocs.yml): probes, alerting, MCP, tunnels, doctor, upgrades
 └── examples/openclaw/         # the agent skill
 ```

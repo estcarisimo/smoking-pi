@@ -9,7 +9,58 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`smoking-pi enable` / `disable NAME`: the optional services, by name.**
+  Turning on the MCP server, alerts, AI reports or the inference detectors
+  meant editing `COMPOSE_PROFILES` in the env file (a `sed` line in the
+  README) and then running `docker compose up -d` from the right directory.
+  Skipping the first step left a service running *unmanaged*: the next
+  `down` and `up` dropped it, and nothing said so. `enable` records the
+  profile and applies the stack; `disable` removes it, and the
+  containers with it; `enable` alone lists which are on. It refuses
+  the backend profiles (fixed at install), names an edition lacks, and
+  unknown names, before changing anything. `dns` goes to `dns enable`,
+  which checks port 53 and gives the router steps.
+- **`smoking-pi tunnel [start|stop]`: Cloudflare quick tunnels.** These
+  were `shared/scripts/create-tunnel.sh` and `show-tunnel-urls.sh`,
+  which ran an unpinned `cloudflared:latest` and published the pages with
+  no confirmation. The command asks first (or `--yes`), runs the pinned image
+  that `shared/cloudflare-tunnel` uses, labels each container so `stop`
+  finds them by identity, and shows each tunnel's current hostname. `stop`
+  also removes tunnels the old script started.
+
 ### Changed
+
+- **`smoking-pi restart` on Pro with InfluxDB also checks Grafana's
+  InfluxDB token**, as `shared/scripts/manage-containers.sh` did. That was
+  the one thing the old script did that the command did not. When the env
+  file's token and the volume's have diverged, Grafana's InfluxDB panels
+  go empty while data keeps arriving.
+- **The documentation names commands, not scripts.** The README, the
+  getting-started, maintenance, MCP, OpenClaw, alerting, AI, ClickHouse
+  and quick-tunnel guides, and the env template comments now say
+  `smoking-pi enable mcp`, `smoking-pi alerts --telegram`,
+  `smoking-pi tunnel start` and `smoking-pi install --database
+  clickhouse`, instead of `sed` over the env file, `COMPOSE_PROFILES=…
+  docker compose up` and `./setup.sh`. The three edition READMEs (1,300
+  lines that still described files removed long ago) are now short
+  pointers into the docs. AGENTS.md makes it a rule: anything a person
+  runs is a `smoking-pi` command.
+
+### Removed
+
+- Scripts the command replaces or that had no remaining use:
+  - `shared/scripts/manage-containers.sh` and its three edition wrappers;
+  - the three `editions/*/show-passwords.sh` wrappers (`smoking-pi passwords`
+    runs `shared/scripts/show-passwords.sh` itself);
+  - `create-tunnel.sh` and `show-tunnel-urls.sh`;
+  - `migrate-to-edition.sh`, which migrated from the layout before
+    editions existed;
+  - `editions/pro/detect-timezone.sh` and `init-passwords.sh`, which
+    nothing called (`install` detects the timezone and generates the
+    secrets);
+  - `README-Zero-Touch.md`.
 
 - **The `smoking-pi` command has its own directory, `cli/`.** It was one
   2,835-line file, `packaging/smoking-pi`, next to the `.deb` builder and

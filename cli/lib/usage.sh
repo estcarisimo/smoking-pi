@@ -17,6 +17,20 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      volumes already hold).
   up | down | restart | status | logs [service]
                      The Compose stack, with the profiles recorded in the env file.
+                     'restart' is in place (a changed file needs down + up);
+                     on Pro with InfluxDB, a whole-stack restart also checks
+                     that Grafana's InfluxDB token still works.
+  enable | disable [NAME...]
+                     The optional services (Pro): mcp, alerts, ai, inference,
+                     dns. No NAME: which are on. Records them in
+                     COMPOSE_PROFILES and starts or removes them -- the one
+                     way to change that list, so a later 'up' or 'down'
+                     keeps what you chose. dns hands over to 'dns enable'.
+  tunnel [status | start [--yes] | stop]
+                     Cloudflare quick tunnels: public trycloudflare.com URLs
+                     for the web pages, no account needed. Anyone with a URL
+                     reaches that page and its login, and the URLs change on
+                     every start. For assistants use 'connect --tailscale'.
   upgrade [--skip-doctor]
                      After a new package or checkout: pull the release's images
                      (or rebuild, from a clone), recreate what changed, run the

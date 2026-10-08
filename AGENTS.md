@@ -80,6 +80,15 @@ shipped keeps its spelling until a change that breaks it anyway, and then
 the rename is documented with the old name still accepted for a release.
 (`cancelled` in the web-admin AI result is the one such holdout.)
 
+**Everything a person runs is a `smoking-pi` command.** A new
+user-facing step goes in `cli/lib/<area>.sh` with tests in
+`cli/tests/cli.bats`, and the docs name the command, never a script path
+or a hand-edited env file. `shared/scripts/` and `editions/*/` hold only
+what the command or `setup.sh` runs internally, plus maintainer tools
+(`build-openclaw-skill.py`, `acceptance-record.sh`). The env file is the
+command's to write (`config set`, `enable`, `alerts`, `links`…); a
+setting a person changes by editing it is a missing command.
+
 **Containers cannot import across each other.** Shared code goes in
 `shared/modules/common/`, which each Dockerfile copies in. Build context for
 those images (alerter, ai-insights, mcp-server, web-admin) and for smokeping

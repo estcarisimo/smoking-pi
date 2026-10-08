@@ -9,7 +9,7 @@ env_get() {
 
 # How a value is written into the env file. Two readers interpolate `$` in
 # it -- Compose (.env files, since 2.24) and bash (show-passwords.sh and
-# create-tunnel.sh source the file) -- and both leave a single-quoted value
+# sync-influx-token.sh source the file) -- and both leave a single-quoted value
 # alone: an unquoted `pbkdf2:sha256:260000$salt$hash` reached the container
 # as `pbkdf2:sha256:260000` (seen with Compose 2.38). Plain values are
 # written as they always were. A value holding `'` cannot be quoted for
