@@ -14,8 +14,9 @@ Internet sees, the network (AS) that announces it, and an approximate place.
   country. This is geolocation *by address*, often only
   the ISP's point of presence, never the house. Asked only when the address
   changes or once a day; ``PUBLIC_IP_GEO`` set to ``0``, ``false``, ``off``
-  or ``no`` turns it off (nothing leaves for ipinfo.io then) and ``IPINFO_TOKEN`` is used when set. The coordinates,
-  postal code and reverse hostname IPinfo also returns are not kept.
+  or ``no`` turns it off (nothing leaves for ipinfo.io then) and
+  ``IPINFO_TOKEN`` is used when set. The coordinates, postal code and reverse
+  hostname IPinfo also returns are not kept.
 
 Writes measurement ``public_ip`` (tag ``family``: ``ipv4``/``ipv6``) every
 PUBLIC_IP_INTERVAL seconds (900). On the point where the address or its
@@ -192,7 +193,8 @@ def geo_enabled(env=os.environ) -> bool:
     address to ipinfo.io. Empty or unset is the default, on; anything else not
     in the off list is on, as NETMETER reads its own switch.
     """
-    return (env.get("PUBLIC_IP_GEO") or "").strip().lower() not in ("0", "false", "off", "no")
+    value = (env.get("PUBLIC_IP_GEO") or "").strip().lower()
+    return value not in ("0", "false", "off", "no")
 
 
 def _env_int(name: str, default: int) -> int:
