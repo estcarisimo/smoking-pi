@@ -24,9 +24,10 @@ setup() {
     cp "$REPO/editions/pro/docker-compose.yml" "$REPO/editions/pro/docker-compose.clickhouse.yml" \
        "$REPO/editions/pro/docker-compose.packaged.yml" "$STUB_HOME/editions/pro/"
     printf '#!/bin/sh\necho SETUP "$@" >> "%s"\necho SETUP_INSTALL=$SMOKING_PI_INSTALL >> "%s"\nprintf "COMPOSE_PROFILES=%%s\\n" "${2:-influxdb}" > "$SMOKING_PI_ENV_FILE"\n' "$DOCKER_LOG" "$DOCKER_LOG" > "$STUB_HOME/editions/pro/setup.sh"
-    printf '#!/bin/sh\necho PASSWORDS "$@" >> "%s"\n' "$DOCKER_LOG" > "$STUB_HOME/editions/pro/show-passwords.sh"
-    cp "$STUB_HOME/editions/pro/setup.sh" "$STUB_HOME/editions/pro/show-passwords.sh" "$STUB_HOME/editions/basic/"
-    chmod +x "$STUB_HOME/editions/"*/*.sh
+    mkdir -p "$STUB_HOME/shared/scripts"
+    printf '#!/bin/sh\necho PASSWORDS "$@" >> "%s"\necho PASSWORDS_CWD "$(pwd)" >> "%s"\n' "$DOCKER_LOG" "$DOCKER_LOG" > "$STUB_HOME/shared/scripts/show-passwords.sh"
+    cp "$STUB_HOME/editions/pro/setup.sh" "$STUB_HOME/editions/basic/"
+    chmod +x "$STUB_HOME/editions/"*/*.sh "$STUB_HOME/shared/scripts/show-passwords.sh"
     printf 'version: 9.9.9\n' > "$STUB_HOME/CITATION.cff"
     export SMOKING_PI_HOME="$STUB_HOME"
     export SMOKING_PI_ENV_FILE="$BATS_TEST_TMPDIR/env"
@@ -63,6 +64,13 @@ case "$*" in
     # The mdns service's status (STUB_MDNS; unset = not running).
     *"exec -T mdns python status.py --json"*) [ -n "${STUB_MDNS:-}" ] || exit 1; printf '%b' "$STUB_MDNS" ;;
     *"exec -T postgres pg_dumpall"*) echo "-- dump" ;;
+    # Quick tunnels: labeled ones as "page name" (STUB_TUNNELS), every
+    # container name (STUB_NAMES), and a log with two hostnames, the
+    # current one last.
+    *"ps -a --filter label=io.smoking-pi.quick-tunnel "*) printf '%b' "${STUB_TUNNELS:-}" ;;
+    "ps -a --format {{.Names}} {{.Image}}") printf '%b' "${STUB_NAMES:-}" ;;
+    # cloudflared logs its own API endpoint too (on a failed request).
+    "logs "*tunnel-*) printf 'INF https://old-one.trycloudflare.com\nINF https://%s-now.trycloudflare.com\nERR POST https://api.trycloudflare.com/tunnel\n' "${2##*-}" ;;
     *"system df -v"*) printf 'VOLUME NAME LINKS SIZE\npro_postgres-data 1 48MB\npro_grafana-data 1 240MB\n' ;;
     *"tar czf /to/"*)
         # backup's tar: create the file where the host bind of /to says,
@@ -490,6 +498,8 @@ make_backup_dir() {
     run "$CLI" passwords --show-secrets --force
     [ "$status" -eq 0 ]
     grep -qx 'PASSWORDS --show-secrets --force' "$DOCKER_LOG"
+    # From the edition's directory: the script reads docker-compose.yml there.
+    grep -qx "PASSWORDS_CWD $STUB_HOME/editions/pro" "$DOCKER_LOG"
 }
 
 # An install transcript is pasted into issues and photographed. It ends on
@@ -1808,6 +1818,157 @@ stub_clone() {
         grep -q 'cli/smoking-pi" link --quiet' "$REPO/editions/$ed/setup.sh" \
             || { echo "editions/$ed/setup.sh does not run smoking-pi link"; return 1; }
     done
+}
+
+@test "restart of the whole Pro stack checks the InfluxDB token after; of one service, does not" {
+    printf '#!/bin/sh\necho SYNC "$SMOKING_PI_ENV_FILE" >> "%s"\n' "$DOCKER_LOG" > "$STUB_HOME/editions/pro/sync-influx-token.sh"
+    chmod +x "$STUB_HOME/editions/pro/sync-influx-token.sh"
+    run "$CLI" restart grafana
+    [ "$status" -eq 0 ]
+    if grep -q '^SYNC' "$DOCKER_LOG"; then false; fi
+    run "$CLI" restart
+    [ "$status" -eq 0 ]
+    [ "$(grep -n 'compose.* restart$' "$DOCKER_LOG" | cut -d: -f1)" -lt "$(grep -n '^SYNC' "$DOCKER_LOG" | cut -d: -f1)" ]
+    grep -qx "SYNC $SMOKING_PI_ENV_FILE" "$DOCKER_LOG"
+    # Waited for influxd to answer first: asked too early, the script
+    # finds no usable token and cries wolf.
+    grep -q 'exec -T influxdb influx ping' "$DOCKER_LOG"
+    # On ClickHouse there is no InfluxDB token to check.
+    : > "$DOCKER_LOG"
+    printf 'COMPOSE_PROFILES=clickhouse\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" restart
+    if grep -q '^SYNC' "$DOCKER_LOG"; then false; fi
+}
+
+@test "restart: a failing token check or an InfluxDB that never answers warns, and the restart still succeeds" {
+    printf '#!/bin/sh\necho SYNC >> "%s"\nexit 1\n' "$DOCKER_LOG" > "$STUB_HOME/editions/pro/sync-influx-token.sh"
+    chmod +x "$STUB_HOME/editions/pro/sync-influx-token.sh"
+    run "$CLI" restart
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"token check failed"* ]]
+    : > "$DOCKER_LOG"
+    fail_docker_on "influx ping"
+    run "$CLI" restart
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"did not answer within 90 s"* ]]
+    if grep -q '^SYNC' "$DOCKER_LOG"; then false; fi
+}
+
+# --- enable / disable: the optional services --------------------------------------
+
+@test "enable alone lists the edition's optional services, on or off" {
+    run "$CLI" enable
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"mcp        on "* ]]
+    [[ "$output" == *"alerts     off "* ]]
+    [[ "$output" == *"inference  off "* ]]
+    if compose_calls | grep -q ' up '; then false; fi
+}
+
+@test "enable records the profile once and applies the whole stack" {
+    run "$CLI" enable alerts ai
+    [ "$status" -eq 0 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,alerts,ai' "$SMOKING_PI_ENV_FILE"
+    compose_calls | grep -q 'up -d --remove-orphans'
+    # Where alerts go is its own command; the profile alone sends nothing.
+    [[ "$output" == *"smoking-pi alerts --telegram"* ]]
+    [[ "$output" == *"config set ANTHROPIC_API_KEY"* ]]
+}
+
+@test "disable removes only that profile; nothing to do changes nothing" {
+    run "$CLI" disable mcp
+    [ "$status" -eq 0 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb' "$SMOKING_PI_ENV_FILE"
+    : > "$DOCKER_LOG"
+    run "$CLI" disable mcp
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Nothing to change"* ]]
+    if compose_calls | grep -q ' up '; then false; fi
+}
+
+@test "enable refuses the backend, an unknown name, and a service the edition lacks, changing nothing" {
+    run "$CLI" enable clickhouse
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"fixed at install"* ]]
+    run "$CLI" enable alerts nonsense
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown service: nonsense"* ]]
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    mkdir -p "$STUB_HOME/editions/standard"
+    cp "$REPO/editions/standard/docker-compose.yml" "$STUB_HOME/editions/standard/"
+    SMOKING_PI_EDITION=standard run "$CLI" enable mcp
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not part of the standard edition"* ]]
+    if compose_calls | grep -q ' up '; then false; fi
+}
+
+@test "enable refuses a profile list with no backend: applying it would stop the database" {
+    printf 'COMPOSE_PROFILES=mcp\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" enable alerts
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"config set COMPOSE_PROFILES influxdb,mcp"* ]]
+    grep -qx 'COMPOSE_PROFILES=mcp' "$SMOKING_PI_ENV_FILE"
+    if compose_calls | grep -q ' up '; then false; fi
+}
+
+@test "enable dns hands over to dns enable (the port check and the router steps)" {
+    run "$CLI" enable dns alerts
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"on its own"* ]]
+}
+
+# --- tunnel: Cloudflare quick tunnels --------------------------------------------
+
+@test "tunnel start publishes nothing without a confirmation" {
+    run "$CLI" tunnel start </dev/null
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"--yes"* ]]
+    if grep -q '^docker run' "$DOCKER_LOG"; then false; fi
+}
+
+@test "tunnel start --yes: one labeled, pinned cloudflared per page on the right network, current URLs" {
+    run "$CLI" tunnel start --yes
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^docker run' "$DOCKER_LOG")" -eq 3 ]
+    grep -q '^docker run -d --name pro-tunnel-grafana --label io.smoking-pi.quick-tunnel=grafana --network pro_default .*cloudflare/cloudflared:2026\.5\.0 tunnel --no-autoupdate --url http://grafana:3000' "$DOCKER_LOG"
+    grep -q '^docker run -d --name pro-tunnel-smokeping .*--network bridge --add-host=host.docker.internal:host-gateway ' "$DOCKER_LOG"
+    if grep -q 'cloudflared:latest' "$DOCKER_LOG"; then false; fi
+    [[ "$output" == *"grafana    https://grafana-now.trycloudflare.com"* ]]
+    [[ "$output" != *"old-one"* ]]
+    [[ "$output" != *"api.trycloudflare"* ]]
+}
+
+@test "tunnel start after a partial failure starts only the missing pages" {
+    export STUB_TUNNELS='grafana pro-tunnel-grafana\nwebadmin pro-tunnel-webadmin\n'
+    run "$CLI" tunnel start --yes
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^docker run' "$DOCKER_LOG")" -eq 1 ]
+    grep -q '^docker run -d --name pro-tunnel-smokeping ' "$DOCKER_LOG"
+    [[ "$output" == *"grafana    https://grafana-now.trycloudflare.com (already running)"* ]]
+}
+
+@test "tunnel start with tunnels already up only shows them" {
+    export STUB_TUNNELS='grafana pro-tunnel-grafana\nwebadmin pro-tunnel-webadmin\nsmokeping pro-tunnel-smokeping\n'
+    run "$CLI" tunnel start --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already running"* ]]
+    if grep -q '^docker run' "$DOCKER_LOG"; then false; fi
+}
+
+@test "tunnel stop removes labeled tunnels and the old script's tunnel-* ones, nothing else" {
+    export STUB_TUNNELS='grafana pro-tunnel-grafana\n'
+    # The old script's (cloudflared, named tunnel-<page>) go too; a container
+    # that only shares such a name, or only the word, stays.
+    export STUB_NAMES='pro-grafana-1 grafana/grafana:13\ntunnel-webadmin cloudflare/cloudflared:latest\ntunnel-grafana nginx:1\nmy-tunnel-thing cloudflare/cloudflared:latest\n'
+    run "$CLI" tunnel stop
+    [ "$status" -eq 0 ]
+    grep -qx 'docker rm -f pro-tunnel-grafana tunnel-webadmin' "$DOCKER_LOG"
+}
+
+@test "tunnel with none running says how to start them" {
+    run "$CLI" tunnel
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"No quick tunnels"* ]]
 }
 
 # --- dns: the DNS observer --------------------------------------------------------

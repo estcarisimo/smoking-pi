@@ -182,7 +182,7 @@ env file; relative values are relative to the edition directory, as every
 other path in those files. The env file is different: Compose only finds
 `./.env` on its own, so a relocated one has to be named on every call.
 `setup.sh --env-file`, `generate-passwords.sh --env-file`,
-`show-passwords.sh`, `manage-containers.sh` and the `smoking-pi` command
+`show-passwords.sh` and the `smoking-pi` command
 all read `SMOKING_PI_ENV_FILE` and pass `--env-file`; the `.deb` sets all
 three in `/etc/default/smoking-pi`, which the systemd unit loads through
 `EnvironmentFile` and the `smoking-pi` command sources itself (the
@@ -241,8 +241,8 @@ CI runs it for both editions. The file goes **last** in the `-f` order:
 a later `!override` removes it again (CI checks that too).
 
 `SMOKING_PI_PACKAGED=1`, set in `/etc/default/smoking-pi` by the package,
-makes the `smoking-pi` command, `setup.sh` (Pro, Standard) and
-`manage-containers.sh` add the file. `smoking-pi paths` prints the mode.
+makes the `smoking-pi` command and `setup.sh` (Pro, Standard) add the
+file. `smoking-pi paths` prints the mode.
 From a clone nothing changes: the variable is unset, the overlays stay, and
 editing an exporter still needs no rebuild.
 

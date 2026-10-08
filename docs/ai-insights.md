@@ -44,11 +44,10 @@ Optional settings, each with `sudo smoking-pi config set KEY VALUE`:
 | `AI_REPORTS_PER_DAY` | `8` | Hard cap on report API calls per day |
 | `AI_MAX_INPUT_CHARS` | `20000` | Prompt-size guardrail |
 
-From a clone instead of the package, the same keys go in the edition's
-`.env`, and so does the profile: add `ai` to its `COMPOSE_PROFILES` line,
-then `docker compose up -d` from `editions/pro`. A profile given only on
-the command line is not in the file, so the next `down` and `up` would
-leave the service out.
+From a clone or a package alike: `sudo smoking-pi config set
+ANTHROPIC_API_KEY` (asked for, never on the command line), then
+`sudo smoking-pi enable ai`, which records the profile so every later
+`down` and `up` keeps the service.
 
 ## What the reporter does
 

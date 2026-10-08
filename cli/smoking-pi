@@ -122,9 +122,10 @@ export SMOKING_PI_CONFIG_DIR="${SMOKING_PI_CONFIG_DIR:-}"
 export SMOKING_PI_OUTPUT_DIR="${SMOKING_PI_OUTPUT_DIR:-}"
 
 # The commands. Order matters only for top-level assignments, and there are
-# two (STACK_LOCKED in core, AVAHI_SERVICE_FILE in reach), neither read at
+# a few (STACK_LOCKED in core, AVAHI_SERVICE_FILE in reach, TUNNEL_* in
+# tunnel), none read at
 # load time.
-for _module in core env usage reach install config links alerts openclaw lifecycle dns connect budget; do
+for _module in core env usage reach install config services links alerts openclaw lifecycle dns connect tunnel budget; do
     # shellcheck source=/dev/null
     . "$CLI_DIR/lib/$_module.sh"
 done
@@ -155,15 +156,17 @@ case "${1:-}" in
     links) shift; cmd_links "$@" ;;
     alerts) shift; cmd_alerts "$@" ;;
     dns) shift; cmd_dns "$@" ;;
+    enable|disable) cmd_services "$@" ;;
+    tunnel) shift; cmd_tunnel "$@" ;;
     budget) shift; cmd_budget "$@" ;;
     traffic) shift; cmd_traffic "$@" ;;
     up) shift; compose up -d "$@"; remove_disabled; publish_avahi ;;
     down) shift; compose down "$@"; unpublish_avahi ;;
     discover) shift; cmd_discover "$@" ;;
-    restart) shift; compose restart "$@" ;;
+    restart) shift; cmd_restart "$@" ;;
     status) shift; compose ps "$@" ;;
     logs) shift; compose logs --tail=200 -f "$@" ;;
-    passwords) shift; need_edition; ( cd "$EDITION_DIR" && ./show-passwords.sh "$@" ) ;;
+    passwords) shift; need_edition; ( cd "$EDITION_DIR" && "$SMOKING_PI_HOME/shared/scripts/show-passwords.sh" "$@" ) ;;
     doctor) shift; run_doctor "$@" ;;
     url) shift; need_edition; cmd_url "$@" ;;
     paths)

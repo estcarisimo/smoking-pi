@@ -4,12 +4,11 @@ An alternative to InfluxDB for the Pro edition. InfluxDB stays the default;
 ClickHouse is fully wired but less traveled.
 
 ```bash
-cd editions/pro
-./setup.sh --database clickhouse
-# or, on an existing deployment:
-COMPOSE_PROFILES=clickhouse docker compose \
-  -f docker-compose.yml -f docker-compose.clickhouse.yml up -d
+sudo smoking-pi install --edition pro --database clickhouse
 ```
+
+The backend is fixed at install (`TSDB_TYPE`); `smoking-pi up` and every
+other command then add the ClickHouse overlay and profile by themselves.
 
 ## How the pieces fit
 

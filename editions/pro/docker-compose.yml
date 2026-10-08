@@ -353,7 +353,7 @@ services:
       start_period: 30s
 
   # MCP server (AI-operable SmokePing) — opt-in via the `mcp` profile:
-  #   COMPOSE_PROFILES=mcp docker compose up -d mcp-server
+  #   smoking-pi enable mcp
   # See docs/mcp-server.md
   mcp-server:
     build:

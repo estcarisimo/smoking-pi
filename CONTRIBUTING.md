@@ -28,8 +28,8 @@ Please also read the [Code of Conduct](CODE_OF_CONDUCT.md).
 git clone https://github.com/estcarisimo/smoking-pi.git
 cd smoking-pi
 
-# Bring up the Pro edition; setup.sh writes .env with generated secrets
-cd editions/pro && ./setup.sh
+# Bring up the Pro edition; install writes editions/pro/.env with generated secrets
+./cli/smoking-pi link && smoking-pi install --edition pro --yes
 ```
 
 Each test-bearing module under `shared/modules/` is its own package. Work in
@@ -117,7 +117,8 @@ setting, add it to `.env.template` **and** the compose file — the doctor's
 ## Where things are
 
 ```text
-editions/{basic,standard,pro}/   Compose files, setup.sh, per-edition config
+cli/                             The smoking-pi command: entry, lib/<area>.sh, tests
+editions/{basic,standard,pro}/   Compose files, setup.sh (run by `install`), per-edition config
 shared/modules/<module>/         one container image each; see the table above
 shared/modules/common/           the only code shared between images (copied in at build)
 shared/scripts/                  setup helpers, container management, tunnels, skill install

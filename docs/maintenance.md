@@ -40,20 +40,12 @@ smoking-pi restart          # restart in place: docker compose restart
 without recreating them, so it does not pick up a changed compose file,
 image or env file — for those, `down` then `up`.
 
-**On Pro it does not re-sync the InfluxDB token.** That is
-`manage-containers.sh`, not the command:
-
-```bash
-# from the repository root
-shared/scripts/manage-containers.sh --action restart --edition pro
-```
-
-which restarts and then runs `sync-influx-token.sh`, so Grafana keeps
-reaching InfluxDB after the token in the env file and the token in the
-volume have diverged. If Grafana's InfluxDB panels are empty after a
-restart while the data is arriving, that divergence is the first thing to
-check — `editions/pro/sync-influx-token.sh` on its own fixes it without a
-restart.
+**On Pro with InfluxDB, a whole-stack `restart` also checks the token.**
+After restarting, it confirms that InfluxDB accepts the token in the env
+file and, if not, adopts the one InfluxDB proves it accepts and restarts
+Grafana (`editions/pro/sync-influx-token.sh`). If Grafana's InfluxDB panels
+are empty while the data is arriving, that divergence is the first thing to
+check: `sudo smoking-pi restart`.
 
 From a clone without the command, from the edition directory:
 
@@ -64,10 +56,9 @@ docker compose up -d
 
 Pro with ClickHouse adds `-f docker-compose.yml -f
 docker-compose.clickhouse.yml`; the packaged layout adds
-`docker-compose.packaged.yml` last. The command and
-`shared/scripts/manage-containers.sh` assemble that list from the env
-file; by hand it is easy to forget the overlay and silently render the
-InfluxDB stack.
+`docker-compose.packaged.yml` last. The command assembles that list from
+the env file; by hand it is easy to forget the overlay and silently render
+the InfluxDB stack.
 
 ## A container that will not stop
 
@@ -78,7 +69,8 @@ smoking-pi up                             # recreate it
 ```
 
 "Network … has active endpoints" on `down`: something outside Compose
-(a tunnel from `create-tunnel.sh`, a one-off `docker run`) is attached.
+(a quick tunnel from `smoking-pi tunnel start`, a one-off `docker run`) is attached;
+`smoking-pi tunnel stop` removes the tunnels.
 `docker network inspect <project>_default --format '{{range .Containers}}{{.Name}} {{end}}'`
 names it; stop that, then `down` again.
 

@@ -234,7 +234,7 @@ GRAFANA_PUBLIC_URL=https://grafana.example.com
 WEB_ADMIN_PUBLIC_URL=https://admin.example.com
 ```
 
-Then `COMPOSE_PROFILES=mcp docker compose up -d mcp-server` to pick it up.
+`smoking-pi links` sets these and recreates what reads them; with `smoking-pi config set`, the same.
 
 ### Two tiers: at home, and from anywhere
 
@@ -271,12 +271,12 @@ lying:
 - **Identical bases are not twinned.** Configuring the same address in both
   tiers produces one link, not two. Two labels on one URL invites a reader to
   try "the other one" when there isn't one.
-- **Quick tunnels expire.** `./shared/scripts/create-tunnel.sh` prints a fresh
-  `*.trycloudflare.com` hostname on every restart; pasting one into `.env`
-  works until the next restart, after which the twins 404. Use a named tunnel
-  if these links are going into alerts.
+- **Quick tunnels expire.** `smoking-pi tunnel start` gets a fresh
+  `*.trycloudflare.com` hostname on every start; setting one with
+  `smoking-pi links --tunnel` works until the next start, after which the
+  twins 404. Use a named tunnel if these links are going into alerts.
 
-`./shared/scripts/show-tunnel-urls.sh` prints the current hostnames.
+`smoking-pi tunnel` prints the current hostnames.
 
 Two things worth knowing:
 
@@ -359,8 +359,7 @@ pins the listener to `127.0.0.1`, so exposure is exactly what the earlier
 Start it with:
 
 ```bash
-cd editions/pro
-COMPOSE_PROFILES=mcp docker compose up -d mcp-server
+sudo smoking-pi enable mcp
 ```
 
 The MCP endpoint is then `http://127.0.0.1:8090/mcp` (bound to localhost

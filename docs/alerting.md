@@ -9,9 +9,12 @@ testable.
 Module: `shared/modules/alerter/`. Opt-in via the `alerts` Compose profile:
 
 ```bash
-cd editions/pro
-COMPOSE_PROFILES=alerts docker compose up -d alerter
+sudo smoking-pi alerts --telegram --test   # or --openclaw, --webhook (below)
 ```
+
+which turns on the profile, recreates the alerter and prints its own
+delivery check. `sudo smoking-pi enable alerts` turns it on alone (it logs
+alerts and sends nothing until `NOTIFY_MODE` points somewhere).
 
 The service runs with `network_mode: host`, so it reaches InfluxDB on
 `localhost:8086` and a locally running OpenClaw gateway on
@@ -599,7 +602,7 @@ Set `ALERT_MARKUP=plain` for a channel that does not parse HTML.
 One-shot evaluation (no loop) with whatever `NOTIFY_MODE` is configured:
 
 ```bash
-cd editions/pro
+cd editions/pro      # from a clone
 COMPOSE_PROFILES=alerts docker compose run --rm alerter python main.py --once
 ```
 
