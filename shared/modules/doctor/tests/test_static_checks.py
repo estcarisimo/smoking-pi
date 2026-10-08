@@ -52,6 +52,34 @@ def build(ip):
             .tag("category", "cpe"))
 '''
 
+# A faithful miniature of rrd2clickhouse.py's classifiers: one returns
+# literals, the other maps RRD directory names through a table.
+CLICKHOUSE_EXPORTER_SOURCE = '''
+DNS_DIRS = ("resolvers", "DNS_Resolvers")
+
+CATEGORY_MAP = {
+    "websites": "topsites",
+    "DNS_Resolvers": "dns",
+    "resolvers": "dns",
+}
+
+
+def measurement_type_for(rrd_file, rrd_dir):
+    if rrd_file in DNS_DIRS:
+        return "dns_latency"
+    return "latency"
+
+
+def category_for(rrd_file, rrd_dir):
+    directory = rrd_file
+    return CATEGORY_MAP.get(directory, "unknown")
+'''
+
+GOOD_SQL = (
+    "SELECT DISTINCT target FROM smokeping.latency "
+    "WHERE category = 'dns' AND measurement_type = 'dns_latency' ORDER BY target"
+)
+
 GRAFANA_DOCKERFILE = """
 FROM grafana/grafana:12.4.3
 RUN grafana cli --pluginsDir /var/lib/grafana/plugins \\
@@ -162,6 +190,35 @@ def _dashboard(uid, title, query, datasource_uid="influxdb"):
     }
 
 
+def _clickhouse_dashboard(uid, variable_sql):
+    """A ClickHouse dashboard whose panel filters on its $target variable:
+    a variable that returns nothing blanks every panel."""
+    return {
+        "uid": uid,
+        "title": "DNS (ClickHouse)",
+        "panels": [
+            {
+                "title": "Latency",
+                "datasource": {"uid": "clickhouse"},
+                "targets": [{
+                    "refId": "A",
+                    "rawSql": (
+                        "SELECT avg(avg_latency) FROM smokeping.latency "
+                        "WHERE target IN (${target:sqlstring}) "
+                        "AND category = 'dns' AND measurement_type = 'dns_latency'"
+                    ),
+                }],
+            }
+        ],
+        "templating": {"list": [{
+            "name": "target",
+            "type": "query",
+            "datasource": {"uid": "clickhouse"},
+            "query": variable_sql,
+        }]},
+    }
+
+
 GOOD_QUERY = (
     'from(bucket:"smokeping") |> range(start:v.timeRangeStart) '
     '|> filter(fn:(r)=> r._measurement == "latency" and r.category == "topsites")'
@@ -180,6 +237,7 @@ def repo(tmp_path):
 
     (exporters / "rrd2influx.py").write_text(EXPORTER_SOURCE)
     (exporters / "microcut_detector.py").write_text(CPE_EXPORTER_SOURCE)
+    (exporters / "rrd2clickhouse.py").write_text(CLICKHOUSE_EXPORTER_SOURCE)
     (tmp_path / "shared/modules/grafana/Dockerfile").write_text(GRAFANA_DOCKERFILE)
 
     alerter = tmp_path / "shared/modules/alerter"
@@ -198,6 +256,9 @@ def repo(tmp_path):
 
     (provisioning / "dashboards/overview/latency.json").write_text(
         json.dumps(_dashboard("lat-v1", "Latency", GOOD_QUERY))
+    )
+    (provisioning / "dashboards-clickhouse/dns.json").write_text(
+        json.dumps(_clickhouse_dashboard("ch-dns-v1", GOOD_SQL))
     )
     (provisioning / "dashboards/dashboard.yaml").write_text(
         yaml.safe_dump(
@@ -415,6 +476,99 @@ def test_catches_a_tag_nothing_writes(repo):
     check = run(repo)["panel-tags-written"]
     assert check.status is Status.FAIL
     assert "measurement_type" in check.findings[0].render()
+
+
+def _write_clickhouse_dashboard(repo, variable_sql):
+    (repo.provisioning / "dashboards-clickhouse/dns.json").write_text(
+        json.dumps(_clickhouse_dashboard("ch-dns-v1", variable_sql))
+    )
+
+
+def test_clickhouse_vocabulary_is_read_from_the_classifiers(repo):
+    """Literal returns, and every value of a ``TABLE.get(key, default)``."""
+    from doctor.sources import clickhouse_vocabulary
+
+    assert clickhouse_vocabulary(repo.exporters) == {
+        "measurement_type": {"dns_latency", "latency"},
+        "category": {"topsites", "dns", "unknown"},
+    }
+
+
+def test_catches_a_clickhouse_variable_on_raw_directory_names(repo):
+    """THE bug: the DNS dashboard's $target variable asked for the RRD
+    directory (`DNS_Resolvers`) where the exporter writes `dns`, so the
+    variable was empty and every panel filtering on it was blank."""
+    _write_clickhouse_dashboard(
+        repo,
+        "SELECT DISTINCT target FROM smokeping.latency "
+        "WHERE category = 'DNS_Resolvers' AND measurement_type = 'latency'",
+    )
+    check = run(repo)["panel-tags-written"]
+    assert check.status is Status.FAIL
+    assert len(check.findings) == 1
+    assert "variable $target" in check.findings[0].where
+    assert "'DNS_Resolvers'" in check.findings[0].render()
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "category != 'Netflix'",
+        "category <> 'Netflix'",
+        "l.category = 'Netflix'",
+        "category IN ('dns', 'Netflix')",
+        "category not in ('Netflix')",
+        "measurement_type = 'tcp_latency'",
+    ],
+)
+def test_catches_every_clickhouse_comparison_form(repo, predicate):
+    _write_clickhouse_dashboard(
+        repo, f"SELECT DISTINCT target FROM smokeping.latency l WHERE {predicate}"
+    )
+    check = run(repo)["panel-tags-written"]
+    assert check.status is Status.FAIL, predicate
+
+
+def test_quoted_grafana_variables_are_not_literals(repo):
+    _write_clickhouse_dashboard(
+        repo,
+        "SELECT DISTINCT target FROM smokeping.latency "
+        "WHERE category = '${cat}' AND measurement_type IN ('$mt', 'latency')",
+    )
+    assert run(repo)["panel-tags-written"].status is Status.OK
+
+
+def test_clickhouse_panel_queries_are_checked_too(repo):
+    data = _clickhouse_dashboard("ch-dns-v1", GOOD_SQL)
+    data["panels"][0]["targets"][0]["rawSql"] = data["panels"][0]["targets"][0][
+        "rawSql"
+    ].replace("'dns_latency'", "'latency_dns'")
+    (repo.provisioning / "dashboards-clickhouse/dns.json").write_text(
+        json.dumps(data)
+    )
+    check = run(repo)["panel-tags-written"]
+    assert check.status is Status.FAIL
+    assert "'latency_dns'" in check.findings[0].render()
+
+
+def test_postgres_variables_on_a_clickhouse_dashboard_are_not_checked(repo):
+    """The status variable reads PostgreSQL, whose vocabulary is
+    `dns_resolvers`; only queries over `smokeping.<table>` are ClickHouse."""
+    _write_clickhouse_dashboard(
+        repo,
+        "SELECT t.name FROM targets t JOIN target_categories c "
+        "ON t.category_id = c.id WHERE c.name = 'dns_resolvers' "
+        "AND category = 'DNS_Resolvers'",
+    )
+    assert run(repo)["panel-tags-written"].status is Status.OK
+
+
+def test_a_clickhouse_exporter_without_classifiers_fails(repo):
+    """Renaming ``category_for`` must not quietly turn the check off."""
+    (repo.exporters / "rrd2clickhouse.py").write_text("ROWS = []\n")
+    check = run(repo)["panel-tags-written"]
+    assert check.status is Status.FAIL
+    assert "classifier" in check.findings[0].render()
 
 
 def test_annotation_queries_are_checked_too(repo):

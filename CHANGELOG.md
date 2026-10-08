@@ -148,6 +148,24 @@ version gets a matching GitHub release and git tag.
   `false`, `off` and `no`, in any case, turn it off, as `NETMETER` reads its
   switch; empty or unset stays on. The template types the key `bool`
   (`config set PUBLIC_IP_GEO false`) instead of `enum:0|1`.
+- **Four ClickHouse dashboards were blank: their `$target` variable asked
+  for RRD directory names.** DNS Resolution Times filtered
+  `category = 'DNS_Resolvers' AND measurement_type = 'latency'`, and the
+  Top Sites, Netflix and Custom side-by-side dashboards `'websites'`,
+  `'Netflix'` and `'Custom'`; since v2.5.0 the ClickHouse exporter writes
+  the InfluxDB vocabulary (`dns`/`dns_latency`, `topsites`, `netflix`,
+  `custom`). The variables returned no targets, and every panel filters
+  `target IN (${target})`, so in ClickHouse mode those dashboards showed
+  "No data" over data that was there. v2.5.0 fixed the panels and missed
+  the variables. `docs/clickhouse.md` and `docs/doctor.md` described the
+  mistake as fixed and caught, and the doctor passed: `panel-tags-written`
+  checked only the InfluxDB dashboards, and only Flux tag *names* (`r.x`).
+  The variables now use the exporter's values, and `panel-tags-written`
+  also reads ClickHouse SQL: every `category` / `measurement_type` literal
+  compared with `=`, `!=`, `<>` or `IN` in a query over `smokeping.*` must
+  be a value the exporter's `category_for()` / `measurement_type_for()` can
+  return, read from its source. A valid value on the wrong dashboard
+  (`measurement_type = 'latency'` for DNS) is still not caught.
 
 ## [2.27.0] — 2026-10-08
 
