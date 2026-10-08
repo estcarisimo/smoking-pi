@@ -1055,7 +1055,9 @@ config_setup() {
     local bad
     for bad in "CPE_PROBE_RATE 0" "CPE_PROBE_RATE fast" "DIGEST_AT 25:00" "NOTIFY_MODE email" \
                "ALERT_CHARTS maybe" "DNS_WIZARD_COVERAGE 1.5" "OPENCLAW_URL localhost:18789" \
-               "INFERENCE_SINCE 2026-13-01" "SMOKEPING_PORT 70000"; do
+               "INFERENCE_SINCE 2026-13-01" "SMOKEPING_PORT 70000" \
+               "DNS_WIZARD_COVERAGE 0" "DNS_WIZARD_INTERVAL 30" "TZ zone.tab" \
+               "MCP_PUBLIC_URL http://192.168.1.10:8000/mcp" "MCP_PUBLIC_URL https://pi.example.ts.net/mcp"; do
         # shellcheck disable=SC2086  # KEY VALUE
         run "$CLI" config set $bad
         [ "$status" -eq 2 ] || { echo "accepted: $bad"; return 1; }
@@ -1074,6 +1076,20 @@ config_setup() {
     [ "$status" -eq 0 ]
     run "$CLI" config set WIFI_INTERFACE 'wlan0 or whatever' --no-apply
     [ "$status" -eq 0 ]
+    run "$CLI" config set DNS_WIZARD_INTERVAL 0 --no-apply
+    [ "$status" -eq 0 ]
+    run "$CLI" config set DNS_WIZARD_COVERAGE .8 --no-apply
+    [ "$status" -eq 0 ]
+    run "$CLI" config set MCP_PUBLIC_URL https://pi.example.ts.net --no-apply
+    [ "$status" -eq 0 ]
+    # A choice or a true/false is taken in any case and written lowercase.
+    run "$CLI" config set NOTIFY_MODE Telegram --no-apply
+    [ "$status" -eq 0 ]
+    grep -qx 'NOTIFY_MODE=telegram' "$SMOKING_PI_ENV_FILE"
+    # An empty value is not how to clear one.
+    run "$CLI" config set CPE_PROBE_RATE ""
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"config unset CPE_PROBE_RATE"* ]]
     grep -qx 'DIGEST_AT=7:05' "$SMOKING_PI_ENV_FILE"
     grep -qx 'WIFI_WEAK_DBM=-70.5' "$SMOKING_PI_ENV_FILE"
 }

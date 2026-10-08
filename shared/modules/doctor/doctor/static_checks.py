@@ -606,7 +606,7 @@ def check_mcp_tools_documented(repo: Repo) -> CheckResult:
 
 # The types `smoking-pi config set` knows how to check (validate_setting in
 # cli/lib/config.sh), and the flags it reads.
-SETTING_TYPES = {"int", "float", "bool", "time", "date", "tz", "url"}
+SETTING_TYPES = {"int", "float", "bool", "time", "date", "tz", "url", "origin"}
 SETTING_FLAGS = {"secret", "install"}
 # The name patterns the command also applies, as a net (is_secret_key,
 # is_install_key): a key they catch must say so in the template too.
@@ -615,7 +615,8 @@ _INSTALL_NAME = re.compile(
     r"^(POSTGRES_|INFLUX_|DOCKER_INFLUXDB_|CLICKHOUSE_|GF_SECURITY_)"
     r"|^(WEB_ADMIN_PASSWORD|SECRET_KEY|CONFIG_API_TOKEN|MCP_API_TOKEN|TSDB_TYPE)$"
 )
-_NUMBER = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
+_NUMBER = re.compile(r"^[-+]?([0-9]+(\.[0-9]*)?|\.[0-9]+)$")
+_BOUNDS = ("min=", "gt=", "max=", "allow=")
 
 
 def _meta_problems(meta: tuple[str, ...]) -> list[str]:
@@ -626,14 +627,27 @@ def _meta_problems(meta: tuple[str, ...]) -> list[str]:
             continue
         if word.startswith("enum:") and all(word[5:].split("|")):
             continue
-        if word.startswith(("min=", "max=")) and _NUMBER.match(word[4:]):
+        if word.startswith(_BOUNDS) and _NUMBER.match(word.split("=", 1)[1]):
             if not set(types) & {"int", "float"}:
                 problems.append(f"{word} needs int or float")
             continue
         problems.append(f"unknown word {word!r}")
     if len(types) > 1:
         problems.append(f"more than one type ({' '.join(types)})")
+    bounds = _bounds(meta)
+    low = bounds.get("min", bounds.get("gt"))
+    if low is not None and "max" in bounds and low > bounds["max"]:
+        problems.append(f"its lower bound {low:g} is above its max {bounds['max']:g}")
     return problems
+
+
+def _bounds(meta: tuple[str, ...]) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for word in meta:
+        name, _, number = word.partition("=")
+        if word.startswith(_BOUNDS) and _NUMBER.match(number):
+            out[name] = float(number)
+    return out
 
 
 def _value_fits(meta: tuple[str, ...], value: str) -> bool:
@@ -641,14 +655,22 @@ def _value_fits(meta: tuple[str, ...], value: str) -> bool:
     if not value:
         return True
     for word in meta:
-        if word == "int":
-            return re.match(r"^-?[0-9]+$", value) is not None
-        if word == "float":
-            return _NUMBER.match(value) is not None
+        if word in ("int", "float"):
+            if not (re.match(r"^[-+]?[0-9]+$", value) if word == "int" else _NUMBER.match(value)):
+                return False
+            b, v = _bounds(meta), float(value)
+            if "allow" in b and v == b["allow"]:
+                return True
+            return not (("min" in b and v < b["min"]) or ("gt" in b and v <= b["gt"])
+                        or ("max" in b and v > b["max"]))
         if word == "bool":
             return value in ("true", "false", "1", "0")
         if word.startswith("enum:"):
             return value in word[5:].split("|")
+        if word == "origin":
+            return re.match(r"^https://[^/\s?#]+/?$", value) is not None
+        if word == "url":
+            return re.match(r"^https?://\S+$", value) is not None
         if word == "time":
             return re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", value) is not None
     return True

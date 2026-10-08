@@ -16,7 +16,7 @@ import textwrap
 import pytest
 import yaml
 
-from doctor import static_checks
+from doctor import sources, static_checks
 from doctor.report import Report, Status
 
 # ---------------------------------------------------------------------------
@@ -1047,3 +1047,37 @@ def test_settings_schema_wants_credentials_flagged(repo):
 def test_settings_schema_checks_the_template_value_against_its_type(repo):
     r = _template(repo, "## A\n#: bool\nDIGEST_ENABLED=yes\n#: enum:off|on\nNETMETER=off\n")
     assert [f.message for f in r.findings] == ["DIGEST_ENABLED=yes does not pass its own type"]
+
+
+def test_settings_schema_checks_bounds_and_their_order(repo):
+    r = _template(repo, "## A\n#: int min=5 max=1\nX=\n#: float gt=0 max=1\nY=0\n#: int min=60 allow=0\nZ=0\n")
+    messages = [f.message for f in r.findings]
+    assert "X: its lower bound 5 is above its max 1" in messages
+    assert "Y=0 does not pass its own type" in messages
+    assert not any(m.startswith("Z") for m in messages)
+
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
+
+
+@pytest.mark.parametrize("edition", ["basic", "standard", "pro"])
+def test_the_command_and_the_doctor_read_the_templates_the_same_way(edition):
+    """cli/lib/config.sh's settings_table and sources.env_template_settings
+    are two parsers of one format; the check is only worth something if
+    they agree on every real template."""
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("no bash")
+    out = subprocess.run(
+        [bash, "-c", '. cli/lib/config.sh; settings_table'],
+        cwd=REPO_ROOT, env={"EDITION_DIR": f"editions/{edition}", "PATH": "/usr/bin:/bin"},
+        capture_output=True, text=True, check=True,
+    ).stdout
+    shell = [line.split("\037")[:4] for line in out.splitlines()]
+    settings, orphans = sources.env_template_settings(REPO_ROOT / f"editions/{edition}/.env.template")
+    python = [[s.key, s.section or "", " ".join(s.meta), s.value] for s in settings]
+    assert not orphans
+    assert shell == python
