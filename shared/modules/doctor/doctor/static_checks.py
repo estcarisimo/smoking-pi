@@ -33,7 +33,8 @@ class Repo:
         self.datasources_dir = self.provisioning / "datasources"
         self.exporters = root / "shared/modules/smokeping-exporters"
         # Other modules that write InfluxDB points of their own.
-        self.writers = (self.exporters, root / "shared/modules/netmeter")
+        self.writers = (self.exporters, root / "shared/modules/netmeter",
+                        root / "shared/modules/inference")
         self.alerter = root / "shared/modules/alerter"
         # Shared code copied into the alerter image; it reads env too.
         self.common = root / "shared/modules/common"

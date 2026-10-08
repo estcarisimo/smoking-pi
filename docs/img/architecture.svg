@@ -39,8 +39,9 @@
 <path d="M913,620 L925.0,620.0 Q935,620 935.0,630.0 L935.0,840.0 Q935,850 945.0,850.0 L957,850" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
 <path d="M1257,380 L1203,380" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1257,530 L1203,530" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
-<path d="M1257,685 L1203,685" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
-<path d="M1257,850 L1240.0,850.0 Q1230,850 1230.0,840.0 L1230.0,715.0 Q1230,705 1220.0,705.0 L1203,705" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1257,685 L1225.0,685.0 Q1215,685 1215.0,675.0 L1215.0,621.0 Q1215,615 1209.0,615.0 L1203,615" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1257,850 L1247.5,850.0 Q1238,850 1238.0,840.5 L1238.0,650.0 Q1238,640 1228.0,640.0 L1203,640" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1080,672 L1080,663" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
 <path d="M1563,530 L1647,530" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1563,685 L1647,685" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1647,850 L1563,850" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
@@ -131,12 +132,18 @@
 <rect x="854" y="804" width="38" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="873" y="820" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">dns</text>
 <text x="448" y="847" font-size="14" fill="#1f2937">AdGuard Home on :53, and the wizard</text>
 <text x="448" y="868" font-size="14" fill="#1f2937">what the house resolves, by service</text>
-<path d="M960,341 v378 a120.0,11 0 0 0 240,0 v-378" fill="#ecfdf5" stroke="#047857" stroke-width="2.25" filter="url(#shadow)"/><ellipse cx="1080.0" cy="341" rx="120.0" ry="11" fill="#ecfdf5" stroke="#047857" stroke-width="2.25"/>
+<path d="M960,341 v308 a120.0,11 0 0 0 240,0 v-308" fill="#ecfdf5" stroke="#047857" stroke-width="2.25" filter="url(#shadow)"/><ellipse cx="1080.0" cy="341" rx="120.0" ry="11" fill="#ecfdf5" stroke="#047857" stroke-width="2.25"/>
 <g transform="translate(978,359) scale(0.833)" fill="none" stroke="#047857" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3zM5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></g>
 <text x="1008" y="375" font-size="17" font-weight="700" fill="#047857">InfluxDB</text>
 <rect x="1108" y="358" width="74" height="22" rx="11" fill="#ffffff" stroke="#047857" stroke-width="1"/><text x="1145" y="374" text-anchor="middle" font-size="12.5" font-weight="600" fill="#047857">influxdb</text>
 <text x="978" y="401" font-size="14" fill="#1f2937">time series</text>
 <text x="978" y="422" font-size="14" fill="#1f2937">the default backend</text>
+<rect x="960" y="675" width="240" height="105" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<g transform="translate(978,690) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l5 5M4.5 10.5a6 6 0 1 0 12 0 6 6 0 1 0-12 0"/></g>
+<text x="1008" y="706" font-size="17" font-weight="700" fill="#c2410c">inference</text>
+<rect x="1101" y="747" width="81" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1142" y="762" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">inference</text>
+<text x="978" y="732" font-size="14" fill="#1f2937">experimental: congestion</text>
+<text x="978" y="753" font-size="14" fill="#1f2937">and degradation</text>
 <rect x="960" y="790" width="240" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
 <g transform="translate(978,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3zM5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></g>
 <text x="1008" y="821" font-size="17" font-weight="700" fill="#c2410c">ClickHouse</text>
@@ -176,8 +183,9 @@
 <rect x="913" y="724" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="935" y="740" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">rows</text>
 <rect x="1208" y="354" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="370" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">Flux</text>
 <rect x="1204" y="504" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="520" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
-<rect x="1204" y="659" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="674" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
-<rect x="1204" y="767" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="782" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
+<rect x="1189" y="639" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1215" y="654" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
+<rect x="1212" y="767" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1238" y="782" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
+<rect x="1090" y="656" width="110" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1145" y="672" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads, writes</text>
 <rect x="1579" y="504" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="520" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">sends</text>
 <rect x="1583" y="659" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="674" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">asks</text>
 <rect x="1586" y="824" width="38" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="840" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">MCP</text>

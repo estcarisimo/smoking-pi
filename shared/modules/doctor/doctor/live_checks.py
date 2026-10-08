@@ -74,6 +74,7 @@ from .report import CheckResult, Finding, Status, result, skipped
 DEPLOYED_MODULES = {
     "alerter": ("alerter", "/app", True),
     "dns-observer": ("dns-observer", "/app", False),
+    "inference": ("inference", "/app", True),
     "mdns": ("mdns", "/app", False),
     "netmeter": ("netmeter", "/app", False),
     "mcp-server": ("mcp-server", "/app", True),
