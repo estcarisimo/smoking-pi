@@ -9,6 +9,26 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.27.0] — 2026-10-08
+
+Pro can say when a path stayed congested and when a target's loss rose and
+stayed up, not only when one probe cycle went bad. Recoveries report how
+long the problem lasted rather than how long the alert was open.
+
+- Pro, experimental: the `inference` profile (off by default) runs
+  Jitterbug's persistent-congestion detection and a separate loss-degradation
+  detector once an hour, writes the periods to InfluxDB and shades them on
+  Target Detail. Never in the alert path. InfluxDB only.
+- Alert recoveries end their duration at the first cycle the rule stopped
+  firing; windowed rules (`microcut_burst`, `high_loss`) give none.
+- Alerts no longer print "0 of N affected" when the 15-minute mean saw
+  nothing.
+- New settings: `INFERENCE_SINCE`, `INFERENCE_INTERVAL`,
+  `INFERENCE_TARGETS`, `INFERENCE_CATEGORIES`, `INFERENCE_CONGESTION_DAYS`,
+  `INFERENCE_DEGRADATION_DAYS`, `INFERENCE_DEGRADATION_LOSS_PCT`,
+  `INFERENCE_DEGRADATION_MIN_MINUTES`. One new image, `inference` (about
+  1.7 GB, PyTorch CPU), pulled only when the profile is on. No new volumes.
+
 ### Added
 
 - **Experimental: persistent congestion and loss degradation, per target
