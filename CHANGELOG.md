@@ -29,8 +29,8 @@ long the problem lasted rather than how long the alert was open.
   `INFERENCE_TARGETS`, `INFERENCE_CATEGORIES`, `INFERENCE_CONGESTION_DAYS`,
   `INFERENCE_DEGRADATION_DAYS`, `INFERENCE_DEGRADATION_LOSS_PCT`,
   `INFERENCE_DEGRADATION_MIN_MINUTES`. One new image, `inference` (1.7 GB on
-  arm64, nearly all PyTorch CPU), pulled only when the profile is on. No
-  new volumes.
+  arm64, nearly all PyTorch CPU), pulled only when the profile is on, with
+  one new volume, `inference-state`.
 
 ### Added
 
