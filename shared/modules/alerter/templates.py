@@ -133,6 +133,13 @@ def assemble(sections: list[Section], limit: int) -> str:
     return (trimmed + "…")[:limit]
 
 
+# Recoveries: rules where the target or the link answered nothing say "was
+# down"; the rest ("high_loss", ...) say "lasted". A windowed rule keeps
+# firing while its event is inside the window, so it gets no duration.
+DOWN_RULES = frozenset({"target_down", "uplink_down", "ipv6_down", "exporter_stale"})
+WINDOWED_RULES = frozenset({"microcut_burst"})
+
+
 def _duration(seconds: float | None) -> str | None:
     if not seconds or seconds < 0:
         return None
@@ -230,8 +237,15 @@ def alert_sections(event: dict) -> list[Section]:
         sections.append(Section(0, head))
         duration = _duration(event.get("duration_s"))
         detail = esc(event.get("message", ""))
+        rule = event.get("rule")
+        if rule in WINDOWED_RULES:
+            # The rule kept firing while a cut was inside its window, so the
+            # alert's open time is the window, not an outage. The message
+            # already says what the cuts were.
+            duration = None
+        verb = "was down" if rule in DOWN_RULES or not rule else "lasted"
         sections.append(
-            Section(0, f"was down {duration} · {detail}" if duration else detail)
+            Section(0, f"{verb} {duration} · {detail}" if duration else detail)
         )
         if event.get("rule"):
             sections.append(Section(2, _i(esc(str(event["rule"])))))

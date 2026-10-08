@@ -11,6 +11,21 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **A recovery says how long the problem lasted, not how long the alert
+  was open.** The duration ran from the first alert to the end of the
+  resolve grace period (`ALERT_RESOLVE_AFTER`, 15 min by default). For
+  `microcut_burst` it also included the rule's 60-minute window, which
+  keeps the rule firing after the last cut. So a 2 min 40 s cut recovered
+  as "was down 1h 20m" (seen in the v2.13.0-rc.3 acceptance), and a
+  25-minute outage as 40 min. Read at face value, that sends someone to
+  the ISP about an hour-long outage that never happened.
+  - The duration now ends at the cycle the rule stopped firing.
+  - A `microcut_burst` recovery gives no duration; its message has the
+    cuts' own.
+  - `high_loss` says "lasted" instead of "was down".
+  - Incidents recorded by the previous version still get a duration (the
+    old one) on their recovery.
+
 - **Log messages no longer cite design notes nobody has.** The Netflix OCA
   fetcher logged "disabled per TODO-257" when discovery failed, and code
   comments pointed to TODO-218/220/223 files that were never in the

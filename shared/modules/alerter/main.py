@@ -100,16 +100,20 @@ def _chart_for(incident: dict, peers: dict[str, list[str]]) -> bytes | None:
 
 
 def _duration_of(event: dict) -> float | None:
-    """How long the incident lasted, for the recovery message.
+    """How long the incident lasted, for the recovery message: from its
+    first alert to the cycle the rule stopped firing (``ended_at``), not to
+    the end of the resolve grace period. A record saved by an older version
+    has no ``ended_at`` and falls back to ``cleared_at``.
 
     templates renders "was down 23 min" from this; without it that clause
     silently never appears.
     """
     snapshot = event.get("state") or {}
-    first_seen, cleared_at = snapshot.get("first_seen"), snapshot.get("cleared_at")
-    if not first_seen or not cleared_at:
+    first_seen = snapshot.get("first_seen")
+    ended = snapshot.get("ended_at") or snapshot.get("cleared_at")
+    if not first_seen or not ended:
         return None
-    return float(cleared_at) - float(first_seen)
+    return float(ended) - float(first_seen)
 
 
 def _env_bool(name: str, default: bool) -> bool:

@@ -330,4 +330,9 @@ def _snapshot(record: dict, cleared_at: float | None = None) -> dict:
     }
     if cleared_at is not None:
         snap["cleared_at"] = cleared_at
+        # When the rule stopped firing: the end of the problem. cleared_at
+        # is that plus the resolve grace period, which is the alert's
+        # bookkeeping, not the outage.
+        if record.get("missing_since") is not None:
+            snap["ended_at"] = record["missing_since"]
     return snap
