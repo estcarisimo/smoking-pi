@@ -316,7 +316,7 @@
       "id": 6,
       "type": "stat",
       "title": "Approximate location",
-      "description": "Geolocation BY ADDRESS, from ipinfo.io: often the ISP's point of presence, never the house. Off with PUBLIC_IP_GEO=0.",
+      "description": "Geolocation BY ADDRESS, from ipinfo.io: often the ISP's point of presence, never the house. Off with PUBLIC_IP_GEO=false.",
       "datasource": {
         "uid": "influxdb"
       },

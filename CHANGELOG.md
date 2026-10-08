@@ -40,9 +40,7 @@ version gets a matching GitHub release and git tag.
   as before. The bool type accepts `true`/`false`/`1`/`0`: every consumer
   of a key typed bool reads all four correctly (some also read `yes`/`on`,
   but not all of them do). Choices and booleans are matched in any case
-  and written lowercase. `PUBLIC_IP_GEO`
-  turns off only for exactly `0`, so it is typed `enum:0|1` rather than a
-  bool that would accept `false` and leave it on. A new doctor check,
+  and written lowercase. A new doctor check,
   `settings-schema`, fails on four things:
   - a key in no section;
   - a misspelled type;
@@ -139,6 +137,17 @@ version gets a matching GitHub release and git tag.
   desktop's or a Pi's umask of 002 shipped every file in `/opt`
   group-writable. Released packages were not affected because CI's runners
   use 022.
+
+### Fixed
+
+- **`PUBLIC_IP_GEO=false` turns the location lookup off.** The
+  public-address collector stopped asking ipinfo.io only when the value was
+  exactly `0`; `false`, `off` or `no` left it on. Someone who wrote
+  `PUBLIC_IP_GEO=false` to keep their public address to themselves kept
+  sending it to ipinfo.io once a day, with nothing saying so. Now `0`,
+  `false`, `off` and `no`, in any case, turn it off, as `NETMETER` reads its
+  switch; empty or unset stays on. The template types the key `bool`
+  (`config set PUBLIC_IP_GEO false`) instead of `enum:0|1`.
 
 ## [2.27.0] — 2026-10-08
 

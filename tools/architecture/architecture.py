@@ -116,7 +116,7 @@ NODES: tuple[Node, ...] = (
          ("sites and CDNs, Netflix OCAs, public resolvers, and the router",),
          430, 120, 480, 76, "external", icon="globe"),
     Node("ipinfo", "IPinfo",
-         ("the public address's city, once a day;", "PUBLIC_IP_GEO=0 turns it off"),
+         ("the public address's city, once a day;", "PUBLIC_IP_GEO=false turns it off"),
          960, 110, 320, 90, "external", icon="globe"),
     Node("router", "Home router",
          ("forwards the house's DNS", "to the Pi (optional)"),

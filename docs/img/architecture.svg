@@ -58,7 +58,7 @@
 <g transform="translate(978,125) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></g>
 <text x="1008" y="141" font-size="17" font-weight="700" fill="#334155">IPinfo</text>
 <text x="978" y="167" font-size="14" fill="#1f2937">the public address&#x27;s city, once a day;</text>
-<text x="978" y="188" font-size="14" fill="#1f2937">PUBLIC_IP_GEO=0 turns it off</text>
+<text x="978" y="188" font-size="14" fill="#1f2937">PUBLIC_IP_GEO=false turns it off</text>
 <rect x="70" y="1000" width="260" height="90" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
 <g transform="translate(88,1015) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0M12 19.5v.1"/></g>
 <text x="118" y="1031" font-size="17" font-weight="700" fill="#334155">Home router</text>
