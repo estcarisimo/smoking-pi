@@ -219,7 +219,7 @@ echo -e "${CYAN}📊 The address to open:${NC} smoking-pi url"
 echo ""
 # The command, on the PATH from any directory (a clone only; the package
 # and Homebrew install their own). Never fails the setup.
-SMOKING_PI_HOME="$ROOT_DIR" SMOKING_PI_EDITION=pro "$ROOT_DIR/packaging/smoking-pi" link --quiet || true
+SMOKING_PI_HOME="$ROOT_DIR" SMOKING_PI_EDITION=pro "$ROOT_DIR/cli/smoking-pi" link --quiet || true
 echo ""
 echo -e "${CYAN}🔐 Credentials:${NC}"
 echo -e "  Run: ${YELLOW}smoking-pi passwords${NC} for URLs and status"

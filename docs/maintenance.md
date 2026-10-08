@@ -4,7 +4,7 @@ The `smoking-pi` command does the lifecycle
 ([Packaging](packaging.md#the-command)): `up`, `down`, `restart`, `status`,
 `logs`, `upgrade`, `backup`, `restore`, `purge`, from any directory. The
 package installs it as `/usr/bin/smoking-pi`; a clone links its
-`packaging/smoking-pi` into `/usr/local/bin` or `~/.local/bin`
+`cli/smoking-pi` into `/usr/local/bin` or `~/.local/bin`
 (`smoking-pi link`).
 Everything below is what to do when the stack is in a state the command
 does not handle, and the raw Docker commands behind it. Names are never

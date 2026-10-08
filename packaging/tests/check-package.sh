@@ -174,6 +174,9 @@ out=$(smoking-pi paths); echo "$out"
 # Installed at /usr/bin, the command must find the tree in /opt -- the
 # first packaged run resolved "one directory up" to / instead.
 echo "$out" | grep -q 'home:     /opt/smoking-pi' || fail "home is not /opt/smoking-pi"
+# The command's layout (packaging/deb/build.sh): a link into /usr/lib.
+[ "$(readlink /usr/bin/smoking-pi)" = ../lib/smoking-pi/smoking-pi ] || fail "/usr/bin/smoking-pi is not the link to /usr/lib/smoking-pi"
+[ -f /usr/lib/smoking-pi/lib/core.sh ] || fail "the command's modules are not in /usr/lib/smoking-pi/lib"
 echo "$out" | grep -q 'mode:     packaged' || fail "not in packaged mode"
 echo "$out" | grep -q 'env:      /etc/smoking-pi/env' || fail "env file not relocated"
 echo "$out" | grep -q "/<service>:$v" || fail "images do not follow the installed tree's version ($v)"
@@ -323,7 +326,7 @@ fi
 touch /etc/smoking-pi/env
 volumes_before=$(docker volume ls -q 2>/dev/null | sort || true)
 apt-get remove -y -qq smoking-pi >/dev/null
-[ ! -e /usr/bin/smoking-pi ] || fail "CLI left behind"
+[ ! -e /usr/bin/smoking-pi ] && [ ! -L /usr/bin/smoking-pi ] || fail "CLI left behind"
 [ -f /etc/smoking-pi/env ] || fail "removal deleted the env file"
 [ -d /var/lib/smoking-pi/output ] || fail "removal deleted the output dir"
 [ -f /etc/default/smoking-pi ] || fail "removal deleted the conffile (that is purge's job)"

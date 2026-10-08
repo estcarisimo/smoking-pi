@@ -550,7 +550,7 @@ echo
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${WHITE}📋 Quick Commands${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-# The smoking-pi command (packaging/smoking-pi from a clone, /usr/bin from
+# The smoking-pi command (cli/smoking-pi from a clone, /usr/bin from
 # the package) is the documented way; the compose lines are what it runs.
 echo -e "  ${CYAN}View logs:${NC}        smoking-pi logs [service]      (docker compose logs -f [service])"
 echo -e "  ${CYAN}Check status:${NC}     smoking-pi status              (docker compose ps)"

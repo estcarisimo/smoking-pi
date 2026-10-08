@@ -7,6 +7,10 @@
 # install path yet: read that document for what still has to move out of
 # the tree before a package can upgrade in place.
 set -euo pipefail
+# The modes the package ships are the ones files are extracted with here:
+# under a umask of 002 (a desktop or Pi default) everything in /opt and
+# /usr/lib would be group-writable. CI's runners use 022.
+umask 022
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERSION="${1:-$(sed -n 's/^version: *//p' "$ROOT/CITATION.cff")}"
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
@@ -25,7 +29,13 @@ mkdir -p "$PKG/DEBIAN" "$PKG/opt/smoking-pi" "$PKG/usr/bin" "$PKG/lib/systemd/sy
 case "$VERSION" in
     *~rc.*) printf '%s\n' "${VERSION/\~rc./-rc.}" > "$PKG/opt/smoking-pi/VERSION" ;;
 esac
-install -m 0755 "$ROOT/packaging/smoking-pi" "$PKG/usr/bin/smoking-pi"
+# The command: cli/ as /usr/lib/smoking-pi (its entry and lib/ modules),
+# with /usr/bin/smoking-pi a link to the entry, which finds lib/ through it.
+# From the committed tree, like everything else in the package.
+mkdir -p "$PKG/usr/lib/smoking-pi"
+( cd "$ROOT" && git archive --format=tar HEAD:cli -- smoking-pi lib ) | tar -C "$PKG/usr/lib/smoking-pi" -xf -
+chmod 0755 "$PKG/usr/lib/smoking-pi/smoking-pi"
+ln -s ../lib/smoking-pi/smoking-pi "$PKG/usr/bin/smoking-pi"
 install -m 0644 "$ROOT/packaging/systemd/smoking-pi.service" "$PKG/lib/systemd/system/smoking-pi.service"
 cat > "$PKG/etc/default/smoking-pi" <<'ENV'
 # Settings for the smoking-pi command and the systemd unit (a conffile:
@@ -33,7 +43,7 @@ cat > "$PKG/etc/default/smoking-pi" <<'ENV'
 # The command finds the tree itself (the checkout it sits in, else
 # /opt/smoking-pi); set only to run the packaged command against another
 # tree. Setting it here would also capture a checkout's own
-# packaging/smoking-pi on this host, which sources this file.
+# cli/smoking-pi on this host, which sources this file.
 #SMOKING_PI_HOME=/opt/smoking-pi
 # The edition: `smoking-pi install` records the one it installed in
 # /etc/smoking-pi/edition; set here only to override that record.

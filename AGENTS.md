@@ -64,7 +64,8 @@ merge: CI proves it builds, the Pi proves it runs.
 | `shared/modules/common/` | The only code shared between images: Flux, charts, links, mutes, OpenClaw client |
 | `shared/modules/grafana/provisioning/` | Dashboards as JSON; separate trees for InfluxDB and ClickHouse |
 | `docs/` | getting-started, alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, http-probes, doctor, clickhouse, ipv6-gating, dns-observer, upgrades, packaging, release-acceptance |
-| `packaging/` | The shipped install path since v2.12.0: the `smoking-pi` CLI, the systemd unit, the `.deb` builder, the apt repository builder, the Homebrew formula and their tests — see `docs/packaging.md` |
+| `cli/` | The `smoking-pi` command: `smoking-pi` (bootstrap + dispatch), `lib/<area>.sh` (one file per command area), `tests/cli.bats`. Anything a user runs goes here, not into a new script |
+| `packaging/` | The shipped install path since v2.12.0: the systemd unit, the `.deb` builder, the apt repository builder, the Homebrew formula and their tests — see `docs/packaging.md` |
 
 ## Constraints
 

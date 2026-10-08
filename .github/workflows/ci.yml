@@ -44,6 +44,10 @@ jobs:
             while IFS= read -r -d '' f; do
               bash -n "$f" || { echo "SYNTAX ERROR: $f"; exit 1; }
             done
+          # The command's entry points have no .sh to find them by.
+          for f in cli/smoking-pi packaging/smoking-pi; do
+            bash -n "$f" || { echo "SYNTAX ERROR: $f"; exit 1; }
+          done
           echo "All shell scripts parse."
 
   citation:
@@ -201,7 +205,7 @@ jobs:
       # which env file; what backup/restore/purge/upgrade run and refuse.
       # The real-daemon proof is the deploy on the reference Pi.
       - name: Run the suite
-        run: bats packaging/tests/cli.bats
+        run: bats cli/tests/cli.bats
       # show-passwords.sh withholds every secret unless asked; that rule is
       # only real if it is tested.
       - name: Run the show-passwords suite

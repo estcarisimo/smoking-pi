@@ -45,5 +45,5 @@ echo -e "📁 Configuration: Edit config/Targets to add monitoring targets"
 echo -e "📊 View graphs and statistics through the web interface"
 # The command, on the PATH from any directory (a clone only; the package
 # and Homebrew install their own). Never fails the setup.
-SMOKING_PI_HOME="$ROOT_DIR" SMOKING_PI_EDITION=basic "$ROOT_DIR/packaging/smoking-pi" link --quiet || true
+SMOKING_PI_HOME="$ROOT_DIR" SMOKING_PI_EDITION=basic "$ROOT_DIR/cli/smoking-pi" link --quiet || true
 echo -e "💡 What is here, from any directory: smoking-pi"
