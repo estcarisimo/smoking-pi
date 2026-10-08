@@ -9,6 +9,24 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.28.0] — 2026-10-08
+
+Everything a person runs is now a `smoking-pi` command, and a setting is
+checked before it is written instead of after it crashes a container.
+
+- `smoking-pi enable` / `disable NAME` turn the optional services on and off
+  by name; `smoking-pi tunnel start|stop` replaces the two tunnel scripts.
+- `.env.template` is the settings' schema: sections and types. `config set`
+  refuses a value of the wrong kind, `config describe KEY` explains one,
+  and a new doctor check, `settings-schema`, keeps the template honest.
+- The command lives in `cli/`, one file per area. The scripts it replaces
+  and `DNS_MONITORING.md` are gone; the edition READMEs point into the docs.
+- `PUBLIC_IP_GEO=false` (or `off`, `no`) now turns the ipinfo.io lookup off;
+  only `0` did before.
+- ClickHouse mode: four dashboards (DNS Resolution Times and the three
+  side-by-side ones) were blank since v2.5.0; the doctor now reads their SQL.
+- No new images, volumes or migrations. Existing env files are unchanged.
+
 ### Added
 
 - **Settings have structure: sections, types, and a check before writing.**
@@ -86,6 +104,28 @@ version gets a matching GitHub release and git tag.
   lines that still described files removed long ago) are now short
   pointers into the docs. AGENTS.md makes it a rule: anything a person
   runs is a `smoking-pi` command.
+- **The `smoking-pi` command has its own directory, `cli/`.** It was one
+  2,835-line file, `packaging/smoking-pi`, next to the `.deb` builder and
+  the Homebrew checks, while the scripts it should have replaced were
+  spread over `shared/scripts/` and every edition directory. Nothing said
+  where a new command belonged, so every new step became another script
+  for a person to find. Now `cli/smoking-pi` sets up the paths and
+  dispatches, each area of commands is one file in `cli/lib/`
+  (`config.sh`, `alerts.sh`, `lifecycle.sh`…), and the tests are in
+  `cli/tests/`. The move changes no behavior: comparing `declare -f`
+  before and after, every function is byte-for-byte what it was except
+  the two that name the command's own path (`link_cli`, and the tip in
+  `brief`), which now say `cli/smoking-pi`. The package installs `cli/` as
+  `/usr/lib/smoking-pi` with `/usr/bin/smoking-pi` a link to it.
+  `packaging/smoking-pi` stays as a one-line forward, because a clone's
+  `/usr/local/bin` link still points there; `smoking-pi upgrade` (or
+  `link`) repoints it to `cli/`. The Homebrew formula takes whichever of
+  the two the release it installs has.
+- **`packaging/deb/build.sh` sets `umask 022`.** The package's files kept
+  the modes they were extracted with, so a package built under a
+  desktop's or a Pi's umask of 002 shipped every file in `/opt`
+  group-writable. Released packages were not affected because CI's runners
+  use 022.
 
 ### Removed
 
@@ -114,29 +154,6 @@ version gets a matching GitHub release and git tag.
     nothing called (`install` detects the timezone and generates the
     secrets);
   - `README-Zero-Touch.md`.
-
-- **The `smoking-pi` command has its own directory, `cli/`.** It was one
-  2,835-line file, `packaging/smoking-pi`, next to the `.deb` builder and
-  the Homebrew checks, while the scripts it should have replaced were
-  spread over `shared/scripts/` and every edition directory. Nothing said
-  where a new command belonged, so every new step became another script
-  for a person to find. Now `cli/smoking-pi` sets up the paths and
-  dispatches, each area of commands is one file in `cli/lib/`
-  (`config.sh`, `alerts.sh`, `lifecycle.sh`…), and the tests are in
-  `cli/tests/`. The move changes no behavior: comparing `declare -f`
-  before and after, every function is byte-for-byte what it was except
-  the two that name the command's own path (`link_cli`, and the tip in
-  `brief`), which now say `cli/smoking-pi`. The package installs `cli/` as
-  `/usr/lib/smoking-pi` with `/usr/bin/smoking-pi` a link to it.
-  `packaging/smoking-pi` stays as a one-line forward, because a clone's
-  `/usr/local/bin` link still points there; `smoking-pi upgrade` (or
-  `link`) repoints it to `cli/`. The Homebrew formula takes whichever of
-  the two the release it installs has.
-- **`packaging/deb/build.sh` sets `umask 022`.** The package's files kept
-  the modes they were extracted with, so a package built under a
-  desktop's or a Pi's umask of 002 shipped every file in `/opt`
-  group-writable. Released packages were not affected because CI's runners
-  use 022.
 
 ### Fixed
 
