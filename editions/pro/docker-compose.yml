@@ -110,8 +110,8 @@ services:
       - RESOLVER_OBSERVER=${RESOLVER_OBSERVER:-auto}
       - DNS_PORT=${DNS_PORT:-53}
       # The house's public address, its network and an approximate place
-      # (docs/public-address.md), for Grafana's Overview. PUBLIC_IP_GEO=0
-      # keeps the address from ipinfo.io; IPINFO_TOKEN is optional.
+      # (docs/public-address.md), for Grafana's Overview. PUBLIC_IP_GEO=false
+      # (or 0/off/no) keeps the address from ipinfo.io; IPINFO_TOKEN is optional.
       - PUBLIC_IP_INTERVAL=${PUBLIC_IP_INTERVAL:-900}
       - PUBLIC_IP_GEO=${PUBLIC_IP_GEO:-1}
       - IPINFO_TOKEN=${IPINFO_TOKEN:-}

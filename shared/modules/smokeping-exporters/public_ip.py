@@ -13,8 +13,8 @@ Internet sees, the network (AS) that announces it, and an approximate place.
 * **Place.** IPinfo (``https://ipinfo.io/<ip>/json``): city, region and
   country. This is geolocation *by address*, often only
   the ISP's point of presence, never the house. Asked only when the address
-  changes or once a day; ``PUBLIC_IP_GEO=0`` turns it off (nothing leaves for
-  ipinfo.io then) and ``IPINFO_TOKEN`` is used when set. The coordinates,
+  changes or once a day; ``PUBLIC_IP_GEO`` set to ``0``, ``false``, ``off``
+  or ``no`` turns it off (nothing leaves for ipinfo.io then) and ``IPINFO_TOKEN`` is used when set. The coordinates,
   postal code and reverse hostname IPinfo also returns are not kept.
 
 Writes measurement ``public_ip`` (tag ``family``: ``ipv4``/``ipv6``) every
@@ -185,6 +185,16 @@ from(bucket: "{bucket}")
     return out
 
 
+def geo_enabled(env=os.environ) -> bool:
+    """PUBLIC_IP_GEO: on unless it says off, in any of the usual spellings.
+
+    Only ``0`` used to turn it off, so ``PUBLIC_IP_GEO=false`` kept sending the
+    address to ipinfo.io. Empty or unset is the default, on; anything else not
+    in the off list is on, as NETMETER reads its own switch.
+    """
+    return (env.get("PUBLIC_IP_GEO") or "").strip().lower() not in ("0", "false", "off", "no")
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return max(60, int(os.environ.get(name, "") or default))
@@ -196,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(),
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    geo = GeoCache(enabled=os.environ.get("PUBLIC_IP_GEO", "1") != "0",
+    geo = GeoCache(enabled=geo_enabled(),
                    token=os.environ.get("IPINFO_TOKEN", ""))
     owners = OwnerCache()
     if "--once" in argv:

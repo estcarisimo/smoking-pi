@@ -57,11 +57,11 @@ In the env file (`smoking-pi config set`):
 | Key | Default | |
 |---|---|---|
 | `PUBLIC_IP_INTERVAL` | `900` | Seconds between checks (60 at least) |
-| `PUBLIC_IP_GEO` | `1` | `0` turns the location lookup off: the address is then never sent to ipinfo.io |
+| `PUBLIC_IP_GEO` | `true` | `false` (or `0`, `off`, `no`, in any case) turns the location lookup off: the address is then never sent to ipinfo.io |
 | `IPINFO_TOKEN` | empty | Optional; without one, IPinfo's free tier is far above one lookup a day |
 
 What leaves the house: one DNS query per family to Google's authoritative
 server per cycle, a Team Cymru lookup when the address or its network is new
-to the day, and, unless `PUBLIC_IP_GEO=0`, one HTTPS request a day to
+to the day, and, unless `PUBLIC_IP_GEO=false`, one HTTPS request a day to
 ipinfo.io carrying the address. Grafana sits behind its login; the address
 and location are in InfluxDB like every other measurement.

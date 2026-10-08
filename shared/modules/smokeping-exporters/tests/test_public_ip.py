@@ -8,6 +8,9 @@ import json
 import pathlib
 import sys
 import urllib.error
+from types import SimpleNamespace
+
+import pytest
 
 MODULE_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MODULE_DIR))
@@ -87,6 +90,36 @@ def test_geolocation_off_sends_nothing_to_ipinfo():
     calls = []
     cache = pub.GeoCache(fetch=lambda ip, t: calls.append(ip) or PLACE, enabled=False)
     assert cache.place(V4) == {} and calls == []
+
+
+@pytest.mark.parametrize("value", ["0", "false", "off", "no", "FALSE", "Off",
+                                   " no ", "False\n"])
+def test_every_off_spelling_turns_geolocation_off(value):
+    # Only "0" used to: PUBLIC_IP_GEO=false kept sending the address.
+    assert pub.geo_enabled({"PUBLIC_IP_GEO": value}) is False
+
+
+@pytest.mark.parametrize("value", ["1", "true", "on", "yes", "TRUE", "", "  "])
+def test_on_spellings_and_empty_leave_geolocation_on(value):
+    assert pub.geo_enabled({"PUBLIC_IP_GEO": value}) is True
+
+
+def test_unset_leaves_geolocation_on():
+    assert pub.geo_enabled({}) is True
+
+
+def test_main_builds_the_cache_from_the_setting(monkeypatch):
+    seen = {}
+
+    class Cache:
+        def __init__(self, enabled=True, token=""):
+            seen["enabled"] = enabled
+
+    monkeypatch.setattr(pub, "GeoCache", Cache)
+    monkeypatch.setattr(pub, "probe", lambda family, owners, geo: SimpleNamespace())
+    monkeypatch.setenv("PUBLIC_IP_GEO", "false")
+    assert pub.main(["--once"]) == 0
+    assert seen["enabled"] is False
 
 
 class _Resp:
