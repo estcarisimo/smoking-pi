@@ -39,7 +39,9 @@ class SmokingPi < Formula
     # /bin/bash is 3.2 on macOS whatever PATH says; every script says
     # `#!/bin/bash`, so point them at whichever bash PATH finds (the wrapper
     # puts Homebrew's first).
-    inreplace Dir[libexec/"**/*.sh"] + [libexec/"packaging/smoking-pi"],
+    # The command: cli/smoking-pi since v2.28.0, packaging/smoking-pi before.
+    cli = (libexec/"cli/smoking-pi").exist? ? libexec/"cli/smoking-pi" : libexec/"packaging/smoking-pi"
+    inreplace Dir[libexec/"**/*.sh"] + [cli],
               %r{\A#!/bin/bash}, "#!/usr/bin/env bash", audit_result: false
 
     # Homebrew's venv helper: a bare `python -m venv` on 3.12 has no
@@ -47,7 +49,7 @@ class SmokingPi < Formula
     venv = virtualenv_create(libexec/"shared/modules/doctor/.venv", "python3.12")
     venv.pip_install resources
 
-    (bin/"smoking-pi").write_env_script libexec/"packaging/smoking-pi",
+    (bin/"smoking-pi").write_env_script cli,
       PATH: "#{Formula["coreutils"].opt_libexec}/gnubin:#{Formula["gnu-sed"].opt_libexec}/gnubin:#{Formula["bash"].opt_bin}:$PATH",
       SMOKING_PI_HOME: libexec
   end

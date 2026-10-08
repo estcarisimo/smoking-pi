@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# smoking-pi — one command in front of the Compose stack.
+#
+# Works from a clone (SMOKING_PI_HOME defaults to the checkout this file
+# sits in) and from /opt/smoking-pi when installed by the .deb
+# (docs/packaging.md). Everything it does is what the README and
+# docs/upgrades.md tell a person to type by hand -- it adds no behavior, it
+# removes the need to know which directory to be in and which order the
+# steps go in. Tested by cli/tests/cli.bats against a stubbed docker.
+#
+# Layout: this file sets up where everything is (home, edition, env file,
+# images) and dispatches; each command lives in cli/lib/<area>.sh, sourced
+# below. The .deb installs this directory as /usr/lib/smoking-pi, with
+# /usr/bin/smoking-pi a link to this file; a clone links it into the PATH
+# (`smoking-pi link`). packaging/smoking-pi forwards here for links made
+# before the move.
+#
+# Needs bash >= 4.4 and GNU readlink (Debian, Ubuntu, Raspberry Pi OS). On
+# macOS that means Homebrew's bash and coreutils -- see docs/packaging.md.
+set -euo pipefail
+
+# The package's settings (/etc/default/smoking-pi: edition, the packaged
+# state layout). Debian's convention is that every consumer sources it; the
+# unit does via EnvironmentFile, and so must a manual `sudo smoking-pi
+# install`, or it would write into /opt. The environment still wins.
+# (SMOKING_PI_DEFAULTS points the tests at a stand-in file.)
+DEFAULTS_FILE="${SMOKING_PI_DEFAULTS:-/etc/default/smoking-pi}"
+if [ -f "$DEFAULTS_FILE" ]; then
+    _env_before="$(export -p)"
+    set -a
+    # shellcheck disable=SC1090
+    . "$DEFAULTS_FILE"
+    set +a
+    # Re-apply what the caller had exported, so it overrides the file.
+    eval "$_env_before"; unset _env_before
+fi
+# The directory this file is in, through any link: its modules are in lib/
+# next to it, whatever SMOKING_PI_HOME says -- a command never runs
+# another tree's code.
+CLI_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# Home: the checkout this file sits in (cli/smoking-pi next to editions/),
+# else the package's /opt/smoking-pi -- installed in /usr/lib/smoking-pi,
+# "one directory up" is /usr/lib.
+if [ -z "${SMOKING_PI_HOME:-}" ]; then
+    if [ -d "$CLI_DIR/../editions" ]; then SMOKING_PI_HOME="$(cd "$CLI_DIR/.." && pwd)"; else SMOKING_PI_HOME=/opt/smoking-pi; fi
+fi
+# The edition. Packaged, `install` records the one it installed in a state
+# file beside the env file (the env file is that edition's), so the unit
+# and every later command run the same one. Not in the conffile: an edited
+# conffile makes every later package upgrade stop at dpkg's conffile
+# prompt -- fatal under a non-interactive apt -- the first time the
+# shipped file changes by a character.
+EDITION_FILE="${SMOKING_PI_ENV_FILE:+$(dirname "$SMOKING_PI_ENV_FILE")/edition}"
+if [ -z "${SMOKING_PI_EDITION:-}" ] && [ -n "$EDITION_FILE" ] && [ -f "$EDITION_FILE" ]; then
+    SMOKING_PI_EDITION="$(head -n1 "$EDITION_FILE")"
+fi
+# Nobody chose one (no variable, no state file): `restore` onto a fresh
+# card takes the backup's edition instead of refusing it as "not pro".
+EDITION_DEFAULTED=0
+[ -n "${SMOKING_PI_EDITION:-}" ] || EDITION_DEFAULTED=1
+SMOKING_PI_EDITION="${SMOKING_PI_EDITION:-pro}"
+EDITION_DIR="$SMOKING_PI_HOME/editions/$SMOKING_PI_EDITION"
+# The version of the installed tree, which is also its images' tag. A
+# release candidate's package carries a VERSION file (X.Y.Z-rc.N, written
+# by packaging/deb/build.sh), because its CITATION.cff already says X.Y.Z
+# and :X.Y.Z does not exist until the release. Everything else reads
+# CITATION.cff.
+installed_version() {
+    if [ -f "$SMOKING_PI_HOME/VERSION" ]; then
+        head -n1 "$SMOKING_PI_HOME/VERSION"
+    else
+        sed -n 's/^version: *//p' "$SMOKING_PI_HOME/CITATION.cff" 2>/dev/null || true
+    fi
+}
+# The images a packaged install runs: the version of the tree the package
+# put in /opt, so a new package pulls its own release. Not written into
+# the conffile: `install` edits that file (the edition), and an edited
+# conffile is kept as-is by dpkg on upgrade -- a version line there would
+# have pinned every upgrade to the first release installed. An explicit
+# SMOKING_PI_VERSION (environment or conffile) still wins: a pin.
+if [ "${SMOKING_PI_PACKAGED:-}" = 1 ] && [ -z "${SMOKING_PI_VERSION:-}" ]; then
+    SMOKING_PI_VERSION="$(installed_version)"
+    export SMOKING_PI_VERSION
+fi
+# A clone checked out on a release tag runs that release's images, the
+# ones the Release workflow published for exactly this code. Before, only
+# a SMOKING_PI_VERSION typed in front of every command did: the reference
+# Pi, on v2.13.0 and running the :2.13.0 images, was one bare `up` or
+# `upgrade` away from recreating everything on stale local :dev builds.
+# The final release wins over its candidates on the same commit (v2.13.0
+# and v2.13.0-rc.3 are both on d66ed80). Not on a tag: :dev, built here.
+# safe.directory: under sudo, git refuses a checkout another user owns,
+# and the answer would silently have been :dev. SMOKING_PI_VERSION=dev
+# builds whatever the checkout is on.
+clone_release() {
+    [ -e "$SMOKING_PI_HOME/.git" ] && command -v git >/dev/null 2>&1 || return 0
+    local tags finals
+    tags="$(git -c safe.directory="$SMOKING_PI_HOME" -C "$SMOKING_PI_HOME" tag --points-at HEAD 2>/dev/null \
+        | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(-rc\.[0-9][0-9]*\)\{0,1\}\)$/\1/p')" || return 0
+    finals="$(printf '%s\n' "$tags" | grep -v -- '-rc\.' || true)"
+    printf '%s\n' "${finals:-$tags}" | grep . | sort -V | tail -n1 || true
+}
+VERSION_SOURCE=""
+if [ "${SMOKING_PI_PACKAGED:-}" != 1 ] && [ -z "${SMOKING_PI_VERSION:-}" ]; then
+    SMOKING_PI_VERSION="$(clone_release)"
+    if [ -n "$SMOKING_PI_VERSION" ]; then
+        export SMOKING_PI_VERSION; VERSION_SOURCE="the checkout is on v$SMOKING_PI_VERSION"
+    else
+        unset SMOKING_PI_VERSION
+    fi
+fi
+if [ "${SMOKING_PI_VERSION:-}" = dev ]; then unset SMOKING_PI_VERSION; fi
+# Where the state the stack rewrites lives (docs/packaging.md, "Relocatable
+# state"). From a clone the defaults are beside the compose file, untracked;
+# the .deb sets the packaged layout in /etc/default/smoking-pi. The env file
+# is passed to every compose call; the two directories are read by the
+# compose file itself, so they only need exporting.
+SMOKING_PI_ENV_FILE_SET="${SMOKING_PI_ENV_FILE:+1}"
+ENV_FILE="${SMOKING_PI_ENV_FILE:-$EDITION_DIR/.env}"
+export SMOKING_PI_ENV_FILE="$ENV_FILE"
+export SMOKING_PI_CONFIG_DIR="${SMOKING_PI_CONFIG_DIR:-}"
+export SMOKING_PI_OUTPUT_DIR="${SMOKING_PI_OUTPUT_DIR:-}"
+
+# The commands. Order matters only for top-level assignments, and there are
+# two (STACK_LOCKED in core, AVAHI_SERVICE_FILE in reach), neither read at
+# load time.
+for _module in core env usage reach install config links alerts openclaw lifecycle dns connect budget; do
+    # shellcheck source=/dev/null
+    . "$CLI_DIR/lib/$_module.sh"
+done
+unset _module
+
+# Every command but these reads the env file. One that cannot must say so,
+# not answer from an empty file (see env_locked).
+case "${1:-}" in
+    ""|version|link|doctor|discover|-h|--help|help) ;;
+    *)
+        if env_locked; then
+            echo "Cannot read $ENV_FILE: only root can, because it holds the passwords." >&2
+            echo "Run it with sudo: sudo smoking-pi $*" >&2
+            exit 1
+        fi ;;
+esac
+
+case "${1:-}" in
+    install) shift; cmd_install "$@" ;;
+    upgrade) shift; cmd_upgrade "$@" ;;
+    backup) shift; cmd_backup "$@" ;;
+    restore) shift; cmd_restore "$@" ;;
+    purge) shift; cmd_purge "$@" ;;
+    openclaw) shift; cmd_openclaw "$@" ;;
+    connect) shift; cmd_connect "$@" ;;
+    disconnect) shift; cmd_disconnect "$@" ;;
+    config) shift; cmd_config "$@" ;;
+    links) shift; cmd_links "$@" ;;
+    alerts) shift; cmd_alerts "$@" ;;
+    dns) shift; cmd_dns "$@" ;;
+    budget) shift; cmd_budget "$@" ;;
+    traffic) shift; cmd_traffic "$@" ;;
+    up) shift; compose up -d "$@"; remove_disabled; publish_avahi ;;
+    down) shift; compose down "$@"; unpublish_avahi ;;
+    discover) shift; cmd_discover "$@" ;;
+    restart) shift; compose restart "$@" ;;
+    status) shift; compose ps "$@" ;;
+    logs) shift; compose logs --tail=200 -f "$@" ;;
+    passwords) shift; need_edition; ( cd "$EDITION_DIR" && ./show-passwords.sh "$@" ) ;;
+    doctor) shift; run_doctor "$@" ;;
+    url) shift; need_edition; cmd_url "$@" ;;
+    paths)
+        echo "home:     $SMOKING_PI_HOME"; echo "edition:  $SMOKING_PI_EDITION ($EDITION_DIR)"
+        echo "env:      $ENV_FILE"; echo "profiles: $(profiles)"
+        echo "config:   ${SMOKING_PI_CONFIG_DIR:-$EDITION_DIR/config-manager/config}"
+        echo "output:   ${SMOKING_PI_OUTPUT_DIR:-$EDITION_DIR/config-manager/output}"
+        echo "mode:     $([ "${SMOKING_PI_PACKAGED:-0}" = 1 ] && echo packaged '(no source mounts)' || echo development '(source mounts from home)')"
+        echo "images:   ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/<service>:${SMOKING_PI_VERSION:-dev}$([ -n "${SMOKING_PI_VERSION:-}" ] || echo ' (dev: built from home, never pulled)')${VERSION_SOURCE:+ ($VERSION_SOURCE)}"
+        echo "data:     docker volumes ${SMOKING_PI_EDITION}_* (docker volume ls)" ;;
+    version) v="$(installed_version)"; echo "${v:-unknown}" ;;
+    link) shift; link_cli "$@" ;;
+    "") brief ;;
+    -h|--help|help) usage ;;
+    *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
+esac

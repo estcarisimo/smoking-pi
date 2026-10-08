@@ -9,6 +9,30 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **The `smoking-pi` command has its own directory, `cli/`.** It was one
+  2,835-line file, `packaging/smoking-pi`, next to the `.deb` builder and
+  the Homebrew checks, while the scripts it should have replaced were
+  spread over `shared/scripts/` and every edition directory. Nothing said
+  where a new command belonged, so every new step became another script
+  for a person to find. Now `cli/smoking-pi` sets up the paths and
+  dispatches, each area of commands is one file in `cli/lib/`
+  (`config.sh`, `alerts.sh`, `lifecycle.sh`…), and the tests are in
+  `cli/tests/`. The move changes no behavior: every one of the 86
+  functions is byte-for-byte what it was (checked by comparing
+  `declare -f` before and after). The package installs `cli/` as
+  `/usr/lib/smoking-pi` with `/usr/bin/smoking-pi` a link to it.
+  `packaging/smoking-pi` stays as a one-line forward, because a clone's
+  `/usr/local/bin` link still points there; `smoking-pi upgrade` (or
+  `link`) repoints it to `cli/`. The Homebrew formula takes whichever of
+  the two the release it installs has.
+- **`packaging/deb/build.sh` sets `umask 022`.** The package's files kept
+  the modes they were extracted with, so a package built under a
+  desktop's or a Pi's umask of 002 shipped every file in `/opt`
+  group-writable. Released packages were not affected because CI's runners
+  use 022.
+
 ## [2.27.0] — 2026-10-08
 
 Pro can say when a path stayed congested and when a target's loss rose and

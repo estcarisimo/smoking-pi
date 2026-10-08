@@ -123,12 +123,12 @@ It needs `git` and nothing else:
 ```bash
 git clone https://github.com/estcarisimo/smoking-pi.git
 cd smoking-pi
-./packaging/smoking-pi link   # if it says "open a new terminal", do that first
+./cli/smoking-pi link   # if it says "open a new terminal", do that first
 smoking-pi version
 ```
 
 `link` makes `smoking-pi` a command in every directory: a symlink to the
-checkout's `packaging/smoking-pi` in `/usr/local/bin` (through `sudo` when
+checkout's `cli/smoking-pi` in `/usr/local/bin` (through `sudo` when
 it asks no password), else in `~/.local/bin` (open a new terminal if it
 says that is not on your `PATH` yet). `setup.sh`, `smoking-pi install` and `upgrade`
 do the same, so a clone installed before `link` existed gets it at its

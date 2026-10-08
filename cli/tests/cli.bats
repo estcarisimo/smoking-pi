@@ -3,7 +3,7 @@
 # order, with which files -- never the real daemon. The stub records every
 # invocation in $DOCKER_LOG and answers the few queries the command makes
 # (`compose config --format json`, `--services`, `ps`). Run from the repo:
-#   bats packaging/tests/cli.bats
+#   bats cli/tests/cli.bats
 # CI runs it; the real-daemon proof is the deploy on the reference Pi.
 #
 # "This never happens" is written `if cmd; then false; fi`, never `! cmd`:
@@ -14,7 +14,7 @@
 
 setup() {
     REPO="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-    CLI="$REPO/packaging/smoking-pi"
+    CLI="$REPO/cli/smoking-pi"
     export DOCKER_LOG="$BATS_TEST_TMPDIR/docker.log"
     : > "$DOCKER_LOG"
     export STUB_HOME="$BATS_TEST_TMPDIR/home"
@@ -121,8 +121,11 @@ fail_docker_on() {
 }
 
 @test "installed outside a checkout, home defaults to /opt/smoking-pi; inside one, to the checkout" {
-    mkdir -p "$BATS_TEST_TMPDIR/usr/bin"
-    cp "$CLI" "$BATS_TEST_TMPDIR/usr/bin/smoking-pi"
+    # The package's layout (packaging/deb/build.sh): cli/ as
+    # /usr/lib/smoking-pi, /usr/bin/smoking-pi a relative link to its entry.
+    mkdir -p "$BATS_TEST_TMPDIR/usr/bin" "$BATS_TEST_TMPDIR/usr/lib/smoking-pi"
+    cp -r "$REPO/cli/smoking-pi" "$REPO/cli/lib" "$BATS_TEST_TMPDIR/usr/lib/smoking-pi/"
+    ln -s ../lib/smoking-pi/smoking-pi "$BATS_TEST_TMPDIR/usr/bin/smoking-pi"
     unset SMOKING_PI_HOME
     run "$BATS_TEST_TMPDIR/usr/bin/smoking-pi" paths
     [ "$status" -eq 0 ]
@@ -1642,8 +1645,10 @@ stub_git() {
 # A clone of the stub tree: the command copied into it and run from there,
 # so its home is the tree it sits in, as in a real checkout.
 stub_clone() {
-    mkdir -p "$STUB_HOME/.git" "$STUB_HOME/packaging"
-    cp "$CLI" "$STUB_HOME/packaging/smoking-pi"
+    mkdir -p "$STUB_HOME/.git" "$STUB_HOME/cli" "$STUB_HOME/packaging"
+    cp -r "$REPO/cli/smoking-pi" "$REPO/cli/lib" "$STUB_HOME/cli/"
+    # The forwarding file the old links point at.
+    cp "$REPO/packaging/smoking-pi" "$STUB_HOME/packaging/smoking-pi"
     unset SMOKING_PI_HOME
     # No sudo that could reach a real /usr/local/bin.
     printf '#!/bin/sh\nexit 1\n' > "$BATS_TEST_TMPDIR/bin/sudo"; chmod +x "$BATS_TEST_TMPDIR/bin/sudo"
@@ -1688,10 +1693,10 @@ stub_clone() {
 
 @test "link from a clone: the first writable directory gets a symlink to the checkout's command" {
     stub_clone
-    run "$STUB_HOME/packaging/smoking-pi" link
+    run "$STUB_HOME/cli/smoking-pi" link
     [ "$status" -eq 0 ]
     [[ "$output" == *"smoking-pi is now a command: $BATS_TEST_TMPDIR/sysbin/smoking-pi"* ]]
-    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/packaging/smoking-pi" ]
+    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/cli/smoking-pi" ]
     # Not on this shell's PATH: it says what to do.
     [[ "$output" == *"open a new terminal"* ]]
     # And the link works from anywhere, finding its home through it.
@@ -1704,19 +1709,19 @@ stub_clone() {
     stub_clone
     chmod 555 "$BATS_TEST_TMPDIR/sysbin"
     [ -w "$BATS_TEST_TMPDIR/sysbin" ] && skip "running as root: every directory is writable"
-    run "$STUB_HOME/packaging/smoking-pi" link
+    run "$STUB_HOME/cli/smoking-pi" link
     [ "$status" -eq 0 ]
     [ ! -e "$BATS_TEST_TMPDIR/sysbin/smoking-pi" ]
-    [ "$(readlink "$BATS_TEST_TMPDIR/userbin/smoking-pi")" = "$STUB_HOME/packaging/smoking-pi" ]
+    [ "$(readlink "$BATS_TEST_TMPDIR/userbin/smoking-pi")" = "$STUB_HOME/cli/smoking-pi" ]
 }
 
 @test "link when already on the PATH: nothing to do; --quiet says nothing" {
     stub_clone
-    ln -s "$STUB_HOME/packaging/smoking-pi" "$BATS_TEST_TMPDIR/sysbin/smoking-pi"
+    ln -s "$STUB_HOME/cli/smoking-pi" "$BATS_TEST_TMPDIR/sysbin/smoking-pi"
     export PATH="$BATS_TEST_TMPDIR/sysbin:$PATH"
-    run "$STUB_HOME/packaging/smoking-pi" link
+    run "$STUB_HOME/cli/smoking-pi" link
     [[ "$output" == *"already"* ]]
-    run "$STUB_HOME/packaging/smoking-pi" link --quiet
+    run "$STUB_HOME/cli/smoking-pi" link --quiet
     [ -z "$output" ]
 }
 
@@ -1725,7 +1730,7 @@ stub_clone() {
     mkdir -p "$BATS_TEST_TMPDIR/usr/bin"
     printf '#!/bin/sh\n' > "$BATS_TEST_TMPDIR/usr/bin/smoking-pi"; chmod +x "$BATS_TEST_TMPDIR/usr/bin/smoking-pi"
     export PATH="$BATS_TEST_TMPDIR/usr/bin:$PATH"
-    run "$STUB_HOME/packaging/smoking-pi" link
+    run "$STUB_HOME/cli/smoking-pi" link
     [ "$status" -eq 0 ]
     [[ "$output" == *"Not linking"* ]]
     [ ! -e "$BATS_TEST_TMPDIR/sysbin/smoking-pi" ]
@@ -1735,13 +1740,47 @@ stub_clone() {
     stub_clone
     ln -s /elsewhere/packaging/smoking-pi "$BATS_TEST_TMPDIR/sysbin/smoking-pi"
     export PATH="$BATS_TEST_TMPDIR/sysbin:$PATH"
-    run "$STUB_HOME/packaging/smoking-pi" link
+    run "$STUB_HOME/cli/smoking-pi" link
     [ "$status" -eq 0 ]
-    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/packaging/smoking-pi" ]
+    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/cli/smoking-pi" ]
+}
+
+@test "link repoints this checkout's link from before the move to cli/, and the old one still runs meanwhile" {
+    stub_clone
+    ln -s "$STUB_HOME/packaging/smoking-pi" "$BATS_TEST_TMPDIR/sysbin/smoking-pi"
+    export PATH="$BATS_TEST_TMPDIR/sysbin:$PATH"
+    # Through the old link: the forwarding file runs the command in cli/.
+    cd "$BATS_TEST_TMPDIR"
+    run smoking-pi paths
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"home:     $STUB_HOME"* ]]
+    run smoking-pi link
+    [ "$status" -eq 0 ]
+    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/cli/smoking-pi" ]
+}
+
+@test "link leaves the package's /usr/bin link alone (it points into /usr/lib, not a checkout)" {
+    stub_clone
+    mkdir -p "$BATS_TEST_TMPDIR/usr/bin" "$BATS_TEST_TMPDIR/usr/lib/smoking-pi"
+    cp -r "$REPO/cli/smoking-pi" "$REPO/cli/lib" "$BATS_TEST_TMPDIR/usr/lib/smoking-pi/"
+    ln -s ../lib/smoking-pi/smoking-pi "$BATS_TEST_TMPDIR/usr/bin/smoking-pi"
+    export PATH="$BATS_TEST_TMPDIR/usr/bin:$PATH"
+    run "$STUB_HOME/cli/smoking-pi" link
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Not linking"* ]]
+    [ ! -e "$BATS_TEST_TMPDIR/sysbin/smoking-pi" ]
+}
+
+@test "every module in cli/lib is loaded, and the entry loads nothing that is not there" {
+    local listed on_disk
+    listed="$(sed -n 's/^for _module in \(.*\); do$/\1/p' "$CLI" | tr ' ' '\n' | sort)"
+    on_disk="$(cd "$REPO/cli/lib" && ls -- *.sh | sed 's/\.sh$//' | sort)"
+    [ -n "$listed" ]
+    [ "$listed" = "$on_disk" ] || { echo "loaded: $listed"; echo "on disk: $on_disk"; return 1; }
 }
 
 @test "link outside a clone (the package's tree) does nothing" {
-    mkdir -p "$STUB_HOME/packaging" && cp "$CLI" "$STUB_HOME/packaging/smoking-pi"
+    mkdir -p "$STUB_HOME/cli" && cp -r "$REPO/cli/smoking-pi" "$REPO/cli/lib" "$STUB_HOME/cli/"
     export SMOKING_PI_BIN_DIRS="$BATS_TEST_TMPDIR/sysbin"; mkdir -p "$BATS_TEST_TMPDIR/sysbin"
     run "$CLI" link
     [ "$status" -eq 0 ]
@@ -1751,22 +1790,22 @@ stub_clone() {
 
 @test "no command from a clone that is not on the PATH: the tip names link" {
     stub_clone
-    run "$STUB_HOME/packaging/smoking-pi"
-    [[ "$output" == *"packaging/smoking-pi link"* ]]
+    run "$STUB_HOME/cli/smoking-pi"
+    [[ "$output" == *"cli/smoking-pi link"* ]]
 }
 
 @test "install from a clone links the command, so the names it prints work in every directory" {
     stub_clone
     rm "$SMOKING_PI_ENV_FILE"
-    run "$STUB_HOME/packaging/smoking-pi" install --edition pro --database influxdb --yes
+    run "$STUB_HOME/cli/smoking-pi" install --edition pro --database influxdb --yes
     [ "$status" -eq 0 ]
-    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/packaging/smoking-pi" ]
+    [ "$(readlink "$BATS_TEST_TMPDIR/sysbin/smoking-pi")" = "$STUB_HOME/cli/smoking-pi" ]
     [[ "$output" == *"smoking-pi is now a command"* ]]
 }
 
 @test "every edition's setup.sh links the command (the path the README gives a clone)" {
     for ed in basic standard pro; do
-        grep -q 'packaging/smoking-pi" link --quiet' "$REPO/editions/$ed/setup.sh" \
+        grep -q 'cli/smoking-pi" link --quiet' "$REPO/editions/$ed/setup.sh" \
             || { echo "editions/$ed/setup.sh does not run smoking-pi link"; return 1; }
     done
 }

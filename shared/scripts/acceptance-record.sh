@@ -135,7 +135,7 @@ hours=$(awk -v s=$((now - oldest_start)) 'BEGIN{printf "%.1f", s/3600}')
 # ── the doctor ──────────────────────────────────────────────────────────
 doctor="<not run (--no-doctor)>"
 if [ "$RUN_DOCTOR" = 1 ]; then
-    cli="$REPO/packaging/smoking-pi"
+    cli="$REPO/cli/smoking-pi"
     command -v smoking-pi >/dev/null 2>&1 && [ ! -x "$cli" ] && cli=smoking-pi
     # The summary is the last "N ok, N warn, N fail" line; the exit status
     # is not ours to fail on, the record reports it.

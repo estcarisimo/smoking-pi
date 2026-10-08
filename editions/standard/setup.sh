@@ -59,7 +59,7 @@ echo -e "     Password: smoking-pi passwords --show-secrets"
 echo ""
 # The command, on the PATH from any directory (a clone only; the package
 # and Homebrew install their own). Never fails the setup.
-SMOKING_PI_HOME="$ROOT_DIR" SMOKING_PI_EDITION=standard "$ROOT_DIR/packaging/smoking-pi" link --quiet || true
+SMOKING_PI_HOME="$ROOT_DIR" SMOKING_PI_EDITION=standard "$ROOT_DIR/cli/smoking-pi" link --quiet || true
 echo ""
 echo -e "${CYAN}💡 Tips:${NC}"
 echo -e "  - What is here, from any directory: smoking-pi"
