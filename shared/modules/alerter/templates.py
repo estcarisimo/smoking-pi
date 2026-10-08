@@ -134,10 +134,13 @@ def assemble(sections: list[Section], limit: int) -> str:
 
 
 # Recoveries: rules where the target or the link answered nothing say "was
-# down"; the rest ("high_loss", ...) say "lasted". A windowed rule keeps
-# firing while its event is inside the window, so it gets no duration.
+# down"; they need every cycle in their window lost, so they clear on the
+# first good one and their end is exact. A windowed rule keeps firing while
+# its event is inside the window (microcut_burst: any cut in 60 min;
+# high_loss: a 15 min mean), so a 5 min burst would read as 15 min or an
+# hour: it gets no duration. A rule in neither set says "lasted".
 DOWN_RULES = frozenset({"target_down", "uplink_down", "ipv6_down", "exporter_stale"})
-WINDOWED_RULES = frozenset({"microcut_burst"})
+WINDOWED_RULES = frozenset({"microcut_burst", "high_loss"})
 
 
 def _duration(seconds: float | None) -> str | None:
@@ -239,9 +242,9 @@ def alert_sections(event: dict) -> list[Section]:
         detail = esc(event.get("message", ""))
         rule = event.get("rule")
         if rule in WINDOWED_RULES:
-            # The rule kept firing while a cut was inside its window, so the
-            # alert's open time is the window, not an outage. The message
-            # already says what the cuts were.
+            # The rule kept firing while the event was inside its window, so
+            # the alert's open time is the window, not the problem. The
+            # message already says what was measured.
             duration = None
         verb = "was down" if rule in DOWN_RULES or not rule else "lasted"
         sections.append(

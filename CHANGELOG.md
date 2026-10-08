@@ -15,14 +15,18 @@ version gets a matching GitHub release and git tag.
   was open.** The duration ran from the first alert to the end of the
   resolve grace period (`ALERT_RESOLVE_AFTER`, 15 min by default). For
   `microcut_burst` it also included the rule's 60-minute window, which
-  keeps the rule firing after the last cut. So a 2 min 40 s cut recovered
-  as "was down 1h 20m" (seen in the v2.13.0-rc.3 acceptance), and a
+  keeps the rule firing after the last cut. So a short cut recovered as
+  "down 1h20m" (reported from the v2.13.0-rc.3 acceptance), and a
   25-minute outage as 40 min. Read at face value, that sends someone to
   the ISP about an hour-long outage that never happened.
-  - The duration now ends at the cycle the rule stopped firing.
-  - A `microcut_burst` recovery gives no duration; its message has the
-    cuts' own.
-  - `high_loss` says "lasted" instead of "was down".
+  - The duration now ends at the first cycle the rule no longer fired,
+    and only the rules where nothing answered (`target_down`,
+    `uplink_down`, `ipv6_down`, `exporter_stale`) give one. It can
+    undercount by the window a rule needs before it fires; it no longer
+    overcounts.
+  - `microcut_burst` and `high_loss` recoveries give no duration: both keep
+    firing while the event is inside their window (60 minutes; a 15-minute
+    mean). Their message says what was measured.
   - Incidents recorded by the previous version still get a duration (the
     old one) on their recovery.
 
