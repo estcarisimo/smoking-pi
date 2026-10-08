@@ -14,6 +14,7 @@ run on the Pi.
 from __future__ import annotations
 
 import pathlib
+import re
 
 from . import sources
 from .report import CheckResult, Finding, Status, result, skipped
@@ -44,6 +45,7 @@ class Repo:
         self.alerting_doc = root / "docs/alerting.md"
         self.mcp_server = root / "shared/modules/mcp-server/server.py"
         self.mcp_doc = root / "docs/mcp-server.md"
+        self.env_templates = sorted(root.glob("editions/*/.env.template"))
 
     def exists(self) -> bool:
         return self.provisioning.is_dir()
@@ -81,6 +83,7 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_alerter_env_defaults_match(repo),
         check_alerter_env_declared(repo),
         check_mcp_tools_documented(repo),
+        check_settings_schema(repo),
     ]
 
 
@@ -598,4 +601,92 @@ def check_mcp_tools_documented(repo: Repo) -> CheckResult:
         "mcp-tools-documented",
         findings,
         f"{len(tools)} MCP tools, all in the tool table",
+    )
+
+
+# The types `smoking-pi config set` knows how to check (validate_setting in
+# cli/lib/config.sh), and the flags it reads.
+SETTING_TYPES = {"int", "float", "bool", "time", "date", "tz", "url"}
+SETTING_FLAGS = {"secret", "install"}
+# The name patterns the command also applies, as a net (is_secret_key,
+# is_install_key): a key they catch must say so in the template too.
+_SECRET_NAME = re.compile(r"TOKEN|PASSWORD|SECRET|_KEY$|^ALERT_WEBHOOK_URL$")
+_INSTALL_NAME = re.compile(
+    r"^(POSTGRES_|INFLUX_|DOCKER_INFLUXDB_|CLICKHOUSE_|GF_SECURITY_)"
+    r"|^(WEB_ADMIN_PASSWORD|SECRET_KEY|CONFIG_API_TOKEN|MCP_API_TOKEN|TSDB_TYPE)$"
+)
+_NUMBER = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
+
+
+def _meta_problems(meta: tuple[str, ...]) -> list[str]:
+    problems: list[str] = []
+    types = [w for w in meta if w in SETTING_TYPES or w.startswith("enum:")]
+    for word in meta:
+        if word in SETTING_TYPES or word in SETTING_FLAGS:
+            continue
+        if word.startswith("enum:") and all(word[5:].split("|")):
+            continue
+        if word.startswith(("min=", "max=")) and _NUMBER.match(word[4:]):
+            if not set(types) & {"int", "float"}:
+                problems.append(f"{word} needs int or float")
+            continue
+        problems.append(f"unknown word {word!r}")
+    if len(types) > 1:
+        problems.append(f"more than one type ({' '.join(types)})")
+    return problems
+
+
+def _value_fits(meta: tuple[str, ...], value: str) -> bool:
+    """Whether a template's own value passes its declared type."""
+    if not value:
+        return True
+    for word in meta:
+        if word == "int":
+            return re.match(r"^-?[0-9]+$", value) is not None
+        if word == "float":
+            return _NUMBER.match(value) is not None
+        if word == "bool":
+            return value in ("true", "false", "1", "0")
+        if word.startswith("enum:"):
+            return value in word[5:].split("|")
+        if word == "time":
+            return re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", value) is not None
+    return True
+
+
+def check_settings_schema(repo: Repo) -> CheckResult:
+    """Every .env.template key sits in a section, and its `#:` line is valid.
+
+    The template is the settings' schema for `smoking-pi config` (list by
+    section, describe, and the type check `config set` runs before writing).
+    A key outside every section lists under "Other"; a misspelled type
+    silently turns validation off; a credential without `secret` relies on
+    the command's name patterns alone. Each of those is a finding here.
+    """
+    if not repo.env_templates:
+        return skipped("settings-schema", "no editions/*/.env.template found")
+    findings: list[Finding] = []
+    total = 0
+    for template in repo.env_templates:
+        rel = template.relative_to(repo.root)
+        settings, orphans = sources.env_template_settings(template)
+        total += len(settings)
+        for number, text in orphans:
+            findings.append(Finding(f"'#: {text}' is not directly above a key", where=f"{rel}:{number}"))
+        for s in settings:
+            where = f"{rel}:{s.line}"
+            if not s.section:
+                findings.append(Finding(f"{s.key} is in no section (add a '## Name' line above it)", where=where))
+            for problem in _meta_problems(s.meta):
+                findings.append(Finding(f"{s.key}: {problem}", where=where))
+            if _SECRET_NAME.search(s.key) and "secret" not in s.meta:
+                findings.append(Finding(f"{s.key} looks like a credential but its '#:' line lacks 'secret'", where=where))
+            if _INSTALL_NAME.search(s.key) and not s.key.endswith("_PORT") and "install" not in s.meta:
+                findings.append(Finding(f"{s.key} is fixed at install but its '#:' line lacks 'install'", where=where))
+            if not _value_fits(s.meta, s.value):
+                findings.append(Finding(f"{s.key}={s.value} does not pass its own type", where=where))
+    return result(
+        "settings-schema",
+        findings,
+        f"{total} settings in {len(repo.env_templates)} templates, all in a section and well-typed",
     )

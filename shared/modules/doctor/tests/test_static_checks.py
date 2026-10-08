@@ -105,7 +105,7 @@ ALERTER_COMPOSE = {
     }
 }
 
-ALERTER_ENV_TEMPLATE = "DOWN_WINDOW=\nSTALE_WINDOW=\n"
+ALERTER_ENV_TEMPLATE = "## Alerts\n#: int min=300\nDOWN_WINDOW=\nSTALE_WINDOW=\n"
 
 ALERTING_DOC = """
 ## Environment reference
@@ -1003,3 +1003,47 @@ def test_exporter_vocabulary_reads_every_writer(tmp_path):
     vocab = exporter_vocabulary(a, b, tmp_path / "missing")
     assert vocab.measurements == {"first", "second"}
     assert "service" in vocab.tag_names
+
+
+# --- settings-schema ---------------------------------------------------------
+
+
+def _template(repo, text):
+    repo.env_template.write_text(text)
+    return run(repo)["settings-schema"]
+
+
+def test_settings_schema_passes_a_sectioned_typed_template(repo):
+    r = _template(repo, "## General\n#: tz\nTZ=UTC\n## Secrets\n#: secret install\nPOSTGRES_PASSWORD=\n")
+    assert r.status is Status.OK, r.summary
+
+
+def test_settings_schema_catches_a_key_in_no_section(repo):
+    r = _template(repo, "TZ=UTC\n")
+    assert r.status is Status.FAIL
+    assert "TZ is in no section" in r.findings[0].message
+
+
+def test_settings_schema_catches_a_misspelled_type_and_a_bound_without_a_number_type(repo):
+    r = _template(repo, "## A\n#: integer\nX=1\n#: bool min=1\nY=true\n")
+    messages = " ".join(f.message for f in r.findings)
+    assert "unknown word 'integer'" in messages
+    assert "min=1 needs int or float" in messages
+
+
+def test_settings_schema_catches_an_orphan_meta_line(repo):
+    r = _template(repo, "## A\n#: int\n\nX=1\n")
+    assert any("not directly above a key" in f.message for f in r.findings)
+
+
+def test_settings_schema_wants_credentials_flagged(repo):
+    r = _template(repo, "## A\nIPINFO_TOKEN=\nPOSTGRES_USER=smokeping\nCLICKHOUSE_HTTP_PORT=8123\n")
+    messages = " ".join(f.message for f in r.findings)
+    assert "IPINFO_TOKEN looks like a credential" in messages
+    assert "POSTGRES_USER is fixed at install" in messages
+    assert "CLICKHOUSE_HTTP_PORT" not in messages
+
+
+def test_settings_schema_checks_the_template_value_against_its_type(repo):
+    r = _template(repo, "## A\n#: bool\nDIGEST_ENABLED=yes\n#: enum:off|on\nNETMETER=off\n")
+    assert [f.message for f in r.findings] == ["DIGEST_ENABLED=yes does not pass its own type"]

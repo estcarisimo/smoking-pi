@@ -1019,6 +1019,65 @@ config_setup() {
     [[ "$output" != *"pg-secret"* ]]
 }
 
+@test "config list groups keys by the template's sections, and a word narrows it" {
+    config_setup
+    run "$CLI" config list
+    [ "$status" -eq 0 ]
+    [[ "$output" == *$'Alerts: daily digest\n  DIGEST_ENABLED'* ]]
+    run "$CLI" config list digest
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"DIGEST_AT"* ]]
+    [[ "$output" != *"POSTGRES_PASSWORD"* ]]
+    run "$CLI" config list nosuchsection
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Alerts: delivery"* ]]
+}
+
+@test "config describe: section, description, type and bounds, default, what reads it; a secret stays hidden" {
+    config_setup
+    run "$CLI" config describe CPE_PROBE_RATE
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CPE_PROBE_RATE  (CPE and microcuts)"* ]]
+    [[ "$output" == *"int, at least 1, at most 1000"* ]]
+    [[ "$output" == *"Default:   5"* ]]
+    [[ "$output" == *"Read by:   smokeping"* ]]
+    run "$CLI" config describe POSTGRES_PASSWORD
+    [[ "$output" == *"(set, hidden"* ]]
+    [[ "$output" != *"pg-secret"* ]]
+    [[ "$output" == *"Fixed at install"* ]]
+    run "$CLI" config describe NOT_A_KEY
+    [ "$status" -eq 2 ]
+}
+
+@test "config set refuses a value of the wrong type before writing anything" {
+    config_setup
+    cp "$SMOKING_PI_ENV_FILE" "$BATS_TEST_TMPDIR/env.before"
+    local bad
+    for bad in "CPE_PROBE_RATE 0" "CPE_PROBE_RATE fast" "DIGEST_AT 25:00" "NOTIFY_MODE email" \
+               "ALERT_CHARTS maybe" "DNS_WIZARD_COVERAGE 1.5" "OPENCLAW_URL localhost:18789" \
+               "INFERENCE_SINCE 2026-13-01" "SMOKEPING_PORT 70000"; do
+        # shellcheck disable=SC2086  # KEY VALUE
+        run "$CLI" config set $bad
+        [ "$status" -eq 2 ] || { echo "accepted: $bad"; return 1; }
+    done
+    cmp "$SMOKING_PI_ENV_FILE" "$BATS_TEST_TMPDIR/env.before"
+    if compose_calls | grep -q ' up '; then false; fi
+}
+
+@test "config set takes a value its type allows, and anything for an untyped key" {
+    config_setup
+    run "$CLI" config set DIGEST_AT 7:05 --no-apply
+    [ "$status" -eq 0 ]
+    run "$CLI" config set DNS_EXPORT_NAMES 1 --no-apply
+    [ "$status" -eq 0 ]
+    run "$CLI" config set WIFI_WEAK_DBM -70.5 --no-apply
+    [ "$status" -eq 0 ]
+    run "$CLI" config set WIFI_INTERFACE 'wlan0 or whatever' --no-apply
+    [ "$status" -eq 0 ]
+    grep -qx 'DIGEST_AT=7:05' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WIFI_WEAK_DBM=-70.5' "$SMOKING_PI_ENV_FILE"
+}
+
 @test "config set writes the key and recreates only the enabled services that read it" {
     config_setup
     run "$CLI" config set WIFI_INTERFACE wlan0

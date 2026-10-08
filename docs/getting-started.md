@@ -199,21 +199,36 @@ the containers start, with the command that owns that service:
 Skip a question, or install with `--yes` (which asks nothing), and the end
 of the install lists the same commands under *Still to do*. The DNS
 observer asks nothing either way: it starts, and the router setting is
-listed. You can turn any service on
-afterwards:
+listed. You can turn any service on or off afterwards:
 
 ```bash
-sudo smoking-pi config set COMPOSE_PROFILES influxdb,mcp,alerts
+smoking-pi enable                      # which are on
+sudo smoking-pi enable mcp alerts      # records them, starts them
+sudo smoking-pi disable alerts
 ```
 
-The same command changes any setting in the env file by name, and it
-recreates just the services that read it. `sudo smoking-pi config list`
-shows them all, with secrets hidden. A secret such as `ANTHROPIC_API_KEY`
-is typed at a prompt, never on the command line:
+Every other setting is changed by name with `config`, which checks the
+value before writing it and recreates just the services that read it:
+
+```bash
+sudo smoking-pi config list            # every setting, by section; secrets hidden
+sudo smoking-pi config list alerts     # one section
+sudo smoking-pi config describe DIGEST_AT
+sudo smoking-pi config set DIGEST_AT 07:30
+```
+
+`describe` says what a setting does, what it takes (a number in a range,
+true or false, one of a list, a time), its default and which services read
+it; `set` refuses a value of the wrong kind rather than leave a container
+failing on it. A secret such as `ANTHROPIC_API_KEY` is typed at a prompt,
+never on the command line:
 
 ```bash
 sudo smoking-pi config set ANTHROPIC_API_KEY
 ```
+
+Settings generated at install (database passwords, tokens, the backend)
+are refused: the data volumes hold them.
 
 Expected, at the end: what to open, as the last thing on the screen.
 
