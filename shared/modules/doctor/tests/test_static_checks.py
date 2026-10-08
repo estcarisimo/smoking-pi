@@ -529,6 +529,15 @@ def test_catches_every_clickhouse_comparison_form(repo, predicate):
     assert check.status is Status.FAIL, predicate
 
 
+def test_quoted_grafana_variables_are_not_literals(repo):
+    _write_clickhouse_dashboard(
+        repo,
+        "SELECT DISTINCT target FROM smokeping.latency "
+        "WHERE category = '${cat}' AND measurement_type IN ('$mt', 'latency')",
+    )
+    assert run(repo)["panel-tags-written"].status is Status.OK
+
+
 def test_clickhouse_panel_queries_are_checked_too(repo):
     data = _clickhouse_dashboard("ch-dns-v1", GOOD_SQL)
     data["panels"][0]["targets"][0]["rawSql"] = data["panels"][0]["targets"][0][

@@ -505,7 +505,11 @@ _SQL_IN_RE = re.compile(
 
 
 def sql_values_in(query: str, columns) -> set[tuple[str, str]]:
-    """``(column, literal)`` pairs a ClickHouse query compares ``columns`` to."""
+    """``(column, literal)`` pairs a ClickHouse query compares ``columns`` to.
+
+    A quoted Grafana variable (``category = '${cat}'``) is not a literal and
+    is left out: its value is only known when the dashboard renders.
+    """
     if not _SQL_TABLE_RE.search(query):
         return set()
     pairs = {
@@ -516,7 +520,7 @@ def sql_values_in(query: str, columns) -> set[tuple[str, str]]:
     for column, items in _SQL_IN_RE.findall(query):
         if column in columns:
             pairs |= {(column, value) for value in re.findall(r"'([^']*)'", items)}
-    return pairs
+    return {(column, value) for column, value in pairs if "$" not in value}
 
 
 _PIVOT_RE = re.compile(r'pivot\([^)]*columnKey:\s*\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]')

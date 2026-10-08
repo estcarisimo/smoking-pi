@@ -398,10 +398,12 @@ def check_panel_tags_are_written(repo: Repo, influx, clickhouse=()) -> CheckResu
                             where=f"{dashboard.rel} / {where}",
                         )
                     )
-    summary = f"{checked} tag references match {', '.join(vocab.sources)}"
+    parts = []
+    if vocab.tag_names:
+        parts.append(f"{checked} tag references match {', '.join(vocab.sources)}")
     if ch_vocab:
-        summary += f"; {ch_checked} ClickHouse column values match the exporter"
-    return result("panel-tags-written", findings, summary)
+        parts.append(f"{ch_checked} ClickHouse column values match the exporter")
+    return result("panel-tags-written", findings, "; ".join(parts))
 
 
 def check_text_stats_name_their_field(influx) -> CheckResult:
