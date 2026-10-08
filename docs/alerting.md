@@ -58,6 +58,18 @@ State lives in a JSON file (`ALERT_STATE_FILE`, default
   A *transient* incident (`outage`) is dropped silently instead: it
   describes a cut that had already ended when it was reported, and
   "recovered — was down 20 min" would be false twice over.
+- **"Was down N min"** runs from the first alert to the first cycle the
+  rule no longer fired. The `ALERT_RESOLVE_AFTER` wait before the notice is
+  not counted. It is said only by the rules where nothing answered
+  (`target_down`, `uplink_down`, `ipv6_down`, `exporter_stale`): they need
+  every cycle in their window lost, so they clear on the first good one.
+  They also fire only after their window has filled, so the figure can
+  undercount by that window (20 minutes for `target_down`); it never
+  overcounts.
+- `microcut_burst` and `high_loss` recoveries give no duration. They keep
+  firing while the event is inside their window (any cut in 60 minutes; a
+  15-minute mean), so the alert's open time would make a 2-minute cut read
+  as an hour. Their message already says what was measured.
 
 Per incident the state tracks `first_seen`, `last_seen`, `last_notified`,
 and `notified_count`.
