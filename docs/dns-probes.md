@@ -18,12 +18,14 @@ The install seeds three resolvers, in the `dns_resolvers` category:
 | `CloudflareDNS` | 1.1.1.1 | `cloudflare.com` |
 | `Quad9DNS` | 9.9.9.9 | `quad9.net` |
 
-The probe (`DNS` in `probes.yaml`) runs `/usr/bin/dig` and sends **5
-queries per target every 300 seconds**: each query is one sample, and a
-query that gets no answer counts as lost. The name looked up is the
-target's `lookup`; it stays the same from cycle to cycle, so after the
-first query the resolver usually answers from its cache: the time is
-mostly the path to the resolver, not a full recursive resolution.
+The probe (`DNS` in `probes.yaml`, SmokePing's
+[DNS probe](https://oss.oetiker.ch/smokeping/probe/DNS.en.html)) runs
+`/usr/bin/dig` and sends **5 queries per target every 300 seconds**: each
+query is one sample, and a query that gets no answer counts as lost. The
+name looked up is the target's `lookup`; it stays the same from cycle to
+cycle, so after the first query the resolver usually answers from its
+cache: the time is mostly the path to the resolver, not a full recursive
+resolution.
 
 On a Pi the probe's timer is the kernel tick (4 ms on a 250 Hz kernel), so
 resolution times sit on a few fixed steps; a change smaller than one tick

@@ -56,8 +56,9 @@ version gets a matching GitHub release and git tag.
   0–1 ratio, queried a `latency` bucket that does not exist (it is
   `smokeping`), named the stack ("SmokePing Full Stack") and the
   dashboards by their first-generation names, and troubleshot with
-  `docker compose exec` from a directory. A reader following it would have written a loss threshold 100 times too high and
-  queries that return nothing. The new page keeps what is still true —
+  `docker compose exec` from a directory. A reader following it would
+  have written a loss threshold 100 times too high and queries that
+  return nothing. The new page keeps what is still true —
   the three seeded resolvers, the `dig` probe (5 queries every 300 s), the
   `DNS_Resolvers` RRD section, the InfluxDB and ClickHouse schemas with
   their units, the two dashboards — says how it differs from the DNS
