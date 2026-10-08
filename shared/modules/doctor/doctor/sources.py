@@ -16,6 +16,7 @@ import json
 import pathlib
 import re
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 import yaml
 
@@ -772,6 +773,58 @@ def env_template_keys(path: pathlib.Path) -> set[str]:
             continue
         keys.add(line.split("=", 1)[0].strip())
     return keys
+
+
+class Setting(NamedTuple):
+    """One key of a .env.template, with the structure the template gives it."""
+
+    key: str
+    section: str | None
+    meta: tuple[str, ...]
+    value: str
+    line: int
+    meta_line: int | None
+
+
+def env_template_settings(path: pathlib.Path) -> tuple[list[Setting], list[tuple[int, str]]]:
+    """The keys of a .env.template with their section and `#:` metadata.
+
+    The same reading as the command's settings_table (cli/lib/config.sh):
+    `## Name` starts a section, a `#: ...` line describes the key on the
+    very next line. Returns the settings and the `#:` lines that describe
+    nothing (line number, text) — a blank or comment line came between.
+    """
+    settings: list[Setting] = []
+    orphans: list[tuple[int, str]] = []
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return settings, orphans
+    section: str | None = None
+    pending: tuple[int, str] | None = None
+    seen: set[str] = set()
+    for number, line in enumerate(lines, start=1):
+        if line.startswith("## "):
+            section = line[3:].strip()
+        elif line.startswith("#: "):
+            if pending:
+                orphans.append(pending)
+            pending = (number, line[3:].strip())
+            continue
+        match = re.match(r"^([A-Z][A-Z0-9_]*)=(.*)$", line)
+        if match and match.group(1) not in seen:
+            seen.add(match.group(1))
+            meta = tuple(pending[1].split()) if pending else ()
+            settings.append(Setting(match.group(1), section, meta, match.group(2), number,
+                                    pending[0] if pending else None))
+            pending = None
+            continue
+        if pending:
+            orphans.append(pending)
+            pending = None
+    if pending:
+        orphans.append(pending)
+    return settings, orphans
 
 
 _DOC_ENV_ROW_RE = re.compile(r"^\|\s*`([A-Z][A-Z0-9_]*)`\s*\|")

@@ -146,7 +146,12 @@ only) and relocatable via `SMOKING_PI_CONFIG_DIR`/`_OUTPUT_DIR`/`_ENV_FILE`
 (docs/packaging.md). The seed YAML is `config-manager/templates/`, the one
 copy. Add files by name, never `git add -A`. `.env` is gitignored;
 `.env.template` values ship empty. A new setting goes in `.env.template`
-*and* the compose file, or the doctor fails.
+*and* the compose file, or the doctor fails. The template is also the
+settings' schema for `smoking-pi config`: the key goes under a `## Section`,
+and gets a `#:` line when its consumer parses it (`int min=1`, `bool`,
+`enum:a|b`, `time`, `tz`, `url`…; `secret`, `install`) — typed from the
+code that reads it, not from the comment. The doctor's `settings-schema`
+check enforces the shape.
 
 **Stateful majors are not routine bumps.** `postgres` and `influxdb` major
 versions are excluded from Dependabot on purpose; a PG major over a live

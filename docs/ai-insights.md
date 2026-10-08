@@ -24,16 +24,14 @@ logs a notice and exits cleanly, and the web-admin AI pages render a
    sudo smoking-pi config set ANTHROPIC_API_KEY
    ```
 
-3. Turn on the `ai` profile: add `ai` to the profiles already enabled.
+3. Turn on the `ai` service, keeping the others as they are:
 
    ```bash
-   sudo smoking-pi config get COMPOSE_PROFILES
-   sudo smoking-pi config set COMPOSE_PROFILES influxdb,mcp,alerts,ai
+   sudo smoking-pi enable ai
    ```
 
-   `config set` replaces the whole list, so use what the first command
-   printed, plus `ai`. A new install can choose it directly: `sudo
-   smoking-pi install --profiles ai`.
+   A new install can choose it directly: `sudo smoking-pi install
+   --profiles ai`.
 
 Optional settings, each with `sudo smoking-pi config set KEY VALUE`:
 

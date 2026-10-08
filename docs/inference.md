@@ -72,14 +72,13 @@ destination only, it is that destination.
 
 ## Turning it on
 
-Pro edition, InfluxDB backend. Add `inference` to the profiles:
+Pro edition, InfluxDB backend:
 
 ```bash
-sudo smoking-pi config set COMPOSE_PROFILES influxdb,inference
-sudo smoking-pi up
+sudo smoking-pi enable inference
 ```
 
-(keep the profiles you already have in the list). The first pass starts two
+(the other services stay as they are). The first pass starts two
 minutes after the container. Then open **Target Detail** for a target: the
 two annotations, *Persistent congestion (Jitterbug, experimental)* and
 *Loss degradation (experimental)*, shade the periods found, and hovering a

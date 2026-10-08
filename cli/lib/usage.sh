@@ -60,11 +60,17 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      The address to open in a browser -- over SSH, the one your
                      computer reaches -- the username, and whether it answers
                      (--wait: keep trying that long first). Exits 1 if not.
-  config list | get KEY [--show-secrets] | set KEY [VALUE] [--no-apply] | unset KEY
+  config list [SECTION] | describe KEY | get KEY [--show-secrets]
+         | set KEY [VALUE] [--no-apply] | unset KEY
                      Settings in the env file, by name: only keys the edition's
-                     .env.template declares. 'set' recreates just the services
+                     .env.template declares. 'list' groups them by section (a
+                     word narrows it: 'config list alerts'); 'describe' says
+                     what one does, its type and default, and what reads it.
+                     'set' refuses a value of the wrong type (a number, true or
+                     false, one of a list, HH:MM, a time zone, a URL) before
+                     anything reads it. 'set' recreates just the services
                      whose compose entry reads the key (--no-apply: only write).
-                     A secret (TOKEN, PASSWORD, SECRET, *_KEY) is never taken
+                     A secret (flagged in the template) is never taken
                      from the command line: it is asked for, or read from stdin.
                      Credentials install generated are refused: the data
                      volumes hold them.

@@ -11,6 +11,47 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Settings have structure: sections, types, and a check before writing.**
+  The env file is 148 flat keys (146 in Pro). `config set` took any string
+  for any of them, and much of the code reading them is strict:
+  - `CPE_PROBE_RATE=0` divides by zero, and `CPE_PROBE_RATE=fast` stops
+    microcut detection with an `int()` at import, restarting every minute;
+  - a `DNS_*` value out of range stops the DNS observer (for example, a
+    `DNS_WIZARD_COVERAGE` of 0, or a `DNS_WIZARD_INTERVAL` between 1 and 59);
+  - `ALERT_INTERVAL` and `REPORT_INTERVAL` crash their containers;
+  - a mistyped `NOTIFY_MODE` silently makes alerts log-only.
+
+  Every one of those was found only after the write, in a log. Now
+  `.env.template` is also the schema. `## Section` lines group the keys,
+  and a `#:` line above a key gives its type, typed from the code that
+  parses it: `int` or `float` with bounds (`min=`, `gt=` for "above",
+  `max=`, `allow=` for an exception such as "0 or at least 60"), `bool`,
+  `enum:a|b`, `time`, `date`, `tz`, `url`, or `origin` (https, a host, no
+  path). The same line carries the flags `secret` and
+  `install`.
+  - `config set` refuses a value of the wrong kind before anything reads it.
+  - `config list` groups the keys by section, and a word narrows it
+    (`config list alerts`).
+  - The new `config describe KEY` prints a key's description, type and
+    bounds, default, current value (a secret stays hidden) and the
+    services that read it.
+
+  Keys whose consumer takes free text stay untyped and accept anything,
+  as before. The bool type accepts `true`/`false`/`1`/`0`: every consumer
+  of a key typed bool reads all four correctly (some also read `yes`/`on`,
+  but not all of them do). Choices and booleans are matched in any case
+  and written lowercase. `PUBLIC_IP_GEO`
+  turns off only for exactly `0`, so it is typed `enum:0|1` rather than a
+  bool that would accept `false` and leave it on. A new doctor check,
+  `settings-schema`, fails on four things:
+  - a key in no section;
+  - a misspelled type;
+  - a `#:` line that describes nothing;
+  - a credential-looking or install-fixed key without its flag.
+
+  It checks the template's own values against their types too. Nothing
+  changes in an existing env file: no migration.
+
 - **`smoking-pi enable` / `disable NAME`: the optional services, by name.**
   Turning on the MCP server, alerts, AI reports or the inference detectors
   meant editing `COMPOSE_PROFILES` in the env file (a `sed` line in the
