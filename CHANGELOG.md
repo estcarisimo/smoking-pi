@@ -26,6 +26,7 @@ checked before it is written instead of after it crashes a container.
 - ClickHouse mode: four dashboards (DNS Resolution Times and the three
   side-by-side ones) were blank since v2.5.0; the doctor now reads their SQL.
 - No new images, volumes or migrations. Existing env files are unchanged.
+
 ### Added
 
 - **Settings have structure: sections, types, and a check before writing.**
