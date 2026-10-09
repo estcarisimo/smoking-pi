@@ -18,9 +18,9 @@ version gets a matching GitHub release and git tag.
   reference Pi, `doctor --live` still warned about both and advised running
   `dns adopt` to deactivate them, for about eight more hours. A warning
   that names the fix just applied teaches the reader to ignore it. The
-  check now reads the Targets file the SmokePing container loads and drops
-  any series whose target is no longer in it; if that file cannot be read,
-  it reports every silent series as before.
+  check now reads the Targets file the SmokePing container loads, with the
+  CPE_Targets it includes, and drops any series whose target is in neither;
+  if Targets cannot be read, it reports every silent series as before.
 
 ## [2.29.0] — 2026-10-09
 

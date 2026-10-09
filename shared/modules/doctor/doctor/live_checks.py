@@ -523,7 +523,12 @@ SILENT_SHOWN = 12
 # is), on Basic the edition's own. Read inside the container, so a relocated
 # output directory needs no guessing here.
 SMOKEPING_TARGETS = "/config/Targets"
-_TARGET_LINE = re.compile(r"^\+{1,2}\s*(\S+)\s*$")
+_TARGET_LINE = re.compile(r"^\++\s*(\S+)\s*$")
+_INCLUDE_LINE = re.compile(r"^@include\s+(\S+)\s*$")
+
+
+def _target_names(text: str) -> set[str]:
+    return {m.group(1) for m in map(_TARGET_LINE.match, text.splitlines()) if m}
 
 
 def _measured_targets(docker: Docker) -> set[str] | None:
@@ -531,9 +536,13 @@ def _measured_targets(docker: Docker) -> set[str] | None:
 
     The InfluxDB ``target`` tag is the RRD's stem, which is the name on the
     target's ``+``/``++`` line. Section names come along; no series is
-    tagged with one, so they change nothing. An unreadable or empty file is
-    None, not "nothing is measured": a check that drops every finding
-    because it could not read a file would be the silence it exists to end.
+    tagged with one, so they change nothing. Files the Targets file
+    ``@include``s count too: the CPE gateway (``CPE_IPv4``, ``CPE_IPv6``)
+    lives in CPE_Targets, which cpe_discovery writes and which may not exist
+    yet, so an unreadable include adds nothing rather than failing. An
+    unreadable Targets file, or one naming nothing, is None, not "nothing is
+    measured": a check that drops every finding because it could not read a
+    file would be the silence it exists to end.
     """
     container = docker.container_for_service("smokeping")
     if not container:
@@ -541,7 +550,11 @@ def _measured_targets(docker: Docker) -> set[str] | None:
     code, out = docker.run(["exec", container, "cat", SMOKEPING_TARGETS])
     if code != 0:
         return None
-    names = {m.group(1) for m in map(_TARGET_LINE.match, out.splitlines()) if m}
+    names = _target_names(out)
+    for path in (m.group(1) for m in map(_INCLUDE_LINE.match, out.splitlines()) if m):
+        code, included = docker.run(["exec", container, "cat", path])
+        if code == 0:
+            names |= _target_names(included)
     return names or None
 
 

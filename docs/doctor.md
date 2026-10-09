@@ -169,8 +169,8 @@ seed shipped one, bare `amazon.com`, which drops ping, and the DNS wizard
 had adopted 72 such layers on the reference Pi before anything said so.
 
 Only targets SmokePing still measures count: the check reads the Targets
-file the SmokePing container loads, and drops a series whose target is not
-in it. A target deactivated an hour ago keeps a day of dead points in the
+file the SmokePing container loads, plus the files it `@include`s (the CPE
+gateway's CPE_Targets), and drops a series whose target is in none of them. A target deactivated an hour ago keeps a day of dead points in the
 window, and naming it would advise the command that just removed it. If the
 file cannot be read, every silent series is reported, as before.
 

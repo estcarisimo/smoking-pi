@@ -665,14 +665,20 @@ PS_SMOKEPING = "ps --filter label=com.docker.compose.service=smokeping --format 
 CAT_TARGETS = "exec pro-smokeping-1 cat /config/Targets"
 
 
-def _influx(targets, rc=0, written=True, measured=None, targets_rc=0):
-    """`measured` is the Targets file's content; None means no SmokePing."""
+CAT_CPE = "exec pro-smokeping-1 cat /config/CPE_Targets"
+
+
+def _influx(targets, rc=0, written=True, measured=None, targets_rc=0, cpe=None):
+    """`measured` is the Targets file's content, `cpe` the CPE_Targets it
+    includes (None: not written yet); no `measured` means no SmokePing."""
     rows = list(targets) + ([live_checks.ANY_POINT] if written else [])
     body = CSV_HEAD + "".join(f",,0,{t}\n" for t in rows)
     responses = {PS_INFLUX: (0, "pro-influxdb-1\n"), EXEC_INFLUX: (rc, body)}
     if measured is not None:
         responses[PS_SMOKEPING] = (0, "pro-smokeping-1\n")
         responses[CAT_TARGETS] = (targets_rc, measured)
+        if cpe is not None:
+            responses[CAT_CPE] = (0, cpe)
     return FakeDocker(responses)
 
 
@@ -687,6 +693,13 @@ host = www.amazon.com
 probe = Curl
 ++ W_hbo_com_h1
 host = hbo.com
+
+@include /config/CPE_Targets
+"""
+CPE_TARGETS = """+ CPE
+menu = Gateway
+++ CPE_IPv4
+host = 192.168.1.1
 """
 
 
@@ -730,14 +743,31 @@ def test_every_silent_target_deactivated_is_ok():
     assert res.status == Status.OK
 
 
-def test_unreadable_or_empty_targets_keeps_every_finding():
+def test_a_silent_gateway_in_the_included_cpe_targets_is_still_reported():
+    """CPE_IPv4 is in CPE_Targets, which Targets @includes, not in Targets."""
+    res = live_checks.check_silent_series(
+        _influx(["CPE_IPv4", "W_hbo_com_h3"], measured=TARGETS, cpe=CPE_TARGETS))
+    assert res.status == Status.WARN
+    (configured,) = (f.message for f in res.findings)
+    assert "1 target(s)" in configured and "CPE_IPv4" in configured
+
+
+def test_a_missing_cpe_targets_file_is_not_an_unreadable_targets_file():
+    """Before cpe_discovery first runs the include is absent: Targets still counts."""
+    res = live_checks.check_silent_series(_influx(["W_hbo_com_h3"], measured=TARGETS))
+    assert res.status == Status.OK
+
+
+@pytest.mark.parametrize("docker", [
+    pytest.param(lambda s: _influx(s), id="no-smokeping-container"),
+    pytest.param(lambda s: _influx(s, measured=TARGETS, targets_rc=1), id="cat-fails"),
+    pytest.param(lambda s: _influx(s, measured="*** Targets ***\nprobe = FPing\n"),
+                 id="no-target-lines"),
+])
+def test_unreadable_or_empty_targets_keeps_every_finding(docker):
     """Not knowing what is measured is not "nothing is measured"."""
-    silent = ["Amazon", "W_hbo_com_h3"]
-    for docker in (_influx(silent),  # no SmokePing container
-                   _influx(silent, measured=TARGETS, targets_rc=1),
-                   _influx(silent, measured="*** Targets ***\nprobe = FPing\n")):
-        res = live_checks.check_silent_series(docker)
-        assert len(res.findings) == 2, docker.calls
+    res = live_checks.check_silent_series(docker(["Amazon", "W_hbo_com_h3"]))
+    assert len(res.findings) == 2
 
 
 def test_targets_are_read_only_when_something_is_silent():
