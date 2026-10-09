@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A clean install measures its own targets, not SmokePing's sample
+  ones** ([#303](https://github.com/estcarisimo/smoking-pi/issues/303)).
+  When the SmokePing container started before config-manager had generated
+  `Targets` and `Probes`, which a clean Pro install can do because nothing
+  orders the two, its start-up script found nothing to link and kept the
+  image's sample `Targets` (US universities). Every later reload loaded
+  that sample again, because `/config/Targets` was still a real file. A
+  clean install on the staging Pi came up healthy, with `doctor --live`
+  all green, and 22 of 22 configured targets without a single measurement:
+  a monitor that records nothing while looking fine, from its first day.
+  config-manager now runs the same link step inside the SmokePing container
+  before every reload it sends, and once at startup, reloading SmokePing
+  when it had to link. An install that already hit this repairs itself when
+  config-manager next starts, for example on the upgrade.
+
 ## [2.29.1] — 2026-10-09
 
 The doctor stops warning about targets that are no longer measured.
