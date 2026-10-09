@@ -1,0 +1,773 @@
+{
+  "uid": "connectivity-quality-v1",
+  "id": null,
+  "title": "Connectivity & Quality",
+  "description": "Is the connection's quality changing, and when? Loss and latency by kind of destination on one time axis, the episodes the inference module detected, and loss by day and hour of day.",
+  "schemaVersion": 37,
+  "version": 1,
+  "tags": [
+    "smokeping",
+    "quality"
+  ],
+  "timezone": "browser",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "15m",
+  "graphTooltip": 1,
+  "editable": false,
+  "links": [
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/d/smoking-pi-overview-v1",
+      "icon": "dashboard",
+      "tooltip": "The landing page",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
+    {
+      "title": "Target detail",
+      "type": "link",
+      "url": "/d/target-detail-v1",
+      "icon": "dashboard",
+      "tooltip": "Every layer measured for one target",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": [
+        "smokeping"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "The selected range at a glance",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Mean loss, destinations",
+      "description": "Share of pings lost across every destination over the selected range. The ISP gateway (rate-limited, with a loss floor of its own) and the DNS wizard's targets are left out.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.005
+              },
+              {
+                "color": "red",
+                "value": 0.02
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group() |> mean()"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Probe cycles with loss on 2+ destinations",
+      "description": "Share of 5-minute probe cycles in which at least two destinations lost packets at once. One destination losing is that destination; two or more together point at the house, the line or the ISP.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.02
+              },
+              {
+                "color": "red",
+                "value": 0.1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> aggregateWindow(every: 5m, fn: max, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _value: if r._value > 0.0 then 1 else 0})) |> group() |> aggregateWindow(every: 5m, fn: sum, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({r with _value: if r._value >= 2 then 1.0 else 0.0})) |> mean()"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Loss degradation periods (experimental)",
+      "description": "Periods the inference module found where a destination's loss rose and stayed (Bayesian change points on 15-minute loss) that overlap the range; the ISP gateway and the DNS wizard's targets are left out. Empty when the inference profile is off: `smoking-pi enable inference`.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "none found"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"loss_degradation\" and r._field == \"end\" and r.category != \"cpe\" and r.category != \"dns_wizard\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> group() |> count(column: \"end\")"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Persistent congestion periods (experimental)",
+      "description": "Periods Jitterbug (as published: change points on the minimum RTT, then the latency jump and a KS test) labeled congested on a destination, that overlap the range. Empty when the inference profile is off: `smoking-pi enable inference`.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "none found"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"persistent_congestion\" and r._field == \"end\" and r.category != \"cpe\" and r.category != \"dns_wizard\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> group() |> count(column: \"end\")"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Over the selected range, on one time axis",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "ICMP loss by category, mean across targets (0–10 %)",
+      "description": "The Overview's loss panel zoomed to 0–10 %, where everyday loss lives; a cut above 10 % runs off the top (the Overview shows the full scale). Several categories rising together is the link; one alone is its destinations. The ISP gateway rate-limits ICMP, so its line sits on a floor of its own.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "interval": "5m",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": 600000,
+            "showPoints": "never"
+          },
+          "displayName": "${__field.labels.category}",
+          "max": 0.1
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "ICMP latency by category, median across targets",
+      "description": "The median of every target's median ping in each window, per category. A step in one line is that kind of destination; a step in all of them is the house or the ISP. The ISP gateway is left out: it answers ICMP from its control plane, whose spikes of hundreds of milliseconds would flatten every other line (the Overview charts it toward the ISP).",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "interval": "5m",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": 600000,
+            "showPoints": "never"
+          },
+          "displayName": "${__field.labels.category}"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"median\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false)"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "state-timeline",
+      "title": "Detected episodes, by target (experimental)",
+      "description": "What the inference module found, on the same time axis: red is loss degradation, orange is persistent congestion (Jitterbug). Every target the module analyzes, the ISP gateway included: its rows say whether the first hop moved too. Detected, not confirmed: compare with the loss and latency above. Empty when the inference profile is off.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "alignValue": "left",
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.target}",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "#F2495C",
+                "value": 1
+              },
+              {
+                "color": "#FF9830",
+                "value": 2
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "clear",
+                  "index": 0
+                },
+                "1": {
+                  "text": "loss degradation",
+                  "index": 1
+                },
+                "2": {
+                  "text": "persistent congestion",
+                  "index": 2
+                }
+              }
+            }
+          ],
+          "noValue": "none found"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\nloss_degradation = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target + \" · loss degradation\", end: time(v: r.end * 1000000000)}))\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target + \" · persistent congestion\", end: time(v: r.end * 1000000000)}))\nstarts = union(tables: [\n    loss_degradation |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 1})),\n    persistent_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 2})),\n])\nends = union(tables: [loss_degradation, persistent_congestion]) |> map(fn: (r) => ({_time: r.end, target: r.target, _value: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\"]) |> sort(columns: [\"_time\", \"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "When does it happen? (last 30 days, local time)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "heatmap",
+      "title": "Mean loss across destinations, day × hour",
+      "description": "Each cell is one hour of one day: the mean share of pings lost across every destination (the ISP gateway and the DNS wizard's targets left out). A recurring evening band is a daily pattern; a single bright cell is one event.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "timeFrom": "30d",
+      "hideTimeOverride": false,
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "options": {
+        "calculate": false,
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": false,
+          "axisLabel": "hour of day"
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "fill": "dark-orange",
+          "scale": "exponential",
+          "exponent": 0.5,
+          "steps": 64,
+          "reverse": false,
+          "min": 0
+        },
+        "cellGap": 1,
+        "filterValues": {
+          "le": 1e-09
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": false,
+          "showColorScale": true
+        },
+        "legend": {
+          "show": true
+        },
+        "showValue": "never",
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "_time": 0,
+              "00": 1,
+              "01": 2,
+              "02": 3,
+              "03": 4,
+              "04": 5,
+              "05": 6,
+              "06": 7,
+              "07": 8,
+              "08": 9,
+              "09": 10,
+              "10": 11,
+              "11": 12,
+              "12": 13,
+              "13": 14,
+              "14": 15,
+              "15": 16,
+              "16": 17,
+              "17": 18,
+              "18": 19,
+              "19": 20,
+              "20": 21,
+              "21": 22,
+              "22": 23,
+              "23": 24
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "heatmap",
+      "title": "Probe cycles with loss on 2+ destinations, day × hour",
+      "description": "Each cell is one hour of one day: the share of its probe cycles in which at least two destinations lost packets at once. Less sensitive to a single long cut than the mean, and the clearest signal of loss the destinations share.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "timeFrom": "30d",
+      "hideTimeOverride": false,
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 12,
+        "y": 33
+      },
+      "options": {
+        "calculate": false,
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": false,
+          "axisLabel": "hour of day"
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "fill": "dark-orange",
+          "scale": "exponential",
+          "exponent": 0.5,
+          "steps": 64,
+          "reverse": false,
+          "min": 0
+        },
+        "cellGap": 1,
+        "filterValues": {
+          "le": 1e-09
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": false,
+          "showColorScale": true
+        },
+        "legend": {
+          "show": true
+        },
+        "showValue": "never",
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "_time": 0,
+              "00": 1,
+              "01": 2,
+              "02": 3,
+              "03": 4,
+              "04": 5,
+              "05": 6,
+              "06": 7,
+              "07": 8,
+              "08": 9,
+              "09": 10,
+              "10": 11,
+              "11": 12,
+              "12": 13,
+              "13": 14,
+              "14": 15,
+              "15": 16,
+              "16": 17,
+              "17": 18,
+              "18": 19,
+              "19": 20,
+              "20": 21,
+              "21": 22,
+              "22": 23,
+              "23": 24
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> aggregateWindow(every: 5m, fn: max, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _value: if r._value > 0.0 then 1 else 0})) |> group() |> aggregateWindow(every: 5m, fn: sum, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({r with _value: if r._value >= 2 then 1.0 else 0.0})) |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
+        }
+      ]
+    }
+  ]
+}

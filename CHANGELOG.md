@@ -9,6 +9,26 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **A Connectivity & Quality dashboard** (Pro, InfluxDB). Answering "has
+  the connection's quality changed, and when?" meant reading the
+  Overview's loss panel over a month. On a 0–100 % axis everyday loss was
+  a flat line at the bottom. Spotting a daily pattern was left to the eye,
+  and the inference module's episodes were visible only one target at a
+  time, on Target Detail. The new dashboard puts the selected range on one
+  time axis:
+  - loss by category, zoomed to 0–10 %;
+  - latency by category, without the ISP gateway's control-plane spikes;
+  - every target's detected episodes;
+  - range tiles, among them the share of probe cycles in which two or more
+    destinations lost packets at once.
+
+  Two 30-day heatmaps, day × hour in local time, show mean loss and that
+  shared-loss share, so a recurring evening band is visible at a glance.
+  Home and Wi-Fi are unchanged, apart from a link in the Overview's list.
+  See `docs/connectivity-quality.md`.
+
 ### Fixed
 
 - **An alert's breadth count is the incident's own** (#286). The context

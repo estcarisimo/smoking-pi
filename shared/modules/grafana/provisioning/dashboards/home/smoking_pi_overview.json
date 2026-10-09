@@ -2560,7 +2560,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Where to look next:\n\n- [Target detail](/d/target-detail-v1): one target, every layer\n- [SmokePing Latency & Loss](/d/smokeping-lat-pct-v28)\n- [Individual pings](/d/individual-pings-v1)\n- [HTTP by version](/d/http-by-version-v1)\n- [DNS resolvers](/d/dns-resolvers-v1)\n- [Wi-Fi link](/d/wifi-link-v1)\n- [CPE microcuts](/d/cpe-microcut-v1)\n- [Top sites side by side](/d/top_sites-side-by-side-v1)\n- [Netflix OCA](/d/netflix_oca-side-by-side-v1)\n- [DNS wizard](/d/dns-wizard-v1)\n\nThe web admin (port 8080) holds the targets, the probes and the DNS observer's state."
+        "content": "Where to look next:\n\n- [Target detail](/d/target-detail-v1): one target, every layer\n- [Connectivity & Quality](/d/connectivity-quality-v1): loss and latency on one time axis, detected episodes, loss by hour of day\n- [SmokePing Latency & Loss](/d/smokeping-lat-pct-v28)\n- [Individual pings](/d/individual-pings-v1)\n- [HTTP by version](/d/http-by-version-v1)\n- [DNS resolvers](/d/dns-resolvers-v1)\n- [Wi-Fi link](/d/wifi-link-v1)\n- [CPE microcuts](/d/cpe-microcut-v1)\n- [Top sites side by side](/d/top_sites-side-by-side-v1)\n- [Netflix OCA](/d/netflix_oca-side-by-side-v1)\n- [DNS wizard](/d/dns-wizard-v1)\n\nThe web admin (port 8080) holds the targets, the probes and the DNS observer's state."
       }
     }
   ]

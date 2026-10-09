@@ -83,7 +83,9 @@ minutes after the container. Then open **Target Detail** for a target: the
 two annotations, *Persistent congestion (Jitterbug, experimental)* and
 *Loss degradation (experimental)*, shade the periods found, and hovering a
 region shows its numbers. They can be switched off from the dashboard's
-annotation toggles.
+annotation toggles. The [Connectivity & Quality](connectivity-quality.md)
+dashboard draws every target's periods on one timeline, under the loss and
+latency they are about.
 
 `docker exec <project>-inference-1 python status.py` prints the last pass:
 per target, the change points and periods found, and how long it took.
