@@ -168,6 +168,12 @@ that never ends, on a dashboard and to the assistant. The Standard and Pro
 seed shipped one, bare `amazon.com`, which drops ping, and the DNS wizard
 had adopted 72 such layers on the reference Pi before anything said so.
 
+Only targets SmokePing still measures count: the check reads the Targets
+file the SmokePing container loads, and drops a series whose target is not
+in it. A target deactivated an hour ago keeps a day of dead points in the
+window, and naming it would advise the command that just removed it. If the
+file cannot be read, every silent series is reported, as before.
+
 - **warn**, naming configured targets and the DNS wizard's layers apart.
   For the wizard's, `sudo smoking-pi dns adopt` deactivates them (history
   kept). For a configured target, check that the host answers that probe;

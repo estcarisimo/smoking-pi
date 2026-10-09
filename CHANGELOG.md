@@ -9,6 +9,19 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The doctor no longer reports targets that were just deactivated as
+  silent.** `silent-series` read only InfluxDB, which keeps a deactivated
+  target's dead points for the rest of the 24 h window. Right after
+  `sudo smoking-pi dns adopt` deactivated two silent layers on the
+  reference Pi, `doctor --live` still warned about both and advised running
+  `dns adopt` to deactivate them, for about eight more hours. A warning
+  that names the fix just applied teaches the reader to ignore it. The
+  check now reads the Targets file the SmokePing container loads and drops
+  any series whose target is no longer in it; if that file cannot be read,
+  it reports every silent series as before.
+
 ## [2.29.0] — 2026-10-09
 
 A dashboard for the question "has the connection's quality changed, and
