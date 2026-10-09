@@ -292,24 +292,23 @@ def alert_sections(event: dict) -> list[Section]:
     context = []
     if event.get("rule"):
         context.append(str(event["rule"]))
-    total = verdict.get("total")
-    if total:
-        # The count is the verdict's: targets over the impaired threshold on
-        # their 15-minute mean. A brief cut (outage) or one target's run of
-        # lost cycles (target_down) fires the rule without moving that mean,
-        # and "0 of 16 affected" under an alert reads as "nothing happened".
-        # The message carries the rule's own count; zero is left unsaid.
-        if verdict.get("affected"):
-            context.append(f"{verdict['affected']} of {total} affected")
-        # The verdict's reading of the line; when the diagnosis leads it has
-        # already said where the fault is, and "local link cutting out" next
-        # to "this host's Wi-Fi, not the line" reads as a contradiction.
-        if not leads:
-            context.append(
-                "local link cutting out"
-                if verdict.get("cpe_cutting")
-                else "local link clean"
-            )
+    # The count is the incident's own: the targets the rule counted, out of
+    # those reporting. Only the rules that fire on breadth (outage,
+    # uplink_down) carry one. The verdict's count is over 15-minute means and
+    # can describe a different set: "1 of 16 affected" under a target_down
+    # about another target, or under an outage whose message says 12 (#286).
+    breadth = event.get("breadth") or {}
+    if breadth.get("affected") and breadth.get("total"):
+        context.append(f"{breadth['affected']} of {breadth['total']} affected")
+    # The verdict's reading of the line; when the diagnosis leads it has
+    # already said where the fault is, and "local link cutting out" next
+    # to "this host's Wi-Fi, not the line" reads as a contradiction.
+    if verdict.get("total") and not leads:
+        context.append(
+            "local link cutting out"
+            if verdict.get("cpe_cutting")
+            else "local link clean"
+        )
     # The Wi-Fi hop, whenever it was checked: a reader should see that a
     # "your line" verdict was reached with the wireless link in view.
     wifi = verdict.get("wifi") or {}

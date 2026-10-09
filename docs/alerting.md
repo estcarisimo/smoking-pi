@@ -406,15 +406,16 @@ replaces the verdict line, and the evidence follows the numbers:
 📶 This host's own Wi-Fi, not the line: the monitor could not hear, so nothing beyond it can be judged for that span. The radio was associated but received nothing (or not associated): the monitor was deaf. (high confidence)
 google: 100% loss across all 4 probes
 Why: this host's Wi-Fi heard nothing for 312 s (deaf); the first-hop probe lost everything for exactly that span.
-target_down · 18 of 18 affected
+target_down
 mute: say "mute google for 2h"
 ```
 
 (Rendered with `ALERT_MARKUP=plain` and no links configured.)
 
-The context line keeps the breadth (`18 of 18 affected`) but drops the
-verdict's own reading of the line, which would otherwise contradict the
-diagnosis.
+The context line drops the verdict's own reading of the line, which would
+otherwise contradict the diagnosis. A count such as `12 of 16 affected`
+appears there only under `outage` and `uplink_down`, and it is the rule's
+own: the targets that lost packets in the cut, out of those reporting.
 
 At **low confidence**, for an `unclear` incident, or with no incident to
 match, the verdict line stays and nothing is added. When no measurements

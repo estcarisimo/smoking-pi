@@ -310,6 +310,10 @@ def test_uplink_down_tolerates_a_chronic_or_lucky_target():
     widespread = evaluator.rule_widespread(_timed_points(per_target))
     assert [i["rule"] for i in widespread] == ["uplink_down"]
     assert "9 of 10 targets" in widespread[0]["message"]
+    # The count the alert's context line prints is the rule's own (#286).
+    breadth = widespread[0]["breadth"]
+    assert (breadth["affected"], breadth["total"]) == (9, 10)
+    assert "Google" not in breadth["targets"]
 
 
 def test_a_single_dead_target_is_not_widespread():
@@ -940,3 +944,20 @@ def test_flux_floats_never_use_an_exponent():
 def test_a_corrupt_ping_count_is_ignored():
     rows = _cadence_rows(bad=(300, 50000))
     assert cadence.by_target(rows) == {"bad": cadence.Cadence(300, 10)}
+
+
+def test_outage_carries_the_targets_it_counted():
+    """#286: the context line printed the verdict's count (15-minute means),
+    "1 of 16 affected" under an outage whose message said 12. The incident
+    carries its own set, from the cycle where the cut was widest."""
+    per_target = {t: [0.0, 0.8, 0.8, 0.0] for t in TARGETS}
+    per_target["NYT"] = [0.0, 0.0, 0.0, 0.0]
+    per_target["Google"] = [0.0, 0.0, 0.8, 0.0]
+    widespread = evaluator.rule_widespread(_timed_points(per_target))
+    assert [i["rule"] for i in widespread] == ["outage"]
+    inc = widespread[0]
+    assert "9 of 10 targets" in inc["message"]
+    assert inc["breadth"] == {
+        "affected": 9, "total": 10,
+        "targets": sorted(t for t in TARGETS if t != "NYT"),
+    }

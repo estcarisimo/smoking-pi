@@ -512,6 +512,15 @@ def _hhmm(step: int) -> str:
     return datetime.fromtimestamp(step, tz=timezone.utc).strftime("%H:%M UTC")
 
 
+def _breadth(targets: set[str], total: int) -> dict:
+    """The incident's own breadth: which targets it counted, out of how many.
+
+    The alert's context line prints this, not the verdict's count, which is
+    taken over 15-minute means and can describe a different set (#286).
+    """
+    return {"affected": len(targets), "total": total, "targets": sorted(targets)}
+
+
 def rule_widespread(
     rows: list[dict],
     min_points: int = DOWN_MIN_POINTS,
@@ -605,6 +614,7 @@ def rule_widespread(
                     "uplink is down; nothing beyond it can be judged"
                 ),
                 "value": round(share(lost, step), 1),
+                "breadth": _breadth(lost[step], n_all),
             }
         ]
 
@@ -620,7 +630,8 @@ def rule_widespread(
             continue
         if run:
             first, last = run[0], run[-1]
-            n_lossy = max(len(lossy[s]) for s in run)
+            widest = max(run, key=lambda s: len(lossy[s]))
+            n_lossy = len(lossy[widest])
             n_all = max(len(reporting[s]) for s in run)
             # Edge cycles of a cut are partial by construction (it started
             # or ended mid-cycle); total loss everywhere else is total loss.
@@ -643,6 +654,7 @@ def rule_widespread(
                         "a brief cut of the link, not a site problem"
                     ),
                     "value": n_lossy,
+                    "breadth": _breadth(lossy[widest], n_all),
                 }
             )
             run = []

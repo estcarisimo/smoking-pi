@@ -174,10 +174,11 @@ def test_a_confident_diagnosis_replaces_the_verdict_line_and_shows_why():
 
 
 def test_when_the_diagnosis_leads_the_context_line_does_not_contradict_it():
-    event = _alert(_diag())
+    event = {**_alert(_diag()), "rule": "outage", "target": None,
+             "breadth": {"affected": 12, "total": 16, "targets": []}}
     event["verdict"]["cpe_cutting"] = ["CPE_IPv4"]
     text = templates.format_message(event)
-    assert "12 of 16 affected" in text
+    assert "outage · 12 of 16 affected" in text
     assert "local link" not in text
     # Without a leading diagnosis the verdict's reading stays.
     assert "local link cutting out" in templates.format_message(
