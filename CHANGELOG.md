@@ -9,6 +9,12 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.29.1] — 2026-10-09
+
+The doctor stops warning about targets that are no longer measured.
+Right after `dns adopt` deactivated two silent layers, `doctor --live`
+still named them and told you to run `dns adopt`, for about eight hours.
+
 ### Fixed
 
 - **The doctor no longer reports targets that were just deactivated as
