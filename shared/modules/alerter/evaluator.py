@@ -517,6 +517,9 @@ def _breadth(targets: set[str], total: int) -> dict:
 
     The alert's context line prints this, not the verdict's count, which is
     taken over 15-minute means and can describe a different set (#286).
+    ``targets`` has no reader yet: #286 asked that the set travel with the
+    incident, so a later consumer (a webhook field, the digest) need not
+    recompute it.
     """
     return {"affected": len(targets), "total": total, "targets": sorted(targets)}
 
