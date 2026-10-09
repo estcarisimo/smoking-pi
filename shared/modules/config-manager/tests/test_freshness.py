@@ -4,6 +4,7 @@ and GET /measurements against a fake Docker client."""
 import json
 import os
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -515,3 +516,18 @@ def test_a_map_that_cannot_be_written_does_not_fail_the_generation(tmp_path, mon
     assert (tmp_path / "Targets").read_text() == targets
     assert (tmp_path / "Probes").read_text() == probes
     assert not (tmp_path / "cadence.json").exists()
+
+
+def test_the_snippet_and_the_cont_init_scripts_stay_in_step():
+    # Two copies of one step (config-manager's and SmokePing's own start):
+    # a change to one must reach the other.
+    root = Path(api_module.__file__).resolve().parents[3]
+    for edition in ("pro", "standard"):
+        script = (root / "editions" / edition / "custom-cont-init.d"
+                  / "05-link-generated-config.sh").read_text()
+        for shape in ('GENERATED_DIR="/config/generated"', 'for name in Targets Probes',
+                      'readlink "$dst"', 'rm -f "$dst"', 'ln -s "$src" "$dst"'):
+            assert shape in script, (edition, shape)
+    for shape in ("src=/config/generated/$n", "for n in Targets Probes",
+                  'readlink "$dst"', 'rm -f "$dst"', 'ln -s "$src" "$dst"'):
+        assert shape in api_module.LINK_GENERATED_CONFIG, shape
