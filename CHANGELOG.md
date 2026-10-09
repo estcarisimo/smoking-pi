@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An alert's breadth count is the incident's own** (#286). The context
+  line under an alert printed the verdict's count: targets over the
+  impaired threshold on their 15-minute mean. That can be a different set
+  from the one the rule fired on, so an `outage` whose message said "12 of
+  16 targets lost packets" could end in `1 of 16 affected`, and a
+  `target_down` could carry a count that was about another target. A reader
+  deciding whether the problem is theirs or the internet's was handed two
+  numbers that disagreed. `outage` and `uplink_down` now carry their own
+  `breadth` (count, total and target names), and that is what the line
+  prints. Per-target rules print no count: their message names the
+  target, and the verdict line states the breadth across all of them.
+
 ## [2.28.0] — 2026-10-08
 
 Everything a person runs is now a `smoking-pi` command, and a setting is

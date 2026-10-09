@@ -339,6 +339,20 @@ def test_a_verdict_with_no_measurements_still_says_so():
     assert "No comparable measurements in the last 15m." in text
 
 
-def test_a_nonzero_breadth_count_is_still_printed():
-    text = templates.format_message(_alert())
-    assert "target_down · 12 of 16 affected · local link clean" in text
+def test_the_count_is_the_incidents_own_not_the_verdicts():
+    """#286: the verdict's count is over 15-minute means and can describe a
+    different set -- "1 of 16 affected" under an outage whose message said
+    12, or under a target_down about another target. The rule's own count is
+    printed; a per-target rule prints none (its message names the target)."""
+    verdict = {"scope": "unclear", "line": "Just that site.", "affected": 1,
+               "total": 16, "cpe_cutting": []}
+    outage = _alert(rule="outage", target=None, verdict=verdict,
+                    message="12 of 16 targets lost packets in the same 5-minute span",
+                    breadth={"affected": 12, "total": 16, "targets": []})
+    text = templates.format_message(outage)
+    assert "outage · 12 of 16 affected · local link clean" in text
+    assert "1 of 16" not in text
+
+    text = templates.format_message(_alert(verdict=verdict))
+    assert "target_down · local link clean" in text
+    assert "1 of 16" not in text
