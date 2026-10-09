@@ -19,8 +19,8 @@ version gets a matching GitHub release and git tag.
   `target_down` could carry a count that was about another target. A reader
   deciding whether the problem is theirs or the internet's was handed two
   numbers that disagreed. `outage` and `uplink_down` now carry their own
-  `breadth` (count, total and target names, also in the webhook payload),
-  and that is what the line prints. Per-target rules print no count:
+  `breadth` (count, total and target names), and that is what the line
+  prints. Per-target rules print no count:
   their message names the target, and the verdict line states the breadth
   across all of them.
 
