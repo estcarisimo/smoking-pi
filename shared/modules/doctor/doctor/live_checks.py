@@ -518,6 +518,44 @@ ANY_POINT = "__any_latency_point__"
 # silent yet, it is new.
 SILENT_MIN_POINTS = 200
 SILENT_SHOWN = 12
+# What SmokePing loads: on Standard and Pro a symlink to the Targets file
+# config-manager generates (SMOKING_PI_OUTPUT_DIR on the host, wherever that
+# is), on Basic the edition's own. Read inside the container, so a relocated
+# output directory needs no guessing here.
+SMOKEPING_TARGETS = "/config/Targets"
+_TARGET_LINE = re.compile(r"^\++\s*(\S+)\s*$")
+_INCLUDE_LINE = re.compile(r"^@include\s+(\S+)\s*$")
+
+
+def _target_names(text: str) -> set[str]:
+    return {m.group(1) for m in map(_TARGET_LINE.match, text.splitlines()) if m}
+
+
+def _measured_targets(docker: Docker) -> set[str] | None:
+    """Every section and target name SmokePing measures, or None if unknown.
+
+    The InfluxDB ``target`` tag is the RRD's stem, which is the name on the
+    target's ``+``/``++`` line. Section names come along; no series is
+    tagged with one, so they change nothing. Files the Targets file
+    ``@include``s count too: the CPE gateway (``CPE_IPv4``, ``CPE_IPv6``)
+    lives in CPE_Targets, which cpe_discovery writes and which may not exist
+    yet, so an unreadable include adds nothing rather than failing. An
+    unreadable Targets file, or one naming nothing, is None, not "nothing is
+    measured": a check that drops every finding because it could not read a
+    file would be the silence it exists to end.
+    """
+    container = docker.container_for_service("smokeping")
+    if not container:
+        return None
+    code, out = docker.run(["exec", container, "cat", SMOKEPING_TARGETS])
+    if code != 0:
+        return None
+    names = _target_names(out)
+    for path in (m.group(1) for m in map(_INCLUDE_LINE.match, out.splitlines()) if m):
+        code, included = docker.run(["exec", container, "cat", path])
+        if code == 0:
+            names |= _target_names(included)
+    return names or None
 
 
 def check_silent_series(docker: Docker | None = None) -> CheckResult:
@@ -555,6 +593,13 @@ def check_silent_series(docker: Docker | None = None) -> CheckResult:
             "writing, whatever the dashboards' age says. Its log: "
             "`sudo smoking-pi logs smokeping`")], "", status=Status.WARN)
     silent = sorted(rows - {ANY_POINT})
+    if silent:
+        # A target deactivated this morning (`dns adopt` does it to every
+        # silent layer) keeps a day of dead points in the window, and the
+        # finding would advise the very command that just removed it.
+        measured = _measured_targets(docker)
+        if measured is not None:
+            silent = [t for t in silent if t in measured]
     if not silent:
         return result(name, [], "every series answered in the last day")
     adopted = [t for t in silent if t.startswith("W_")]

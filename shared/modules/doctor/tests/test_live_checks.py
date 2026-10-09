@@ -661,10 +661,46 @@ EXEC_INFLUX = "exec pro-influxdb-1 sh -c"
 CSV_HEAD = "#group,false,false,false\n#datatype,string,long,string\n#default,_result,,\n,result,table,target\n"
 
 
-def _influx(targets, rc=0, written=True):
+PS_SMOKEPING = "ps --filter label=com.docker.compose.service=smokeping --format {{.Names}}"
+CAT_TARGETS = "exec pro-smokeping-1 cat /config/Targets"
+
+
+CAT_CPE = "exec pro-smokeping-1 cat /config/CPE_Targets"
+
+
+def _influx(targets, rc=0, written=True, measured=None, targets_rc=0, cpe=None):
+    """`measured` is the Targets file's content, `cpe` the CPE_Targets it
+    includes (None: not written yet); no `measured` means no SmokePing."""
     rows = list(targets) + ([live_checks.ANY_POINT] if written else [])
     body = CSV_HEAD + "".join(f",,0,{t}\n" for t in rows)
-    return FakeDocker({PS_INFLUX: (0, "pro-influxdb-1\n"), EXEC_INFLUX: (rc, body)})
+    responses = {PS_INFLUX: (0, "pro-influxdb-1\n"), EXEC_INFLUX: (rc, body)}
+    if measured is not None:
+        responses[PS_SMOKEPING] = (0, "pro-smokeping-1\n")
+        responses[CAT_TARGETS] = (targets_rc, measured)
+        if cpe is not None:
+            responses[CAT_CPE] = (0, cpe)
+    return FakeDocker(responses)
+
+
+TARGETS = """*** Targets ***
+probe = FPing
+menu = Top
++ topsites
+menu = Top sites
+++ Amazon
+host = www.amazon.com
++ websites
+probe = Curl
+++ W_hbo_com_h1
+host = hbo.com
+
+@include /config/CPE_Targets
+"""
+CPE_TARGETS = """+ CPE
+menu = Gateway
+++ CPE_IPv4
+host = 192.168.1.1
+"""
 
 
 def test_nothing_written_in_a_day_is_not_every_series_answering():
@@ -690,10 +726,60 @@ def test_silent_targets_and_adopted_layers_are_named_apart():
     assert "2 layer(s)" in adopted and "smoking-pi dns adopt" in adopted
 
 
+def test_targets_no_longer_measured_are_not_silent():
+    """`dns adopt` deactivated W_hbo_com_h3 an hour ago: its dead points stay in
+    the 24 h window, and advising `dns adopt` again would be wrong for ~8 h."""
+    docker = _influx(["Amazon", "W_hbo_com_h1", "W_hbo_com_h3"], measured=TARGETS)
+    res = live_checks.check_silent_series(docker)
+    assert res.status == Status.WARN
+    configured, adopted = (f.message for f in res.findings)
+    assert "1 target(s)" in configured and "Amazon" in configured
+    assert "1 layer(s)" in adopted and "W_hbo_com_h1" in adopted
+    assert "W_hbo_com_h3" not in adopted
+
+
+def test_every_silent_target_deactivated_is_ok():
+    res = live_checks.check_silent_series(_influx(["W_hbo_com_h3"], measured=TARGETS))
+    assert res.status == Status.OK
+
+
+def test_a_silent_gateway_in_the_included_cpe_targets_is_still_reported():
+    """CPE_IPv4 is in CPE_Targets, which Targets @includes, not in Targets."""
+    res = live_checks.check_silent_series(
+        _influx(["CPE_IPv4", "W_hbo_com_h3"], measured=TARGETS, cpe=CPE_TARGETS))
+    assert res.status == Status.WARN
+    (configured,) = (f.message for f in res.findings)
+    assert "1 target(s)" in configured and "CPE_IPv4" in configured
+
+
+def test_a_missing_cpe_targets_file_is_not_an_unreadable_targets_file():
+    """Before cpe_discovery first runs the include is absent: Targets still counts."""
+    res = live_checks.check_silent_series(_influx(["W_hbo_com_h3"], measured=TARGETS))
+    assert res.status == Status.OK
+
+
+@pytest.mark.parametrize("docker", [
+    pytest.param(lambda s: _influx(s), id="no-smokeping-container"),
+    pytest.param(lambda s: _influx(s, measured=TARGETS, targets_rc=1), id="cat-fails"),
+    pytest.param(lambda s: _influx(s, measured="*** Targets ***\nprobe = FPing\n"),
+                 id="no-target-lines"),
+])
+def test_unreadable_or_empty_targets_keeps_every_finding(docker):
+    """Not knowing what is measured is not "nothing is measured"."""
+    res = live_checks.check_silent_series(docker(["Amazon", "W_hbo_com_h3"]))
+    assert len(res.findings) == 2
+
+
+def test_targets_are_read_only_when_something_is_silent():
+    docker = _influx([], measured=TARGETS)
+    live_checks.check_silent_series(docker)
+    assert not any(c.startswith(CAT_TARGETS) for c in docker.calls)
+
+
 def test_the_token_never_reaches_this_hosts_command_line():
     docker = _influx([])
     live_checks.check_silent_series(docker)
-    call = docker.calls[-1]
+    call = next(c for c in docker.calls if c.startswith(EXEC_INFLUX))
     assert "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" in call  # expanded inside the container
     assert "r.n >= 200" in call  # a target added this morning is new, not silent
 
