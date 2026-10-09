@@ -1,7 +1,7 @@
 # Single dashboard provider for all InfluxDB dashboards.
 #
 # One provider walks this directory recursively; foldersFromFilesStructure
-# maps each first-level subdirectory (home/, overview/, cpe/,
+# maps each first-level subdirectory (home/, overview/, cpe/, quality/,
 # side-by-side-pings/, individual-pings/, dns-resolution-times/) to a Grafana
 # folder. Do NOT add
 # additional providers pointing at the subdirectories: the recursive walk of
