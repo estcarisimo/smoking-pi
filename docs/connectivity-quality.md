@@ -19,8 +19,8 @@ set: Pro with ClickHouse does not have it.
 | --- | --- |
 | Mean loss, destinations | Share of pings lost across every destination over the range |
 | Probe cycles with loss on 2+ destinations | Share of 5-minute cycles in which at least two destinations lost packets at once |
-| Loss degradation periods | Periods the inference module found, when it is on |
-| Persistent congestion periods | Periods Jitterbug labeled congested, when it is on |
+| Loss degradation periods | Periods the inference module found on destinations that overlap the range, when it is on |
+| Persistent congestion periods | Periods Jitterbug labeled congested on destinations that overlap the range, when it is on |
 
 "Destinations" leaves out two kinds of target. The **ISP gateway**
 rate-limits ICMP and has a loss floor of its own. The **DNS wizard's**
@@ -30,23 +30,30 @@ rather than the connection.
 
 The second tile is usually the more telling one. One destination losing
 packets is that destination's problem. Two or more losing in the same cycle
-point at something they share: the house, the line or the ISP.
+point at something they share: the house, the line or the ISP. A cycle here
+is a 5-minute window, the default probe step. With a different
+[frequency](measurement-frequency.md), the share is still comparable from
+one day to the next, but it is not a count of probe rounds.
 
 ## On one time axis
 
 - **ICMP loss by category (0–10 %).** This is the Overview's loss panel
   zoomed to the range where everyday loss lives. A cut above 10 % runs off
   the top, and the Overview shows the full scale. Several categories rising
-  together is the link; one alone is its destinations.
+  together is the link; one alone is its destinations. Unlike the tiles,
+  this chart keeps the ISP gateway's line: it sits on its own floor, and a
+  band the gateway does not share is beyond the access link.
 - **ICMP latency by category.** The median of the targets' medians, per kind
   of destination. The ISP gateway is left out: it answers ICMP from its
   control plane, whose spikes of hundreds of milliseconds would flatten
   every other line. The Overview's *Toward the ISP* panel charts it.
 - **Detected episodes, by target (experimental).** What the
   [inference module](inference.md) found: red is loss degradation, orange is
-  persistent congestion. These are detections, not confirmations. Compare
-  them with the two panels above before believing one. The panel is empty
-  unless the module is on (`sudo smoking-pi enable inference`).
+  persistent congestion. Every target the module analyzes has a row, the
+  ISP gateway included, so you can see whether the first hop moved too.
+  These are detections, not confirmations. Compare them with the two panels
+  above before believing one. The panel is empty unless the module is on
+  (`sudo smoking-pi enable inference`).
 
 ## When does it happen?
 
