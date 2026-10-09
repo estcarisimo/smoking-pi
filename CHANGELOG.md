@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.29.0] — 2026-10-09
+
+A dashboard for the question "has the connection's quality changed, and
+when?", and alerts whose breadth count matches the incident they describe.
+
+- **Connectivity & Quality** (Pro, InfluxDB) is a new Grafana dashboard.
+  Loss is zoomed to 0–10 % and shown with latency, by kind of destination,
+  on one time axis. Below them, the inference module's detected episodes
+  for every target. It also has two 30-day heatmaps by day and hour of day,
+  where a recurring evening pattern stands out.
+- An `outage` or `uplink_down` alert counts the targets the rule fired on.
+  Before, the count came from 15-minute means and could disagree with the
+  alert's own message. Alerts about one target no longer print a count.
+
+No new settings, volumes or services. Upgrade with `sudo smoking-pi
+upgrade`.
+
 ### Added
 
 - **A Connectivity & Quality dashboard** (Pro, InfluxDB). Answering "has
