@@ -9,7 +9,7 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
-## [2.29.2] — 2026-10-09
+## [2.29.2] — 2026-10-10
 
 A clean install measures its own targets, and the doctor says when it does
 not. A clean install on the staging Pi came up with every container
