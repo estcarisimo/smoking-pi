@@ -178,8 +178,9 @@ API token never reaches the command line.
 - **ok** when every target is measured. A target within two steps of its own
   start, or of SmokePing's, is *pending* there, not missing, so a stack that
   has just started does not fail; the summary counts those;
-- **warn** when config-manager does not answer, or cannot tell (no
-  generated Targets file yet);
+- **warn** when config-manager does not answer, cannot tell (no
+  generated Targets file yet), or lists no target at all: "all 0 targets
+  measured" would be the silence this check exists to end;
 - **skip** without Docker or without config-manager (Basic).
 
 ### `silent-series`

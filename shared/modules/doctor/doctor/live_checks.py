@@ -639,7 +639,8 @@ def _names(rows: list[dict], state: str) -> list[str]:
 
 
 def _shown(names: list[str]) -> str:
-    return ", ".join(names[:MEASURED_SHOWN]) + (" ..." if len(names) > MEASURED_SHOWN else "")
+    more = " ..." if len(names) > MEASURED_SHOWN else ""
+    return ", ".join(names[:MEASURED_SHOWN]) + more
 
 
 def check_targets_measured(docker: Docker | None = None) -> CheckResult:
@@ -672,28 +673,41 @@ def check_targets_measured(docker: Docker | None = None) -> CheckResult:
                                      "see sudo smoking-pi logs config-manager")], "",
                       status=Status.WARN)
     if not body.get("available"):
+        reason = body.get("reason", "no reason given")
         return result(name, [Finding(
-            f"config-manager cannot tell what is measured: {body.get('reason', 'no reason given')}")],
+            f"config-manager cannot tell what is measured: {reason}")],
             "", status=Status.WARN)
     rows = [r for r in body.get("targets", []) if isinstance(r, dict)]
+    if not rows:
+        # "All 0 targets are measured" would be the green-while-nothing-is-
+        # measured this check exists to end (an empty generated Targets).
+        return result(name, [Finding(
+            "config-manager lists no configured target: SmokePing has nothing "
+            "to measure. Check the targets in the web admin, or "
+            "`sudo smoking-pi logs config-manager`")],
+            "", status=Status.WARN)
     missing, stale = _names(rows, "missing"), _names(rows, "stale")
     pending = _names(rows, "pending")
     findings = []
     if missing and len(missing) == len(rows):
         findings.append(Finding(
-            f"none of the {len(rows)} configured targets has any SmokePing data: SmokePing "
-            "is not measuring this configuration. `sudo smoking-pi restart smokeping`, "
-            "then this again after two steps; its log: `sudo smoking-pi logs smokeping`"))
+            f"none of the {len(rows)} configured targets has any SmokePing data: "
+            "SmokePing is not measuring this configuration. "
+            "`sudo smoking-pi restart smokeping`, then this again after two steps; "
+            "its log: `sudo smoking-pi logs smokeping`"))
     elif missing:
         findings.append(Finding(
-            f"{len(missing)} configured target(s) never got SmokePing data: {_shown(missing)}"))
+            f"{len(missing)} configured target(s) never got SmokePing data: "
+            f"{_shown(missing)}"))
     if stale:
         findings.append(Finding(
             f"{len(stale)} target(s) stopped getting SmokePing data: {_shown(stale)}"))
     total = len(rows)
-    ok = f"all {total} configured targets are measured"
     if pending:
-        ok += f" ({len(pending)} waiting for their first step)"
+        ok = (f"all {total} configured targets measured or starting "
+              f"({len(pending)} waiting for their first step)")
+    else:
+        ok = f"all {total} configured targets are measured"
     return result(name, findings, ok)
 
 

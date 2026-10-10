@@ -723,11 +723,20 @@ def test_unanswered_or_unavailable_warns_and_absent_skips():
     assert live_checks.check_targets_measured(FakeDocker({PS_CM: (0, "")})).status == Status.SKIP
 
 
+def test_no_configured_target_is_not_all_measured():
+    res = live_checks.check_targets_measured(_measured({"available": True, "targets": []}))
+    assert res.status == Status.WARN
+    assert "no configured target" in res.findings[0].message
+
+
 def test_the_token_stays_in_the_container():
+    # The exact argv: no -e, nothing but the probe, which reads the token from
+    # the container's own environment.
     docker = _measured({"available": True, "targets": _rows(fresh=1)})
     live_checks.check_targets_measured(docker)
-    call = docker.calls[-1]
-    assert "CONFIG_API_TOKEN" in call and "Bearer ' + t" in call
+    assert docker.calls[-1] == " ".join(
+        ["exec", "pro-config-manager-1", "python", "-c", live_checks._MEASUREMENTS_PROBE])
+    assert "os.environ.get('CONFIG_API_TOKEN')" in live_checks._MEASUREMENTS_PROBE
 
 
 # -- silent-series ------------------------------------------------------------------
