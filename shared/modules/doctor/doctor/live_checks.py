@@ -46,6 +46,7 @@ kernel, not Docker, so it answers on any Linux host and skips only where
 from __future__ import annotations
 
 import hashlib
+import json
 import pathlib
 import re
 import shutil
@@ -620,12 +621,89 @@ def check_silent_series(docker: Docker | None = None) -> CheckResult:
     return result(name, findings, "", status=Status.WARN)
 
 
+# Run inside the config-manager container: its own /measurements, the check
+# behind the web admin's Measurements card. The token is read there, so it
+# never reaches this host's command line.
+_MEASUREMENTS_PROBE = (
+    "import os, urllib.request\n"
+    "r = urllib.request.Request('http://127.0.0.1:5000/measurements')\n"
+    "t = os.environ.get('CONFIG_API_TOKEN')\n"
+    "if t: r.add_header('Authorization', 'Bearer ' + t)\n"
+    "print(urllib.request.urlopen(r, timeout=25).read().decode())\n"
+)
+MEASURED_SHOWN = 12
+
+
+def _names(rows: list[dict], state: str) -> list[str]:
+    return [str(r.get("name")) for r in rows if r.get("state") == state]
+
+
+def _shown(names: list[str]) -> str:
+    return ", ".join(names[:MEASURED_SHOWN]) + (" ..." if len(names) > MEASURED_SHOWN else "")
+
+
+def check_targets_measured(docker: Docker | None = None) -> CheckResult:
+    """Every configured target has SmokePing data, and recent data.
+
+    A clean install once came up with every container healthy and every
+    other check green while SmokePing measured the image's sample Targets:
+    22 of 22 configured targets had no RRD at all (#303, #304). The doctor
+    read InfluxDB, which held points, and the dashboards' age, which was
+    new. This asks the question directly, through config-manager's
+    /measurements: the configured targets against the RRD files SmokePing
+    writes. A target still inside its first two steps since it or SmokePing
+    started is ``pending`` there, not missing, so a stack that just started
+    is not a failure.
+    """
+    name = "targets-measured"
+    docker = docker or Docker()
+    if not docker.available():
+        return skipped(name, "docker is not available here")
+    container = docker.container_for_service("config-manager")
+    if not container:
+        return skipped(name, "no config-manager here (Basic, or not running)")
+    code, out = docker.run(["exec", container, "python", "-c", _MEASUREMENTS_PROBE])
+    try:
+        body = json.loads(out) if code == 0 else None
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return result(name, [Finding("could not ask config-manager what is measured; "
+                                     "see sudo smoking-pi logs config-manager")], "",
+                      status=Status.WARN)
+    if not body.get("available"):
+        return result(name, [Finding(
+            f"config-manager cannot tell what is measured: {body.get('reason', 'no reason given')}")],
+            "", status=Status.WARN)
+    rows = [r for r in body.get("targets", []) if isinstance(r, dict)]
+    missing, stale = _names(rows, "missing"), _names(rows, "stale")
+    pending = _names(rows, "pending")
+    findings = []
+    if missing and len(missing) == len(rows):
+        findings.append(Finding(
+            f"none of the {len(rows)} configured targets has any SmokePing data: SmokePing "
+            "is not measuring this configuration. `sudo smoking-pi restart smokeping`, "
+            "then this again after two steps; its log: `sudo smoking-pi logs smokeping`"))
+    elif missing:
+        findings.append(Finding(
+            f"{len(missing)} configured target(s) never got SmokePing data: {_shown(missing)}"))
+    if stale:
+        findings.append(Finding(
+            f"{len(stale)} target(s) stopped getting SmokePing data: {_shown(stale)}"))
+    total = len(rows)
+    ok = f"all {total} configured targets are measured"
+    if pending:
+        ok += f" ({len(pending)} waiting for their first step)"
+    return result(name, findings, ok)
+
+
 def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
     docker = docker or Docker()
     return [
         check_deployed_code_current(repo, docker),
         check_container_dns_fresh(repo, docker),
         check_config_manager_database(docker),
+        check_targets_measured(docker),
         check_silent_series(docker),
         check_uplink_interface(),
         check_avahi_host_name(),

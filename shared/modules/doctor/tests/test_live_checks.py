@@ -9,6 +9,7 @@ be shown to fire is decoration.
 from __future__ import annotations
 
 import hashlib
+import json
 import pathlib
 
 import pytest
@@ -313,6 +314,7 @@ def test_run_all_returns_every_check(repo, host_resolv):
         "deployed-code-current",
         "container-dns-fresh",
         "config-manager-database",
+        "targets-measured",
         "silent-series",
         "uplink-interface",
         "avahi-host-name",
@@ -652,6 +654,80 @@ def test_unanswered_probe_warns_and_missing_docker_skips():
     assert live_checks.check_config_manager_database(
         FakeDocker({}, present=False)).status == Status.SKIP
     assert live_checks.check_config_manager_database(FakeDocker({PS_CM: (0, "")})).status == Status.SKIP
+
+
+# -- targets-measured ---------------------------------------------------------------
+
+
+def _measured(body, rc: int = 0) -> FakeDocker:
+    out = body if isinstance(body, str) else json.dumps(body)
+    return FakeDocker({PS_CM: (0, "pro-config-manager-1\n"), EXEC_CM: (rc, out + "\n")})
+
+
+def _rows(**states):
+    return [{"name": f"{state}{i}", "state": state}
+            for state, n in states.items() for i in range(n)]
+
+
+def test_every_target_fresh_is_ok():
+    res = live_checks.check_targets_measured(
+        _measured({"available": True, "targets": _rows(fresh=78)}))
+    assert res.status == Status.OK
+    assert res.summary == "all 78 configured targets are measured"
+
+
+def test_sample_config_race_fails_and_names_the_restart():
+    # #303/#304: 22 of 22 configured targets without an RRD, doctor green.
+    res = live_checks.check_targets_measured(
+        _measured({"available": True, "targets": _rows(missing=22)}))
+    assert res.status == Status.FAIL
+    assert "none of the 22 configured targets" in res.findings[0].message
+    assert "restart smokeping" in res.findings[0].message
+
+
+def test_some_missing_and_stale_targets_fail_by_name():
+    res = live_checks.check_targets_measured(_measured(
+        {"available": True, "targets": _rows(fresh=5, missing=1, stale=2)}))
+    assert res.status == Status.FAIL
+    assert [f.message for f in res.findings] == [
+        "1 configured target(s) never got SmokePing data: missing0",
+        "2 target(s) stopped getting SmokePing data: stale0, stale1",
+    ]
+
+
+def test_a_stack_inside_its_first_steps_is_not_a_failure():
+    # /measurements calls a target pending until two steps after SmokePing
+    # (or the target) started.
+    res = live_checks.check_targets_measured(
+        _measured({"available": True, "targets": _rows(pending=22)}))
+    assert res.status == Status.OK
+    assert "22 waiting for their first step" in res.summary
+
+
+def test_long_lists_are_cut():
+    res = live_checks.check_targets_measured(_measured(
+        {"available": True, "targets": _rows(fresh=1, stale=20)}))
+    assert res.findings[0].message.endswith(" ...")
+    assert res.findings[0].message.count("stale") == live_checks.MEASURED_SHOWN
+
+
+def test_unanswered_or_unavailable_warns_and_absent_skips():
+    assert live_checks.check_targets_measured(_measured("", rc=1)).status == Status.WARN
+    assert live_checks.check_targets_measured(_measured("<html>")).status == Status.WARN
+    res = live_checks.check_targets_measured(
+        _measured({"available": False, "reason": "no generated Targets file yet"}))
+    assert res.status == Status.WARN
+    assert "no generated Targets file yet" in res.findings[0].message
+    assert live_checks.check_targets_measured(
+        FakeDocker({}, present=False)).status == Status.SKIP
+    assert live_checks.check_targets_measured(FakeDocker({PS_CM: (0, "")})).status == Status.SKIP
+
+
+def test_the_token_stays_in_the_container():
+    docker = _measured({"available": True, "targets": _rows(fresh=1)})
+    live_checks.check_targets_measured(docker)
+    call = docker.calls[-1]
+    assert "CONFIG_API_TOKEN" in call and "Bearer ' + t" in call
 
 
 # -- silent-series ------------------------------------------------------------------
