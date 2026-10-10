@@ -158,6 +158,31 @@ Inside the config-manager container, with the app's own code and
 - **warn** when the probe itself did not answer;
 - **skip** without Docker or without the container.
 
+### `targets-measured`
+
+Every configured target has SmokePing data, and recent data. A clean
+install once came up with every container healthy and every other check
+green while SmokePing measured the image's sample Targets: 22 of 22
+configured targets had no RRD file at all
+([#303](https://github.com/estcarisimo/smoking-pi/issues/303)). InfluxDB
+held points and the dashboards were new, so nothing here looked wrong.
+
+The check asks config-manager's `/measurements`, the same answer as the web
+admin's **Measurements** card: the configured targets against the RRD
+files SmokePing writes. It runs inside the config-manager container, so its
+API token never reaches the command line.
+
+- **fail** when no configured target has data (the hint is
+  `sudo smoking-pi restart smokeping`), naming the targets that never got
+  data, or naming those that stopped getting it;
+- **ok** when every target is measured. A target within two steps of its own
+  start, or of SmokePing's, is *pending* there, not missing, so a stack that
+  has just started does not fail; the summary counts those;
+- **warn** when config-manager does not answer, cannot tell (no
+  generated Targets file yet), or lists no target at all: "all 0 targets
+  measured" would be the silence this check exists to end;
+- **skip** without Docker or without config-manager (Basic).
+
 ### `silent-series`
 
 Every series that answered nothing for a whole day: at least 200 rounds

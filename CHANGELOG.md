@@ -25,6 +25,18 @@ version gets a matching GitHub release and git tag.
   before every reload it sends, and once at startup, reloading SmokePing
   when it had to link. An install that already hit this repairs itself when
   config-manager next starts, for example on the upgrade.
+- **The doctor notices when configured targets are not measured**
+  ([#304](https://github.com/estcarisimo/smoking-pi/issues/304)). In that
+  clean install, `doctor --live` reported 21 ok while 22 of 22 configured
+  targets had no data. `silent-series` read InfluxDB, which held points,
+  and the dashboards were new, so nothing it checked was wrong. The
+  instrumentation doctor said "all good" about a monitor recording none of
+  its targets. A new live check, `targets-measured`, asks config-manager's
+  `/measurements` (the web admin's Measurements card): it fails when
+  configured targets never got data or stopped getting it, naming them, and
+  points at `sudo smoking-pi restart smokeping` when none has any. A target
+  within its first two steps is pending, so a stack that just started does
+  not fail.
 
 ## [2.29.1] — 2026-10-09
 
