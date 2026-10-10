@@ -12,6 +12,11 @@
 # /config is a named volume (writable). Idempotent: safe to run on every
 # container start. Pre-existing real files (from the old single-file bind
 # mounts or stale volume contents) are replaced with symlinks.
+#
+# When nothing is generated yet (SmokePing started first on a clean install)
+# this leaves the image's sample config in place; config-manager runs the
+# same step (api.LINK_GENERATED_CONFIG) before every reload and at its own
+# start, so the link happens then (#303). Keep the two in step.
 
 set -u
 

@@ -2,6 +2,9 @@
 and GET /measurements against a fake Docker client."""
 
 import json
+import os
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -379,7 +382,7 @@ def test_a_guard_that_cannot_run_does_not_stop_the_reload(
     assert api_module.api.last_rrd_guard == {"ran": False, "reason": "rrd_guard exit 2"}
 
 
-def _start(monkeypatch, corrected):
+def _start(monkeypatch, corrected, linked=False):
     import scripts.migrate_yaml_to_db as migration
 
     def fake_migration(config_dir=None, **kw):
@@ -395,6 +398,7 @@ def _start(monkeypatch, corrected):
     monkeypatch.setattr(api_module.api.generator, "run", lambda: True)
     monkeypatch.setattr(api_module.api, "_signal_smokeping_reload",
                         lambda: reloads.append(1) or True)
+    monkeypatch.setattr(api_module.api, "ensure_smokeping_links", lambda: linked)
     monkeypatch.setattr(api_module, "_start_ipv6_recheck_thread", lambda: None)
     api_module.initialize()
     return reloads
@@ -406,6 +410,71 @@ def test_a_corrected_target_reloads_smokeping_at_start(monkeypatch):
 
 def test_an_ordinary_start_does_not_signal_smokeping(monkeypatch):
     assert _start(monkeypatch, corrected=0) == []
+
+
+def test_a_smokeping_on_its_sample_config_is_linked_and_reloaded_at_start(monkeypatch):
+    # #303: SmokePing started before anything was generated.
+    assert _start(monkeypatch, corrected=0, linked=True) == [1]
+
+
+# --- #303: SmokePing kept its sample Targets -------------------------------
+
+def _run_link_script(root):
+    """The snippet config-manager execs in SmokePing, against a temp /config."""
+    script = api_module.LINK_GENERATED_CONFIG.replace("/config", str(root))
+    done = subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=True)
+    return done.stdout.split()
+
+
+def test_the_link_script_replaces_the_image_sample_config(tmp_path):
+    (tmp_path / "generated").mkdir()
+    (tmp_path / "generated" / "Targets").write_text(TARGETS)
+    (tmp_path / "generated" / "Probes").write_text(PROBES)
+    (tmp_path / "Targets").write_text("+ USA\n++ MIT\nhost = www.mit.edu\n")
+    (tmp_path / "Probes").write_text("+ FPing\n")
+    assert _run_link_script(tmp_path) == ["Targets", "Probes"]
+    for name in ("Targets", "Probes"):
+        assert (tmp_path / name).is_symlink()
+        assert os.readlink(tmp_path / name) == str(tmp_path / "generated" / name)
+    assert (tmp_path / "Targets").read_text() == TARGETS
+    # A second run finds the links in place: nothing to do, nothing to reload.
+    assert _run_link_script(tmp_path) == []
+
+
+def test_the_link_script_leaves_config_alone_until_it_is_generated(tmp_path):
+    (tmp_path / "generated").mkdir()
+    (tmp_path / "Targets").write_text("sample")
+    assert _run_link_script(tmp_path) == []
+    assert (tmp_path / "Targets").read_text() == "sample"
+    assert not (tmp_path / "Probes").exists()
+
+
+def test_every_reload_links_before_the_signal(fake_docker):
+    container = fake_docker({"sh": (0, b"Targets\nProbes\n"), "killall": (0, b"")})
+    assert api_module.api._signal_smokeping_reload() is True
+    order = [c[0] for c in container.calls]
+    assert order.index("sh") < order.index("killall")
+
+
+def test_a_link_that_fails_does_not_stop_the_reload(fake_docker):
+    fake_docker({"sh": (1, b"read-only"), "killall": (0, b"")})
+    assert api_module.api._signal_smokeping_reload() is True
+
+
+def test_ensure_links_reports_whether_it_changed_anything(fake_docker):
+    fake_docker({"sh": (0, b"Targets\n")})
+    assert api_module.api.ensure_smokeping_links() is True
+    fake_docker({"sh": (0, b"")})
+    assert api_module.api.ensure_smokeping_links() is False
+
+
+def test_ensure_links_before_smokeping_exists(monkeypatch):
+    def missing(name):
+        raise RuntimeError("No such container")
+    client = SimpleNamespace(containers=SimpleNamespace(get=missing))
+    monkeypatch.setattr(api_module.docker, "from_env", lambda: client)
+    monkeypatch.setattr(api_module, "resolve_container_name", lambda svc: "pro-smokeping-1")
+    assert api_module.api.ensure_smokeping_links() is False
 
 
 def test_explicit_cadence_leaves_out_what_the_database_section_decides():
@@ -447,3 +516,18 @@ def test_a_map_that_cannot_be_written_does_not_fail_the_generation(tmp_path, mon
     assert (tmp_path / "Targets").read_text() == targets
     assert (tmp_path / "Probes").read_text() == probes
     assert not (tmp_path / "cadence.json").exists()
+
+
+def test_the_snippet_and_the_cont_init_scripts_stay_in_step():
+    # Two copies of one step (config-manager's and SmokePing's own start):
+    # a change to one must reach the other.
+    root = Path(api_module.__file__).resolve().parents[3]
+    for edition in ("pro", "standard"):
+        script = (root / "editions" / edition / "custom-cont-init.d"
+                  / "05-link-generated-config.sh").read_text()
+        for shape in ('GENERATED_DIR="/config/generated"', 'for name in Targets Probes',
+                      'readlink "$dst"', 'rm -f "$dst"', 'ln -s "$src" "$dst"'):
+            assert shape in script, (edition, shape)
+    for shape in ("src=/config/generated/$n", "for n in Targets Probes",
+                  'readlink "$dst"', 'rm -f "$dst"', 'ln -s "$src" "$dst"'):
+        assert shape in api_module.LINK_GENERATED_CONFIG, shape

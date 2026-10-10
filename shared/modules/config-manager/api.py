@@ -91,6 +91,17 @@ CONFIG_FILES = {
     'sources': CONFIG_DIR / 'sources.yaml',
 }
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", BASE_DIR / "output"))
+# Run inside the SmokePing container: what 05-link-generated-config.sh does
+# at its start, printing each name it linked. OUTPUT_DIR is mounted there
+# read-only at /config/generated.
+LINK_GENERATED_CONFIG = (
+    'for n in Targets Probes; do '
+    'src=/config/generated/$n; dst=/config/$n; '
+    '[ -e "$src" ] || continue; '
+    '[ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ] && continue; '
+    'rm -f "$dst" && ln -s "$src" "$dst" && echo "$n"; '
+    'done'
+)
 
 
 def require_api_token(f):
@@ -421,11 +432,46 @@ class ConfigManagerAPI:
             logger.warning(f"RRD guard could not run: {e}")
             return {'ran': False, 'reason': 'rrd_guard could not run'}
 
+    def _link_generated_config(self, container) -> list:
+        """Point SmokePing's /config/{Targets,Probes} at the generated files.
+
+        05-link-generated-config.sh does this when the container starts, but
+        only for a file that already exists: on a clean install SmokePing
+        can start before this service has generated anything, and then it
+        keeps the image's sample Targets for good -- a SIGHUP reloads the
+        sample again, because /config/Targets is a real file, not the link.
+        Same commands as the script, run before every reload. Returns the
+        names it linked; never raises.
+        """
+        try:
+            ran = container.exec_run(['sh', '-c', LINK_GENERATED_CONFIG])
+            if ran.exit_code != 0:
+                logger.warning(f"Could not link the generated config (exit {ran.exit_code})")
+                return []
+            linked = (ran.output or b'').decode(errors='replace').split()
+            if linked:
+                logger.info(f"Linked SmokePing's {', '.join(linked)} to the generated config")
+            return linked
+        except Exception as e:
+            logger.warning(f"Could not link the generated config: {e}")
+            return []
+
+    def ensure_smokeping_links(self) -> bool:
+        """At startup: True if SmokePing was reading its own sample config."""
+        try:
+            container = docker.from_env().containers.get(resolve_container_name('smokeping'))
+        except Exception as e:
+            # Not created yet: its own cont-init script links when it starts.
+            logger.info(f"SmokePing not reachable for the config link check: {e}")
+            return False
+        return bool(self._link_generated_config(container))
+
     def _signal_smokeping_reload(self) -> bool:
         """Ask SmokePing to reload its config; True only if the signal landed.
 
         The generated files are bind-mounted into the SmokePing container,
-        so a SIGHUP is enough - no file copying is needed. Best effort in
+        so a SIGHUP is enough - no file copying is needed, once /config
+        links to them (_link_generated_config). Best effort in
         that a failure does not fail the request (the configuration is
         saved either way), but it is reported: this used to ignore
         exec_run's exit code and log "Sent reload signal" when killall had
@@ -436,6 +482,7 @@ class ConfigManagerAPI:
             container_name = resolve_container_name('smokeping')
             client = docker.from_env()
             container = client.containers.get(container_name)
+            self._link_generated_config(container)
             self.last_rrd_guard = self._guard_rrds(container)
             result = container.exec_run(['killall', '-HUP', 'smokeping'])
             if result.exit_code != 0:
@@ -1016,13 +1063,16 @@ def initialize() -> None:
             logger.warning(f"Initial IPv6 check failed: {e}")
 
         # 4. Generate SmokePing config once at startup. SmokePing reads its
-        #    Targets only when it starts or is signaled, and on an upgrade it
-        #    may have started first: a corrected shipped default (step 2)
-        #    is measured only after a reload.
+        #    Targets only when it starts or is signaled, and it may have
+        #    started first: on an upgrade, a corrected shipped default
+        #    (step 2) is measured only after a reload; on a clean install,
+        #    it found nothing generated yet and is measuring the image's
+        #    sample Targets until linked and reloaded (#303).
         try:
             if api.generator.run():
                 logger.info("Initial SmokePing configuration generated")
-                if corrected:
+                linked = api.ensure_smokeping_links()
+                if corrected or linked:
                     api._signal_smokeping_reload()
             else:
                 logger.error("Initial SmokePing configuration generation failed")
