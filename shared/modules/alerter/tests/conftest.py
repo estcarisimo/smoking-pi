@@ -24,6 +24,7 @@ SCRUB_ENV_VARS = [
     "ALERT_SILENT",
     "ALERT_IMAGE_AS_DOCUMENT",
     "ALERT_DIAGNOSIS_HOURS",
+    "INCIDENT_HISTORY_HOURS",
     "OPENCLAW_URL",
     "OPENCLAW_HOOK_TOKEN",
     "OPENCLAW_CHANNEL",
@@ -76,6 +77,10 @@ SCRUB_ENV_VARS = [
 def _scrub_env(monkeypatch):
     for name in SCRUB_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+    # The incident history starts a background diagnosis from run_iteration.
+    # It would outlive a test's mocks and query a real InfluxDB, so it is
+    # off unless a test turns it on (test_incident_history.py).
+    monkeypatch.setenv("INCIDENT_HISTORY_HOURS", "0")
 
 
 @pytest.fixture

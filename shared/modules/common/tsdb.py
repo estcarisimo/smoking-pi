@@ -62,6 +62,22 @@ def _get_query_api():
     return _influx_client.query_api()
 
 
+def write_points(points: list) -> None:
+    """Write ``influxdb_client.Point`` objects to the bucket, synchronously.
+    Raises on failure: the caller decides whether that costs anything.
+
+    Nearly everything here reads; the exporters write the measurements.
+    The one writer through this helper is the alerter's incident history
+    (``loss_incident``, alerter/incident_history.py)."""
+    if not points:
+        return
+    from influxdb_client.client.write_api import SYNCHRONOUS
+
+    _get_query_api()  # constructs the shared client
+    with _influx_client.write_api(write_options=SYNCHRONOUS) as write_api:
+        write_api.write(bucket=influx_bucket(), record=points)
+
+
 def query_influx(flux: str) -> list[dict]:
     """Run a Flux query and return a flat list of record dicts."""
     tables = _get_query_api().query(flux)

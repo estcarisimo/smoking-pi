@@ -9,6 +9,28 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Loss incidents are written down, and dashboards and assistants show
+  them.** `diagnose_loss` says what each loss episode was (this host's
+  Wi-Fi, the line, one destination, upstream) with its evidence and a
+  confidence. It ran only when asked, for at most a week, and nothing kept
+  the result. "What happened last month?" had no answer, and a chart could
+  not mark an incident. Every half hour the alerter now diagnoses the last
+  `INCIDENT_HISTORY_HOURS` (default 12) in the background and writes each
+  incident that is over into InfluxDB (`loss_incident`), stamped at its
+  start with every value a field, so a later run overwrites it rather than
+  duplicating it. An incident that began before the window makes the run
+  widen it, up to a week, until the whole incident is inside: on the
+  reference Pi the radio was deaf for 11 hours on 2026-10-11 (from 08:35
+  UTC until it was power-cycled), and a fixed window would never have
+  written it. Assistants read the history with a new MCP tool,
+  `get_incident_history(days, include_probe_miss)`, up to a year. The
+  *Smoking Pi Overview* and *Target Detail* dashboards shade each incident
+  with its class and confidence; Target Detail shows the target's own
+  incidents plus the ones about everything. It needs the `alerts` service
+  and InfluxDB. See *Incident history* in the alerting docs.
+
 ### Fixed
 
 - **Netflix targets keep one name, so their history is one curve**

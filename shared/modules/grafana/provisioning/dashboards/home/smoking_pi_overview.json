@@ -40,6 +40,20 @@
           "queryType": "flux",
           "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_resolver\" and (r._field == \"previous\" or r._field == \"owner\")) |> pivot(rowKey: [\"_time\", \"path\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => exists r.previous) |> map(fn: (r) => ({_time: r._time, text: \"Resolver via \" + r.path + \": \" + r.previous + \" → \" + r.owner, tags: \"resolver\"}))"
         }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#C4162A",
+        "name": "Loss incidents (diagnosed)",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "import \"date\"\n// Loss incidents the alerter wrote down once over (loss_incident), as\n// diagnose_loss classified them. Stamped at their start: reach back so one\n// that began before the range but ends inside it is still shaded.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 7d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"loss_incident\" and (r._field == \"class\" or r._field == \"confidence\" or r._field == \"summary\" or r._field == \"end_epoch\" or r._field == \"targets\" or r._field == \"minutes\"))\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.class != \"probe_miss\" and r.end_epoch * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end_epoch * 1000000000), text: \"Loss incident, \" + r.class + \" (\" + r.confidence + \" confidence, \" + string(v: r.minutes) + \" min): \" + r.summary, tags: \"incident,\" + r.class}))"
+        }
       }
     ]
   },

@@ -379,3 +379,65 @@ def test_diagnose_loss_flux_reads_wifi_by_window_and_leaves_out_the_first_hop(
     seen.clear()
     server.diagnose_loss(hours=72)
     assert any("aggregateWindow(every: 300s" in f and "wifi_link" in f for f in seen)
+
+
+# --- get_incident_history: the incidents the alerter wrote down ----------------
+
+def _stored(start, cls, **over):
+    row = {"_time": datetime.fromtimestamp(start, tz=timezone.utc),
+           "end_epoch": start + 600, "minutes": 10, "class": cls, "detail": "",
+           "confidence": "high", "summary": f"summary of {cls}",
+           "targets": "google,amazon", "targets_affected": 2, "targets_reporting": 20,
+           "evidence": "first | second", "against": "", "max_loss_pct": 40.0}
+    row.update(over)
+    return row
+
+
+def test_history_lists_stored_incidents_newest_first_without_probe_misses(monkeypatch):
+    rows = [_stored(T0 + 7200, "upstream"), _stored(T0 + 3600, "probe_miss"),
+            _stored(T0, "local_wifi", detail="deaf", targets="", max_loss_pct=-1.0)]
+    queries = []
+
+    def fake(f):
+        queries.append(f)
+        # The second query asks for the oldest stored incident.
+        return [{"_time": datetime.fromtimestamp(T0 - 86400, tz=timezone.utc)}] \
+            if "first()" in f else rows
+
+    monkeypatch.setattr(server, "query_influx", fake)
+    out = server.get_incident_history(days=30)
+    assert "loss_incident" in queries[0] and "-30d" in queries[0]
+    assert [i["class"] for i in out["incidents"]] == ["upstream", "local_wifi"]
+    assert out["by_class"] == {"upstream": 1, "probe_miss": 1, "local_wifi": 1}
+    first = out["incidents"][0]
+    assert first["targets"] == ["google", "amazon"]
+    assert first["evidence"] == ["first", "second"] and first["against"] == []
+    assert first["end"] == datetime.fromtimestamp(T0 + 7800, tz=timezone.utc).isoformat()
+    assert out["incidents"][1]["detail"] == "deaf" and out["incidents"][1]["targets"] == []
+    assert "max_loss_pct" not in out["incidents"][1]  # the -1 of "no loss run"
+    assert out["incidents"][0]["max_loss_pct"] == 40.0
+    # The start of the whole history, not of the window.
+    assert out["stored_from"] == datetime.fromtimestamp(T0 - 86400, tz=timezone.utc).isoformat()
+    with_misses = server.get_incident_history(days=30, include_probe_miss=True)
+    assert len(with_misses["incidents"]) == 3
+
+
+def test_history_says_when_nothing_is_stored_yet(monkeypatch):
+    monkeypatch.setattr(server, "query_influx", lambda f: [])
+    out = server.get_incident_history()
+    assert out["incidents"] == [] and out["stored_from"] is None
+
+
+@pytest.mark.parametrize("days", [0, 366, "x"])
+def test_history_refuses_a_bad_window(monkeypatch, days):
+    monkeypatch.setattr(server, "query_influx", lambda f: pytest.fail("queried"))
+    assert "error" in server.get_incident_history(days=days)
+
+
+def test_history_query_failure_is_a_static_error(monkeypatch):
+    def boom(f):
+        raise RuntimeError("secret detail http://influx:8086 token=abc")
+    monkeypatch.setattr(server, "query_influx", boom)
+    out = server.get_incident_history()
+    assert out["error"].startswith("InfluxDB query failed")
+    assert "secret" not in str(out)
