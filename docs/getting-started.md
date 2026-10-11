@@ -462,7 +462,8 @@ Useful to know on the first day:
   for you; you do not have to find them. Each keeps one name per slot and
   site (`Netflix_1_DFW`) while Netflix hands it a different appliance every
   day, so its history is one curve; which appliance stood behind it, and
-  when, is the `target_host` measurement.
+  when, is the `target_host` measurement (InfluxDB; the ClickHouse exporter
+  does not write it).
 - **HTTP targets are per-version.** Adding `example.com` over HTTP/2 and
   HTTP/3 gives you two curves and the bare TCP handshake underneath as the
   floor ([HTTP and TCP probes](http-probes.md)).

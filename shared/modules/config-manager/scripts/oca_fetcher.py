@@ -184,6 +184,10 @@ class OCAFetcher:
                 # exporter records which host stood behind each target.
                 # Letters last on purpose: the exporter reads a name ending
                 # in "6" as an IPv6 target (Google6), and slot 6 would be one.
+                # The slot is the locator's order, which kept each slot at
+                # one site for 60 days; if it reshuffles, a slot's name
+                # changes with its site and a new series starts, which is
+                # what a different site should get anyway.
                 name = f"Netflix_{idx+1}_{location_code}"
                 title = (f"{domain} (Netflix {location_code} #{idx+1}, {cache_id})"
                          if domain else f"Netflix OCA {location_code} #{idx+1}")
@@ -318,7 +322,6 @@ class OCAFetcher:
                         'title': target_data.get('title', target_data.get('name')),
                         'category_id': category.id,
                         'probe_id': probe.id,
-                        'is_active': True,
                         'asn': metadata.get('asn'),
                         'cache_id': metadata.get('cache_id'),
                         'city': metadata.get('city'),
@@ -339,7 +342,11 @@ class OCAFetcher:
                     else:
                         # session.add (not repo.create): repo.create commits
                         # per row, which would break the single transaction.
-                        target_repo.add_pending({'name': target_data.get('name'), **values})
+                        # Only a new slot is turned on here: a slot the
+                        # owner turned off stays off across refreshes, now
+                        # that the row outlives the night.
+                        target_repo.add_pending({'name': target_data.get('name'),
+                                                 'is_active': True, **values})
                     added += 1
                 logger.info(
                     f"Netflix OCA targets: {updated} updated in place, "

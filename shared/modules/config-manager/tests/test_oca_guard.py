@@ -116,3 +116,30 @@ def test_refresh_updates_slots_in_place_and_removes_only_what_is_gone():
     session.commit.assert_called_once()
     repo.create.assert_not_called()
     repo.update.assert_not_called()
+
+
+def test_a_slot_turned_off_stays_off_across_refreshes():
+    fetcher = OCAFetcher()
+    kept = MagicMock()
+    kept.name = "Netflix_1_DFW"
+    kept.is_active = False
+    new = fetcher.parse_oca_data(_servers(("23.246.3.9", "c569", "dfw"),
+                                          ("45.57.95.1", "c091", "mci")))
+    _, repo = _refresh_with([kept], new)
+    assert kept.is_active is False
+    assert kept.host == "23.246.3.9"
+    # A new slot is turned on.
+    assert repo.add_pending.call_args.args[0]["is_active"] is True
+
+
+def test_a_slot_that_moves_site_is_a_new_name_in_the_same_transaction():
+    fetcher = OCAFetcher()
+    old = MagicMock()
+    old.name = "Netflix_1_DFW"
+    new = fetcher.parse_oca_data(_servers(("198.38.98.1", "c348", "atl")))
+    session, repo = _refresh_with([old], new)
+    session.delete.assert_called_once_with(old)
+    assert [c.args[0]["name"] for c in repo.add_pending.call_args_list] == ["Netflix_1_ATL"]
+    # The delete is flushed before the insert, and one commit covers both.
+    calls = [c[0] for c in session.mock_calls if c[0] in ("delete", "flush", "commit")]
+    assert calls == ["delete", "flush", "commit"]
