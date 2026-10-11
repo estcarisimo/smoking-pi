@@ -299,6 +299,7 @@ missing reports directory is skipped quietly.
 | `ALERT_IMAGE_AS_DOCUMENT` | `false` | Send images as documents (a file card to tap open) instead of inline photos. Telegram re-encodes photos as JPEG; the charts are drawn large enough for that, so inline is the default |
 | `ALERT_SILENT` | `false` | Deliver without a notification buzz |
 | `ALERT_DIAGNOSIS_HOURS` | `3` | Hours diagnosed when a loss alert fires; the alert then says what the episode was and how sure (see [The diagnosis](#the-diagnosis-what-the-episode-was-and-how-sure)). `0` turns it off |
+| `INCIDENT_HISTORY_HOURS` | `12` | Window the alerter diagnoses every half hour to write down the loss incidents that are over (see [Incident history](#incident-history)); widened automatically for a longer incident. `0` turns it off |
 | `VERDICT_BROAD_PCT` | `60` | Share of measurable targets impaired before a problem counts as broad |
 | `VERDICT_MIN_TARGETS` | `3` | Below this many measurable targets, breadth means nothing |
 | `VERDICT_IMPAIRED_LOSS_PCT` | `10` | Mean loss percent at which a target counts as impaired |
@@ -429,6 +430,36 @@ is exactly when an outage alert matters. Past the budget, or on any
 failure, the alerts go out with the verdict alone, and a diagnosis still
 running is not started again. `ALERT_DIAGNOSIS_HOURS=0` turns the diagnosis
 off.
+
+### Incident history
+
+The diagnosis above is computed when it is needed, for at most a week, and
+nothing kept it: last month's outage could not be asked about, and no
+chart could mark one. The alerter now writes each loss incident down once
+it is over.
+
+- **When.** Every half hour, in the background, so never in the way of an
+  alert: the last `INCIDENT_HISTORY_HOURS` (12) are diagnosed and every
+  incident that ended more than 30 minutes ago is written. One still going,
+  or that could still change with late points, waits for the next run.
+- **Long incidents.** An incident that began before the window is cut at its
+  edge; when it is over, the run diagnoses again with the window doubled,
+  up to a week, until its start is inside. The reference Pi's radio was
+  deaf for 11 hours on 2026-10-11, and a fixed 12-hour window would never
+  have seen it whole.
+- **Where.** InfluxDB, measurement `loss_incident`, stamped at the
+  incident's start. Every value is a field (`class`, `detail`,
+  `confidence`, `summary`, `targets`, `evidence`, `against`, `end_epoch`,
+  `minutes`, `max_loss_pct`...), never a tag, so a later run about the same
+  incident overwrites it. Kept as long as the bucket keeps the measurements.
+- **Who reads it.** Assistants, through the `get_incident_history` MCP tool
+  (up to a year); the *Smoking Pi Overview* and *Target Detail* dashboards,
+  as a red region per incident with its class, confidence and summary on
+  hover (Target Detail: the target's own incidents and the ones about
+  everything). `probe_miss` is stored but shown by neither unless asked.
+
+It needs the `alerts` service, and InfluxDB: in ClickHouse mode nothing is
+written. `INCIDENT_HISTORY_HOURS=0` turns it off.
 
 ## The daily digest
 

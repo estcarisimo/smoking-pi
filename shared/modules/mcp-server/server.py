@@ -1339,6 +1339,94 @@ def diagnose_loss(hours: int = 24) -> dict:
     }
 
 
+HISTORY_MAX_DAYS = 365
+HISTORY_MAX_INCIDENTS = 100
+
+
+@mcp.tool()
+@logged_tool
+def get_incident_history(days: int = 30, include_probe_miss: bool = False) -> dict:
+    """Past loss incidents, as diagnose_loss classified them, from the
+    stored history: for "what happened last month?", "how often does the
+    line cut out?", "when was the last outage?" -- anything older than
+    diagnose_loss's week, or counts over weeks.
+
+    The alerter writes each incident down once it is over (the last ~30
+    minutes are never in it yet), so for the last hours and for the
+    detail of a recent one use diagnose_loss. Each incident has the same
+    `class`, `detail`, `confidence`, `summary`, `evidence`, `against`,
+    `start`, `end`, `minutes`, `targets` and `targets_reporting` as
+    diagnose_loss, and a `graph` link at its moment when links are set.
+    Newest first, at most 100; `by_class` counts all of them in the
+    window. `probe_miss` (one point on one target) is left out unless
+    `include_probe_miss`.
+
+    Empty with `stored_from: null` means nothing is stored yet: the
+    alerter (the `alerts` service) writes it, from the release that added
+    it on. Say so instead of "no incidents".
+
+    Args:
+        days: Lookback in days (default 30, at most 365).
+        include_probe_miss: Also list single-point probe misses.
+    """
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        return {"error": f"Invalid days value {days!r}: must be an integer."}
+    if not 1 <= days <= HISTORY_MAX_DAYS:
+        return {"error": f"days must be between 1 and {HISTORY_MAX_DAYS} (got {days})."}
+    flux = (f'from(bucket: {flux_str(influx_bucket())}) |> range(start: -{days}d) '
+            '|> filter(fn: (r) => r._measurement == "loss_incident") '
+            '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '
+            '|> group() |> sort(columns: ["_time"], desc: true)')
+    try:
+        rows = query_influx(flux)
+    except Exception as exc:
+        return _tool_error("InfluxDB query failed", exc)
+    by_class: dict[str, int] = {}
+    incidents = []
+    for r in rows:
+        cls = r.get("class") or "unclear"
+        by_class[cls] = by_class.get(cls, 0) + 1
+        if cls == "probe_miss" and not include_probe_miss:
+            continue
+        start = r.get("_time")
+        if isinstance(start, datetime):
+            start = start.astimezone(timezone.utc)
+        end = (datetime.fromtimestamp(int(r["end_epoch"]), tz=timezone.utc)
+               if r.get("end_epoch") is not None else None)
+        targets = [t for t in (r.get("targets") or "").split(",") if t]
+        inc = {
+            "class": cls,
+            "detail": r.get("detail") or None,
+            "confidence": r.get("confidence") or None,
+            "summary": r.get("summary") or "",
+            "start": start.isoformat() if isinstance(start, datetime) else start,
+            "end": end.isoformat() if end else None,
+            "minutes": r.get("minutes"),
+            "targets": targets,
+            "targets_reporting": r.get("targets_reporting"),
+            "evidence": [e for e in (r.get("evidence") or "").split(" | ") if e],
+            "against": [e for e in (r.get("against") or "").split(" | ") if e],
+        }
+        if r.get("max_loss_pct") is not None:
+            inc["max_loss_pct"] = r["max_loss_pct"]
+        if targets and isinstance(start, datetime):
+            graph = links.target_links(targets[0], measurement="latency",
+                                       at=start).get("graph")
+            if graph:
+                inc["graph"] = graph
+        incidents.append(inc)
+    oldest = rows[-1].get("_time") if rows else None
+    return {
+        "window_days": days,
+        "stored_from": oldest.isoformat() if isinstance(oldest, datetime) else oldest,
+        "incidents": incidents[:HISTORY_MAX_INCIDENTS],
+        "truncated": len(incidents) > HISTORY_MAX_INCIDENTS,
+        "by_class": by_class,
+    }
+
+
 @mcp.tool()
 @logged_tool
 def get_microcut_stats(hours: int = 24) -> dict:

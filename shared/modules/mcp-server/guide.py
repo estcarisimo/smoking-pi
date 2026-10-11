@@ -57,6 +57,11 @@ attributed:
   low-grade loss on most paths, never most at once). Beyond the line.
 - `unclear` -- say so, and give the evidence.
 
+For anything older than a week, or counts over weeks ("how often does the
+line cut out?", "when was the last outage?"), call `get_incident_history`:
+the same incidents, as the alerter wrote them down once they were over.
+Its newest half hour is never there yet; that is `diagnose_loss`'s.
+
 `diagnose_loss` already reads the rest; when you go to `get_loss_events`
 yourself, read `widespread` first: a run with `all_lost: true` means every
 target, the gateway included, lost every packet from this Pi -- its own

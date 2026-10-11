@@ -21,6 +21,7 @@ import charts
 import digest
 import evaluator
 import flux
+import incident_history
 import notifier
 import reports_watcher
 import state
@@ -199,6 +200,12 @@ def run_iteration() -> None:
         digest.record_history(current, payload)
 
     reports_watcher.check(current)
+    # Every half hour, in the background: the incidents that are over, into
+    # InfluxDB (loss_incident). Never in the way of the alerts above.
+    try:
+        incident_history.maybe_record(current, context.get("cadences"))
+    except Exception:  # noqa: BLE001 - history must never cost an alert
+        log.exception("Incident history check failed")
     # Before save_state, so the fired slot lands in the same atomic write as
     # the incident records it was built from. A crash between the two would
     # otherwise re-send the digest on restart.
