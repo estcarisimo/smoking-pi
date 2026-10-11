@@ -9,6 +9,41 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Install offers every assistant, and only when there is one to connect**
+  ([#305](https://github.com/estcarisimo/smoking-pi/issues/305)). The
+  question at the end of `install` predated `connect`: it offered only
+  OpenClaw, was asked even when the `mcp` profile (the server an assistant
+  talks to) had not been picked, pointed a later setup at `smoking-pi
+  openclaw`, and a skipped answer was missing from *Still to do*, which the
+  guide promises lists every skipped question. Someone who wanted Claude,
+  ChatGPT or Grok was told nothing about how. It is now asked only with
+  `mcp`, offers OpenClaw on this Pi, an assistant on the Internet (`connect
+  --tailscale`, then `connect NAME`) or OpenClaw elsewhere, and whatever is
+  not done is listed under *Still to do* in `connect`'s words, `--yes`
+  included. *Getting started* step 7 describes the same two paths.
+- **`smoking-pi COMMAND --help` answers, without sudo**
+  ([#305](https://github.com/estcarisimo/smoking-pi/issues/305)). On a
+  package, `backup --help` refused because only root can read the env file,
+  and with sudo it answered `unknown option --help`; so did `restore`. Help
+  read nothing it needed to. Every command's `--help` (or `-h`) now prints
+  that command's entry in the reference, before anything reads the env
+  file; the doctor keeps its own.
+- **The "already installed" refusal names `smoking-pi purge --config`**
+  ([#305](https://github.com/estcarisimo/smoking-pi/issues/305)) instead of
+  a `docker volume ls | grep` and an env file to delete by hand, which is
+  the command that does exactly that and the one the guide names.
+- **`purge --config` on a package leaves no empty `/etc/smoking-pi/config`**
+  ([#305](https://github.com/estcarisimo/smoking-pi/issues/305)). It
+  recreated the config and output directories, placeholders that only a
+  clone tracks; install and restore create them again.
+- ***Getting started* says alerts comes preselected**
+  ([#305](https://github.com/estcarisimo/smoking-pi/issues/305)), as it has
+  since the checklist turned it on; step 3 said all four optional services
+  were off unless picked, and that alerts could go only to OpenClaw or a
+  webhook (Telegram too).
+
 ## [2.29.2] — 2026-10-11
 
 A clean install measures its own targets, and the doctor says when it does

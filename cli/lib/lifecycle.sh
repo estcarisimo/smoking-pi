@@ -269,7 +269,10 @@ cmd_purge() {
         [ -z "$EDITION_FILE" ] || rm -f "$EDITION_FILE"
         rm -rf "$(config_dir)" "$(output_dir)"
         # From a clone the directories are tracked as .gitkeep placeholders.
-        mkdir -p "$(config_dir)" "$(output_dir)"
+        # Packaged, they are not put back: an empty /etc/smoking-pi/config
+        # looked like a half-removed install, and install (setup.sh) and
+        # restore create them again.
+        [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] || mkdir -p "$(config_dir)" "$(output_dir)"
     fi
     echo "Purged. 'smoking-pi install' starts over."
 }

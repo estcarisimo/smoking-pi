@@ -131,6 +131,15 @@ for _module in core env usage reach install config services links alerts opencla
 done
 unset _module
 
+# `smoking-pi COMMAND --help` is that command's entry in the reference, and
+# reads nothing: asked without sudo on a package it refused ("only root can
+# read the env file"), and with sudo backup and restore answered "unknown
+# option --help". The doctor has its own (argparse).
+case "${1:-}:${2:-}" in
+    doctor:*) ;;
+    *:-h|*:--help) if command_help "$1"; then exit 0; fi ;;
+esac
+
 # Every command but these reads the env file. One that cannot must say so,
 # not answer from an empty file (see env_locked).
 case "${1:-}" in

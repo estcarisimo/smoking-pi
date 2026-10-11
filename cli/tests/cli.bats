@@ -215,6 +215,13 @@ fail_docker_on() {
     if grep -q SETUP "$DOCKER_LOG"; then false; fi
 }
 
+@test "install's refusal names purge --config, not docker volume ls and a hand-deleted env file" {
+    run "$CLI" install --yes
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"smoking-pi purge --config"* ]]
+    [[ "$output" != *"docker volume ls"* ]]
+}
+
 @test "install validates edition, database and profiles before doing anything" {
     rm -f "$SMOKING_PI_ENV_FILE"
     run "$CLI" install --yes --edition nope
@@ -461,6 +468,16 @@ make_backup_dir() {
     [ -d "$SMOKING_PI_OUTPUT_DIR" ]
 }
 
+@test "packaged purge --config leaves no empty config or output directory behind" {
+    export SMOKING_PI_PACKAGED=1
+    export SMOKING_PI_CONFIG_DIR="$BATS_TEST_TMPDIR/cfg" SMOKING_PI_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+    mkdir -p "$SMOKING_PI_CONFIG_DIR" "$SMOKING_PI_OUTPUT_DIR"
+    run "$CLI" purge --config --yes
+    [ "$status" -eq 0 ]
+    [ ! -e "$SMOKING_PI_CONFIG_DIR" ]
+    [ ! -e "$SMOKING_PI_OUTPUT_DIR" ]
+}
+
 @test "packaged purge --config stops and disables the unit first, and removes the edition record" {
     export SMOKING_PI_DEFAULTS="$BATS_TEST_TMPDIR/defaults"
     printf 'SMOKING_PI_PACKAGED=1\n' > "$SMOKING_PI_DEFAULTS"
@@ -528,7 +545,7 @@ case "$*" in
     *"Which edition?"*) echo pro >&2 ;;
     *"Time-series backend?"*) echo influxdb >&2 ;;
     *"Optional services"*) printf '%s' "${STUB_PICKS:-}" >&2 ;;
-    *"chat assistant"*) echo later >&2 ;;
+    *"chat assistant"*) echo "${STUB_ASSISTANT:-later}" >&2 ;;
 esac
 STUB
     chmod +x "$BATS_TEST_TMPDIR/bin/whiptail"
@@ -546,6 +563,46 @@ STUB
     [[ "$output" == *"AI reports: smoking-pi config set ANTHROPIC_API_KEY"* ]]
     [[ "$output" != *"in $SMOKING_PI_ENV_FILE"* ]]
     [[ "$output" != *"NOTIFY_MODE"* ]]
+}
+
+@test "install asks about an assistant only when mcp was picked, in the words of connect" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    stub_whiptail
+    STUB_PICKS='"alerts"' run "$CLI" install
+    [ "$status" -eq 0 ]
+    if grep -q 'Connect a chat assistant' "$DOCKER_LOG"; then false; fi
+    [[ "$output" != *"assistant:"* ]]
+    [[ "$output" != *"smoking-pi openclaw"* ]]
+
+    rm -f "$SMOKING_PI_ENV_FILE"; : > "$DOCKER_LOG"
+    STUB_PICKS='"mcp"' run "$CLI" install
+    [ "$status" -eq 0 ]
+    grep -q 'Connect a chat assistant' "$DOCKER_LOG"
+    grep -q 'Claude, ChatGPT, Grok' "$DOCKER_LOG"
+    # "Not now" is listed with the rest, by the command that does it.
+    [[ "$output" == *"Still to do:"*"assistant: smoking-pi connect openclaw (OpenClaw on this Pi), or smoking-pi connect NAME"* ]]
+    [[ "$output" != *"'smoking-pi openclaw'"* ]]
+}
+
+@test "install, an assistant on the Internet: the tunnel and connect NAME, and both left to do" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    stub_whiptail
+    STUB_PICKS='"mcp"' STUB_ASSISTANT=remote run "$CLI" install
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"smoking-pi connect --tailscale"* ]]
+    [[ "$output" == *"smoking-pi connect NAME"* ]]
+    [[ "$output" == *"Still to do:"*"assistant: smoking-pi connect --tailscale, then smoking-pi connect NAME"* ]]
+}
+
+@test "install --yes with mcp lists the assistant under Still to do; without mcp, nothing about one" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    run "$CLI" install --yes --database influxdb --profiles mcp
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Still to do:"*"assistant: smoking-pi connect openclaw"* ]]
+    rm -f "$SMOKING_PI_ENV_FILE"
+    run "$CLI" install --yes --database influxdb
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"assistant"* ]]
 }
 
 # The follow-ups ask only on a terminal, which bats never gives: script(1)
@@ -967,12 +1024,15 @@ STUB
 }
 
 # --yes is the scripted path: it must not prompt, and must still say the
-# assistant exists.
-@test "install --yes names the openclaw command instead of prompting" {
+# assistant exists when its MCP server was chosen (without one there is
+# nothing to connect to).
+@test "install --yes names the connect command instead of prompting" {
     rm -f "$SMOKING_PI_ENV_FILE"
-    run "$CLI" install --edition pro --yes
+    stub_whiptail
+    run "$CLI" install --edition pro --profiles mcp --yes
     [ "$status" -eq 0 ]
-    [[ "$output" == *"smoking-pi openclaw"* ]]
+    [[ "$output" == *"smoking-pi connect openclaw"* ]]
+    if grep -q whiptail "$DOCKER_LOG"; then false; fi
 }
 
 # PR #96's lesson, restated: a credential on a command line is readable by
@@ -2482,6 +2542,34 @@ teardown() { chmod -R u+rwx "$BATS_TEST_TMPDIR" 2>/dev/null || true; }
     run "$CLI" --help
     unlock_env
     [ "$status" -eq 0 ]
+}
+
+@test "COMMAND --help is its entry in the reference, without sudo and without the env file" {
+    lock_env dir
+    for cmd in backup restore purge install upgrade url config dns connect enable restart; do
+        run "$CLI" $cmd --help
+        [ "$status" -eq 0 ]
+        [[ "$output" == "  $cmd "* ]] || [[ "$output" == "  "*"| $cmd "* ]] || [[ "$output" == "  enable | disable"* ]]
+        [[ "$output" != *"only root"* ]]
+        [[ "$output" != *"unknown option"* ]]
+        # One command's entries, not the whole reference.
+        [[ "$output" != *"Environment:"* ]]
+    done
+    run "$CLI" restore -h
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"restore DIR"* ]]
+    unlock_env
+    [ ! -s "$DOCKER_LOG" ]
+}
+
+@test "COMMAND --help: connect shows both its entries; a subcommand word is not a command" {
+    run "$CLI" connect --help
+    [ "$(printf '%s\n' "$output" | grep -c '^  connect')" -eq 2 ]
+    run "$CLI" describe --help
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown command: describe"* ]]
+    run "$CLI" test --help
+    [ "$status" -eq 2 ]
 }
 
 # --- budget: what the configured measurements cost -----------------------------
