@@ -30,6 +30,14 @@ No dashboard or tool query reads them: all filter on ``_field``, and
 Historical points written by older versions keep their original scale: before
 2026-07 a raw count, and between 2026-07 and 2026-08 a ratio against a fixed
 20 (so half the true value for FPing targets, a quarter for DNS).
+
+TARGET HOSTS (added 2026-10): measurement **target_host** says which host
+stood behind each target, from SmokePing's Targets file: tags ``target`` and
+``category``, string fields ``host`` and ``title``. A point is written when
+a target is first seen by this process and whenever its host or title
+changes, never per cycle. It exists so a target's name can stay put while
+what it points at moves (the Netflix OCA slots, #275): a tag on the latency
+points would have split the series again at every change.
 """
 
 import glob
@@ -278,6 +286,95 @@ def write_with_retry(write_api, bucket: str, points, retries: int = WRITE_RETRIE
     return False
 
 
+# ───────────────────────── target hosts ─────────────────────────
+SMOKEPING_CONFIG_DIR = os.getenv("SMOKEPING_CONFIG_DIR", "/config")
+TARGETS_FILE = "Targets"
+SECTION_RE = re.compile(r"^(\+{1,})\s*(\S+)")
+INCLUDE_RE = re.compile(r"^@include\s+(\S+)")
+SETTING_RE = re.compile(r"^(host|title)\s*=\s*(.*?)\s*$")
+
+
+def parse_targets(path: str, _seen=None) -> dict:
+    """{target name: {"host", "title", "category"}} from a SmokePing Targets
+    file and the files it @includes (CPE_Targets). A target is a section
+    with a host; its category is the top-level section's, mapped the way
+    the RRD directories are (CATEGORY_MAP). A missing file is no targets."""
+    seen = _seen if _seen is not None else set()
+    real = os.path.realpath(path)
+    if real in seen:
+        return {}
+    seen.add(real)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return {}
+    targets = {}
+    top = None
+    node = None
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        inc = INCLUDE_RE.match(line)
+        if inc:
+            child = inc.group(1)
+            if not os.path.isabs(child):
+                child = os.path.join(os.path.dirname(path), child)
+            targets.update(parse_targets(child, seen))
+            continue
+        sec = SECTION_RE.match(line)
+        if sec:
+            depth, name = len(sec.group(1)), sec.group(2)
+            if depth == 1:
+                top, node = name, None
+            else:
+                node = {"name": name, "category": CATEGORY_MAP.get(top, "unknown")}
+            continue
+        setting = SETTING_RE.match(line)
+        if setting and node is not None:
+            node[setting.group(1)] = setting.group(2)
+            if "host" in node:
+                targets[node["name"]] = {
+                    "host": node["host"], "title": node.get("title", ""),
+                    "category": node["category"]}
+    return targets
+
+
+def host_points(targets: dict, known: dict, now: int):
+    """target_host points for the targets new to ``known`` or changed since,
+    and ``known`` updated to match. Targets that disappeared are forgotten,
+    so one that comes back is written again."""
+    points = []
+    for name, info in sorted(targets.items()):
+        current = (info["host"], info["title"])
+        if known.get(name) == current:
+            continue
+        known[name] = current
+        points.append(Point("target_host")
+                      .tag("target", name)
+                      .tag("category", info["category"])
+                      .field("host", info["host"])
+                      .field("title", info["title"])
+                      .time(now, WritePrecision.S))
+    for gone in [n for n in known if n not in targets]:
+        del known[gone]
+    return points
+
+
+def record_hosts(write_api, bucket: str, known: dict, now: int,
+                 config_dir: str = SMOKEPING_CONFIG_DIR) -> int:
+    """Write target_host points for what changed; returns how many. On a
+    failed write ``known`` is put back, so the next cycle tries again."""
+    before = dict(known)
+    points = host_points(parse_targets(os.path.join(config_dir, TARGETS_FILE)), known, now)
+    if points and not write_with_retry(write_api, bucket, points):
+        known.clear()
+        known.update(before)
+        return 0
+    return len(points)
+
+
 # ───────────────────────── export ─────────────────────────
 def build_points(rrd_file: str, rows, rrd_dir: str, pings: int, step=None):
     """Turn fetch rows into Influx points, timestamped from the RRD rows.
@@ -395,6 +492,9 @@ def main() -> int:
                             org=influx_org, timeout=10000)
     write_api = client.write_api(write_options=SYNCHRONOUS)
     state = load_state(state_file)
+    # In memory on purpose: a restart writes every target's host once more,
+    # which is a few hundred points and no harm.
+    hosts = {}
 
     logging.info("RRD exporter started → %s (bucket: %s, pings/cycle: per-RRD "
                  "(fallback %d), state: %s)",
@@ -404,6 +504,9 @@ def main() -> int:
             try:
                 run_cycle(write_api, influx_bucket, rrd_dir, state, pings)
                 save_state(state_file, state)
+                changed = record_hosts(write_api, influx_bucket, hosts, int(time.time()))
+                if changed:
+                    logging.info("target_host: %d target(s) new or moved", changed)
             except Exception as exc:
                 logging.error("Main loop error: %s", exc)
             time.sleep(interval)

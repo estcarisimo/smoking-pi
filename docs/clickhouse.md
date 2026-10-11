@@ -84,6 +84,11 @@ exporter — `topsites` / `netflix` / `dns` / `custom`, and `latency` /
 match that vocabulary; filtering on `category = 'DNS_Resolvers'` returns
 nothing.
 
+Not exported to ClickHouse: the InfluxDB exporter's `target_host`
+measurement, which records the host behind each target over time (the
+Netflix slots change appliance every night). In ClickHouse mode only the
+current host is known, from the target's row in the config.
+
 ## Verifying a deployment
 
 ```bash

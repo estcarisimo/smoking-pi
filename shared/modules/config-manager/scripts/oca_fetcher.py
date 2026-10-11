@@ -169,34 +169,32 @@ class OCAFetcher:
                     city_name = city_name.split(',')[0].strip()  # "Chicago, IL" -> "Chicago"
                 logger.info(f"DEBUG: Step 2 - after removing state suffix: '{city_name}'")
                 
-                # Sanitize city name for SmokePing - remove all special characters including periods
-                safe_city_name = city_name.replace('.', '').replace(' ', '_').replace(',', '').replace('-', '_').replace('(', '').replace(')', '')
-                logger.info(f"DEBUG: Step 3 - after sanitization: '{safe_city_name}'")
-                
-                # Create meaningful name from domain  
-                if domain:
-                    # Extract cache identifier from domain (e.g., c115)
-                    cache_id = "unknown"
-                    for part in domain.split('-'):
-                        if part.startswith('c') and part[1:].isdigit():
-                            cache_id = part
-                            break
-                    # Use format: Chicago_ORD_c730_1 (SmokePing safe)
-                    name = f"{safe_city_name}_{location_code}_{cache_id}_{idx+1}"
-                    logger.info(f"DEBUG: Step 4 - final name: '{name}'")
-                else:
-                    name = f"{safe_city_name}_{location_code}_{idx+1}"
-                    logger.info(f"DEBUG: Step 4 - final name (no domain): '{name}'")
-                
-                # Create title in format: domain (City CODE/cache_id)
-                if domain and city_name != "Unknown":
-                    title = f"{domain} ({city_name} {location_code}/{cache_id}_{idx+1})"
-                else:
-                    title = f"{domain}" if domain else f"Netflix OCA {location_code}"
-                
+                # The appliance within the site (c115 in ipv4-c115-ord003-ix...).
+                cache_id = "unknown"
+                for part in domain.split('-'):
+                    if part.startswith('c') and part[1:].isdigit():
+                        cache_id = part
+                        break
+                # The name is the slot and its site, never the appliance:
+                # Netflix hands out a different appliance at the same site
+                # every day, and a name with the appliance in it started a
+                # new series (and a new RRD) on every refresh -- 179 series
+                # in 60 days for 5 targets on the reference Pi (#275). The
+                # appliance is in the title and the metadata, and the
+                # exporter records which host stood behind each target.
+                # Letters last on purpose: the exporter reads a name ending
+                # in "6" as an IPv6 target (Google6), and slot 6 would be one.
+                # The slot is the locator's order, which kept each slot at
+                # one site for 60 days; if it reshuffles, a slot's name
+                # changes with its site and a new series starts, which is
+                # what a different site should get anyway.
+                name = f"Netflix_{idx+1}_{location_code}"
+                title = (f"{domain} (Netflix {location_code} #{idx+1}, {cache_id})"
+                         if domain else f"Netflix OCA {location_code} #{idx+1}")
+
                 # Log real OCA server detection with debug info
                 logger.info(f"Real Netflix OCA server {name}: {domain} -> {ip} (IPv{ip_obj.version}) -> {probe}")
-                logger.info(f"Debug: original_city='{server.get('city')}', cleaned_city='{city_name}', safe_city='{safe_city_name}'")
+                logger.info(f"Debug: original_city='{server.get('city')}', cleaned_city='{city_name}'")
                 
                 target = {
                     'name': name,
@@ -293,25 +291,24 @@ class OCAFetcher:
                     logger.error("Category 'netflix_oca' not found in database")
                     return False
 
-                # Remove existing OCA targets (full replace semantics,
-                # matching the previous YAML behavior). No commit here:
-                # delete + inserts happen in ONE transaction so a failure
-                # mid-way cannot leave the category emptied.
-                existing = target_repo.get_all(category_name='netflix_oca')
-                for target in existing:
-                    session.delete(target)
-                # Force the DELETEs to reach the database before the INSERTs.
-                # SQLAlchemy's unit of work emits saves before deletes within a
-                # flush, so without this the new rows collide with the old ones
-                # on the targets_name_key unique index and the whole refresh
-                # fails with UniqueViolation — which is what happened nightly
-                # whenever the OCA list came back unchanged. Still no commit:
-                # delete + inserts remain ONE transaction, so a failure mid-way
-                # cannot leave the category emptied.
+                # Update in place, by name. The names are stable (one per
+                # slot, see parse_oca_data), so a refresh changes a slot's
+                # host and metadata instead of deleting every row and
+                # inserting new ones; a slot that is gone is deleted, a new
+                # one added. No commit until the end: the whole refresh is
+                # ONE transaction, so a failure mid-way cannot leave the
+                # category emptied.
+                existing = {t.name: t for t in target_repo.get_all(category_name='netflix_oca')}
+                wanted = {t.get('name') for t in oca_targets}
+                for name, target in existing.items():
+                    if name not in wanted:
+                        session.delete(target)
+                # Deletes reach the database before any insert: SQLAlchemy
+                # emits saves before deletes within a flush, and a new row
+                # reusing a deleted name would hit targets_name_key.
                 session.flush()
-                logger.info(f"Replacing {len(existing)} existing Netflix OCA targets")
 
-                added = 0
+                added = updated = 0
                 for target_data in oca_targets:
                     probe_name = target_data.get('probe', 'FPing')
                     probe = probe_repo.get_by_name(probe_name)
@@ -320,15 +317,11 @@ class OCAFetcher:
                         continue
 
                     metadata = target_data.get('metadata', {}) or {}
-                    # session.add (not repo.create): repo.create commits per
-                    # row, which would break the single-transaction replace.
-                    target_repo.add_pending({
-                        'name': target_data.get('name'),
+                    values = {
                         'host': target_data.get('host'),
                         'title': target_data.get('title', target_data.get('name')),
                         'category_id': category.id,
                         'probe_id': probe.id,
-                        'is_active': True,
                         'asn': metadata.get('asn'),
                         'cache_id': metadata.get('cache_id'),
                         'city': metadata.get('city'),
@@ -339,8 +332,25 @@ class OCAFetcher:
                         'location_code': metadata.get('location_code'),
                         'raw_city': metadata.get('raw_city'),
                         'metadata_type': metadata.get('type'),
-                    })
+                    }
+                    current = existing.get(target_data.get('name'))
+                    if current is not None:
+                        # Attributes, not repo.update: that commits per row.
+                        for key, value in values.items():
+                            setattr(current, key, value)
+                        updated += 1
+                    else:
+                        # session.add (not repo.create): repo.create commits
+                        # per row, which would break the single transaction.
+                        # Only a new slot is turned on here: a slot the
+                        # owner turned off stays off across refreshes, now
+                        # that the row outlives the night.
+                        target_repo.add_pending({'name': target_data.get('name'),
+                                                 'is_active': True, **values})
                     added += 1
+                logger.info(
+                    f"Netflix OCA targets: {updated} updated in place, "
+                    f"{added - updated} new, {len(existing.keys() - wanted)} removed")
 
                 if added == 0:
                     session.rollback()

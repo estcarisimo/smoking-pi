@@ -336,3 +336,101 @@ class TestDnsWizardSection:
         assert rrd2influx.measurement_for(f, "/data") == measurement
         assert rrd2influx.probe_type_for(f, "/data") == probe_type
         assert rrd2influx.category_for(f, "/data") == "dns_wizard"
+
+
+# ───────────────────────── target hosts ─────────────────────────
+TARGETS = """\
+*** Targets ***
+probe = FPing
+menu = Top
+title = Network Latency Grapher
+
++ Netflix
+menu = Netflix
+title = Netflix Open Connect Appliances
+
+++ Netflix_1_DFW
+menu = Netflix_1_DFW
+title = ipv4-c534-dfw001-ix.1.oca.nflxvideo.net (Netflix DFW #1, c534)
+host = 23.246.2.205
+
++ HTTP
+menu = HTTP
+
+++ Google
+menu = Google
+
++++ Google_h2
+host = www.google.com
+
+@include CPE_Targets
+"""
+
+CPE = """\
++ CPE
+menu = CPE
+++ CPE_Gateway
+title = ISP gateway
+host = 10.0.0.1
+"""
+
+
+class TestTargetHosts:
+    def write(self, tmp_path, targets=TARGETS, cpe=CPE):
+        (tmp_path / "Targets").write_text(targets)
+        if cpe is not None:
+            (tmp_path / "CPE_Targets").write_text(cpe)
+        return str(tmp_path / "Targets")
+
+    def test_parse_reads_hosts_titles_categories_and_includes(self, tmp_path):
+        got = rrd2influx.parse_targets(self.write(tmp_path))
+        assert got == {
+            "Netflix_1_DFW": {"host": "23.246.2.205",
+                              "title": "ipv4-c534-dfw001-ix.1.oca.nflxvideo.net (Netflix DFW #1, c534)",
+                              "category": "netflix"},
+            # A group (Google) has no host; its child is the target.
+            "Google_h2": {"host": "www.google.com", "title": "", "category": "http"},
+            "CPE_Gateway": {"host": "10.0.0.1", "title": "ISP gateway", "category": "cpe"},
+        }
+
+    def test_parse_missing_file_and_include_loop_are_harmless(self, tmp_path):
+        assert rrd2influx.parse_targets(str(tmp_path / "nope")) == {}
+        path = self.write(tmp_path, cpe="@include Targets\n")
+        assert "Netflix_1_DFW" in rrd2influx.parse_targets(path)
+
+    def test_points_only_for_new_or_moved_targets(self, tmp_path):
+        known = {}
+        targets = rrd2influx.parse_targets(self.write(tmp_path))
+        first = rrd2influx.host_points(targets, known, 1000)
+        assert len(first) == 3
+        line = [p.to_line_protocol() for p in first if "Netflix_1_DFW" in p.to_line_protocol()][0]
+        assert line.startswith("target_host,category=netflix,target=Netflix_1_DFW ")
+        assert 'host="23.246.2.205"' in line
+        # Same file again: nothing to write.
+        assert rrd2influx.host_points(targets, known, 1060) == []
+        # The slot moves to another appliance: one point, same target tag,
+        # so the latency series keeps its name and only this records it.
+        moved = self.write(tmp_path, TARGETS.replace("23.246.2.205", "23.246.3.206"))
+        points = rrd2influx.host_points(rrd2influx.parse_targets(moved), known, 1120)
+        assert [p.to_line_protocol().split(" ")[0] for p in points] == [
+            "target_host,category=netflix,target=Netflix_1_DFW"]
+        assert 'host="23.246.3.206"' in points[0].to_line_protocol()
+
+    def test_a_removed_target_is_forgotten_and_written_again_when_back(self, tmp_path):
+        known = {}
+        full = rrd2influx.parse_targets(self.write(tmp_path))
+        rrd2influx.host_points(full, known, 1000)
+        without = {k: v for k, v in full.items() if k != "Google_h2"}
+        rrd2influx.host_points(without, known, 1060)
+        assert "Google_h2" not in known
+        assert len(rrd2influx.host_points(full, known, 1120)) == 1
+
+    def test_record_hosts_retries_next_cycle_after_a_failed_write(self, tmp_path, monkeypatch):
+        self.write(tmp_path)
+        monkeypatch.setattr(rrd2influx, "write_with_retry", lambda *a, **k: False)
+        known = {}
+        assert rrd2influx.record_hosts(object(), "b", known, 1000, str(tmp_path)) == 0
+        assert known == {}
+        monkeypatch.setattr(rrd2influx, "write_with_retry", lambda *a, **k: True)
+        assert rrd2influx.record_hosts(object(), "b", known, 1060, str(tmp_path)) == 3
+        assert rrd2influx.record_hosts(object(), "b", known, 1120, str(tmp_path)) == 0

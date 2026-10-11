@@ -11,6 +11,31 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Netflix targets keep one name, so their history is one curve**
+  ([#275](https://github.com/estcarisimo/smoking-pi/issues/275)). Each
+  Netflix Open Connect target was named after the appliance Netflix handed
+  out (`Ocean_Reef_Club_Airport_DFW_c534_1`), and Netflix hands out a
+  different appliance at the same site every day. Every nightly refresh
+  therefore started a new series and a new RRD and left the previous one
+  stale. The reference Pi measured 5 Netflix targets and had **179 series in
+  60 days**, each about a day long. A chart, the Netflix side-by-side
+  dashboard or an assistant asked about last week saw fragments, and no
+  long-term comparison of Netflix was possible. Over those 60 days each slot
+  kept its site (two in Dallas, two in Kansas City, one in Atlanta); only
+  the appliance changed. Targets are now named by slot and site,
+  `Netflix_1_DFW`. The name ends in letters because the exporter reads a
+  name ending in `6` as an IPv6 target. The refresh updates each slot's
+  host in place instead of deleting and re-inserting the category. The
+  appliance stays in the title and the database metadata, and a new
+  InfluxDB measurement, `target_host` (tags `target` and `category`, fields
+  `host` and `title`), records which host stood behind every target and
+  when. The exporter writes it once at start and whenever a host changes,
+  never per cycle. A tag on the latency points would have split the series
+  again. On the first refresh after the upgrade, the old names are replaced
+  by the slot names. Their history stays in InfluxDB under the old names,
+  and their RRDs stay on disk, unused. `target_host` is InfluxDB only; the
+  ClickHouse exporter does not write it.
+
 - **Install offers every assistant, and only when there is one to connect**
   ([#305](https://github.com/estcarisimo/smoking-pi/issues/305)). The
   question at the end of `install` predated `connect`: it offered only

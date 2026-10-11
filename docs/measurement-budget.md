@@ -462,7 +462,7 @@ What is never refused:
 
 Not admitted, because they set the configuration rather than add to it:
 `PUT /config/targets` (a whole YAML file), the first-run seed, and the
-nightly Netflix OCA refresh, which replaces its targets one for one.
+nightly Netflix OCA refresh, which updates its slots in place.
 
 ## What comes next
 
