@@ -33,6 +33,13 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The doctor's `avahi-host-name` check no longer skips a running Avahi.**
+  It read the host name from Avahi's process title and accepted only
+  `avahi-daemon: running [name]`. On the reference Pi the title stayed at
+  `registering [smokingpi.local]` while Avahi answered for the name and
+  reported itself running over D-Bus, so the check said "Avahi is not running
+  on this host" and skipped: a rename after a conflict would have gone
+  unreported. It now reads the name whatever the state word.
 - **Netflix targets keep one name, so their history is one curve**
   ([#275](https://github.com/estcarisimo/smoking-pi/issues/275)). Each
   Netflix Open Connect target was named after the appliance Netflix handed

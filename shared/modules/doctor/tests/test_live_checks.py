@@ -918,6 +918,24 @@ def test_a_configured_name_is_reported_not_judged(tmp_path, title):
     assert res.status.value == "ok" and "set in its configuration" in res.summary
 
 
+def test_avahi_answers_whatever_its_state_word(tmp_path):
+    """The reference Pi's title stayed at "registering [smokingpi.local]"
+    with Avahi running and answering: the name, not the word, is the check."""
+    proc = _proc(tmp_path, {689: "avahi-daemon: registering [smokingpi.local]\0",
+                            690: "avahi-daemon: chroot helper\0"})
+    res = live_checks.check_avahi_host_name(proc, hostname="smokingpi")
+    assert res.status.value == "ok" and "smokingpi.local" in res.summary
+
+
+def test_a_renamed_name_warns_in_any_state_and_a_title_without_a_name_is_skipped(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    proc = _proc(tmp_path / "a", {689: "avahi-daemon: registering [smokingpi-2.local]\0"})
+    assert live_checks.check_avahi_host_name(proc, hostname="smokingpi").status.value == "warn"
+    proc = _proc(tmp_path / "b", {689: "avahi-daemon: collision\0"})
+    assert live_checks.check_avahi_host_name(proc, hostname="smokingpi").status.value == "skip"
+
+
 def test_no_avahi_is_skipped(tmp_path):
     res = live_checks.check_avahi_host_name(_proc(tmp_path, {1: "/sbin/init\0"}),
                                             hostname="x")

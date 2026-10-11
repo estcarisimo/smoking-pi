@@ -798,12 +798,18 @@ def check_uplink_interface(
 
 
 PROC = pathlib.Path("/proc")
-AVAHI_TITLE = re.compile(r"^avahi-daemon: running \[([^\]]+)\]")
+# The state word changes (running, registering, collision...); the name in
+# brackets is what the check needs. Matching only "running" skipped the check
+# on the reference Pi as "Avahi is not running" while its title stayed at
+# "registering [smokingpi.local]" and D-Bus said RUNNING (2026-10-11 UTC).
+AVAHI_TITLE = re.compile(r"^avahi-daemon: [a-z-]+ \[([^\]]+)\]")
 
 
 def avahi_host_name(proc: pathlib.Path = PROC) -> tuple[str | None, bool]:
     """The name the host's Avahi answers for, from its process title
-    (``avahi-daemon: running [smokingpi.local]``), and whether any other
+    (``avahi-daemon: running [smokingpi.local]``, or another state word such
+    as ``registering``; a title with no name in brackets, like the chroot
+    helper's, is not it), and whether any other
     process's title could be read at all (``hidepid`` on /proc, or a PID
     namespace without the host's processes, hides them)."""
     try:
