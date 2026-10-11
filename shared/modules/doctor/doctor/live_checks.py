@@ -798,7 +798,11 @@ def check_uplink_interface(
 
 
 PROC = pathlib.Path("/proc")
-AVAHI_TITLE = re.compile(r"^avahi-daemon: running \[([^\]]+)\]")
+# The state word changes (running, registering, collision...); the name in
+# brackets is what the check needs. Matching only "running" skipped the check
+# on the reference Pi as "Avahi is not running" while its title stayed at
+# "registering [smokingpi.local]" and D-Bus said RUNNING (2026-10-12).
+AVAHI_TITLE = re.compile(r"^avahi-daemon: [a-z-]+ \[([^\]]+)\]")
 
 
 def avahi_host_name(proc: pathlib.Path = PROC) -> tuple[str | None, bool]:
