@@ -171,6 +171,9 @@ cmd_restore() {
             echo "  config restored to $(config_dir)"
         fi
     fi
+    # A purge --config on a package removes both; Compose would create the
+    # output bind source itself, root-owned, rather than leave it to us.
+    mkdir -p "$(config_dir)" "$(output_dir)"
     local proj; proj="$(project)"
     # Which tarball goes into which volume is decided by THIS project's
     # rendered config: the backup's key (postgres-data) resolves to the name

@@ -584,6 +584,25 @@ STUB
     [[ "$output" != *"'smoking-pi openclaw'"* ]]
 }
 
+@test "install, OpenClaw here: connect openclaw runs; done, it is not left to do; failed, it is, and install still finishes" {
+    rm -f "$SMOKING_PI_ENV_FILE"
+    stub_whiptail
+    # The command's own modules, with cmd_openclaw replaced: what install
+    # does with its answer is the subject here, not OpenClaw's setup.
+    printf 'cmd_openclaw() { echo "OPENCLAW $*" >> "$DOCKER_LOG"; return ${STUB_OPENCLAW_RC:-0}; }\n' >> "$BATS_TEST_TMPDIR/openclaw-stub.sh"
+    cp -r "$REPO/cli" "$BATS_TEST_TMPDIR/cli"
+    cat "$BATS_TEST_TMPDIR/openclaw-stub.sh" >> "$BATS_TEST_TMPDIR/cli/lib/openclaw.sh"
+    STUB_PICKS='"mcp"' STUB_ASSISTANT=here run "$BATS_TEST_TMPDIR/cli/smoking-pi" install
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW ' "$DOCKER_LOG"
+    [[ "$output" != *"assistant:"* ]]
+    rm -f "$SMOKING_PI_ENV_FILE"; : > "$DOCKER_LOG"
+    STUB_OPENCLAW_RC=1 STUB_PICKS='"mcp"' STUB_ASSISTANT=here run "$BATS_TEST_TMPDIR/cli/smoking-pi" install
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Still to do:"*"assistant: smoking-pi connect openclaw"* ]]
+    [[ "$output" == *"Installed: the pro edition"* ]]
+}
+
 @test "install, an assistant on the Internet: the tunnel and connect NAME, and both left to do" {
     rm -f "$SMOKING_PI_ENV_FILE"
     stub_whiptail
@@ -2549,7 +2568,11 @@ teardown() { chmod -R u+rwx "$BATS_TEST_TMPDIR" 2>/dev/null || true; }
     for cmd in backup restore purge install upgrade url config dns connect enable restart; do
         run "$CLI" $cmd --help
         [ "$status" -eq 0 ]
-        [[ "$output" == "  $cmd "* ]] || [[ "$output" == "  "*"| $cmd "* ]] || [[ "$output" == "  enable | disable"* ]]
+        case "$cmd" in
+            restart) [[ "$output" == "  up | down | restart | status | logs"* ]] ;;
+            enable) [[ "$output" == "  enable | disable "* ]] ;;
+            *) [[ "$output" == "  $cmd "* ]] ;;
+        esac
         [[ "$output" != *"only root"* ]]
         [[ "$output" != *"unknown option"* ]]
         # One command's entries, not the whole reference.

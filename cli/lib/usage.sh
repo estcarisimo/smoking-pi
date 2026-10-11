@@ -19,7 +19,8 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      The Compose stack, with the profiles recorded in the env file.
                      'restart' is in place (a changed file needs down + up);
                      on Pro with InfluxDB, a whole-stack restart also checks
-                     that Grafana's InfluxDB token still works.
+                     that Grafana's InfluxDB token still works. Other flags
+                     go to docker compose (its own help: docker compose up --help).
   enable | disable [NAME...]
                      The optional services (Pro): mcp, alerts, ai, inference,
                      dns. No NAME: which are on. Records them in

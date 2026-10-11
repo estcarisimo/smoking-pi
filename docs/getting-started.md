@@ -186,8 +186,9 @@ bigger edition, not a conversion.
 ClickHouse works but is the [less traveled path](clickhouse.md).
 
 **Which optional services?** Alerts comes preselected; the other three are
-off unless you pick them. Each one needs something only you can give, and install asks for it right after
-the containers start, with the command that owns that service:
+off unless you pick them. Each one needs something only you can give, and
+install asks for it right after the containers start, with the command that
+owns that service:
 
 | Profile | What it adds | What install asks |
 |---|---|---|
