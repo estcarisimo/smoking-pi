@@ -185,14 +185,15 @@ bigger edition, not a conversion.
 **Which time-series backend?** InfluxDB, unless you have a reason —
 ClickHouse works but is the [less traveled path](clickhouse.md).
 
-**Which optional services?** All four are off unless you pick them. Each
-one needs something only you can give, and install asks for it right after
-the containers start, with the command that owns that service:
+**Which optional services?** Alerts comes preselected; the other three are
+off unless you pick them. Each one needs something only you can give, and
+install asks for it right after the containers start, with the command that
+owns that service:
 
 | Profile | What it adds | What install asks |
 |---|---|---|
-| `mcp` | An MCP server, so an assistant can query your history | whether OpenClaw runs on this Pi; step 7 |
-| `alerts` | Downtime, microcut and Wi-Fi alerts | where they go: OpenClaw, a webhook or nowhere (`smoking-pi alerts`, [Alerting](alerting.md)) |
+| `mcp` | An MCP server, so an assistant can query your history | which assistant: OpenClaw on this Pi, one on the Internet (Claude, ChatGPT, Grok...) or OpenClaw elsewhere; step 7 |
+| `alerts` | Downtime, microcut and Wi-Fi alerts | where they go: Telegram, OpenClaw, a webhook or nowhere (`smoking-pi alerts`, [Alerting](alerting.md)) |
 | `ai` | Written health reports | an Anthropic API key, typed, not shown ([AI reports](ai-insights.md)) |
 | `dns` | The DNS observer: what this house actually uses | nothing; it prints the DNS setting to change on your router ([DNS observer](dns-observer.md)) |
 
@@ -487,17 +488,24 @@ a chat window, *"was the line bad last night?"* and get an answer from
 months of recorded history rather than a live `ping`.
 
 It is two pieces: the **MCP server** (the `mcp` profile from step 3), which
-exposes your measurements as tools, and an **MCP client** — [OpenClaw](https://github.com/openclaw/openclaw)
-is the one with a ready-made skill.
+exposes your measurements as tools, and an **assistant** that calls them.
+One command connects either kind, and `smoking-pi install` offers it at the
+end when `mcp` was picked (skipped, it is listed under *Still to do*):
 
-- Both on this Pi: `smoking-pi openclaw` does it — the token, the profile,
-  registration and the skill — and `smoking-pi openclaw --check` proves the
-  agent is really using your history. `smoking-pi install` offers it at the
-  end, and it is the same command afterwards.
-  [OpenClaw integration](openclaw-integration.md) explains each step for
-  when one of them does not work.
-- OpenClaw on another machine: [OpenClaw on another machine](remote-openclaw.md).
-- Any other MCP client: [MCP server](mcp-server.md) lists the 15 tools.
+- **OpenClaw on this Pi:** `sudo smoking-pi connect openclaw` — the token,
+  the profile, registration and the skill — and
+  `sudo smoking-pi connect openclaw --check` proves the agent is really using
+  your history. [OpenClaw integration](openclaw-integration.md) explains
+  each step for when one of them does not work.
+- **An assistant on the Internet** (Claude, ChatGPT, Grok, Cursor...): it
+  needs a way in, then signs in with a one-time pairing code and gets
+  read-only tools. `sudo smoking-pi connect --tailscale` publishes the MCP
+  server through Tailscale Funnel, and `sudo smoking-pi connect claude`
+  (or `chatgpt`, `grok`...) prints the URL, the code and that assistant's
+  steps. [Connecting any assistant](remote-connector.md) covers other tunnels.
+- **OpenClaw on another machine:** [OpenClaw on another machine](remote-openclaw.md).
+
+The tools themselves, and what each one answers: [MCP server](mcp-server.md).
 
 !!! warning "Put authentication in front of anything you expose"
     The MCP endpoint and the web admin are on your LAN as installed.

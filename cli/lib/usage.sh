@@ -19,7 +19,8 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      The Compose stack, with the profiles recorded in the env file.
                      'restart' is in place (a changed file needs down + up);
                      on Pro with InfluxDB, a whole-stack restart also checks
-                     that Grafana's InfluxDB token still works.
+                     that Grafana's InfluxDB token still works. Other flags
+                     go to docker compose (its own help: docker compose up --help).
   enable | disable [NAME...]
                      The optional services (Pro): mcp, alerts, ai, inference,
                      dns. No NAME: which are on. Records them in
@@ -176,6 +177,29 @@ Environment: SMOKING_PI_HOME (default: this checkout or /opt/smoking-pi),
              never published, so it builds; `dev` forces a build),
              SMOKING_PI_REGISTRY to pull a fork's images.
 USAGE
+}
+
+command_help() {
+    # `smoking-pi COMMAND --help`: COMMAND's entries in the reference above,
+    # and nothing else. An entry starts at a line indented two spaces whose
+    # leading words name the command ("  up | down | restart ...",
+    # "  connect --tailscale ..."); it runs until the next one. Returns 1
+    # when the reference has no entry for it.
+    [ -n "${1:-}" ] || return 1
+    usage | awk -v cmd="$1" '
+        /^Environment:/ { on = 0 }
+        /^  [^ ]/ {
+            head = $0; sub(/^  /, "", head); sub(/   .*/, "", head)
+            # The names: the first word, and the other alternatives when the
+            # first is a bare word ("up | down | restart ..."). "config list
+            # [SECTION] | describe KEY" names config only.
+            n = split(head, w, / \| /)
+            split(w[1], f, " "); on = (f[1] == cmd)
+            if (w[1] !~ / /) for (i = 2; i <= n; i++) { split(w[i], f, " "); if (f[1] == cmd) on = 1 }
+            if (on) found = 1
+        }
+        on { print }
+        END { exit !found }'
 }
 
 brief() {

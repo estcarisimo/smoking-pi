@@ -171,6 +171,9 @@ cmd_restore() {
             echo "  config restored to $(config_dir)"
         fi
     fi
+    # A purge --config on a package removes both; Compose would create the
+    # output bind source itself, root-owned, rather than leave it to us.
+    mkdir -p "$(config_dir)" "$(output_dir)"
     local proj; proj="$(project)"
     # Which tarball goes into which volume is decided by THIS project's
     # rendered config: the backup's key (postgres-data) resolves to the name
@@ -269,7 +272,10 @@ cmd_purge() {
         [ -z "$EDITION_FILE" ] || rm -f "$EDITION_FILE"
         rm -rf "$(config_dir)" "$(output_dir)"
         # From a clone the directories are tracked as .gitkeep placeholders.
-        mkdir -p "$(config_dir)" "$(output_dir)"
+        # Packaged, they are not put back: an empty /etc/smoking-pi/config
+        # looked like a half-removed install, and install (setup.sh) and
+        # restore create them again.
+        [ "${SMOKING_PI_PACKAGED:-0}" = 1 ] || mkdir -p "$(config_dir)" "$(output_dir)"
     fi
     echo "Purged. 'smoking-pi install' starts over."
 }

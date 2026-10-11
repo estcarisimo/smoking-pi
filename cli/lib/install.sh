@@ -128,8 +128,9 @@ cmd_install() {
         # by accident. (Backlog #4 in docs/packaging.md gives upgrade its
         # own command.)
         echo "$ENV_FILE exists: this edition is already installed." >&2
-        echo "Use 'smoking-pi up' to start it. To start over, stop the stack, remove its" >&2
-        echo "volumes (docker volume ls | grep ${edition}_), delete the env file, then run install again." >&2
+        echo "Use '$(cli_name) up' to start it. To start over, '$(cli_name) purge --config'" >&2
+        echo "deletes its measurements, settings and env file ('$(cli_name) backup' first);" >&2
+        echo "then run install again." >&2
         exit 1
     fi
     echo "Installing the $edition edition from $SMOKING_PI_HOME (env file: $ENV_FILE)"
@@ -160,30 +161,39 @@ cmd_install() {
     fi
     # The assistant is optional and stays optional: the stack is already
     # measuring by this point, so every branch here ends with a working
-    # install. Three answers, because "not installed" and "installed on my
-    # laptop" need opposite advice and the old yes/no could not tell them
-    # apart -- it printed a doc path either way.
-    if [ "$edition" = pro ] && [ "$yes" = 0 ] && command -v whiptail >/dev/null; then
-        local answer
-        answer=$(whiptail --title "Smoking Pi" --menu \
-            "Connect a chat assistant? (optional)\n\nOpenClaw can answer \"how is my internet?\" from this Pi's recorded history instead of a fresh speed test. Smoking Pi is fully working without it." 16 74 3 \
-            here   "OpenClaw runs on this Pi - set it up now" \
-            remote "OpenClaw runs on another machine" \
-            later  "Not now" 3>&1 1>&2 2>&3) || answer=later
-        echo
-        case "$answer" in
-            here)   cmd_openclaw || true ;;
-            remote) echo "OpenClaw on another machine needs a tunnel between the two loopbacks"
-                    echo "before anything else works:"
-                    echo "  $SMOKING_PI_HOME/docs/remote-openclaw.md"
-                    echo "Then run 'smoking-pi openclaw' on the machine the gateway is on." ;;
-            *)      echo "Skipping the assistant. When you want it: '$(cli_name) openclaw'." ;;
-        esac
-    elif [ "$edition" = pro ] && [ "$yes" = 1 ]; then
-        echo; echo "To connect a chat assistant later: '$(cli_name) openclaw'."
+    # install. Asked only when the MCP server was chosen -- without it
+    # there is nothing to connect to -- and in the words of `connect`, the
+    # one command for every assistant. A question skipped (or --yes) is a
+    # line under "Still to do", like the other services'.
+    local assistant_todo=""
+    if [ "$edition" = pro ] && [[ ",$profiles," == *,mcp,* ]]; then
+        assistant_todo="  assistant: $(cli_name) connect openclaw (OpenClaw on this Pi), or $(cli_name) connect NAME (claude, chatgpt, grok...)"
+        if [ "$yes" = 0 ] && command -v whiptail >/dev/null; then
+            local answer
+            answer=$(whiptail --title "Smoking Pi" --menu \
+                "Connect a chat assistant? (optional)\n\nIt can answer \"how is my internet?\" from this Pi's recorded history instead of a fresh speed test. Smoking Pi is fully working without it." 17 76 4 \
+                here   "OpenClaw runs on this Pi - set it up now" \
+                remote "Claude, ChatGPT, Grok... (an assistant on the Internet)" \
+                other  "OpenClaw runs on another machine" \
+                later  "Not now" 3>&1 1>&2 2>&3) || answer=later
+            echo
+            case "$answer" in
+                here)   if cmd_connect openclaw; then assistant_todo=""; fi ;;
+                remote) echo "An assistant on the Internet reaches this Pi through a tunnel, then signs in"
+                        echo "with a one-time pairing code:"
+                        echo "  $(cli_name) connect --tailscale   (the tunnel; or any other: docs/remote-connector.md)"
+                        echo "  $(cli_name) connect NAME          (claude, chatgpt, grok...: its URL, code and steps)"
+                        assistant_todo="  assistant: $(cli_name) connect --tailscale, then $(cli_name) connect NAME" ;;
+                other)  echo "OpenClaw on another machine needs a tunnel between the two loopbacks"
+                        echo "before anything else works:"
+                        echo "  $SMOKING_PI_HOME/docs/remote-openclaw.md"
+                        assistant_todo="  assistant: the tunnel in docs/remote-openclaw.md, then $(cli_name) connect openclaw on the gateway's machine" ;;
+            esac
+        fi
     fi
     local todo=""
     [ "$edition" != pro ] || todo="$(install_followups "$profiles" "$yes")"
+    [ -z "$assistant_todo" ] || todo="${todo:+$todo$'\n'}$assistant_todo"
     enable_unit
     # Short on purpose: the full banner (`passwords`) is a reference, and
     # at the end of an install it buried the one line that matters, the
