@@ -64,9 +64,10 @@ def test_identity_is_the_start_and_every_value_is_a_field():
 def test_empty_values_are_written_so_an_overwrite_leaves_nothing_stale():
     line = _lines([incident_history.point(_inc(7200, 3600, detail=None, against=[]))])[0]
     assert 'detail=""' in line and 'against=""' in line
-    # A cut or deaf span has no loss run: no max_loss_pct, never a fake 0.
+    # A cut or deaf span has no loss run: -1, written, so an overwrite never
+    # keeps an earlier run's value (readers drop it).
     cut = _inc(7200, 7140, cls="local_link", max_loss_pct=None, targets=[])
-    assert "max_loss_pct" not in _lines([incident_history.point(cut)])[0]
+    assert "max_loss_pct=-1" in _lines([incident_history.point(cut)])[0]
 
 
 def test_record_writes_the_finished_incidents(monkeypatch):
@@ -109,7 +110,7 @@ def test_a_failed_run_is_logged_not_raised(monkeypatch, caplog):
     def boom(*a, **k):
         raise RuntimeError("influx down")
     monkeypatch.setattr(incident_history, "record", boom)
-    incident_history._run(12, {})
+    assert incident_history._run(12, {}, {}) is None
     assert "incident history run failed" in caplog.text
 
 
@@ -144,3 +145,84 @@ def test_an_incident_still_going_at_the_edge_does_not_widen_the_window(monkeypat
     assert incident_history.record(12, {}, now=NOW, query=lambda f: [],
                                    write=lambda p: None) == 0
     assert windows == [12]
+
+
+def test_an_incident_written_once_does_not_widen_the_window_again(monkeypatch):
+    """The review's case: a 30 h incident that ended an hour ago is cut at
+    the 12 h edge on every run for the next ~22 runs. Written once, it is
+    remembered by its end, so later runs diagnose 12 h only."""
+    long_one = _inc(31 * 3600, 3600, cls="local_link")
+    windows = []
+
+    def run(query, hours, cadences):
+        windows.append(hours)
+        return {"incidents": [dict(long_one, start_epoch=max(
+            long_one["start_epoch"], NOW - hours * 3600))]}
+
+    monkeypatch.setattr(incident_history.diagnosis_query, "run", run)
+    handled = {}
+    assert incident_history.record(12, {}, now=NOW, query=lambda f: [],
+                                   write=lambda p: None, handled=handled) == 1
+    assert windows == [12, 24, 48]
+    windows.clear()
+    assert incident_history.record(12, {}, now=NOW + 1800, query=lambda f: [],
+                                   write=lambda p: None, handled=handled) == 0
+    assert windows == [12]
+
+
+def test_an_incident_longer_than_a_week_is_given_up_once(monkeypatch):
+    week_plus = _inc(200 * 3600, 3600, cls="local_link")
+    windows = []
+
+    def run(query, hours, cadences):
+        windows.append(hours)
+        return {"incidents": [dict(week_plus, start_epoch=NOW - hours * 3600)]}
+
+    monkeypatch.setattr(incident_history.diagnosis_query, "run", run)
+    handled = {}
+    assert incident_history.record(12, {}, now=NOW, query=lambda f: [],
+                                   write=lambda p: None, handled=handled) == 0
+    assert windows == [12, 24, 48, 96, 168]
+    windows.clear()
+    incident_history.record(12, {}, now=NOW + 1800, query=lambda f: [],
+                            write=lambda p: None, handled=handled)
+    assert windows == [12]
+
+
+def test_widening_stops_when_the_diagnosis_hits_its_row_limit(monkeypatch):
+    windows = []
+
+    def run(query, hours, cadences):
+        windows.append(hours)
+        return {"incidents": [_inc(hours * 3600, 3600)], "rows_truncated": hours >= 24}
+
+    monkeypatch.setattr(incident_history.diagnosis_query, "run", run)
+    assert incident_history.record(12, {}, now=NOW, query=lambda f: [],
+                                   write=lambda p: None) == 0
+    assert windows == [12, 24]
+
+
+def test_handled_entries_are_forgotten_after_a_week():
+    handled = {"1": NOW - incident_history.REMEMBER_S - 1, "2": NOW}
+    import pytest
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(incident_history.diagnosis_query, "run",
+                   lambda q, h, c: {"incidents": []})
+        incident_history.record(12, {}, now=NOW, query=lambda f: [],
+                                write=lambda p: None, handled=handled)
+    assert list(handled) == ["2"]
+
+
+def test_a_finished_run_hands_its_memory_to_the_main_threads_state(monkeypatch):
+    class Done:
+        def done(self):
+            return True
+
+        def result(self):
+            return {"1799996400": NOW}
+
+    monkeypatch.setattr(incident_history, "_pending", Done())
+    state = {}
+    incident_history.merge(state)
+    assert state["incident_history"]["handled"] == {"1799996400": NOW}
+    assert incident_history._pending is None

@@ -203,6 +203,7 @@ def run_iteration() -> None:
     # Every half hour, in the background: the incidents that are over, into
     # InfluxDB (loss_incident). Never in the way of the alerts above.
     try:
+        incident_history.merge(current)
         incident_history.maybe_record(current, context.get("cadences"))
     except Exception:  # noqa: BLE001 - history must never cost an alert
         log.exception("Incident history check failed")

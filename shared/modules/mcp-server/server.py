@@ -1361,9 +1361,11 @@ def get_incident_history(days: int = 30, include_probe_miss: bool = False) -> di
     window. `probe_miss` (one point on one target) is left out unless
     `include_probe_miss`.
 
-    Empty with `stored_from: null` means nothing is stored yet: the
+    `stored_from` is when the stored history begins (the oldest incident
+    kept, whatever the window). `null` means nothing is stored yet: the
     alerter (the `alerts` service) writes it, from the release that added
-    it on. Say so instead of "no incidents".
+    it on. Say so instead of "no incidents"; an empty window with a
+    `stored_from` is a quiet window.
 
     Args:
         days: Lookback in days (default 30, at most 365).
@@ -1409,7 +1411,8 @@ def get_incident_history(days: int = 30, include_probe_miss: bool = False) -> di
             "evidence": [e for e in (r.get("evidence") or "").split(" | ") if e],
             "against": [e for e in (r.get("against") or "").split(" | ") if e],
         }
-        if r.get("max_loss_pct") is not None:
+        # -1: a cut or deaf span with no loss run (incident_history.point).
+        if r.get("max_loss_pct") is not None and r["max_loss_pct"] >= 0:
             inc["max_loss_pct"] = r["max_loss_pct"]
         if targets and isinstance(start, datetime):
             graph = links.target_links(targets[0], measurement="latency",
@@ -1417,7 +1420,16 @@ def get_incident_history(days: int = 30, include_probe_miss: bool = False) -> di
             if graph:
                 inc["graph"] = graph
         incidents.append(inc)
-    oldest = rows[-1].get("_time") if rows else None
+    # The oldest incident stored at all, not only in this window: a quiet
+    # month and an empty history must not look alike.
+    try:
+        first = query_influx(
+            f'from(bucket: {flux_str(influx_bucket())}) |> range(start: 0) '
+            '|> filter(fn: (r) => r._measurement == "loss_incident" and r._field == "class") '
+            '|> group() |> first()')
+    except Exception as exc:
+        return _tool_error("InfluxDB query failed", exc)
+    oldest = first[0].get("_time") if first else None
     return {
         "window_days": days,
         "stored_from": oldest.isoformat() if isinstance(oldest, datetime) else oldest,

@@ -74,8 +74,8 @@ def write_points(points: list) -> None:
     from influxdb_client.client.write_api import SYNCHRONOUS
 
     _get_query_api()  # constructs the shared client
-    _influx_client.write_api(write_options=SYNCHRONOUS).write(
-        bucket=influx_bucket(), record=points)
+    with _influx_client.write_api(write_options=SYNCHRONOUS) as write_api:
+        write_api.write(bucket=influx_bucket(), record=points)
 
 
 def query_influx(flux: str) -> list[dict]:

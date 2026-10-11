@@ -27,8 +27,18 @@ background (never in the way of an alert) and writes each incident that is
 
 Fields: ``end_epoch``, ``minutes``, ``class``, ``detail``, ``confidence``,
 ``summary``, ``targets`` (comma-separated), ``targets_affected``,
-``targets_reporting``, ``max_loss_pct`` (absent for a cut or deaf span with
-no loss run), ``evidence`` and ``against`` (sentences joined with " | ").
+``targets_reporting``, ``max_loss_pct`` (-1 for a cut or deaf span with no
+loss run), ``evidence`` and ``against`` (sentences joined with " | ").
+
+Where the identity falls short, rarely: two incidents that start in the same
+second (a standalone cut at a fold incident's first step, which the
+diagnosis's own coverage rule makes unlikely) keep only the later write; and
+late points that move an incident's start leave the old start's point
+behind.
+
+An incident handled once -- written, or longer than a week and so never
+whole -- is remembered by its end in ``state`` for a week, so the runs that
+still see it cut at the window's edge do not widen the window for it again.
 ``probe_miss`` incidents are kept too; readers leave them out by default.
 
 Retention is the bucket's, like the measurements they explain. InfluxDB
@@ -98,38 +108,68 @@ def point(inc: dict):
          .field("targets_reporting", int(inc.get("targets_reporting") or 0))
          .field("evidence", SEP.join(inc.get("evidence") or []))
          .field("against", SEP.join(inc.get("against") or [])))
-    if inc.get("max_loss_pct") is not None:
-        p.field("max_loss_pct", float(inc["max_loss_pct"]))
+    # Always written, -1 when there was no loss run: a field left out would
+    # keep an earlier run's value on overwrite.
+    p.field("max_loss_pct", float(inc["max_loss_pct"])
+            if inc.get("max_loss_pct") is not None else -1.0)
     return p
 
 
-def cut_at_edge(result: dict, now: float, window_h: int, step_s: int) -> bool:
-    """Whether an incident that is over began at the window's edge."""
+REMEMBER_S = 7 * 86400
+
+
+def _key(end_epoch) -> str:
+    return str(int(end_epoch))
+
+
+def cut_at_edge(result: dict, now: float, window_h: int, step_s: int,
+                handled: dict | None = None) -> list[dict]:
+    """The incidents that are over, began at the window's edge, and were not
+    handled already (``handled``: {end epoch: when}, see record)."""
     first = now - window_h * 3600 + (diagnosis.GAP_STEPS + 1) * step_s
-    return any(i.get("start_epoch") is not None and i["start_epoch"] < first
-               and (i.get("end_epoch") or now) <= now - SETTLE_S
-               for i in result.get("incidents") or [])
+    handled = handled or {}
+    return [i for i in result.get("incidents") or []
+            if i.get("start_epoch") is not None and i["start_epoch"] < first
+            and i.get("end_epoch") is not None and i["end_epoch"] <= now - SETTLE_S
+            and _key(i["end_epoch"]) not in handled]
 
 
 def record(window_h: int, cadences: dict | None, now: float | None = None,
-           query=None, write=None) -> int:
+           query=None, write=None, handled: dict | None = None) -> int:
     """Diagnose the last ``window_h`` (more when an incident that is over
     began before it) and write what is over. Returns how many incidents
-    were written."""
+    were written.
+
+    ``handled`` ({end epoch: when}, kept in the alerter's state) is updated
+    with every incident written, and with any still cut at the week's
+    limit: neither makes a later run widen the window again."""
     now = time.time() if now is None else now
+    handled = {} if handled is None else handled
+    for key in [k for k, when in handled.items() if when < now - REMEMBER_S]:
+        del handled[key]
     step_s = int(cadence.longest_step(cadences or {}))
     query = query or flux.query_influx
     result = diagnosis_query.run(query, window_h, cadences)
-    while (cut_at_edge(result, now, window_h, step_s)
-           and window_h < diagnosis_query.MAX_HOURS):
+    while (cut_at_edge(result, now, window_h, step_s, handled)
+           and window_h < diagnosis_query.MAX_HOURS
+           and not result.get("rows_truncated")):
         window_h = min(window_h * 2, diagnosis_query.MAX_HOURS)
         log.info("incident history: an incident began before the window; "
                  "diagnosing the last %d h", window_h)
         result = diagnosis_query.run(query, window_h, cadences)
     if result.get("rows_truncated"):
         log.warning("incident history: the diagnosis hit its row limit; nothing written")
-    done = finished(result, now, window_h, step_s)
+    done = [i for i in finished(result, now, window_h, step_s)
+            if _key(i["end_epoch"]) not in handled]
     (write or tsdb.write_points)([point(i) for i in done])
+    for inc in done:
+        handled[_key(inc["end_epoch"])] = now
+    if window_h >= diagnosis_query.MAX_HOURS and not result.get("rows_truncated"):
+        # Longer than a week: never whole, so never written. Not again.
+        for inc in cut_at_edge(result, now, window_h, step_s, handled):
+            log.info("incident history: an incident longer than %d h is not kept",
+                     window_h)
+            handled[_key(inc["end_epoch"])] = now
     return len(done)
 
 
@@ -150,15 +190,35 @@ def maybe_record(state: dict, cadences: dict | None, now: float | None = None) -
     if _pending is not None and not _pending.done():
         return False
     book["last_start"] = now
-    _pending = _pool.submit(_run, window_h, cadences)
+    # The background run updates its own copy; the main thread takes it
+    # into state when the run is done (see _merge), so only the main thread
+    # ever touches the state that gets saved.
+    _pending = _pool.submit(_run, window_h, cadences, dict(book.get("handled") or {}))
     return True
 
 
-def _run(window_h: int, cadences: dict | None) -> None:
+def merge(state: dict) -> None:
+    """Take a finished run's ``handled`` into ``state``. Called from the
+    alerter's iteration before the state is saved."""
+    global _pending
+    if _pending is None or not _pending.done():
+        return
     try:
-        written = record(window_h, cadences)
+        handled = _pending.result()
+    except Exception:  # noqa: BLE001 -- _run never raises; belt and braces
+        handled = None
+    _pending = None
+    if handled is not None:
+        state.setdefault("incident_history", {})["handled"] = handled
+
+
+def _run(window_h: int, cadences: dict | None, handled: dict) -> dict | None:
+    try:
+        written = record(window_h, cadences, handled=handled)
         log.info("incident history: %d finished incident(s) in the last %d h written",
                  written, window_h)
+        return handled
     except Exception:  # noqa: BLE001 -- history must never cost the alerter
         log.warning("incident history run failed; next try in %d min",
                     EVERY_S // 60, exc_info=True)
+        return None

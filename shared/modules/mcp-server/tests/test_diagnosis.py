@@ -395,9 +395,16 @@ def _stored(start, cls, **over):
 
 def test_history_lists_stored_incidents_newest_first_without_probe_misses(monkeypatch):
     rows = [_stored(T0 + 7200, "upstream"), _stored(T0 + 3600, "probe_miss"),
-            _stored(T0, "local_wifi", detail="deaf", targets="")]
+            _stored(T0, "local_wifi", detail="deaf", targets="", max_loss_pct=-1.0)]
     queries = []
-    monkeypatch.setattr(server, "query_influx", lambda f: queries.append(f) or rows)
+
+    def fake(f):
+        queries.append(f)
+        # The second query asks for the oldest stored incident.
+        return [{"_time": datetime.fromtimestamp(T0 - 86400, tz=timezone.utc)}] \
+            if "first()" in f else rows
+
+    monkeypatch.setattr(server, "query_influx", fake)
     out = server.get_incident_history(days=30)
     assert "loss_incident" in queries[0] and "-30d" in queries[0]
     assert [i["class"] for i in out["incidents"]] == ["upstream", "local_wifi"]
@@ -407,7 +414,10 @@ def test_history_lists_stored_incidents_newest_first_without_probe_misses(monkey
     assert first["evidence"] == ["first", "second"] and first["against"] == []
     assert first["end"] == datetime.fromtimestamp(T0 + 7800, tz=timezone.utc).isoformat()
     assert out["incidents"][1]["detail"] == "deaf" and out["incidents"][1]["targets"] == []
-    assert out["stored_from"] == datetime.fromtimestamp(T0, tz=timezone.utc).isoformat()
+    assert "max_loss_pct" not in out["incidents"][1]  # the -1 of "no loss run"
+    assert out["incidents"][0]["max_loss_pct"] == 40.0
+    # The start of the whole history, not of the window.
+    assert out["stored_from"] == datetime.fromtimestamp(T0 - 86400, tz=timezone.utc).isoformat()
     with_misses = server.get_incident_history(days=30, include_probe_miss=True)
     assert len(with_misses["incidents"]) == 3
 
