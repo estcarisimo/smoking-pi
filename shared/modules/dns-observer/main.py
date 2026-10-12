@@ -44,6 +44,10 @@ log = logging.getLogger("dns-observer")
 # answering, the test repeats faster; the first STARTUP_GRACE seconds of a
 # fresh process do not count, or a slow start would be killed in a loop.
 SELFTEST_INTERVAL = 10
+# A canary that reaches the observer does so within seconds; one still unseen
+# after an hour is a miss, and is no longer looked for.
+CANARY_LOOKUP_S = 3600
+CANARY_LOOKUP_LIMIT = 500
 SELFTEST_RETRY = 3
 SELFTEST_FAILURES = 3
 STARTUP_GRACE = 15
@@ -221,18 +225,28 @@ class Supervisor:
             self.last_query_at = max(newest, self.last_query_at or 0)
         self.upstreams = health.summarize_upstreams(organic, self.cfg.fallback, now)
 
-        # Canaries still unseen and younger than a day: one search each.
+        # Canaries are kept a day (the status counts them); the unseen ones
+        # sent within CANARY_LOOKUP_S are looked for, all with ONE search for
+        # the canary domain. It was one search per unseen canary, every
+        # refresh: when none arrive (a deaf radio, a router that does not
+        # forward here) a day's 288 piled up, and AdGuard spent a whole core
+        # scanning its log for them -- for hours on the reference Pi, while
+        # it was already cut off, and permanently on the staging Pi.
         for nonce, rec in list(self.canaries.items()):
             if rec[0] < now - 86400:
                 del self.canaries[nonce]
-                continue
-            if rec[1] is not None:
-                continue
-            for e in await self.api.querylog(search=nonce, limit=5):
-                name = str((e.get("question") or {}).get("name", ""))
-                if name.lower().startswith(nonce):
-                    rec[1] = parse_time(e["time"])
-                    break
+        pending = {nonce: rec for nonce, rec in self.canaries.items()
+                   if rec[1] is None and rec[0] >= now - CANARY_LOOKUP_S}
+        if pending:
+            found = await self.api.querylog(
+                search=self.cfg.canary_domain,
+                limit=min(CANARY_LOOKUP_LIMIT, 4 * len(pending) + 50))
+            for e in found:
+                name = str((e.get("question") or {}).get("name", "")).lower()
+                rec = pending.get(name.split(".", 1)[0])
+                if rec is not None and rec[1] is None:
+                    with contextlib.suppress(KeyError, ValueError):
+                        rec[1] = parse_time(e["time"])
 
         with contextlib.suppress(httpx.HTTPError, ValueError):
             stats = await self.api.stats()

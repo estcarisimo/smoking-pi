@@ -73,6 +73,48 @@ def test_refresh_separates_canaries_from_the_house(env, monkeypatch):
     assert [d["name"] for d in sup.top_domains] == ["netflix.com", "bbc.co.uk"]
 
 
+class CountingAPI(FakeAPI):
+    def __init__(self, log):
+        super().__init__(log)
+        self.searches = []
+
+    async def querylog(self, *, search=None, limit=100):
+        if search:
+            self.searches.append(search)
+        return await super().querylog(search=search, limit=limit)
+
+
+def test_unseen_canaries_cost_one_search_however_many_there_are(env, monkeypatch):
+    """A day of canaries that never arrived (a deaf radio, a router that does
+    not forward here) was 288 searches every 30 s, and AdGuard spent a core
+    on them. Now: one search for the canary domain, whatever the count."""
+    now = 1790375200.0
+    monkeypatch.setattr(main.time, "time", lambda: now)
+    sup = main.Supervisor(Config.from_env(env))
+    sup.canaries = {f"n{i:04d}": [now - 300 * i, None] for i in range(288)}
+    sup.canaries["abc123"] = [now - 100, None]
+    sup.api = CountingAPI([
+        entry("abc123.canary.smoking-pi.home.arpa", "2026-09-25T22:25:00.5Z"),
+        entry("netflix.com", "2026-09-25T22:26:00Z"),
+    ])
+    asyncio.run(sup.refresh())
+    assert sup.api.searches == [sup.cfg.canary_domain]
+    assert sup.canaries["abc123"][1] == main.parse_time("2026-09-25T22:25:00.5Z")
+    # Older than the lookup window: still counted for the status, not searched.
+    assert sup.canaries["n0100"][1] is None
+
+
+def test_no_unseen_canary_no_search(env, monkeypatch):
+    now = 1790375200.0
+    monkeypatch.setattr(main.time, "time", lambda: now)
+    sup = main.Supervisor(Config.from_env(env))
+    sup.canaries = {"abc123": [now - 100, now - 99],
+                    "old000": [now - 2 * main.CANARY_LOOKUP_S, None]}
+    sup.api = CountingAPI([entry("netflix.com", "2026-09-25T22:26:00Z")])
+    asyncio.run(sup.refresh())
+    assert sup.api.searches == []
+
+
 def test_status_carries_what_readers_need(env):
     sup = main.Supervisor(Config.from_env(env))
     sup.server_ok = True
