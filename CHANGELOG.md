@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.30.0] — 2026-10-12
+
+Loss incidents are kept, so a chart can mark them and an assistant can be
+asked about last month; Netflix targets keep one name, so their history is
+one curve. The alerter now writes down each incident `diagnose_loss`
+classifies once it is over (`loss_incident`), the *Smoking Pi Overview* and
+*Target Detail* dashboards shade them, and a new MCP tool,
+`get_incident_history`, reads up to a year of them. The reference Pi's radio
+was deaf for 11 hours on 2026-10-11, and nothing had kept that. Netflix
+targets were named after the appliance Netflix hands out, which changes
+every day: 179 series in 60 days for 5 targets. Also: install offers every
+assistant, only when the `mcp` service was picked; `smoking-pi COMMAND
+--help` answers without sudo; and the doctor's Avahi check no longer skips a
+running Avahi.
+
 ### Added
 
 - **Loss incidents are written down, and dashboards and assistants show
