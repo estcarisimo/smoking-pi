@@ -16,7 +16,11 @@ def refresh_ocas_task():
         from app.services.config_api import ConfigAPIGateway
 
         result = ConfigAPIGateway().refresh_oca_data()
-        if result.get('success'):
+        if result.get('success') and result.get('reloaded') is False:
+            # Saved, but SmokePing did not confirm the reload: it may still be
+            # measuring the previous appliances.
+            logger.warning(f"Scheduled OCA refresh saved, not applied: {result.get('message')}")
+        elif result.get('success'):
             logger.info("Scheduled OCA refresh completed successfully")
         else:
             logger.error(f"Scheduled OCA refresh failed: {result.get('message')}")
