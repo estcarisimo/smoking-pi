@@ -47,6 +47,7 @@ SELFTEST_INTERVAL = 10
 # A canary that reaches the observer does so within seconds; one still unseen
 # after an hour is a miss, and is no longer looked for.
 CANARY_LOOKUP_S = 3600
+# Room for an hour of self-tests (360) and canaries (12) on one page.
 CANARY_LOOKUP_LIMIT = 500
 SELFTEST_RETRY = 3
 SELFTEST_FAILURES = 3
@@ -238,9 +239,13 @@ class Supervisor:
         pending = {nonce: rec for nonce, rec in self.canaries.items()
                    if rec[1] is None and rec[0] >= now - CANARY_LOOKUP_S}
         if pending:
-            found = await self.api.querylog(
-                search=self.cfg.canary_domain,
-                limit=min(CANARY_LOOKUP_LIMIT, 4 * len(pending) + 50))
+            # A full page, always: the self-test also queries the canary
+            # domain (every SELFTEST_INTERVAL, 360 an hour) and `dns test`
+            # adds bursts, so a smaller page could push an arrived canary
+            # out and count it as a miss. 500 covers the lookup hour; the
+            # search stops once it has them, in the newest part of the log.
+            found = await self.api.querylog(search=self.cfg.canary_domain,
+                                            limit=CANARY_LOOKUP_LIMIT)
             for e in found:
                 name = str((e.get("question") or {}).get("name", "")).lower()
                 rec = pending.get(name.split(".", 1)[0])

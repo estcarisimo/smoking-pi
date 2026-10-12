@@ -22,7 +22,8 @@ version gets a matching GitHub release and git tag.
   fan at its top step: the loud fan heard while it was cut off. On the
   staging Pi, whose router does not forward to it, it never stopped
   (1,003 searches in 10 minutes, AdGuard at 99 % CPU). Now one search for
-  the canary domain finds every pending canary, only those sent within the
+  the canary domain finds every pending canary (a 500-entry page, room for
+  the hour's self-tests that share the domain), only those sent within the
   last hour are looked for (one that arrives does so within seconds), and
   with none pending there is no search at all.
 

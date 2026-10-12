@@ -104,6 +104,22 @@ def test_unseen_canaries_cost_one_search_however_many_there_are(env, monkeypatch
     assert sup.canaries["n0100"][1] is None
 
 
+def test_self_tests_do_not_push_an_arrived_canary_off_the_page(env, monkeypatch):
+    """The self-test queries the canary domain every 10 s; with refreshes
+    stalled for a while, 100 of them can be newer than a canary that did
+    arrive. A fake that honors `limit`, newest first, must still find it."""
+    now = 1790375200.0
+    monkeypatch.setattr(main.time, "time", lambda: now)
+    sup = main.Supervisor(Config.from_env(env))
+    sup.canaries = {"abc123": [now - 1200, None]}
+    newer = [entry(f"selftest-{i:08x}.canary.smoking-pi.home.arpa",
+                   "2026-09-25T22:26:00Z") for i in range(100)]
+    sup.api = CountingAPI(newer + [
+        entry("abc123.canary.smoking-pi.home.arpa", "2026-09-25T22:06:00Z")])
+    asyncio.run(sup.refresh())
+    assert sup.canaries["abc123"][1] == main.parse_time("2026-09-25T22:06:00Z")
+
+
 def test_no_unseen_canary_no_search(env, monkeypatch):
     now = 1790375200.0
     monkeypatch.setattr(main.time, "time", lambda: now)
