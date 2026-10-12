@@ -310,6 +310,12 @@ if [ -n "$START" ]; then
         wait_web
         systemctl is-active --quiet smoking-pi || fail "after a Docker stop and start the unit is not active"
         echo "docker stop + start: the stack came back"
+        # 6d. The watchdog's timer installs, runs a check, and (step 7)
+        # leaves with the package. --no-reboot: never on a test host.
+        smoking-pi watchdog enable --no-reboot >/dev/null || fail "watchdog enable failed"
+        systemctl is-active --quiet smoking-pi-watchdog.timer || fail "the watchdog timer is not active"
+        systemctl start smoking-pi-watchdog.service || fail "a watchdog check failed: $(journalctl -u smoking-pi-watchdog -n 20 --no-pager)"
+        echo "watchdog: timer active, one check ran"
         systemctl stop smoking-pi || fail "the unit did not stop"
     else
         smoking-pi down
@@ -330,6 +336,7 @@ apt-get remove -y -qq smoking-pi >/dev/null
 [ -f /etc/smoking-pi/env ] || fail "removal deleted the env file"
 [ -d /var/lib/smoking-pi/output ] || fail "removal deleted the output dir"
 [ -f /etc/default/smoking-pi ] || fail "removal deleted the conffile (that is purge's job)"
+[ ! -e /etc/systemd/system/smoking-pi-watchdog.timer ] || fail "removal left the watchdog timer"
 apt-get purge -y -qq smoking-pi 2>&1 | grep -i 'kept /etc/smoking-pi/env' || fail "purge did not say what it kept"
 [ ! -e /etc/default/smoking-pi ] || fail "purge left the conffile"
 [ ! -e /etc/smoking-pi/config ] || fail "purge left the seeded config dir"

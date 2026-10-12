@@ -2939,3 +2939,387 @@ STUB
     [ "$status" -eq 1 ]
     [[ "$output" == *"tailscale.com/install.sh"* ]]
 }
+
+# --- watchdog ---------------------------------------------------------------
+# A fake sysfs (wlan0 on brcmfmac, held by brcmfmac_cyw), a stubbed ping,
+# iw, modprobe and systemctl that log, root by a stubbed `id`, and the clock
+# set by SMOKING_PI_WATCHDOG_NOW.
+
+watchdog_setup() {
+    local T="$BATS_TEST_TMPDIR"
+    export SMOKING_PI_WATCHDOG_STATE="$T/wd" SMOKING_PI_WATCHDOG_UNIT_DIR="$T/units"
+    export SMOKING_PI_WATCHDOG_SYS_NET="$T/sys/net" SMOKING_PI_WATCHDOG_SYS_MODULE="$T/sys/module"
+    export SMOKING_PI_WATCHDOG_BOOT_ID="$T/boot_id" SMOKING_PI_WATCHDOG_NOW=1000000
+    mkdir -p "$T/units" "$T/sys/net/wlan0/wireless" "$T/sys/net/wlan0/statistics" "$T/sys/net/eth0/statistics" \
+             "$T/sys/module/brcmfmac/holders" "$T/sys/module/brcmfmac_cyw" "$T/sys/drivers/brcmfmac"
+    ln -s "$T/sys/module/brcmfmac_cyw" "$T/sys/module/brcmfmac/holders/brcmfmac_cyw"
+    ln -s "$T/sys/module/brcmfmac" "$T/sys/drivers/brcmfmac/module"
+    mkdir -p "$T/sys/net/wlan0/device"
+    ln -s "$T/sys/drivers/brcmfmac" "$T/sys/net/wlan0/device/driver"
+    echo 500 > "$T/sys/net/wlan0/statistics/rx_packets"
+    echo boot-a > "$T/boot_id"
+    # STUB_ROUTE: the default route ("" = none); STUB_PING: ping's status
+    # (router-silent: only the router stays quiet, the Internet answers).
+    export STUB_ROUTE="default via 192.168.1.1 dev wlan0 proto dhcp src 192.168.1.10 metric 600" STUB_PING=0
+    cat > "$T/bin/ip" <<'STUB'
+#!/bin/sh
+case "$*" in
+    "-4 route show default") [ -z "$STUB_ROUTE" ] || echo "$STUB_ROUTE" ;;
+    "neigh show to "*) echo "$4 dev $6 lladdr aa:bb:cc:00:00:01 ${STUB_NEIGH:-FAILED}" ;;
+esac
+STUB
+    cat > "$T/bin/ping" <<'STUB'
+#!/bin/sh
+echo "ping $*" >> "$DOCKER_LOG"
+case "$STUB_PING:$*" in
+    router-silent:*192.168.1.1) exit 1 ;;
+    router-silent:*) exit 0 ;;
+esac
+exit "$STUB_PING"
+STUB
+    printf '#!/bin/sh\necho "Connected to aa:bb:cc:dd:ee:ff (on wlan0)"\n' > "$T/bin/iw"
+    # Loading the driver makes a new interface, counters at zero.
+    printf '#!/bin/sh\necho "modprobe $*" >> "$DOCKER_LOG"\n[ "$1" = -r ] || echo 0 > "$SMOKING_PI_WATCHDOG_SYS_NET/wlan0/statistics/rx_packets"\n' > "$T/bin/modprobe"
+    printf '#!/bin/sh\necho "systemctl $*" >> "$DOCKER_LOG"\n' > "$T/bin/systemctl"
+    printf '#!/bin/sh\n[ "$1" = -u ] && { echo 0; exit 0; }\nexec /usr/bin/id "$@"\n' > "$T/bin/id"
+    chmod +x "$T/bin/"*
+    # Seen healthy on wlan0 before: the check acts only then.
+    mkdir -p "$SMOKING_PI_WATCHDOG_STATE"
+    printf 'wifi_dev=wlan0\nwifi_gw=192.168.1.1\n' > "$SMOKING_PI_WATCHDOG_STATE/state"
+}
+
+wd_at() {
+    # The check, N minutes after the start of the test's clock.
+    SMOKING_PI_WATCHDOG_NOW=$((1000000 + $1 * 60)) run "$CLI" watchdog check "${@:2}"
+}
+
+@test "watchdog check: a wired uplink is not watched (no ping, nothing recorded)" {
+    watchdog_setup
+    export STUB_ROUTE="default via 192.168.1.1 dev eth0" STUB_PING=1
+    wd_at 0
+    [ "$status" -eq 0 ]
+    if grep -q '^ping' "$DOCKER_LOG"; then false; fi
+    [ ! -s "$SMOKING_PI_WATCHDOG_STATE/events.log" ]
+}
+
+@test "watchdog check: a router that answers over Wi-Fi is remembered, nothing is logged" {
+    watchdog_setup
+    wd_at 0
+    [ "$status" -eq 0 ]
+    grep -q '^ping -n -q -c 3 -W 2 -I wlan0 192.168.1.1$' "$DOCKER_LOG"
+    grep -qx 'wifi_dev=wlan0' "$SMOKING_PI_WATCHDOG_STATE/state"
+    grep -qx 'wifi_gw=192.168.1.1' "$SMOKING_PI_WATCHDOG_STATE/state"
+    # Written again, readable by everyone: `watchdog` (status) runs without sudo.
+    rm "$SMOKING_PI_WATCHDOG_STATE/state"; wd_at 1
+    [ "$(stat -c %a "$SMOKING_PI_WATCHDOG_STATE/state")" = 644 ]
+    [ ! -s "$SMOKING_PI_WATCHDOG_STATE/events.log" ]
+}
+
+@test "watchdog check: nothing answers on Wi-Fi -> driver reload at 10 min, reboot 5 min later" {
+    watchdog_setup
+    export STUB_PING=1
+    wd_at 0
+    [[ "$output" == *"nothing answers on wlan0, neither router 192.168.1.1 nor the Internet (associated to aa:bb:cc:dd:ee:ff); watching"* ]]
+    # The router, then each address beyond it.
+    grep -qx 'ping -n -q -c 2 -W 2 -I wlan0 1.1.1.1' "$DOCKER_LOG"
+    grep -qx 'ping -n -q -c 2 -W 2 -I wlan0 8.8.8.8' "$DOCKER_LOG"
+    wd_at 9
+    if grep -q '^modprobe' "$DOCKER_LOG"; then false; fi
+    wd_at 10
+    [[ "$output" == *"nothing answers on wlan0 for 10 min"*"0 packets received meanwhile"*"reloading the brcmfmac driver"* ]]
+    # The holder goes out with it and comes back after it.
+    grep -qx 'modprobe -r brcmfmac_cyw brcmfmac' "$DOCKER_LOG"
+    [ "$(grep '^modprobe' "$DOCKER_LOG" | tail -2 | tr '\n' ' ')" = "modprobe brcmfmac modprobe brcmfmac_cyw " ]
+    wd_at 14
+    if grep -q 'systemctl reboot' "$DOCKER_LOG"; then false; fi
+    echo 7 > "$SMOKING_PI_WATCHDOG_SYS_NET/wlan0/statistics/rx_packets"
+    wd_at 15
+    [[ "$output" == *"still nothing answers on wlan0 5 min after the driver reload (associated to aa:bb:cc:dd:ee:ff, 7 packets received since); 15 min in all; rebooting"* ]]
+    grep -qx 'systemctl reboot' "$DOCKER_LOG"
+    grep -qx "last_reboot=$((1000000 + 15 * 60))" "$SMOKING_PI_WATCHDOG_STATE/state"
+}
+
+@test "watchdog check: never reboots twice within 6 h, and says so once per episode" {
+    watchdog_setup
+    export STUB_PING=1
+    printf 'last_reboot=%s\n' $((1000000 - 3600)) >> "$SMOKING_PI_WATCHDOG_STATE/state"
+    wd_at 0; wd_at 10; wd_at 15
+    [[ "$output" == *"not rebooting: this watchdog rebooted 75 min ago, at most once every 6 h"* ]]
+    wd_at 16
+    [ -z "$output" ]
+    if grep -q 'systemctl reboot' "$DOCKER_LOG"; then false; fi
+}
+
+@test "watchdog check --no-reboot: reloads the driver, never reboots" {
+    watchdog_setup
+    export STUB_PING=1
+    wd_at 0 --no-reboot; wd_at 10 --no-reboot; wd_at 15 --no-reboot
+    [[ "$output" == *"not rebooting (installed with --no-reboot)"* ]]
+    grep -q '^modprobe -r' "$DOCKER_LOG"
+    if grep -q 'systemctl reboot' "$DOCKER_LOG"; then false; fi
+}
+
+@test "watchdog check --dry-run: says what it would do, records and does nothing" {
+    watchdog_setup
+    export STUB_PING=1
+    # An episode 10 minutes old, in this boot.
+    printf 'wifi_since=%s\nwifi_boot=boot-a\n' $((1000000 - 600)) >> "$SMOKING_PI_WATCHDOG_STATE/state"
+    cp "$SMOKING_PI_WATCHDOG_STATE/state" "$BATS_TEST_TMPDIR/before"
+    wd_at 0 --dry-run
+    [[ "$output" == *"would reload the brcmfmac driver (dry run)"* ]]
+    cmp "$BATS_TEST_TMPDIR/before" "$SMOKING_PI_WATCHDOG_STATE/state"
+    [ ! -e "$SMOKING_PI_WATCHDOG_STATE/events.log" ]
+    # The real timer still reloads at its next look.
+    wd_at 1
+    grep -q '^modprobe -r' "$DOCKER_LOG"
+    : > "$DOCKER_LOG"
+    wd_at 6 --dry-run
+    [[ "$output" == *"would reboot (dry run)"* ]]
+    if grep -q '^modprobe\|systemctl reboot' "$DOCKER_LOG"; then false; fi
+    grep -q '^wifi_reload_at=' "$SMOKING_PI_WATCHDOG_STATE/state"
+}
+
+@test "watchdog check: reaching the network again ends the episode, and is logged" {
+    watchdog_setup
+    export STUB_PING=1
+    wd_at 0; wd_at 10
+    export STUB_PING=0
+    wd_at 12
+    [[ "$output" == *"wlan0 reaches the network again after 12 min"* ]]
+    if grep -q '^wifi_since=' "$SMOKING_PI_WATCHDOG_STATE/state"; then false; fi
+    export STUB_PING=1
+    wd_at 13
+    [[ "$output" == *"watching"* ]]
+}
+
+@test "watchdog check: after a boot the clock starts again (no reboot right after one)" {
+    watchdog_setup
+    export STUB_PING=1
+    wd_at 0; wd_at 10
+    echo boot-b > "$SMOKING_PI_WATCHDOG_BOOT_ID"
+    wd_at 15
+    [[ "$output" == *"watching"* ]]
+    if grep -q 'systemctl reboot' "$DOCKER_LOG"; then false; fi
+}
+
+@test "watchdog check: no default route counts only on a host seen healthy on Wi-Fi" {
+    watchdog_setup
+    rm "$SMOKING_PI_WATCHDOG_STATE/state"
+    export STUB_ROUTE="" STUB_PING=1
+    wd_at 0
+    [ -z "$output" ]
+    if grep -q '^ping' "$DOCKER_LOG"; then false; fi
+    printf 'wifi_dev=wlan0\nwifi_gw=192.168.1.1\n' > "$SMOKING_PI_WATCHDOG_STATE/state"
+    wd_at 1
+    [[ "$output" == *"nothing answers on wlan0, neither router 192.168.1.1"* ]]
+}
+
+@test "watchdog check: Wi-Fi that never worked here starts no episode (no reboot loop over it)" {
+    watchdog_setup
+    rm "$SMOKING_PI_WATCHDOG_STATE/state"
+    export STUB_PING=1
+    wd_at 0; wd_at 10; wd_at 15
+    [ -z "$output" ]
+    [ ! -s "$SMOKING_PI_WATCHDOG_STATE/events.log" ]
+    if grep -q '^modprobe\|systemctl reboot' "$DOCKER_LOG"; then false; fi
+}
+
+@test "watchdog check: a router that ignores ping while the Internet answers is healthy" {
+    watchdog_setup
+    export STUB_PING=router-silent
+    wd_at 0; wd_at 10; wd_at 15
+    [ -z "$output" ]
+    grep -q 'ping .* 1.1.1.1$' "$DOCKER_LOG"
+    if grep -q '^wifi_since=' "$SMOKING_PI_WATCHDOG_STATE/state"; then false; fi
+    if grep -q '^modprobe\|systemctl reboot' "$DOCKER_LOG"; then false; fi
+}
+
+smokeping_stub() {
+    # The smokeping container: STUB_SP_STARTED (ISO time) and what
+    # s6-svstat answers (STUB_SP_UP; "nostat" = no s6-svstat at all).
+    sed -i 's|^case "\$\*" in|case "$*" in\
+    *"label=com.docker.compose.service=smokeping"*) echo abc123 ;;\
+    "inspect -f {{.State.StartedAt}} abc123") echo "$STUB_SP_STARTED" ;;\
+    "exec abc123 s6-svstat"*) case "$STUB_SP_UP" in nostat) echo "exec: s6-svstat: not found" >\&2; exit 127 ;; unsup) echo "s6-svstat: fatal: unable to read status for /run/service/svc-smokeping: s6-supervise not running" >\&2; exit 1 ;; esac; echo "$STUB_SP_UP" ;;|' \
+        "$BATS_TEST_TMPDIR/bin/docker"
+    export STUB_ROUTE="default via 192.168.1.1 dev eth0"
+    # The clock's zero, as Docker prints it.
+    export STUB_SP_STARTED="$(date -u -d @1000000 +%Y-%m-%dT%H:%M:%S.123456789Z)"
+}
+
+@test "watchdog check: SmokePing not running 5 min after its container started -> restarted" {
+    watchdog_setup; smokeping_stub
+    export STUB_SP_UP=false
+    wd_at 4
+    if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
+    # Down on one look is not enough (an NTP step can age a container once).
+    wd_at 6
+    if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
+    wd_at 7
+    [[ "$output" == *"svc-smokeping is not running 7 min after the container started; restarting it"* ]]
+    grep -q '^docker compose .* restart smokeping$' "$DOCKER_LOG"
+    grep -q "label=com.docker.compose.project.working_dir=$STUB_HOME/editions/pro" "$DOCKER_LOG"
+}
+
+@test "watchdog check: SmokePing running is left alone; a supervisor that never started is down" {
+    watchdog_setup; smokeping_stub
+    export STUB_SP_UP=true
+    wd_at 30
+    if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
+    export STUB_SP_UP=unsup
+    wd_at 31; wd_at 32
+    grep -q 'restart smokeping$' "$DOCKER_LOG"
+}
+
+@test "watchdog check: SmokePing restarts stop after 3 in 6 h; an unknown image is only noted" {
+    watchdog_setup; smokeping_stub
+    export STUB_SP_UP=false
+    mkdir -p "$SMOKING_PI_WATCHDOG_STATE"
+    printf 'smokeping_restarts=%s,%s,%s\n' 999000 999500 999900 > "$SMOKING_PI_WATCHDOG_STATE/state"
+    wd_at 10; wd_at 11
+    [[ "$output" == *"not restarting, already restarted 3 times in 6 h"* ]]
+    wd_at 12
+    [ -z "$output" ]
+    if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
+    # Restarts older than 6 h no longer count.
+    wd_at 420; wd_at 421
+    grep -q 'restart smokeping$' "$DOCKER_LOG"
+    : > "$DOCKER_LOG"; rm -f "$SMOKING_PI_WATCHDOG_STATE/state"
+    export STUB_SP_UP=nostat
+    wd_at 10
+    [[ "$output" == *"cannot read svc-smokeping's state"* ]]
+    wd_at 11
+    [ -z "$output" ]
+    if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
+}
+
+@test "watchdog enable writes a timer and its service; --no-reboot is in ExecStart; disable removes both" {
+    watchdog_setup
+    run "$CLI" watchdog enable --no-reboot
+    [ "$status" -eq 0 ]
+    grep -qx "ExecStart=$REPO/cli/smoking-pi watchdog check --no-reboot" "$SMOKING_PI_WATCHDOG_UNIT_DIR/smoking-pi-watchdog.service"
+    grep -qx "Environment=SMOKING_PI_HOME=$STUB_HOME" "$SMOKING_PI_WATCHDOG_UNIT_DIR/smoking-pi-watchdog.service"
+    grep -qx "Environment=SMOKING_PI_EDITION=pro" "$SMOKING_PI_WATCHDOG_UNIT_DIR/smoking-pi-watchdog.service"
+    grep -qx 'OnUnitActiveSec=1min' "$SMOKING_PI_WATCHDOG_UNIT_DIR/smoking-pi-watchdog.timer"
+    grep -qx 'systemctl enable --now smoking-pi-watchdog.timer' "$DOCKER_LOG"
+    run "$CLI" watchdog disable
+    [ "$status" -eq 0 ]
+    [ ! -e "$SMOKING_PI_WATCHDOG_UNIT_DIR/smoking-pi-watchdog.timer" ]
+    [ ! -e "$SMOKING_PI_WATCHDOG_UNIT_DIR/smoking-pi-watchdog.service" ]
+    grep -q 'watchdog disabled' "$SMOKING_PI_WATCHDOG_STATE/events.log"
+}
+
+@test "watchdog enable, packaged: runs /usr/bin/smoking-pi and pins no edition" {
+    watchdog_setup
+    export SMOKING_PI_PACKAGED=1 SMOKING_PI_VERSION=9.9.9
+    run "$CLI" watchdog enable
+    [ "$status" -eq 0 ]
+    grep -qx 'ExecStart=/usr/bin/smoking-pi watchdog check' "$SMOKING_PI_WATCHDOG_UNIT_DIR/smoking-pi-watchdog.service"
+    if grep -q 'SMOKING_PI_EDITION' "$SMOKING_PI_WATCHDOG_UNIT_DIR/smoking-pi-watchdog.service"; then false; fi
+}
+
+@test "watchdog: enable and check need root; status does not, and says how to turn it on" {
+    watchdog_setup
+    rm "$BATS_TEST_TMPDIR/bin/id"
+    run "$CLI" watchdog enable
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"run it with sudo"* ]]
+    run "$CLI" watchdog check
+    [ "$status" -eq 1 ]
+    run "$CLI" watchdog
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Watchdog: no"* ]]
+    [[ "$output" == *"smoking-pi watchdog enable"* ]]
+    run "$CLI" watchdog --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"hung Wi-Fi radio"* ]]
+}
+
+@test "watchdog check: after the reload, an interface that is gone (no route) still leads to the reboot" {
+    watchdog_setup
+    export STUB_PING=1
+    wd_at 0; wd_at 10
+    grep -q '^modprobe -r' "$DOCKER_LOG"
+    # The driver did not come back: no wlan0, no route.
+    rm -rf "$SMOKING_PI_WATCHDOG_SYS_NET/wlan0"
+    export STUB_ROUTE=""
+    wd_at 15
+    [[ "$output" == *"still nothing answers on wlan0"*"the interface is gone"*"rebooting"* ]]
+    grep -qx 'systemctl reboot' "$DOCKER_LOG"
+}
+
+@test "watchdog check: after the reload, an interface back under another name still leads to the reboot" {
+    watchdog_setup
+    export STUB_PING=1
+    wd_at 0; wd_at 10
+    mv "$SMOKING_PI_WATCHDOG_SYS_NET/wlan0" "$SMOKING_PI_WATCHDOG_SYS_NET/wlan1"
+    export STUB_ROUTE="default via 192.168.1.1 dev wlan1"
+    wd_at 15
+    [[ "$output" == *"still nothing answers on wlan1"*"rebooting"* ]]
+    grep -qx 'systemctl reboot' "$DOCKER_LOG"
+}
+
+@test "watchdog check: a reload that fails is recorded first, so the reboot still comes" {
+    watchdog_setup
+    export STUB_PING=1
+    printf '#!/bin/sh\necho "modprobe $*" >> "$DOCKER_LOG"\nexit 1\n' > "$BATS_TEST_TMPDIR/bin/modprobe"
+    wd_at 0; wd_at 10
+    [[ "$output" == *"reloading brcmfmac failed"* ]]
+    wd_at 11
+    [ "$(grep -c '^modprobe -r' "$DOCKER_LOG")" = 1 ]
+    wd_at 15
+    grep -qx 'systemctl reboot' "$DOCKER_LOG"
+}
+
+@test "watchdog check: a router that ignores ping but resolves on the link, Internet down: the radio works" {
+    watchdog_setup
+    export STUB_PING=1 STUB_NEIGH=REACHABLE
+    wd_at 0; wd_at 10; wd_at 15
+    [ -z "$output" ]
+    grep -q '^ping .* 8.8.8.8$' "$DOCKER_LOG"
+    if grep -q '^modprobe\|systemctl reboot' "$DOCKER_LOG"; then false; fi
+}
+
+@test "watchdog check: a damaged state file reads as nothing known, not as an old episode" {
+    watchdog_setup
+    export STUB_PING=1
+    printf 'wifi_since=abc\nwifi_boot=boot-a\nlast_reboot=xyz\n' >> "$SMOKING_PI_WATCHDOG_STATE/state"
+    wd_at 0
+    [[ "$output" == *"watching"* ]]
+    if grep -q '^modprobe' "$DOCKER_LOG"; then false; fi
+}
+
+@test "watchdog check: a healthy link does not rewrite the state file every minute" {
+    watchdog_setup
+    wd_at 0
+    touch -d '2020-01-01' "$SMOKING_PI_WATCHDOG_STATE/state"
+    wd_at 1
+    [ "$(stat -c %Y "$SMOKING_PI_WATCHDOG_STATE/state")" = "$(date -d 2020-01-01 +%s)" ]
+}
+
+@test "watchdog check: SmokePing is not restarted while another command holds the stack" {
+    command -v flock >/dev/null || skip "no flock"
+    watchdog_setup; smokeping_stub
+    export STUB_SP_UP=false
+    wd_at 6
+    exec 8<"$STUB_HOME/editions/pro"; flock 8
+    wd_at 7
+    flock -u 8; exec 8<&-
+    if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
+    wd_at 8
+    grep -q 'restart smokeping$' "$DOCKER_LOG"
+}
+
+@test "watchdog: status after enable says yes; options only where they mean something" {
+    watchdog_setup
+    printf '#!/bin/sh\necho "systemctl $*" >> "$DOCKER_LOG"\n' > "$BATS_TEST_TMPDIR/bin/systemctl"
+    run "$CLI" watchdog enable
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Watchdog: yes"* ]]
+    [[ "$output" == *"reboot 5 min later (at most every 6 h)"* ]]
+    grep -qx 'TimeoutStartSec=300' "$SMOKING_PI_WATCHDOG_UNIT_DIR/smoking-pi-watchdog.service"
+    run "$CLI" watchdog enable --dry-run
+    [ "$status" -eq 2 ]
+    run "$CLI" watchdog status --no-reboot
+    [ "$status" -eq 2 ]
+}

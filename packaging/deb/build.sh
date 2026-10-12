@@ -86,7 +86,7 @@ Section: net
 Priority: optional
 Architecture: all
 Depends: docker-ce | docker.io, docker-ce-cli | docker-cli | docker.io (<< 26.1.4), docker-compose-plugin | docker-compose-v2 | docker-compose (>= 2), openssl, python3, python3-yaml, git
-Recommends: whiptail
+Recommends: whiptail, iputils-ping, iw
 Installed-Size: $SIZE
 Maintainer: Esteban Carisimo <noreply@smoking-pi.dev>
 Homepage: https://github.com/estcarisimo/smoking-pi
@@ -135,7 +135,7 @@ set -e
 # is the explicit way to delete the data, before the package.
 case "$1" in
     purge)
-        rm -rf /etc/smoking-pi/config /var/lib/smoking-pi/output
+        rm -rf /etc/smoking-pi/config /var/lib/smoking-pi/output /var/lib/smoking-pi/watchdog
         rmdir /var/lib/smoking-pi 2>/dev/null || true
         if [ -f /etc/smoking-pi/env ]; then
             echo "smoking-pi: kept /etc/smoking-pi/env and the Docker volumes (docker volume ls):"
@@ -158,6 +158,13 @@ if [ "$1" = remove ] || [ "$1" = purge ]; then
     systemctl daemon-reload >/dev/null 2>&1 || true
     # The LAN announcement smoking-pi wrote: nothing answers there any more.
     rm -f /etc/avahi/services/smoking-pi.service
+    # The watchdog's units (`smoking-pi watchdog enable`): its command is
+    # gone, and a timer left behind would fail every minute.
+    if [ -f /etc/systemd/system/smoking-pi-watchdog.timer ]; then
+        systemctl disable --now smoking-pi-watchdog.timer >/dev/null 2>&1 || true
+        rm -f /etc/systemd/system/smoking-pi-watchdog.timer /etc/systemd/system/smoking-pi-watchdog.service
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
 fi
 POSTRM
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/prerm" "$PKG/DEBIAN/postrm"

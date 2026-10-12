@@ -402,12 +402,12 @@ quiet.
 ### If it hangs again
 
 A reboot ends a hang (that is what ended the second one); the first cleared
-itself after 21 hours. `nmcli device disconnect wlan0 && nmcli device
-connect wlan0` from a console would be the gentler first attempt and is
-untested here (there is no `nmcli device reconnect`). The doctor does not yet
-check for the condition (backlog item 3 under *Downtime* in the detection
-page); until it does, the `uplink_down` incident and its verdict line are
-the signal.
+itself after 21 hours. `sudo smoking-pi watchdog enable` makes the host do
+it by itself: nothing answering through Wi-Fi for 10 minutes, it reloads
+the driver; still nothing 5 minutes later, it reboots, at most once
+every 6 hours ([Watchdog](watchdog.md)). Without the watchdog, the
+`uplink_down` incident and its verdict line are the signal, and a power
+cycle is the fix.
 
 **Decision record, 2026-09-20 (superseded):** documented, not applied. Power save stays
 on on the reference Pi.
