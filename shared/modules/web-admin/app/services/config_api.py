@@ -114,7 +114,10 @@ class ConfigManagerClient:
             logger.info(f"{method.upper()} {url}")
             start_time = datetime.now()
             
-            response = self.session.request(method, url, timeout=30, **kwargs)
+            # 30 s unless the call says otherwise (an OCA refresh fetches, then
+            # reloads SmokePing, and takes longer).
+            timeout = kwargs.pop('timeout', 30)
+            response = self.session.request(method, url, timeout=timeout, **kwargs)
             
             duration = (datetime.now() - start_time).total_seconds()
             logger.info(f"{method.upper()} {url} - {response.status_code} ({duration:.2f}s)")
@@ -230,7 +233,8 @@ class ConfigManagerClient:
     def refresh_oca(self) -> Dict[str, Any]:
         """Refresh OCA data"""
         try:
-            response = self._make_request('POST', '/oca/refresh')
+            # The fetcher may take 60 s, then SmokePing is reloaded.
+            response = self._make_request('POST', '/oca/refresh', timeout=90)
             
             if response.status_code == 200:
                 return response.json()
@@ -551,6 +555,7 @@ class ConfigAPIGateway:
             result = self.client.refresh_oca()
             return {
                 'success': result.get('success', False),
+                'reloaded': result.get('reloaded'),
                 'message': result.get('message', 'OCA refresh attempted')
             }
         except Exception:
