@@ -96,7 +96,11 @@ peaked at 85.3 °C.
   again. On the first refresh after the upgrade, the old names are replaced
   by the slot names. Their history stays in InfluxDB under the old names,
   and their RRDs stay on disk, unused. `target_host` is InfluxDB only; the
-  ClickHouse exporter does not write it.
+  ClickHouse exporter does not write it. The refresh also reloads SmokePing
+  now: it saved the new targets and regenerated the files, but SmokePing
+  reads them only when signaled, so it went on measuring the previous
+  appliances until some other change reloaded it (14 hours on the staging
+  Pi with the first candidate).
 
 - **Install offers every assistant, and only when there is one to connect**
   ([#305](https://github.com/estcarisimo/smoking-pi/issues/305)). The

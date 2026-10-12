@@ -1560,9 +1560,22 @@ def refresh_oca():
         ], capture_output=True, text=True, timeout=60)
         
         if result.returncode == 0:
+            # The fetcher wrote the targets and regenerated the files; SmokePing
+            # reads them only when it is signaled. Without this, a refresh
+            # changed the database and the generated Targets while SmokePing
+            # kept measuring the previous appliances -- for 14 hours on the
+            # staging Pi -- until some other change happened to reload it.
+            try:
+                reloaded = api._regenerate_smokeping_config()
+            except Exception:
+                logger.warning("OCA refresh saved, but SmokePing was not reloaded",
+                               exc_info=True)
+                reloaded = False
             return jsonify({
                 'success': True,
-                'message': 'OCA data refreshed successfully',
+                'message': ('OCA data refreshed successfully' if reloaded
+                            else 'OCA data refreshed; ' + RELOAD_UNCONFIRMED),
+                'reloaded': reloaded,
                 'output': result.stdout,
                 'refreshed_at': datetime.now().isoformat()
             })
