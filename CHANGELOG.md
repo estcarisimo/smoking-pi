@@ -9,24 +9,6 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
-### Fixed
-
-- **The DNS observer no longer saturates a core when its canaries stop
-  arriving.** Every 30 s it looked for each canary it had not seen yet with
-  its own search of AdGuard's query log, and it keeps canaries for a day.
-  When none arrive (this host's radio deaf, or a router that does not
-  forward to the observer) up to 288 pile up, and AdGuard spent a whole core
-  scanning its log for them. On the reference Pi, after its radio went deaf
-  at 15:15 UTC on 2026-10-12, the observer's CPU rose from 0.04 to 0.53
-  cores over five hours and the Pi from 65 to 71 °C mean (85.3 °C peak),
-  fan at its top step: the loud fan heard while it was cut off. On the
-  staging Pi, whose router does not forward to it, it never stopped
-  (1,003 searches in 10 minutes, AdGuard at 99 % CPU). Now one search for
-  the canary domain finds every pending canary (a 500-entry page, room for
-  the hour's self-tests that share the domain), only those sent within the
-  last hour are looked for (one that arrives does so within seconds), and
-  with none pending there is no search at all.
-
 ## [2.30.0] — 2026-10-12
 
 Loss incidents are kept, so a chart can mark them and an assistant can be
@@ -40,7 +22,10 @@ targets were named after the appliance Netflix hands out, which changes
 every day: 179 series in 60 days for 5 targets. Also: install offers every
 assistant, only when the `mcp` service was picked; `smoking-pi COMMAND
 --help` answers without sudo; and the doctor's Avahi check no longer skips a
-running Avahi.
+running Avahi. And the DNS observer no longer saturates a core when its
+canaries stop arriving: after the reference Pi's radio went deaf on
+2026-10-12, it climbed from 0.04 to 0.53 cores over five hours and the Pi
+peaked at 85.3 °C.
 
 ### Added
 
@@ -66,6 +51,21 @@ running Avahi.
 
 ### Fixed
 
+- **The DNS observer no longer saturates a core when its canaries stop
+  arriving.** Every 30 s it looked for each canary it had not seen yet with
+  its own search of AdGuard's query log, and it keeps canaries for a day.
+  When none arrive (this host's radio deaf, or a router that does not
+  forward to the observer) up to 288 pile up, and AdGuard spent a whole core
+  scanning its log for them. On the reference Pi, after its radio went deaf
+  at 15:15 UTC on 2026-10-12, the observer's CPU rose from 0.04 to 0.53
+  cores over five hours and the Pi from 65 to 71 °C mean (85.3 °C peak),
+  fan at its top step: the loud fan heard while it was cut off. On the
+  staging Pi, whose router does not forward to it, it never stopped
+  (1,003 searches in 10 minutes, AdGuard at 99 % CPU). Now one search for
+  the canary domain finds every pending canary (a 500-entry page, room for
+  the hour's self-tests that share the domain), only those sent within the
+  last hour are looked for (one that arrives does so within seconds), and
+  with none pending there is no search at all.
 - **The doctor's `avahi-host-name` check no longer skips a running Avahi.**
   It read the host name from Avahi's process title and accepted only
   `avahi-daemon: running [name]`. On the reference Pi the title stayed at
