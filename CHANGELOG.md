@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.31.0] — 2026-10-12
+
+The Pi now gets itself back on its feet after the two failures that used to
+need someone at the power socket. A Wi-Fi radio that hangs (still up, often
+still associated, receiving nothing) cost 21 hours, 3 h 20 min and 17 hours
+of measurements on two Pis. A SmokePing that did not start after a power
+cycle cost 16 minutes on 2026-10-12. `sudo smoking-pi watchdog enable`
+reloads the Wi-Fi driver, then reboots if that was not enough, and restarts
+a SmokePing that never came up. It was rehearsed on a Raspberry Pi with the
+uplink cut at the firewall. Off until enabled.
+
 ### Added
 
 - **`smoking-pi watchdog`: the host recovers by itself from a hung Wi-Fi
