@@ -9,6 +9,27 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`smoking-pi watchdog`: the host recovers by itself from a hung Wi-Fi
+  radio and from a SmokePing that did not start.** Both failures used to
+  need a person. The radio hang (wlan0 up, often still associated,
+  receiving nothing) cost 21 hours, 3 h 20 min and 17 hours of measurements
+  on two Pis, and a power cycle ended most of them. After the reference
+  Pi's power cycle on 2026-10-12, its SmokePing container ran while the
+  service inside stayed `down (not started yet)`, and nothing was measured
+  for 16 minutes until a manual restart. `sudo smoking-pi watchdog enable`
+  installs a systemd timer that checks both every minute:
+  - **Wi-Fi:** nothing answers through Wi-Fi for 10 minutes, neither the
+    router nor the Internet → reload the driver; still nothing 5 minutes
+    later → reboot, at most once every 6 hours (`--no-reboot`: never).
+  - **SmokePing:** service not up 5 minutes after its container started →
+    `restart smokeping`, at most 3 times in 6 hours.
+
+  Off until enabled, because it can reboot the host. `smoking-pi watchdog`
+  shows what it did, from an event log that survives the reboot.
+  `docs/watchdog.md`.
+
 ## [2.30.0] — 2026-10-12
 
 Loss incidents are kept, so a chart can mark them and an assistant can be

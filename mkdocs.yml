@@ -43,6 +43,7 @@ nav:
       - Permanent Cloudflare tunnels: cloudflare-tunnel-setup.md
   - Operating:
       - Instrumentation doctor: doctor.md
+      - Watchdog: watchdog.md
       - Upgrading: upgrades.md
       - ClickHouse backend: clickhouse.md
       - Packaging: packaging.md

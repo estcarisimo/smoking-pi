@@ -152,6 +152,17 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      --force. --retire-only only deactivates.
                      'disable' asks you to point the router back first.
                      docs/dns-observer.md.
+  watchdog [status | enable [--no-reboot] | disable | check [--no-reboot] [--dry-run]]
+                     Recover by itself from what used to need a power cycle:
+                     a hung Wi-Fi radio (nothing, router or Internet, answers
+                     through Wi-Fi for 10 min: reload the driver; 5 min later
+                     still nothing: reboot, at most once every 6 h;
+                     --no-reboot: never) and
+                     a SmokePing whose service did not start with its
+                     container (restart it, at most 3 times in 6 h).
+                     'enable' installs a systemd timer that runs 'check'
+                     every minute; 'status' shows what it did. Needs sudo.
+                     docs/watchdog.md.
   discover           Every Smoking Pi on this network and where to open it, from
                      their DNS-SD announcements (needs avahi-browse). install,
                      up and upgrade announce this one when Avahi runs here;

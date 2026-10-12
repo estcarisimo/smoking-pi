@@ -123,9 +123,8 @@ export SMOKING_PI_OUTPUT_DIR="${SMOKING_PI_OUTPUT_DIR:-}"
 
 # The commands. Order matters only for top-level assignments, and there are
 # a few (STACK_LOCKED in core, AVAHI_SERVICE_FILE in reach, TUNNEL_* in
-# tunnel), none read at
-# load time.
-for _module in core env usage reach install config services links alerts openclaw lifecycle dns connect tunnel budget; do
+# tunnel, WATCHDOG_* in watchdog), none read at load time.
+for _module in core env usage reach install config services links alerts openclaw lifecycle dns connect tunnel budget watchdog; do
     # shellcheck source=/dev/null
     . "$CLI_DIR/lib/$_module.sh"
 done
@@ -143,7 +142,9 @@ esac
 # Every command but these reads the env file. One that cannot must say so,
 # not answer from an empty file (see env_locked).
 case "${1:-}" in
-    ""|version|link|doctor|discover|-h|--help|help) ;;
+    # The watchdog reads its own state, not the env file; the halves that
+    # need root say so.
+    ""|version|link|doctor|discover|watchdog|-h|--help|help) ;;
     *)
         if env_locked; then
             echo "Cannot read $ENV_FILE: only root can, because it holds the passwords." >&2
@@ -169,6 +170,7 @@ case "${1:-}" in
     tunnel) shift; cmd_tunnel "$@" ;;
     budget) shift; cmd_budget "$@" ;;
     traffic) shift; cmd_traffic "$@" ;;
+    watchdog) shift; cmd_watchdog "$@" ;;
     up) shift; compose up -d "$@"; remove_disabled; publish_avahi ;;
     down) shift; compose down "$@"; unpublish_avahi ;;
     discover) shift; cmd_discover "$@" ;;
