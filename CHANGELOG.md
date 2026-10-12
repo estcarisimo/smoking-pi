@@ -20,9 +20,10 @@ version gets a matching GitHub release and git tag.
   service inside stayed `down (not started yet)`, and nothing was measured
   for 16 minutes until a manual restart. `sudo smoking-pi watchdog enable`
   installs a systemd timer that checks both every minute:
-  - **Wi-Fi:** nothing answers through Wi-Fi for 10 minutes, neither the
-    router nor the Internet → reload the driver; still nothing 5 minutes
-    later → reboot, at most once every 6 hours (`--no-reboot`: never).
+  - **Wi-Fi:** nothing answers through Wi-Fi for 10 minutes (not the
+    router, not the Internet, and the router does not answer on the link
+    either) → reload the driver; still nothing 5 minutes later → reboot, at
+    most once every 6 hours (`--no-reboot`: never).
   - **SmokePing:** service not up 5 minutes after its container started →
     `restart smokeping`, at most 3 times in 6 hours.
 

@@ -43,17 +43,33 @@ WATCHDOG_SMOKEPING_MAX=3        # restarts in any six hours, then it only logs
 # the Internet answers through it.
 WATCHDOG_INTERNET="${SMOKING_PI_WATCHDOG_INTERNET:-1.1.1.1 8.8.8.8}"
 
+WD_DRY=0                        # check --dry-run: say, never act or record
+
+# Wall-clock time: event stamps, and the reboot limit, which spans boots.
 wd_now() { echo "${SMOKING_PI_WATCHDOG_NOW:-$(date +%s)}"; }
+# Seconds since boot: an episode's clock. A Pi has no real-time clock, so
+# NTP can step the wall clock by hours after a boot; counted in uptime, a
+# step cannot make 10 minutes pass at once. Valid within one boot only,
+# which is all an episode spans (wifi_boot).
+wd_mono() { echo "${SMOKING_PI_WATCHDOG_NOW:-$(cut -d. -f1 /proc/uptime)}"; }
 
 wd_get() {
     # One key from the state file; empty when absent.
     [ -r "$WATCHDOG_STATE/state" ] && sed -n "s/^$1=//p" "$WATCHDOG_STATE/state" | tail -1 || true
 }
 
+wd_int() {
+    # A number from the state file; empty when absent or not a number, so
+    # a damaged file reads as "nothing known", never as a stale clock.
+    local v; v="$(wd_get "$1")"
+    case "$v" in ""|*[!0-9]*) ;; *) echo "$v" ;; esac
+}
+
 wd_set() {
     # wd_set KEY VALUE [KEY VALUE...]; an empty VALUE removes the key.
     # Written whole and renamed, so a reboot in the middle leaves the old
-    # file, never half of one.
+    # file, never half of one. A dry run records nothing.
+    [ "$WD_DRY" = 0 ] || return 0
     local tmp k v
     mkdir -p "$WATCHDOG_STATE"
     tmp="$(mktemp "$WATCHDOG_STATE/.state.XXXXXX")"
@@ -69,10 +85,12 @@ wd_set() {
 
 wd_log() {
     # An action or a finding: to stdout (the unit's journal) and to the
-    # event log `watchdog` shows, which keeps its last 200 lines.
+    # event log `watchdog` shows, which keeps its last 200 lines. A dry run
+    # only prints.
     local line
-    line="$(date -u -d "@$(wd_now)" '+%Y-%m-%dT%H:%M:%SZ') $*"
     echo "$*"
+    [ "$WD_DRY" = 0 ] || return 0
+    line="$(date -u -d "@$(wd_now)" '+%Y-%m-%dT%H:%M:%SZ') $*"
     mkdir -p "$WATCHDOG_STATE"
     echo "$line" >> "$WATCHDOG_STATE/events.log"
     if [ "$(wc -l < "$WATCHDOG_STATE/events.log")" -gt 200 ]; then
@@ -112,30 +130,37 @@ wd_reload_driver() {
     # Remove the module with the ones that hold it (brcmfmac_cyw or
     # brcmfmac_wcc on a Pi: vendor modules brcmfmac loads), load it again,
     # and the holders after it. NetworkManager reconnects by itself. A
-    # wedged driver can hang modprobe -r, hence the timeouts.
+    # wedged driver can hang modprobe -r: -k kills what ignores the TERM,
+    # and the unit's TimeoutStartSec ends one stuck in the kernel (the
+    # caller recorded the reload first, so the next check moves on).
     local mod="$1" holders=() h
     for h in "$WATCHDOG_SYS_MODULE/$mod/holders/"*; do
         [ -e "$h" ] && holders+=("$(basename "$h")")
     done
-    timeout 60 modprobe -r "${holders[@]}" "$mod" || return 1
-    timeout 60 modprobe "$mod" || return 1
-    for h in "${holders[@]}"; do timeout 60 modprobe "$h" || true; done
+    timeout -k 5 60 modprobe -r "${holders[@]}" "$mod" || return 1
+    timeout -k 5 60 modprobe "$mod" || return 1
+    for h in "${holders[@]}"; do timeout -k 5 60 modprobe "$h" || true; done
 }
 
 wd_reaches() {
-    # Whether anything answers through $1: the router $2 (when known), else
-    # an address beyond it. One reply from any of them is enough.
+    # Whether the radio works: the router $2 answers a ping through $1, or
+    # an address beyond it does, or -- for a router that ignores ping while
+    # its Internet is down -- the router at least resolves on the link: the
+    # pings just made the kernel ask for it (ARP), and a deaf radio hears
+    # no reply, so its neighbor entry is never REACHABLE.
     local dev="$1" gw="$2" a
     if [ -n "$gw" ] && ping -n -q -c 3 -W 2 -I "$dev" "$gw" >/dev/null 2>&1; then return 0; fi
     for a in $WATCHDOG_INTERNET; do
         ping -n -q -c 2 -W 2 -I "$dev" "$a" >/dev/null 2>&1 && return 0
     done
-    return 1
+    [ -n "$gw" ] && ip neigh show to "$gw" dev "$dev" 2>/dev/null | grep -qw REACHABLE
 }
 
 wd_link_state() {
-    # "associated to <bssid>" or "not associated", for the log only.
+    # Association, for the log only.
     local out
+    [ -e "$WATCHDOG_SYS_NET/$1" ] || { echo "the interface is gone"; return 0; }
+    command -v iw >/dev/null 2>&1 || { echo "association unknown: no iw"; return 0; }
     out="$(iw dev "$1" link 2>/dev/null | head -1)" || out=""
     case "$out" in
         Connected\ to*) echo "associated to $(echo "$out" | awk '{print $3}')" ;;
@@ -147,11 +172,18 @@ wd_wifi() {
     # One look at the uplink. Healthy (the router or the Internet answers
     # through it): remember the interface and router, end any episode.
     # Nothing answers: count from the first failed look, and act at the
-    # thresholds -- on an interface this check has seen healthy, so a host
-    # whose Wi-Fi never worked here is not rebooted over it.
-    local reboot="$1" dry="$2"
-    local now route dev="" gw="" since reload_at rebooted rx0 elapsed
-    now="$(wd_now)"
+    # thresholds. An episode starts only on an interface this check has
+    # seen healthy, so a host whose Wi-Fi never worked here is not
+    # rebooted over it; once the driver was reloaded, an interface that
+    # came back renamed, or not at all, is still "nothing answers" -- it
+    # is the case a reboot is for.
+    local reboot="$1"
+    local mono boot route dev="" gw="" since reload_at rebooted rx0 elapsed live=0
+    mono="$(wd_mono)"
+    boot="$(cat "$WATCHDOG_BOOT_ID" 2>/dev/null)" || boot=""
+    since="$(wd_int wifi_since)"
+    reload_at="$(wd_int wifi_reload_at)"
+    [ -n "$since" ] && [ "$(wd_get wifi_boot)" = "$boot" ] && live=1
     route="$(ip -4 route show default 2>/dev/null | head -1)" || route=""
     if [ -n "$route" ]; then
         dev="$(echo "$route" | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
@@ -159,8 +191,8 @@ wd_wifi() {
         if [ -z "$dev" ] || ! wd_wireless "$dev"; then
             # Wired (or a tunnel): not this check's business. A Wi-Fi
             # episode in progress ended when the route moved.
-            [ -z "$(wd_get wifi_since)" ] || wd_log "wifi: the uplink is now ${dev:-unknown}, not Wi-Fi; nothing to watch"
-            wd_set wifi_since "" wifi_reload_at "" wifi_rx0 "" wifi_dev "" wifi_gw ""
+            [ -z "$since" ] || wd_log "wifi: the uplink is now ${dev:-unknown}, not Wi-Fi; nothing to watch"
+            [ -z "$(wd_get wifi_dev)$since" ] || wd_set wifi_since "" wifi_reload_at "" wifi_rx0 "" wifi_dev "" wifi_gw ""
             return 0
         fi
     else
@@ -169,28 +201,30 @@ wd_wifi() {
         # healthy on Wi-Fi counts that as the radio; a wired host with its
         # cable out, or Wi-Fi never set up, is left alone.
         dev="$(wd_get wifi_dev)"; gw="$(wd_get wifi_gw)"
-        [ -n "$dev" ] && wd_wireless "$dev" || return 0
+        [ -n "$dev" ] || return 0
+        if ! wd_wireless "$dev" && ! { [ "$live" = 1 ] && [ -n "$reload_at" ]; }; then return 0; fi
     fi
-    if wd_reaches "$dev" "$gw"; then
-        since="$(wd_get wifi_since)"
-        if [ -n "$since" ]; then
-            wd_log "wifi: $dev reaches the network again after $(wd_minutes $((now - since))) min"
+    if wd_wireless "$dev" && wd_reaches "$dev" "$gw"; then
+        if [ "$live" = 1 ]; then
+            wd_log "wifi: $dev reaches the network again after $(wd_minutes $((mono - since))) min"
         fi
-        wd_set wifi_dev "$dev" wifi_gw "$gw" wifi_since "" wifi_reload_at "" wifi_rx0 ""
+        # Written only when something changed: once a minute for months
+        # is a lot of writes for an SD card.
+        if [ -n "$since" ] || [ "$(wd_get wifi_dev)" != "$dev" ] || [ "$(wd_get wifi_gw)" != "$gw" ]; then
+            wd_set wifi_dev "$dev" wifi_gw "$gw" wifi_since "" wifi_reload_at "" wifi_rx0 ""
+        fi
         return 0
     fi
-    [ "$(wd_get wifi_dev)" = "$dev" ] || return 0
-    since="$(wd_get wifi_since)"
-    if [ -z "$since" ] || [ "$(wd_get wifi_boot)" != "$(cat "$WATCHDOG_BOOT_ID" 2>/dev/null)" ]; then
+    if [ "$live" = 0 ]; then
         # A new episode, or the first look after a boot: the clock starts
         # now, so a reboot is followed by a full WATCHDOG_WIFI_MIN again.
+        [ "$(wd_get wifi_dev)" = "$dev" ] || return 0
         wd_log "wifi: nothing answers on $dev, neither router ${gw:-unknown} nor the Internet ($(wd_link_state "$dev")); watching"
-        wd_set wifi_since "$now" wifi_reload_at "" wifi_rx0 "$(wd_rx_packets "$dev")" wifi_boot "$(cat "$WATCHDOG_BOOT_ID" 2>/dev/null)"
+        wd_set wifi_since "$mono" wifi_reload_at "" wifi_rx0 "$(wd_rx_packets "$dev")" wifi_boot "$boot"
         return 0
     fi
-    elapsed=$((now - since))
-    rx0="$(wd_get wifi_rx0)"
-    reload_at="$(wd_get wifi_reload_at)"
+    elapsed=$((mono - since))
+    rx0="$(wd_int wifi_rx0)"
     if [ -z "$reload_at" ]; then
         [ "$elapsed" -ge $((WATCHDOG_WIFI_MIN * 60)) ] || return 0
         local mod what
@@ -198,18 +232,22 @@ wd_wifi() {
         what="nothing answers on $dev for $(wd_minutes "$elapsed") min ($(wd_link_state "$dev"), $(wd_received "$dev" "$rx0") meanwhile)"
         if [ -z "$mod" ]; then
             wd_log "wifi: $what; the driver is built in, nothing to reload"
-        elif [ "$dry" = 1 ]; then
+            wd_set wifi_reload_at "$mono"
+        elif [ "$WD_DRY" = 1 ]; then
             wd_log "wifi: $what; would reload the $mod driver (dry run)"
         else
             wd_log "wifi: $what; reloading the $mod driver"
+            # Recorded first: a reload that hangs or is killed must still
+            # lead to the reboot, not to another reload.
+            wd_set wifi_reload_at "$mono"
             wd_reload_driver "$mod" || wd_log "wifi: reloading $mod failed"
+            # Counted again from here: the reload restarted the counters.
+            wd_set wifi_rx0 "$(wd_rx_packets "$dev")"
         fi
-        # Counted again from here: the reload restarted the counters.
-        wd_set wifi_reload_at "$now" wifi_rx0 "$(wd_rx_packets "$dev")"
         return 0
     fi
-    [ $((now - reload_at)) -ge $((WATCHDOG_REBOOT_MIN * 60)) ] || return 0
-    local what="still nothing answers on $dev $(wd_minutes $((now - reload_at))) min after the driver reload ($(wd_link_state "$dev"), $(wd_received "$dev" "$rx0") since); $(wd_minutes "$elapsed") min in all"
+    [ $((mono - reload_at)) -ge $((WATCHDOG_REBOOT_MIN * 60)) ] || return 0
+    local what="still nothing answers on $dev $(wd_minutes $((mono - reload_at))) min after the driver reload ($(wd_link_state "$dev"), $(wd_received "$dev" "$rx0") since); $(wd_minutes "$elapsed") min in all"
     if [ "$reboot" = 0 ]; then
         # Said once per episode, not every minute.
         [ "$(wd_get wifi_told)" = "$since" ] && return 0
@@ -217,16 +255,16 @@ wd_wifi() {
         wd_set wifi_told "$since"
         return 0
     fi
-    rebooted="$(wd_get last_reboot)"
+    local now; now="$(wd_now)"
+    rebooted="$(wd_int last_reboot)"
     if [ -n "$rebooted" ] && [ $((now - rebooted)) -lt $((WATCHDOG_REBOOT_HOURS * 3600)) ]; then
         [ "$(wd_get wifi_told)" = "$since" ] && return 0
         wd_log "wifi: $what; not rebooting: this watchdog rebooted $(wd_minutes $((now - rebooted))) min ago, at most once every $WATCHDOG_REBOOT_HOURS h"
         wd_set wifi_told "$since"
         return 0
     fi
-    if [ "$dry" = 1 ]; then
+    if [ "$WD_DRY" = 1 ]; then
         wd_log "wifi: $what; would reboot (dry run)"
-        wd_set wifi_since ""
         return 0
     fi
     wd_log "wifi: $what; rebooting"
@@ -236,8 +274,21 @@ wd_wifi() {
 
 # --- SmokePing -----------------------------------------------------------
 
+wd_svc_state() {
+    # svc-smokeping in container $1: up, down, or unknown. A service whose
+    # supervisor never started (s6-rc stuck before it) is as down as one
+    # that is supervised but down.
+    local out
+    out="$(docker exec "$1" s6-svstat -u /run/service/svc-smokeping 2>&1)" || true
+    case "$out" in
+        true) echo up ;;
+        false|*"supervise not running"*) echo down ;;
+        *) echo unknown ;;
+    esac
+}
+
 wd_smokeping() {
-    local dry="$1" now id started up since restarts recent=() r
+    local now id started since state seen recent=() r
     now="$(wd_now)"
     # This stack's container, by its labels: the edition directory is the
     # Compose working directory, whatever the project is called.
@@ -248,13 +299,10 @@ wd_smokeping() {
     started="$(date -d "$started" +%s 2>/dev/null)" || return 0
     since=$((now - started))
     [ "$since" -ge $((WATCHDOG_SMOKEPING_MIN * 60)) ] || return 0
-    # "true"/"false"; a service whose supervisor never started (s6-rc
-    # stuck before it) is as down as one that is supervised but down.
-    up="$(docker exec "$id" s6-svstat -u /run/service/svc-smokeping 2>&1)" || true
-    case "$up" in
-        true) return 0 ;;
-        false|*"supervise not running"*) ;;
-        *)
+    state="$(wd_svc_state "$id")"
+    case "$state" in
+        up) [ -z "$(wd_get smokeping_down)" ] || wd_set smokeping_down ""; return 0 ;;
+        unknown)
             # No s6-svstat, or no such service: an image this check does not
             # know. Said once per container start.
             [ "$(wd_get smokeping_unknown)" = "$started" ] && return 0
@@ -262,22 +310,42 @@ wd_smokeping() {
             wd_set smokeping_unknown "$started"
             return 0 ;;
     esac
+    # Down on two looks a minute apart, not one: the container's start time
+    # is wall-clock, and an NTP step after a boot could make a fresh
+    # container look five minutes old once.
+    seen="$(wd_get smokeping_down)"
+    if [ "${seen%%:*}" != "$started" ]; then
+        wd_set smokeping_down "$started:$now"
+        [ "$WD_DRY" = 0 ] && return 0
+    fi
     for r in $(wd_get smokeping_restarts | tr ',' ' '); do
+        case "$r" in ""|*[!0-9]*) continue ;; esac
         [ $((now - r)) -lt 21600 ] && recent+=("$r")
     done
+    local what="svc-smokeping is not running $(wd_minutes "$since") min after the container started"
     if [ "${#recent[@]}" -ge "$WATCHDOG_SMOKEPING_MAX" ]; then
         [ "$(wd_get smokeping_told)" = "$started" ] && return 0
-        wd_log "smokeping: svc-smokeping is not running $(wd_minutes "$since") min after the container started; not restarting, already restarted ${#recent[@]} times in 6 h ($(cli_name) logs smokeping)"
+        wd_log "smokeping: $what; not restarting, already restarted ${#recent[@]} times in 6 h ($(cli_name) logs smokeping)"
         wd_set smokeping_told "$started"
         return 0
     fi
-    if [ "$dry" = 1 ]; then
-        wd_log "smokeping: svc-smokeping is not running $(wd_minutes "$since") min after the container started; would restart it (dry run)"
+    if [ "$WD_DRY" = 1 ]; then
+        wd_log "smokeping: $what; would restart it (dry run)"
         return 0
     fi
-    wd_log "smokeping: svc-smokeping is not running $(wd_minutes "$since") min after the container started; restarting it"
+    # Another smoking-pi command changing the stack (upgrade, up at boot)
+    # may be about to recreate this very container: skip this minute rather
+    # than wait for it and then restart what it just started. Under the
+    # lock, look again.
+    if command -v flock >/dev/null 2>&1 && [ "$STACK_LOCKED" != 1 ]; then
+        exec 9<"$EDITION_DIR"
+        flock -n 9 || return 0
+        STACK_LOCKED=1
+    fi
+    [ "$(wd_svc_state "$id")" = down ] || return 0
+    wd_log "smokeping: $what; restarting it"
     recent+=("$now")
-    wd_set smokeping_restarts "$(IFS=,; echo "${recent[*]}")"
+    wd_set smokeping_restarts "$(IFS=,; echo "${recent[*]}")" smokeping_down ""
     cmd_restart smokeping >/dev/null || wd_log "smokeping: the restart failed"
 }
 
@@ -290,11 +358,18 @@ wd_write_units() {
     [ "$reboot" = 1 ] || opt=" --no-reboot"
     # Packaged, the edition is the one `install` recorded, and the unit
     # must not pin another; a clone has no record, so it is written here.
+    # So are the state locations a relocated clone was enabled with.
     if [ "${SMOKING_PI_PACKAGED:-0}" = 1 ]; then
         cli=/usr/bin/smoking-pi
     else
         env="
 Environment=SMOKING_PI_EDITION=$SMOKING_PI_EDITION"
+        [ -z "${SMOKING_PI_ENV_FILE_SET:-}" ] || env="$env
+Environment=SMOKING_PI_ENV_FILE=$ENV_FILE"
+        [ -z "$SMOKING_PI_CONFIG_DIR" ] || env="$env
+Environment=SMOKING_PI_CONFIG_DIR=$SMOKING_PI_CONFIG_DIR"
+        [ -z "$SMOKING_PI_OUTPUT_DIR" ] || env="$env
+Environment=SMOKING_PI_OUTPUT_DIR=$SMOKING_PI_OUTPUT_DIR"
     fi
     cat > "$WATCHDOG_UNIT_DIR/smoking-pi-watchdog.service" <<UNIT
 # Written by 'smoking-pi watchdog enable'; removed by 'smoking-pi watchdog disable'.
@@ -307,6 +382,9 @@ Type=oneshot
 Environment=SMOKING_PI_HOME=$SMOKING_PI_HOME$env
 EnvironmentFile=-/etc/default/smoking-pi
 ExecStart=$cli watchdog check$opt
+# A driver reload stuck in the kernel must not hold the timer forever: the
+# reload is recorded before it starts, so the next check goes on to reboot.
+TimeoutStartSec=300
 UNIT
     cat > "$WATCHDOG_UNIT_DIR/smoking-pi-watchdog.timer" <<'UNIT'
 # Written by 'smoking-pi watchdog enable'; removed by 'smoking-pi watchdog disable'.
@@ -355,12 +433,12 @@ wd_status() {
 }
 
 cmd_watchdog() {
-    local sub="${1:-status}" reboot=1 dry=0 a
+    local sub="${1:-status}" reboot=1 a
     [ $# -eq 0 ] || shift
     for a in "$@"; do
-        case "$a" in
-            --no-reboot) reboot=0 ;;
-            --dry-run) dry=1 ;;
+        case "$sub:$a" in
+            enable:--no-reboot|check:--no-reboot) reboot=0 ;;
+            check:--dry-run) WD_DRY=1 ;;
             *) echo "unknown option $a (watchdog [status | enable [--no-reboot] | disable | check [--no-reboot] [--dry-run]])" >&2; return 2 ;;
         esac
     done
@@ -368,6 +446,8 @@ cmd_watchdog() {
         status) wd_status ;;
         enable)
             wd_need_root || return 1
+            command -v ping >/dev/null 2>&1 \
+                || echo "warning: no ping on this host (apt install iputils-ping): the Wi-Fi check cannot tell a working link from a dead one, so it will never act" >&2
             wd_write_units "$reboot"
             systemctl daemon-reload
             systemctl enable --now smoking-pi-watchdog.timer >/dev/null 2>&1 \
@@ -384,8 +464,8 @@ cmd_watchdog() {
         check)
             wd_need_root || return 1
             # Each half on its own: a failure in one must not skip the other.
-            wd_wifi "$reboot" "$dry" || echo "wifi check failed" >&2
-            wd_smokeping "$dry" || echo "smokeping check failed" >&2 ;;
+            wd_wifi "$reboot" || echo "wifi check failed" >&2
+            wd_smokeping || echo "smokeping check failed" >&2 ;;
         *) echo "unknown watchdog command: $sub" >&2; return 2 ;;
     esac
 }

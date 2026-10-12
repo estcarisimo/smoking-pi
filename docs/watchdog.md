@@ -48,19 +48,34 @@ is your decision to make.
 Each check pings the router (the default route's gateway) through the Wi-Fi
 interface, and, if it stays quiet, two public addresses (`1.1.1.1`,
 `8.8.8.8`) through the same interface. One answer from any of them is
-enough. The watchdog only acts when **nothing** answers:
+enough. If none answers, the check looks at whether the router still
+answers on the link: the pings made the kernel ask for the router's address
+(ARP). A working radio hears the reply; a deaf one does not, so its
+neighbor entry for the router never becomes `REACHABLE` (`ip neigh`). The
+watchdog only acts when **nothing** answers, at either level:
 
-- An ISP outage leaves the router answering, so the watchdog does nothing.
-- A router that ignores ping, or a firewall rule that blocks it, leaves the
-  Internet answering, so the watchdog does nothing either.
+- An ISP outage leaves the router answering ping, so the watchdog does
+  nothing.
+- A router that ignores ping still answers on the link, and the Internet
+  answers through it when it is up. Either one keeps the watchdog quiet.
 
 | Nothing answers through Wi-Fi for | Action |
 | --- | --- |
-| 10 minutes | Reload the Wi-Fi driver: remove its kernel module and the modules that hold it (`brcmfmac` and `brcmfmac_cyw` on a Raspberry Pi), then load them again. NetworkManager reconnects by itself. |
+| 10 minutes | Reload the Wi-Fi driver: remove its kernel module and the modules that hold it (on a Raspberry Pi, `brcmfmac` and `brcmfmac_cyw` or `brcmfmac_wcc`), then load them again. NetworkManager reconnects by itself. |
 | 5 more minutes | Reboot the host, unless the watchdog already rebooted it in the last 6 hours or was enabled with `--no-reboot`. |
 
 Anything answering again ends the episode, and that is logged with how
 long it lasted.
+
+The reload is recorded before it starts. If the driver hangs in the kernel,
+the unit's 5-minute start timeout ends the check, and the next check moves
+on to the reboot. If the driver does not come back, or comes back under
+another interface name, that still counts as nothing answering, and the
+reboot follows: that is the case a reboot is for.
+
+The episode's minutes are counted in time since boot, not by the wall
+clock. A Raspberry Pi has no real-time clock, and NTP can move its clock by
+hours just after a boot.
 
 After a reboot the clock starts again: the driver reload comes 10 minutes
 later, and a second reboot only once 6 hours have passed since the first.
@@ -92,8 +107,11 @@ Each check finds this stack's SmokePing container by its Compose labels and
 asks s6, the process supervisor inside it, whether the SmokePing service is
 up (`s6-svstat -u /run/service/svc-smokeping`). The container gets 5
 minutes from its start; a normal start takes under two. If the service is
-still not up after that, the watchdog runs `smoking-pi restart smokeping`.
-A service whose supervisor never started counts as down too.
+still not up on two checks in a row, the watchdog runs `smoking-pi restart
+smokeping`. A service whose supervisor never started counts as down too.
+If another `smoking-pi` command is changing the stack at that moment (an
+`upgrade`, or the stack starting at boot), the watchdog skips that minute
+rather than restart a container that command may be replacing.
 
 At most three restarts in any six hours; after that it only logs, so a
 SmokePing that fails for a real reason (a broken `Targets` file, say) is
@@ -134,7 +152,8 @@ journal across reboots: see
 
 ## Trying it without waiting for a hang
 
-`--dry-run` makes a check say what it would do and do nothing:
+`--dry-run` makes a check say what it would do now, and do nothing: no
+action, and nothing recorded, so it never changes what the timer does next:
 
 ```bash
 sudo smoking-pi watchdog check --dry-run
@@ -150,12 +169,18 @@ sudo nft add table inet wdtest
 sudo nft add chain inet wdtest out '{ type filter hook output priority 0; }'
 sudo nft add rule inet wdtest out oifname wlan0 ip daddr != 192.168.1.0/24 drop
 sudo nft add rule inet wdtest out ip daddr 192.168.1.1 drop
+sudo nft add table arp wdtest
+sudo nft add chain arp wdtest out '{ type filter hook output priority 0; }'
+sudo nft add rule arp wdtest out arp daddr ip 192.168.1.1 drop
 ```
 
 Replace `192.168.1.0/24` with your LAN and `192.168.1.1` with your router
-(`ip -4 route show default`). The first rule cuts everything beyond the LAN
-and the second cuts the router itself. Other hosts on the LAN still reach
+(`ip -4 route show default`). The first rule cuts everything beyond the LAN,
+the second cuts the router itself, and the third stops the host asking for
+the router on the link (ARP). Other hosts on the LAN still reach
 the Pi, because that traffic does not go through the router. The driver
 reload does not clear the rules. The reboot that follows does, and that is
-the recovery to look for. Blocking only the router is not enough: the
-Internet still answers through it, and the watchdog rightly does nothing.
+the recovery to look for. Blocking less is not enough: the Internet, or the
+router's link-level answer, keeps the watchdog quiet, as it should. The
+packet count in the log keeps climbing during the rehearsal, because the
+radio still receives. In a real hang it stays at zero.

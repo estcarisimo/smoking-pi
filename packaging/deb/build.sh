@@ -86,7 +86,7 @@ Section: net
 Priority: optional
 Architecture: all
 Depends: docker-ce | docker.io, docker-ce-cli | docker-cli | docker.io (<< 26.1.4), docker-compose-plugin | docker-compose-v2 | docker-compose (>= 2), openssl, python3, python3-yaml, git
-Recommends: whiptail
+Recommends: whiptail, iputils-ping, iw
 Installed-Size: $SIZE
 Maintainer: Esteban Carisimo <noreply@smoking-pi.dev>
 Homepage: https://github.com/estcarisimo/smoking-pi
