@@ -541,7 +541,7 @@ def rule_widespread(
     step_s: int = STEP_S,
     cadences: dict[str, cadence.Cadence] | None = None,
     ongoing: Collection[str] = (),
-    open_keys: Collection[str] = (),
+    uplink_last_seen: float | None = None,
 ) -> list[dict]:
     """One incident for a loss that hit most targets in the same probe cycle.
 
@@ -577,10 +577,13 @@ def rule_widespread(
       reconcile never records or announces it. Before this it was a fresh
       "brief cut of the link" warning, sent just as delivery worked again.
       Once fewer than ``min_points`` lost cycles remain in view the shape
-      alone cannot say so, so a run at the window's first cycle while an
-      ``uplink_down`` is still open (``open_keys``, grace period included)
-      is its tail too. A quiet tail ``continues`` that incident: reconcile
-      announces its recovery only once the tail has left the window.
+      alone cannot say so, so a run at the window's first cycle that began
+      while the uplink was still down -- no later than one cycle after the
+      open ``uplink_down`` was last seen (``uplink_last_seen``) -- is its
+      tail too. A quiet tail ``continues`` that incident: reconcile
+      announces its recovery only once the tail has left the window. The
+      bound is what ends it: loss that goes on after the uplink returned
+      starts after that, and is an outage of its own.
     - A run that starts at the window's first cycle may have started before
       it. When an outage was active in the previous evaluation (``ongoing``,
       keys of open records not in their grace period), the run keeps that
@@ -710,14 +713,23 @@ def rule_widespread(
                     f"{'lost every packet' if all_lost else 'lost packets'} "
                     f"in the same {minutes}-minute span at {_hhmm(start)} — "
                     "a brief cut of the link, not a site problem"
+                    if start == first else
+                    f"{n_lossy} of {n_all} targets "
+                    f"{'losing every packet' if all_lost else 'losing packets'} "
+                    f"together since {_hhmm(start)} ({minutes} minutes) — "
+                    "the link, not a site problem"
                 ),
                 "value": n_lossy,
                 "breadth": _breadth(lossy[widest], n_all),
             }
-            tail_of_open = first == steps[0] and "uplink_down" in open_keys
+            tail_of_open = (
+                uplink_last_seen is not None
+                and first == steps[0]
+                and first <= uplink_last_seen + step_s
+            )
             if was_uplink_down(run) or tail_of_open:
                 incident["quiet"] = True
-                if "uplink_down" in open_keys:
+                if uplink_last_seen is not None:
                     incident["continues"] = "uplink_down"
             incidents.append(incident)
             run = []
@@ -929,7 +941,8 @@ def evaluate_with_context(
     ]
     widespread = rule_widespread(
         down_rows, step_s=windows["step"], cadences=cadences,
-        ongoing=ongoing, open_keys=open_keys,
+        ongoing=ongoing,
+        uplink_last_seen=records.get("uplink_down", {}).get("last_seen"),
     )
     incidents = widespread + suppress_widespread(incidents, widespread)
     # Nothing in the window: a stall, or a stack that has never measured.

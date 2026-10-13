@@ -13,7 +13,9 @@ Lifecycle per incident key:
                              stay silent (the cooldown still governs re-alerts)
 - absent because its target has no data -> held open, neither missing nor
   recovered (``judged``): silence is not health. Dropped without a notice
-  after HOLD_MAX_S of no data (a removed or renamed target)
+  after HOLD_MAX_S of no data (a removed or renamed target). A hold keeps
+  any ``missing_since`` it found: data had already shown the target fine,
+  so once data returns the grace period it started can complete at once
 - superseded by a worse incident about the same thing (``supersedes``: a
   target_down retiring the high_loss it grew out of) -> dropped silently;
   the worse incident's own alert is the news

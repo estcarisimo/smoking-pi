@@ -214,7 +214,7 @@ def test_a_recovery_still_fires_for_an_alert_that_was_seen(
 def test_an_ack_matches_only_its_own_incident(state_file, mutes_file):
     """A key-scoped entry must never widen into a category-wide silence."""
     mutes_file([{"key": "target_down:google", "clear_on_recovery": True,
-                 "until": 9_999_999_999.0}])
+                 "created_at": 1000.0, "until": 9_999_999_999.0}])
     st = state.load_state()
     actions = state.reconcile(
         st,
@@ -247,13 +247,16 @@ def test_an_ack_lasts_until_the_incident_recovers(state_file, mutes_file,
     assert len(state.reconcile(st, [_incident()], now=9000.0)["alerts"]) == 1
 
 
-def test_an_ack_without_a_creation_time_still_mutes_its_key(state_file,
-                                                             mutes_file):
-    """Entries written before created_at existed keep their old meaning."""
-    mutes_file([{"key": "target_down:google", "clear_on_recovery": True,
-                 "until": 9_999_999_999.0}])
-    st = state.load_state()
-    assert state.reconcile(st, [_incident()], now=9000.0)["alerts"] == []
+def test_an_ack_without_a_readable_creation_time_alerts(state_file,
+                                                         mutes_file):
+    """Review of #332: an ack that cannot say which occurrence it covers
+    fails toward alerting -- noise, not silence. ack_incident has always
+    written created_at, so only a hand-edited entry lands here."""
+    for created in ({}, {"created_at": "yesterday"}):
+        mutes_file([{"key": "target_down:google", "clear_on_recovery": True,
+                     "until": 9_999_999_999.0, **created}])
+        st = state.load_state()
+        assert len(state.reconcile(st, [_incident()], now=9000.0)["alerts"]) == 1
 
 
 # --- the mute file must never be able to stop alerts ------------------------

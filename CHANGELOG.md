@@ -21,7 +21,10 @@ version gets a matching GitHub release and git tag.
   fresh outages just as delivery worked again. An outage now keeps the key
   of the one it continues, and the tail of an `uplink_down` only suppresses
   the per-target fan-out: it is never sent, and the uplink's recovery waits
-  until it is gone. Found by the audit of the detection pipeline (roadmap
+  until it is gone (up to one 20-minute window later than before). Loss
+  that goes on after the uplink returned is an outage of its own, and a
+  continued outage's message says how long it has lasted instead of
+  calling it a brief cut. Found by the audit of the detection pipeline (roadmap
   front 8).
 - **A target going down no longer announces "recovered" fifteen minutes
   in.** `high_loss` fires two cycles before `target_down`; once the target

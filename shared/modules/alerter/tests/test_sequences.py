@@ -109,6 +109,23 @@ def test_a_long_hang_is_one_critical_and_one_recovery(monkeypatch):
     ]
 
 
+def test_a_link_that_comes_back_lossy_is_still_reported(monkeypatch):
+    """Review of #332: the hang ends, but the link stays lossy for two hours.
+
+    The uplink_down must recover and the loss that follows must alert: a
+    tail that never ends would have kept both silent.
+    """
+    def loss(i):
+        return 1.0 if 3 <= i < 15 else 0.4 if 15 <= i < 39 else 0.0
+
+    sent = Replay(monkeypatch, everyone(loss)).run(240)
+    kinds = [(kind, key.split(":")[0]) for _, kind, key in sent]
+    assert ("alert", "uplink_down") in kinds
+    assert ("recovery", "uplink_down") in kinds
+    after = [s for s in sent if s[0] > 75 and s[1] == "alert"]
+    assert after and after[0][2].startswith("outage:")
+
+
 def test_a_lossy_hour_everywhere_is_one_outage(monkeypatch):
     """Widespread loss that is not total, longer than the 20-minute window.
 

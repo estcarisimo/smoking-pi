@@ -311,3 +311,18 @@ def test_an_aggregate_incident_is_held_only_when_nothing_has_data(state_file,
     assert state.reconcile(st, [], now=1300.0, judged=set())["recoveries"] == []
     state.reconcile(st, [], now=1400.0, judged={"google"})
     assert len(state.reconcile(st, [], now=1600.0, judged={"google"})["recoveries"]) == 1
+
+
+def test_a_hold_keeps_the_grace_period_data_had_already_started(state_file,
+                                                                monkeypatch):
+    """Review of #332: the target answered (grace started), then its data
+    stopped. Once data returns showing it fine, the recovery is due at once:
+    the grace period ran on data, and the hold only paused the verdict."""
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "100")
+    st = state.load_state()
+    state.reconcile(st, [_incident()], now=1000.0, judged={"google"})
+    state.reconcile(st, [], now=1050.0, judged={"google"})      # grace starts
+    for now in (1100.0, 5000.0):                                 # no data
+        assert state.reconcile(st, [], now=now, judged=set())["recoveries"] == []
+    actions = state.reconcile(st, [], now=5060.0, judged={"google"})
+    assert [r["key"] for r in actions["recoveries"]] == ["target_down:google"]

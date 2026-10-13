@@ -144,10 +144,12 @@ def matches(entry: dict, incident: dict, first_seen: float | None = None) -> boo
         if incident.get("key") != key:
             return False
         if entry.get("clear_on_recovery") and first_seen is not None:
+            # An ack whose creation time cannot be read cannot say which
+            # occurrence it covers: fail toward alerting, like expiry.
             try:
                 return float(first_seen) <= float(entry["created_at"])
             except (KeyError, TypeError, ValueError):
-                return True
+                return False
         return True
 
     target = entry.get("target")
