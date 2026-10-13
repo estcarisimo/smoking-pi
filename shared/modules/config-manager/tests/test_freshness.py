@@ -526,8 +526,37 @@ def test_the_snippet_and_the_cont_init_scripts_stay_in_step():
         script = (root / "editions" / edition / "custom-cont-init.d"
                   / "05-link-generated-config.sh").read_text()
         for shape in ('GENERATED_DIR="/config/generated"', 'for name in Targets Probes',
-                      'readlink "$dst"', 'rm -f "$dst"', 'ln -s "$src" "$dst"'):
+                      'readlink "$dst"', 'rm -f "$dst"', 'ln -s "$src" "$dst"',
+                      '[ -e /config/CPE_Targets ] || touch /config/CPE_Targets'):
             assert shape in script, (edition, shape)
     for shape in ("src=/config/generated/$n", "for n in Targets Probes",
-                  'readlink "$dst"', 'rm -f "$dst"', 'ln -s "$src" "$dst"'):
+                  'readlink "$dst"', 'rm -f "$dst"', 'ln -s "$src" "$dst"',
+                  '[ -e /config/CPE_Targets ] || touch /config/CPE_Targets'):
         assert shape in api_module.LINK_GENERATED_CONFIG, shape
+
+
+# --- Standard never measured: the CPE_Targets include ----------------------
+
+def test_the_link_script_creates_an_empty_cpe_include_and_keeps_a_real_one(tmp_path):
+    # The generated Targets @includes CPE_Targets; only Pro's exporters
+    # write it, and SmokePing will not start with a missing include.
+    (tmp_path / "generated").mkdir()
+    (tmp_path / "generated" / "Targets").write_text(TARGETS)
+    (tmp_path / "generated" / "Probes").write_text(PROBES)
+    assert _run_link_script(tmp_path) == ["Targets", "Probes"]
+    assert (tmp_path / "CPE_Targets").read_text() == ""
+    (tmp_path / "CPE_Targets").write_text("+ CPE\n")
+    assert _run_link_script(tmp_path) == []
+    assert (tmp_path / "CPE_Targets").read_text() == "+ CPE\n"
+
+
+def test_each_edition_cont_init_script_creates_the_cpe_include(tmp_path):
+    # SmokePing's own start (before config-manager is up) must do it too.
+    root = Path(api_module.__file__).resolve().parents[3]
+    for edition in ("pro", "standard"):
+        conf = tmp_path / edition
+        (conf / "generated").mkdir(parents=True)
+        script = (root / "editions" / edition / "custom-cont-init.d"
+                  / "05-link-generated-config.sh").read_text().replace("/config", str(conf))
+        subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True)
+        assert (conf / "CPE_Targets").read_text() == "", edition

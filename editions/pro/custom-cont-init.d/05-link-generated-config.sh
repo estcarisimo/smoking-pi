@@ -43,3 +43,10 @@ for name in Targets Probes; do
     ln -s "$src" "$dst"
     echo "[link-generated-config] Linked ${dst} -> ${src}"
 done
+
+# The generated Targets @includes /config/CPE_Targets, which only Pro's
+# exporters write (cpe_discovery.py). SmokePing refuses a config whose
+# include is missing, so on Standard -- which runs no exporters -- every
+# start died on it and a clean install never measured. An empty file is a
+# valid include. config-manager runs the same line (api.LINK_GENERATED_CONFIG).
+[ -e /config/CPE_Targets ] || touch /config/CPE_Targets

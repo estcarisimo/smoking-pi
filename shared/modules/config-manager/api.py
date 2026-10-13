@@ -100,7 +100,11 @@ LINK_GENERATED_CONFIG = (
     '[ -e "$src" ] || continue; '
     '[ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ] && continue; '
     'rm -f "$dst" && ln -s "$src" "$dst" && echo "$n"; '
-    'done'
+    'done; '
+    # Targets @includes CPE_Targets, which only Pro's exporters write; a
+    # missing include stops SmokePing (Standard never measured). Prints
+    # nothing: the output is the list of files linked.
+    '[ -e /config/CPE_Targets ] || touch /config/CPE_Targets'
 )
 
 
