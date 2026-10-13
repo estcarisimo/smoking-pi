@@ -3136,7 +3136,8 @@ wd_at() {
 
 smokeping_stub() {
     # The smokeping container: STUB_SP_STARTED (ISO time) and what
-    # s6-svstat answers (STUB_SP_UP; "nostat" = no s6-svstat at all).
+    # `s6-svstat -o up,wantedup,updownfor` answers (STUB_SP_UP, e.g.
+    # "true true 1800"; "nostat" = no s6-svstat at all).
     sed -i 's|^case "\$\*" in|case "$*" in\
     *"label=com.docker.compose.service=smokeping"*) echo abc123 ;;\
     "inspect -f {{.State.StartedAt}} abc123") echo "$STUB_SP_STARTED" ;;\
@@ -3149,7 +3150,7 @@ smokeping_stub() {
 
 @test "watchdog check: SmokePing not running 5 min after its container started -> restarted" {
     watchdog_setup; smokeping_stub
-    export STUB_SP_UP=false
+    export STUB_SP_UP="false true 400"
     wd_at 4
     if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
     # Down on one look is not enough (an NTP step can age a container once).
@@ -3163,7 +3164,7 @@ smokeping_stub() {
 
 @test "watchdog check: SmokePing running is left alone; a supervisor that never started is down" {
     watchdog_setup; smokeping_stub
-    export STUB_SP_UP=true
+    export STUB_SP_UP="true true 1800"
     wd_at 30
     if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
     export STUB_SP_UP=unsup
@@ -3173,7 +3174,7 @@ smokeping_stub() {
 
 @test "watchdog check: SmokePing restarts stop after 3 in 6 h; an unknown image is only noted" {
     watchdog_setup; smokeping_stub
-    export STUB_SP_UP=false
+    export STUB_SP_UP="false true 400"
     mkdir -p "$SMOKING_PI_WATCHDOG_STATE"
     printf 'smokeping_restarts=%s,%s,%s\n' 999000 999500 999900 > "$SMOKING_PI_WATCHDOG_STATE/state"
     wd_at 10; wd_at 11
@@ -3191,6 +3192,74 @@ smokeping_stub() {
     wd_at 11
     [ -z "$output" ]
     if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
+}
+
+@test "watchdog check: a SmokePing that keeps restarting is reported once, never restarted" {
+    watchdog_setup; smokeping_stub
+    # s6 restarts it every second or two: up or down, always a second ago.
+    export STUB_SP_UP="true true 1"
+    wd_at 10
+    [ -z "$output" ]
+    export STUB_SP_UP="false true 0"
+    wd_at 11
+    [[ "$output" == *"svc-smokeping keeps restarting 11 min after the container started"*"not restarting (smoking-pi logs smokeping)"* ]]
+    wd_at 12; wd_at 13
+    [ -z "$output" ]
+    [ "$(grep -c 'keeps restarting' "$SMOKING_PI_WATCHDOG_STATE/events.log")" = 1 ]
+    if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
+    # A reload makes one short up time: one look is not a loop.
+    rm -f "$SMOKING_PI_WATCHDOG_STATE/state"
+    export STUB_SP_UP="true true 3"
+    wd_at 20
+    export STUB_SP_UP="true true 63"
+    wd_at 21
+    [ -z "$output" ]
+    if grep -q 'smokeping_flap=' "$SMOKING_PI_WATCHDOG_STATE/state"; then false; fi
+}
+
+@test "watchdog check: a second loop in the same container is reported again; looks under 50 s apart are one" {
+    watchdog_setup; smokeping_stub
+    export STUB_SP_UP="false true 0"
+    wd_at 10; wd_at 11
+    [[ "$output" == *"keeps restarting"* ]]
+    # Fixed: running again ends the loop.
+    export STUB_SP_UP="true true 300"
+    wd_at 20
+    if grep -q 'smokeping_flap' "$SMOKING_PI_WATCHDOG_STATE/state"; then false; fi
+    # Broken again, same container: two looks 30 s apart are not enough.
+    export STUB_SP_UP="true true 1"
+    SMOKING_PI_WATCHDOG_NOW=$((1000000 + 30 * 60)) run "$CLI" watchdog check
+    SMOKING_PI_WATCHDOG_NOW=$((1000000 + 30 * 60 + 30)) run "$CLI" watchdog check
+    [ -z "$output" ]
+    wd_at 31
+    [[ "$output" == *"keeps restarting 31 min"* ]]
+    [ "$(grep -c 'keeps restarting' "$SMOKING_PI_WATCHDOG_STATE/events.log")" = 2 ]
+}
+
+@test "watchdog check: a malformed s6-svstat line is unknown, never a restart" {
+    watchdog_setup; smokeping_stub
+    export STUB_SP_UP="true true abc"
+    wd_at 10
+    [[ "$output" == *"cannot read svc-smokeping's state"* ]]
+    wd_at 11
+    if grep -q 'restart smokeping' "$DOCKER_LOG"; then false; fi
+}
+
+@test "watchdog check --dry-run: a SmokePing that keeps restarting is said at once, nothing recorded" {
+    watchdog_setup; smokeping_stub
+    export STUB_SP_UP="false true 0"
+    wd_at 10 --dry-run
+    [[ "$output" == *"keeps restarting"* ]]
+    if grep -q 'smokeping_flap' "$SMOKING_PI_WATCHDOG_STATE/state"; then false; fi
+    [ ! -e "$SMOKING_PI_WATCHDOG_STATE/events.log" ]
+}
+
+@test "watchdog check: SmokePing down for long while s6 wants it up is down, not a loop" {
+    watchdog_setup; smokeping_stub
+    export STUB_SP_UP="false true 400"
+    wd_at 10; wd_at 11
+    grep -q 'restart smokeping$' "$DOCKER_LOG"
+    if grep -q 'keeps restarting' "$SMOKING_PI_WATCHDOG_STATE/events.log"; then false; fi
 }
 
 @test "watchdog enable writes a timer and its service; --no-reboot is in ExecStart; disable removes both" {
@@ -3300,7 +3369,7 @@ smokeping_stub() {
 @test "watchdog check: SmokePing is not restarted while another command holds the stack" {
     command -v flock >/dev/null || skip "no flock"
     watchdog_setup; smokeping_stub
-    export STUB_SP_UP=false
+    export STUB_SP_UP="false true 400"
     wd_at 6
     exec 8<"$STUB_HOME/editions/pro"; flock 8
     wd_at 7

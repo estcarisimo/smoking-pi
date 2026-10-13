@@ -11,6 +11,18 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The watchdog now reports a SmokePing that keeps dying at start.**
+  When SmokePing refuses its configuration, s6 starts it again every
+  second or two, so `s6-svstat -u` answered "up" about half the time and
+  the watchdog's check never fired. That is how a clean Standard install
+  restarted 24,166 times in 14 hours with nothing measured and nothing said
+  (fixed in 2.31.1). The check now also reads how long the service has
+  been in its state. If it changed less than 30 seconds ago on two checks
+  at least 50 seconds apart, the watchdog logs once per loop that SmokePing
+  keeps restarting and to read `smoking-pi logs smokeping`. It does not
+  restart the container, because the same config would fail again.
+  Reproduced on the staging Pi with a broken `/config/General`.
+
 - **`doctor --live` checks that Basic measures.** On Basic, the three
   "is it measuring" checks all skipped (no config-manager, no InfluxDB). A
   Basic install that measured nothing got the same 19 ok / 0 fail as one
