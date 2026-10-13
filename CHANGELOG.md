@@ -24,7 +24,13 @@ version gets a matching GitHub release and git tag.
   Unmeasured, `uplink_down` says it cannot tell. The diagnosis no longer
   calls total loss with the gateway answering "the line", and when it
   leads a message the rule's line keeps its numbers and drops its own
-  reading of the cause: one cause per message.
+  reading of the cause: one cause per message. A reading that changes in
+  mid-outage (the gateway reboots, or is back before the ISP) supersedes
+  the old one without a "recovered". Because the first hop no longer
+  counts in the breadth, a stack with fewer than three destinations
+  besides it no longer raises these. Known gap until the diagnosis shares
+  one definition: for `monitor_dns`, `diagnose_loss` and the incident
+  history still read the same minutes as upstream.
 
 - **What the watchdog does is now told.** `smoking-pi watchdog` reloads a
   hung Wi-Fi driver, reboots the Pi and restarts SmokePing exactly when

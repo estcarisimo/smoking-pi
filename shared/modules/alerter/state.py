@@ -19,7 +19,7 @@ Lifecycle per incident key:
 - superseded by a worse incident about the same thing (``supersedes``: a
   target_down retiring the high_loss it grew out of) -> dropped silently;
   the worse incident's own alert is the news
-- ``quiet`` incidents (the tail of an uplink_down still in the window) are
+- ``quiet`` incidents (the tail of a total loss still in the window) are
   never recorded: they exist only to suppress the per-target fan-out. One
   that ``continues`` an open incident keeps it from recovering until the
   tail is gone, so the "recovered" does not precede the last of the event
@@ -84,7 +84,8 @@ HOLD_MAX_S = 24 * 3600
 # The per-target rules a missing point can silence, and the aggregate ones
 # that need at least one judged target to mean anything.
 _PER_TARGET_RULES = frozenset({"target_down", "high_loss"})
-_AGGREGATE_RULES = frozenset({"uplink_down", "outage"})
+_AGGREGATE_RULES = frozenset({"uplink_down", "internet_down", "monitor_dns",
+                              "outage"})
 
 _EMPTY_STATE: dict = {"incidents": {}, "reports": {}}
 

@@ -1099,3 +1099,23 @@ def test_total_open_picks_the_one_seen_last():
     records = {"uplink_down": {"last_seen": 100.0}, "internet_down": {"last_seen": 200.0}}
     assert evaluator._total_open(records) == ("internet_down", 200.0)
     assert evaluator._total_open({}) is None
+
+
+def test_many_answering_resolvers_do_not_hide_the_monitors_dns():
+    """Review of #336: 20 named sites lost, 10 resolvers answering is 67%
+    of all reporting -- below WIDESPREAD_PCT -- and still the monitor's DNS."""
+    [inc] = evaluator.rule_widespread(
+        _total(named=20, resolvers=10, hop="answers", resolvers_lost=False))
+    assert inc["rule"] == "monitor_dns"
+
+
+def test_a_first_hop_missing_its_last_point_is_read_from_the_cycle_before():
+    rows = [r for r in _total(hop="answers")
+            if not (r["target"] == "CPE_IPv4" and r["_time"] == STEP0 + timedelta(seconds=900))]
+    [inc] = evaluator.rule_widespread(rows)
+    assert inc["rule"] == "internet_down"
+
+
+def test_each_total_loss_supersedes_the_other_two():
+    [inc] = evaluator.rule_widespread(_total(hop="answers"))
+    assert sorted(inc["supersedes"]) == ["monitor_dns", "uplink_down"]

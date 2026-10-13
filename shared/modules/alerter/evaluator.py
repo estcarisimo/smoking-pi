@@ -757,11 +757,14 @@ def rule_widespread(
             measurement[target] = row["_measurement"]
 
     def first_hop(step: int) -> str | None:
-        """'answers', 'lost', or None when the first hop has no point."""
-        mine = [sum(v) / len(v) for (s, _), v in hop.items() if s == step]
-        if not mine:
-            return None
-        return "answers" if min(mine) < DOWN_LOSS_RATIO else "lost"
+        """'answers', 'lost', or None when the first hop has no point in
+        this cycle or the one before (one missing cycle tolerated, as
+        everywhere here)."""
+        for at in (step, step - step_s):
+            mine = [sum(v) / len(v) for (s, _), v in hop.items() if s == at]
+            if mine:
+                return "answers" if min(mine) < DOWN_LOSS_RATIO else "lost"
+        return None
 
     reporting: dict[int, set[str]] = {}
     lossy: dict[int, set[str]] = {}
@@ -789,22 +792,31 @@ def rule_widespread(
     def contiguous(run: list[int]) -> bool:
         return all(b - a <= 2 * step_s for a, b in zip(run, run[1:]))
 
+    def names_only(step: int) -> bool:
+        """Every named destination lost while the first hop and every DNS
+        resolver (queried by address) answer. Judged on the named targets
+        alone: answering resolvers must not dilute the share below
+        WIDESPREAD_PCT (review of #336)."""
+        named = {t for t in reporting[step] if measurement.get(t) != "dns_latency"}
+        resolvers = reporting[step] - named
+        return (first_hop(step) == "answers" and len(named) >= min_targets
+                and bool(resolvers) and not (resolvers & lost.get(step, set()))
+                and named <= lost.get(step, set()))
+
     latest = steps[-min_points:]
     if (
         len(latest) >= min_points
         and contiguous(latest)
-        and all(share(lost, s) >= share_pct for s in latest)
+        and (all(share(lost, s) >= share_pct for s in latest)
+             or all(names_only(s) for s in latest))
     ):
         step = latest[-1]
         n_lost, n_all = len(lost[step]), len(reporting[step])
         seen = first_hop(step)
-        resolvers = {t for t in reporting[step] if measurement.get(t) == "dns_latency"}
-        named_lost = {t for t in lost[step] if measurement.get(t) != "dns_latency"}
         named = {t for t in reporting[step] if measurement.get(t) != "dns_latency"}
         observation = (f"{n_lost} of {n_all} targets at 100% loss for "
                        f"{len(latest)} consecutive probe cycles")
-        if seen == "answers" and resolvers and not (resolvers & lost[step]) \
-                and named and named_lost == named:
+        if names_only(step):
             rule = "monitor_dns"
             observation = (f"every named destination ({len(named)}) at 100% loss "
                            f"for {len(latest)} consecutive probe cycles, while "
@@ -831,6 +843,10 @@ def rule_widespread(
                 "severity": "critical",
                 "key": rule,
                 "target": None,
+                # One total loss at a time: a reading that changes mid-outage
+                # (the gateway rebooting, back before the ISP) retires the
+                # previous one without a "recovered" (review of #336).
+                "supersedes": [r for r in TOTAL_RULES if r != rule],
                 "message": f"{observation} — {cause}",
                 "observation": observation,
                 "first_hop": seen,
