@@ -18,7 +18,7 @@ version gets a matching GitHub release and git tag.
   restarted 24,166 times in 14 hours with nothing measured and nothing said
   (fixed in 2.31.1). The check now also reads how long the service has
   been in its state. If it changed less than 30 seconds ago on two checks
-  a minute apart, the watchdog logs once per container start that SmokePing
+  at least 50 seconds apart, the watchdog logs once per loop that SmokePing
   keeps restarting and to read `smoking-pi logs smokeping`. It does not
   restart the container, because the same config would fail again.
   Reproduced on the staging Pi with a broken `/config/General`.

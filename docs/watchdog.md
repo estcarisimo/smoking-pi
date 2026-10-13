@@ -124,8 +124,8 @@ left alone.
 A SmokePing that dies as it starts is the opposite case. s6 starts it again
 every second or two, so it reads as up half the time, and a container
 restart would start the same broken configuration again. When the service
-changed state less than 30 seconds ago on two checks in a row, the watchdog
-logs, once per container start:
+changed state less than 30 seconds ago on two checks at least 50 seconds
+apart, the watchdog logs, once per loop:
 
 ```text
 smokeping: svc-smokeping keeps restarting 46 min after the container started: SmokePing exits at start, usually a configuration error, which a restart does not fix; not restarting (sudo smoking-pi logs smokeping)

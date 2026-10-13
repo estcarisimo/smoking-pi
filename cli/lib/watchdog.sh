@@ -312,7 +312,9 @@ wd_smokeping() {
     [ "$since" -ge $((WATCHDOG_SMOKEPING_MIN * 60)) ] || return 0
     state="$(wd_svc_state "$id")"
     case "$state" in
-        up) [ -z "$(wd_get smokeping_down)$(wd_get smokeping_flap)" ] || wd_set smokeping_down "" smokeping_flap ""; return 0 ;;
+        up) [ -z "$(wd_get smokeping_down)$(wd_get smokeping_flap)$(wd_get smokeping_flap_told)" ] \
+                || wd_set smokeping_down "" smokeping_flap "" smokeping_flap_told ""
+            return 0 ;;
         flapping) wd_smokeping_flapping "$id" "$started" "$since"; return 0 ;;
         unknown)
             # No s6-svstat, or no such service: an image this check does not
@@ -365,15 +367,20 @@ wd_smokeping_flapping() {
     # SmokePing dies at start and s6 starts it again, every second or two:
     # a broken config (a Standard install whose Targets included a file
     # only Pro creates restarted 24,166 times in 14 h). A container restart
-    # starts the same config again, so this only says so -- once per
-    # container start, after two looks a minute apart, since one reload
-    # also makes a short up time.
-    local id="$1" started="$2" since="$3" now seen
+    # starts the same config again, so this only says so -- once per loop,
+    # after two looks at least 50 s apart, since one reload also makes a
+    # short up time (and so can a wall-clock step: s6 counts in wall time).
+    # Running again in between ends the loop, so a later one is said too.
+    local id="$1" started="$2" since="$3" now seen first
     now="$(wd_now)"
     seen="$(wd_get smokeping_flap)"
     if [ "${seen%%:*}" != "$started" ]; then
         wd_set smokeping_flap "$started:$now" smokeping_down ""
         [ "$WD_DRY" = 0 ] && return 0
+    else
+        first="${seen#*:}"
+        case "$first" in ""|*[!0-9]*) first="$now" ;; esac
+        [ $((now - first)) -ge 50 ] || return 0
     fi
     [ "$(wd_get smokeping_flap_told)" = "$started" ] && return 0
     wd_log "smokeping: svc-smokeping keeps restarting $(wd_minutes "$since") min after the container started: SmokePing exits at start, usually a configuration error, which a restart does not fix; not restarting ($(cli_name) logs smokeping)"
