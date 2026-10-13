@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.31.2] — 2026-10-13
+
+Five fixes from the clean-install rounds on a Raspberry Pi. Most of them
+make the stack say what is wrong instead of looking fine. The watchdog
+reports a SmokePing that keeps dying at start, which used to read as
+running. The doctor now checks that a Basic install measures. `smoking-pi
+openclaw` no longer claims to have reloaded a gateway that is not running,
+and `restore` says when OpenClaw must be connected again. An upgrade or
+reboot no longer leaves an empty Docker volume behind.
+
 ### Fixed
 
 - **`smoking-pi openclaw` no longer says it "reloaded the gateway" when
