@@ -102,7 +102,7 @@ if [ "$RELOAD" = "1" ]; then
         echo -e "  ${CYAN}openclaw mcp reload${NC}"
         openclaw mcp reload || echo -e "  ${YELLOW}(reload reported an error)${NC}"
     fi
-    if systemctl --user list-unit-files 2>/dev/null | grep -q openclaw-gateway; then
+    if grep -q openclaw-gateway <(systemctl --user list-unit-files 2>/dev/null); then
         echo -e "  ${CYAN}systemctl --user restart openclaw-gateway${NC}"
         # `|| true` because of `set -e`: a failed restart would otherwise exit
         # here, skipping the "start a NEW chat session" instruction below --

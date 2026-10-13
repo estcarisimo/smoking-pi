@@ -3336,3 +3336,12 @@ smokeping_stub() {
     [ -f "$BATS_TEST_TMPDIR/bk/postgres.sql" ]
     grep -q 'pg_dumpall' "$DOCKER_LOG"
 }
+
+@test "backup's running check reads the whole list too (only 'ps --status running' fails on a closed pipe)" {
+    sed -i 's|^case "\$\*" in|case "$*" in\
+    *"ps --status running --services"*) printf "postgres\\n"; command -p sleep 0.3; printf "grafana\\n" \|\| exit 255; exit 0 ;;|' \
+        "$BATS_TEST_TMPDIR/bin/docker"
+    run "$CLI" backup "$BATS_TEST_TMPDIR/bk"
+    [ "$status" -eq 0 ]
+    [ -f "$BATS_TEST_TMPDIR/bk/postgres.sql" ]
+}

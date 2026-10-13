@@ -161,7 +161,7 @@ wd_link_state() {
     local out
     [ -e "$WATCHDOG_SYS_NET/$1" ] || { echo "the interface is gone"; return 0; }
     command -v iw >/dev/null 2>&1 || { echo "association unknown: no iw"; return 0; }
-    out="$(iw dev "$1" link 2>/dev/null | head -1)" || out=""
+    out="$(iw dev "$1" link 2>/dev/null | head -1)" || true    # head leaving early may fail the writer: keep what it printed
     case "$out" in
         Connected\ to*) echo "associated to $(echo "$out" | awk '{print $3}')" ;;
         *) echo "not associated" ;;
@@ -184,7 +184,7 @@ wd_wifi() {
     since="$(wd_int wifi_since)"
     reload_at="$(wd_int wifi_reload_at)"
     [ -n "$since" ] && [ "$(wd_get wifi_boot)" = "$boot" ] && live=1
-    route="$(ip -4 route show default 2>/dev/null | head -1)" || route=""
+    route="$(ip -4 route show default 2>/dev/null | head -1)" || true
     if [ -n "$route" ]; then
         dev="$(echo "$route" | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
         gw="$(echo "$route" | sed -n 's/.* via \([^ ]*\).*/\1/p')"
@@ -293,7 +293,7 @@ wd_smokeping() {
     # This stack's container, by its labels: the edition directory is the
     # Compose working directory, whatever the project is called.
     id="$(docker ps --filter "label=com.docker.compose.project.working_dir=$EDITION_DIR" \
-            --filter label=com.docker.compose.service=smokeping --format '{{.ID}}' 2>/dev/null | head -1)" || id=""
+            --filter label=com.docker.compose.service=smokeping --format '{{.ID}}' 2>/dev/null | head -1)" || true
     [ -n "$id" ] || return 0     # stopped on purpose, or the stack is down
     started="$(docker inspect -f '{{.State.StartedAt}}' "$id" 2>/dev/null)" || return 0
     started="$(date -d "$started" +%s 2>/dev/null)" || return 0

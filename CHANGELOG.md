@@ -20,8 +20,10 @@ version gets a matching GitHub release and git tag.
   said so, and the dump is the restore path for a PostgreSQL major
   upgrade. The check and five other pipelines of the same shape (the DNS
   observer's start-up wait and DHCP note, `enable`'s name check, the
-  backup's running check, the watchdog's link check) now read their input
-  in full.
+  backup's running check, the watchdog's link check), plus three in
+  `verify-postgres.sh` and `install-openclaw-skill.sh`, now read their
+  input in full. The watchdog's `head -1` reads keep what they captured
+  instead of clearing it when the writer fails.
 
 ## [2.31.0] — 2026-10-12
 

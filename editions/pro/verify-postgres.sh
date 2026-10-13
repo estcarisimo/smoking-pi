@@ -152,9 +152,9 @@ check_application_connectivity() {
     echo -e "${BLUE}🔌 Testing application connectivity...${NC}"
     
     # Test config-manager connection
-    if compose logs config-manager 2>&1 | grep -q "Connected to PostgreSQL"; then
+    if grep -q "Connected to PostgreSQL" <(compose logs config-manager 2>&1); then
         echo -e "   ${GREEN}✅ Config-manager connected to PostgreSQL${NC}"
-    elif compose logs config-manager 2>&1 | grep -q "Using YAML fallback"; then
+    elif grep -q "Using YAML fallback" <(compose logs config-manager 2>&1); then
         echo -e "   ${YELLOW}⚠️  Config-manager using YAML fallback${NC}"
         return 1
     else
@@ -162,7 +162,7 @@ check_application_connectivity() {
     fi
     
     # Test web-admin connection
-    if compose logs web-admin 2>&1 | grep -q "Connected to database"; then
+    if grep -q "Connected to database" <(compose logs web-admin 2>&1); then
         echo -e "   ${GREEN}✅ Web-admin connected to PostgreSQL${NC}"
     else
         echo -e "   ${YELLOW}⚠️  Web-admin connection status unclear${NC}"
