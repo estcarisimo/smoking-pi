@@ -9,18 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.31.1] — 2026-10-13
+
+Two fixes found by a clean install of every edition on a Raspberry Pi. A
+Standard install never measured: SmokePing refused a config file only Pro
+creates, and restarted every second or two instead. And `smoking-pi
+backup` skipped its PostgreSQL dump about one time in five, without
+saying so. Upgrading repairs an existing Standard install: the upgrade
+recreates SmokePing's container, whose start now creates the missing
+file.
+
 ### Fixed
 
 - **A Standard install measures again.** The generated `Targets` file
   `@include`s `/config/CPE_Targets`. Only Pro creates that file, through its
   exporters, and SmokePing refuses to start when an include is missing.
   Since the CPE microcut detector was added, every Standard SmokePing died
-  at start, about once a second, and never measured. A clean Standard
+  at start, every second or two, and never measured. A clean Standard
   install on the staging Pi on 2026-10-13 restarted 24,166 times in
   14 hours with no RRD written. SmokePing's own start script and
   config-manager's link step (run before every reload) now create an
   empty `CPE_Targets` when there is none. That repairs existing Standard
-  installs at their first reload after the upgrade.
+  installs when the upgrade recreates the container, and at config-manager's
+  next link step.
 
 - **`smoking-pi backup` no longer skips its PostgreSQL dump at random.**
   The check for whether the edition has PostgreSQL piped Compose's service
@@ -31,7 +42,7 @@ version gets a matching GitHub release and git tag.
   said so, and the dump is the restore path for a PostgreSQL major
   upgrade. The check and five other pipelines of the same shape (the DNS
   observer's start-up wait and DHCP note, `enable`'s name check, the
-  backup's running check, the watchdog's link check), plus three in
+  backup's running check, the watchdog's link check), plus four in
   `verify-postgres.sh` and `install-openclaw-skill.sh`, now read their
   input in full. The watchdog's `head -1` reads keep what they captured
   instead of clearing it when the writer fails.
