@@ -201,8 +201,11 @@ output_dir() { echo "${SMOKING_PI_OUTPUT_DIR:-$EDITION_DIR/config-manager/output
 
 has_service() {
     # Whether the edition defines the service at all (postgres: Standard and
-    # Pro, not Basic), profiles included.
-    compose config --services 2>/dev/null | grep -qx "$1"
+    # Pro, not Basic), profiles included. Not `compose ... | grep -q`: under
+    # pipefail, grep leaving at the first match can make Compose fail on the
+    # closed pipe (postgres is listed first), and the answer was "no" one
+    # time in five -- `backup` then skipped its database dump in silence.
+    grep -qx "$1" <(compose config --services 2>/dev/null)
 }
 
 remove_disabled() {

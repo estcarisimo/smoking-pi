@@ -40,7 +40,7 @@ dns_test() {
     # the lease is reserved; say it once, as a note, not a failure.
     case " $* " in *" --json "*) return "$rc" ;; esac
     lan="$(lan_address)"
-    if [ -n "$lan" ] && ip -4 -o addr show 2>/dev/null | grep -F " $lan/" | grep -q ' dynamic'; then
+    if [ -n "$lan" ] && awk -v a=" $lan/" 'index($0, a) && / dynamic/ {f = 1} END {exit !f}' <(ip -4 -o addr show 2>/dev/null); then
         echo "note: $lan comes from DHCP; reserve it for this Pi in the router (docs/dns-observer.md, step 1)."
     fi
     return "$rc"
@@ -124,7 +124,7 @@ cmd_dns() {
     compose up -d dns-observer
     local i up=0
     for i in $(seq 1 30); do
-        if compose exec -T dns-observer python status.py --json 2>/dev/null | grep -q '"answering": true'; then
+        if grep -q '"answering": true' <(compose exec -T dns-observer python status.py --json 2>/dev/null); then
             up=1; break
         fi
         sleep 2

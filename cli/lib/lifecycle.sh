@@ -93,7 +93,7 @@ cmd_backup() {
     } > "$dir/manifest"
     # The dump is the restore path for a PostgreSQL major (docs/upgrades.md);
     # the volume tarball below is the restore path for everything else.
-    if has_service postgres && compose ps --status running --services 2>/dev/null | grep -qx postgres; then
+    if has_service postgres && grep -qx postgres <(compose ps --status running --services 2>/dev/null); then
         local pguser; pguser="$(sed -n 's/^POSTGRES_USER=//p' "$ENV_FILE" | tail -1)"
         compose exec -T postgres pg_dumpall -U "${pguser:-smokeping}" > "$dir/postgres.sql"
         echo "  postgres.sql ($(wc -c < "$dir/postgres.sql") bytes)"

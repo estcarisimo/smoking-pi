@@ -153,7 +153,7 @@ wd_reaches() {
     for a in $WATCHDOG_INTERNET; do
         ping -n -q -c 2 -W 2 -I "$dev" "$a" >/dev/null 2>&1 && return 0
     done
-    [ -n "$gw" ] && ip neigh show to "$gw" dev "$dev" 2>/dev/null | grep -qw REACHABLE
+    [ -n "$gw" ] && grep -qw REACHABLE <(ip neigh show to "$gw" dev "$dev" 2>/dev/null)
 }
 
 wd_link_state() {

@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`smoking-pi backup` no longer skips its PostgreSQL dump at random.**
+  The check for whether the edition has PostgreSQL piped Compose's service
+  list into `grep -q`. Under `pipefail`, grep leaving at the first match
+  (postgres is listed first) made Compose fail on the closed pipe, and the
+  answer was "no" about one time in five on the staging Pi. A backup there
+  on 2026-10-13 had every volume tarball but no `postgres.sql`. Nothing
+  said so, and the dump is the restore path for a PostgreSQL major
+  upgrade. The check and five other pipelines of the same shape (the DNS
+  observer's start-up wait and DHCP note, `enable`'s name check, the
+  backup's running check, the watchdog's link check) now read their input
+  in full.
+
 ## [2.31.0] — 2026-10-12
 
 The Pi now gets itself back on its feet after the two failures that used to
