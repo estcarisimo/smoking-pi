@@ -160,6 +160,15 @@ also in the unit's journal:
 journalctl -u smoking-pi-watchdog
 ```
 
+On Pro with InfluxDB, each event is also written to the stack's database
+(measurement `watchdog_event`), and the alerter sends it as a notification:
+a driver reload, a reboot or a SmokePing restart as information, an action
+the watchdog could not take (or a SmokePing that keeps dying at start) as a
+warning. The start of an episode ("watching") and `enable`/`disable` are not
+sent. These go through the alerter's outbox like any alert, so a reboot
+made while the network was down is told once the Pi is back. Mute them with
+the `watchdog` rule (`mute_alerts(rule="watchdog")`).
+
 A reboot ends the journal of the boot that hung. To read that boot's kernel
 messages afterwards (what the driver said before it went quiet), keep the
 journal across reboots: see

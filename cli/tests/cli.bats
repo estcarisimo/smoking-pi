@@ -72,6 +72,10 @@ case "$*" in
     # cloudflared logs its own API endpoint too (on a failed request).
     "logs "*tunnel-*) printf 'INF https://old-one.trycloudflare.com\nINF https://%s-now.trycloudflare.com\nERR POST https://api.trycloudflare.com/tunnel\n' "${2##*-}" ;;
     *"system df -v"*) printf 'VOLUME NAME LINKS SIZE\npro_postgres-data 1 48MB\npro_grafana-data 1 240MB\n' ;;
+    # The InfluxDB container the watchdog records its events in
+    # (STUB_INFLUX_ID; unset = none), and what it writes there.
+    *"label=com.docker.compose.service=influxdb"*) printf '%b' "${STUB_INFLUX_ID:-}" ;;
+    "exec -i "*) cat >> "$DOCKER_LOG.stdin" ;;
     *"tar czf /to/"*)
         # backup's tar: create the file where the host bind of /to says,
         # so the command's own choice of directory is what gets checked.
@@ -3116,6 +3120,28 @@ wd_at() {
     [[ "$output" == *"still nothing answers on wlan0 5 min after the driver reload (associated to aa:bb:cc:dd:ee:ff, 7 packets received since); 15 min in all; rebooting"* ]]
     grep -qx 'systemctl reboot' "$DOCKER_LOG"
     grep -qx "last_reboot=$((1000000 + 15 * 60))" "$SMOKING_PI_WATCHDOG_STATE/state"
+}
+
+@test "watchdog check: each action is recorded in InfluxDB, for the alerter to tell" {
+    watchdog_setup
+    export STUB_PING=1 STUB_INFLUX_ID=infx1
+    wd_at 0
+    wd_at 10
+    grep -q '^docker exec -i infx1 sh -c influx write --org' "$DOCKER_LOG"
+    # Line protocol, area from the event's prefix, the watchdog's own clock.
+    grep -q "^watchdog_event,area=wifi message=\"wifi: nothing answers on wlan0 for 10 min.*reloading the brcmfmac driver\" $((1000000 + 10 * 60))\$" "$DOCKER_LOG.stdin"
+    # One line per event: the start of the episode and the reload.
+    grep -c '^watchdog_event' "$DOCKER_LOG.stdin" | grep -qx 2
+}
+
+@test "watchdog check: no InfluxDB container, no record, the check still acts" {
+    watchdog_setup
+    export STUB_PING=1
+    wd_at 0
+    wd_at 10
+    [ "$status" -eq 0 ]
+    grep -qx 'modprobe -r brcmfmac_cyw brcmfmac' "$DOCKER_LOG"
+    if grep -q '^docker exec -i' "$DOCKER_LOG"; then false; fi
 }
 
 @test "watchdog check: never reboots twice within 6 h, and says so once per episode" {

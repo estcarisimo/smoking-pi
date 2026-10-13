@@ -101,6 +101,26 @@ wd_log() {
         tail -n 200 "$WATCHDOG_STATE/events.log" > "$WATCHDOG_STATE/events.log.tmp"
         mv -f "$WATCHDOG_STATE/events.log.tmp" "$WATCHDOG_STATE/events.log"
     fi
+    wd_record "$*"
+}
+
+wd_record() {
+    # The event into this stack's InfluxDB too (measurement watchdog_event),
+    # where the alerter reads it and sends it once delivery works: the
+    # watchdog acts exactly when the network is down, and a reboot it
+    # makes is otherwise known only to this file and the journal. Through
+    # the database container's own CLI, so no token leaves it. Best effort:
+    # no InfluxDB (ClickHouse, Basic, the stack down), no record.
+    local id area msg
+    id="$(docker ps --filter "label=com.docker.compose.project.working_dir=$EDITION_DIR" \
+            --filter label=com.docker.compose.service=influxdb --format '{{.ID}}' 2>/dev/null | head -1)" || true
+    [ -n "$id" ] || return 0
+    area="${1%%:*}"
+    case "$area" in wifi|smokeping) ;; *) area=watchdog ;; esac
+    msg="$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    printf 'watchdog_event,area=%s message="%s" %s\n' "$area" "$msg" "$(wd_now)" \
+        | timeout 15 docker exec -i "$id" sh -c 'influx write --org "$DOCKER_INFLUXDB_INIT_ORG" --bucket "$DOCKER_INFLUXDB_INIT_BUCKET" -t "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" --precision s' \
+            >/dev/null 2>&1 || echo "watchdog: could not record the event in InfluxDB"
 }
 
 wd_minutes() { echo $(( ($1 + 30) / 60 )); }
