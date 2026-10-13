@@ -228,6 +228,14 @@ cmd_restore() {
         enable_unit --enable-only
         echo "Restored from $dir; the stack is stopped. Start it: $(cli_name) up"
     fi
+    # The MCP token came back with the env file. An OpenClaw gateway here
+    # registered before this restore still sends the old one, and every tool
+    # call is refused (seen on the staging Pi, 2026-10-13).
+    case ",$(profiles)," in
+        *,mcp,*)
+            echo "If an OpenClaw gateway on this machine was connected before this restore,"
+            echo "connect it again: $(cli_name) openclaw (it still holds the old MCP token)" ;;
+    esac
 }
 
 cmd_purge() {

@@ -418,6 +418,18 @@ make_backup_dir() {
     if grep -q ' up -d$' "$DOCKER_LOG"; then false; fi
 }
 
+@test "restore with the mcp profile says to connect OpenClaw again; without it, nothing" {
+    make_backup_dir
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nMCP_API_TOKEN=frombackup\n' > "$BATS_TEST_TMPDIR/bk/env"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --force --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"connect it again: smoking-pi openclaw"* ]]
+    make_backup_dir
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --force --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"openclaw"* ]]
+}
+
 @test "restore reports a volume that failed to extract, goes on with the rest, leaves the stack stopped, exits 1" {
     make_backup_dir
     fail_docker_on 'smokeping-config.tgz:/from.tgz:ro'
