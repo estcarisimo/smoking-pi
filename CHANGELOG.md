@@ -15,7 +15,8 @@ version gets a matching GitHub release and git tag.
   brings back the backup's MCP token, and an OpenClaw gateway connected
   before it still sends the old one, so every tool call is refused until
   `smoking-pi openclaw` runs again. Clean-install round 2 found it on the
-  staging Pi. With the `mcp` profile on, the restore now ends by saying so.
+  staging Pi. When the restore writes an env file with the `mcp` profile
+  and a token other than the one this host had, it now ends by saying so.
 
 - **The watchdog now reports a SmokePing that keeps dying at start.**
   When SmokePing refuses its configuration, s6 starts it again every

@@ -157,9 +157,15 @@ cmd_restore() {
     need_edition
     [ "$b_edition" = "$SMOKING_PI_EDITION" ] || { echo "backup is of the $b_edition edition, this is $SMOKING_PI_EDITION" >&2; exit 1; }
     # The env file first: without it Compose cannot even name the project.
+    local token_changed=0
     if [ -f "$ENV_FILE" ] && [ "$force" = 0 ]; then
         echo "keeping the existing $ENV_FILE (--force overwrites it with the backup's)"
     else
+        # Whether the MCP token this host had is the one coming back (none
+        # before -- a card wiped since -- counts as changed: nothing says
+        # what a gateway here was given).
+        [ "$(sed -n 's/^MCP_API_TOKEN=//p' "$ENV_FILE" 2>/dev/null | tail -1)" \
+            = "$(sed -n 's/^MCP_API_TOKEN=//p' "$dir/env" | tail -1)" ] && [ -f "$ENV_FILE" ] || token_changed=1
         mkdir -p "$(dirname "$ENV_FILE")" && install -m 0600 "$dir/env" "$ENV_FILE"
         echo "  env file restored to $ENV_FILE"
     fi
@@ -230,7 +236,9 @@ cmd_restore() {
     fi
     # The MCP token came back with the env file. An OpenClaw gateway here
     # registered before this restore still sends the old one, and every tool
-    # call is refused (seen on the staging Pi, 2026-10-13).
+    # call is refused (seen on the staging Pi, 2026-10-13). A kept env file,
+    # or the same token, changes nothing a gateway holds.
+    [ "$token_changed" = 1 ] || return 0
     case ",$(profiles)," in
         *,mcp,*)
             echo "If an OpenClaw gateway on this machine was connected before this restore,"
