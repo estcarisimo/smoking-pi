@@ -160,6 +160,21 @@ also in the unit's journal:
 journalctl -u smoking-pi-watchdog
 ```
 
+On Pro with InfluxDB, each event is also written to the stack's database
+(measurement `watchdog_event`), and the alerter sends it as a notification:
+a driver reload, a reboot or a SmokePing restart as information (the
+outage that caused it was the alert; this is what was done about it), an
+action the watchdog could not take (or a SmokePing that keeps dying at
+start) as a warning. Basic, Standard and Pro on ClickHouse have no InfluxDB
+container, and record nothing there. The write uses the token the database
+container was created with; if `sync-influx-token.sh` had to repair a
+token mismatch, a failed write is noted in the unit's journal ("could not
+record the event in InfluxDB") and the alerter's own `influx_unreadable`
+says the rest. The start of an episode ("watching") and `enable`/`disable` are not
+sent. These go through the alerter's outbox like any alert, so a reboot
+made while the network was down is told once the Pi is back. Mute them with
+the `watchdog` rule (`mute_alerts(rule="watchdog")`).
+
 A reboot ends the journal of the boot that hung. To read that boot's kernel
 messages afterwards (what the driver said before it went quiet), keep the
 journal across reboots: see

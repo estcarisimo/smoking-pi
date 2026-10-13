@@ -27,6 +27,7 @@ import outbox
 import reports_watcher
 import state
 import verdict
+import watchdog_events
 from common import links
 
 DEFAULT_INTERVAL = 60  # seconds; ALERT_INTERVAL
@@ -334,6 +335,13 @@ def run_iteration() -> None:
             "duration_s": _duration_of(event),
         }
         _deliver(current, payload)
+    # What the host's watchdog did since the last look (a reload, a reboot,
+    # a SmokePing restart): once each, through the outbox like any alert.
+    try:
+        for payload in watchdog_events.collect(current, evaluator._query):
+            _deliver(current, payload)
+    except Exception:  # noqa: BLE001 - must never cost the cycle's state
+        log.exception("Watchdog events failed")
     # Whatever is waiting, as one message, once delivery works again.
     if outbox.flush(current, time.time(), send=notifier.notify,
                     reachable=notifier.reachable):

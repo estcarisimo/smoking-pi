@@ -11,6 +11,18 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **What the watchdog does is now told.** `smoking-pi watchdog` reloads a
+  hung Wi-Fi driver, reboots the Pi and restarts SmokePing exactly when
+  the network is down, and its actions reached only its own log and the
+  journal: a reboot at 3 a.m. left nothing a person would see, and the
+  alerter could not say why the Pi had restarted. Each event is now also
+  written to the stack's InfluxDB (`watchdog_event`, through the database
+  container's own CLI, so no token leaves it), and the alerter sends it
+  once, through the outbox: an action as information, an action it could
+  not take or a SmokePing crash loop as a warning. Both of the
+  watchdog's Docker calls are bounded (5 s and 10 s), so a wedged Docker
+  daemon cannot stand between it and a reboot.
+
 - **The alerter now says when it cannot see.** Three blind spots, found by
   the audit of the detection pipeline:
   - **InfluxDB unreadable meant silence.** Every cycle failed into the log

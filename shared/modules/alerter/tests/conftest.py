@@ -81,6 +81,18 @@ def _scrub_env(monkeypatch):
     # It would outlive a test's mocks and query a real InfluxDB, so it is
     # off unless a test turns it on (test_incident_history.py).
     monkeypatch.setenv("INCIDENT_HISTORY_HOURS", "0")
+    # A query through flux.query_influx (the evaluator, the watchdog events,
+    # the incident history) that a test did not fake fails at once, as an
+    # unreachable database would, instead of trying the network. The
+    # watchdog events are read in every run_iteration, including under
+    # tests that fake only the evaluator. Modules that call common.tsdb
+    # directly are faked by their own tests.
+    import flux
+
+    def _no_influx(flux_src):
+        raise ConnectionError("tests never reach InfluxDB")
+
+    monkeypatch.setattr(flux, "query_influx", _no_influx)
 
 
 @pytest.fixture
