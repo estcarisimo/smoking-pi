@@ -827,7 +827,7 @@ stub_openclaw() {
     printf '#!/bin/sh\necho "CURL $*" >> "%s"\nif [ "$1" = "-K" ]; then cfg=$(cat | tr "\\n" " "); echo "CURLCFG $cfg" >> "%s"; case "$cfg" in *Authorization*) echo 200 ;; *) echo 401 ;; esac; else echo 401; fi\n' \
         "$DOCKER_LOG" "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/curl"
     mkdir -p "$STUB_HOME/shared/scripts"
-    printf '#!/bin/sh\necho "SKILL $*" >> "%s"\n' "$DOCKER_LOG" \
+    printf '#!/bin/sh\necho "SKILL $*" >> "%s"\nexit "${STUB_SKILL_RC:-0}"\n' "$DOCKER_LOG" \
         > "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
     chmod +x "$BATS_TEST_TMPDIR/bin/openclaw" "$BATS_TEST_TMPDIR/bin/curl" \
              "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
@@ -871,6 +871,57 @@ stub_openclaw() {
     grep -q '"requestTimeoutMs": 30000' "$DOCKER_LOG"
     if grep -qE '"(connectTimeout|timeout)"' "$DOCKER_LOG"; then false; fi
     grep -q 'SKILL --reload' "$DOCKER_LOG"
+}
+
+@test "openclaw step 5: a gateway that is not running is said, not 'reloaded'" {
+    printf 'COMPOSE_PROFILES=influxdb\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    STUB_SKILL_RC=3 run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"5/5  Installed the smokeping-monitoring skill. The gateway is not running"* ]]
+    [[ "$output" != *"reloaded the gateway"* ]]
+    STUB_SKILL_RC=1 run "$CLI" openclaw
+    [[ "$output" == *"5/5  WARNING: the skill did not install"* ]]
+    STUB_SKILL_RC=0 run "$CLI" openclaw
+    [[ "$output" == *"5/5  Installed the smokeping-monitoring skill and reloaded the gateway."* ]]
+}
+
+# The real skill installer, against a stubbed openclaw and systemctl and a
+# skills directory in the test's own tree.
+skill_script_setup() {
+    export OPENCLAW_SKILLS_DIR="$BATS_TEST_TMPDIR/skills"
+    cat > "$BATS_TEST_TMPDIR/bin/openclaw" <<'STUB'
+#!/bin/sh
+echo "openclaw $*" >> "$DOCKER_LOG"
+case "$*" in
+    "gateway status --help") echo "  --require-rpc  Exit non-zero when the RPC probe fails" ;;
+    "gateway status --require-rpc"*) exit "${STUB_GATEWAY_RC:-0}" ;;
+esac
+exit 0
+STUB
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/systemctl"
+    printf '#!/bin/sh\n' > "$BATS_TEST_TMPDIR/bin/sleep"
+    chmod +x "$BATS_TEST_TMPDIR/bin/openclaw" "$BATS_TEST_TMPDIR/bin/systemctl" "$BATS_TEST_TMPDIR/bin/sleep"
+}
+
+@test "install-openclaw-skill --reload: exits 3 when no gateway answers, 0 when one does" {
+    skill_script_setup
+    STUB_GATEWAY_RC=1 run "$REPO/shared/scripts/install-openclaw-skill.sh" --reload
+    [ "$status" -eq 3 ]
+    [ -f "$OPENCLAW_SKILLS_DIR/smokeping-monitoring/SKILL.md" ]
+    [[ "$output" == *"The gateway is not running"* ]]
+    [ "$(grep -c 'gateway status --require-rpc' "$DOCKER_LOG")" = 3 ]
+    STUB_GATEWAY_RC=0 run "$REPO/shared/scripts/install-openclaw-skill.sh" --reload
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"not running"* ]]
+}
+
+@test "install-openclaw-skill --reload: an openclaw without --require-rpc is not called stopped" {
+    skill_script_setup
+    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\nexit 0\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/openclaw"
+    run "$REPO/shared/scripts/install-openclaw-skill.sh" --reload
+    [ "$status" -eq 0 ]
+    if grep -q 'require-rpc' "$DOCKER_LOG"; then false; fi
 }
 
 @test "openclaw keeps an existing token and does not duplicate the mcp profile" {

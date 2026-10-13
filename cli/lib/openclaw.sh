@@ -249,11 +249,19 @@ cmd_openclaw() {
     fi
 
     if [ -x "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" ]; then
+        local skill_rc=0
         as_openclaw_user "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" --reload >/dev/null 2>&1 \
-            && echo "5/5  Installed the smokeping-monitoring skill and reloaded the gateway." \
-            || { echo "5/5  WARNING: the skill did not install or the gateway did not reload; run" >&2
-                 echo "     shared/scripts/install-openclaw-skill.sh --reload as the gateway's user." >&2
-                 echo "     A user unit needs a session or 'loginctl enable-linger' for systemctl --user." >&2; }
+            || skill_rc=$?
+        case "$skill_rc" in
+            0) echo "5/5  Installed the smokeping-monitoring skill and reloaded the gateway." ;;
+            3) # The script's "installed, but no gateway answers".
+               echo "5/5  Installed the smokeping-monitoring skill. The gateway is not running," >&2
+               echo "     so nothing reloaded: start it ('openclaw gateway status' says how it" >&2
+               echo "     runs and why it stopped) before the check below." >&2 ;;
+            *) echo "5/5  WARNING: the skill did not install or the gateway did not reload; run" >&2
+               echo "     shared/scripts/install-openclaw-skill.sh --reload as the gateway's user." >&2
+               echo "     A user unit needs a session or 'loginctl enable-linger' for systemctl --user." >&2 ;;
+        esac
     else
         echo "5/5  WARNING: install-openclaw-skill.sh not found; the agent will answer" >&2
         echo "     from its own shell until the skill is installed." >&2

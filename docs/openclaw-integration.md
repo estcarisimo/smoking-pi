@@ -134,6 +134,12 @@ you live speed-test numbers and never mentions your targets.
 ./shared/scripts/install-openclaw-skill.sh --reload   # and reload the gateway
 ```
 
+With `--reload`, it then asks the gateway whether it answers
+(`openclaw gateway status --require-rpc`). If no gateway is running, it
+says so and exits 3: the skill is installed, and the gateway reads it when
+it starts. `smoking-pi openclaw` reports that case in its step 5 instead of
+"reloaded the gateway".
+
 Re-run it after **any** change to the skill. A stale copy is the failure mode
 worth guarding against, because it is invisible — the agent keeps answering,
 just in the old shape, and the install looks like it silently did nothing:

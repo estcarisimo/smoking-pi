@@ -29,7 +29,9 @@ Usage: $(basename "$0") [--check] [--reload]
   --check    Report whether the installed skill matches the repo, then exit
              non-zero if it is missing or stale. Changes nothing.
   --reload   After installing, reload the OpenClaw gateway so the new skill
-             is picked up. Requires systemd --user.
+             is picked up. Requires systemd --user. Exits 3 when the skill
+             is installed but the gateway is not running, so nothing
+             reloaded.
 
 With no flags: install (or update) the skill and print what to do next.
 EOF
@@ -124,6 +126,27 @@ else
     echo "  (or re-run this script with --reload)"
 fi
 
+# Whether a gateway answers now. `openclaw mcp reload` exits 0 with no
+# gateway at all (it only drops the CLI's own cache), so "reloaded" said
+# nothing; the gateway's own probe does. A restart just above may need a
+# few seconds before it answers. An openclaw without --require-rpc cannot
+# say, and is not called stopped.
+GATEWAY=unknown
+if [ "$RELOAD" = "1" ] && command -v openclaw >/dev/null 2>&1 \
+        && grep -q -- --require-rpc <(openclaw gateway status --help 2>&1); then
+    for try in 1 2 3; do
+        if openclaw gateway status --require-rpc --timeout 5000 >/dev/null 2>&1; then
+            GATEWAY=up; break
+        fi
+        GATEWAY=down
+        [ "$try" = 3 ] || sleep 3
+    done
+    if [ "$GATEWAY" = down ]; then
+        echo -e "${RED}✗ The gateway is not running${NC} — the skill is installed and"
+        echo -e "  is read when the gateway starts. ${CYAN}openclaw gateway status${NC} says why."
+    fi
+fi
+
 echo
 echo -e "${BOLD}${YELLOW}Start a NEW chat session.${NC}"
 echo "  Existing threads keep the skill and tool set they started with, so an"
@@ -134,3 +157,6 @@ if [ "$ALREADY" = "0" ]; then
     echo
     echo -e "Verify with: ${CYAN}openclaw skills list | grep smokeping${NC}"
 fi
+
+# Installed, but no gateway answered: the caller must not say "reloaded".
+[ "$GATEWAY" != down ] || exit 3
