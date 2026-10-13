@@ -11,6 +11,17 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **`smoking-pi openclaw` no longer says it "reloaded the gateway" when
+  no gateway is running.** `openclaw mcp reload` exits 0 with no gateway at
+  all, because it only drops the CLI's own cache. On the staging Pi, whose
+  gateway was stopped, step 5 still reported success, and only the
+  `--check` afterwards said otherwise. `install-openclaw-skill.sh --reload`
+  now asks the gateway itself (`openclaw gateway status --require-rpc`,
+  three tries, for a gateway it just restarted). It exits 3 when nothing
+  answers, and step 5 then says the skill is installed and the gateway did
+  not answer (not running, or it refused the probe). An `openclaw` too old to have that probe is not called
+  stopped.
+
 - **`smoking-pi restore` says to connect OpenClaw again.** The restore
   brings back the backup's MCP token, and an OpenClaw gateway connected
   before it still sends the old one, so every tool call is refused until
