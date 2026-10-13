@@ -82,7 +82,7 @@ cmd_services() {
                 echo "$name is the measurement backend, fixed at install (TSDB_TYPE): switching is a reinstall, see docs/clickhouse.md." >&2
                 return 2 ;;
         esac
-        if ! optional_profiles | grep -q "^$name "; then
+        if ! grep -q "^$name " <(optional_profiles); then
             echo "unknown service: $name (one of: $(optional_profiles | awk '{print $1}' | paste -sd' ' -))" >&2
             return 2
         fi

@@ -3323,3 +3323,25 @@ smokeping_stub() {
     run "$CLI" watchdog status --no-reboot
     [ "$status" -eq 2 ]
 }
+
+@test "backup dumps postgres even when Compose fails on a pipe the reader closed (pipefail)" {
+    # Compose lists postgres first and keeps writing; a reader that leaves
+    # at the first match makes its next write fail. That turned has_service
+    # into "no" one time in five, and backup skipped the dump in silence.
+    sed -i 's|^case "\$\*" in|case "$*" in\
+    *"config --services"*\|*"ps --status running --services"*) printf "postgres\\n"; command -p sleep 0.3; printf "grafana\\nsmokeping\\n" \|\| exit 255; exit 0 ;;|' \
+        "$BATS_TEST_TMPDIR/bin/docker"
+    run "$CLI" backup "$BATS_TEST_TMPDIR/bk"
+    [ "$status" -eq 0 ]
+    [ -f "$BATS_TEST_TMPDIR/bk/postgres.sql" ]
+    grep -q 'pg_dumpall' "$DOCKER_LOG"
+}
+
+@test "backup's running check reads the whole list too (only 'ps --status running' fails on a closed pipe)" {
+    sed -i 's|^case "\$\*" in|case "$*" in\
+    *"ps --status running --services"*) printf "postgres\\n"; command -p sleep 0.3; printf "grafana\\n" \|\| exit 255; exit 0 ;;|' \
+        "$BATS_TEST_TMPDIR/bin/docker"
+    run "$CLI" backup "$BATS_TEST_TMPDIR/bk"
+    [ "$status" -eq 0 ]
+    [ -f "$BATS_TEST_TMPDIR/bk/postgres.sql" ]
+}
