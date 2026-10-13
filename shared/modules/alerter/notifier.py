@@ -38,8 +38,10 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import time
 from datetime import datetime
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -147,6 +149,55 @@ def send_test() -> bool:
     return False
 
 
+# Where delivery leaves the house, per mode: what ``reachable`` connects to.
+# OpenClaw relays to a chat service; Telegram's API is known, any other
+# channel is judged by a public resolver's HTTPS port.
+REACH_TIMEOUT_S = 5.0
+_CHANNEL_HOSTS = {"telegram": "api.telegram.org"}
+_FALLBACK_HOST = "1.1.1.1"
+
+
+def reach_target() -> tuple[str, int] | None:
+    """The host:port a delivery depends on, or None when there is none."""
+    mode = notify_mode()
+    if mode == "telegram":
+        return (_CHANNEL_HOSTS["telegram"], 443)
+    if mode == "openclaw":
+        channel = (os.environ.get("OPENCLAW_CHANNEL")
+                   or DEFAULT_OPENCLAW_CHANNEL).strip().lower()
+        return (_CHANNEL_HOSTS.get(channel, _FALLBACK_HOST), 443)
+    if mode == "webhook":
+        parts = urlsplit(os.environ.get("ALERT_WEBHOOK_URL", ""))
+        if not parts.hostname:
+            return None
+        return (parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
+    return None
+
+
+def reachable() -> bool:
+    """Whether delivery could leave the house right now. Never raises.
+
+    A TCP connect, not a send: the outbox asks this before every retry while
+    the network is down, and a failed OpenClaw send leaves a copy in the
+    gateway's durable queue that it replays later -- after the 12/10 hang,
+    the same stale alert arrived twice once the Pi was back.
+    """
+    try:
+        target = reach_target()
+    except ValueError:  # an unparseable webhook URL: let the send decide
+        return True
+    if target is None:
+        return True
+    # The timeout is per address, and name resolution has none of its own:
+    # with a dead resolver or a blackholed IPv6 address this can take longer
+    # than REACH_TIMEOUT_S. It runs at most once per outbox retry interval.
+    try:
+        with socket.create_connection(target, timeout=REACH_TIMEOUT_S):
+            return True
+    except OSError:
+        return False
+
+
 def openclaw_hook_url() -> str:
     base = (os.environ.get("OPENCLAW_URL") or DEFAULT_OPENCLAW_URL).rstrip("/")
     path = os.environ.get("OPENCLAW_HOOK_PATH") or DEFAULT_OPENCLAW_HOOK_PATH
@@ -234,7 +285,11 @@ def _notify_openclaw(
         _chart_filename(event or {}) if image else None,
         silent=(event or {}).get("silent"),
     )
-    return _post_with_retries(url, payload, headers, body_must_be_ok=True)
+    # Retried only when the gateway did not answer. Once it has, it has the
+    # message: a failed send is already in its durable delivery queue, and
+    # each retry would add another copy for it to replay later.
+    return _post_with_retries(url, payload, headers, body_must_be_ok=True,
+                              retry_answered=False)
 
 
 def _notify_webhook(event: dict, text: str) -> bool:
@@ -392,8 +447,11 @@ def _body_error(response: httpx.Response) -> str | None:
 
 
 def _post_with_retries(
-    url: str, payload: dict, headers: dict, body_must_be_ok: bool = False
+    url: str, payload: dict, headers: dict, body_must_be_ok: bool = False,
+    retry_answered: bool = True,
 ) -> bool:
+    """POST with up to MAX_ATTEMPTS tries. ``retry_answered=False`` retries
+    only a request that got no response at all."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             response = httpx.post(
@@ -420,6 +478,10 @@ def _post_with_retries(
                     attempt,
                     MAX_ATTEMPTS,
                 )
+            if not retry_answered:
+                log.error("Notification to %s answered with a failure; not "
+                          "retried (the receiver may have queued it)", url)
+                return False
         except httpx.HTTPError as exc:
             log.warning(
                 "Notification POST to %s failed: %s (attempt %d/%d)",

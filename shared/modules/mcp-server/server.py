@@ -2195,7 +2195,11 @@ def list_alert_state() -> dict:
     Answers "is anything muted?" and "why haven't I heard about X?". Reads both
     files read-only. `muted_suppressed_count` on an incident is how many alerts
     a mute has actually swallowed, which is the number that matters when
-    deciding whether a mute is still a good idea.
+    deciding whether a mute is still a good idea. `undelivered` counts the
+    notifications the alerter could not deliver (network or channel down),
+    which it sends as one summary once delivery works again; `no_data_since`
+    on an incident means it is held open because its target stopped
+    reporting.
     """
     now = time.time()
     state = _read_alerter_state()
@@ -2226,8 +2230,20 @@ def list_alert_state() -> dict:
             incident_view["no_data_since"] = record["held_since"]
         incidents.append(incident_view)
 
+    # Notifications the alerter could not deliver yet (its outbox): it sends
+    # them as one summary once delivery works again.
+    box = state.get("outbox") or {}
+    undelivered = None
+    if box.get("items"):
+        undelivered = {
+            "waiting": len(box["items"]) + int(box.get("dropped", 0)),
+            "since": box.get("since"),
+            "next_try": box.get("next_try"),
+        }
+
     return {
         "incidents": incidents,
+        "undelivered": undelivered,
         "active_mutes": [mutes.describe(e, now) for e in live],
         "mutes_file_readable": True,
         "note": (
