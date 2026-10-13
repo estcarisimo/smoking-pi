@@ -43,6 +43,8 @@ RETRY_MAX_S = 600
 RESEND_AS_IS_S = 600
 # Lines in a summary before "and N more".
 SUMMARY_LINES = 15
+# Refusals with the network up before the summary is replaced by a plain one.
+FALLBACK_AFTER = 3
 
 
 def pending(state: dict) -> bool:
@@ -75,7 +77,12 @@ def enqueue(state: dict, payload: dict, now: float | None = None) -> None:
 
 
 def due(state: dict, now: float) -> bool:
-    return pending(state) and now >= float(state["outbox"].get("next_try", 0))
+    if not pending(state):
+        return False
+    next_try = float(state["outbox"].get("next_try", 0))
+    # A next_try further out than any backoff is a clock that went back
+    # (a Pi has no RTC): try now rather than wait for the clock to catch up.
+    return now >= next_try or next_try > now + RETRY_MAX_S
 
 
 def failed(state: dict, now: float) -> None:
@@ -105,20 +112,32 @@ def _span(seconds: float) -> str:
 
 
 def _incidents(items: list[dict]) -> list[dict]:
-    """One entry per incident key, in the order they started."""
+    """One entry per incident key, in the order they started.
+
+    A key whose first queued item is a recovery was announced before the
+    outage: its start is the recovery's duration back, when it has one, or
+    unknown (None), never the moment the recovery was queued.
+    """
     by_key: dict[str, dict] = {}
     for item in items:
         payload = item["payload"]
         key = payload.get("key") or payload.get("type") or "?"
-        entry = by_key.setdefault(key, {
-            "key": key,
-            "rule": payload.get("rule"),
-            "severity": payload.get("severity"),
-            "target": payload.get("target"),
-            "message": payload.get("message"),
-            "started": item["queued_at"],
-            "recovered": None,
-        })
+        if key not in by_key:
+            started = item["queued_at"]
+            if payload.get("type") == "recovery":
+                duration = payload.get("duration_s")
+                started = started - float(duration) if duration else None
+            by_key[key] = {
+                "key": key,
+                "rule": payload.get("rule"),
+                "severity": payload.get("severity"),
+                "target": payload.get("target"),
+                "message": payload.get("message"),
+                "started": started,
+                "order": item["queued_at"],
+                "recovered": None,
+            }
+        entry = by_key[key]
         if payload.get("type") == "recovery":
             entry["recovered"] = item["queued_at"]
         else:
@@ -127,28 +146,50 @@ def _incidents(items: list[dict]) -> list[dict]:
             entry["message"] = payload.get("message") or entry["message"]
             entry["severity"] = payload.get("severity") or entry["severity"]
             entry["recovered"] = None
-    return sorted(by_key.values(), key=lambda e: e["started"])
+    return sorted(by_key.values(),
+                  key=lambda e: e["started"] if e["started"] is not None else e["order"])
+
+
+def _now_line(state: dict, now: float) -> str:
+    esc = templates.esc
+    still_open = sorted(
+        (record.get("first_seen") or 0, key, record)
+        for key, record in (state.get("incidents") or {}).items()
+        if not record.get("transient")
+    )
+    if not still_open:
+        return f"{templates.STATUS_EMOJI['ok']} Nothing open now."
+    return "Now open: " + ", ".join(
+        f"{templates.SEVERITY_EMOJI.get(r.get('severity'), '•')} "
+        f"{esc(r.get('rule') or key)}"
+        f"{' ' + esc(r['target']) if r.get('target') else ''}"
+        f" (since {_clock(first, now)})"
+        for first, key, r in still_open
+    )
 
 
 def build(state: dict, now: float) -> dict:
     """The one event that delivers everything waiting.
 
     ``state["incidents"]`` (already reconciled this cycle) supplies the
-    "now" line, so the summary ends on the present, not on the last thing
-    that failed to send.
+    "now" line, second after the header: it is the line that matters most,
+    and a message over budget is cut from the end.
     """
     box = state["outbox"]
     items = box["items"]
-    if len(items) == 1 and not box.get("dropped") and (
-            now - items[0]["queued_at"] < RESEND_AS_IS_S):
+    age = now - items[0]["queued_at"]
+    # A negative age is a clock that went back (no RTC on a Pi): not fresh.
+    if len(items) == 1 and not box.get("dropped") and 0 <= age < RESEND_AS_IS_S:
         return dict(items[0]["payload"])
 
     since = float(box.get("since", items[0]["queued_at"]))
     esc = templates.esc
+    open_keys = set(state.get("incidents") or {})
     lines = [
         templates._b(f"📭 Not delivered from {_clock(since, now)} to "
-                     f"{_clock(now, now)} UTC ({_span(now - since)})")
-        + " — this is what happened meanwhile:"
+                     f"{_clock(now, now)} UTC ({_span(max(0.0, now - since))})")
+        + " — this is what happened meanwhile:",
+        _now_line(state, now),
     ]
     entries = _incidents(items)
     for entry in entries[:SUMMARY_LINES]:
@@ -156,35 +197,49 @@ def build(state: dict, now: float) -> dict:
         name = entry["rule"] or entry["key"]
         if entry["target"]:
             name = f"{name} {entry['target']}"
-        when = _clock(entry["started"], now)
+        when = _clock(entry["started"], now) if entry["started"] is not None else ""
         if entry["recovered"] is not None:
-            when += f" → ✅ {_clock(entry['recovered'], now)}"
+            when = f"{when} → ✅ {_clock(entry['recovered'], now)}".strip(" →")
+            if entry["started"] is None:
+                when = f"✅ {_clock(entry['recovered'], now)}"
+        elif entry["key"] not in open_keys:
+            when += " (over)"
         lines.append(f"{emoji} {esc(name)} · {when} — {esc(entry['message'] or '')}")
     more = len(entries) - SUMMARY_LINES + int(box.get("dropped", 0))
     if more > 0:
         lines.append(f"…and {more} more")
-
-    still_open = sorted(
-        (record.get("first_seen") or 0, key, record)
-        for key, record in (state.get("incidents") or {}).items()
-        if not record.get("transient")
-    )
-    if still_open:
-        now_line = ", ".join(
-            f"{templates.SEVERITY_EMOJI.get(r.get('severity'), '•')} "
-            f"{esc(r.get('rule') or key)}"
-            f"{' ' + esc(r['target']) if r.get('target') else ''}"
-            f" (since {_clock(first, now)})"
-            for first, key, r in still_open
-        )
-        lines.append(f"Now open: {now_line}")
-    else:
-        lines.append(f"{templates.STATUS_EMOJI['ok']} Nothing open now.")
     return {
         "type": "undelivered",
         "key": "undelivered",
         "severity": "info",
         "message": "\n".join(lines),
+    }
+
+
+def fallback(state: dict, now: float) -> dict:
+    """A summary with no markup and no operator-written text.
+
+    Sent instead of :func:`build` once the receiver has refused the summary
+    ``FALLBACK_AFTER`` times while the network was up: the text itself may
+    be what it refuses (a name that breaks the markup), and a summary that
+    can never be sent would hold every later alert behind it. Only counts
+    and rule names, which the code writes.
+    """
+    box = state["outbox"]
+    since = float(box.get("since", now))
+    waiting = len(box["items"]) + int(box.get("dropped", 0))
+    still_open = sorted({(r.get("rule") or "incident")
+                         for r in (state.get("incidents") or {}).values()
+                         if not r.get("transient")})
+    now_part = ("open now: " + ", ".join(still_open)) if still_open else "nothing open now"
+    return {
+        "type": "undelivered",
+        "key": "undelivered",
+        "severity": "info",
+        "message": (f"Smoking Pi: {waiting} notification(s) since "
+                    f"{_clock(since, now)} UTC could not be delivered; "
+                    f"{now_part}. Ask the assistant for list_alert_state "
+                    "or the incident history for the details."),
     }
 
 
@@ -197,19 +252,27 @@ def flush(state: dict, now: float, send, reachable) -> bool | None:
     """
     if not due(state, now):
         return None
+    box = state["outbox"]
     try:
         if not reachable():
             failed(state, now)
             log.info("Delivery still unreachable; %d notification(s) waiting, "
-                     "next try in %ds", len(state["outbox"]["items"]),
-                     int(state["outbox"]["next_try"] - now))
+                     "next try in %ds", len(box["items"]),
+                     int(box["next_try"] - now))
             return False
-        event = build(state, now)
+        refused = int(box.get("refused", 0))
+        event = build(state, now) if refused < FALLBACK_AFTER else fallback(state, now)
         if send(event):
             log.info("Delivered %d waiting notification(s) as one %s",
-                     len(state["outbox"]["items"]), event.get("type"))
+                     len(box["items"]), event.get("type"))
             clear(state)
             return True
+        # Reachable, and still refused: the channel or the message itself.
+        box["refused"] = refused + 1
+        if box["refused"] == FALLBACK_AFTER:
+            log.error("The receiver refused the outbox summary %d times with "
+                      "the network up; sending a plain fallback from now on",
+                      FALLBACK_AFTER)
     except Exception:  # noqa: BLE001 - the outbox must never cost the loop
         log.exception("Outbox delivery failed")
     failed(state, now)

@@ -79,17 +79,19 @@ def test_the_summary_tells_each_incident_once_and_ends_on_now():
     lines = text.split("\n")
     assert "Not delivered from 15:15 to 20:48 UTC (5h 33m)" in lines[0]
     assert len(lines) == 4
-    assert lines[1].startswith("🟡 outage · 15:15")
-    assert lines[2].startswith("🔴 uplink_down · 15:25 → ✅ 20:45")
-    assert "hour 5" in lines[2]  # the newest numbers, not the first
-    assert lines[3] == "Now open: 🟡 microcut_burst 136.25.220.1 (since 20:45)"
+    # What is open now comes first: a message over budget is cut at the end.
+    assert lines[1] == "Now open: 🟡 microcut_burst 136.25.220.1 (since 20:45)"
+    assert lines[2].startswith("🟡 outage · 15:15 (over)")
+    assert lines[3].startswith("🔴 uplink_down · 15:25 → ✅ 20:45")
+    assert "hour 5" in lines[3]  # the newest numbers, not the first
 
 
 def test_the_summary_says_when_nothing_is_open():
     state = {}
     outbox.enqueue(state, _alert(), now=T)
     outbox.enqueue(state, _alert(type="recovery"), now=T + 900)
-    assert outbox.build(state, T + 1000)["message"].endswith("Nothing open now.")
+    assert outbox.build(state, T + 1000)["message"].split("\n")[1].endswith(
+        "Nothing open now.")
 
 
 def test_an_incident_that_came_back_after_recovering_is_open_again():
@@ -97,7 +99,7 @@ def test_an_incident_that_came_back_after_recovering_is_open_again():
     outbox.enqueue(state, _alert(), now=T)
     outbox.enqueue(state, _alert(type="recovery"), now=T + 900)
     outbox.enqueue(state, _alert(message="again"), now=T + 1800)
-    line = outbox.build(state, T + 2000)["message"].split("\n")[1]
+    line = outbox.build(state, T + 2000)["message"].split("\n")[2]
     assert "✅" not in line and "again" in line
 
 
@@ -109,7 +111,7 @@ def test_the_summary_escapes_names_and_counts_the_rest(monkeypatch):
                                      target=f"<t{i}>"), now=T + i)
     text = outbox.build(state, T + 5000)["message"]
     assert "<t0>" not in text and "&lt;t0&gt;" in text
-    assert text.split("\n")[-2] == "…and 2 more"
+    assert text.split("\n")[-1] == "…and 2 more"
 
 
 def test_flush_asks_before_it_sends_and_backs_off():
@@ -160,3 +162,75 @@ def test_history_records_the_delivery():
     state = {}
     digest.record_history(state, {**_alert(), "delivery": "queued"}, now=T)
     assert state["history"][0]["delivery"] == "queued"
+
+
+# --- review of #333 -------------------------------------------------------------
+
+def test_a_recovery_for_an_alert_already_sent_does_not_invent_a_start():
+    """The alert reached the phone, then the link died; only the recovery
+    is waiting. Its start is the duration back, or not stated at all."""
+    state = {}
+    outbox.enqueue(state, {**_alert(type="recovery"), "duration_s": 1800}, now=T)
+    outbox.enqueue(state, _alert(key="outage:9", rule="outage",
+                                 severity="warning"), now=T + 60)
+    lines = outbox.build(state, T + 900)["message"].split("\n")
+    assert lines[2].startswith("🔴 uplink_down · 14:45 → ✅ 15:15")
+    state = {}
+    outbox.enqueue(state, _alert(type="recovery"), now=T)
+    outbox.enqueue(state, _alert(key="outage:9", rule="outage"), now=T + 60)
+    line = outbox.build(state, T + 900)["message"].split("\n")[2]
+    assert line.startswith("🔴 uplink_down · ✅ 15:15")
+
+
+def test_a_refused_summary_becomes_a_plain_fallback_and_never_blocks():
+    """A summary the receiver keeps refusing with the network up (a revoked
+    token, or text it rejects) must not hold later alerts forever."""
+    state = {"incidents": {"uplink_down": {"rule": "uplink_down", "first_seen": T}}}
+    for i in range(3):
+        outbox.enqueue(state, _alert(key=f"target_down:<b{i}>",
+                                     target=f"<b{i}>"), now=T)
+    sent = []
+
+    def send(event):
+        sent.append(event)
+        return event["message"].startswith("Smoking Pi:")
+
+    for _ in range(4):
+        now = state["outbox"]["next_try"]
+        result = outbox.flush(state, now, send=send, reachable=lambda: True)
+    assert result is True and not outbox.pending(state)
+    assert [e["message"].startswith("Smoking Pi:") for e in sent] == [
+        False, False, False, True]
+    assert "3 notification(s)" in sent[-1]["message"]
+    assert "open now: uplink_down" in sent[-1]["message"]
+    assert "<" not in sent[-1]["message"]
+
+
+def test_a_long_summary_keeps_what_is_open_now(monkeypatch):
+    import templates
+
+    state = {"incidents": {"uplink_down": {"rule": "uplink_down",
+                                           "severity": "critical",
+                                           "first_seen": T}}}
+    for i in range(30):
+        outbox.enqueue(state, _alert(key=f"k{i}", message="x" * 400), now=T + i)
+    event = outbox.build(state, T + 5000)
+    text = templates.format_message(event)
+    assert len(text) <= templates.TG_TEXT_LIMIT
+    assert "Now open: 🔴 uplink_down" in text
+
+
+def test_a_clock_that_went_back_neither_stalls_nor_counts_as_fresh():
+    state = {}
+    outbox.enqueue(state, _alert(), now=T)
+    behind = T - 86_400  # a power cycle restored an old clock
+    assert outbox.due(state, behind)
+    assert outbox.build(state, behind)["type"] == "undelivered"
+
+
+def test_a_persisted_outbox_is_due_after_a_restart():
+    state = {}
+    outbox.enqueue(state, _alert(), now=T)
+    import json
+    restored = json.loads(json.dumps(state))
+    assert outbox.due(restored, T + 3600)

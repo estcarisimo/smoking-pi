@@ -227,10 +227,12 @@ both at startup:
 - It answers **HTTP 200 with `{"ok": false}`** when the tool itself fails.
   Trusting the status code alone would count a refused send as a delivered
   alert, so the body is inspected, and a failure counts as undelivered. It
-  is **not retried**: once the gateway has answered it holds the message in
-  its own durable delivery queue, and replays it when it can. Each retry
+  is **not retried**: once the gateway has answered it may hold the message
+  in its own durable delivery queue, and replay it when it can. Each retry
   was another copy: after the 12/10/2026 hang, the same stale alert arrived
-  twice. Only a request that got no answer at all is retried.
+  twice. Only a request that got no answer at all is retried. One replayed
+  copy can still arrive next to the alerter's own summary of the same
+  stretch (below): the alerter cannot see into the gateway's queue.
 - It answers `Tool not available: message` when tool policy filters the tool
   out, rather than when it is missing. The preflight distinguishes that from
   a bad token (401) and an unreachable gateway.
@@ -283,8 +285,13 @@ outbox, not dropped. While anything waits there:
   for another OpenClaw channel) and tries only then;
 - what it delivers is **one message**: a single notification younger than
   10 minutes as it was, otherwise a summary, type `undelivered`, of the
-  whole stretch: each incident once, when it started, whether it recovered,
-  and what is open now.
+  whole stretch: what is open now, then each incident once, when it
+  started, whether it recovered (`(over)` when it ended without one, as a
+  brief `outage` does);
+- if the receiver refuses the summary three times while the network is up
+  (a revoked token, or text it rejects), a plain fallback with only counts
+  and rule names goes instead, so a summary that cannot be sent never holds
+  later alerts behind it for good.
 
 The outbox holds at most 100 notifications (the oldest go first, and the
 summary counts them). `list_alert_state` shows what is waiting
@@ -295,6 +302,9 @@ Before, a failed alert waited for the next hourly cooldown, a failed
 `outage` was never retried, and a failed recovery was lost. During the
 reference Pi's 11-hour radio hang on 2026-10-11 every alert failed, and
 nothing afterwards said what had happened.
+
+One limit remains: the state file is written once per cycle, after the
+sends. A crash between a send and that write sends it again on restart.
 
 ## Daily report delivery
 

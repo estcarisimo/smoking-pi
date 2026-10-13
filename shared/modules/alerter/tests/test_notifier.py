@@ -599,3 +599,9 @@ def test_reachable_is_a_connect_and_never_raises(monkeypatch, openclaw):
     assert notifier.reachable() is True
     assert notifier.reachable() is False
     assert asked == [("api.telegram.org", 443)] * 2
+
+
+def test_a_webhook_url_with_a_bad_port_is_left_to_the_send(monkeypatch):
+    monkeypatch.setenv("NOTIFY_MODE", "webhook")
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://hooks.example:abc/x")
+    assert notifier.reachable() is True

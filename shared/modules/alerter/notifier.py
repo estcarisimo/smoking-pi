@@ -182,9 +182,15 @@ def reachable() -> bool:
     gateway's durable queue that it replays later -- after the 12/10 hang,
     the same stale alert arrived twice once the Pi was back.
     """
-    target = reach_target()
+    try:
+        target = reach_target()
+    except ValueError:  # an unparseable webhook URL: let the send decide
+        return True
     if target is None:
         return True
+    # The timeout is per address, and name resolution has none of its own:
+    # with a dead resolver or a blackholed IPv6 address this can take longer
+    # than REACH_TIMEOUT_S. It runs at most once per outbox retry interval.
     try:
         with socket.create_connection(target, timeout=REACH_TIMEOUT_S):
             return True
@@ -474,7 +480,7 @@ def _post_with_retries(
                 )
             if not retry_answered:
                 log.error("Notification to %s answered with a failure; not "
-                          "retried (the receiver has it)", url)
+                          "retried (the receiver may have queued it)", url)
                 return False
         except httpx.HTTPError as exc:
             log.warning(
