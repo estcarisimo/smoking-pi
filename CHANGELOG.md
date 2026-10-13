@@ -11,6 +11,17 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **A Standard install measures again.** The generated `Targets` file
+  `@include`s `/config/CPE_Targets`. Only Pro creates that file, through its
+  exporters, and SmokePing refuses to start when an include is missing.
+  Since the CPE microcut detector was added, every Standard SmokePing died
+  at start, about once a second, and never measured. A clean Standard
+  install on the staging Pi on 2026-10-13 restarted 24,166 times in
+  14 hours with no RRD written. SmokePing's own start script and
+  config-manager's link step (run before every reload) now create an
+  empty `CPE_Targets` when there is none. That repairs existing Standard
+  installs at their first reload after the upgrade.
+
 - **`smoking-pi backup` no longer skips its PostgreSQL dump at random.**
   The check for whether the edition has PostgreSQL piped Compose's service
   list into `grep -q`. Under `pipefail`, grep leaving at the first match
