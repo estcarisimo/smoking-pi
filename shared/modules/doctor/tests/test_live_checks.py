@@ -739,6 +739,100 @@ def test_the_token_stays_in_the_container():
     assert "os.environ.get('CONFIG_API_TOKEN')" in live_checks._MEASUREMENTS_PROBE
 
 
+# -- targets-measured on Basic (no config-manager) ----------------------------------
+
+REAL_REPO = Repo(pathlib.Path(__file__).resolve().parents[4])
+PS_SP = "ps --filter label=com.docker.compose.service=smokeping --format {{.Names}}"
+EXEC_SP = "exec smokeping-basic sh -c"
+INSPECT_SP = "inspect -f {{.State.StartedAt}} smokeping-basic"
+BASIC_TARGETS = """*** Targets ***
+probe = FPing
++ websites
+++ Google
+host = www.google.com
+++ NYT
+host = www.nytimes.com
+"""
+
+
+def _basic(rrds: dict[str, float], started: float, rc: int = 0,
+           targets: str = BASIC_TARGETS) -> FakeDocker:
+    """A Basic host: SmokePing only. `rrds` maps an RRD path to its age in
+    seconds; `started` is how long ago the container started."""
+    import time
+    now = time.time()
+    found = "".join(f"{now - age:.1f} {path}\n" for path, age in rrds.items())
+    split = live_checks._SPLIT
+    out = f"{targets}{split}\n{split}\n{split}\n{found}"
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(now - started))
+    return FakeDocker({PS_SP: (0, "smokeping-basic\n"), EXEC_SP: (rc, out),
+                       INSPECT_SP: (0, stamp + "\n")})
+
+
+def test_basic_every_target_fresh_is_ok():
+    docker = _basic({"websites/Google.rrd": 100, "websites/NYT.rrd": 200}, started=86400)
+    res = live_checks.check_targets_measured(docker, REAL_REPO)
+    assert res.status == Status.OK, res.findings
+    assert res.summary == "all 2 configured targets are measured"
+
+
+def test_basic_measuring_nothing_fails():
+    # #320: a Basic SmokePing that never wrote an RRD read 19 ok / 0 fail.
+    res = live_checks.check_targets_measured(_basic({}, started=3600), REAL_REPO)
+    assert res.status == Status.FAIL
+    assert "none of the 2 configured targets" in res.findings[0].message
+
+
+def test_basic_stale_and_missing_fail():
+    docker = _basic({"websites/Google.rrd": 7200}, started=86400)
+    res = live_checks.check_targets_measured(docker, REAL_REPO)
+    assert res.status == Status.FAIL
+    assert [f.message for f in res.findings] == [
+        "1 configured target(s) never got SmokePing data: NYT",
+        "1 target(s) stopped getting SmokePing data: Google",
+    ]
+
+
+def test_basic_just_started_is_pending_not_missing():
+    res = live_checks.check_targets_measured(_basic({}, started=60), REAL_REPO)
+    assert res.status == Status.OK
+    assert "2 waiting for their first step" in res.summary
+
+
+def test_basic_unreadable_or_no_freshness_module_warns():
+    assert live_checks.check_targets_measured(
+        _basic({}, started=60, rc=1), REAL_REPO).status == Status.WARN
+    res = live_checks.check_targets_measured(
+        _basic({}, started=60), Repo(pathlib.Path("/nonexistent")))
+    assert res.status == Status.WARN
+    assert "freshness.py is missing or unreadable" in res.findings[0].message
+
+
+def test_basic_targets_without_a_final_newline_still_split():
+    docker = _basic({"websites/Google.rrd": 100, "websites/NYT.rrd": 200}, started=86400,
+                    targets=BASIC_TARGETS.rstrip("\n"))
+    res = live_checks.check_targets_measured(docker, REAL_REPO)
+    assert res.status == Status.OK, res.findings
+
+
+def test_a_smokeping_that_exited_fails_and_none_at_all_skips():
+    ps_all = "ps -a --filter label=com.docker.compose.service=smokeping"
+    exited = FakeDocker({PS_SP: (0, ""), ps_all: (0, "smokeping-basic Exited (1) 3 hours ago\n")})
+    res = live_checks.check_targets_measured(exited, REAL_REPO)
+    assert res.status == Status.FAIL
+    assert "Exited (1)" in res.findings[0].message
+    none = FakeDocker({PS_SP: (0, ""), ps_all: (0, "")})
+    assert live_checks.check_targets_measured(none, REAL_REPO).status == Status.SKIP
+
+
+def test_a_freshness_module_that_does_not_load_warns(tmp_path):
+    broken = tmp_path / live_checks.FRESHNESS
+    broken.parent.mkdir(parents=True)
+    broken.write_text("this is not python\n")
+    res = live_checks.check_targets_measured(_basic({}, started=60), Repo(tmp_path))
+    assert res.status == Status.WARN
+
+
 # -- silent-series ------------------------------------------------------------------
 
 PS_INFLUX = "ps --filter label=com.docker.compose.service=influxdb --format {{.Names}}"
