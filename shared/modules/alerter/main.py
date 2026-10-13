@@ -30,6 +30,9 @@ import verdict
 from common import links
 
 DEFAULT_INTERVAL = 60  # seconds; ALERT_INTERVAL
+# How long InfluxDB may be unreadable before that is itself an alert: five
+# cycles, past a restart of the database or a slow query.
+UNREADABLE_AFTER_S = 300
 
 # Which measurement a rule's target is charted in, so the link
 # points at the right dashboard. Unknown rules fall back to the
@@ -153,13 +156,57 @@ def _deliver(current: dict, payload: dict, image: bytes | None = None,
     digest.record_history(current, payload, now)
 
 
+def _unreadable(current: dict, exc: Exception, now: float) -> None:
+    """InfluxDB could not be read: no rule ran, so say so, and know nothing.
+
+    Before, the iteration failed into the log every minute and nothing was
+    sent -- not even that the alerter had gone blind. After
+    UNREADABLE_AFTER_S of failures this is a critical of its own, and every
+    other open incident is held exactly as it was (``blind``): neither
+    recovered nor re-sent, because there is nothing to judge it on.
+    """
+    monitor = current.setdefault("monitor", {})
+    since = float(monitor.setdefault("unreadable_since", now))
+    log.error("Cannot read InfluxDB (%s) since %s; no rule evaluated",
+              type(exc).__name__,
+              time.strftime("%H:%M:%S UTC", time.gmtime(since)))
+    incidents = []
+    if now - since >= UNREADABLE_AFTER_S:
+        incidents.append({
+            "rule": "influx_unreadable",
+            "severity": "critical",
+            "key": "influx_unreadable",
+            "target": None,
+            "message": (
+                "the alerter cannot read InfluxDB "
+                f"(since {time.strftime('%H:%M UTC', time.gmtime(since))}, "
+                f"{type(exc).__name__}): no rule can be evaluated, so no "
+                "alert from here on means nothing"
+            ),
+            "value": 0,
+        })
+    actions = state.reconcile(current, incidents, now=now, blind=True)
+    for event in actions["alerts"]:
+        _deliver(current, {**event, "type": "alert"}, now=now)
+    for event in actions["recoveries"]:
+        _deliver(current, {**event, "type": "recovery",
+                           "duration_s": _duration_of(event)}, now=now)
+    outbox.flush(current, now, send=notifier.notify, reachable=notifier.reachable)
+    state.save_state(current)
+
+
 def run_iteration() -> None:
     # Loaded first: which incidents are open changes what exporter_stale
     # may conclude from an empty window (evaluator.rule_exporter_stale).
     current = state.load_state()
-    incidents, context = evaluator.evaluate_with_context(
-        records=current.get("incidents", {})
-    )
+    try:
+        incidents, context = evaluator.evaluate_with_context(
+            records=current.get("incidents", {})
+        )
+    except Exception as exc:  # influx client raises many exception types
+        _unreadable(current, exc, time.time())
+        return
+    current.get("monitor", {}).pop("unreadable_since", None)
     if incidents:
         log.info("%d active incident(s):", len(incidents))
         for incident in incidents:
@@ -176,15 +223,21 @@ def run_iteration() -> None:
     # Classified BEFORE reconcile so the verdict describes the same moment the
     # incidents were measured in, and from records that still hold first_seen
     # for anything reconcile is about to clear.
-    call = verdict.classify(
-        incidents,
-        context["mean_rows"],
-        context["micro_rows"],
-        records=current.get("incidents", {}),
-        wifi_rows=context.get("wifi_rows"),
-        uplink_changes=context.get("uplink_changes"),
-        mean_window=evaluator._format_window(context["windows"]["mean"]),
-    )
+    # Text for the message, never a gate: a verdict that fails costs its
+    # line, not the alerts (before, an exception here silenced them all).
+    try:
+        call = verdict.classify(
+            incidents,
+            context["mean_rows"],
+            context["micro_rows"],
+            records=current.get("incidents", {}),
+            wifi_rows=context.get("wifi_rows"),
+            uplink_changes=context.get("uplink_changes"),
+            mean_window=evaluator._format_window(context["windows"]["mean"]),
+        )
+    except Exception:  # noqa: BLE001 - decoration, never a gate
+        log.exception("Verdict failed; alerts go without it")
+        call = {}
     actions = state.reconcile(
         current,
         incidents,

@@ -11,6 +11,23 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The alerter now says when it cannot see.** Three blind spots, found by
+  the audit of the detection pipeline:
+  - **InfluxDB unreadable meant silence.** Every cycle failed into the log
+    and nothing was sent, not even that the alerter had gone blind. After
+    five minutes it is now a critical, `influx_unreadable`, and every other
+    open incident is held exactly as it was until the database answers,
+    instead of recovering or re-sending on no data.
+  - **Only one writer was watched.** `exporter_stale` counts `latency`
+    alone, so the DNS, HTTP and TCP probes, the gateway microcut probe and
+    the Wi-Fi exporter could stop unnoticed; the last two are the evidence
+    the verdict and the diagnosis read. A new warning, `measurement_stale`,
+    names the one that stopped, if it wrote within the last 24 hours.
+  - **One failing query silenced every rule.** A Flux error in any of the
+    four Wi-Fi queries, or an exception in the verdict, failed the whole
+    cycle. Both are now evidence that can be missing: the alert goes
+    without that line.
+
 - **An alert that cannot be delivered is no longer lost.** During the
   reference Pi's radio hangs on 2026-10-11 (11 hours) and 2026-10-12 (5.5
   hours), every alert the alerter decided on failed to send. It counted
