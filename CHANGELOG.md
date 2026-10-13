@@ -22,6 +22,21 @@ version gets a matching GitHub release and git tag.
   not answer (not running, or it refused the probe). An `openclaw` too old to have that probe is not called
   stopped.
 
+- **An upgrade or reboot no longer leaves an empty Docker volume
+  behind.** The InfluxDB image declares `/etc/influxdb2` a volume, and
+  the Pro compose file did not mount it. Every time the container was
+  recreated, Docker made a new anonymous volume and orphaned the old one:
+  18 on the staging Pi in two weeks. All were empty, none was ever in
+  `smoking-pi purge`'s list, and the count grew forever. The directory is now a
+  tmpfs, which is what it always was in effect: empty at every start,
+  which the InfluxDB token repair relies on. Docker creates no volume for
+  it (checked on the staging Pi: a container created without the tmpfs
+  added an anonymous volume, one with it did not). Every other image's
+  declared volumes were already mounted, which was checked container by
+  container. Anonymous volumes left by earlier versions hold nothing and
+  can stay: they carry no project label, so nothing can tell them apart
+  from another program's.
+
 - **`smoking-pi restore` says to connect OpenClaw again.** The restore
   brings back the backup's MCP token, and an OpenClaw gateway connected
   before it still sends the old one, so every tool call is refused until
