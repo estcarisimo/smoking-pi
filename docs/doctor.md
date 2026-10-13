@@ -177,7 +177,9 @@ SmokePing container (`Targets`, `Probes` and the RRD files' times) and
 classifies them with config-manager's own rules, so both editions give the
 same answer. The only difference is that Basic times a target's first step
 from SmokePing's start, because Basic changes targets by restarting
-SmokePing.
+SmokePing. Standard and Pro take the same path when config-manager is
+stopped, and then a target added since SmokePing started may read as
+missing rather than pending.
 
 - **fail** when no configured target has data (the hint is
   `sudo smoking-pi restart smokeping`), naming the targets that never got
@@ -189,7 +191,8 @@ SmokePing.
   generated Targets file yet), or lists no target at all: "all 0 targets
   measured" would be the silence this check exists to end. On Basic, the
   same applies when SmokePing's files cannot be read;
-- **skip** without Docker, or without a SmokePing container (stopped).
+- **fail** too when SmokePing's container exists but is not running;
+- **skip** without Docker, or without any SmokePing container.
 
 ### `silent-series`
 

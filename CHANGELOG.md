@@ -20,7 +20,9 @@ version gets a matching GitHub release and git tag.
   It judges them with config-manager's own freshness rules, so
   it fails on targets that never got data or stopped getting it, and
   waits out the first two steps after SmokePing starts. On the staging Pi
-  it gave config-manager's exact answer (78 of 78 fresh).
+  it gave config-manager's exact answer (78 of 78 fresh, on Pro). A
+  SmokePing container that exists but is not running now fails the
+  check instead of skipping it.
 
 ## [2.31.1] — 2026-10-13
 

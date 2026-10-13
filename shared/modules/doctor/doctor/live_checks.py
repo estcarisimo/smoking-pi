@@ -669,7 +669,12 @@ def _freshness(repo):
     module = importlib.util.module_from_spec(spec)
     # Its dataclasses look their module up in sys.modules while being built.
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    # A damaged tree is this check's warning, not the doctor's crash.
+    except (SyntaxError, ImportError, OSError, NameError, AttributeError, ValueError):
+        sys.modules.pop(spec.name, None)
+        return None
     return module
 
 
@@ -692,7 +697,7 @@ def _measured_by_smokeping(docker: Docker, repo) -> dict | None:
         return None
     module = _freshness(repo) if repo is not None else None
     if module is None:
-        return {"available": False, "reason": f"{FRESHNESS} is not in this tree"}
+        return {"available": False, "reason": f"{FRESHNESS} is missing or unreadable here"}
     code, out = docker.run(["exec", container, "sh", "-c", _SMOKEPING_FILES])
     parts = out.split(_SPLIT + "\n")
     if code != 0 or len(parts) != 4:
@@ -740,7 +745,16 @@ def check_targets_measured(docker: Docker | None = None, repo=None) -> CheckResu
     else:
         body = _measured_by_smokeping(docker, repo)
         if body is None:
-            return skipped(name, "no SmokePing here (stopped, or not this host)")
+            # Not running is not "nothing to check": a SmokePing that exited
+            # (Basic's entrypoint exits on a bad targets.yaml) measures nothing.
+            code, out = docker.run(["ps", "-a", "--filter",
+                                    f"label={COMPOSE_SERVICE_LABEL}=smokeping",
+                                    "--format", "{{.Names}} {{.Status}}"])
+            if code == 0 and out.strip():
+                return result(name, [Finding(
+                    f"SmokePing's container is not running ({out.strip().splitlines()[0]}): "
+                    "nothing is measured. Its log: `sudo smoking-pi logs smokeping`")], "")
+            return skipped(name, "no SmokePing container here")
     if not body.get("available"):
         reason = body.get("reason", "no reason given")
         return result(name, [Finding(
@@ -753,7 +767,7 @@ def check_targets_measured(docker: Docker | None = None, repo=None) -> CheckResu
         return result(name, [Finding(
             "no configured target: SmokePing has nothing to measure. Check the "
             "targets (the web admin, or targets.yaml on Basic), or "
-            "`sudo smoking-pi logs config-manager`")],
+            f"`sudo smoking-pi logs {'config-manager' if container else 'smokeping'}`")],
             "", status=Status.WARN)
     missing, stale = _names(rows, "missing"), _names(rows, "stale")
     pending = _names(rows, "pending")
