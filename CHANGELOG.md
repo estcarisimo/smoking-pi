@@ -19,8 +19,9 @@ version gets a matching GitHub release and git tag.
   written to the stack's InfluxDB (`watchdog_event`, through the database
   container's own CLI, so no token leaves it), and the alerter sends it
   once, through the outbox: an action as information, an action it could
-  not take or a SmokePing crash loop as a warning. The alerter's tests can
-  no longer reach a real InfluxDB by accident.
+  not take or a SmokePing crash loop as a warning. Both of the
+  watchdog's Docker calls are bounded (5 s and 10 s), so a wedged Docker
+  daemon cannot stand between it and a reboot.
 
 - **The alerter now says when it cannot see.** Three blind spots, found by
   the audit of the detection pipeline:

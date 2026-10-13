@@ -3129,9 +3129,31 @@ wd_at() {
     wd_at 10
     grep -q '^docker exec -i infx1 sh -c influx write --org' "$DOCKER_LOG"
     # Line protocol, area from the event's prefix, the watchdog's own clock.
-    grep -q "^watchdog_event,area=wifi message=\"wifi: nothing answers on wlan0 for 10 min.*reloading the brcmfmac driver\" $((1000000 + 10 * 60))\$" "$DOCKER_LOG.stdin"
+    grep -Eq "^watchdog_event,area=wifi message=\"wifi: nothing answers on wlan0 for 10 min.*reloading the brcmfmac driver\" $((1000000 + 10 * 60))[0-9]{9}\$" "$DOCKER_LOG.stdin"
+    grep -q -- '--precision ns' "$DOCKER_LOG"
     # One line per event: the start of the episode and the reload.
     grep -c '^watchdog_event' "$DOCKER_LOG.stdin" | grep -qx 2
+}
+
+@test "watchdog check: the reboot is recorded, and a failing record costs nothing" {
+    watchdog_setup
+    export STUB_PING=1 STUB_INFLUX_ID=infx1
+    # The database write fails: the check says so and still reboots.
+    sed -i 's|^    "exec -i "\*) cat >> "\$DOCKER_LOG.stdin" ;;|    "exec -i "*) cat >> "$DOCKER_LOG.stdin"; exit 1 ;;|' "$BATS_TEST_TMPDIR/bin/docker"
+    wd_at 0
+    wd_at 10
+    wd_at 15
+    [[ "$output" == *"could not record the event in InfluxDB"* ]]
+    grep -qx 'systemctl reboot' "$DOCKER_LOG"
+    grep -q 'rebooting" ' "$DOCKER_LOG.stdin"
+}
+
+@test "watchdog check --dry-run records nothing in InfluxDB" {
+    watchdog_setup
+    export STUB_PING=1 STUB_INFLUX_ID=infx1
+    wd_at 0 --dry-run
+    wd_at 10 --dry-run
+    if grep -q '^docker exec -i' "$DOCKER_LOG"; then false; fi
 }
 
 @test "watchdog check: no InfluxDB container, no record, the check still acts" {

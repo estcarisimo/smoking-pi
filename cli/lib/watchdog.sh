@@ -111,15 +111,21 @@ wd_record() {
     # makes is otherwise known only to this file and the journal. Through
     # the database container's own CLI, so no token leaves it. Best effort:
     # no InfluxDB (ClickHouse, Basic, the stack down), no record.
+    # Bounded, both steps: this runs before a reboot and before a driver
+    # reload is recorded, and a wedged Docker daemon must not cost either
+    # (at most 5 + 10 s, then the check goes on).
     local id area msg
-    id="$(docker ps --filter "label=com.docker.compose.project.working_dir=$EDITION_DIR" \
+    id="$(timeout 5 docker ps --filter "label=com.docker.compose.project.working_dir=$EDITION_DIR" \
             --filter label=com.docker.compose.service=influxdb --format '{{.ID}}' 2>/dev/null | head -1)" || true
     [ -n "$id" ] || return 0
     area="${1%%:*}"
     case "$area" in wifi|smokeping) ;; *) area=watchdog ;; esac
-    msg="$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-    printf 'watchdog_event,area=%s message="%s" %s\n' "$area" "$msg" "$(wd_now)" \
-        | timeout 15 docker exec -i "$id" sh -c 'influx write --org "$DOCKER_INFLUXDB_INIT_ORG" --bucket "$DOCKER_INFLUXDB_INIT_BUCKET" -t "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" --precision s' \
+    # One line of line protocol: backslashes, then quotes, escaped; no newline.
+    msg="$(printf '%s' "$1" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    # Nanoseconds: two events in the same second (a reload, then "reloading
+    # failed") are two points, not one overwriting the other.
+    printf 'watchdog_event,area=%s message="%s" %s%09d\n' "$area" "$msg" "$(wd_now)" "$((10#$(date +%N) ))" \
+        | timeout 10 docker exec -i "$id" sh -c 'influx write --org "$DOCKER_INFLUXDB_INIT_ORG" --bucket "$DOCKER_INFLUXDB_INIT_BUCKET" -t "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" --precision ns' \
             >/dev/null 2>&1 || echo "watchdog: could not record the event in InfluxDB"
 }
 

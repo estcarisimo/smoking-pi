@@ -337,8 +337,11 @@ def run_iteration() -> None:
         _deliver(current, payload)
     # What the host's watchdog did since the last look (a reload, a reboot,
     # a SmokePing restart): once each, through the outbox like any alert.
-    for payload in watchdog_events.collect(current, evaluator._query):
-        _deliver(current, payload)
+    try:
+        for payload in watchdog_events.collect(current, evaluator._query):
+            _deliver(current, payload)
+    except Exception:  # noqa: BLE001 - must never cost the cycle's state
+        log.exception("Watchdog events failed")
     # Whatever is waiting, as one message, once delivery works again.
     if outbox.flush(current, time.time(), send=notifier.notify,
                     reachable=notifier.reachable):

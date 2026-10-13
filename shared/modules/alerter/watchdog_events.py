@@ -68,32 +68,53 @@ def _epoch(value) -> float | None:
         return None
 
 
+def _key(row: dict, at: float) -> str:
+    # The area and the instant to the microsecond: two events in the same
+    # second (a reload, then "reloading failed") are two notifications.
+    return f"watchdog:{row.get('area') or 'watchdog'}:{at:.6f}"
+
+
 def collect(state: dict, query, now: float | None = None) -> list[dict]:
     """New watchdog events as alert payloads. Never raises.
 
     The first look only marks where to start: events from before the
-    alerter knew about them are history, not news.
+    alerter knew about them are history, not news. After that, every event
+    in the last LOOKBACK_S is read and those already told are skipped by
+    their key -- not by a high-water time mark, which a Pi's clock (no
+    RTC; NTP steps it after a boot) can move backward, losing the events
+    that follow, or forward, hiding them for hours (review of #335).
     """
     if now is None:
         now = time.time()
-    book = state.get("watchdog")
-    if not isinstance(book, dict) or "seen_until" not in book:
-        state["watchdog"] = {"seen_until": now}
-        return []
-    seen = float(book["seen_until"])
     try:
-        rows = query(events_flux(max(seen, now - LOOKBACK_S)))
+        return _collect(state, query, now)
+    except Exception:  # noqa: BLE001 - must never cost an alert or the cycle
+        log.exception("Watchdog events could not be read; next cycle")
+        return []
+
+
+def _collect(state: dict, query, now: float) -> list[dict]:
+    book = state.get("watchdog")
+    if not isinstance(book, dict) or "since" not in book:
+        state["watchdog"] = {"since": now, "told": {}}
+        return []
+    since = float(book["since"])
+    told = book.setdefault("told", {})
+    try:
+        rows = query(events_flux(min(now, max(since, now - LOOKBACK_S))))
     except Exception:  # influx client raises many exception types
         log.warning("Watchdog events query failed; read next cycle", exc_info=True)
         return []
     entries = mutes.load()
     payloads = []
-    newest = seen
     for row in rows:
         at = _epoch(row.get("_time"))
-        if at is None or at <= seen:
+        if at is None or at < since:
             continue
-        newest = max(newest, at)
+        key = _key(row, at)
+        if key in told:
+            continue
+        told[key] = now
         message = str(row.get("_value") or "")
         level = severity(message)
         if level is None:
@@ -102,7 +123,7 @@ def collect(state: dict, query, now: float | None = None) -> list[dict]:
             "type": "alert",
             "rule": "watchdog",
             "severity": level,
-            "key": f"watchdog:{int(at)}",
+            "key": key,
             "target": None,
             "message": (
                 "the watchdog on this host, at "
@@ -111,8 +132,10 @@ def collect(state: dict, query, now: float | None = None) -> list[dict]:
             ),
         }
         if mutes.find(entries, payload, now) is not None:
-            log.info("Watchdog event %s muted", payload["key"])
+            log.info("Watchdog event %s muted", key)
             continue
         payloads.append(payload)
-    book["seen_until"] = newest
+    # Remembered as long as the query can return them, then forgotten.
+    for key in [k for k, t in told.items() if now - float(t) > LOOKBACK_S + 3600]:
+        del told[key]
     return payloads
