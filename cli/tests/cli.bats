@@ -418,6 +418,29 @@ make_backup_dir() {
     if grep -q ' up -d$' "$DOCKER_LOG"; then false; fi
 }
 
+@test "restore says to connect OpenClaw again only when it brought back another MCP token" {
+    make_backup_dir
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nMCP_API_TOKEN=frombackup\n' > "$BATS_TEST_TMPDIR/bk/env"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --force --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"connect it again: smoking-pi openclaw"* ]]
+    # The same token again: nothing a gateway holds changed.
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --force --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"openclaw"* ]]
+    # An env file kept (no --force): its token did not change either.
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nMCP_API_TOKEN=local\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"keeping the existing"* ]]
+    [[ "$output" != *"openclaw"* ]]
+    # No mcp profile: no gateway to tell.
+    make_backup_dir
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --force --yes
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"openclaw"* ]]
+}
+
 @test "restore reports a volume that failed to extract, goes on with the rest, leaves the stack stopped, exits 1" {
     make_backup_dir
     fail_docker_on 'smokeping-config.tgz:/from.tgz:ro'

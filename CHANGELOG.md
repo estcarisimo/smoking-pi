@@ -37,6 +37,13 @@ version gets a matching GitHub release and git tag.
   can stay: they carry no project label, so nothing can tell them apart
   from another program's.
 
+- **`smoking-pi restore` says to connect OpenClaw again.** The restore
+  brings back the backup's MCP token, and an OpenClaw gateway connected
+  before it still sends the old one, so every tool call is refused until
+  `smoking-pi openclaw` runs again. Clean-install round 2 found it on the
+  staging Pi. When the restore writes an env file with the `mcp` profile
+  and a token other than the one this host had, it now ends by saying so.
+
 - **The watchdog now reports a SmokePing that keeps dying at start.**
   When SmokePing refuses its configuration, s6 starts it again every
   second or two, so `s6-svstat -u` answered "up" about half the time and
