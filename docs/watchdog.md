@@ -105,7 +105,8 @@ the access point being gone.
 
 Each check finds this stack's SmokePing container by its Compose labels and
 asks s6, the process supervisor inside it, whether the SmokePing service is
-up (`s6-svstat -u /run/service/svc-smokeping`). The container gets 5
+up, and for how long (`s6-svstat -o up,wantedup,updownfor
+/run/service/svc-smokeping`). The container gets 5
 minutes from its start; a normal start takes under two. If the service is
 still not up on two checks in a row, the watchdog runs `smoking-pi restart
 smokeping`. A service whose supervisor never started counts as down too.
@@ -119,6 +120,20 @@ left for you to read in `smoking-pi logs smokeping`. A container that is
 stopped, or a stack that is down, is not checked: that was a decision, not
 a failure. An image whose state the watchdog cannot read is noted once and
 left alone.
+
+A SmokePing that dies as it starts is the opposite case. s6 starts it again
+every second or two, so it reads as up half the time, and a container
+restart would start the same broken configuration again. When the service
+changed state less than 30 seconds ago on two checks in a row, the watchdog
+logs, once per container start:
+
+```text
+smokeping: svc-smokeping keeps restarting 46 min after the container started: SmokePing exits at start, usually a configuration error, which a restart does not fix; not restarting (sudo smoking-pi logs smokeping)
+```
+
+and restarts nothing. `smoking-pi logs smokeping` shows the line SmokePing
+refused (`ERROR: /config/General, line 17: table syntax error`, for
+example).
 
 ## What it did
 

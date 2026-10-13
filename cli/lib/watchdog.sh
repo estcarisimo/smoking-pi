@@ -20,6 +20,9 @@
 #    measured for 16 minutes, until a manual restart. The check restarts
 #    the container when svc-smokeping is not up WATCHDOG_SMOKEPING_MIN
 #    minutes after the container started, at most three times in six hours.
+#    A SmokePing that keeps dying at start (s6 restarts it every second or
+#    two: a broken config) is the opposite case. A restart cannot fix it,
+#    so the check says so once and leaves it.
 #
 # `watchdog enable` installs a systemd timer that runs `watchdog check`
 # every minute, as root. Every action is a line in the unit's journal and in
@@ -38,6 +41,7 @@ WATCHDOG_REBOOT_MIN="${SMOKING_PI_WATCHDOG_REBOOT_MIN:-5}"
 WATCHDOG_REBOOT_HOURS="${SMOKING_PI_WATCHDOG_REBOOT_HOURS:-6}"
 WATCHDOG_SMOKEPING_MIN="${SMOKING_PI_WATCHDOG_SMOKEPING_MIN:-5}"
 WATCHDOG_SMOKEPING_MAX=3        # restarts in any six hours, then it only logs
+WD_FLAP_SECONDS=30              # svc-smokeping changed state this recently: restarting
 # Beyond the router: a router that does not answer ping itself (some
 # don't), or a rule that blocks it, must not read as a dead radio while
 # the Internet answers through it.
@@ -275,16 +279,23 @@ wd_wifi() {
 # --- SmokePing -----------------------------------------------------------
 
 wd_svc_state() {
-    # svc-smokeping in container $1: up, down, or unknown. A service whose
-    # supervisor never started (s6-rc stuck before it) is as down as one
-    # that is supervised but down.
-    local out
-    out="$(docker exec "$1" s6-svstat -u /run/service/svc-smokeping 2>&1)" || true
-    case "$out" in
-        true) echo up ;;
-        false|*"supervise not running"*) echo down ;;
-        *) echo unknown ;;
+    # svc-smokeping in container $1: up, down, flapping, or unknown. A
+    # service whose supervisor never started (s6-rc stuck before it) is as
+    # down as one that is supervised but down. Flapping: s6 wants it up and
+    # it changed state under WD_FLAP_SECONDS ago -- it keeps dying and
+    # being started again, which reads as "up" one second in two.
+    local out up want secs
+    out="$(docker exec "$1" s6-svstat -o up,wantedup,updownfor /run/service/svc-smokeping 2>&1)" || true
+    case "$out" in *"supervise not running"*) echo down; return 0 ;; esac
+    read -r up want secs <<<"$out"
+    case "$up:$want:$secs" in
+        true:true:*|true:false:*|false:true:*|false:false:*) ;;
+        *) echo unknown; return 0 ;;
     esac
+    case "$secs" in ""|*[!0-9]*) echo unknown; return 0 ;; esac
+    if [ "$want" = true ] && [ "$secs" -lt "$WD_FLAP_SECONDS" ]; then echo flapping
+    elif [ "$up" = true ]; then echo up
+    else echo down; fi
 }
 
 wd_smokeping() {
@@ -301,7 +312,8 @@ wd_smokeping() {
     [ "$since" -ge $((WATCHDOG_SMOKEPING_MIN * 60)) ] || return 0
     state="$(wd_svc_state "$id")"
     case "$state" in
-        up) [ -z "$(wd_get smokeping_down)" ] || wd_set smokeping_down ""; return 0 ;;
+        up) [ -z "$(wd_get smokeping_down)$(wd_get smokeping_flap)" ] || wd_set smokeping_down "" smokeping_flap ""; return 0 ;;
+        flapping) wd_smokeping_flapping "$id" "$started" "$since"; return 0 ;;
         unknown)
             # No s6-svstat, or no such service: an image this check does not
             # know. Said once per container start.
@@ -347,6 +359,25 @@ wd_smokeping() {
     recent+=("$now")
     wd_set smokeping_restarts "$(IFS=,; echo "${recent[*]}")" smokeping_down ""
     cmd_restart smokeping >/dev/null || wd_log "smokeping: the restart failed"
+}
+
+wd_smokeping_flapping() {
+    # SmokePing dies at start and s6 starts it again, every second or two:
+    # a broken config (a Standard install whose Targets included a file
+    # only Pro creates restarted 24,166 times in 14 h). A container restart
+    # starts the same config again, so this only says so -- once per
+    # container start, after two looks a minute apart, since one reload
+    # also makes a short up time.
+    local id="$1" started="$2" since="$3" now seen
+    now="$(wd_now)"
+    seen="$(wd_get smokeping_flap)"
+    if [ "${seen%%:*}" != "$started" ]; then
+        wd_set smokeping_flap "$started:$now" smokeping_down ""
+        [ "$WD_DRY" = 0 ] && return 0
+    fi
+    [ "$(wd_get smokeping_flap_told)" = "$started" ] && return 0
+    wd_log "smokeping: svc-smokeping keeps restarting $(wd_minutes "$since") min after the container started: SmokePing exits at start, usually a configuration error, which a restart does not fix; not restarting ($(cli_name) logs smokeping)"
+    wd_set smokeping_flap_told "$started"
 }
 
 # --- The command ---------------------------------------------------------
@@ -420,6 +451,7 @@ wd_status() {
             *) echo "  Wi-Fi: reload the driver after $WATCHDOG_WIFI_MIN min with nothing answering, reboot $WATCHDOG_REBOOT_MIN min later (at most every $WATCHDOG_REBOOT_HOURS h)" ;;
         esac
         echo "  SmokePing: restart it when not running $WATCHDOG_SMOKEPING_MIN min after its container started (at most $WATCHDOG_SMOKEPING_MAX times in 6 h)"
+        echo "  SmokePing: report it, never restart it, when it keeps dying at start (a configuration error)"
     else
         echo "  Turn it on: $(cli_name) watchdog enable"
     fi
