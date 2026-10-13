@@ -15,14 +15,16 @@ version gets a matching GitHub release and git tag.
   behind.** The InfluxDB image declares `/etc/influxdb2` a volume, and
   the Pro compose file did not mount it. Every time the container was
   recreated, Docker made a new anonymous volume and orphaned the old one:
-  18 of them on the staging Pi in two weeks, all empty, all left behind
-  after `smoking-pi purge`, and growing forever. It is now the named
-  volume `influxdb-config`. Backup, restore and purge pick it up like any
-  other. The directory has always been empty here, so nothing moves. Every
-  other image's declared volumes were already mounted, which was checked
-  container by container on the staging Pi. Anonymous volumes left by
-  earlier versions hold nothing and can stay: they carry no project
-  label, so nothing can tell them apart from another program's.
+  18 on the staging Pi in two weeks. All were empty, none was ever in
+  `smoking-pi purge`'s list, and the count grew forever. The directory is now a
+  tmpfs, which is what it always was in effect: empty at every start,
+  which the InfluxDB token repair relies on. Docker creates no volume for
+  it (checked on the staging Pi: a container created without the tmpfs
+  added an anonymous volume, one with it did not). Every other image's
+  declared volumes were already mounted, which was checked container by
+  container. Anonymous volumes left by earlier versions hold nothing and
+  can stay: they carry no project label, so nothing can tell them apart
+  from another program's.
 
 - **The watchdog now reports a SmokePing that keeps dying at start.**
   When SmokePing refuses its configuration, s6 starts it again every

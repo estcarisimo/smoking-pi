@@ -135,12 +135,15 @@ services:
       - "8086:8086"
     volumes:
       - influxdb-data:/var/lib/influxdb2
-      # The image declares /etc/influxdb2 a VOLUME too. Left unmounted, every
-      # recreate (upgrade, reboot) made a new anonymous volume and orphaned
-      # the last: 18 empty ones on the staging Pi in two weeks (#321).
-      - influxdb-config:/etc/influxdb2
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
+    # The image declares /etc/influxdb2 a VOLUME too. Left unmounted, every
+    # recreate (upgrade, reboot) made a new anonymous volume and orphaned the
+    # last: 18 empty ones on the staging Pi in two weeks (#321). A tmpfs
+    # keeps what it always was, empty at each start -- sync-influx-token.sh
+    # relies on the influx CLI holding no stored config -- and makes none.
+    tmpfs:
+      - /etc/influxdb2
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
@@ -829,7 +832,6 @@ volumes:
   smokeping-data:
   smokeping-config:
   influxdb-data:
-  influxdb-config:
   grafana-data:
   postgres-data:
   reports:
