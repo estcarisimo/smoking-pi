@@ -9,6 +9,15 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.31.1] — 2026-10-13
+
+Two fixes found by a clean install of every edition on a Raspberry Pi. A
+Standard install never measured: SmokePing refused a config file only Pro
+creates, and restarted about once a second instead. And `smoking-pi
+backup` skipped its PostgreSQL dump about one time in five, without
+saying so. Upgrading repairs an existing Standard install at its next
+configuration reload.
+
 ### Fixed
 
 - **A Standard install measures again.** The generated `Targets` file
