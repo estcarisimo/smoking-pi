@@ -11,6 +11,18 @@ Lifecycle per incident key:
   time it is reported -- is dropped silently: there is nothing to recover)
 - reappears while missing -> it never recovered; clear the grace timer and
                              stay silent (the cooldown still governs re-alerts)
+- absent because its target has no data -> held open, neither missing nor
+  recovered (``judged``): silence is not health. Dropped without a notice
+  after HOLD_MAX_S of no data (a removed or renamed target). A hold keeps
+  any ``missing_since`` it found: data had already shown the target fine,
+  so once data returns the grace period it started can complete at once
+- superseded by a worse incident about the same thing (``supersedes``: a
+  target_down retiring the high_loss it grew out of) -> dropped silently;
+  the worse incident's own alert is the news
+- ``quiet`` incidents (the tail of an uplink_down still in the window) are
+  never recorded: they exist only to suppress the per-target fan-out. One
+  that ``continues`` an open incident keeps it from recovering until the
+  tail is gone, so the "recovered" does not precede the last of the event
 
 The grace period exists because an incident that oscillates used to produce
 an unbounded stream of notifications. Recovery deleted the record outright,
@@ -65,6 +77,14 @@ DEFAULT_RESOLVE_AFTER = 900  # seconds; ALERT_RESOLVE_AFTER
 # normal operation and to cap the damage when something else is wrong.
 DEFAULT_MAX_PER_HOUR = 6  # ALERT_MAX_PER_HOUR
 _HOUR_S = 3600.0
+# How long an incident whose target has no data is held open before it is
+# dropped without a notice. A stalled probe comes back well inside this; a
+# removed or renamed target never does, and must not stay open forever.
+HOLD_MAX_S = 24 * 3600
+# The per-target rules a missing point can silence, and the aggregate ones
+# that need at least one judged target to mean anything.
+_PER_TARGET_RULES = frozenset({"target_down", "high_loss"})
+_AGGREGATE_RULES = frozenset({"uplink_down", "outage"})
 
 _EMPTY_STATE: dict = {"incidents": {}, "reports": {}}
 
@@ -195,7 +215,7 @@ def _apply_mute(record: dict, incident: dict, entries: list[dict],
     has ``notified_count == 0``, and the recovery branch already gates on
     ``notified_count > 0``, so no recovery fires for an alert nobody saw.
     """
-    mute = mutes.find(entries, incident, now)
+    mute = mutes.find(entries, incident, now, first_seen=record.get("first_seen"))
     if mute is None:
         return False
     record["muted_suppressed_count"] = int(
@@ -207,16 +227,33 @@ def _apply_mute(record: dict, incident: dict, entries: list[dict],
     return True
 
 
+def _no_data(record: dict, judged) -> bool:
+    """Whether ``record`` is absent for lack of data rather than on data."""
+    if judged is None:
+        return False
+    rule = record.get("rule")
+    if rule in _PER_TARGET_RULES:
+        return record.get("target") not in judged
+    if rule in _AGGREGATE_RULES:
+        return not judged
+    return False
+
+
 def reconcile(
     state: dict,
     incidents: list[dict],
     now: float | None = None,
     min_resolve_after: int = 0,
+    judged=None,
 ) -> dict:
     """Fold current incidents into ``state`` and return notification actions.
 
     ``min_resolve_after`` floors ALERT_RESOLVE_AFTER: three of the slowest
     target's steps, so a slow probe's ordinary gap is not a recovery.
+
+    ``judged`` is the set of targets the per-target rules had enough points
+    to judge this cycle (evaluator.judged_targets), or None when unknown. An
+    absent incident whose target is not in it is held, not recovered.
 
     Mutates ``state`` in place. Returns
     ``{"alerts": [event, ...], "recoveries": [event, ...]}`` where each
@@ -237,8 +274,15 @@ def reconcile(
     alerts: list[dict] = []
     recoveries: list[dict] = []
     active_keys = set()
+    superseded: set[str] = set()
+    continued: set[str] = set()
 
     for incident in incidents:
+        if incident.get("quiet"):
+            if incident.get("continues"):
+                continued.add(incident["continues"])
+            continue
+        superseded.update(incident.get("supersedes") or ())
         key = incident["key"]
         active_keys.add(key)
         record = records.get(key)
@@ -267,6 +311,7 @@ def reconcile(
 
         # Back inside the grace period: this incident never recovered, so it
         # must not re-announce itself. Silently clear the timer.
+        record.pop("held_since", None)
         if record.pop("missing_since", None) is not None:
             log.info("Incident %s reappeared within the resolve grace period; "
                      "treating it as continuously active", key)
@@ -293,6 +338,19 @@ def reconcile(
 
     for key in sorted(set(records) - active_keys):
         record = records[key]
+        if key in superseded:
+            records.pop(key)
+            log.info("Incident %s superseded by a worse incident about the "
+                     "same target; retired without a recovery", key)
+            continue
+        if _no_data(record, judged):
+            held_since = float(record.setdefault("held_since", now))
+            if now - held_since >= HOLD_MAX_S:
+                records.pop(key)
+                log.warning("Incident %s had no data for %d h; dropped "
+                            "without a recovery notice", key, HOLD_MAX_S // 3600)
+            continue
+        record.pop("held_since", None)
         missing_since = record.get("missing_since")
         if missing_since is None:
             # Start the grace period rather than declaring recovery. A rule
@@ -301,7 +359,7 @@ def reconcile(
             # flapping target into a notification firehose.
             record["missing_since"] = now
             continue
-        if now - float(missing_since) < resolve_after:
+        if now - float(missing_since) < resolve_after or key in continued:
             continue
 
         records.pop(key)

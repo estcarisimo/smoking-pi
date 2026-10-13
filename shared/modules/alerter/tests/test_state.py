@@ -248,3 +248,81 @@ def test_transient_flag_follows_the_latest_report_of_a_key(state_file):
     assert st["incidents"]["target_down:google"]["transient"] is True
     state.reconcile(st, [_incident()], now=1060.0)
     assert "transient" not in st["incidents"]["target_down:google"]
+
+
+# --- one event, one message (front 8 audit, PR 1) ---------------------------
+
+def test_a_superseded_incident_is_retired_without_a_recovery(state_file):
+    """target_down retires the high_loss it grew out of: no "recovered"."""
+    st = state.load_state()
+    warning = _incident(key="high_loss:google", rule="high_loss",
+                        severity="warning")
+    state.reconcile(st, [warning], now=1000.0)
+    critical = _incident(supersedes=["high_loss:google"])
+    actions = state.reconcile(st, [critical], now=2000.0)
+    assert [a["key"] for a in actions["alerts"]] == ["target_down:google"]
+    assert "high_loss:google" not in st["incidents"]
+    for now in (3000.0, 4000.0):
+        assert state.reconcile(st, [critical], now=now)["recoveries"] == []
+
+
+def test_a_quiet_incident_is_never_recorded_or_sent(state_file):
+    st = state.load_state()
+    tail = _incident(key="outage:1", rule="outage", target=None, quiet=True)
+    assert state.reconcile(st, [tail], now=1000.0) == {"alerts": [], "recoveries": []}
+    assert st["incidents"] == {}
+
+
+def test_a_quiet_tail_delays_the_recovery_it_continues(state_file, monkeypatch):
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "100")
+    st = state.load_state()
+    up = _incident(key="uplink_down", rule="uplink_down", target=None)
+    state.reconcile(st, [up], now=1000.0)
+    tail = _incident(key="outage:1", rule="outage", target=None, quiet=True,
+                     continues="uplink_down")
+    state.reconcile(st, [tail], now=1100.0)
+    assert state.reconcile(st, [tail], now=1300.0)["recoveries"] == []
+    assert len(state.reconcile(st, [], now=1400.0)["recoveries"]) == 1
+
+
+def test_an_absent_incident_with_no_data_is_held_not_recovered(state_file,
+                                                               monkeypatch):
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "100")
+    st = state.load_state()
+    state.reconcile(st, [_incident()], now=1000.0, judged={"google"})
+    for now in (1100.0, 2000.0, 5000.0):
+        actions = state.reconcile(st, [], now=now, judged={"apple"})
+        assert actions["recoveries"] == []
+    record = st["incidents"]["target_down:google"]
+    assert record["held_since"] == 1100.0 and "missing_since" not in record
+    # Data again, and the target answers: now it is a recovery.
+    state.reconcile(st, [], now=6000.0, judged={"google"})
+    actions = state.reconcile(st, [], now=6200.0, judged={"google"})
+    assert [r["key"] for r in actions["recoveries"]] == ["target_down:google"]
+
+
+def test_an_aggregate_incident_is_held_only_when_nothing_has_data(state_file,
+                                                                  monkeypatch):
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "100")
+    st = state.load_state()
+    up = _incident(key="uplink_down", rule="uplink_down", target=None)
+    state.reconcile(st, [up], now=1000.0, judged={"google"})
+    state.reconcile(st, [], now=1100.0, judged=set())
+    assert state.reconcile(st, [], now=1300.0, judged=set())["recoveries"] == []
+    state.reconcile(st, [], now=1400.0, judged={"google"})
+    assert len(state.reconcile(st, [], now=1600.0, judged={"google"})["recoveries"]) == 1
+
+
+def test_a_hold_keeps_the_grace_period_data_had_already_started(state_file,
+                                                                monkeypatch):
+    """Review of #332: the target answered (grace started), then its data
+    stopped. Once data returns showing it fine, the recovery is due at once:
+    the grace period ran on data, and the hold only paused the verdict."""
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "100")
+    st = state.load_state()
+    state.reconcile(st, [_incident()], now=1000.0, judged={"google"})
+    state.reconcile(st, [], now=1050.0, judged={"google"})      # grace starts
+    for now in (1100.0, 5000.0):                                 # no data
+        assert state.reconcile(st, [], now=now, judged=set())["recoveries"] == []
+    actions = state.reconcile(st, [], now=5060.0, judged={"google"})
+    assert [r["key"] for r in actions["recoveries"]] == ["target_down:google"]

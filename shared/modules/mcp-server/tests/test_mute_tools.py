@@ -193,6 +193,30 @@ def test_list_alert_state_recomputes_muted_rather_than_trusting_the_cache(files)
     assert server.list_alert_state()["incidents"][0]["muted"] is False
 
 
+def test_list_alert_state_does_not_call_a_new_occurrence_acknowledged(files):
+    """An ack ends when its incident recovers: the same key, first seen after
+    the ack was made, is a new problem and not muted."""
+    files.seed_state({
+        "target_down:google_dns": {"rule": "target_down", "target": "google_dns",
+                                   "first_seen": 1000.0},
+    })
+    server.ack_incident("target_down:google_dns")
+    assert server.list_alert_state()["incidents"][0]["muted"] is True
+    files.seed_state({
+        "target_down:google_dns": {"rule": "target_down", "target": "google_dns",
+                                   "first_seen": 9_999_999_000.0},
+    })
+    assert server.list_alert_state()["incidents"][0]["muted"] is False
+
+
+def test_list_alert_state_says_when_an_incident_has_no_data(files):
+    files.seed_state({
+        "target_down:google_dns": {"rule": "target_down", "target": "google_dns",
+                                   "held_since": 1234.0},
+    })
+    assert server.list_alert_state()["incidents"][0]["no_data_since"] == 1234.0
+
+
 # --- durability -------------------------------------------------------------
 
 def test_a_crash_mid_write_cannot_corrupt_the_file(files, api, monkeypatch):

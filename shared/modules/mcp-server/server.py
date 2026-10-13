@@ -2218,8 +2218,12 @@ def list_alert_state() -> dict:
         # mute may have been lifted since it last ran.
         covering = mutes.find(live, {"key": key,
                                      "target": record.get("target"),
-                                     "rule": record.get("rule")}, now)
+                                     "rule": record.get("rule")}, now,
+                              first_seen=record.get("first_seen"))
         incident_view["muted"] = covering is not None
+        if record.get("held_since") is not None:
+            # Open with no data since then: not recovered, not confirmed.
+            incident_view["no_data_since"] = record["held_since"]
         incidents.append(incident_view)
 
     return {

@@ -115,12 +115,20 @@ def active(entries: list[dict], now: float | None = None) -> list[dict]:
     return live
 
 
-def matches(entry: dict, incident: dict) -> bool:
+def matches(entry: dict, incident: dict, first_seen: float | None = None) -> bool:
     """Whether one mute covers one incident.
 
     An entry carrying ``key`` is an acknowledgement of one specific incident
     and matches that key alone -- ``target``/``rule`` are not consulted, so an
     ack can never widen into a category-wide silence.
+
+    An ack with ``clear_on_recovery`` covers the occurrence it acknowledged
+    and no later one: an incident under the same key first seen after the
+    ack was made (``first_seen`` > ``created_at``) is a new problem that
+    recovered in between, and alerts. The alerter cannot remove the entry --
+    this file is read-only to it -- so the check lives here, at read time,
+    like expiry. Without it ``ack_incident``'s "until it recovers" was a 24-h
+    mute of the key.
 
     Otherwise ``target`` and ``rule`` are independent filters and both must
     match when present, so ``{"target": "amazon", "rule": "high_loss"}``
@@ -133,7 +141,16 @@ def matches(entry: dict, incident: dict) -> bool:
     """
     key = entry.get("key")
     if key is not None:
-        return incident.get("key") == key
+        if incident.get("key") != key:
+            return False
+        if entry.get("clear_on_recovery") and first_seen is not None:
+            # An ack whose creation time cannot be read cannot say which
+            # occurrence it covers: fail toward alerting, like expiry.
+            try:
+                return float(first_seen) <= float(entry["created_at"])
+            except (KeyError, TypeError, ValueError):
+                return False
+        return True
 
     target = entry.get("target")
     rule = entry.get("rule")
@@ -148,10 +165,15 @@ def matches(entry: dict, incident: dict) -> bool:
     return True
 
 
-def find(entries: list[dict], incident: dict, now: float | None = None) -> dict | None:
-    """The first active mute covering ``incident``, or None."""
+def find(entries: list[dict], incident: dict, now: float | None = None,
+         first_seen: float | None = None) -> dict | None:
+    """The first active mute covering ``incident``, or None.
+
+    ``first_seen`` is when the alerter first saw this occurrence of the
+    incident; see :func:`matches` for what an ack does with it.
+    """
     for entry in active(entries, now):
-        if matches(entry, incident):
+        if matches(entry, incident, first_seen):
             return entry
     return None
 

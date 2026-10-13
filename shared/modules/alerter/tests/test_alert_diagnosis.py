@@ -265,7 +265,7 @@ def test_the_loop_diagnoses_once_and_only_when_a_loss_alert_goes_out(monkeypatch
                "uplink_changes": [], "windows": {"mean": 900, "step": STEP},
                "cadences": {}}
     monkeypatch.setattr(main.evaluator, "evaluate_with_context",
-                        lambda open_keys=(): ([incident], context))
+                        lambda **_: ([incident], context))
     monkeypatch.setattr(main.alert_diagnosis, "run",
                         lambda cadences: runs.append(cadences) or _result(
                             _inc("destination", ["google"], 0)))

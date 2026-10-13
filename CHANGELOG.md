@@ -9,6 +9,42 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **One event now reaches the phone as one incident, not a burst of
+  them.** After the reference Pi's radio hung for five and a half hours on
+  2026-10-12, its return produced ten Telegram messages in 72 minutes,
+  among them three "brief cut of the link, not a site problem" warnings.
+  The `outage` key was the run's first cycle *still inside the 20-minute
+  window*, so a long outage got a new key, and a new warning, every five
+  minutes; and the cycles an ended `uplink_down` left in the window became
+  fresh outages just as delivery worked again. An outage now keeps the key
+  of the one it continues, and the tail of an `uplink_down` only suppresses
+  the per-target fan-out: it is never sent, and the uplink's recovery waits
+  until it is gone (up to one 20-minute window later than before). Loss
+  that goes on after the uplink returned is an outage of its own, and a
+  continued outage's message says how long it has lasted instead of
+  calling it a brief cut. Found by the audit of the detection pipeline (roadmap
+  front 8).
+- **A target going down no longer announces "recovered" fifteen minutes
+  in.** `high_loss` fires two cycles before `target_down`; once the target
+  was down, `high_loss` was excluded, went missing, and sent a recovery
+  while the target was still at 100%, then fired again as the 15-minute
+  mean caught up. `target_down` now supersedes the warning (retired without
+  a recovery), and `high_loss` stays off for the target until the
+  `target_down` record is gone.
+- **No data is no longer read as "recovered".** An incident whose target
+  stopped reporting (a stalled probe, a stalled exporter, a removed target)
+  went missing and announced its recovery fifteen minutes later, before
+  `exporter_stale` had even fired. Such an incident is now held open until
+  data shows the target answering, and dropped without a notice after 24
+  hours with no data; `list_alert_state` shows `no_data_since`.
+- **`ack_incident` ends when the incident recovers, as it says.** Its
+  `clear_on_recovery` flag was written and never read, so an ack silenced
+  the key for its full 24 hours, including a new outage of the same target
+  after a recovery. An ack now covers only the occurrence first seen
+  before it was made.
+
 ## [2.31.2] — 2026-10-13
 
 Five fixes from the clean-install rounds on a Raspberry Pi. Most of them

@@ -266,7 +266,14 @@ def _point_count(rows: list[dict]) -> int:
 # ---------------------------------------------------------------------------
 
 def rule_target_down(rows: list[dict], min_points: int = DOWN_MIN_POINTS) -> list[dict]:
-    """critical: ALL points in the window are >=99.9% loss, with >=3 points."""
+    """critical: ALL points in the window are >=99.9% loss, with >=3 points.
+
+    A target that goes down usually crossed ``high_loss`` on the way, two
+    cycles earlier. The critical is the same problem grown worse, so it
+    ``supersedes`` that warning: reconcile retires it without a recovery.
+    Without that, high_loss -- excluded once the target is down -- went
+    missing and announced "recovered" fifteen minutes into the outage.
+    """
     by_target: dict[str, list[float]] = {}
     for row in rows:
         target = row.get("target")
@@ -289,6 +296,7 @@ def rule_target_down(rows: list[dict], min_points: int = DOWN_MIN_POINTS) -> lis
                         f"{len(losses)} probes in the window"
                     ),
                     "value": 100.0,
+                    "supersedes": [f"high_loss:{target}"],
                 }
             )
     return incidents
@@ -532,6 +540,8 @@ def rule_widespread(
     min_targets: int = WIDESPREAD_MIN_TARGETS,
     step_s: int = STEP_S,
     cadences: dict[str, cadence.Cadence] | None = None,
+    ongoing: Collection[str] = (),
+    uplink_last_seen: float | None = None,
 ) -> list[dict]:
     """One incident for a loss that hit most targets in the same probe cycle.
 
@@ -556,6 +566,29 @@ def rule_widespread(
 
     Either one is the whole story; the per-target incidents it would have
     fanned out into are dropped by :func:`suppress_widespread`.
+
+    An outage is one event however long it lasts, which the window alone
+    cannot tell (12/10/2026: ten messages in 72 minutes after one hang):
+
+    - A run holding ``min_points`` consecutive cycles at 100% is an
+      ``uplink_down`` that has ended, and was reported as one. Its tail stays
+      in the window for up to 20 minutes after the uplink returns; it is
+      emitted ``quiet`` -- it still suppresses the per-target incidents, but
+      reconcile never records or announces it. Before this it was a fresh
+      "brief cut of the link" warning, sent just as delivery worked again.
+      Once fewer than ``min_points`` lost cycles remain in view the shape
+      alone cannot say so, so a run at the window's first cycle that began
+      while the uplink was still down -- no later than one cycle after the
+      open ``uplink_down`` was last seen (``uplink_last_seen``) -- is its
+      tail too. A quiet tail ``continues`` that incident: reconcile
+      announces its recovery only once the tail has left the window. The
+      bound is what ends it: loss that goes on after the uplink returned
+      starts after that, and is an outage of its own.
+    - A run that starts at the window's first cycle may have started before
+      it. When an outage was active in the previous evaluation (``ongoing``,
+      keys of open records not in their grace period), the run keeps that
+      key and its start, instead of a new key every time the first cycle
+      slides out of the window.
     """
     if share_pct is None:
         share_pct = _env_float("WIDESPREAD_PCT", DEFAULT_WIDESPREAD_PCT)
@@ -621,6 +654,31 @@ def rule_widespread(
             }
         ]
 
+    def was_uplink_down(run: list[int]) -> bool:
+        streak: list[int] = []
+        for s in run:
+            if share(lost, s) >= share_pct and (not streak or s - streak[-1] <= 2 * step_s):
+                streak.append(s)
+            elif share(lost, s) >= share_pct:
+                streak = [s]
+            else:
+                streak = []
+            if len(streak) >= min_points:
+                return True
+        return False
+
+    def continued(first: int) -> int:
+        """The start of the outage this run continues, or ``first``."""
+        if first != steps[0]:
+            return first
+        earlier = [
+            int(key.split(":", 1)[1])
+            for key in ongoing
+            if key.startswith("outage:") and key.split(":", 1)[1].isdigit()
+        ]
+        earlier = [t for t in earlier if t < first]
+        return max(earlier) if earlier else first
+
     incidents = []
     run: list[int] = []
     for step in steps + [None]:
@@ -642,24 +700,38 @@ def rule_widespread(
             all_lost = (
                 lost_steps >= len(run) - 2 if len(run) > 2 else lost_steps == len(run)
             )
-            minutes = (last - first) // 60 + step_s // 60
-            incidents.append(
-                {
-                    "rule": "outage",
-                    "severity": "warning",
-                    "key": f"outage:{first}",
-                    "target": None,
-                    "transient": True,
-                    "message": (
-                        f"{n_lossy} of {n_all} targets "
-                        f"{'lost every packet' if all_lost else 'lost packets'} "
-                        f"in the same {minutes}-minute span at {_hhmm(first)} — "
-                        "a brief cut of the link, not a site problem"
-                    ),
-                    "value": n_lossy,
-                    "breadth": _breadth(lossy[widest], n_all),
-                }
+            start = continued(first)
+            minutes = (last - start) // 60 + step_s // 60
+            incident = {
+                "rule": "outage",
+                "severity": "warning",
+                "key": f"outage:{start}",
+                "target": None,
+                "transient": True,
+                "message": (
+                    f"{n_lossy} of {n_all} targets "
+                    f"{'lost every packet' if all_lost else 'lost packets'} "
+                    f"in the same {minutes}-minute span at {_hhmm(start)} — "
+                    "a brief cut of the link, not a site problem"
+                    if start == first else
+                    f"{n_lossy} of {n_all} targets "
+                    f"{'losing every packet' if all_lost else 'losing packets'} "
+                    f"together since {_hhmm(start)} ({minutes} minutes) — "
+                    "the link, not a site problem"
+                ),
+                "value": n_lossy,
+                "breadth": _breadth(lossy[widest], n_all),
+            }
+            tail_of_open = (
+                uplink_last_seen is not None
+                and first == steps[0]
+                and first <= uplink_last_seen + step_s
             )
+            if was_uplink_down(run) or tail_of_open:
+                incident["quiet"] = True
+                if uplink_last_seen is not None:
+                    incident["continues"] = "uplink_down"
+            incidents.append(incident)
             run = []
         if step is not None and share(lossy, step) >= share_pct:
             run = [step]
@@ -773,7 +845,10 @@ def _windows(cadences: dict[str, cadence.Cadence]) -> dict[str, int]:
 UPLINK_CHANGE_WINDOW_S = 3600
 
 
-def evaluate_with_context(open_keys: Collection[str] = ()) -> tuple[list[dict], dict]:
+def evaluate_with_context(
+    open_keys: Collection[str] = (),
+    records: dict[str, dict] | None = None,
+) -> tuple[list[dict], dict]:
     """Run all rules and ALSO return the rows they were derived from.
 
     The verdict ("is it me or the internet?") needs breadth across every
@@ -785,7 +860,17 @@ def evaluate_with_context(open_keys: Collection[str] = ()) -> tuple[list[dict], 
     The one addition is the Wi-Fi uplink: four aggregate queries over the
     small wifi_link measurement (a reduce, two increases and a last), which
     return nothing at all on a wired host.
+
+    ``records`` is the alerter's open incidents (state.json), read for what
+    the window alone cannot say: which outage was already running, and which
+    targets are still inside a target_down. ``context["judged"]`` is every
+    target with enough points for the per-target rules to have an opinion;
+    reconcile holds an incident open, rather than calling it recovered, for
+    a target that has none.
     """
+    records = records or {}
+    if not open_keys:
+        open_keys = records.keys()
     # The cadence refines the windows; a failed query must not silence
     # every rule for the cycle, so it falls back to the default step.
     try:
@@ -820,7 +905,14 @@ def evaluate_with_context(open_keys: Collection[str] = ()) -> tuple[list[dict], 
         uplink_changes = []
 
     incidents = rule_target_down(down_rows)
-    down_targets = {i["target"] for i in incidents}
+    # Still down, or back up and inside the resolve grace period: the
+    # 15-minute mean keeps the lost cycles for a while after the first good
+    # one, and a high_loss then would be a second incident for one outage.
+    down_targets = {i["target"] for i in incidents} | {
+        record.get("target")
+        for record in records.values()
+        if record.get("rule") == "target_down" and record.get("target")
+    }
     incidents += rule_high_loss(
         mean_rows,
         exclude=down_targets,
@@ -843,8 +935,14 @@ def evaluate_with_context(open_keys: Collection[str] = ()) -> tuple[list[dict], 
             microcuts.attribute(microcuts.fold_cuts(micro_rows), deaf_rows)),
         micro_rows,
     )
+    ongoing = [
+        key for key, record in records.items()
+        if record.get("missing_since") is None
+    ]
     widespread = rule_widespread(
-        down_rows, step_s=windows["step"], cadences=cadences
+        down_rows, step_s=windows["step"], cadences=cadences,
+        ongoing=ongoing,
+        uplink_last_seen=records.get("uplink_down", {}).get("last_seen"),
     )
     incidents = widespread + suppress_widespread(incidents, widespread)
     # Nothing in the window: a stall, or a stack that has never measured.
@@ -867,8 +965,25 @@ def evaluate_with_context(open_keys: Collection[str] = ()) -> tuple[list[dict], 
         "uplink_changes": uplink_changes,
         "windows": windows,
         "cadences": cadences,
+        "judged": judged_targets(down_rows),
     }
     return incidents, context
+
+
+def judged_targets(rows: list[dict], min_points: int = DOWN_MIN_POINTS) -> set[str]:
+    """Targets with enough points in the down window to be judged.
+
+    target_down needs ``min_points``; with fewer, no per-target rule can say
+    "down" or "fine", so a target that stopped reporting (a stalled probe, a
+    renamed or removed target, the exporter itself) has no verdict at all --
+    and silence is not health.
+    """
+    counts: dict[str, int] = {}
+    for row in rows:
+        target = row.get("target")
+        if target is not None and row.get("_value") is not None:
+            counts[target] = counts.get(target, 0) + 1
+    return {t for t, n in counts.items() if n >= min_points}
 
 
 def evaluate() -> list[dict]:

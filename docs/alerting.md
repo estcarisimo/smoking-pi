@@ -25,7 +25,7 @@ The service runs with `network_mode: host`, so it reaches InfluxDB on
 | Rule | Severity | Condition | Tunables (default) |
 |------|----------|-----------|--------------------|
 | `uplink_down` | critical | Most targets (`WIDESPREAD_PCT` of those reporting) at 100% loss in each of the latest 3 probe cycles, consecutive in time (one absent cycle tolerated) — every destination including the first hop is unreachable from this host, so the monitor's own uplink is gone. ONE incident; the per-target ones it would fan out into are not sent | `WIDESPREAD_PCT` (80 %), `DOWN_WINDOW` |
-| `outage` | warning | A run of probe cycles in which most targets lost at least `WIDESPREAD_LOSS_PCT` at once — a brief cut of the link that had ended by the time it was seen. ONE incident per run, keyed by its first cycle; *transient*: it leaves the window on its own and no recovery notice follows | `WIDESPREAD_PCT` (80 %), `WIDESPREAD_LOSS_PCT` (30 %) |
+| `outage` | warning | A run of probe cycles in which most targets lost at least `WIDESPREAD_LOSS_PCT` at once — a brief cut of the link that had ended by the time it was seen. ONE incident per run, keyed by its first cycle — and by the first cycle of the outage it continues once that has slid out of the window, so a long one is still one incident; *transient*: it leaves the window on its own and no recovery notice follows. The tail of an `uplink_down` (lost cycles still in the window after the uplink returned) is not an outage: it suppresses the per-target incidents and is never sent | `WIDESPREAD_PCT` (80 %), `WIDESPREAD_LOSS_PCT` (30 %) |
 | `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points. Not sent while anything widespread is active | `DOWN_WINDOW` (1200 s) |
 | `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold **and** the loss persisted: at least `HIGH_LOSS_MIN_POINTS` probe cycles that lost two or more pings (see [Probe cadence](#probe-cadence)) within the same 15 minutes the mean covers. Targets already down are excluded; not sent while anything widespread is active | `HIGH_LOSS_PCT` (20 %), `HIGH_LOSS_MIN_POINTS` (2) |
 | `microcut_burst` | warning | Per target+protocol in `cpe_latency`, over the last 60 min: a **confirmed cut** — a run of two or more consecutive 10 s windows above `MICROCUT_LOSS_PCT`, or one window at 100% — or `MICROCUT_BURST_N` **possible cuts** (isolated single windows at 51–99%). The message names the cut and its duration (*"1 cut of 2 min 40 s (6 windows, all at 100%)"*). Definitions in `common/microcuts.py`, shared with the MCP tool, the digest and the AI report | `MICROCUT_BURST_N` (3), `MICROCUT_LOSS_PCT` (50 %) |
@@ -74,8 +74,22 @@ State lives in a JSON file (`ALERT_STATE_FILE`, default
   15-minute mean), so the alert's open time would make a 2-minute cut read
   as an hour. Their message already says what was measured.
 
+- **No data is not a recovery.** An incident about a target that no longer
+  has enough points to judge (three in the down window) is *held*: neither
+  missing nor recovered, whatever the reason — a stalled probe, the
+  exporter itself (`exporter_stale`), a renamed or removed target. Its
+  recovery comes once data shows it answering. `uplink_down` and `outage`
+  are held when no target has data at all. After 24 hours with no data the
+  incident is dropped without a notice. `list_alert_state` shows a held
+  incident's `no_data_since`.
+- **Worse replaces milder.** A target that goes down usually crossed
+  `high_loss` two cycles earlier. `target_down` *supersedes* that warning:
+  it is retired without a recovery, and `high_loss` stays off for the
+  target until the `target_down` record is gone. One problem reads warning,
+  critical, recovered.
+
 Per incident the state tracks `first_seen`, `last_seen`, `last_notified`,
-and `notified_count`.
+`notified_count`, and while it applies `missing_since` or `held_since`.
 
 ## Notifier modes (`NOTIFY_MODE`)
 
@@ -698,6 +712,10 @@ So every mitigation lives here rather than being left to operator discipline:
 - **An incident muted from first sight produces no recovery either**, because
   `notified_count` stays 0 and the recovery branch gates on it. Announcing the
   end of something nobody heard about is just noise.
+- **An ack ends when its incident recovers.** `ack_incident` writes the
+  time it was made (`created_at`); the alerter, which may not write the
+  mutes file, applies it only to an occurrence first seen before then. The
+  same key opening again after a recovery is a new problem and alerts.
 - **`unmute_alerts(all=True)`** clears everything in one call.
 - **A missing or corrupt mutes file means everything alerts.** Delivery must
   never depend on this file being readable; the failure mode has to be noise,
@@ -817,5 +835,6 @@ Layer 1 fixes the specific trigger; layer 2 fixes the class of bug; layer 3
 bounds the cost of the next one. Set `ALERT_MAX_PER_HOUR=0` to disable the
 ceiling if you genuinely want unbounded delivery.
 
-Note also that `high_loss` and `target_down` both match a fully-down target, so
-a real outage produces two notifications by design — one warning, one critical.
+A fully-down target matches `high_loss` before it matches `target_down`, so a
+real outage produces two alerts — one warning, then one critical that
+supersedes it — and one recovery.
