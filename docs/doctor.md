@@ -172,6 +172,15 @@ admin's **Measurements** card: the configured targets against the RRD
 files SmokePing writes. It runs inside the config-manager container, so its
 API token never reaches the command line.
 
+Basic has no config-manager. There the check reads the same files from the
+SmokePing container (`Targets`, `Probes` and the RRD files' times) and
+classifies them with config-manager's own rules, so both editions give the
+same answer. The only difference is that Basic times a target's first step
+from SmokePing's start, because Basic changes targets by restarting
+SmokePing. Standard and Pro take the same path when config-manager is
+stopped, and then a target added since SmokePing started may read as
+missing rather than pending.
+
 - **fail** when no configured target has data (the hint is
   `sudo smoking-pi restart smokeping`), naming the targets that never got
   data, or naming those that stopped getting it;
@@ -180,8 +189,10 @@ API token never reaches the command line.
   has just started does not fail; the summary counts those;
 - **warn** when config-manager does not answer, cannot tell (no
   generated Targets file yet), or lists no target at all: "all 0 targets
-  measured" would be the silence this check exists to end;
-- **skip** without Docker or without config-manager (Basic).
+  measured" would be the silence this check exists to end. On Basic, the
+  same applies when SmokePing's files cannot be read;
+- **fail** too when SmokePing's container exists but is not running;
+- **skip** without Docker, or without any SmokePing container.
 
 ### `silent-series`
 
