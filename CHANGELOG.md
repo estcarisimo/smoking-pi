@@ -18,8 +18,8 @@ version gets a matching GitHub release and git tag.
   `--check` afterwards said otherwise. `install-openclaw-skill.sh --reload`
   now asks the gateway itself (`openclaw gateway status --require-rpc`,
   three tries, for a gateway it just restarted). It exits 3 when nothing
-  answers, and step 5 then says the skill is installed and the gateway must
-  be started first. An `openclaw` too old to have that probe is not called
+  answers, and step 5 then says the skill is installed and the gateway did
+  not answer (not running, or it refused the probe). An `openclaw` too old to have that probe is not called
   stopped.
 
 - **The watchdog now reports a SmokePing that keeps dying at start.**

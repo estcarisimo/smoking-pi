@@ -878,12 +878,12 @@ stub_openclaw() {
     stub_openclaw
     STUB_SKILL_RC=3 run "$CLI" openclaw
     [ "$status" -eq 0 ]
-    [[ "$output" == *"5/5  Installed the smokeping-monitoring skill. The gateway is not running"* ]]
+    [[ "$output" == *"Installed the skill, but the gateway did not answer"* ]]
     [[ "$output" != *"reloaded the gateway"* ]]
     STUB_SKILL_RC=1 run "$CLI" openclaw
-    [[ "$output" == *"5/5  WARNING: the skill did not install"* ]]
+    [[ "$output" == *"WARNING: the skill did not install"* ]]
     STUB_SKILL_RC=0 run "$CLI" openclaw
-    [[ "$output" == *"5/5  Installed the smokeping-monitoring skill and reloaded the gateway."* ]]
+    [[ "$output" == *"Installed the skill and reloaded the gateway."* ]]
 }
 
 # The real skill installer, against a stubbed openclaw and systemctl and a
@@ -909,11 +909,16 @@ STUB
     STUB_GATEWAY_RC=1 run "$REPO/shared/scripts/install-openclaw-skill.sh" --reload
     [ "$status" -eq 3 ]
     [ -f "$OPENCLAW_SKILLS_DIR/smokeping-monitoring/SKILL.md" ]
-    [[ "$output" == *"The gateway is not running"* ]]
+    [[ "$output" == *"The gateway did not answer"* ]]
     [ "$(grep -c 'gateway status --require-rpc' "$DOCKER_LOG")" = 3 ]
     STUB_GATEWAY_RC=0 run "$REPO/shared/scripts/install-openclaw-skill.sh" --reload
     [ "$status" -eq 0 ]
-    [[ "$output" != *"not running"* ]]
+    [[ "$output" != *"did not answer"* ]]
+    # Without --reload it never asks.
+    : > "$DOCKER_LOG"
+    STUB_GATEWAY_RC=1 run "$REPO/shared/scripts/install-openclaw-skill.sh"
+    [ "$status" -eq 0 ]
+    if grep -q 'require-rpc' "$DOCKER_LOG"; then false; fi
 }
 
 @test "install-openclaw-skill --reload: an openclaw without --require-rpc is not called stopped" {

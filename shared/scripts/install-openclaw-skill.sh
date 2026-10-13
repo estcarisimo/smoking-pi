@@ -30,8 +30,7 @@ Usage: $(basename "$0") [--check] [--reload]
              non-zero if it is missing or stale. Changes nothing.
   --reload   After installing, reload the OpenClaw gateway so the new skill
              is picked up. Requires systemd --user. Exits 3 when the skill
-             is installed but the gateway is not running, so nothing
-             reloaded.
+             is installed but no gateway answers its status probe.
 
 With no flags: install (or update) the skill and print what to do next.
 EOF
@@ -142,8 +141,11 @@ if [ "$RELOAD" = "1" ] && command -v openclaw >/dev/null 2>&1 \
         [ "$try" = 3 ] || sleep 3
     done
     if [ "$GATEWAY" = down ]; then
-        echo -e "${RED}✗ The gateway is not running${NC} — the skill is installed and"
-        echo -e "  is read when the gateway starts. ${CYAN}openclaw gateway status${NC} says why."
+        # Not answering covers a gateway that is down and one that refuses
+        # the probe (auth, another URL); status tells them apart.
+        echo -e "${RED}✗ The gateway did not answer${NC} — it is not running, or it refused"
+        echo -e "  the status probe. The skill is installed and is read when a gateway"
+        echo -e "  starts. ${CYAN}openclaw gateway status${NC} says which."
     fi
 fi
 

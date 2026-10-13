@@ -135,9 +135,9 @@ you live speed-test numbers and never mentions your targets.
 ```
 
 With `--reload`, it then asks the gateway whether it answers
-(`openclaw gateway status --require-rpc`). If no gateway is running, it
-says so and exits 3: the skill is installed, and the gateway reads it when
-it starts. `smoking-pi openclaw` reports that case in its step 5 instead of
+(`openclaw gateway status --require-rpc`). If none answers (not running,
+or it refused the probe), it says so and exits 3: the skill is installed,
+and the gateway reads it when it starts. `smoking-pi openclaw` reports that case in its step 5 instead of
 "reloaded the gateway".
 
 Re-run it after **any** change to the skill. A stale copy is the failure mode
