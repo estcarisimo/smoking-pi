@@ -379,6 +379,48 @@ def test_uplink_down_needs_the_latest_cycles_to_be_consecutive_in_time():
     assert [i["rule"] for i in widespread] == ["outage", "outage"]
 
 
+def test_an_outage_longer_than_the_window_keeps_its_key_and_start():
+    """The run's first cycle slid out of the window; the outage active in the
+    previous evaluation is the same one, not a new incident."""
+    rows = _everyone([0.5, 0.5, 0.5, 0.5])
+    earlier = int(STEP0.timestamp()) - 900
+    inc = evaluator.rule_widespread(rows, ongoing=[f"outage:{earlier}"])[0]
+    assert inc["key"] == f"outage:{earlier}"
+    assert "35-minute span at 01:25 UTC" in inc["message"]
+    # Without one active, the window's first cycle is the start, as before.
+    assert evaluator.rule_widespread(rows)[0]["key"] == f"outage:{int(STEP0.timestamp())}"
+
+
+def test_a_new_outage_inside_the_window_is_not_a_continuation():
+    rows = _everyone([0.0, 0.0, 0.5, 0.5])
+    earlier = int(STEP0.timestamp()) - 900
+    inc = evaluator.rule_widespread(rows, ongoing=[f"outage:{earlier}"])[0]
+    assert inc["key"] == f"outage:{int(STEP0.timestamp()) + 600}"
+
+
+def test_the_tail_of_an_uplink_down_is_quiet_but_still_suppresses():
+    rows = _everyone([1.0, 1.0, 1.0, 0.0])
+    widespread = evaluator.rule_widespread(rows)
+    assert widespread[0]["quiet"] is True
+    assert "continues" not in widespread[0]  # no open uplink_down record
+    per_target = evaluator.rule_target_down(_everyone([1.0, 1.0, 1.0]))
+    assert evaluator.suppress_widespread(per_target, widespread) == []
+    # Fewer lost cycles left in view: the open uplink_down says it is the tail.
+    rows = _everyone([1.0, 0.0, 0.0, 0.0])
+    assert not evaluator.rule_widespread(rows)[0].get("quiet")
+    tail = evaluator.rule_widespread(rows, open_keys={"uplink_down"})[0]
+    assert tail["quiet"] is True and tail["continues"] == "uplink_down"
+
+
+def test_a_short_total_cut_is_still_a_warning():
+    assert not evaluator.rule_widespread(_everyone([0.0, 1.0, 1.0, 0.0]))[0].get("quiet")
+
+
+def test_judged_targets_need_enough_points_for_a_verdict():
+    rows = _timed_points({"a": [0.0, 0.0, 0.0], "b": [1.0, 1.0]})
+    assert evaluator.judged_targets(rows) == {"a"}
+
+
 def test_outage_runs_do_not_bridge_a_gap_in_time():
     early = _everyone([0.9], start=STEP0)
     late = _everyone([0.9], start=STEP0 + timedelta(seconds=3000))
@@ -643,6 +685,9 @@ def test_evaluate_dispatches_queries_and_excludes_down_from_high_loss(monkeypatc
         "high_loss:flaky",  # deadhost excluded: already down
         "microcut_burst:cpe1/ipv4",
     }
+    assert next(i for i in incidents if i["rule"] == "target_down")[
+        "supersedes"] == ["high_loss:deadhost"]
+    assert context["judged"] == {"deadhost", "flaky"}
     # The context carries the folded shape the verdict reads, not raw windows.
     assert context["micro_rows"] == [
         {"target": "cpe1", "protocol": "ipv4", "_value": 2, "cuts": 1, "possible": 0}

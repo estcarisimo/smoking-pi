@@ -225,6 +225,37 @@ def test_an_ack_matches_only_its_own_incident(state_file, mutes_file):
     assert keys == ["high_loss:google"]
 
 
+def test_an_ack_lasts_until_the_incident_recovers(state_file, mutes_file,
+                                                   monkeypatch):
+    """ack_incident says "until it recovers", and now it does.
+
+    The alerter cannot delete the entry (the file is read-only to it), so an
+    ack covers the occurrence first seen before the ack was made, and a new
+    occurrence under the same key -- first seen after it -- alerts.
+    """
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "100")
+    st = state.load_state()
+    assert len(state.reconcile(st, [_incident()], now=1000.0)["alerts"]) == 1
+    mutes_file([{"key": "target_down:google", "clear_on_recovery": True,
+                 "created_at": 1500.0, "until": 9_999_999_999.0}])
+    # Still the acknowledged occurrence: the hourly re-notification is muted.
+    assert state.reconcile(st, [_incident()], now=1000.0 + 3600)["alerts"] == []
+    # It recovers, and you are told (the ack never hides the all-clear)...
+    state.reconcile(st, [], now=5000.0)
+    assert len(state.reconcile(st, [], now=5200.0)["recoveries"]) == 1
+    # ...and the next time it goes down is a new problem.
+    assert len(state.reconcile(st, [_incident()], now=9000.0)["alerts"]) == 1
+
+
+def test_an_ack_without_a_creation_time_still_mutes_its_key(state_file,
+                                                             mutes_file):
+    """Entries written before created_at existed keep their old meaning."""
+    mutes_file([{"key": "target_down:google", "clear_on_recovery": True,
+                 "until": 9_999_999_999.0}])
+    st = state.load_state()
+    assert state.reconcile(st, [_incident()], now=9000.0)["alerts"] == []
+
+
 # --- the mute file must never be able to stop alerts ------------------------
 
 def test_a_corrupt_mutes_file_is_ignored(state_file, mutes_file):

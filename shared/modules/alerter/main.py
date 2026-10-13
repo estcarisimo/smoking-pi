@@ -136,15 +136,16 @@ def run_iteration() -> None:
     # may conclude from an empty window (evaluator.rule_exporter_stale).
     current = state.load_state()
     incidents, context = evaluator.evaluate_with_context(
-        open_keys=current.get("incidents", {}).keys()
+        records=current.get("incidents", {})
     )
     if incidents:
         log.info("%d active incident(s):", len(incidents))
         for incident in incidents:
             log.info(
-                "  [%s/%s] %s",
+                "  [%s/%s]%s %s",
                 incident["severity"],
                 incident["rule"],
+                " (quiet: tail of an uplink_down)" if incident.get("quiet") else "",
                 incident["message"],
             )
     else:
@@ -166,6 +167,7 @@ def run_iteration() -> None:
         current,
         incidents,
         min_resolve_after=evaluator.MEAN_STEPS * context["windows"]["step"],
+        judged=context.get("judged"),
     )
     peers = _peers_by_target(context["mean_rows"])
     # Diagnosed once per iteration, and only when a loss alert is going
