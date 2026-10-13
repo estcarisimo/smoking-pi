@@ -310,3 +310,26 @@ def test_diagnosis_query_runs_on_fake_rows_and_survives_a_failing_optional_query
     assert result["targets_reporting"] == 10
     assert result["incidents"] and all("class" in i for i in result["incidents"])
     assert any("range(start: -3h)" in f for f in seen)
+
+
+def test_one_cause_per_message_when_the_diagnosis_leads():
+    """Front-8 audit: the rule's line said "this host's uplink is down"
+    under a diagnosis saying the line was at fault. Leading, the diagnosis
+    keeps the rule's numbers and drops its reading of the cause."""
+    event = {**_alert(_diag(cls="upstream")), "rule": "internet_down", "target": None,
+             "message": "10 of 10 targets at 100% loss for 3 consecutive probe "
+                        "cycles, while the ISP gateway (first hop) answers — the "
+                        "Internet beyond the house is down",
+             "observation": "10 of 10 targets at 100% loss for 3 consecutive "
+                            "probe cycles, while the ISP gateway (first hop) answers"}
+    text = templates.format_message(event)
+    assert "10 of 10 targets at 100% loss" in text
+    assert "the Internet beyond the house is down" not in text
+    # Without a leading diagnosis the rule states its cause.
+    assert "the Internet beyond the house is down" in templates.format_message(
+        {**event, "diagnosis": None})
+
+
+def test_internet_down_is_diagnosed_like_any_outage():
+    assert "internet_down" in alert_diagnosis.LOSS_RULES
+    assert "internet_down" in alert_diagnosis.UNTARGETED_RULES

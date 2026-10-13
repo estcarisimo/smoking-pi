@@ -489,3 +489,29 @@ def test_describe_and_parse_uplink_changes(utc):
     ]
     flux = aggregates.uplink_changes_flux("-60m")
     assert 'r._measurement == "host_uplink"' in flux and "exists r.previous" in flux
+
+
+
+# --- PR 4 of the front-8 audit -------------------------------------------------
+
+def test_internet_down_is_not_you():
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([{"rule": "internet_down", "key": "internet_down"}], rows, [])
+    assert call["scope"] == "isp_upstream"
+    assert call["line"].startswith("Not you")
+    assert "ISP gateway answers" in call["line"]
+
+
+def test_monitor_dns_is_the_monitor():
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    call = verdict.classify([{"rule": "monitor_dns", "key": "monitor_dns"}], rows, [])
+    assert call["scope"] == "monitoring"
+    assert "cannot resolve names" in call["line"]
+
+
+def test_an_unmeasured_first_hop_is_not_claimed():
+    rows = [_mean(f"t{i}", 1.0) for i in range(10)]
+    up = {**UPLINK_DOWN, "first_hop": None}
+    call = verdict.classify([up], rows, [])
+    assert "including the first hop" not in call["line"]
+    assert "cannot be told from the ISP" in call["line"]

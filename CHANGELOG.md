@@ -11,6 +11,21 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **A total outage now says where it is.** Every destination at 100% read
+  "this host's uplink is down; nothing beyond it can be judged" whatever
+  still answered, so an ISP outage, the monitor's own name resolution
+  failing (2026-08: a frozen `resolv.conf`, nine sites at 100% for nine
+  days) and a hung radio all read the same, and the diagnosis could lead
+  the same message with a different cause. The first hop (the ISP
+  gateway) is now read, not counted in the breadth: lost too is
+  `uplink_down`, this host's link; answering is `internet_down`, beyond the
+  house; answering together with the DNS resolvers queried by address
+  while every named site is lost is `monitor_dns`, the monitor's own DNS.
+  Unmeasured, `uplink_down` says it cannot tell. The diagnosis no longer
+  calls total loss with the gateway answering "the line", and when it
+  leads a message the rule's line keeps its numbers and drops its own
+  reading of the cause: one cause per message.
+
 - **What the watchdog does is now told.** `smoking-pi watchdog` reloads a
   hung Wi-Fi driver, reboots the Pi and restarts SmokePing exactly when
   the network is down, and its actions reached only its own log and the

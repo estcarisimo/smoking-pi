@@ -32,7 +32,7 @@ log = logging.getLogger("alerter.diagnosis")
 # The rules about loss, which the diagnosis classifies. exporter_stale is
 # about the monitor and has no loss to explain.
 LOSS_RULES = frozenset({"target_down", "high_loss", "microcut_burst", "outage",
-                        "uplink_down", "ipv6_down"})
+                        "uplink_down", "internet_down", "ipv6_down"})
 DEFAULT_ALERT_DIAGNOSIS_HOURS = 3  # 0 turns it off
 # An incident still counts as the one an alert is about if it ended this
 # many probe steps ago: the alert's window looks back further than its last
@@ -46,7 +46,7 @@ BUDGET_S = 20.0
 # Rules about everything (no target of their own) and the classes that can
 # explain them. A destination incident is about some other target, and
 # "unclear" adds nothing to the verdict.
-UNTARGETED_RULES = frozenset({"outage", "uplink_down"})
+UNTARGETED_RULES = frozenset({"outage", "uplink_down", "internet_down"})
 BROAD_CLASSES = frozenset({"local_wifi", "local_link", "upstream"})
 # microcut_burst is about the first hop, which no incident names as a
 # target: it is explained by a cut on the line or this host's deaf radio.

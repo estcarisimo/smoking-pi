@@ -103,6 +103,33 @@ def test_everything_lost_while_the_radio_heard_is_the_line():
         "local_link", "outage", "high")
 
 
+def test_everything_lost_while_the_gateway_answered_is_beyond_the_line():
+    """Front-8 audit: total loss with the ISP gateway answering at its usual
+    rate is past the house, not "the line between the house and the ISP"."""
+    events = [ev(t, s, 100.0) for t in TARGETS for s in range(3, 6)]
+    wifi = [{"_epoch": T0 + i * 60, "signal_dbm": -55.0, "associated": 1.0}
+            for i in range(0, 40)]
+    floor = diagnosis.first_hop_floor(
+        [{"_epoch": T0 + i * STEP, "_value": 11.0} for i in range(0, 40)], STEP)
+    inc = only(diagnosis.diagnose(events, ctx(wifi=wifi, floor=floor), 288))
+    assert (inc["class"], inc["detail"], inc["confidence"]) == (
+        "upstream", "outage", "high")
+    assert any("kept answering" in e for e in inc["evidence"])
+    assert "Beyond your line" in inc["summary"]
+
+
+def test_everything_lost_with_the_gateway_lost_too_is_still_the_line():
+    events = [ev(t, s, 100.0) for t in TARGETS for s in range(3, 6)]
+    wifi = [{"_epoch": T0 + i * 60, "signal_dbm": -55.0, "associated": 1.0}
+            for i in range(0, 40)]
+    rows = [{"_epoch": T0 + i * STEP, "_value": 11.0} for i in range(0, 40)]
+    for row in rows[3:7]:
+        row["_value"] = 100.0
+    floor = diagnosis.first_hop_floor(rows, STEP)
+    inc = only(diagnosis.diagnose(events, ctx(wifi=wifi, floor=floor), 288))
+    assert (inc["class"], inc["detail"]) == ("local_link", "outage")
+
+
 def test_everything_lost_on_a_host_without_wifi_data_cannot_clear_the_host():
     events = [ev(t, s, 100.0) for t in TARGETS for s in range(3, 6)]
     inc = only(diagnosis.diagnose(events, ctx(), 288))

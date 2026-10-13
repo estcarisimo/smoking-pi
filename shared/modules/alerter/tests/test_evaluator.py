@@ -411,7 +411,7 @@ def test_the_tail_of_an_uplink_down_is_quiet_but_still_suppresses():
     rows = _everyone([1.0, 0.0, 0.0, 0.0])
     assert not evaluator.rule_widespread(rows)[0].get("quiet")
     seen = STEP0.timestamp() - 60
-    tail = evaluator.rule_widespread(rows, uplink_last_seen=seen)[0]
+    tail = evaluator.rule_widespread(rows, total_open=("uplink_down", seen))[0]
     assert tail["quiet"] is True and tail["continues"] == "uplink_down"
 
 
@@ -422,7 +422,7 @@ def test_loss_that_outlasts_the_uplink_is_an_outage_of_its_own():
     the uplink_down open -- forever."""
     rows = _everyone([0.5, 0.5, 0.5, 0.5])
     long_ago = STEP0.timestamp() - 3600
-    inc = evaluator.rule_widespread(rows, uplink_last_seen=long_ago)[0]
+    inc = evaluator.rule_widespread(rows, total_open=("uplink_down", long_ago))[0]
     assert not inc.get("quiet") and "continues" not in inc
 
 
@@ -1022,3 +1022,80 @@ def test_outage_carries_the_targets_it_counted():
         "affected": 9, "total": 10,
         "targets": sorted(t for t in TARGETS if t != "NYT"),
     }
+
+
+
+# --- what still answers: three causes of total loss (front-8 audit, PR 4) -----
+
+def _total(named=8, resolvers=0, hop=None, resolvers_lost=True, cycles=4):
+    """Every named destination lost for ``cycles``; resolvers (dns_latency)
+    lost or answering; the first hop (category cpe) lost, answering or
+    absent (None)."""
+    rows = []
+    for i in range(cycles):
+        at = STEP0 + timedelta(seconds=300 * i)
+        for n in range(named):
+            rows.append({"target": f"site{n}", "_value": 1.0, "_time": at,
+                         "_measurement": "latency", "category": "topsites"})
+        for n in range(resolvers):
+            rows.append({"target": f"res{n}", "_value": 1.0 if resolvers_lost else 0.0,
+                         "_time": at, "_measurement": "dns_latency", "category": "dns"})
+        if hop is not None:
+            rows.append({"target": "CPE_IPv4", "_value": 1.0 if hop == "lost" else 0.1,
+                         "_time": at, "_measurement": "latency", "category": "cpe"})
+    return rows
+
+
+def test_total_loss_with_the_gateway_lost_too_is_this_hosts_uplink():
+    [inc] = evaluator.rule_widespread(_total(hop="lost"))
+    assert inc["rule"] == "uplink_down" and inc["first_hop"] == "lost"
+    assert "the ISP gateway (first hop) included" in inc["message"]
+    # The first hop is evidence, not a destination: not in the breadth.
+    assert inc["breadth"]["total"] == 8
+
+
+def test_total_loss_while_the_gateway_answers_is_the_internet_beyond():
+    """Before: "this host's uplink is down" for an ISP outage."""
+    [inc] = evaluator.rule_widespread(_total(hop="answers"))
+    assert (inc["rule"], inc["key"], inc["severity"]) == (
+        "internet_down", "internet_down", "critical")
+    assert "while the ISP gateway (first hop) answers" in inc["observation"]
+    assert "the Internet beyond the house is down" in inc["message"]
+    assert "this host's uplink is down" not in inc["message"]
+
+
+def test_total_loss_with_no_first_hop_measurement_says_it_cannot_tell():
+    [inc] = evaluator.rule_widespread(_total(hop=None))
+    assert inc["rule"] == "uplink_down" and inc["first_hop"] is None
+    assert "cannot be told apart" in inc["message"]
+
+
+def test_named_sites_lost_while_gateway_and_resolvers_answer_is_the_monitors_dns():
+    """2026-08: a frozen resolv.conf put every hostname target at 100%."""
+    [inc] = evaluator.rule_widespread(
+        _total(named=10, resolvers=2, hop="answers", resolvers_lost=False))
+    assert inc["rule"] == "monitor_dns"
+    assert "this host cannot resolve names" in inc["message"]
+
+
+def test_resolvers_lost_too_is_the_internet_not_names():
+    [inc] = evaluator.rule_widespread(
+        _total(named=8, resolvers=2, hop="answers", resolvers_lost=True))
+    assert inc["rule"] == "internet_down"
+
+
+def test_the_tail_of_any_total_loss_continues_it_quietly():
+    rows = [r for r in _everyone([1.0, 0.0, 0.0, 0.0])]
+    seen = STEP0.timestamp() - 60
+    tail = evaluator.rule_widespread(rows, total_open=("internet_down", seen))[0]
+    assert tail["quiet"] and tail["continues"] == "internet_down"
+
+
+def test_the_down_points_carry_measurement_and_category():
+    assert '"_measurement", "category"' in evaluator._down_points_flux(1200)
+
+
+def test_total_open_picks_the_one_seen_last():
+    records = {"uplink_down": {"last_seen": 100.0}, "internet_down": {"last_seen": 200.0}}
+    assert evaluator._total_open(records) == ("internet_down", 200.0)
+    assert evaluator._total_open({}) is None

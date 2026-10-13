@@ -385,6 +385,17 @@ def classify(inc: dict, ctx: dict) -> dict:
         evidence.append(f"nearly every destination lost every packet in "
                         f"{total_steps} cycle(s) (up to {total_peak[0]} of the "
                         f"{total_peak[1]} reporting)")
+        if ctx.get("cpe") and floor_now is not None and not floor_up \
+                and not confirmed_cuts:
+            # The first hop kept answering at its usual rate through it: the
+            # house's line held, so the loss was past it. Before, this read
+            # "the line between the house and the ISP".
+            evidence.append(floor_line + ": the ISP gateway kept answering "
+                            "throughout, so the line held")
+            if wifi is not None and not wifi_context:
+                evidence.append("this host's Wi-Fi was associated and receiving "
+                                "the whole time")
+            return done("upstream", "outage")
         if wifi is not None and not wifi_context:
             evidence.append("this host's Wi-Fi was associated and receiving the whole "
                             "time, so the monitor itself was not deaf")
