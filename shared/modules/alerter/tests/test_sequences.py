@@ -50,6 +50,8 @@ class Replay:
         return rows
 
     def query(self, flux_src):
+        if '"http_latency"' in flux_src:
+            return []  # measurement liveness: nothing else was ever written
         if any(m in flux_src for m in ("cpe_latency", "wifi_link", "host_uplink")):
             return []
         if 'r._field == "step"' in flux_src:  # cadence: the default step

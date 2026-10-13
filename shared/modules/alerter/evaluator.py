@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Collection
 from datetime import datetime, timezone
 
@@ -255,6 +256,139 @@ def _ever_measured_flux() -> str:
         + "|> group() "
         + "|> count()"
     )
+
+
+# The measurements whose silence exporter_stale cannot see: it counts
+# ``latency`` only. Each is judged by one field it always writes. Written by
+# the RRD exporter (dns/http/tcp), the CPE microcut detector and the Wi-Fi
+# exporter; on a host that has none of a kind (wired, no HTTP probes) it was
+# never written, and its silence is not news.
+LIVENESS_FIELDS = {
+    "dns_latency": "loss",
+    "http_latency": "loss",
+    "tcp_latency": "loss",
+    "cpe_latency": "loss",
+    "wifi_link": "rx_packets",
+}
+# What a measurement must have written to be expected now: anything in this
+# span. Longer than any outage the alerter should still call "stale".
+LIVENESS_LOOKBACK = "-24h"
+
+
+def _liveness_predicate() -> str:
+    return " or ".join(
+        f"(r._measurement == {flux.flux_str(m)} and r._field == {flux.flux_str(f)})"
+        for m, f in LIVENESS_FIELDS.items()
+    )
+
+
+def _liveness_flux(window: int) -> str:
+    """Points per watched measurement in the stale window. Every category,
+    the DNS wizard's included: this is whether the writer runs."""
+    return (
+        f"from(bucket: {flux.flux_str(flux.influx_bucket())}) "
+        f"|> range(start: -{window}s) "
+        f"|> filter(fn: (r) => {_liveness_predicate()}) "
+        '|> group(columns: ["_measurement"]) '
+        "|> count()"
+    )
+
+
+def _last_written_flux(measurements: list[str]) -> str:
+    """Per measurement: its newest point (``_time``) and slowest step over the
+    lookback. Asked only for a measurement that just came back empty."""
+    names = " or ".join(f"r._measurement == {flux.flux_str(m)}" for m in measurements)
+    bucket = flux.flux_str(flux.influx_bucket())
+    return (
+        f"newest = from(bucket: {bucket}) |> range(start: {LIVENESS_LOOKBACK}) "
+        f"|> filter(fn: (r) => ({names}) and ({_liveness_predicate()})) "
+        '|> group(columns: ["_measurement"]) |> sort(columns: ["_time"]) |> last() '
+        '|> keep(columns: ["_measurement", "_time"]) '
+        '|> set(key: "kind", value: "newest") '
+        f"steps = from(bucket: {bucket}) |> range(start: {LIVENESS_LOOKBACK}) "
+        f'|> filter(fn: (r) => ({names}) and r._field == "step") '
+        '|> group(columns: ["_measurement"]) |> max() '
+        '|> keep(columns: ["_measurement", "_value"]) '
+        '|> set(key: "kind", value: "step") '
+        "union(tables: [newest, steps])"
+    )
+
+
+def rule_measurement_stale(
+    counts: list[dict],
+    last_written: list[dict],
+    now: float,
+    window_s: int,
+    open_keys: Collection[str] = (),
+) -> list[dict]:
+    """warning: a measurement that was being written has stopped.
+
+    ``counts`` are :func:`_liveness_flux` rows; a measurement with points in
+    the window is alive. One with none is stale when it was written within
+    LIVENESS_LOOKBACK (``last_written``: newest point, slowest step) and its
+    newest point is older than the window -- or four of its own steps, when
+    those are longer. ``cpe_latency`` and ``wifi_link`` write no ``step``:
+    the window alone applies to them.
+
+    An incident already open stays open while the measurement has no points
+    and still wrote within the lookback. Past it, the writer is taken as
+    removed on purpose (a wired uplink, a disabled probe) and the incident
+    is retired without a recovery -- a quiet incident that ``supersedes`` it
+    -- rather than re-sent every hour forever (review of #334).
+    """
+    alive = {r.get("_measurement") for r in counts if (r.get("_value") or 0) > 0}
+    newest: dict[str, float] = {}
+    steps: dict[str, float] = {}
+    for row in last_written:
+        name = row.get("_measurement")
+        if row.get("kind") == "newest" and row.get("_time") is not None:
+            at = row["_time"]
+            newest[name] = at.timestamp() if hasattr(at, "timestamp") else float(at)
+        elif row.get("kind") == "step" and row.get("_value") is not None:
+            steps[name] = float(row["_value"])
+    incidents = []
+    for name in LIVENESS_FIELDS:
+        key = f"measurement_stale:{name}"
+        if name in alive:
+            continue
+        if key in open_keys and name not in newest:
+            incidents.append({"rule": "measurement_stale", "key": f"retired:{key}",
+                              "severity": "info", "target": None, "message": "",
+                              "quiet": True, "supersedes": [key]})
+            continue
+        if key in open_keys:
+            since = newest[name]
+        elif name in newest:
+            silent_for = now - newest[name]
+            if silent_for < max(window_s, 4 * steps.get(name, 0)):
+                continue
+            since = newest[name]
+        else:
+            continue  # not written in the lookback: nothing to expect
+        incidents.append({
+            "rule": "measurement_stale",
+            "severity": "warning",
+            "key": key,
+            "target": None,
+            "message": (
+                f"no {name} points written since {_hhmm(int(since))} — "
+                f"{_LIVENESS_WRITER[name]} appears stalled, so what it "
+                "measures is not being watched. If it was removed on purpose "
+                "(a wired uplink, a disabled probe), this stops on its own "
+                "24 hours after its last point"
+            ),
+            "value": 0,
+        })
+    return incidents
+
+
+_LIVENESS_WRITER = {
+    "dns_latency": "the DNS probe",
+    "http_latency": "the HTTP probe",
+    "tcp_latency": "the TCP probe",
+    "cpe_latency": "the gateway microcut probe",
+    "wifi_link": "the Wi-Fi exporter",
+}
 
 
 def _point_count(rows: list[dict]) -> int:
@@ -886,13 +1020,23 @@ def evaluate_with_context(
         _microcut_flux(_env_float("MICROCUT_LOSS_PCT", DEFAULT_MICROCUT_LOSS_PCT))
     )
     stale_rows = _query(_stale_flux(windows["stale"]))
-    wifi_rows = {
-        "signal": _query(_wifi_signal_flux(
+    # Evidence for the verdict, not input to any rule: a failed query costs
+    # the Wi-Fi line, never the cycle (before, one Flux error here silenced
+    # every rule).
+    wifi_rows = {}
+    for name, source in (
+        ("signal", lambda: _wifi_signal_flux(
             _env_float("WIFI_WEAK_DBM", DEFAULT_WIFI_WEAK_DBM))),
-        "drops": _query(_wifi_drops_flux()),
-        "uplink": _query(_wifi_uplink_flux()),
-        "rx": _query(_wifi_rx_flux(down_window)),
-    }
+        ("drops", _wifi_drops_flux),
+        ("uplink", _wifi_uplink_flux),
+        ("rx", lambda: _wifi_rx_flux(down_window)),
+    ):
+        try:
+            wifi_rows[name] = _query(source())
+        except Exception:  # influx client raises many exception types
+            log.warning("Wi-Fi %s query failed; the verdict goes without it",
+                        name, exc_info=True)
+            wifi_rows[name] = []
 
     # A change of uplink in the last hour: the verdict says so, because the
     # measurements on either side of it crossed different links. Optional:
@@ -954,7 +1098,12 @@ def evaluate_with_context(
             never_measured = _point_count(_query(_ever_measured_flux())) == 0
         except Exception:  # influx client raises many exception types
             never_measured = False
-    incidents += rule_exporter_stale(stale_rows, windows["stale"], never_measured)
+    stale = rule_exporter_stale(stale_rows, windows["stale"], never_measured)
+    incidents += stale
+    # The other writers. Not while exporter_stale is open: the whole
+    # SmokePing side has stopped, and that is one message, not five.
+    if not stale and "exporter_stale" not in open_keys:
+        incidents += _measurements_stale(windows["stale"], open_keys)
     incidents += rule_ipv6_down(mean_rows, windows["mean"])
     context = {
         "down_rows": down_rows,
@@ -968,6 +1117,21 @@ def evaluate_with_context(
         "judged": judged_targets(down_rows),
     }
     return incidents, context
+
+
+def _measurements_stale(window_s: int, open_keys: Collection[str]) -> list[dict]:
+    """measurement_stale, with its second query asked only on suspicion.
+    Optional like the cadence: a failed query costs this rule, not the cycle."""
+    try:
+        counts = _query(_liveness_flux(window_s))
+        alive = {r.get("_measurement") for r in counts if (r.get("_value") or 0) > 0}
+        suspects = [m for m in LIVENESS_FIELDS if m not in alive]
+        last_written = _query(_last_written_flux(suspects)) if suspects else []
+    except Exception:  # influx client raises many exception types
+        log.warning("Measurement liveness query failed", exc_info=True)
+        return []
+    return rule_measurement_stale(counts, last_written, time.time(), window_s,
+                                  open_keys)
 
 
 def judged_targets(rows: list[dict], min_points: int = DOWN_MIN_POINTS) -> set[str]:

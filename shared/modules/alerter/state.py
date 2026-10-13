@@ -227,8 +227,10 @@ def _apply_mute(record: dict, incident: dict, entries: list[dict],
     return True
 
 
-def _no_data(record: dict, judged) -> bool:
+def _no_data(record: dict, judged, blind: bool = False) -> bool:
     """Whether ``record`` is absent for lack of data rather than on data."""
+    if blind:
+        return True
     if judged is None:
         return False
     rule = record.get("rule")
@@ -245,6 +247,7 @@ def reconcile(
     now: float | None = None,
     min_resolve_after: int = 0,
     judged=None,
+    blind: bool = False,
 ) -> dict:
     """Fold current incidents into ``state`` and return notification actions.
 
@@ -254,6 +257,10 @@ def reconcile(
     ``judged`` is the set of targets the per-target rules had enough points
     to judge this cycle (evaluator.judged_targets), or None when unknown. An
     absent incident whose target is not in it is held, not recovered.
+
+    ``blind``: no rule could be evaluated this cycle (InfluxDB unreadable);
+    ``incidents`` holds only the monitor's own, and every other open
+    incident is held as it is -- nothing is known about it either way.
 
     Mutates ``state`` in place. Returns
     ``{"alerts": [event, ...], "recoveries": [event, ...]}`` where each
@@ -278,11 +285,11 @@ def reconcile(
     continued: set[str] = set()
 
     for incident in incidents:
+        superseded.update(incident.get("supersedes") or ())
         if incident.get("quiet"):
             if incident.get("continues"):
                 continued.add(incident["continues"])
             continue
-        superseded.update(incident.get("supersedes") or ())
         key = incident["key"]
         active_keys.add(key)
         record = records.get(key)
@@ -343,7 +350,11 @@ def reconcile(
             log.info("Incident %s superseded by a worse incident about the "
                      "same target; retired without a recovery", key)
             continue
-        if _no_data(record, judged):
+        if _no_data(record, judged, blind):
+            if blind:
+                # Nothing was seen during the blind spell: a grace period
+                # started before it restarts once there is data again.
+                record.pop("missing_since", None)
             held_since = float(record.setdefault("held_since", now))
             if now - held_since >= HOLD_MAX_S:
                 records.pop(key)

@@ -326,3 +326,18 @@ def test_a_hold_keeps_the_grace_period_data_had_already_started(state_file,
         assert state.reconcile(st, [], now=now, judged=set())["recoveries"] == []
     actions = state.reconcile(st, [], now=5060.0, judged={"google"})
     assert [r["key"] for r in actions["recoveries"]] == ["target_down:google"]
+
+
+def test_a_blind_spell_restarts_the_grace_period(state_file, monkeypatch):
+    """Review of #334: an incident absent just before InfluxDB went
+    unreadable must not "recover" on the first readable cycle -- the grace
+    period saw nothing while blind."""
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "100")
+    st = state.load_state()
+    state.reconcile(st, [_incident()], now=1000.0, judged={"google"})
+    state.reconcile(st, [], now=1050.0, judged={"google"})       # grace starts
+    state.reconcile(st, [], now=1100.0, blind=True)              # blind
+    actions = state.reconcile(st, [], now=5000.0, judged={"google"})
+    assert actions["recoveries"] == []                            # grace again
+    actions = state.reconcile(st, [], now=5200.0, judged={"google"})
+    assert [r["key"] for r in actions["recoveries"]] == ["target_down:google"]

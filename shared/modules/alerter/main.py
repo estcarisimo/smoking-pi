@@ -30,6 +30,25 @@ import verdict
 from common import links
 
 DEFAULT_INTERVAL = 60  # seconds; ALERT_INTERVAL
+# How long InfluxDB may be unreadable before that is itself an alert: five
+# cycles, past a restart of the database or a slow query.
+UNREADABLE_AFTER_S = 300
+# Good cycles in a row before a failing InfluxDB counts as readable again:
+# one good read among timeouts must not reset the clock (review of #334).
+READABLE_AFTER_CYCLES = 3
+# The rules that read an absence of new points, held back for one stale
+# window after a blind spell: the writers could not write while InfluxDB was
+# down, and the empty window that leaves is the outage already reported.
+_STALE_RULES = frozenset({"exporter_stale", "measurement_stale"})
+
+
+def _influx_error(exc: Exception) -> bool:
+    """Whether ``exc`` is the database failing, not the alerter's own code."""
+    if isinstance(exc, (OSError, TimeoutError)):  # ConnectionError included
+        return True
+    module = type(exc).__module__ or ""
+    return module.split(".")[0] in ("influxdb_client", "urllib3", "httpx",
+                                    "httpcore", "reactivex")
 
 # Which measurement a rule's target is charted in, so the link
 # points at the right dashboard. Unknown rules fall back to the
@@ -153,13 +172,104 @@ def _deliver(current: dict, payload: dict, image: bytes | None = None,
     digest.record_history(current, payload, now)
 
 
+def _unreadable(current: dict, exc: Exception, now: float) -> None:
+    """InfluxDB could not be read: no rule ran, so say so, and know nothing.
+
+    Before, the iteration failed into the log every minute and nothing was
+    sent -- not even that the alerter had gone blind. After
+    UNREADABLE_AFTER_S of failures this is a critical of its own, and every
+    other open incident is held exactly as it was (``blind``): neither
+    recovered nor re-sent, because there is nothing to judge it on.
+    """
+    monitor = current.setdefault("monitor", {})
+    since = float(monitor.setdefault("unreadable_since", now))
+    monitor["good_cycles"] = 0
+    database = _influx_error(exc)
+    log.error("%s (%s) since %s; no rule evaluated",
+              "Cannot read InfluxDB" if database else "Evaluation failed",
+              type(exc).__name__,
+              time.strftime("%H:%M:%S UTC", time.gmtime(since)),
+              exc_info=not database)
+    incidents = []
+    if now - since >= UNREADABLE_AFTER_S:
+        at = time.strftime("%H:%M UTC", time.gmtime(since))
+        # Same blindness, two causes: the database, or a bug here. A bug must
+        # not be reported as the database (review of #334).
+        rule, what = (
+            ("influx_unreadable", "the alerter cannot read InfluxDB")
+            if database else
+            ("evaluation_failed", "the alerter's rules fail with an error "
+             "of their own (see its log)")
+        )
+        incidents.append({
+            "rule": rule,
+            "severity": "critical",
+            "key": rule,
+            "target": None,
+            "message": (
+                f"{what} (since {at}, {type(exc).__name__}): no rule can be "
+                "evaluated, so no alert from here on means nothing"
+            ),
+            "value": 0,
+        })
+    actions = state.reconcile(current, incidents, now=now, blind=True)
+    for event in actions["alerts"]:
+        _deliver(current, {**event, "type": "alert"}, now=now)
+    for event in actions["recoveries"]:
+        _deliver(current, {**event, "type": "recovery",
+                           "duration_s": _duration_of(event)}, now=now)
+    if outbox.flush(current, now, send=notifier.notify,
+                    reachable=notifier.reachable):
+        digest.record_history(current, {"type": "undelivered",
+                                        "key": "undelivered",
+                                        "delivery": "sent"}, now)
+    # The digest, the reports and the incident history are skipped: each
+    # reads InfluxDB too. A digest slot more than DIGEST_MAX_LATENESS late is
+    # skipped as usual.
+    state.save_state(current)
+
+
+def _after_blindness(current: dict, incidents: list[dict], now: float,
+                     stale_window: float) -> list[dict]:
+    """Bookkeeping for a good cycle; the incidents, less a false stall.
+
+    ``unreadable_since`` clears only after READABLE_AFTER_CYCLES good cycles
+    in a row. For one stale window after it clears, a NEW exporter_stale or
+    measurement_stale is dropped: the writers could not write while the
+    database was down, and that empty window is the outage just reported.
+    """
+    monitor = current.setdefault("monitor", {})
+    if "unreadable_since" in monitor:
+        monitor["good_cycles"] = int(monitor.get("good_cycles", 0)) + 1
+        if monitor["good_cycles"] >= READABLE_AFTER_CYCLES:
+            monitor.pop("unreadable_since")
+            monitor.pop("good_cycles", None)
+            monitor["readable_since"] = now
+    readable_since = monitor.get("readable_since")
+    confirming = "unreadable_since" in monitor
+    if readable_since is None and not confirming:
+        return incidents
+    if not confirming and now - float(readable_since) >= stale_window:
+        monitor.pop("readable_since")
+        return incidents
+    records = current.get("incidents", {})
+    return [i for i in incidents
+            if i.get("rule") not in _STALE_RULES or i.get("key") in records]
+
+
 def run_iteration() -> None:
     # Loaded first: which incidents are open changes what exporter_stale
     # may conclude from an empty window (evaluator.rule_exporter_stale).
     current = state.load_state()
-    incidents, context = evaluator.evaluate_with_context(
-        records=current.get("incidents", {})
-    )
+    try:
+        incidents, context = evaluator.evaluate_with_context(
+            records=current.get("incidents", {})
+        )
+    except Exception as exc:  # influx client raises many exception types
+        _unreadable(current, exc, time.time())
+        return
+    incidents = _after_blindness(current, incidents, time.time(),
+                                 context["windows"].get("stale", 1200))
     if incidents:
         log.info("%d active incident(s):", len(incidents))
         for incident in incidents:
@@ -176,15 +286,21 @@ def run_iteration() -> None:
     # Classified BEFORE reconcile so the verdict describes the same moment the
     # incidents were measured in, and from records that still hold first_seen
     # for anything reconcile is about to clear.
-    call = verdict.classify(
-        incidents,
-        context["mean_rows"],
-        context["micro_rows"],
-        records=current.get("incidents", {}),
-        wifi_rows=context.get("wifi_rows"),
-        uplink_changes=context.get("uplink_changes"),
-        mean_window=evaluator._format_window(context["windows"]["mean"]),
-    )
+    # Text for the message, never a gate: a verdict that fails costs its
+    # line, not the alerts (before, an exception here silenced them all).
+    try:
+        call = verdict.classify(
+            incidents,
+            context["mean_rows"],
+            context["micro_rows"],
+            records=current.get("incidents", {}),
+            wifi_rows=context.get("wifi_rows"),
+            uplink_changes=context.get("uplink_changes"),
+            mean_window=evaluator._format_window(context["windows"]["mean"]),
+        )
+    except Exception:  # noqa: BLE001 - decoration, never a gate
+        log.exception("Verdict failed; alerts go without it")
+        call = {}
     actions = state.reconcile(
         current,
         incidents,

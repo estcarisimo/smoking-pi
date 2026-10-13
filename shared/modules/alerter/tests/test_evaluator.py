@@ -730,6 +730,8 @@ def test_context_carries_the_four_wifi_aggregates(monkeypatch):
     seen = []
 
     def fake_query(flux_src):
+        if '"http_latency"' in flux_src:
+            return []  # measurement liveness, every writer at once
         if "wifi_link" in flux_src and "difference(" in flux_src:
             return []  # the deaf-radio evidence for microcuts, not an aggregate
         if "wifi_link" in flux_src:
