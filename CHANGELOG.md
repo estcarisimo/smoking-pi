@@ -11,6 +11,19 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **An upgrade or reboot no longer leaves an empty Docker volume
+  behind.** The InfluxDB image declares `/etc/influxdb2` a volume, and
+  the Pro compose file did not mount it. Every time the container was
+  recreated, Docker made a new anonymous volume and orphaned the old one:
+  18 of them on the staging Pi in two weeks, all empty, all left behind
+  after `smoking-pi purge`, and growing forever. It is now the named
+  volume `influxdb-config`. Backup, restore and purge pick it up like any
+  other. The directory has always been empty here, so nothing moves. Every
+  other image's declared volumes were already mounted, which was checked
+  container by container on the staging Pi. Anonymous volumes left by
+  earlier versions hold nothing and can stay: they carry no project
+  label, so nothing can tell them apart from another program's.
+
 - **The watchdog now reports a SmokePing that keeps dying at start.**
   When SmokePing refuses its configuration, s6 starts it again every
   second or two, so `s6-svstat -u` answered "up" about half the time and

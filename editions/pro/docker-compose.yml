@@ -135,6 +135,10 @@ services:
       - "8086:8086"
     volumes:
       - influxdb-data:/var/lib/influxdb2
+      # The image declares /etc/influxdb2 a VOLUME too. Left unmounted, every
+      # recreate (upgrade, reboot) made a new anonymous volume and orphaned
+      # the last: 18 empty ones on the staging Pi in two weeks (#321).
+      - influxdb-config:/etc/influxdb2
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
@@ -825,6 +829,7 @@ volumes:
   smokeping-data:
   smokeping-config:
   influxdb-data:
+  influxdb-config:
   grafana-data:
   postgres-data:
   reports:
