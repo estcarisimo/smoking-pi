@@ -217,6 +217,17 @@ def test_list_alert_state_says_when_an_incident_has_no_data(files):
     assert server.list_alert_state()["incidents"][0]["no_data_since"] == 1234.0
 
 
+def test_list_alert_state_reports_what_is_waiting_to_be_delivered(files):
+    """The alerter's outbox: notifications it could not deliver yet."""
+    files.seed_state({})
+    assert server.list_alert_state()["undelivered"] is None
+    files.state.write_text(json.dumps({"incidents": {}, "outbox": {
+        "items": [{"queued_at": 1.0, "payload": {}}] * 2, "dropped": 1,
+        "since": 1.0, "next_try": 61.0}}))
+    assert server.list_alert_state()["undelivered"] == {
+        "waiting": 3, "since": 1.0, "next_try": 61.0}
+
+
 # --- durability -------------------------------------------------------------
 
 def test_a_crash_mid_write_cannot_corrupt_the_file(files, api, monkeypatch):

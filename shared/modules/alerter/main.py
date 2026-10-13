@@ -23,6 +23,7 @@ import evaluator
 import flux
 import incident_history
 import notifier
+import outbox
 import reports_watcher
 import state
 import verdict
@@ -131,6 +132,27 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _deliver(current: dict, payload: dict, image: bytes | None = None,
+             now: float | None = None) -> None:
+    """Send one alert or recovery, or keep it for later. Never raises.
+
+    While the outbox holds anything, the network (or the channel) was down
+    at the last try: this joins the queue instead of being sent into it,
+    and outbox.flush sends everything as one message once it is back.
+    """
+    if now is None:
+        now = time.time()
+    if outbox.pending(current):
+        outbox.enqueue(current, payload, now)
+        payload["delivery"] = "queued"
+    elif notifier.notify(payload, image=image):
+        payload["delivery"] = "sent"
+    else:
+        outbox.enqueue(current, payload, now)
+        payload["delivery"] = "queued"
+    digest.record_history(current, payload, now)
+
+
 def run_iteration() -> None:
     # Loaded first: which incidents are open changes what exporter_stale
     # may conclude from an empty window (evaluator.rule_exporter_stale).
@@ -183,12 +205,9 @@ def run_iteration() -> None:
         found = alert_diagnosis.for_event(event, diagnosed, context["windows"]["step"])
         if found:
             payload["diagnosis"] = found
-        notifier.notify(payload, image=_chart_for(event, peers))
-        # Recorded regardless of delivery success -- notify()'s return value
-        # is deliberately not captured, so history says what the alerter
-        # DECIDED to send, not what arrived. A daily summary is better served
-        # by "an alert fired here" than by a gap wherever delivery failed.
-        digest.record_history(current, payload)
+        # No chart while the outbox holds anything: it would not be sent.
+        image = None if outbox.pending(current) else _chart_for(event, peers)
+        _deliver(current, payload, image=image)
     for event in actions["recoveries"]:
         # No chart on a recovery: the news IS the recovery, and a second image
         # per incident doubles the render cost for no added answer.
@@ -198,8 +217,13 @@ def run_iteration() -> None:
             "links": _links_for(event),
             "duration_s": _duration_of(event),
         }
-        notifier.notify(payload)
-        digest.record_history(current, payload)
+        _deliver(current, payload)
+    # Whatever is waiting, as one message, once delivery works again.
+    if outbox.flush(current, time.time(), send=notifier.notify,
+                    reachable=notifier.reachable):
+        digest.record_history(current, {"type": "undelivered",
+                                        "key": "undelivered",
+                                        "delivery": "sent"})
 
     reports_watcher.check(current)
     # Every half hour, in the background: the incidents that are over, into

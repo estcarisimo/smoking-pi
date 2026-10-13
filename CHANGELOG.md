@@ -11,6 +11,28 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **An alert that cannot be delivered is no longer lost.** During the
+  reference Pi's radio hangs on 2026-10-11 (11 hours) and 2026-10-12 (5.5
+  hours), every alert the alerter decided on failed to send. It counted
+  each as sent anyway: a failed alert waited for the next hourly cooldown,
+  a failed `outage` warning was never retried, and a failed recovery was
+  gone. Nothing afterwards said what had happened. Undelivered alerts and
+  recoveries now wait in an outbox in the state file. While anything waits,
+  new ones join it instead of being sent into a dead link, and the alerter
+  checks with a TCP connect whether delivery could leave the house, once a
+  minute, doubling to every 10 minutes. Once it can, it sends **one**
+  message: the notification itself if it is the only one and under 10
+  minutes old, otherwise a summary of the stretch (each incident once, when
+  it started, whether it recovered, what is open now). `list_alert_state`
+  shows what is waiting, and the history records each notification's
+  delivery.
+- **A failed OpenClaw send is no longer retried into duplicates.** The
+  gateway keeps a failed send in its own durable queue and replays it
+  later, so each of the alerter's three attempts was another copy: after
+  the 2026-10-12 hang, the same stale alert arrived twice. Once the gateway
+  has answered, the send is not retried; a gateway that did not answer
+  still is.
+
 - **One event now reaches the phone as one incident, not a burst of
   them.** After the reference Pi's radio hung for five and a half hours on
   2026-10-12, its return produced ten Telegram messages in 72 minutes,

@@ -226,7 +226,11 @@ both at startup:
 
 - It answers **HTTP 200 with `{"ok": false}`** when the tool itself fails.
   Trusting the status code alone would count a refused send as a delivered
-  alert, so the body is inspected and a failure is retried.
+  alert, so the body is inspected, and a failure counts as undelivered. It
+  is **not retried**: once the gateway has answered it holds the message in
+  its own durable delivery queue, and replays it when it can. Each retry
+  was another copy: after the 12/10/2026 hang, the same stale alert arrived
+  twice. Only a request that got no answer at all is retried.
 - It answers `Tool not available: message` when tool policy filters the tool
   out, rather than when it is missing. The preflight distinguishes that from
   a bad token (401) and an unreachable gateway.
@@ -259,10 +263,38 @@ POSTs JSON to `ALERT_WEBHOOK_URL`, optionally with
 }
 ```
 
-`type` is `alert`, `recovery`, or `report`.
+`type` is `alert`, `recovery`, `report`, `digest`, or `undelivered` (see
+below).
 
 Delivery (both HTTP modes): 10 s timeout, 3 attempts with exponential
-backoff. Failures are logged, never crash the loop.
+backoff (OpenClaw: only when the gateway did not answer). Failures are
+logged, never crash the loop.
+
+### When delivery fails: the outbox
+
+An alert or recovery that cannot be delivered is kept in the state file's
+outbox, not dropped. While anything waits there:
+
+- new alerts and recoveries join it instead of being sent into a dead link
+  (no chart: a summary has none);
+- once a minute at first, doubling to every 10 minutes, the alerter checks
+  whether delivery could leave the house (a TCP connect to
+  `api.telegram.org:443` for Telegram, the webhook's host, or `1.1.1.1:443`
+  for another OpenClaw channel) and tries only then;
+- what it delivers is **one message**: a single notification younger than
+  10 minutes as it was, otherwise a summary, type `undelivered`, of the
+  whole stretch: each incident once, when it started, whether it recovered,
+  and what is open now.
+
+The outbox holds at most 100 notifications (the oldest go first, and the
+summary counts them). `list_alert_state` shows what is waiting
+(`undelivered`), and the history the digest reads records each
+notification's `delivery`: `sent` or `queued`.
+
+Before, a failed alert waited for the next hourly cooldown, a failed
+`outage` was never retried, and a failed recovery was lost. During the
+reference Pi's 11-hour radio hang on 2026-10-11 every alert failed, and
+nothing afterwards said what had happened.
 
 ## Daily report delivery
 

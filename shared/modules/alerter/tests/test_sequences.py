@@ -199,3 +199,65 @@ def test_an_incident_with_no_data_for_a_day_is_dropped_silently():
     actions = state.reconcile(current, [], now=60.0 + 24 * 3600.0, judged=set())
     assert actions == {"alerts": [], "recoveries": []}
     assert current["incidents"] == {}
+
+
+def test_a_hang_the_alerter_could_not_report_arrives_as_one_summary(monkeypatch):
+    """12/10/2026 as it happened: the radio is deaf, so the alerter (which
+    still evaluates from the local InfluxDB) cannot deliver anything.
+
+    Before: every alert decided in the dark was lost, and the return
+    delivered whatever was decided at that moment. Now the critical waits in
+    the outbox, nothing is tried while the network is down, and once it is
+    back a single summary says what happened and what is open.
+    """
+    import main
+    import outbox
+
+    def loss(i):
+        return 1.0 if 3 <= i < 15 else 0.0
+
+    def online(minute):
+        return not 16 <= minute < 76  # deaf from just after the first cut
+
+    replay = Replay(monkeypatch, everyone(loss))
+    delivered, attempts = [], []
+    clock = {"minute": 0}
+
+    def notify(payload, image=None):
+        attempts.append(clock["minute"])
+        if online(clock["minute"]):
+            delivered.append((clock["minute"], payload))
+            return True
+        return False
+
+    monkeypatch.setattr(main.notifier, "notify", notify)
+    current = {"incidents": {}}
+    for minute in range(120):
+        clock["minute"] = minute
+        replay.now = T0 + timedelta(minutes=minute)
+        now = replay.now.timestamp()
+        incidents, context = evaluator.evaluate_with_context(
+            records=current["incidents"])
+        actions = state.reconcile(current, incidents, now=now,
+                                  min_resolve_after=900, judged=context["judged"])
+        for event in actions["alerts"]:
+            main._deliver(current, {**event, "type": "alert"}, now=now)
+        for event in actions["recoveries"]:
+            main._deliver(current, {**event, "type": "recovery"}, now=now)
+        outbox.flush(current, now, send=notify,
+                     reachable=lambda: online(clock["minute"]))
+
+    kinds = [(m, p.get("type"), p.get("key")) for m, p in delivered]
+    # The onset warning went out while the link still worked; the critical
+    # failed once (minute 25) and was never sent into the dead link again.
+    assert attempts.count(25) == 1 and not any(26 <= m < 76 for m in attempts)
+    assert kinds[0][1:] == ("alert", f"outage:{int((T0 + timedelta(seconds=900)).timestamp())}")
+    summary = [p for _, p in delivered if p.get("type") == "undelivered"]
+    assert len(summary) == 1
+    assert "uplink_down" in summary[0]["message"]
+    assert "Now open: 🔴 uplink_down" in summary[0]["message"]
+    # Back at minute 76; the summary within one backoff step (10 min).
+    assert 76 <= next(m for m, p in delivered if p.get("type") == "undelivered") <= 86
+    # The recovery, decided after the return, is sent as itself.
+    assert kinds[-1][1:] == ("recovery", "uplink_down")
+    assert len(delivered) == 3

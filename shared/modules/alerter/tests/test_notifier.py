@@ -148,13 +148,16 @@ def test_http_200_with_ok_false_is_a_failure(posts, openclaw):
     body = {"ok": False, "error": {"type": "tool_error", "message": "boom"}}
     posts["responses"].extend(FakeResponse(200, body) for _ in range(3))
     assert notifier.notify(_event()) is False
-    assert len(posts["calls"]) == 3  # retried, not silently accepted
+    # A failure, not silently accepted -- and not retried: the gateway has
+    # answered, so it holds the message in its durable queue already, and
+    # each retry is another copy it replays later (12/10/2026: the same
+    # stale alert arrived twice after the Pi came back).
+    assert len(posts["calls"]) == 1
 
 
-def test_ok_false_recovers_on_retry(posts, openclaw):
-    posts["responses"].append(
-        FakeResponse(200, {"ok": False, "error": {"message": "transient"}})
-    )
+def test_a_gateway_that_did_not_answer_is_retried(posts, openclaw):
+    """No response means the gateway never had the message: retry that."""
+    posts["responses"].append(httpx.ConnectError("refused"))
     posts["responses"].append(FakeResponse(200, {"ok": True}))
     assert notifier.notify(_event()) is True
     assert len(posts["calls"]) == 2
@@ -421,23 +424,29 @@ def test_force_document_can_be_enabled(posts, openclaw, monkeypatch):
 
 def test_a_failed_image_send_retries_exactly_once_as_text(posts, openclaw):
     """A chart failure must never cost the alert -- but must not double the
-    retry budget either. 3 attempts with the image, then ONE text-only call."""
-    for _ in range(3):
-        posts["responses"].append(FakeResponse(413))
+    retry budget either. One answered attempt with the image, then ONE
+    text-only call."""
+    posts["responses"].append(FakeResponse(413))
     posts["responses"].append(FakeResponse(200))
 
     assert notifier.notify(_event(), image=PNG) is True
-    assert len(posts["calls"]) == 4
+    assert len(posts["calls"]) == 2
     assert "buffer" in posts["calls"][0]["json"]["args"]
-    assert "buffer" not in posts["calls"][3]["json"]["args"]
-    assert "message" in posts["calls"][3]["json"]["args"]
+    assert "buffer" not in posts["calls"][1]["json"]["args"]
+    assert "message" in posts["calls"][1]["json"]["args"]
 
 
 def test_the_text_retry_is_bounded_when_everything_fails(posts, openclaw):
     for _ in range(10):
         posts["responses"].append(FakeResponse(500))
     assert notifier.notify(_event(), image=PNG) is False
-    # 3 with the image + 3 text-only, never an unbounded cascade.
+    # One with the image + one text-only, never an unbounded cascade.
+    assert len(posts["calls"]) == 2
+    # With no answer at all: 3 with the image + 3 text-only.
+    posts["calls"].clear()
+    posts["responses"].clear()
+    posts["responses"].extend([httpx.ConnectError("refused")] * 10)
+    assert notifier.notify(_event(), image=PNG) is False
     assert len(posts["calls"]) == 6
 
 
@@ -492,7 +501,7 @@ def test_a_chartless_digest_is_still_silent(monkeypatch):
     """
     sent = {}
 
-    def fake_post(url, payload, headers, body_must_be_ok=False):
+    def fake_post(url, payload, headers, body_must_be_ok=False, **_):
         sent.update(payload)
         return True
 
@@ -516,7 +525,8 @@ def test_a_loud_alert_stays_loud_on_the_text_path(monkeypatch):
     monkeypatch.setenv("OPENCLAW_TO", "telegram:1")
     monkeypatch.setattr(
         notifier, "_post_with_retries",
-        lambda url, payload, headers, body_must_be_ok=False: sent.update(payload) or True,
+        lambda url, payload, headers, body_must_be_ok=False, **_: (
+            sent.update(payload) or True),
     )
     notifier.notify({"type": "alert", "severity": "critical", "target": "x",
                      "message": "down", "verdict": {}, "links": {}})
@@ -553,3 +563,39 @@ def test_main_test_flag_refuses_after_a_failed_preflight(monkeypatch):
     assert sent == []
     monkeypatch.setattr(main.notifier, "preflight", lambda: True)
     assert main.main(["--test"]) == 0 and sent == [1]
+
+
+# --- reachability (the outbox asks before each retry) ------------------------
+
+def test_reach_target_follows_the_delivery_mode(monkeypatch, openclaw):
+    assert notifier.reach_target() == ("api.telegram.org", 443)
+    monkeypatch.setenv("OPENCLAW_CHANNEL", "whatsapp")
+    assert notifier.reach_target() == ("1.1.1.1", 443)
+    monkeypatch.setenv("NOTIFY_MODE", "webhook")
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://192.0.2.7:8123/hook")
+    assert notifier.reach_target() == ("192.0.2.7", 8123)
+    monkeypatch.setenv("NOTIFY_MODE", "off")
+    assert notifier.reach_target() is None
+    assert notifier.reachable() is True
+
+
+def test_reachable_is_a_connect_and_never_raises(monkeypatch, openclaw):
+    asked = []
+
+    class Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_connect(target, timeout):
+        asked.append(target)
+        if len(asked) > 1:
+            raise OSError("network is unreachable")
+        return Conn()
+
+    monkeypatch.setattr(notifier.socket, "create_connection", fake_connect)
+    assert notifier.reachable() is True
+    assert notifier.reachable() is False
+    assert asked == [("api.telegram.org", 443)] * 2

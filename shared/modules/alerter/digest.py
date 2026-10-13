@@ -79,7 +79,8 @@ def record_history(state: dict, event: dict, now: float | None = None) -> None:
 
     Recorded whether or not delivery succeeded, deliberately: "we tried to
     tell you and could not" belongs in a daily summary more than a silent
-    gap does.
+    gap does. ``delivery`` says which: "sent", or "queued" in the outbox
+    (delivered later inside one summary, recorded as type "undelivered").
 
     ``state["incidents"]`` only holds *live* records -- reconcile pops a key
     on recovery -- so by 08:30 an incident that fired and cleared at 03:00 has
@@ -97,6 +98,7 @@ def record_history(state: dict, event: dict, now: float | None = None) -> None:
             "severity": event.get("severity"),
             "type": event.get("type", "alert"),
             "target": event.get("target"),
+            "delivery": event.get("delivery"),
         }
     )
     prune_history(state, now)
