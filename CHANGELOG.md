@@ -9,6 +9,19 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`doctor --live` checks that Basic measures.** On Basic, the three
+  "is it measuring" checks all skipped (no config-manager, no InfluxDB). A
+  Basic install that measured nothing got the same 19 ok / 0 fail as one
+  that worked, which is the #303 situation on the edition with the fewest
+  other signals. `targets-measured` now reads the SmokePing container's
+  `Targets`, `Probes` and RRD times where there is no config-manager.
+  It judges them with config-manager's own freshness rules, so
+  it fails on targets that never got data or stopped getting it, and
+  waits out the first two steps after SmokePing starts. On the staging Pi
+  it gave config-manager's exact answer (78 of 78 fresh).
+
 ## [2.31.1] — 2026-10-13
 
 Two fixes found by a clean install of every edition on a Raspberry Pi. A

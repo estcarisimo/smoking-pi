@@ -45,13 +45,17 @@ kernel, not Docker, so it answers on any Linux host and skips only where
 
 from __future__ import annotations
 
+import datetime
 import hashlib
+import importlib.util
 import json
 import pathlib
 import re
 import shutil
 import socket
 import subprocess
+import sys
+import time
 
 from . import sources
 from .report import CheckResult, Finding, Status, result, skipped
@@ -643,7 +647,65 @@ def _shown(names: list[str]) -> str:
     return ", ".join(names[:MEASURED_SHOWN]) + more
 
 
-def check_targets_measured(docker: Docker | None = None) -> CheckResult:
+# Run inside the SmokePing container where there is no config-manager to ask
+# (Basic): the files /measurements reads, one exec, split on a line no
+# SmokePing config holds.
+_SPLIT = "--smoking-pi-doctor--"
+_SMOKEPING_FILES = (
+    f"cat /config/Targets; echo {_SPLIT}; cat /config/Probes 2>/dev/null; "
+    f"echo {_SPLIT}; cat /config/CPE_Targets 2>/dev/null; echo {_SPLIT}; "
+    "find /data -name '*.rrd' -printf '%T@ %P\\n'"
+)
+FRESHNESS = pathlib.Path("shared/modules/config-manager/freshness.py")
+
+
+def _freshness(repo):
+    """config-manager's freshness module, by path: the one definition of
+    fresh/pending/stale/missing, shipped in the package's tree as in a clone."""
+    path = pathlib.Path(repo.root) / FRESHNESS
+    spec = importlib.util.spec_from_file_location("_cm_freshness", path)
+    if spec is None or spec.loader is None or not path.is_file():
+        return None
+    module = importlib.util.module_from_spec(spec)
+    # Its dataclasses look their module up in sys.modules while being built.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _started_at(docker: Docker, container: str) -> float | None:
+    """The container's start, as epoch seconds; Docker prints nanoseconds,
+    which fromisoformat on older Pythons refuses, so seconds are enough."""
+    code, out = docker.run(["inspect", "-f", "{{.State.StartedAt}}", container])
+    try:
+        stamp = datetime.datetime.strptime(out.strip()[:19] + "+0000", "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        return None
+    return stamp.timestamp() if code == 0 else None
+
+
+def _measured_by_smokeping(docker: Docker, repo) -> dict | None:
+    """/measurements' body, computed from the SmokePing container itself;
+    None when there is no SmokePing container."""
+    container = docker.container_for_service("smokeping")
+    if not container:
+        return None
+    module = _freshness(repo) if repo is not None else None
+    if module is None:
+        return {"available": False, "reason": f"{FRESHNESS} is not in this tree"}
+    code, out = docker.run(["exec", container, "sh", "-c", _SMOKEPING_FILES])
+    parts = out.split(_SPLIT + "\n")
+    if code != 0 or len(parts) != 4:
+        return {"available": False,
+                "reason": "could not read SmokePing's Targets and RRD files"}
+    targets, probes, cpe, found = parts
+    body = module.report(targets_text=targets, cpe_text=cpe, probes_text=probes,
+                         find_output=found, now=time.time(),
+                         started_at=_started_at(docker, container))
+    return {"available": True, **body}
+
+
+def check_targets_measured(docker: Docker | None = None, repo=None) -> CheckResult:
     """Every configured target has SmokePing data, and recent data.
 
     A clean install once came up with every container healthy and every
@@ -655,35 +717,42 @@ def check_targets_measured(docker: Docker | None = None) -> CheckResult:
     writes. A target still inside its first two steps since it or SmokePing
     started is ``pending`` there, not missing, so a stack that just started
     is not a failure.
+
+    Basic has no config-manager, and was the edition this check skipped
+    (#320): there it reads the same files from the SmokePing container and
+    classifies them with config-manager's own freshness module.
     """
     name = "targets-measured"
     docker = docker or Docker()
     if not docker.available():
         return skipped(name, "docker is not available here")
     container = docker.container_for_service("config-manager")
-    if not container:
-        return skipped(name, "no config-manager here (Basic, or not running)")
-    code, out = docker.run(["exec", container, "python", "-c", _MEASUREMENTS_PROBE])
-    try:
-        body = json.loads(out) if code == 0 else None
-    except ValueError:
-        body = None
-    if not isinstance(body, dict):
-        return result(name, [Finding("could not ask config-manager what is measured; "
-                                     "see sudo smoking-pi logs config-manager")], "",
-                      status=Status.WARN)
+    if container:
+        code, out = docker.run(["exec", container, "python", "-c", _MEASUREMENTS_PROBE])
+        try:
+            body = json.loads(out) if code == 0 else None
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            return result(name, [Finding("could not ask config-manager what is measured; "
+                                         "see sudo smoking-pi logs config-manager")], "",
+                          status=Status.WARN)
+    else:
+        body = _measured_by_smokeping(docker, repo)
+        if body is None:
+            return skipped(name, "no SmokePing here (stopped, or not this host)")
     if not body.get("available"):
         reason = body.get("reason", "no reason given")
         return result(name, [Finding(
-            f"config-manager cannot tell what is measured: {reason}")],
+            f"cannot tell what is measured: {reason}")],
             "", status=Status.WARN)
     rows = [r for r in body.get("targets", []) if isinstance(r, dict)]
     if not rows:
         # "All 0 targets are measured" would be the green-while-nothing-is-
         # measured this check exists to end (an empty generated Targets).
         return result(name, [Finding(
-            "config-manager lists no configured target: SmokePing has nothing "
-            "to measure. Check the targets in the web admin, or "
+            "no configured target: SmokePing has nothing to measure. Check the "
+            "targets (the web admin, or targets.yaml on Basic), or "
             "`sudo smoking-pi logs config-manager`")],
             "", status=Status.WARN)
     missing, stale = _names(rows, "missing"), _names(rows, "stale")
@@ -717,7 +786,7 @@ def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
         check_deployed_code_current(repo, docker),
         check_container_dns_fresh(repo, docker),
         check_config_manager_database(docker),
-        check_targets_measured(docker),
+        check_targets_measured(docker, repo),
         check_silent_series(docker),
         check_uplink_interface(),
         check_avahi_host_name(),
