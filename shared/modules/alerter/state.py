@@ -285,11 +285,11 @@ def reconcile(
     continued: set[str] = set()
 
     for incident in incidents:
+        superseded.update(incident.get("supersedes") or ())
         if incident.get("quiet"):
             if incident.get("continues"):
                 continued.add(incident["continues"])
             continue
-        superseded.update(incident.get("supersedes") or ())
         key = incident["key"]
         active_keys.add(key)
         record = records.get(key)
@@ -351,6 +351,10 @@ def reconcile(
                      "same target; retired without a recovery", key)
             continue
         if _no_data(record, judged, blind):
+            if blind:
+                # Nothing was seen during the blind spell: a grace period
+                # started before it restarts once there is data again.
+                record.pop("missing_since", None)
             held_since = float(record.setdefault("held_since", now))
             if now - held_since >= HOLD_MAX_S:
                 records.pop(key)

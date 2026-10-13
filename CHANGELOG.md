@@ -17,12 +17,18 @@ version gets a matching GitHub release and git tag.
     and nothing was sent, not even that the alerter had gone blind. After
     five minutes it is now a critical, `influx_unreadable`, and every other
     open incident is held exactly as it was until the database answers,
-    instead of recovering or re-sending on no data.
+    instead of recovering or re-sending on no data. It counts as readable
+    after three good cycles in a row, so a database that fails every other
+    cycle still alerts, and the stall rules wait one window after it is
+    back. A bug in the alerter's own rules is `evaluation_failed`, not the
+    database.
   - **Only one writer was watched.** `exporter_stale` counts `latency`
     alone, so the DNS, HTTP and TCP probes, the gateway microcut probe and
     the Wi-Fi exporter could stop unnoticed; the last two are the evidence
     the verdict and the diagnosis read. A new warning, `measurement_stale`,
-    names the one that stopped, if it wrote within the last 24 hours.
+    names the one that stopped, if it wrote within the last 24 hours; past
+    that, it is taken as removed on purpose and retired without a
+    recovery.
   - **One failing query silenced every rule.** A Flux error in any of the
     four Wi-Fi queries, or an exception in the verdict, failed the whole
     cycle. Both are now evidence that can be missing: the alert goes

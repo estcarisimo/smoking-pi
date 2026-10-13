@@ -72,12 +72,32 @@ def test_a_writer_this_host_never_had_is_not_expected():
     assert evaluator.rule_measurement_stale(_count(*alive), [], NOW, W) == []
 
 
-def test_an_open_stall_stays_open_without_asking_again():
+def test_an_open_stall_stays_open_while_its_last_point_is_recent():
+    alive = [m for m in ALL if m != "wifi_link"]
+    [inc] = evaluator.rule_measurement_stale(
+        _count(*alive), [_newest("wifi_link", 300)], NOW, W,
+        open_keys={"measurement_stale:wifi_link"})
+    assert inc["key"] == "measurement_stale:wifi_link"
+
+
+def test_a_writer_silent_past_the_lookback_is_retired_without_a_recovery():
+    """Review of #334: a writer removed on purpose (a wired uplink, a
+    disabled probe) must not re-notify every hour forever."""
     alive = [m for m in ALL if m != "wifi_link"]
     [inc] = evaluator.rule_measurement_stale(
         _count(*alive), [], NOW, W, open_keys={"measurement_stale:wifi_link"})
-    assert inc["key"] == "measurement_stale:wifi_link"
-    assert "since" not in inc["message"]
+    assert inc["quiet"] and inc["supersedes"] == ["measurement_stale:wifi_link"]
+    current = {"incidents": {}}
+    opened = evaluator.rule_measurement_stale(
+        _count(*alive), [_newest("wifi_link", 3600)], NOW, W)
+    state.reconcile(current, opened, now=NOW)
+    actions = state.reconcile(current, [inc], now=NOW + 86_400)
+    assert actions == {"alerts": [], "recoveries": []}
+    assert current["incidents"] == {}
+
+
+def test_the_newest_point_is_found_by_time_not_table_order():
+    assert '|> sort(columns: ["_time"]) |> last()' in evaluator._last_written_flux(ALL)
 
 
 # --- measurement_stale (wiring) ----------------------------------------------
@@ -220,10 +240,68 @@ def test_a_brief_influx_hiccup_says_nothing(monkeypatch, state_file):
         clock["now"] = NOW + 60 * minute
         main.run_iteration()
     readable[0] = True
-    clock["now"] = NOW + 300
-    main.run_iteration()
+    for minute in range(4, 8):
+        clock["now"] = NOW + 60 * minute
+        main.run_iteration()
     assert sent == []
     assert "unreadable_since" not in state.load_state().get("monitor", {})
+
+
+def test_a_flapping_influx_still_alerts(monkeypatch, state_file):
+    """Review of #334: one good read among timeouts must not reset the
+    clock, or a database failing every other cycle never alerts."""
+    readable = [False]
+    sent, clock = _loop(monkeypatch, state_file, readable)
+    for minute in range(12):
+        readable[0] = minute % 2 == 1
+        clock["now"] = NOW + 60 * minute
+        main.run_iteration()
+    assert [p["key"] for p in sent if p.get("type") == "alert"] == ["influx_unreadable"]
+
+
+def test_a_bug_is_not_reported_as_the_database(monkeypatch, state_file):
+    readable = [True]
+    sent, clock = _loop(monkeypatch, state_file, readable)
+
+    def broken(**_):
+        raise KeyError("windows")
+
+    monkeypatch.setattr(main.evaluator, "evaluate_with_context", broken)
+    for minute in range(6):
+        clock["now"] = NOW + 60 * minute
+        main.run_iteration()
+    [alert] = [p for p in sent if p.get("type") == "alert"]
+    assert alert["key"] == "evaluation_failed"
+    assert "InfluxDB" not in alert["message"]
+
+
+def test_no_false_stall_right_after_the_database_comes_back(monkeypatch, state_file):
+    """Review of #334: the writers could not write while InfluxDB was down;
+    the empty window that leaves is the outage already reported."""
+    readable = [False]
+    sent, clock = _loop(monkeypatch, state_file, readable)
+    stall = {"rule": "exporter_stale", "severity": "critical",
+             "key": "exporter_stale", "target": None, "message": "stalled"}
+    good = main.evaluator.evaluate_with_context
+
+    def evaluate(**kw):
+        incidents, context = good(**kw)
+        return incidents + [stall], {**context, "windows": {**context["windows"],
+                                                            "stale": 1200}}
+
+    for minute in range(30):
+        clock["now"] = NOW + 60 * minute
+        main.run_iteration()
+    readable[0] = True
+    monkeypatch.setattr(main.evaluator, "evaluate_with_context", evaluate)
+    for minute in range(30, 50):  # inside one stale window after it clears
+        clock["now"] = NOW + 60 * minute
+        main.run_iteration()
+    assert "exporter_stale" not in [p["key"] for p in sent]
+    for minute in range(55, 60):  # past it: a stall is a stall again
+        clock["now"] = NOW + 60 * minute
+        main.run_iteration()
+    assert "exporter_stale" in [p["key"] for p in sent]
 
 
 def test_a_failing_verdict_costs_its_line_not_the_alert(monkeypatch, state_file):

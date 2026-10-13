@@ -302,7 +302,7 @@ def _last_written_flux(measurements: list[str]) -> str:
     return (
         f"newest = from(bucket: {bucket}) |> range(start: {LIVENESS_LOOKBACK}) "
         f"|> filter(fn: (r) => ({names}) and ({_liveness_predicate()})) "
-        '|> group(columns: ["_measurement"]) |> last() '
+        '|> group(columns: ["_measurement"]) |> sort(columns: ["_time"]) |> last() '
         '|> keep(columns: ["_measurement", "_time"]) '
         '|> set(key: "kind", value: "newest") '
         f"steps = from(bucket: {bucket}) |> range(start: {LIVENESS_LOOKBACK}) "
@@ -327,9 +327,14 @@ def rule_measurement_stale(
     the window is alive. One with none is stale when it was written within
     LIVENESS_LOOKBACK (``last_written``: newest point, slowest step) and its
     newest point is older than the window -- or four of its own steps, when
-    those are longer. An incident already open stays open while the
-    measurement has no points, without asking again: a stall longer than
-    the lookback would otherwise "recover" by falling out of it.
+    those are longer. ``cpe_latency`` and ``wifi_link`` write no ``step``:
+    the window alone applies to them.
+
+    An incident already open stays open while the measurement has no points
+    and still wrote within the lookback. Past it, the writer is taken as
+    removed on purpose (a wired uplink, a disabled probe) and the incident
+    is retired without a recovery -- a quiet incident that ``supersedes`` it
+    -- rather than re-sent every hour forever (review of #334).
     """
     alive = {r.get("_measurement") for r in counts if (r.get("_value") or 0) > 0}
     newest: dict[str, float] = {}
@@ -346,8 +351,13 @@ def rule_measurement_stale(
         key = f"measurement_stale:{name}"
         if name in alive:
             continue
+        if key in open_keys and name not in newest:
+            incidents.append({"rule": "measurement_stale", "key": f"retired:{key}",
+                              "severity": "info", "target": None, "message": "",
+                              "quiet": True, "supersedes": [key]})
+            continue
         if key in open_keys:
-            since = None
+            since = newest[name]
         elif name in newest:
             silent_for = now - newest[name]
             if silent_for < max(window_s, 4 * steps.get(name, 0)):
@@ -361,10 +371,11 @@ def rule_measurement_stale(
             "key": key,
             "target": None,
             "message": (
-                f"no {name} points written"
-                + (f" since {_hhmm(int(since))}" if since is not None else "")
-                + f" — {_LIVENESS_WRITER[name]} appears stalled, so what it "
-                "measures is not being watched"
+                f"no {name} points written since {_hhmm(int(since))} — "
+                f"{_LIVENESS_WRITER[name]} appears stalled, so what it "
+                "measures is not being watched. If it was removed on purpose "
+                "(a wired uplink, a disabled probe), this stops on its own "
+                "24 hours after its last point"
             ),
             "value": 0,
         })
@@ -1114,8 +1125,7 @@ def _measurements_stale(window_s: int, open_keys: Collection[str]) -> list[dict]
     try:
         counts = _query(_liveness_flux(window_s))
         alive = {r.get("_measurement") for r in counts if (r.get("_value") or 0) > 0}
-        suspects = [m for m in LIVENESS_FIELDS
-                    if m not in alive and f"measurement_stale:{m}" not in open_keys]
+        suspects = [m for m in LIVENESS_FIELDS if m not in alive]
         last_written = _query(_last_written_flux(suspects)) if suspects else []
     except Exception:  # influx client raises many exception types
         log.warning("Measurement liveness query failed", exc_info=True)
