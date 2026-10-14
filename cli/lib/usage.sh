@@ -85,6 +85,7 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
   alerts [--telegram [--to CHAT_ID] | --openclaw [--to RECIPIENT] | --webhook
          | --off] [--test] [--yes] [--digest HH:MM|off [--digest-tz ZONE]]
          [--quiet HH:MM-HH:MM|off]
+  alerts --deadman [off]
                      Where alerts go (Pro): set NOTIFY_MODE and its keys, turn
                      on the alerts profile, recreate the alerter and print its
                      own delivery preflight. --telegram: a bot of your own,
@@ -97,6 +98,9 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      --quiet: hold alerts between the two times (the
                      digest's zone) and send them as one message after; a
                      total loss is never held.
+                     --deadman: check in with an outside service
+                     (healthchecks.io) that says when this host goes
+                     silent; asks for its ping URL (hidden, or on stdin).
   connect --tailscale [--off] [--yes]
                      Publish the MCP server for remote assistants through
                      Tailscale Funnel (Pro): installs Tailscale if asked, signs

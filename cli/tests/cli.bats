@@ -1820,6 +1820,47 @@ STUB
     [[ "$output" == *"at home:       http://[2001:db8::5]:3000/ (Grafana)"* ]]
 }
 
+# --- alerts --deadman --------------------------------------------------------------
+
+@test "alerts --deadman reads the ping URL from stdin, never argv, and turns off" {
+    alerts_setup
+    local url="https://hc-ping.example/0b4c-secret-uuid"
+    run sh -c "printf '%s\n' '$url' | '$CLI' alerts --deadman"
+    [ "$status" -eq 0 ]
+    grep -qx "ALERT_DEADMAN_URL=$url" "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"healthchecks.io"* ]]
+    # A credential: never on a command line, never printed back.
+    if grep -q 'secret-uuid' "$DOCKER_LOG"; then false; fi
+    [[ "$output" != *"secret-uuid"* ]]
+    # Delivery is untouched.
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts --deadman off
+    [ "$status" -eq 0 ]
+    if grep -q 'secret-uuid' "$SMOKING_PI_ENV_FILE"; then false; fi
+    [[ "$output" == *"Dead man's switch off"* ]]
+}
+
+@test "alerts --deadman refuses what is not a ping URL, and goes alone" {
+    alerts_setup
+    for bad in "" "hc-ping.example/uuid" "https://hc-ping.example" "https://a b/c" "ftp://x/y"; do
+        run sh -c "printf '%s\n' '$bad' | '$CLI' alerts --deadman"
+        [ "$status" -eq 2 ]
+    done
+    run sh -c "printf 'https://x/y\n' | '$CLI' alerts --deadman --openclaw"
+    [ "$status" -eq 2 ]
+    if grep -q '^ALERT_DEADMAN_URL=.' "$SMOKING_PI_ENV_FILE"; then false; fi
+}
+
+@test "alerts --deadman with the alerter running shows its first check-in, by host" {
+    alerts_setup
+    # The alerter is running, and its log has the check-in line.
+    sed -i 's|^case "\$\*" in|case "$*" in\n    *"ps --status running --services"*) echo alerter; exit 0 ;;|' "$BATS_TEST_TMPDIR/bin2/docker"
+    run sh -c "printf 'https://hc-ping.example/u\n' | STUB_PREFLIGHT=\"Dead man's switch: checked in with hc-ping.example (ok)\" '$CLI' alerts --deadman"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"checked in with hc-ping.example (ok)"* ]]
+    [[ "$output" == *"pause the check once"* ]]
+}
+
 # --- alerts --digest ---------------------------------------------------------------
 
 @test "alerts --digest alone sets the time and zone, touches nothing about delivery, and says it is not sent while off" {

@@ -373,6 +373,44 @@ on restart, the same limit as the outbox's.
 | `QUIET_FROM` | *(unset)* | `HH:MM` when quiet hours begin |
 | `QUIET_UNTIL` | *(unset)* | `HH:MM` when they end and the held message goes out |
 
+### When this host goes silent: the dead man's switch
+
+Every alert comes from the host being watched. When it hangs, loses power
+or its SD card, the alerts stop, and silence reads as "all well". A
+check-in service closes that gap from outside: the alerter checks in with
+it, and the service alerts you when the check-ins stop. Because it runs off
+this host, it is the one alert that still works when the whole house is
+down.
+
+1. On [healthchecks.io](https://healthchecks.io) (free; or a self-hosted
+   Healthchecks), add a check with a period of 5 minutes and a grace of 10,
+   and connect it to where you want the alert (email, Telegram).
+2. Give the alerter its ping URL, which is read hidden (or from stdin)
+   because it is a credential:
+
+   ```bash
+   sudo smoking-pi alerts --deadman
+   ```
+
+   The command waits for the alerter's first check-in and prints its log
+   line, which names the host and never the URL.
+3. Pause the check once in the service to see its alert reach you.
+
+What the alerter sends:
+- After every evaluation that ran, a GET to the URL: alive, and judging.
+- While it cannot read InfluxDB, a GET to `URL/fail`: alive, and blind. The
+  service reports that at once instead of after its grace period.
+- At most one check-in every 5 minutes, and one right away when that state
+  changes. That is about 300 requests a day, roughly a megabyte, against
+  the usage budget.
+
+An alerter that crashes before the end of an iteration does not check in,
+which is the point. `sudo smoking-pi alerts --deadman off` turns it off.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ALERT_DEADMAN_URL` | *(unset)* | The check-in URL; empty = off. A secret |
+
 ## Daily report delivery
 
 If the `ai-insights` service (profile `ai`) is writing Markdown reports to

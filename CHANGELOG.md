@@ -28,6 +28,18 @@ version gets a matching GitHub release and git tag.
   is held, and until when. Off by default; `--quiet off` turns it off and
   sends what was held.
 
+- **A dead man's switch: `smoking-pi alerts --deadman`.** Every alert came
+  from the host being watched, so when that host hung, lost power or lost
+  its SD card (all three have happened to the reference Pi), the alerts
+  simply stopped. Silence read as "all well" until someone opened a
+  dashboard. The alerter now checks in with an outside service
+  (`ALERT_DEADMAN_URL`, a healthchecks.io ping URL or a self-hosted
+  Healthchecks) after every evaluation, at most every 5 minutes, and with
+  `URL/fail` while it cannot read InfluxDB. The service alerts you when
+  the check-ins stop, even when the whole house is down. The URL is a
+  credential: read hidden or from stdin, never logged (the host is). The
+  command prints the alerter's first check-in. Off by default.
+
 ### Changed
 
 - **HTTP, TCP and DNS wizard targets count toward "widespread".** The
