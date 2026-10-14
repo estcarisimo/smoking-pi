@@ -334,13 +334,23 @@ sends. A crash between a send and that write sends it again on restart.
 
 ### Quiet hours
 
-Between `QUIET_FROM` and `QUIET_UNTIL` alerts, recoveries and watchdog
-events are held instead of sent. When quiet hours end, everything held goes
-out as **one message**, type `held`, without a notification sound: what is
-open now, then each incident once, when it started and whether it
-recovered. It is the same summary as the outbox's. A total loss
-(`uplink_down`, `internet_down`, `monitor_dns`) is never held. When the
-summary can't be delivered, the outbox keeps it like any alert.
+Between `QUIET_FROM` and `QUIET_UNTIL`, per-target alerts, brief outages,
+microcuts, recoveries and the watchdog's actions are held instead of sent.
+When quiet hours end, everything held goes out as **one message**, type
+`held`, without a notification sound: what is open now, then each
+incident once, when it started and whether it recovered. It is the
+outbox's summary, with times in the quiet hours' zone.
+
+Never held, because they are worth waking up for or because without them
+a quiet night proves nothing:
+- a total loss: `uplink_down`, `internet_down`, `monitor_dns`;
+- the monitor going blind or deaf: `influx_unreadable`,
+  `evaluation_failed`, `exporter_stale`, `measurement_stale`.
+
+A `target_down` is held. The outbox is not held either: a notification
+already late because delivery failed goes as soon as it can. When the
+summary itself cannot be delivered, the outbox keeps it, and an outbox
+summary lists the held incidents, not the summary.
 
 ```bash
 sudo smoking-pi alerts --quiet 23:00-07:00
@@ -352,7 +362,11 @@ a span may cross midnight. Both are checked before anything is written.
 Quiet hours are off while either value is empty or unreadable; the alerter
 logs a warning and sends everything as it happens. Turning them off sends
 what was held on the next cycle. The history the digest reads records a
-held notification's `delivery` as `held`.
+held notification's `delivery` as `held`, and MCP `list_alert_state` shows
+what is waiting (`held`: how many, since when, until when, which
+incidents), so an assistant asked at 4 a.m. does not answer "all quiet".
+A crash between sending the summary and saving the state sends it again
+on restart, the same limit as the outbox's.
 
 | Variable | Default | Meaning |
 |---|---|---|

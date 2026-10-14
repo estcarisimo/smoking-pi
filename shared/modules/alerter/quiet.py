@@ -8,10 +8,14 @@ now -- the outbox's summary (outbox.py), under its own header. Ten messages
 at 07:00 describing the night in the voice of the present would be the
 burst quiet hours exist to avoid.
 
-A total loss is never held (common.definitions.TOTAL_RULES: the uplink, the
-Internet beyond the house, this host's own DNS): it is the one thing worth
-waking up for. When it cannot be delivered either, the outbox keeps it as
-it keeps any alert.
+Never held: a total loss (common.definitions.TOTAL_RULES: the uplink, the
+Internet beyond the house, this host's own DNS), the one thing worth waking
+up for; and the monitor going blind or deaf (``MONITOR_RULES``), because
+from then on no alert means nothing and a quiet night proves nothing
+(review of #343). When one cannot be delivered either, the outbox keeps it
+as it keeps any alert. Everything else is held: per-target alerts, brief
+outages, microcuts, recoveries, the watchdog's actions. The outbox is not
+held: a notification already late for a failed delivery goes when it can.
 
 Off unless both times are set and differ. A time that does not read as
 HH:MM turns quiet hours off with a warning, never the alert loop.
@@ -30,7 +34,11 @@ from common import definitions
 
 log = logging.getLogger("alerter.quiet")
 
-PASS_RULES = frozenset(definitions.TOTAL_RULES)
+# The alerter cannot judge (InfluxDB unreadable, its own rules failing),
+# or the measurements it judges stopped coming.
+MONITOR_RULES = ("influx_unreadable", "evaluation_failed", "exporter_stale",
+                 "measurement_stale")
+PASS_RULES = frozenset(definitions.TOTAL_RULES) | frozenset(MONITOR_RULES)
 # As the outbox: a held queue nobody empties must not grow the state file.
 MAX_ITEMS = outbox.MAX_ITEMS
 
@@ -67,6 +75,15 @@ def active(now: float) -> bool:
     return minute >= start or minute < end
 
 
+def clock(ts: float, now: float) -> str:
+    """A time in the quiet hours' own zone, with its abbreviation: the
+    hours are local, and a summary in UTC would not read as the night."""
+    zone = _zone()
+    at = datetime.fromtimestamp(ts, tz=zone)
+    today = datetime.fromtimestamp(now, tz=zone).date()
+    return at.strftime("%H:%M %Z" if at.date() == today else "%d/%m %H:%M %Z")
+
+
 def holds(payload: dict, now: float) -> bool:
     """Whether this notification waits for the end of quiet hours."""
     return payload.get("rule") not in PASS_RULES and active(now)
@@ -76,7 +93,9 @@ def hold(state: dict, payload: dict, now: float) -> None:
     box = state.setdefault("held", {})
     if not box.get("items"):
         box.update({"items": [], "since": now, "dropped": 0})
-    box["items"].append({"queued_at": now, "payload": outbox._plain(payload)})
+    # For the assistant (MCP list_alert_state), which has no QUIET_* of its own.
+    box["until"] = f"{os.environ.get('QUIET_UNTIL', '').strip()} {_zone().key}"
+    box["items"].append({"queued_at": now, "payload": outbox.plain(payload)})
     overflow = len(box["items"]) - MAX_ITEMS
     if overflow > 0:
         del box["items"][:overflow]
@@ -86,35 +105,19 @@ def hold(state: dict, payload: dict, now: float) -> None:
 
 
 def build(state: dict, now: float) -> dict:
-    """The one message for everything held, in the outbox's shape."""
+    """The one message for everything held, in the outbox's shape and in
+    the quiet hours' zone. Carries the held items, so an outbox summary
+    that has to take it later lists the incidents, not this message."""
     box = state["held"]
     items = box["items"]
     since = float(box.get("since", items[0]["queued_at"]))
-    esc = templates.esc
-    open_keys = set(state.get("incidents") or {})
     lines = [
-        templates._b(f"🌙 Quiet hours, {outbox._clock(since, now)} to "
-                     f"{outbox._clock(now, now)} UTC")
+        templates._b(f"🌙 Quiet hours, {clock(since, now)} to {clock(now, now)}")
         + " — held overnight:",
-        outbox._now_line(state, now),
+        outbox.now_line(state, now, clock),
+        *outbox.summary_lines(state, items, now, int(box.get("dropped", 0)),
+                              clock),
     ]
-    entries = outbox._incidents(items)
-    for entry in entries[:outbox.SUMMARY_LINES]:
-        emoji = templates.SEVERITY_EMOJI.get(entry["severity"], "•")
-        name = entry["rule"] or entry["key"]
-        if entry["target"]:
-            name = f"{name} {entry['target']}"
-        when = outbox._clock(entry["started"], now) if entry["started"] is not None else ""
-        if entry["recovered"] is not None:
-            when = f"{when} → ✅ {outbox._clock(entry['recovered'], now)}".strip(" →")
-            if entry["started"] is None:
-                when = f"✅ {outbox._clock(entry['recovered'], now)}"
-        elif entry["key"] not in open_keys:
-            when += " (over)"
-        lines.append(f"{emoji} {esc(name)} · {when} — {esc(entry['message'] or '')}")
-    more = len(entries) - outbox.SUMMARY_LINES + int(box.get("dropped", 0))
-    if more > 0:
-        lines.append(f"…and {more} more")
     return {
         "type": "held",
         "key": "held",
@@ -122,6 +125,7 @@ def build(state: dict, now: float) -> dict:
         # A morning summary is read, not woken up to.
         "silent": True,
         "message": "\n".join(lines),
+        "items": items,
     }
 
 

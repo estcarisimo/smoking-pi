@@ -1882,12 +1882,24 @@ STUB
     if grep -q '^QUIET_' "$SMOKING_PI_ENV_FILE"; then false; fi
 }
 
-@test "alerts --quiet with --digest sets both in one go" {
+@test "alerts --quiet with --digest or a delivery mode sets everything in one go" {
     alerts_setup
     run "$CLI" alerts --digest 08:00 --quiet 23:00-07:00
     [ "$status" -eq 0 ]
     grep -qx 'DIGEST_AT=08:00' "$SMOKING_PI_ENV_FILE"
     grep -qx 'QUIET_FROM=23:00' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts --openclaw --to telegram:1 --quiet 22:30-06:30 --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'NOTIFY_MODE=openclaw' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'QUIET_FROM=22:30' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'QUIET_UNTIL=06:30' "$SMOKING_PI_ENV_FILE"
+    # A zone goes with the digest, never alone with --quiet.
+    run "$CLI" alerts --quiet 23:00-07:00 --digest-tz Europe/London
+    [ "$status" -eq 2 ]
+    # Empty is a valid value of a time setting: quiet hours off.
+    run "$CLI" alerts --quiet off
+    run "$CLI" config validate
+    [[ "$output" != *"QUIET_"* ]]
 }
 
 @test "alerts --digest off turns it off; with a mode, both are set in one go" {

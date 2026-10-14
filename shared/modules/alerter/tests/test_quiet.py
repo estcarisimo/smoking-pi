@@ -91,13 +91,71 @@ def test_the_night_is_held_and_the_morning_gets_one_message(overnight, sent):
                                       "type": "held", "delivery": "sent"}
 
 
-def test_a_total_loss_is_never_held(overnight, sent):
+def test_a_total_loss_or_a_blind_monitor_is_never_held(overnight, sent):
+    """From the moment the monitor cannot judge, no alert means nothing: a
+    quiet night would prove nothing (review of #343)."""
     current = {}
-    for rule in ("uplink_down", "internet_down", "monitor_dns"):
+    rules = ("uplink_down", "internet_down", "monitor_dns", "influx_unreadable",
+             "evaluation_failed", "exporter_stale", "measurement_stale")
+    for rule in rules:
         main._deliver(current, _alert(key=rule, rule=rule, severity="critical",
                                       target=None), now=NIGHT)
-    assert [p["rule"] for p in sent] == ["uplink_down", "internet_down", "monitor_dns"]
+    assert tuple(p["rule"] for p in sent) == rules
     assert "held" not in current
+    main._deliver(current, _alert(key="target_down:x", rule="target_down",
+                                  severity="critical"), now=NIGHT)
+    assert len(current["held"]["items"]) == 1
+
+
+def test_an_incident_renotified_all_night_is_one_line(overnight):
+    current = {"incidents": {"high_loss:Google": {"rule": "high_loss",
+                                                  "severity": "warning",
+                                                  "target": "Google",
+                                                  "first_seen": NIGHT}}}
+    for i in range(8):
+        quiet.hold(current, _alert(message=f"mean loss {30 + i}%"), NIGHT + 3600 * i)
+    text = quiet.build(current, MORNING)["message"]
+    assert text.count("high_loss Google ·") == 1
+    assert "mean loss 37%" in text
+    assert "Now open" in text
+
+
+def test_the_summary_reads_in_the_local_zone(monkeypatch):
+    monkeypatch.setenv("QUIET_FROM", "23:00")
+    monkeypatch.setenv("QUIET_UNTIL", "07:00")
+    monkeypatch.setenv("DIGEST_TZ", "America/Chicago")
+    current = {}
+    at = DAY + 29 * 3600  # 05:00 UTC: 00:00 in Chicago (CDT)
+    quiet.hold(current, _alert(), at)
+    assert current["held"]["until"] == "07:00 America/Chicago"
+    text = quiet.build(current, DAY + 36 * 3600)["message"]  # 07:00 CDT
+    assert "00:00 CDT to 07:00 CDT" in text
+
+
+def test_across_a_dst_change(monkeypatch):
+    """2026-11-01, Chicago falls back at 02:00 CDT: 01:30 happens twice,
+    and both are inside 23:00-07:00 local; 07:30 local is not."""
+    monkeypatch.setenv("QUIET_FROM", "23:00")
+    monkeypatch.setenv("QUIET_UNTIL", "07:00")
+    monkeypatch.setenv("DIGEST_TZ", "America/Chicago")
+    first_0130 = 1_793_514_600.0  # 06:30 UTC = 01:30 CDT
+    assert quiet.active(first_0130) and quiet.active(first_0130 + 3600)
+    assert not quiet.active(first_0130 + 7 * 3600)  # 07:30 CST
+
+
+def test_a_held_summary_in_a_later_outbox_summary_lists_the_incidents(overnight):
+    current = {}
+    quiet.hold(current, _alert(), NIGHT)
+    quiet.hold(current, _alert(key="outage:1", rule="outage", target=None,
+                               message="4 of 16 lost packets"), LATE)
+    summary = quiet.build(current, MORNING)
+    state = {}
+    outbox.enqueue(state, summary, now=MORNING)
+    outbox.enqueue(state, _alert(key="target_down:x", rule="target_down",
+                                 target="x"), now=MORNING + 60)
+    text = outbox.build(state, MORNING + 3600)["message"]
+    assert "high_loss Google ·" in text and "outage ·" in text
+    assert "Quiet hours" not in text
 
 
 def test_a_held_summary_that_cannot_be_sent_waits_in_the_outbox(overnight, monkeypatch):
