@@ -62,7 +62,8 @@ def wifi_minute_fluxes(hours: int) -> list[str]:
         base + '|> filter(fn: (r) => r._field == "signal_dbm") '
         + agg.format(fn="min"),
         base + '|> filter(fn: (r) => r._field == "signal_dbm") '
-        + f'|> map(fn: (r) => ({{r with _value: if r._value < {cadence.flux_float(definitions.wifi_weak_dbm())} then 1 else 0}})) '
+        + "|> map(fn: (r) => ({r with _value: if r._value < "
+        + cadence.flux_float(definitions.wifi_weak_dbm()) + " then 1 else 0})) "
         + agg.format(fn="sum") + '|> set(key: "_field", value: "weak") ',
         base + '|> filter(fn: (r) => r._field == "associated") '
         + '|> toFloat() ' + agg.format(fn="min"),
@@ -134,8 +135,15 @@ def run(query: Query, hours: int, cadences: dict | None = None) -> dict:
     # answering, total loss on named destinations is this host's own DNS.
     resolver_rows = _optional(
         _base(["dns_latency"], hours) + '|> filter(fn: (r) => r._field == "loss") '
-        + '|> group() |> keep(columns: ["target"]) |> distinct(column: "target")',
+        + '|> group(columns: ["_time"]) |> keep(columns: ["_time", "target"]) '
+        + '|> distinct(column: "target") |> count()',
         "resolvers")
+    resolvers: dict[int, int] = {}
+    for row in resolver_rows:
+        ts = epoch(row.get("_time"))
+        if ts is not None and row.get("_value") is not None:
+            step = int(ts // step_s) * step_s
+            resolvers[step] = max(resolvers.get(step, 0), int(row["_value"]))
 
     events = [{"target": r.get("target"), "category": r.get("category"),
                "loss_pct": round(float(r.get("_value", 0.0)) * 100.0, 2),
@@ -171,7 +179,7 @@ def run(query: Query, hours: int, cadences: dict | None = None) -> dict:
         "ipv6": is_ipv6,
         "floor": diagnosis.first_hop_floor(floor_rows, step_s),
         "wifi_width": float(wifi_width(hours)),
-        "resolvers": len({r.get("_value") for r in resolver_rows if r.get("_value")}),
+        "resolvers": resolvers,
     }
     result = diagnosis.diagnose(events, ctx, window_steps=hours * 3600 // step_s)
     result["coverage"] = {"wifi": wifi is not None, "cpe": cpe,

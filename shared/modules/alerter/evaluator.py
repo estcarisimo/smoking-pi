@@ -85,13 +85,10 @@ MEAN_STEPS = 3
 # reported once per target: 18 target_down criticals plus 18 high_loss
 # warnings, re-sent every cooldown, for the night the Pi's Wi-Fi radio hung
 # (2026-09-20: associated at -49 dBm, zero packets received for 3 h 20 min).
-# A step counts as widespread when WIDESPREAD_PCT of the targets reporting
-# in it lost at least WIDESPREAD_LOSS_PCT -- and more than one ping's worth,
-# so a probe sending few pings cannot reach it on a single lost one; see
-# rule_widespread for what each
-# shape becomes.
-# WIDESPREAD_PCT itself is common.definitions.widespread_pct(): the MCP
-# server and the diagnosis read the same one.
+# A step counts as widespread when WIDESPREAD_PCT (common.definitions) of
+# the targets reporting in it lost at least WIDESPREAD_LOSS_PCT -- and more
+# than one ping's worth, so a probe sending few pings cannot reach it on a
+# single lost one; see rule_widespread for what each shape becomes.
 DEFAULT_WIDESPREAD_LOSS_PCT = 30.0  # percent loss per point; WIDESPREAD_LOSS_PCT
 WIDESPREAD_MIN_TARGETS = 3  # below this, breadth means nothing
 STEP_S = cadence.DEFAULT_STEP  # the default step; real ones come from cadence
@@ -168,8 +165,6 @@ def _microcut_flux(loss_pct: float) -> str:
     return microcuts.cut_windows_flux("-60m", loss_pct)
 
 
-# A Wi-Fi uplink signal below common.definitions.wifi_weak_dbm() counts as
-# weak (see verdict.py for how many weak samples it takes).
 
 
 def _wifi_signal_flux(weak_dbm: float) -> str:

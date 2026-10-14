@@ -985,6 +985,8 @@ def _loss_fake(per_target, background=0, targets=None, steps=None):
         steps = max((len(v) for v in per_target.values()), default=0)
 
     def fake(flux):
+        if 'r.category == "cpe"' in flux:
+            return []  # no first hop unless a test adds one (_with_first_hop)
         if "distinct(" in flux:
             # One row per probe step: how many targets reported in it.
             return [{"_time": _T0 + timedelta(seconds=300 * i), "_value": total}
@@ -1040,9 +1042,11 @@ def _with_first_hop(fake, hop_values, steps=4):
     ``hop_values`` per step, and one hop reporting in each step."""
     hop_rows = [{"_time": _T0 + timedelta(seconds=300 * i), "target": "CPE_IPv4",
                  "_measurement": "latency", "category": "cpe", "_value": v}
-                for i, v in enumerate(hop_values) if v]
+                for i, v in enumerate(hop_values)]
 
     def wrapped(flux):
+        if 'r.category == "cpe"' in flux:
+            return hop_rows  # its own points, zeros included: no event bar
         rows = fake(flux)
         if "distinct(" in flux:
             return rows + [{"_time": _T0 + timedelta(seconds=300 * i), "_value": 1,
@@ -1050,7 +1054,7 @@ def _with_first_hop(fake, hop_values, steps=4):
                            for i in range(steps)]
         if "r._value > 0.0 and" in flux:
             return rows
-        return rows + hop_rows
+        return rows + [r for r in hop_rows if r["_value"]]
     return wrapped
 
 
@@ -1423,3 +1427,16 @@ def test_loss_events_reads_the_shared_widespread_setting(monkeypatch, no_api):
     assert server.get_loss_events(hours=24)["widespread"] == []
     monkeypatch.setenv("WIDESPREAD_PCT", "70")
     assert len(server.get_loss_events(hours=24)["widespread"]) == 1
+
+
+
+def test_loss_events_first_hop_reading_ignores_the_callers_threshold(monkeypatch, no_api):
+    """Review of #337: the first hop is read from its own points, not from
+    the events a caller's threshold filtered. "Lost" means every packet, as
+    in the alerts, so a gateway at 60% answers whatever the threshold, and
+    one at 100% is lost whatever the threshold."""
+    per_target = {t: [1.0] * 4 for t in _TEN if t != "CPE_IPv4"}
+    per_target["Extra"] = [1.0] * 4
+    _patch_influx(monkeypatch, _with_first_hop(_loss_fake(per_target), [1.0] * 4))
+    run = server.get_loss_events(hours=24, min_loss_pct=95)["widespread"][0]
+    assert run["reading"] == "uplink_down"

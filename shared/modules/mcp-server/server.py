@@ -963,7 +963,7 @@ def _loss_episodes(
 
 def _widespread_runs(
     events: list[dict], reporting: dict[int, int], step_s: int = STEP_S,
-    hop: dict[int, int] | None = None, resolvers: dict[int, int] | None = None,
+    hop: dict[int, bool] | None = None, resolvers: dict[int, int] | None = None,
 ) -> list[dict]:
     """Probe steps in which WIDESPREAD_SHARE of the targets reporting IN
     THAT STEP had an event, folded into runs. Newest first.
@@ -987,26 +987,22 @@ def _widespread_runs(
 
     Total loss is named by what still answered, as the alerter names it
     (common.definitions.total_loss): the first hop (category cpe; ``hop``:
-    how many reported per step) lost too is this host's uplink; answering
+    per step it reported in, whether it lost everything -- read from its own
+    points, not from the events) lost too is this host's uplink; answering
     is the Internet beyond the house; answering with the resolvers queried
     by address (``resolvers``) while every named site was lost is this
     host's own DNS. The first hop is never a destination in the share.
     """
     hop = hop or {}
     resolvers = resolvers or {}
-    hop_lost: dict[int, bool] = {}
     resolver_hit: set[int] = set()
     by_step: dict[int, dict[str, bool]] = {}
     for event in events:
         epoch = event.get("_epoch")
-        if epoch is None:
-            continue
-        step = int(epoch // step_s) * step_s
-        if event.get("_category") == definitions.FIRST_HOP_CATEGORY:
-            hop_lost[step] = hop_lost.get(step, True) and event["loss_pct"] >= 99.9
+        if epoch is None or event.get("_category") == definitions.FIRST_HOP_CATEGORY:
             continue
         if event.get("measurement") == "dns_latency":
-            resolver_hit.add(step)
+            resolver_hit.add(int(epoch // step_s) * step_s)
     for event in events:
         if event.get("_category") == definitions.FIRST_HOP_CATEGORY:
             continue
@@ -1051,9 +1047,9 @@ def _widespread_runs(
             uplink = all_lost and lost_steps >= UPLINK_MIN_STEPS
             reading = None
             if uplink:
-                measured = [s for s in run if hop.get(s)]
+                measured = [s for s in run if s in hop]
                 first_hop = (None if not measured else
-                             "lost" if all(hop_lost.get(s) for s in measured)
+                             "lost" if all(hop[s] for s in measured)
                              else "answers")
                 names_only = (any(resolvers.get(s) for s in run)
                               and not any(s in resolver_hit for s in run))
@@ -1183,10 +1179,18 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
         + '|> keep(columns: ["_time", "_measurement", "category", "target"]) '
         + '|> distinct(column: "target") |> count()'
     )
+    # The first hop's own points, without the event bar: whether it answered
+    # must not depend on the threshold a caller chose (review of #337).
+    hop_flux = (
+        base + f'|> filter(fn: (r) => r.category == '
+        f'{flux_str(definitions.FIRST_HOP_CATEGORY)}) '
+        + '|> keep(columns: ["_time", "_value"])'
+    )
     try:
         rows = query_influx(flux)
         background_rows = query_influx(background_flux)
         targets_rows = query_influx(targets_flux)
+        hop_rows = query_influx(hop_flux)
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
 
@@ -1271,8 +1275,15 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
         )
         if episode_links.get("graph"):
             episode["graph"] = episode_links["graph"]
-    widespread = _widespread_runs(events, reporting, step_s,
-                                  hop=counts["hop"], resolvers=counts["resolver"])
+    hop_lost: dict[int, bool] = {}
+    for row in hop_rows:
+        epoch = _epoch(row.get("_time"))
+        if epoch is None or row.get("_value") is None:
+            continue
+        step = int(epoch // step_s) * step_s
+        hop_lost[step] = hop_lost.get(step, True) and float(row["_value"]) >= 0.999
+    widespread = _widespread_runs(events, reporting, step_s, hop=hop_lost,
+                                  resolvers=counts["resolver"])
     for event in events:
         del event["_epoch"]
         del event["_category"]

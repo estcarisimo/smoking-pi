@@ -72,8 +72,7 @@ FLOOR_RISE_PCT = 10.0
 FIRST_HOP_CATEGORY = definitions.FIRST_HOP_CATEGORY
 
 CLASSES = ("probe_miss", "local_wifi", "local_link", "monitor", "destination",
-           "upstream",
-           "unclear")
+           "upstream", "unclear")
 
 _SITE_SUFFIX = re.compile(r"_(icmp|h[123]|tcp\d*|tcp443)$")
 
@@ -356,7 +355,8 @@ def classify(inc: dict, ctx: dict) -> dict:
     if wifi and wifi["drops"]:
         line = f"this host's Wi-Fi carrier dropped {wifi['drops']} time(s)"
         (wifi_reasons if len(steps) <= 3 else wifi_context).append(line)
-    weak = bool(wifi and wifi["weak"] >= definitions.wifi_weak_samples() and wifi["min_dbm"] is not None)
+    weak = bool(wifi and wifi["weak"] >= definitions.wifi_weak_samples()
+                and wifi["min_dbm"] is not None)
     if wifi_reasons:
         evidence.extend(wifi_reasons)
         if total_steps or broad:
@@ -391,7 +391,11 @@ def classify(inc: dict, ctx: dict) -> dict:
                         f"{total_peak[1]} reporting)")
         hop_answered = (ctx.get("cpe") and floor_now is not None and not floor_up
                         and not confirmed_cuts)
-        named_only = (ctx.get("resolvers") and definitions.RESOLVER_CATEGORY
+        # Resolvers that reported in the incident's own cycles (not merely in
+        # the window), none of them in it (review of #337).
+        resolvers_seen = max((n for s, n in (ctx.get("resolvers") or {}).items()
+                              if lo - step_s < s <= hi + step_s), default=0)
+        named_only = (resolvers_seen > 0 and definitions.RESOLVER_CATEGORY
                       not in set(inc["categories"].values()))
         if hop_answered and named_only:
             # The resolvers, queried by address, kept answering while every
@@ -399,9 +403,9 @@ def classify(inc: dict, ctx: dict) -> dict:
             # could not resolve names (2026-08: a frozen resolv.conf). The
             # alerter's monitor_dns, read the same way.
             evidence.append(floor_line + ": the ISP gateway kept answering")
-            evidence.append(f"the {ctx['resolvers']} DNS resolver(s), queried by "
-                            "address, kept answering while every named "
-                            "destination was lost")
+            evidence.append(f"the {resolvers_seen} DNS resolver(s), queried by "
+                            "address, reported in those cycles with no "
+                            "loss event while every named destination was lost")
             return done("monitor", "names")
         if hop_answered:
             # The first hop kept answering at its usual rate through it: the
@@ -544,7 +548,8 @@ def standalone(cut_or_span: dict, kind: str, ctx: dict) -> dict:
                         f"({cut_or_span.get('deaf') or 'deaf'})")
         evidence.append("the first-hop probe lost everything for exactly that span")
         cls, detail = "local_wifi", "deaf"
-    elif wifi and wifi["weak"] >= definitions.wifi_weak_samples() and wifi["min_dbm"] is not None:
+    elif (wifi and wifi["weak"] >= definitions.wifi_weak_samples()
+          and wifi["min_dbm"] is not None):
         evidence.append(f"the first hop (CPE) cut out for {seconds} s")
         evidence.append(f"this host's Wi-Fi signal fell to {wifi['min_dbm']:.0f} dBm then")
         cls, detail = "local_wifi", "weak_signal"
