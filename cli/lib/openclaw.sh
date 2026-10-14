@@ -47,9 +47,9 @@ openclaw_bin() {
 # on PATH (nvm keeps `node` beside it) and that user's session bus, so
 # `systemctl --user restart openclaw-gateway` reaches their gateway.
 as_openclaw_user() {
-    local user uid path
+    local user uid path="$PATH"
     user="$(openclaw_user)"
-    path="$(dirname "$OPENCLAW_BIN"):$PATH"
+    [ -z "${OPENCLAW_BIN:-}" ] || path="$(dirname "$OPENCLAW_BIN"):$PATH"
     if [ -z "$user" ]; then
         PATH="$path" "$@"
         return
@@ -109,11 +109,54 @@ openclaw_evidence() {
     echo "your recorded history. The usual causes, in order:" >&2
     echo "  1. The gateway still has its cached tool set. 'openclaw mcp reload'," >&2
     echo "     restart the gateway, and start a NEW chat session." >&2
-    echo "  2. The skill is missing, so nothing redirects the agent:" >&2
-    echo "     $SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh --check" >&2
+    echo "  2. The skill is missing or stale, so nothing redirects the agent:" >&2
+    echo "     $(cli_name) openclaw   (installs the current one)" >&2
     echo "  3. The server is not registered: 'openclaw mcp probe smokeping'." >&2
     echo "$SMOKING_PI_HOME/docs/openclaw-integration.md, 'Verify with evidence', has the detail." >&2
     return 1
+}
+
+# The skill is the release's answering guide (shared/modules/common/guide.py),
+# which changes in most releases, so an upgrade leaves the installed copy
+# behind: the agent goes on answering in the old shape and nothing says so
+# (v2.32.0, both Pis, until the installer was run by hand). `upgrade` calls
+# this last. A skill that was never installed stays uninstalled; a stale
+# one is refreshed and the gateway reloaded, as step 5 of `openclaw` does --
+# the upgrade has just recreated the MCP server under that gateway anyway.
+# Hand edits survive as SKILL.md.bak (the installer's). Never fails the
+# upgrade: what it cannot do, it names.
+openclaw_refresh_skill() {
+    local script="$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh"
+    local source="$SMOKING_PI_HOME/examples/openclaw/smokeping-monitoring/SKILL.md"
+    local user home dest rc=0
+    [ -x "$script" ] && [ -f "$source" ] || return 0
+    user="$(openclaw_user)"
+    home="$HOME"
+    [ -n "$user" ] && home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
+    [ -n "$home" ] || return 0
+    dest="${OPENCLAW_SKILLS_DIR:-$home/.openclaw/skills}/smokeping-monitoring/SKILL.md"
+    [ -f "$dest" ] || return 0
+    cmp -s "$source" "$dest" && return 0
+    echo
+    echo "The OpenClaw skill in $dest is the previous release's guide."
+    OPENCLAW_BIN="$(openclaw_bin)"
+    as_openclaw_user "$script" --reload >/dev/null 2>&1 || rc=$?
+    if [ "$rc" != 0 ] && [ "$rc" != 3 ]; then
+        echo "WARNING: it could not be refreshed, so the assistant answers from the old" >&2
+        echo "one. Refresh it, and reload the gateway, with:" >&2
+        echo "  $(cli_name) openclaw" >&2
+        return 0
+    fi
+    if [ "$rc" = 3 ]; then
+        echo "Refreshed it. No gateway answered, so nothing reloaded: a gateway reads"
+        echo "the new skill when it starts ('openclaw gateway status' says why)."
+    elif [ -z "$OPENCLAW_BIN" ]; then
+        echo "Refreshed it. No openclaw command here to reload the gateway with: unless"
+        echo "it runs as a systemd user unit (restarted), restart it however you run it."
+    else
+        echo "Refreshed it and reloaded the gateway."
+    fi
+    echo "Start a NEW chat session: an open one keeps the skill it started with."
 }
 
 cmd_openclaw() {
