@@ -9,6 +9,19 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.32.0] — 2026-10-13
+
+The path from a measurement to a message on the phone was audited end to
+end, and this release fixes what the audit found. One event now reaches
+the phone as one message, not a burst, and an alert that cannot be
+delivered waits and is sent once, when the network is back, instead of
+being lost. The alerter says when it cannot see: InfluxDB unreadable, a
+measurement that stopped, the watchdog's own actions. A total outage says
+where it is: this host's link, beyond the house, or the Pi's own DNS.
+"Widespread", "broad" and "weak Wi-Fi" mean one thing in the alerts, the
+diagnosis, both assistants and Grafana, and the web admin's chat answers
+from the same guide and diagnosis as every other assistant.
+
 ### Fixed
 
 - **The web admin's chat answers like every other assistant.** Its
