@@ -18,6 +18,7 @@ import time
 
 import alert_diagnosis
 import charts
+import dead_man
 import digest
 import evaluator
 import flux
@@ -233,6 +234,12 @@ def _unreadable(current: dict, exc: Exception, now: float) -> None:
     # reads InfluxDB too. A digest slot more than DIGEST_MAX_LATENESS late is
     # skipped as usual.
     state.save_state(current)
+    # Alive, and blind: the outside service says so at once -- once the
+    # blindness has lasted as long as influx_unreadable waits, so that an
+    # InfluxDB restart is not a page (review of #344). Before that, no
+    # check-in at all: the service's grace period covers it.
+    if now - since >= UNREADABLE_AFTER_S:
+        dead_man.check_in(ok=False, now=now)
 
 
 def _after_blindness(current: dict, incidents: list[dict], now: float,
@@ -372,6 +379,9 @@ def run_iteration() -> None:
     except Exception:  # noqa: BLE001 - a digest must never cost an alert
         log.exception("Digest check failed")
     state.save_state(current)
+    # Alive, and judging: the check-in an outside service expects. Last,
+    # so an iteration that crashed before here is silence, as it should be.
+    dead_man.check_in(ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:

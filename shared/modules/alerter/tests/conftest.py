@@ -75,6 +75,8 @@ SCRUB_ENV_VARS = [
     "QUIET_FROM",
     "QUIET_UNTIL",
     "DIGEST_TZ",
+    # A real URL here would make the suite check in with a real service.
+    "ALERT_DEADMAN_URL",
 ]
 
 

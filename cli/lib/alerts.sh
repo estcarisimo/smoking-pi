@@ -75,6 +75,60 @@ alerts_hhmm() {
     esac
 }
 
+alerts_deadman() {
+    # $1: off, or empty to read the URL. The URL is a credential (anyone
+    # holding it can check in for this host): typed hidden or read from
+    # stdin, never argv, never printed; the alerter logs its host only.
+    local url
+    if [ "$1" = off ]; then
+        env_set ALERT_DEADMAN_URL ""
+        echo "Dead man's switch off: nothing outside this host expects its check-ins."
+        config_apply ALERT_DEADMAN_URL
+        return
+    fi
+    echo "Every alert comes from this host, so when it hangs, loses power or its"
+    echo "card, nothing says so. A check-in service does: the alerter checks in"
+    echo "every 5 minutes, and the service tells you when the check-ins stop."
+    echo "On healthchecks.io (free; or a Healthchecks of your own): add a check,"
+    echo "period 5 minutes, grace 10, and copy its ping URL."
+    if [ -t 0 ]; then
+        read -r -s -p "Ping URL (hidden): " url || url=""; echo
+    else
+        IFS= read -r url || true
+    fi
+    # A pasted URL brings a trailing space or a CR; trim it, then refuse
+    # anything the env file or Compose would read as something else.
+    url="${url//$'\r'/}"
+    url="${url#"${url%%[![:space:]]*}"}"; url="${url%"${url##*[![:space:]]}"}"
+    case "$url" in
+        *[[:space:]\'\"\$\\\`]*) echo "That is not a ping URL (it has a space, a quote, \$ or \\); nothing changed." >&2; return 2 ;;
+        http://?*/*|https://?*/*) ;;
+        *) echo "That is not a ping URL (https://..., with a path); nothing changed." >&2; return 2 ;;
+    esac
+    case "$url" in
+        http://*) echo "Note: http, not https -- the URL is the credential, and it travels in the clear." >&2 ;;
+    esac
+    env_set ALERT_DEADMAN_URL "$url"
+    local since line i
+    since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    config_apply ALERT_DEADMAN_URL
+    # The proof is the alerter's own first check-in (it checks in at start),
+    # not this command: logged with the host, never the URL.
+    grep -qx alerter <(compose ps --status running --services 2>/dev/null) || return 0
+    for i in $(seq 1 45); do
+        line="$(compose logs alerter --since "$since" 2>/dev/null \
+            | grep -E "Dead man's switch:" | tail -1 || true)"
+        [ -z "$line" ] || break
+        sleep 2
+    done
+    if [ -z "$line" ]; then
+        echo "The alerter has not checked in yet; its log says why: $(cli_name) logs alerter" >&2
+        return 1
+    fi
+    echo "${line#*alerter.dead_man: }"
+    case "$line" in *"checked in"*) echo "Now pause the check once in the service to see its alert reach you." ;; *) return 1 ;; esac
+}
+
 alerts_telegram() {
     # $1: a chat id from --to, or empty; $2: --yes. The token is a secret:
     # typed (hidden) or read from stdin, never argv, never printed. The chat
@@ -139,7 +193,7 @@ alerts_telegram() {
 }
 
 cmd_alerts() {
-    local mode="" to="" url="" test_msg="" yes=0 digest="" digest_tz="" quiet=""
+    local mode="" to="" url="" test_msg="" yes=0 digest="" digest_tz="" quiet="" deadman=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --digest) case "${2:-}" in ""|-*) echo "--digest needs HH:MM or off" >&2; return 2 ;; esac
@@ -148,6 +202,7 @@ cmd_alerts() {
                          digest_tz="$2"; shift 2 ;;
             --quiet) case "${2:-}" in ""|-*) echo "--quiet needs HH:MM-HH:MM or off" >&2; return 2 ;; esac
                      quiet="$2"; shift 2 ;;
+            --deadman) if [ "${2:-}" = off ]; then deadman=off; shift 2; else deadman=set; shift; fi ;;
             --telegram) mode=telegram; shift ;;
             --openclaw) mode=openclaw; shift ;;
             --webhook) mode=webhook; shift ;;
@@ -166,6 +221,13 @@ cmd_alerts() {
     if ! grep -q '^  alerter:' "$EDITION_DIR/docker-compose.yml"; then
         echo "Alerts are a Pro service; the $SMOKING_PI_EDITION edition does not ship the alerter." >&2
         return 1
+    fi
+    if [ -n "$deadman" ]; then
+        # Its own step: it reads a credential from stdin, which a delivery
+        # mode may want too.
+        [ -z "$mode$digest$digest_tz$quiet$to$test_msg" ] || { echo "--deadman goes alone" >&2; return 2; }
+        [ "$deadman" = off ] && { alerts_deadman off; return; }
+        alerts_deadman ""; return
     fi
     if [ -n "$digest_tz" ] && [ -z "$digest" ]; then
         echo "--digest-tz goes with --digest HH:MM" >&2; return 2
