@@ -3,7 +3,7 @@
 
 examples/openclaw/smokeping-monitoring/SKILL.md is GENERATED: the
 OpenClaw-only header (openclaw-header.md, next to it) followed by
-shared/modules/mcp-server/guide.py's GUIDE -- the text every assistant
+shared/modules/common/guide.py's GUIDE -- the text every assistant
 receives as the MCP server's instructions. One source, so the skill and
 every other assistant cannot drift apart; the MCP server's tests fail when
 the committed SKILL.md is stale.
@@ -21,8 +21,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILL_DIR = ROOT / "examples" / "openclaw" / "smokeping-monitoring"
-GUIDE = ROOT / "shared" / "modules" / "mcp-server" / "guide.py"
-MARK = ("<!-- Generated from openclaw-header.md and shared/modules/mcp-server/guide.py "
+GUIDE = ROOT / "shared" / "modules" / "common" / "guide.py"
+MARK = ("<!-- Generated from openclaw-header.md and shared/modules/common/guide.py "
         "by shared/scripts/build-openclaw-skill.py. Edit those, not this file. -->")
 
 

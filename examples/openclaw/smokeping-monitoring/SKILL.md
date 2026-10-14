@@ -3,7 +3,7 @@ name: smokeping-monitoring
 description: Answer any question about the home internet connection, network health, latency, packet loss, outages, microcuts, or "how is my connection / cómo está mi conexión / qué onda la red" using the smokeping MCP tools, which hold this Pi's continuous measurement history. ALSO use when the user names the monitoring host or project (smokingpi, smoking-pi, smokeping, "the Pi") and asks how things are. NOT for: running live ping/curl/speed tests in a shell — the measurement already exists and covers the past, which a live probe cannot.
 ---
 
-<!-- Generated from openclaw-header.md and shared/modules/mcp-server/guide.py by shared/scripts/build-openclaw-skill.py. Edit those, not this file. -->
+<!-- Generated from openclaw-header.md and shared/modules/common/guide.py by shared/scripts/build-openclaw-skill.py. Edit those, not this file. -->
 
 # SmokePing Monitoring
 

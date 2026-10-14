@@ -30,6 +30,7 @@ from flask import Blueprint, jsonify, render_template, request
 from markupsafe import Markup, escape
 
 from app.services import ai_tools
+from common import guide
 from app.services.safe_path import UnsafePath, confine
 
 ai_bp = Blueprint('ai', __name__)
@@ -37,17 +38,41 @@ ai_bp = Blueprint('ai', __name__)
 DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 MAX_TOOL_ROUNDS = 6          # max model<->tool round-trips per POST
 MAX_HISTORY_MESSAGES = 80    # bound prompt size / cost per request
-MAX_OUTPUT_TOKENS = 1024
+MAX_OUTPUT_TOKENS = 2048     # the guide's report shape runs to several sections
 
-CHAT_SYSTEM_PROMPT = (
-    "You are the built-in assistant of a SmokePing network-monitoring "
-    "system running on a Raspberry Pi. You can inspect latency/loss/"
-    "microcut statistics and manage monitoring targets through your tools. "
-    "Target changes (add/remove/toggle) require the user to confirm a "
-    "pending action card in the UI before they run. Configuration is "
-    "regenerated automatically after target changes. Be concise and "
-    "concrete; cite target names and numbers from tool results."
+# What only this chat needs; how to answer is the shared guide
+# (common/guide.py), the same text every MCP client and the OpenClaw skill
+# get. A prompt of its own here let the in-UI assistant drift from the others.
+CHAT_HEADER = (
+    "# Smoking Pi web admin assistant\n\n"
+    "You are the assistant built into the Smoking Pi web admin: a Raspberry "
+    "Pi that has been continuously measuring a home network (latency and "
+    "loss to many destinations, DNS, HTTP and TCP, a 10-second probe of the "
+    "ISP's first hop, and the Pi's own Wi-Fi). Answer from that record "
+    "through your tools. Target changes (add, remove, toggle) only run "
+    "after the person confirms an action card in the page; the "
+    "configuration is regenerated automatically after them. The guide "
+    "below is shared by every assistant and names some tools you were not "
+    "given (get_chart, get_wifi_stats, the mute and ack tools): you cannot "
+    "call those, so say what they would show and point to the Grafana "
+    "dashboards instead. Your tool results carry no links: where the guide "
+    "asks for a link, name the dashboard and the time instead, and never "
+    "write a URL yourself. This chat shows plain text, not Markdown: write "
+    "section headings as plain lines and bullets with a hyphen, no "
+    "asterisks."
 )
+
+
+def _system_prompt() -> str:
+    """CHAT_HEADER, this Pi's timezone and the shared answering guide,
+    the way the MCP server builds its instructions."""
+    tz = (os.environ.get('TZ') or '').strip()
+    zone = (f"This Pi's clock is set to {tz}; it may not be where the reader "
+            "is -- ask or infer the reader's zone, and name it."
+            if tz and tz != 'UTC' else
+            "This Pi's clock is UTC; give times in the reader's zone and name it.")
+    return CHAT_HEADER + '\n\n' + zone + '\n\n' + guide.GUIDE
+
 
 _REPORT_NAME_RE = re.compile(r'^(report-\d{8}-\d{6}(-\d+)?|latest)\.md$')
 
@@ -264,7 +289,7 @@ def _run_chat_loop(messages: list) -> dict:
         response = client.messages.create(
             model=_model(),
             max_tokens=MAX_OUTPUT_TOKENS,
-            system=CHAT_SYSTEM_PROMPT,
+            system=_system_prompt(),
             tools=ai_tools.TOOLS,
             tool_choice={'type': 'auto', 'disable_parallel_tool_use': True},
             messages=messages,

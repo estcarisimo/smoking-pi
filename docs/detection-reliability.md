@@ -410,6 +410,8 @@ those minutes listed in `against`.
 1. The alerter's verdict (`alerter/verdict.py`) and the digest still
    attribute on their own; move them onto `common.diagnosis` so an alert and
    the assistant's later answer cannot disagree.
-2. The web-admin assistant does not have the tool yet.
+2. ~~The web-admin assistant does not have the tool yet.~~ It has
+   `diagnose_loss` and `get_incident_history` since 2026-10-13, through
+   `common/incident_answers.py`.
 3. The night-time `unclear` episodes on the reference Pi recur; whether they
    are this host (a nightly job), the ISP, or something else is unmeasured.

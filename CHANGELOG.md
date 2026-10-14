@@ -11,6 +11,20 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **The web admin's chat answers like every other assistant.** Its
+  system prompt was two sentences of its own, and it had no
+  `diagnose_loss` or `get_incident_history`. It read raw loss events and
+  attributed them itself, so it could still call the Pi's hung radio an
+  outage, or a lost name lookup a dead line, after the MCP clients and
+  the OpenClaw skill had stopped. That breaks the "one answering guide"
+  rule, and the person asking in the page got the oldest answer. The chat
+  now gets the shared guide (moved to `common/guide.py`, so both images
+  can read it; `mcp-server` keeps a `guide` alias) after a short header:
+  target changes need a confirmation, and tools it lacks point to
+  Grafana. Both diagnosis tools answer through `common/incident_answers.py`,
+  the MCP server's own code path. The compose file gives web-admin the
+  same `WIDESPREAD_PCT`, `VERDICT_BROAD_PCT` and `WIFI_WEAK_*` thresholds.
+
 - **Grafana reads cuts and loss the way the alerts do.** The Overview's
   *ISP gateway cut windows* counted every window above 50%, including those
   in the Pi's own deaf-radio spells. On the staging Pi over seven days it

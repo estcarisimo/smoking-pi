@@ -275,6 +275,13 @@ services:
       # The assistant's get_microcut_stats reads CPE cuts against the same
       # threshold as the alerter and the MCP server.
       MICROCUT_LOSS_PCT: ${MICROCUT_LOSS_PCT:-50}
+      # Its diagnose_loss and get_incident_history run common.diagnosis, which
+      # judges "weak", "broad" and "widespread" with the alerter's thresholds
+      # (common.definitions): the same ones the MCP server gets.
+      WIFI_WEAK_DBM: ${WIFI_WEAK_DBM:--75}
+      WIFI_WEAK_SAMPLES: ${WIFI_WEAK_SAMPLES:-6}
+      WIDESPREAD_PCT: ${WIDESPREAD_PCT:-80}
+      VERDICT_BROAD_PCT: ${VERDICT_BROAD_PCT:-60}
     depends_on:
       smokeping:
         condition: service_started

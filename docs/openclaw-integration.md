@@ -150,7 +150,7 @@ just in the old shape, and the install looks like it silently did nothing:
 
 It backs up an existing skill to `SKILL.md.bak` before overwriting, in case
 you tuned it in place. The skill is the answering guide every assistant gets
-from the server (`shared/modules/mcp-server/guide.py`) plus a short OpenClaw
+from the server (`shared/modules/common/guide.py`) plus a short OpenClaw
 header; the one value worth tuning is the trigger `description:`, in
 `openclaw-header.md` — then rebuild with
 `python3 shared/scripts/build-openclaw-skill.py`. The manual
