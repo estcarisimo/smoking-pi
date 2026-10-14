@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
-from common import cadence, definitions, diagnosis, microcuts
+from common import breadth, cadence, definitions, diagnosis, microcuts
 from common.tsdb import base_flux, flux_str
 
 log = logging.getLogger("common.diagnosis_query")
@@ -145,6 +145,17 @@ def run(query: Query, hours: int, cadences: dict | None = None) -> dict:
             step = int(ts // step_s) * step_s
             resolvers[step] = max(resolvers.get(step, 0), int(row["_value"]))
 
+    # The HTTP, TCP and DNS wizard targets that vote on breadth, as counts
+    # per cycle (common.breadth): the alerter's widespread rule counts them,
+    # so the diagnosis attached to its alert must too. Optional like the
+    # rest: a failed query leaves the breadth to the ICMP and resolver
+    # targets, and ``coverage`` says so.
+    try:
+        breadth_steps = breadth.fetch(query, hours, step_s)
+    except Exception:  # influx client raises many exception types
+        log.warning("diagnosis: breadth-only query failed", exc_info=True)
+        breadth_steps = {}
+
     events = [{"target": r.get("target"), "category": r.get("category"),
                "loss_pct": round(float(r.get("_value", 0.0)) * 100.0, 2),
                "_epoch": epoch(r.get("_time"))} for r in rows]
@@ -180,10 +191,14 @@ def run(query: Query, hours: int, cadences: dict | None = None) -> dict:
         "floor": diagnosis.first_hop_floor(floor_rows, step_s),
         "wifi_width": float(wifi_width(hours)),
         "resolvers": resolvers,
+        "breadth": breadth_steps,
     }
     result = diagnosis.diagnose(events, ctx, window_steps=hours * 3600 // step_s)
     result["coverage"] = {"wifi": wifi is not None, "cpe": cpe,
-                          "app_layer": bool(app_site_rows)}
-    result["targets_reporting"] = max(reporting.values(), default=0)
+                          "app_layer": bool(app_site_rows),
+                          "breadth_only": bool(breadth_steps)}
+    result["targets_reporting"] = max(
+        (reporting.get(s, 0) + breadth_steps.get(s, {}).get("reporting", 0)
+         for s in reporting.keys() | breadth_steps.keys()), default=0)
     result["rows_truncated"] = len(rows) >= MAX_ROWS
     return result

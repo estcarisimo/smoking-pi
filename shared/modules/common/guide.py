@@ -65,6 +65,12 @@ attributed:
   destination lost while the gateway answered). Beyond the line.
 - `unclear` -- say so, and give the evidence.
 
+The "N of M destinations" counts include the web services and DNS wizard
+sites, which are measured only to judge how wide a loss was; an incident's
+`targets` lists only the pinged sites and resolvers. "27 of 40 destinations"
+with two `targets` is a broad loss, not those two sites: quote the count,
+and never present `targets` as everything that lost packets.
+
 For anything older than a week, or counts over weeks ("how often does the
 line cut out?", "when was the last outage?"), call `get_incident_history`:
 the same incidents, as the alerter wrote them down once they were over.

@@ -9,6 +9,33 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An alert and its diagnosis count the same destinations.** v2.33.0 let
+  the HTTP, TCP and DNS wizard targets vote on the alerter's widespread
+  rule and verdict, but the diagnosis attached to the alert, the incident
+  history and the MCP `diagnose_loss` and `get_loss_events` still counted
+  the ICMP and resolver targets alone: an alert could read "180 of 243
+  targets lost packets" over a diagnosis that said "19 of 19", and a cut
+  of the web services alone, every ping answering, was an `outage` alert
+  with no incident to explain it. The breadth-only query and voting moved
+  to `common/breadth.py`, and every reader of breadth counts voters by the
+  same rule (over its own window: the diagnosis votes over hours, the
+  alerter over 20 minutes): per cycle in the diagnosis's shares, in
+  `get_loss_events`' `widespread` runs, in `targets_reporting`. Over hours
+  to a week the counts are aggregated in Flux (one row per target to
+  decide who votes, one per cycle for the counts), three small queries on
+  a Raspberry Pi rather than every point; a failed one leaves the breadth
+  as it was. A week-long `diagnose_loss` still scans about 450 000 points
+  twice in InfluxDB, which has not been timed on a Pi yet. Breadth-only
+  targets stay counts: an incident's `targets`, the `probe_miss` and
+  `destination` classes and every per-target list are the ICMP and
+  resolver targets, scattered breadth-only loss widens a count only in a
+  broad cycle, and a loss of breadth-only targets alone is never "this
+  host's DNS". `diagnose_loss`'s `coverage` gains `breadth_only`; the
+  answering guide says that a broad incident's `targets` is not everything
+  that lost packets.
+
 ## [2.33.0] — 2026-10-14
 
 Alerts can now stay quiet at night, and a dead host is no longer silence.

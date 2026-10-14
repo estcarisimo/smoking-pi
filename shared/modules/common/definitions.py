@@ -36,6 +36,10 @@ RESOLVER_CATEGORY = "dns"
 # None of them raises a per-target alert: many CDNs drop ICMP, and the
 # wizard's targets are exploratory (common.tsdb.WIZARD_CATEGORY).
 BREADTH_ONLY_MEASUREMENTS = ("http_latency", "tcp_latency")
+# The share of its points in the window a breadth-only target must have had
+# clean to vote. The queries and the voting over any window are
+# common.breadth's, for every reader of breadth.
+BREADTH_CLEAN_SHARE = 0.5
 
 
 def breadth_voters(rows: list[dict], cadences: dict[str, Cadence]) -> set[str]:
@@ -63,7 +67,8 @@ def breadth_voters(rows: list[dict], cadences: dict[str, Cadence]) -> set[str]:
         seen[target] = seen.get(target, 0) + 1
         if not is_event(ratio, of(cadences, target).pings):
             clean[target] = clean.get(target, 0) + 1
-    return {t for t, n in seen.items() if 2 * clean.get(t, 0) >= n}
+    return {t for t, n in seen.items()
+            if clean.get(t, 0) >= BREADTH_CLEAN_SHARE * n}
 
 
 # Total loss, by what still answers: one incident at a time.

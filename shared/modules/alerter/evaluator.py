@@ -20,7 +20,7 @@ from collections.abc import Collection
 from datetime import datetime, timezone
 
 import flux
-from common import aggregates, cadence, definitions, microcuts, tsdb
+from common import aggregates, breadth, cadence, definitions, microcuts, tsdb
 
 log = logging.getLogger("alerter.evaluator")
 
@@ -142,59 +142,10 @@ def _down_points_flux(window_s: int) -> str:
     )
 
 
-def _breadth_only_flux(window_s: int) -> str:
-    """Loss, pings and step of the targets that vote on breadth only
-    (common.definitions.BREADTH_ONLY_MEASUREMENTS and the DNS wizard's
-    services, whose ICMP targets are in ``latency``). The cadence comes
-    from the same points: no 6-hour lookback for targets that only ever
-    feed one rule."""
-    only = " or ".join(
-        f"r._measurement == {flux.flux_str(m)}"
-        for m in definitions.BREADTH_ONLY_MEASUREMENTS
-    )
-    wizard = flux.flux_str(tsdb.WIZARD_CATEGORY)
-    return (
-        flux.base_flux(["latency", *definitions.BREADTH_ONLY_MEASUREMENTS],
-                       f"-{int(window_s)}s", include_wizard=True)
-        + f"|> filter(fn: (r) => {only} or r.category == {wizard}) "
-        + '|> filter(fn: (r) => r._field == "loss" or r._field == "pings" '
-        + 'or r._field == "step") '
-        + '|> keep(columns: ["_value", "_time", "_field", "target", '
-        + '"_measurement", "category"]) '
-    )
-
-
-def breadth_only_rows(
-    rows: list[dict], mean_window_s: int, step_s: int = STEP_S
-) -> tuple[list[dict], list[dict], dict[str, cadence.Cadence]]:
-    """(loss points, 15-minute means, cadences) of the breadth-only targets
-    that vote in this window (common.definitions.breadth_voters).
-
-    A target on a slower step than ``step_s`` (the rules' bucket) is left
-    out: it would report in one bucket of two, and the share would swing
-    between cycles with the denominator (review of #342). The means are
-    taken here, over the newest ``mean_window_s`` of the points already
-    fetched, in the shape of :func:`_mean_loss_flux`'s rows, for the
-    verdict: it counts the same set the rule does.
-    """
-    loss = [r for r in rows if r.get("_field") == "loss"]
-    cadences = cadence.by_target(
-        [r for r in rows if r.get("_field") in ("step", "pings")])
-    voters = {t for t in definitions.breadth_voters(loss, cadences)
-              if cadence.of(cadences, t).step <= step_s}
-    loss = [r for r in loss if r.get("target") in voters]
-    times = [cadence.epoch(r.get("_time")) for r in loss]
-    newest = max((t for t in times if t is not None), default=None)
-    sums: dict[tuple[str, str | None], list[float]] = {}
-    for row, at in zip(loss, times):
-        if at is None or row.get("_value") is None or newest is None:
-            continue
-        if at > newest - mean_window_s:
-            sums.setdefault((row["target"], row.get("category")), []).append(
-                flux.clamp_loss_ratio(row["_value"]))
-    means = [{"target": t, "category": c, "_value": sum(v) / len(v)}
-             for (t, c), v in sorted(sums.items())]
-    return loss, means, {t: c for t, c in cadences.items() if t in voters}
+# The breadth-only targets' query and voting are common.breadth's: the
+# diagnosis, the MCP tools and the incident history count the same set.
+_breadth_only_flux = breadth.points_flux
+breadth_only_rows = breadth.window_rows
 
 
 def _mean_loss_flux(window_s: int = MEAN_STEPS * STEP_S) -> str:

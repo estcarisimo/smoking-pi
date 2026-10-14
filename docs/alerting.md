@@ -69,6 +69,23 @@ every cycle's share. One on a slower step than the rules' bucket does not
 count: it would report in one cycle of two. `monitor_dns` needs
 `WIDESPREAD_PCT` of the named targets lost, not every one.
 
+The diagnosis attached to an alert, the incident history, and the MCP
+`diagnose_loss` and `get_loss_events` count breadth-only targets by the same rule
+(`common/breadth.py`), so an alert's "14 of 16" and its diagnosis's agree.
+One difference: the alerter takes the vote over its own window (20
+minutes), they take it over theirs (hours to a week). A target lossy for
+most of the week does not vote in a week's diagnosis, even in a cycle where
+the alerter counted it; at the moment an alert fires, the two sets are the
+same unless a target was lossy for most of the diagnosis window. The counts
+are aggregated in Flux: one row per target to
+decide who votes, one per cycle for how many reported, were lossy, and lost
+everything. The few breadth-only targets that lose a point in any cycle
+count only once a cycle is broad: beside one named site's miss they are
+background. Breadth-only targets are counts there and nothing else: an
+incident's `targets`, the one-or-two-sites `destination` class and every
+per-target list are the ICMP and resolver targets. A cut of the web
+services alone, every ping answering, is an incident with no `targets`.
+
 ## Incident lifecycle
 
 State lives in a JSON file (`ALERT_STATE_FILE`, default

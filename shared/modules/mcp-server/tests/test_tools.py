@@ -1440,3 +1440,93 @@ def test_loss_events_first_hop_reading_ignores_the_callers_threshold(monkeypatch
     _patch_influx(monkeypatch, _with_first_hop(_loss_fake(per_target), [1.0] * 4))
     run = server.get_loss_events(hours=24, min_loss_pct=95)["widespread"][0]
     assert run["reading"] == "uplink_down"
+
+
+# ---------------------------------------------------------------------------
+# Breadth-only voters (common.breadth): counted as the alerter counts them
+# ---------------------------------------------------------------------------
+
+
+def _with_breadth(fake, per_step, voters=("svc0", "svc1")):
+    """The fake plus the breadth-only queries: ``voters`` clean all window,
+    a dead CDN that never votes, and ``per_step`` [(reporting, lossy,
+    lost)] for the voters, one per 300 s step from _T0."""
+    def wrapped(flux):
+        if '"http_latency"' in flux and "last()" in flux:
+            return []  # breadth cadence: the default
+        if '"http_latency"' in flux and "mean()" in flux:
+            return ([{"target": t, "_value": 1.0} for t in voters]
+                    + [{"target": "dead_cdn", "_value": 0.0}])
+        if "reduce(" in flux:
+            assert '{key: "dead_cdn", value: true}' not in flux
+            return [{"_time": _T0 + timedelta(seconds=300 * i), "reporting": n,
+                     "lossy": lossy, "lost": lost}
+                    for i, (n, lossy, lost) in enumerate(per_step)]
+        return fake(flux)
+    return wrapped
+
+
+def test_loss_events_count_the_breadth_only_voters_in_the_widespread_share(
+        monkeypatch, no_api):
+    """Three of ten pinged targets lose packets: not widespread alone. With
+    thirty web services, twenty-nine of them lossy in the same cycle, it is
+    32 of 40 -- as the alerter's rule counts it."""
+    per_target = {t: [0.0, 0.6] for t in ("Google", "Apple", "Amazon")}
+    fake = _with_breadth(_loss_fake(per_target, targets=_TEN, steps=2),
+                         [(30, 0, 0), (30, 29, 0)])
+    _patch_influx(monkeypatch, fake)
+    result = server.get_loss_events(hours=24)
+    [run] = result["widespread"]
+    assert (run["targets_affected"], run["targets_total"]) == (32, 40)
+    assert result["targets_reporting"] == 40
+    # Never a per-target view: the episodes and events are the pinged ones.
+    assert {e["target"] for e in result["episodes"]} == set(per_target)
+
+
+def test_loss_events_without_breadth_only_voters_is_as_before(monkeypatch, no_api):
+    per_target = {t: [0.0, 0.6] for t in ("Google", "Apple", "Amazon")}
+    fake = _with_breadth(_loss_fake(per_target, targets=_TEN, steps=2), [], voters=())
+    captured = _patch_influx(monkeypatch, fake)
+    result = server.get_loss_events(hours=24)
+    assert result["widespread"] == [] and result["targets_reporting"] == 10
+    assert not any("reduce(" in f for f in captured)  # no voter, no third query
+
+
+def test_loss_events_survive_a_failed_breadth_query(monkeypatch, no_api):
+    base = _loss_fake({t: [1.0] for t in _TEN})
+
+    def fake(flux):
+        if '"http_latency"' in flux:
+            raise RuntimeError("influx hiccup")
+        return base(flux)
+
+    _patch_influx(monkeypatch, fake)
+    result = server.get_loss_events(hours=24)
+    assert result["widespread"][0]["targets_total"] == 10
+
+
+def test_loss_events_count_the_breadth_at_the_callers_bar(monkeypatch, no_api):
+    fake = _with_breadth(_loss_fake({}, targets=_TEN, steps=1), [(2, 0, 0)])
+    captured = _patch_influx(monkeypatch, fake)
+    server.get_loss_events(hours=24, min_loss_pct=40)
+    [steps] = [f for f in captured if "reduce(" in f]
+    assert "lossy: if r._value >= 0.4 then 1" in steps
+    # Who votes is the event rule, whatever the caller's bar.
+    [voting] = [f for f in captured if '"http_latency"' in f and "mean()" in f]
+    assert "r._value >= 0.15" in voting
+
+
+def test_total_loss_of_the_breadth_alone_is_not_this_hosts_dns():
+    """Every web service lost for three cycles while the pinged sites and
+    the resolvers answered: not "this host cannot resolve names", which
+    needs the named destinations lost."""
+    step = int(_T0.timestamp()) // 300 * 300
+    steps = [step + 300 * i for i in range(3)]
+    reporting = {s: 4 for s in steps}
+    runs = server._widespread_runs(
+        [], reporting, resolvers={s: 3 for s in steps},
+        hop={s: False for s in steps},
+        breadth_steps={s: {"reporting": 36, "lossy": 36, "lost": 36} for s in steps})
+    [run] = runs
+    assert (run["targets_affected"], run["targets_total"]) == (36, 40)
+    assert run["reading"] == "internet_down"
