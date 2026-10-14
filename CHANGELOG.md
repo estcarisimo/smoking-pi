@@ -20,7 +20,10 @@ such as healthchecks.io, which tells you when this host stops checking in,
 even when the whole house is down. Whether a loss is "everywhere" is now
 judged on the HTTP, TCP and DNS wizard targets too, not only the ICMP and
 resolver ones, so a few sites losing packets no longer reads as the link.
-None of those targets raises an alert of its own. `smoking-pi upgrade`
+None of those targets raises an alert of its own, and the verdict's
+"DNS only" and this host's own DNS failure (`monitor_dns`) are judged on
+the same wider set. Quiet hours and the switch are off until you turn
+them on. `smoking-pi upgrade`
 refreshes an installed OpenClaw skill that the new release left stale, so
 the assistant answers from the current guide.
 
