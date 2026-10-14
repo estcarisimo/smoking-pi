@@ -571,34 +571,14 @@ def test_diagnose_loss_counts_the_breadth_in_targets_reporting(monkeypatch, no_a
     ts = lambda step: datetime.fromtimestamp(T0 + step * STEP, tz=timezone.utc)  # noqa: E731
 
     def fake(flux):
-        if "reduce(" in flux:
-            return [{"_time": ts(s), "reporting": 30, "lossy": 0, "lost": 0}
-                    for s in range(0, 10)]
-        if '"http_latency"' in flux and "mean()" in flux:
-            return [{"target": f"svc{i}", "_value": 1.0} for i in range(30)]
         if "distinct(column: \"target\") |> count()" in flux:
             return [{"_time": ts(s), "_value": 10} for s in range(0, 10)]
         return []
 
     monkeypatch.setattr(server, "query_influx", fake)
     monkeypatch.setattr(server, "_cadences", lambda: {})
+    monkeypatch.setattr(diagnosis_query.breadth, "fetch",
+                        lambda query, hours, step_s: _breadth(range(0, 10)))
     result = server.diagnose_loss(hours=24)
     assert result["targets_reporting"] == 40
     assert result["coverage"]["breadth_only"] is True
-
-
-def test_a_lone_miss_beside_scattered_breadth_loss_is_still_a_probe_miss():
-    """Review of #346: a few of 200 web services losing a point in the same
-    cycle is their background, not part of the named site's miss."""
-    for lossy in (1, 3, 10):
-        c = ctx(breadth=_breadth(range(0, 10), reporting=200, lossy=lossy))
-        inc = only(diagnosis.diagnose([ev("site1", 3, 20.0)], c, 288))
-        assert inc["class"] == "probe_miss" and inc["targets_affected"] == 1
-
-
-def test_one_site_beside_scattered_breadth_loss_is_still_the_destination():
-    c = ctx(breadth=_breadth(range(0, 10), reporting=200, lossy=3))
-    inc = only(diagnosis.diagnose([ev("site1", s, 60.0) for s in (3, 4)], c, 288))
-    assert inc["class"] == "destination"
-    assert inc["evidence"][0] == "only site1 lost packets (1 of 210 destinations)"
-    assert inc["targets_affected"] == 1

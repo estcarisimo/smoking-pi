@@ -20,7 +20,7 @@ from collections.abc import Collection
 from datetime import datetime, timezone
 
 import flux
-from common import aggregates, breadth, cadence, definitions, microcuts, tsdb
+from common import aggregates, breadth, cadence, definitions, microcuts
 
 log = logging.getLogger("alerter.evaluator")
 

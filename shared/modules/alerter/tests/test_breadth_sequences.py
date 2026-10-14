@@ -58,24 +58,26 @@ class Influx:
 
     def query(self, src):  # noqa: C901 -- one dispatcher, read top to bottom
         seconds = self._window(src)
-        if "reduce(" in src:  # breadth.steps_flux: per-time voter counts
-            voting = set(re.findall(r'key: "([^"]+)", value: true', src))
-            by_time = {}
-            for target, _m, pings, _s, at, value in self._breadth_points(seconds):
-                if target not in voting:
-                    continue
-                row = by_time.setdefault(at, {"_time": at, "reporting": 0,
-                                              "lossy": 0, "lost": 0})
-                row["reporting"] += 1
-                row["lossy"] += value >= 1.5 / pings
-                row["lost"] += value >= 0.999
-            return list(by_time.values())
-        if '"http_latency"' in src and "mean()" in src:  # breadth.voters_flux
-            clean = {}
-            for target, _m, pings, _s, _at, value in self._breadth_points(seconds):
-                clean.setdefault(target, []).append(
-                    0.0 if value >= 1.5 / pings else 1.0)
-            return [{"target": t, "_value": sum(v) / len(v)} for t, v in clean.items()]
+        if '|> count() |> keep(columns: ["target", "_value"])' in src:
+            bar = re.search(r"r\._value >= ([0-9.]+)\)", src)  # breadth.count_flux
+            counts = {}
+            for target, *_rest, value in self._breadth_points(seconds):
+                if bar is None or value >= float(bar.group(1)):
+                    counts[target] = counts.get(target, 0) + 1
+            return [{"target": t, "_value": n} for t, n in counts.items()]
+        for end in ("first", "last"):  # breadth.span_flux
+            if f'|> {end}() |> keep(columns: ["target", "_time"])' in src:
+                spans = {}
+                for target, *_rest, at, _v in self._breadth_points(seconds):
+                    spans.setdefault(target, []).append(at)
+                pick = min if end == "first" else max
+                return [{"target": t, "_time": pick(v)} for t, v in spans.items()]
+        if "limit(n: 20001)" in src:  # breadth.lossy_flux: the voters only
+            bar = float(re.search(r"r\._value >= ([0-9.]+) and", src).group(1))
+            voting = set(re.findall(r'r\.target == "([^"]+)"', src))
+            return [{"_time": at, "_value": v, "target": t}
+                    for t, *_rest, at, v in self._breadth_points(seconds)
+                    if t in voting and v >= bar]
         if '"http_latency"' in src and "last()" in src:  # breadth.cadence_flux
             return [row for t, (_m, pings, step, _l) in self.breadth.items()
                     for row in ({"target": t, "_field": "pings", "_value": pings},
@@ -154,7 +156,13 @@ def test_the_alert_and_its_diagnosis_count_the_same_breadth(monkeypatch):
     alert_voters = {r["target"] for r in context["breadth_mean_rows"]}
     assert alert_voters == {f"svc{i}_h2" for i in range(12)}
     cad = cadence.by_target(influx.query(breadth.cadence_flux()))
-    diag_voters = breadth.voters(influx.query(breadth.voters_flux(3, cad)), cad, STEP)
+    def counted(bar=None):
+        return {r["target"]: r["_value"] for r in influx.query(breadth.count_flux(3, bar))}
+
+    totals = counted()
+    events = {t: counted(cadence.event_ratio(cadence.of(cad, t).pings)).get(t, 0)
+              for t in totals}
+    diag_voters = breadth.voters(totals, events, cad, STEP)
     assert diag_voters == alert_voters
 
     attached = alert_diagnosis.for_event(outage, result, STEP,

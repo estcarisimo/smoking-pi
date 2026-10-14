@@ -12,12 +12,22 @@ Two shapes, one rule:
 
 - **The alerter's window** (twenty minutes): raw points, because its rules
   bucket every target per cycle (:func:`points_flux`, :func:`window_rows`).
-- **A diagnosis window** (hours to a week): aggregated in Flux, because a
-  day of 224 targets is 64 000 points and a Raspberry Pi answers it. One
-  row per target says whether it votes (:func:`voters_flux`); one row per
-  cycle says how many voters reported, how many were lossy and how many
-  lost everything (:func:`steps_flux`). No target name leaves Flux beyond
-  the voter list: breadth-only targets are counts, never a per-target view.
+- **A diagnosis window** (hours to a week): only shapes InfluxDB answers
+  in its storage engine -- a bare ``count()``, ``first()``, ``last()`` and
+  a filter on the value -- and the cycles are built here. The first
+  version grouped every point by time and reduced them in Flux: 108 s for
+  a week of 63 targets on the staging Pi, and a 30-day one froze the Pi
+  until its hardware watchdog reset it (2026-10-14). These take 0.2-0.4 s
+  each for a week:
+
+  * points per target, and points at or above the event bar per target
+    (one query per distinct bar): who votes (:func:`count_flux`);
+  * each voter's first and last point: the cycles it reported in
+    (:func:`span_flux`);
+  * the voters' lossy points only: which cycles they were lossy or lost
+    everything in (:func:`lossy_flux`).
+
+  Breadth-only targets are counts: no caller sees their names.
 
 A target votes when at least half its points in the window were clean
 (definitions.breadth_voters), and only on a step no slower than the
@@ -107,8 +117,20 @@ def window_rows(
 
 
 # ---------------------------------------------------------------------------
-# A diagnosis window: aggregated in Flux
+# A diagnosis window: storage-engine aggregates, cycles built here
 # ---------------------------------------------------------------------------
+
+# The longest window the breadth is counted over. Past it the caller counts
+# the ICMP and resolver targets alone, and says so: a month of every
+# breadth-only target's lossy points is no question to put to a Pi.
+MAX_HOURS = 168
+# Lossy points of the voters one answer may read; past it (a week-long
+# outage) the breadth is left out rather than undercounted.
+MAX_LOSSY_ROWS = 20000
+
+
+class TooMany(RuntimeError):
+    """More lossy points than MAX_LOSSY_ROWS: the breadth is left out."""
 
 
 def cadence_flux() -> str:
@@ -122,95 +144,139 @@ def cadence_flux() -> str:
     )
 
 
-def voters_flux(hours: int, cadences: dict[str, cadence.Cadence]) -> str:
-    """Per breadth-only target, the share of its loss points in the last
-    ``hours`` that were clean (under the event bar for its pings): one row
-    each, whatever the window."""
-    prelude, bar = cadence.event_threshold_flux(cadences)
+def _loss(hours: int) -> str:
+    return _base(f"-{int(hours)}h") + '|> filter(fn: (r) => r._field == "loss") '
+
+
+def count_flux(hours: int, bar: float | None = None) -> str:
+    """Loss points per series in the last ``hours``; with ``bar``, only
+    those at or above it. A series with none is absent."""
+    above = (f"|> filter(fn: (r) => r._value >= {cadence.flux_float(bar)}) "
+             if bar is not None else "")
+    return _loss(hours) + above + '|> count() |> keep(columns: ["target", "_value"])'
+
+
+def span_flux(hours: int, end: str) -> str:
+    """Each series' ``first`` or ``last`` loss point time."""
+    return _loss(hours) + f'|> {end}() |> keep(columns: ["target", "_time"])'
+
+
+def _targets_predicate(targets: set[str]) -> str:
+    return " or ".join(f"r.target == {flux_str(t)}" for t in sorted(targets))
+
+
+def lossy_flux(hours: int, voting: set[str], bar: float) -> str:
+    """The voters' loss points at or above ``bar`` (the lowest of their
+    bars), in no particular order, at most one past MAX_LOSSY_ROWS. The
+    limit bounds what is sent back, not what InfluxDB reads."""
     return (
-        prelude + _base(f"-{int(hours)}h")
-        + '|> filter(fn: (r) => r._field == "loss") '
-        + f"|> map(fn: (r) => ({{r with _value: if r._value >= {bar} "
-        + "then 0.0 else 1.0}})) "
-        + '|> group(columns: ["target"]) |> mean() '
-        + '|> keep(columns: ["target", "_value"])'
+        _loss(hours)
+        + f"|> filter(fn: (r) => r._value >= {cadence.flux_float(bar)} and "
+        + f"({_targets_predicate(voting)})) "
+        + '|> keep(columns: ["_time", "_value", "target"]) |> group() '
+        + f"|> limit(n: {MAX_LOSSY_ROWS + 1})"
     )
 
 
-def voters(rows: list[dict], cadences: dict[str, cadence.Cadence],
-           step_s: int) -> set[str]:
-    """The targets of :func:`voters_flux` rows that vote: clean in at least
+def _sum_by_target(rows: list[dict]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for row in rows:
+        if row.get("target") is not None and row.get("_value") is not None:
+            out[row["target"]] = out.get(row["target"], 0) + int(row["_value"])
+    return out
+
+
+def _quotable(target: str) -> bool:
+    try:
+        flux_str(target)
+    except ValueError:
+        return False
+    return True
+
+
+def voters(totals: dict[str, int], events: dict[str, int],
+           cadences: dict[str, cadence.Cadence], step_s: int) -> set[str]:
+    """The targets that vote: clean (under their event bar) in at least
     definitions.BREADTH_CLEAN_SHARE of their points, on a step no slower
-    than ``step_s``."""
+    than ``step_s``, with a name Flux can quote."""
     return {
-        r["target"] for r in rows
-        if r.get("target") is not None and r.get("_value") is not None
-        and float(r["_value"]) >= definitions.BREADTH_CLEAN_SHARE
-        and cadence.of(cadences, r["target"]).step <= step_s
+        t for t, n in totals.items()
+        if n > 0 and n - events.get(t, 0) >= definitions.BREADTH_CLEAN_SHARE * n
+        and cadence.of(cadences, t).step <= step_s and _quotable(t)
     }
 
 
-def steps_flux(hours: int, cadences: dict[str, cadence.Cadence],
-               voting: set[str], bar: str | None = None) -> str | None:
-    """Per point time, how many voters reported, were lossy (at ``bar``, a
-    Flux float expression; default the event bar of each target's pings)
-    and lost everything. None when no voter has a name Flux can quote."""
-    pairs = []
-    for target in sorted(voting):
-        try:
-            pairs.append(f"{{key: {flux_str(target)}, value: true}}")
-        except ValueError:
-            continue
-    if not pairs:
-        return None
-    prelude, event_bar = cadence.event_threshold_flux(cadences)
-    prelude = (prelude or 'import "dict"\n') + (
-        f"voters = dict.fromList(pairs: [{', '.join(pairs)}])\n")
-    bar = bar or event_bar
-    return (
-        prelude + _base(f"-{int(hours)}h")
-        + '|> filter(fn: (r) => r._field == "loss" and '
-        + "dict.get(dict: voters, key: r.target, default: false)) "
-        + f"|> map(fn: (r) => ({{r with lossy: if r._value >= {bar} then 1 "
-        + f"else 0, lost: if r._value >= {cadence.flux_float(LOST_RATIO)} "
-        + "then 1 else 0}})) "
-        + '|> group(columns: ["_time"]) '
-        + "|> reduce(identity: {reporting: 0, lossy: 0, lost: 0}, "
-        + "fn: (r, accumulator) => ({reporting: accumulator.reporting + 1, "
-        + "lossy: accumulator.lossy + r.lossy, lost: accumulator.lost + r.lost})) "
-        + "|> group()"
-    )
+def per_step(spans: dict[str, tuple[float, float]], lossy_rows: list[dict],
+             bars: dict[str, float], step_s: int) -> dict[int, dict[str, int]]:
+    """``{step: {"reporting", "lossy", "lost"}}`` of the voters.
 
-
-def per_step(rows: list[dict], step_s: int) -> dict[int, dict[str, int]]:
-    """:func:`steps_flux` rows bucketed into ``step_s`` cycles:
-    ``{step: {"reporting", "lossy", "lost"}}``. Several point times in one
-    cycle (jitter): the largest count of each is the cycle's, as the
-    reporting counts of the other targets are taken. A voter on a step
-    faster than ``step_s`` has several point times in a cycle, and its
-    lossy points are counted at the busiest one, not per cycle as the
-    alerter buckets them: the shipped probes all share the 300 s step."""
+    ``spans``: each voter's first and last point (epochs); it reports in
+    every cycle between them -- a gap of a few cycles in a target that
+    otherwise reports is counted as reporting, which a probe stall makes
+    every target do alike. ``lossy_rows``: the voters' points at or above
+    the lowest bar; each counts as lossy at its own target's ``bars``
+    entry, as lost at LOST_RATIO, once per target and cycle."""
     out: dict[int, dict[str, int]] = {}
-    for row in rows:
-        ts = cadence.epoch(row.get("_time"))
-        if ts is None:
+    # A sweep over +1 at each first cycle and -1 after each last one: one
+    # pass over the cycles, not one per voter and cycle.
+    change: dict[int, int] = {}
+    for first, last in spans.values():
+        lo = int(first // step_s) * step_s
+        hi = int(last // step_s) * step_s + step_s
+        change[lo] = change.get(lo, 0) + 1
+        change[hi] = change.get(hi, 0) - 1
+    if change:
+        running = 0
+        for step in range(min(change), max(change), step_s):
+            running += change.get(step, 0)
+            if running:
+                out[step] = {"reporting": running, "lossy": 0, "lost": 0}
+    seen: dict[tuple[int, str], tuple[bool, bool]] = {}
+    for row in lossy_rows:
+        target, ts = row.get("target"), cadence.epoch(row.get("_time"))
+        if target not in bars or ts is None or row.get("_value") is None:
             continue
-        step = int(ts // step_s) * step_s
+        value = float(row["_value"])
+        key = (int(ts // step_s) * step_s, target)
+        was = seen.get(key, (False, False))
+        seen[key] = (was[0] or value >= bars[target], was[1] or value >= LOST_RATIO)
+    for (step, _), (lossy, lost) in seen.items():
         counts = out.setdefault(step, {"reporting": 0, "lossy": 0, "lost": 0})
-        for key in counts:
-            counts[key] = max(counts[key], int(row.get(key) or 0))
+        counts["lossy"] += lossy
+        counts["lost"] += lost
     return out
 
 
 def fetch(query: Query, hours: int, step_s: int,
-          bar: str | None = None) -> dict[int, dict[str, int]]:
+          bar: float | None = None) -> dict[int, dict[str, int]]:
     """The breadth-only voters' counts per cycle over the last ``hours``
-    (:func:`per_step`). Three queries, each answered with one row per
-    target or per cycle. Raises whatever ``query`` raises: callers decide
-    whether the breadth is optional (it is everywhere today)."""
+    (:func:`per_step`); ``bar`` (a loss ratio) replaces each target's event
+    bar for "lossy", never for who votes. Raises whatever ``query`` raises,
+    TooMany past MAX_LOSSY_ROWS, and ValueError past MAX_HOURS: callers
+    leave the breadth out on any of them."""
+    if hours > MAX_HOURS:
+        raise ValueError(f"breadth is counted over at most {MAX_HOURS} h")
     cadences = cadence.by_target(query(cadence_flux()))
-    voting = voters(query(voters_flux(hours, cadences)), cadences, step_s)
+    totals = _sum_by_target(query(count_flux(hours)))
+    event_bars = {t: cadence.event_ratio(cadence.of(cadences, t).pings)
+                  for t in totals}
+    events: dict[str, int] = {}
+    for level in sorted(set(event_bars.values())):
+        above = _sum_by_target(query(count_flux(hours, level)))
+        events.update({t: above.get(t, 0) for t, b in event_bars.items()
+                       if b == level})
+    voting = voters(totals, events, cadences, step_s)
     if not voting:
         return {}
-    src = steps_flux(hours, cadences, voting, bar)
-    return per_step(query(src), step_s) if src else {}
+    spans: dict[str, list[float]] = {}
+    for end in ("first", "last"):
+        for row in query(span_flux(hours, end)):
+            ts = cadence.epoch(row.get("_time"))
+            if row.get("target") in voting and ts is not None:
+                span = spans.setdefault(row["target"], [ts, ts])
+                span[0], span[1] = min(span[0], ts), max(span[1], ts)
+    bars = {t: (bar if bar is not None else event_bars[t]) for t in voting}
+    rows = query(lossy_flux(hours, voting, min(bars.values())))
+    if len(rows) > MAX_LOSSY_ROWS:
+        raise TooMany(f"more than {MAX_LOSSY_ROWS} lossy breadth-only points")
+    return per_step({t: (a, b) for t, (a, b) in spans.items()}, rows, bars, step_s)
