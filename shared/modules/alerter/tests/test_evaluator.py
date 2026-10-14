@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 import evaluator
 import flux
 
@@ -1119,3 +1121,156 @@ def test_a_first_hop_missing_its_last_point_is_read_from_the_cycle_before():
 def test_each_total_loss_supersedes_the_other_two():
     [inc] = evaluator.rule_widespread(_total(hop="answers"))
     assert sorted(inc["supersedes"]) == ["monitor_dns", "uplink_down"]
+
+
+# ---------------------------------------------------------------------------
+# Breadth-only targets: HTTP, TCP and the DNS wizard vote on breadth alone
+# ---------------------------------------------------------------------------
+
+from common import definitions  # noqa: E402
+
+PRIMARY = ["Google", "Apple", "Amazon", "NYT"]
+WIZARD = [f"svc{i}_h2" for i in range(12)]
+
+
+def _breadth_rows(per_target, pings=3, measurement="http_latency",
+                  category="dns_wizard"):
+    """What _breadth_only_flux returns: loss points plus each target's
+    pings and step, as fields of the same points."""
+    rows = []
+    for target, values in per_target.items():
+        for i, v in enumerate(values):
+            at = STEP0 + timedelta(seconds=300 * i)
+            for field, value in (("loss", v), ("pings", pings), ("step", 300)):
+                rows.append({"target": target, "_field": field, "_value": value,
+                             "_time": at, "_measurement": measurement,
+                             "category": category})
+    return rows
+
+
+def test_breadth_voters_need_most_of_their_window_clean():
+    cad = cadence.by_target(_cadence_rows(cdn=(300, 10), head=(300, 3), h3=(300, 3)))
+    rows = (_loss_points("cdn", [1.0, 1.0, 1.0, 1.0])       # never answers ICMP
+            + _loss_points("lossy", [0.5, 0.4, 0.6])        # always an event
+            + _loss_points("h3", [2 / 3, 0.0, 2 / 3, 2 / 3])  # blocked most cycles
+            + _loss_points("cut", [0.0, 0.0, 1.0, 1.0])     # half clean, then lost
+            + _loss_points("long", [0.0, 1.0, 1.0, 1.0])    # lost most of the window
+            + _loss_points("head", [1 / 3, 1 / 3, 1 / 3]))  # one ping of three
+    assert definitions.breadth_voters(rows, cad) == {"cut", "head"}
+
+
+def test_a_breadth_target_on_a_slower_step_does_not_vote():
+    """A 600 s probe has a point in one 300 s bucket of two: counted, the
+    share would swing with the denominator from one cycle to the next."""
+    rows = _breadth_rows({"slow": [0.0, 0.0]}, pings=3)
+    for row in rows:
+        if row["_field"] == "step":
+            row["_value"] = 600
+    loss, means, cad = evaluator.breadth_only_rows(rows, 900, step_s=300)
+    assert (loss, means, cad) == ([], [], {})
+    loss, _, _ = evaluator.breadth_only_rows(rows, 1800, step_s=600)
+    assert {r["target"] for r in loss} == {"slow"}
+
+
+def test_monitor_dns_holds_with_a_named_straggler_that_still_answers():
+    """Among hundreds of named targets, one reached by address (or a cached
+    answer) still answers while this host's DNS is gone: still the
+    monitor's DNS, not the Internet."""
+    rows = _total(named=20, resolvers=3, hop="answers", resolvers_lost=False)
+    for row in rows:
+        if row["target"] == "site0":
+            row["_value"] = 0.0
+    [inc] = evaluator.rule_widespread(rows)
+    assert inc["rule"] == "monitor_dns"
+    assert inc["observation"].startswith("19 of 20 named destinations")
+
+
+def test_a_few_lost_sites_are_not_widespread_once_the_breadth_answers():
+    """The 19-of-247 problem: with only a handful of ICMP targets, four
+    sites losing packets read as "the link". The wizard's services answering
+    in the same cycles say it was those sites."""
+    rows = _timed_points({t: [0.0, 0.6, 0.6, 0.0] for t in PRIMARY})
+    assert [i["rule"] for i in evaluator.rule_widespread(rows)] == ["outage"]
+    breadth, _, cad = evaluator.breadth_only_rows(
+        _breadth_rows({t: [0.0, 0.0, 0.0, 0.0] for t in WIZARD}), 900)
+    assert evaluator.rule_widespread(rows + breadth, cadences=cad) == []
+
+
+def test_a_cut_everywhere_counts_the_breadth_in_its_message():
+    rows = _timed_points({t: [0.0, 1.0, 1.0, 0.0] for t in PRIMARY})
+    breadth, _, cad = evaluator.breadth_only_rows(
+        _breadth_rows({t: [0.0, 1.0, 1.0, 0.0] for t in WIZARD}), 900)
+    [inc] = evaluator.rule_widespread(rows + breadth, cadences=cad)
+    assert inc["rule"] == "outage"
+    assert inc["message"].startswith("16 of 16 targets lost every packet")
+    assert inc["breadth"]["total"] == 16
+
+
+def test_dead_breadth_targets_never_vote_and_never_dilute_a_total_loss():
+    """A CDN that drops ICMP is at 100% forever. Counted, it would be in
+    every cycle's "lost" share; here it is not counted at all, so neither a
+    healthy cycle nor a total loss reads differently because of it."""
+    rows = _everyone([1.0, 1.0, 1.0, 1.0])
+    breadth, means, cad = evaluator.breadth_only_rows(
+        _breadth_rows({t: [1.0, 1.0, 1.0, 1.0] for t in WIZARD},
+                      measurement="latency", pings=10), 900)
+    assert breadth == [] and means == []
+    assert [i["rule"] for i in evaluator.rule_widespread(rows + breadth, cadences=cad)] \
+        == ["uplink_down"]
+
+
+def test_breadth_only_means_cover_the_newest_mean_window_of_voters():
+    _, means, _ = evaluator.breadth_only_rows(
+        _breadth_rows({"a": [1.0, 0.0, 0.0, 0.6], "dead": [1.0] * 4}), 900)
+    # The newest three cycles (900 s back from the newest point, exclusive).
+    assert [(m["target"], m["category"]) for m in means] == [("a", "dns_wizard")]
+    assert means[0]["_value"] == pytest.approx(0.2)
+
+
+def test_breadth_only_flux_asks_for_http_tcp_and_the_wizard():
+    src = evaluator._breadth_only_flux(1200)
+    assert 'r._measurement == "http_latency"' in src
+    assert 'r._measurement == "tcp_latency"' in src
+    assert 'r.category == "dns_wizard"' in src
+    # base_flux's wizard exclusion is off for this one query.
+    assert 'r.category != "dns_wizard"' not in src
+    assert 'r._field == "pings"' in src and 'r._field == "step"' in src
+
+
+def _breadth_scenario(monkeypatch, breadth=None, fail=False):
+    def fake_query(flux_src):
+        if "http_latency" in flux_src:
+            if fail:
+                raise RuntimeError("influx hiccup")
+            return breadth or []
+        if "cpe_latency" in flux_src or "wifi_link" in flux_src:
+            return []
+        if "count()" in flux_src or "-10m" in flux_src:
+            return [{"_value": 40}]
+        if "mean()" in flux_src:
+            return [{"target": t, "category": "top_sites", "_value": 0.3}
+                    for t in PRIMARY]
+        if '"step"' in flux_src and "last()" in flux_src:
+            return []
+        return _timed_points({t: [0.0, 0.6, 0.6, 0.0] for t in PRIMARY})
+
+    monkeypatch.setattr(evaluator, "_query", fake_query)
+
+
+def test_evaluate_counts_the_breadth_and_hands_the_verdict_the_same_set(monkeypatch):
+    _breadth_scenario(monkeypatch, _breadth_rows(
+        {**{t: [0.0] * 4 for t in WIZARD}, "dead_icmp": [1.0] * 4}))
+    incidents, context = evaluator.evaluate_with_context()
+    assert "outage" not in {i["rule"] for i in incidents}
+    voted = {r["target"] for r in context["breadth_mean_rows"]}
+    assert voted == set(WIZARD)
+    # Never a per-target rule's input.
+    assert not {r.get("target") for r in context["mean_rows"]} & voted
+    assert not any(i.get("target") in voted for i in incidents)
+
+
+def test_a_failed_breadth_query_costs_the_breadth_not_the_cycle(monkeypatch):
+    _breadth_scenario(monkeypatch, fail=True)
+    incidents, context = evaluator.evaluate_with_context()
+    assert [i["rule"] for i in incidents if i["rule"] == "outage"] == ["outage"]
+    assert context["breadth_mean_rows"] == []

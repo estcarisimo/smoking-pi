@@ -20,7 +20,7 @@ from collections.abc import Collection
 from datetime import datetime, timezone
 
 import flux
-from common import aggregates, cadence, definitions, microcuts
+from common import aggregates, cadence, definitions, microcuts, tsdb
 
 log = logging.getLogger("alerter.evaluator")
 
@@ -140,6 +140,61 @@ def _down_points_flux(window_s: int) -> str:
         + '|> filter(fn: (r) => r._field == "loss") '
         + '|> keep(columns: ["_value", "_time", "target", "_measurement", "category"]) '
     )
+
+
+def _breadth_only_flux(window_s: int) -> str:
+    """Loss, pings and step of the targets that vote on breadth only
+    (common.definitions.BREADTH_ONLY_MEASUREMENTS and the DNS wizard's
+    services, whose ICMP targets are in ``latency``). The cadence comes
+    from the same points: no 6-hour lookback for targets that only ever
+    feed one rule."""
+    only = " or ".join(
+        f"r._measurement == {flux.flux_str(m)}"
+        for m in definitions.BREADTH_ONLY_MEASUREMENTS
+    )
+    wizard = flux.flux_str(tsdb.WIZARD_CATEGORY)
+    return (
+        flux.base_flux(["latency", *definitions.BREADTH_ONLY_MEASUREMENTS],
+                       f"-{int(window_s)}s", include_wizard=True)
+        + f"|> filter(fn: (r) => {only} or r.category == {wizard}) "
+        + '|> filter(fn: (r) => r._field == "loss" or r._field == "pings" '
+        + 'or r._field == "step") '
+        + '|> keep(columns: ["_value", "_time", "_field", "target", '
+        + '"_measurement", "category"]) '
+    )
+
+
+def breadth_only_rows(
+    rows: list[dict], mean_window_s: int, step_s: int = STEP_S
+) -> tuple[list[dict], list[dict], dict[str, cadence.Cadence]]:
+    """(loss points, 15-minute means, cadences) of the breadth-only targets
+    that vote in this window (common.definitions.breadth_voters).
+
+    A target on a slower step than ``step_s`` (the rules' bucket) is left
+    out: it would report in one bucket of two, and the share would swing
+    between cycles with the denominator (review of #342). The means are
+    taken here, over the newest ``mean_window_s`` of the points already
+    fetched, in the shape of :func:`_mean_loss_flux`'s rows, for the
+    verdict: it counts the same set the rule does.
+    """
+    loss = [r for r in rows if r.get("_field") == "loss"]
+    cadences = cadence.by_target(
+        [r for r in rows if r.get("_field") in ("step", "pings")])
+    voters = {t for t in definitions.breadth_voters(loss, cadences)
+              if cadence.of(cadences, t).step <= step_s}
+    loss = [r for r in loss if r.get("target") in voters]
+    times = [cadence.epoch(r.get("_time")) for r in loss]
+    newest = max((t for t in times if t is not None), default=None)
+    sums: dict[tuple[str, str | None], list[float]] = {}
+    for row, at in zip(loss, times):
+        if at is None or row.get("_value") is None or newest is None:
+            continue
+        if at > newest - mean_window_s:
+            sums.setdefault((row["target"], row.get("category")), []).append(
+                flux.clamp_loss_ratio(row["_value"]))
+    means = [{"target": t, "category": c, "_value": sum(v) / len(v)}
+             for (t, c), v in sorted(sums.items())]
+    return loss, means, {t: c for t, c in cadences.items() if t in voters}
 
 
 def _mean_loss_flux(window_s: int = MEAN_STEPS * STEP_S) -> str:
@@ -722,7 +777,8 @@ def rule_widespread(
     - the first hop is lost too, or unmeasured: ``uplink_down``, this
       host's own link (unmeasured, the message says it cannot be told);
     - the first hop answers, and so do the DNS resolvers queried by
-      address (``dns_latency``), while every named destination is lost:
+      address (``dns_latency``), while WIDESPREAD_PCT of the named
+      destinations are lost:
       ``monitor_dns``, this host's own name resolution, not the network;
     - the first hop answers otherwise: ``internet_down``, beyond the house.
       Before, all three read "this host's uplink is down".
@@ -794,9 +850,14 @@ def rule_widespread(
         WIDESPREAD_PCT (review of #336)."""
         named = {t for t in reporting[step] if measurement.get(t) != "dns_latency"}
         resolvers = reporting[step] - named
+        # WIDESPREAD_PCT of them, not every one: among hundreds of named
+        # targets, one reached by address or by a cached answer still
+        # answers, and must not turn this host's DNS into "the Internet
+        # is down" (review of #342).
+        named_lost = len(named & lost.get(step, set()))
         return (first_hop(step) == "answers" and len(named) >= min_targets
                 and bool(resolvers) and not (resolvers & lost.get(step, set()))
-                and named <= lost.get(step, set()))
+                and 100.0 * named_lost >= share_pct * len(named))
 
     latest = steps[-min_points:]
     if (
@@ -813,8 +874,10 @@ def rule_widespread(
                        f"{len(latest)} consecutive probe cycles")
         rule, cause = definitions.total_loss(seen, names_only(step))
         if rule == "monitor_dns":
-            observation = (f"every named destination ({len(named)}) at 100% loss "
-                           f"for {len(latest)} consecutive probe cycles, while "
+            n_named = len(named & lost.get(step, set()))
+            observation = (f"{n_named} of {len(named)} named destinations at "
+                           f"100% loss for {len(latest)} consecutive probe "
+                           "cycles, while "
                            "the ISP gateway and the DNS resolvers answer by "
                            "address")
         elif seen == "answers":
@@ -1136,8 +1199,20 @@ def evaluate_with_context(
         key for key, record in records.items()
         if record.get("missing_since") is None
     ]
+    # The targets that vote on breadth only. Optional like the Wi-Fi
+    # evidence: a failed query leaves the breadth to the targets that
+    # always vote, never the cycle without its rules.
+    try:
+        breadth_rows, breadth_means, breadth_cadences = breadth_only_rows(
+            _query(_breadth_only_flux(down_window)), windows["mean"],
+            windows["step"])
+    except Exception:  # influx client raises many exception types
+        log.warning("breadth-only query failed; the breadth goes without "
+                    "the HTTP, TCP and DNS wizard targets", exc_info=True)
+        breadth_rows, breadth_means, breadth_cadences = [], [], {}
     widespread = rule_widespread(
-        down_rows, step_s=windows["step"], cadences=cadences,
+        down_rows + breadth_rows, step_s=windows["step"],
+        cadences={**breadth_cadences, **cadences},
         ongoing=ongoing,
         total_open=_total_open(records),
     )
@@ -1161,6 +1236,8 @@ def evaluate_with_context(
     context = {
         "down_rows": down_rows,
         "mean_rows": mean_rows,
+        # The verdict's breadth, beside mean_rows: never a per-target rule's.
+        "breadth_mean_rows": breadth_means,
         "micro_rows": micro_rows,
         "stale_rows": stale_rows,
         "wifi_rows": wifi_rows,

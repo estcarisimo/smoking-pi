@@ -292,7 +292,7 @@ def run_iteration() -> None:
     try:
         call = verdict.classify(
             incidents,
-            context["mean_rows"],
+            context["mean_rows"] + context.get("breadth_mean_rows", []),
             context["micro_rows"],
             records=current.get("incidents", {}),
             wifi_rows=context.get("wifi_rows"),

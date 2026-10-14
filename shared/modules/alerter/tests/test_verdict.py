@@ -135,6 +135,19 @@ def test_dns_only_impairment_is_named_as_such():
     assert call["scope"] == "dns"
 
 
+def test_impaired_dns_wizard_services_are_not_resolvers():
+    """The wizard's services are sites that vote on breadth; their category
+    starts with "dns" and is not a resolver's (review of #342)."""
+    rows = [
+        _mean("W_netflix_h2", 0.9, "dns_wizard"),
+        _mean("W_spotify_tcp", 0.9, "dns_wizard"),
+        *_healthy(8),
+    ]
+    assert verdict.classify([], rows, [])["scope"] != "dns"
+    rows[0]["category"] = rows[1]["category"] = "dns"
+    assert verdict.classify([], rows, [])["scope"] == "dns"
+
+
 def test_nothing_impaired_claims_nothing():
     call = verdict.classify([], _healthy(8), [])
     assert call["scope"] == "unclear"

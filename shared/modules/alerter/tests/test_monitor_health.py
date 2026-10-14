@@ -152,7 +152,9 @@ def test_no_measurement_stale_while_exporter_stale_explains_it(monkeypatch):
     monkeypatch.setattr(evaluator, "_query", query)
     incidents, _ = evaluator.evaluate_with_context()
     assert [i["key"] for i in incidents] == ["exporter_stale"]
-    assert not any('"http_latency"' in q for q in asked)
+    # The measurement_stale queries (by measurement), not the breadth's
+    # (which names http_latency too).
+    assert not any('group(columns: ["_measurement"])' in q for q in asked)
 
 
 def test_a_failing_wifi_query_costs_only_the_wifi_evidence(monkeypatch):
