@@ -153,3 +153,29 @@ def test_fetch_raises_what_the_query_raises():
 
     with pytest.raises(RuntimeError):
         breadth.fetch(query, 24, 300)
+
+
+def test_fetch_sums_a_target_split_over_several_series():
+    """One target name in two series (another tag differs): its counts add
+    up, and its span runs from the earliest first point to the latest last
+    one (review of #347)."""
+    def query(src):
+        if 'r._field == "pings"' in src:
+            return []
+        if "|> count()" in src:
+            lossy = "r._value >=" in src
+            return [{"target": "a", "_value": 1 if lossy else 3},
+                    {"target": "a", "_value": 1 if lossy else 3}]
+        if "|> first()" in src:
+            return [{"target": "a", "_time": T0 + timedelta(seconds=600)},
+                    {"target": "a", "_time": T0}]
+        if "|> last()" in src:
+            return [{"target": "a", "_time": T0 + timedelta(seconds=300)},
+                    {"target": "a", "_time": T0 + timedelta(seconds=900)}]
+        return [{"target": "a", "_time": T0 + timedelta(seconds=300), "_value": 1.0}]
+
+    out = breadth.fetch(query, 24, 300)
+    # 2 lossy of 6: votes. Reports in all four cycles, once.
+    assert sorted(out) == [STEP0 + 300 * i for i in range(4)]
+    assert {c["reporting"] for c in out.values()} == {1}
+    assert out[STEP0 + 300]["lost"] == 1

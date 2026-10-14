@@ -26,24 +26,27 @@ version gets a matching GitHub release and git tag.
   to a week only queries InfluxDB answers from its storage engine are
   asked (points per target, points above the event bar, each target's
   first and last point, the voters' lossy points), and the cycles are
-  counted in Python: eight queries of about 0.3 s each for a week on the
-  staging Pi. A first version grouped every point by time and reduced it
-  in Flux; it took 108 s for a week of 63 targets on staging, a 30-day
-  `get_loss_events` froze that Pi until its hardware watchdog reset it,
-  and it was never released; as merged it did not even compile in InfluxDB
-  (a doubled brace the mocked tests could not see), so every reader
-  quietly fell back to the old count. A test now checks every breadth
-  query for balanced brackets and for the shapes that cost that. The
-  breadth is counted over a week at most: a longer `get_loss_events`
-  counts the ICMP and resolver targets alone, and its new `breadth_only`
-  field says so, as does `diagnose_loss`'s `coverage`. A failed breadth
-  query leaves the breadth as it was. Breadth-only targets stay counts: an
-  incident's `targets`, the `probe_miss` and `destination` classes and
-  every per-target list are the ICMP and resolver targets, scattered
-  breadth-only loss widens a count only in a broad cycle, and a loss of
-  breadth-only targets alone is never "this host's DNS". The answering
-  guide says that a broad incident's `targets` is not everything that lost
-  packets.
+  counted in Python (a target reports in every cycle from its first point
+  to its last, so a gap of a few cycles counts as reporting): eight
+  queries of about 0.3 s each for a week on the staging Pi. A first
+  version grouped every point by time and reduced it in Flux; it took 108
+  s for a week of 63 targets on staging, a 30-day `get_loss_events` froze
+  that Pi until its hardware watchdog reset it, and it was never released;
+  as merged it did not even compile in InfluxDB (a doubled brace the
+  mocked tests could not see), so every reader quietly fell back to the
+  old count. A test now checks every breadth query for balanced brackets
+  and for the shapes that cost that. The breadth is counted over a week at
+  most: a longer `get_loss_events` counts the ICMP and resolver targets
+  alone, and its new `breadth_only` field is false, as is
+  `diagnose_loss`'s `coverage.breadth_only` whenever the breadth was not
+  counted (a failed query, more than 20 000 lossy points, no target
+  voting). A failed breadth query leaves the breadth as it was.
+  Breadth-only targets stay counts: an incident's `targets`, the
+  `probe_miss` and `destination` classes and every per-target list are the
+  ICMP and resolver targets, scattered breadth-only loss widens a count
+  only in a broad cycle, and a loss of breadth-only targets alone is never
+  "this host's DNS". The answering guide says that a broad incident's
+  `targets` is not everything that lost packets.
 
 ## [2.33.0] — 2026-10-14
 

@@ -167,7 +167,8 @@ def _targets_predicate(targets: set[str]) -> str:
 
 def lossy_flux(hours: int, voting: set[str], bar: float) -> str:
     """The voters' loss points at or above ``bar`` (the lowest of their
-    bars), oldest first, at most one past MAX_LOSSY_ROWS."""
+    bars), in no particular order, at most one past MAX_LOSSY_ROWS. The
+    limit bounds what is sent back, not what InfluxDB reads."""
     return (
         _loss(hours)
         + f"|> filter(fn: (r) => r._value >= {cadence.flux_float(bar)} and "

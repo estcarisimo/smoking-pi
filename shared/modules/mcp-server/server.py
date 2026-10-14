@@ -1113,8 +1113,9 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
       - `widespread`: runs of probe steps in which most targets (80%) had
         loss at once, with a `cause` line. The shares and counts include
         the HTTP, TCP and DNS wizard targets that vote on breadth, as the
-        alerts count them, over windows up to 168 h (`breadth_only` says
-        whether they were counted); they are never listed below. `all_lost: true` for three or
+        alerts count them, over windows up to 168 h; `breadth_only: false`
+        means they were not counted (a longer window, a failed query, none
+        voting). They are never listed below. `all_lost: true` for three or
         more cycles means every target lost every packet from this host:
         its own uplink was down, and the per-target numbers for that span
         say nothing about any target. Shorter runs are a brief cut of the
