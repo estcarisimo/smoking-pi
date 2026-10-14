@@ -12,15 +12,21 @@ version gets a matching GitHub release and git tag.
 ## [2.32.0] — 2026-10-13
 
 The path from a measurement to a message on the phone was audited end to
-end, and this release fixes what the audit found. One event now reaches
-the phone as one message, not a burst, and an alert that cannot be
-delivered waits and is sent once, when the network is back, instead of
-being lost. The alerter says when it cannot see: InfluxDB unreadable, a
-measurement that stopped, the watchdog's own actions. A total outage says
-where it is: this host's link, beyond the house, or the Pi's own DNS.
-"Widespread", "broad" and "weak Wi-Fi" mean one thing in the alerts, the
-diagnosis, both assistants and Grafana, and the web admin's chat answers
-from the same guide and diagnosis as every other assistant.
+end, and this release fixes what the audit found. One incident now reaches
+the phone once, not as a burst, and OpenClaw no longer receives the same
+alert several times. An alert that cannot be delivered is kept and sent
+when the network is back, instead of being lost. Alerts no longer announce
+"recovered" while a target is still down or silent, and an acknowledgment
+ends when the incident recovers. The alerter says when it cannot see: an
+unreadable InfluxDB, a measurement that stopped. It also reports what the
+watchdog did. A total outage says where it is: this host's link, beyond
+the house, or the Pi's own DNS. Because the ISP gateway no longer counts
+as a destination, a stack with fewer than three other destinations no
+longer raises total-outage alerts. "Widespread", "broad" and "weak Wi-Fi"
+mean one thing in the alerts, the diagnosis and every assistant, and the
+web admin's chat now answers from the same guide and diagnosis as the
+MCP clients. Grafana's cut windows, gateway loss colors and ClickHouse
+"unreachable" marks follow the alerts' rules too.
 
 ### Fixed
 
@@ -142,6 +148,7 @@ from the same guide and diagnosis as every other assistant.
   it started, whether it recovered, what is open now). `list_alert_state`
   shows what is waiting, and the history records each notification's
   delivery.
+
 - **A failed OpenClaw send is no longer retried into duplicates.** The
   gateway keeps a failed send in its own durable queue and replays it
   later, so each of the alerter's three attempts was another copy: after
@@ -164,6 +171,7 @@ from the same guide and diagnosis as every other assistant.
   continued outage's message says how long it has lasted instead of
   calling it a brief cut. Found by the audit of the detection pipeline (roadmap
   front 8).
+
 - **A target going down no longer announces "recovered" fifteen minutes
   in.** `high_loss` fires two cycles before `target_down`; once the target
   was down, `high_loss` was excluded, went missing, and sent a recovery
@@ -171,12 +179,14 @@ from the same guide and diagnosis as every other assistant.
   mean caught up. `target_down` now supersedes the warning (retired without
   a recovery), and `high_loss` stays off for the target until the
   `target_down` record is gone.
+
 - **No data is no longer read as "recovered".** An incident whose target
   stopped reporting (a stalled probe, a stalled exporter, a removed target)
   went missing and announced its recovery fifteen minutes later, before
   `exporter_stale` had even fired. Such an incident is now held open until
   data shows the target answering, and dropped without a notice after 24
   hours with no data; `list_alert_state` shows `no_data_since`.
+
 - **`ack_incident` ends when the incident recovers, as it says.** Its
   `clear_on_recovery` flag was written and never read, so an ack silenced
   the key for its full 24 hours, including a new outage of the same target
