@@ -228,6 +228,21 @@ def test_list_alert_state_reports_what_is_waiting_to_be_delivered(files):
         "waiting": 3, "since": 1.0, "next_try": 61.0}
 
 
+def test_list_alert_state_reports_what_quiet_hours_hold(files):
+    """At 4 a.m. "anything going on?" must not read as all quiet while the
+    night's alerts wait for the end of quiet hours."""
+    files.seed_state({})
+    assert server.list_alert_state()["held"] is None
+    files.state.write_text(json.dumps({"incidents": {}, "held": {
+        "items": [{"queued_at": 1.0, "payload": {"key": "high_loss:Google"}},
+                  {"queued_at": 2.0, "payload": {"key": "outage:1"}},
+                  {"queued_at": 3.0, "payload": {"key": "high_loss:Google"}}],
+        "dropped": 0, "since": 1.0, "until": "07:00 Europe/London"}}))
+    assert server.list_alert_state()["held"] == {
+        "waiting": 3, "since": 1.0, "until": "07:00 Europe/London",
+        "keys": ["high_loss:Google", "outage:1"]}
+
+
 # --- durability -------------------------------------------------------------
 
 def test_a_crash_mid_write_cannot_corrupt_the_file(files, api, monkeypatch):

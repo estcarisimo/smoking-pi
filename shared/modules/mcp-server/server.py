@@ -2181,7 +2181,9 @@ def list_alert_state() -> dict:
     a mute has actually swallowed, which is the number that matters when
     deciding whether a mute is still a good idea. `undelivered` counts the
     notifications the alerter could not deliver (network or channel down),
-    which it sends as one summary once delivery works again; `no_data_since`
+    which it sends as one summary once delivery works again; `held` counts
+    those its quiet hours are holding until `until` (then one message);
+    `no_data_since`
     on an incident means it is held open because its target stopped
     reporting.
     """
@@ -2225,9 +2227,24 @@ def list_alert_state() -> dict:
             "next_try": box.get("next_try"),
         }
 
+    # Held by the alerter's quiet hours: sent as one message when they end
+    # (``until``, local time and zone). Without this, "anything going on?"
+    # at 4 a.m. read as all quiet while the night's alerts waited.
+    held_box = state.get("held") or {}
+    held = None
+    if held_box.get("items"):
+        held = {
+            "waiting": len(held_box["items"]) + int(held_box.get("dropped", 0)),
+            "since": held_box.get("since"),
+            "until": held_box.get("until"),
+            "keys": sorted({(i.get("payload") or {}).get("key") or "?"
+                            for i in held_box["items"]}),
+        }
+
     return {
         "incidents": incidents,
         "undelivered": undelivered,
+        "held": held,
         "active_mutes": [mutes.describe(e, now) for e in live],
         "mutes_file_readable": True,
         "note": (

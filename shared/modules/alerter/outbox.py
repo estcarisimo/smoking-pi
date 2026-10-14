@@ -51,7 +51,7 @@ def pending(state: dict) -> bool:
     return bool((state.get("outbox") or {}).get("items"))
 
 
-def _plain(payload: dict) -> dict:
+def plain(payload: dict) -> dict:
     """A JSON-safe copy: the state file must always be writable."""
     return json.loads(json.dumps(payload, default=str))
 
@@ -67,7 +67,7 @@ def enqueue(state: dict, payload: dict, now: float | None = None) -> None:
         # try, and an immediate second one would only fail the same way.
         box.update({"items": [], "since": now, "attempts": 0,
                     "next_try": now + RETRY_MIN_S, "dropped": 0})
-    box["items"].append({"queued_at": now, "payload": _plain(payload)})
+    box["items"].append({"queued_at": now, "payload": plain(payload)})
     overflow = len(box["items"]) - MAX_ITEMS
     if overflow > 0:
         del box["items"][:overflow]
@@ -119,7 +119,15 @@ def _incidents(items: list[dict]) -> list[dict]:
     unknown (None), never the moment the recovery was queued.
     """
     by_key: dict[str, dict] = {}
+    # A quiet-hours summary that could not be sent carries what it held:
+    # those are the incidents, not the summary (review of #343).
+    flat = []
     for item in items:
+        if item["payload"].get("type") == "held" and item["payload"].get("items"):
+            flat += item["payload"]["items"]
+        else:
+            flat.append(item)
+    for item in flat:
         payload = item["payload"]
         key = payload.get("key") or payload.get("type") or "?"
         if key not in by_key:
@@ -150,7 +158,8 @@ def _incidents(items: list[dict]) -> list[dict]:
                   key=lambda e: e["started"] if e["started"] is not None else e["order"])
 
 
-def _now_line(state: dict, now: float) -> str:
+def now_line(state: dict, now: float, clock=None) -> str:
+    clock = clock or _clock
     esc = templates.esc
     still_open = sorted(
         (record.get("first_seen") or 0, key, record)
@@ -163,9 +172,39 @@ def _now_line(state: dict, now: float) -> str:
         f"{templates.SEVERITY_EMOJI.get(r.get('severity'), '•')} "
         f"{esc(r.get('rule') or key)}"
         f"{' ' + esc(r['target']) if r.get('target') else ''}"
-        f" (since {_clock(first, now)})"
+        f" (since {clock(first, now)})"
         for first, key, r in still_open
     )
+
+
+def summary_lines(state: dict, items: list[dict], now: float, dropped: int = 0,
+                  clock=None) -> list[str]:
+    """One line per incident in ``items`` (each once, when it started,
+    whether it recovered), then "…and N more". Shared by this summary and
+    the quiet-hours one (quiet.py); ``clock(ts, now)`` formats a time
+    (default: UTC, as the header says)."""
+    clock = clock or _clock
+    esc = templates.esc
+    open_keys = set(state.get("incidents") or {})
+    lines = []
+    entries = _incidents(items)
+    for entry in entries[:SUMMARY_LINES]:
+        emoji = templates.SEVERITY_EMOJI.get(entry["severity"], "•")
+        name = entry["rule"] or entry["key"]
+        if entry["target"]:
+            name = f"{name} {entry['target']}"
+        when = clock(entry["started"], now) if entry["started"] is not None else ""
+        if entry["recovered"] is not None:
+            when = f"{when} → ✅ {clock(entry['recovered'], now)}".strip(" →")
+            if entry["started"] is None:
+                when = f"✅ {clock(entry['recovered'], now)}"
+        elif entry["key"] not in open_keys:
+            when += " (over)"
+        lines.append(f"{emoji} {esc(name)} · {when} — {esc(entry['message'] or '')}")
+    more = len(entries) - SUMMARY_LINES + dropped
+    if more > 0:
+        lines.append(f"…and {more} more")
+    return lines
 
 
 def build(state: dict, now: float) -> dict:
@@ -183,31 +222,13 @@ def build(state: dict, now: float) -> dict:
         return dict(items[0]["payload"])
 
     since = float(box.get("since", items[0]["queued_at"]))
-    esc = templates.esc
-    open_keys = set(state.get("incidents") or {})
     lines = [
         templates._b(f"📭 Not delivered from {_clock(since, now)} to "
                      f"{_clock(now, now)} UTC ({_span(max(0.0, now - since))})")
         + " — this is what happened meanwhile:",
-        _now_line(state, now),
+        now_line(state, now),
     ]
-    entries = _incidents(items)
-    for entry in entries[:SUMMARY_LINES]:
-        emoji = templates.SEVERITY_EMOJI.get(entry["severity"], "•")
-        name = entry["rule"] or entry["key"]
-        if entry["target"]:
-            name = f"{name} {entry['target']}"
-        when = _clock(entry["started"], now) if entry["started"] is not None else ""
-        if entry["recovered"] is not None:
-            when = f"{when} → ✅ {_clock(entry['recovered'], now)}".strip(" →")
-            if entry["started"] is None:
-                when = f"✅ {_clock(entry['recovered'], now)}"
-        elif entry["key"] not in open_keys:
-            when += " (over)"
-        lines.append(f"{emoji} {esc(name)} · {when} — {esc(entry['message'] or '')}")
-    more = len(entries) - SUMMARY_LINES + int(box.get("dropped", 0))
-    if more > 0:
-        lines.append(f"…and {more} more")
+    lines += summary_lines(state, items, now, int(box.get("dropped", 0)))
     return {
         "type": "undelivered",
         "key": "undelivered",
