@@ -40,6 +40,7 @@ from common import (
     definitions,
     diagnosis,
     diagnosis_query,
+    incident_answers,
     microcuts,
     mutes,
     openclaw,
@@ -1309,10 +1310,8 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
     return result
 
 
-# A week of per-minute Wi-Fi rows, CPE windows and loss events is the most
-# one answer should read; diagnose_loss refuses longer windows.
-DIAGNOSE_MAX_HOURS = diagnosis_query.MAX_HOURS
-DIAGNOSE_MAX_INCIDENTS = 50
+DIAGNOSE_MAX_HOURS = incident_answers.DIAGNOSE_MAX_HOURS
+DIAGNOSE_MAX_INCIDENTS = incident_answers.DIAGNOSE_MAX_INCIDENTS
 
 
 @mcp.tool()
@@ -1374,35 +1373,13 @@ def diagnose_loss(hours: int = 24) -> dict:
         return {"error": f"hours must be at most {DIAGNOSE_MAX_HOURS} for a diagnosis."}
 
     try:
-        result = diagnosis_query.run(lambda flux: query_influx(flux), hours, _cadences())
+        return incident_answers.diagnose(lambda flux: query_influx(flux), hours, _cadences())
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
-    incidents = result["incidents"][:DIAGNOSE_MAX_INCIDENTS]
-    for inc in incidents:
-        start = datetime.fromtimestamp(inc.pop("start_epoch"), tz=timezone.utc)
-        end = datetime.fromtimestamp(inc.pop("end_epoch"), tz=timezone.utc)
-        inc["start"], inc["end"] = start.isoformat(), end.isoformat()
-        if inc["targets"]:
-            graph = links.target_links(inc["targets"][0], measurement="latency",
-                                       at=start).get("graph")
-        else:
-            graph = None
-        if graph:
-            inc["graph"] = graph
-    return {
-        "window_hours": hours,
-        "incidents": incidents,
-        "truncated": len(result["incidents"]) > DIAGNOSE_MAX_INCIDENTS
-        or result["rows_truncated"],
-        "by_class": result["by_class"],
-        "chronic": result["chronic"],
-        "coverage": result["coverage"],
-        "targets_reporting": result["targets_reporting"],
-    }
 
 
-HISTORY_MAX_DAYS = 365
-HISTORY_MAX_INCIDENTS = 100
+HISTORY_MAX_DAYS = incident_answers.HISTORY_MAX_DAYS
+HISTORY_MAX_INCIDENTS = incident_answers.HISTORY_MAX_INCIDENTS
 
 
 @mcp.tool()
@@ -1439,66 +1416,11 @@ def get_incident_history(days: int = 30, include_probe_miss: bool = False) -> di
         return {"error": f"Invalid days value {days!r}: must be an integer."}
     if not 1 <= days <= HISTORY_MAX_DAYS:
         return {"error": f"days must be between 1 and {HISTORY_MAX_DAYS} (got {days})."}
-    flux = (f'from(bucket: {flux_str(influx_bucket())}) |> range(start: -{days}d) '
-            '|> filter(fn: (r) => r._measurement == "loss_incident") '
-            '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '
-            '|> group() |> sort(columns: ["_time"], desc: true)')
     try:
-        rows = query_influx(flux)
+        return incident_answers.history(
+            lambda flux: query_influx(flux), influx_bucket(), days, include_probe_miss)
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
-    by_class: dict[str, int] = {}
-    incidents = []
-    for r in rows:
-        cls = r.get("class") or "unclear"
-        by_class[cls] = by_class.get(cls, 0) + 1
-        if cls == "probe_miss" and not include_probe_miss:
-            continue
-        start = r.get("_time")
-        if isinstance(start, datetime):
-            start = start.astimezone(timezone.utc)
-        end = (datetime.fromtimestamp(int(r["end_epoch"]), tz=timezone.utc)
-               if r.get("end_epoch") is not None else None)
-        targets = [t for t in (r.get("targets") or "").split(",") if t]
-        inc = {
-            "class": cls,
-            "detail": r.get("detail") or None,
-            "confidence": r.get("confidence") or None,
-            "summary": r.get("summary") or "",
-            "start": start.isoformat() if isinstance(start, datetime) else start,
-            "end": end.isoformat() if end else None,
-            "minutes": r.get("minutes"),
-            "targets": targets,
-            "targets_reporting": r.get("targets_reporting"),
-            "evidence": [e for e in (r.get("evidence") or "").split(" | ") if e],
-            "against": [e for e in (r.get("against") or "").split(" | ") if e],
-        }
-        # -1: a cut or deaf span with no loss run (incident_history.point).
-        if r.get("max_loss_pct") is not None and r["max_loss_pct"] >= 0:
-            inc["max_loss_pct"] = r["max_loss_pct"]
-        if targets and isinstance(start, datetime):
-            graph = links.target_links(targets[0], measurement="latency",
-                                       at=start).get("graph")
-            if graph:
-                inc["graph"] = graph
-        incidents.append(inc)
-    # The oldest incident stored at all, not only in this window: a quiet
-    # month and an empty history must not look alike.
-    try:
-        first = query_influx(
-            f'from(bucket: {flux_str(influx_bucket())}) |> range(start: 0) '
-            '|> filter(fn: (r) => r._measurement == "loss_incident" and r._field == "class") '
-            '|> group() |> first()')
-    except Exception as exc:
-        return _tool_error("InfluxDB query failed", exc)
-    oldest = first[0].get("_time") if first else None
-    return {
-        "window_days": days,
-        "stored_from": oldest.isoformat() if isinstance(oldest, datetime) else oldest,
-        "incidents": incidents[:HISTORY_MAX_INCIDENTS],
-        "truncated": len(incidents) > HISTORY_MAX_INCIDENTS,
-        "by_class": by_class,
-    }
 
 
 @mcp.tool()

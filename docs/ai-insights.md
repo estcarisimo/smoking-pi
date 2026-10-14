@@ -65,8 +65,9 @@ Once per `REPORT_INTERVAL` (daily by default) the container:
 
 **AI → Assistant** in web-admin is a chat backed by the same Claude model.
 It has read tools (list targets, latency stats, loss events, microcut stats,
-system status) that run immediately, and mutating tools (add/remove/toggle
-target) that are **never executed directly** — the UI shows a confirmation
+system status, `diagnose_loss`, `get_incident_history`) that run
+immediately, and mutating tools (add/remove/toggle target) that are **never
+executed directly** — the UI shows a confirmation
 card and only executes after you approve. Config regeneration happens
 automatically on target changes, so there is no `apply_config` tool.
 
@@ -78,6 +79,18 @@ answers with cuts and their durations plus the gateway's loss floor, and
 `get_loss_events` counts two or more lost pings as an event (15% on a
 10-ping probe, whatever the probe sends), so the in-UI
 assistant and the OpenClaw one say the same thing about the same night.
+
+It is told how to answer by the same guide every MCP client and the
+OpenClaw skill get (`shared/modules/common/guide.py`), after a short header
+of its own: target changes need a confirmation, and tools the guide names
+that this chat lacks (`get_chart`, `get_wifi_stats`, the mute and ack
+tools) are pointed to Grafana instead. `diagnose_loss` and
+`get_incident_history` answer through `common/incident_answers.py`, the MCP
+server's own code path, and the compose file gives web-admin the same
+`WIDESPREAD_PCT` / `VERDICT_BROAD_PCT` / `WIFI_WEAK_*` thresholds. Until
+2026-10-13 the chat had a two-sentence prompt of its own and no diagnosis:
+it read raw loss events and attributed them itself, so it could still call
+the Pi's hung radio an outage after every other assistant had stopped.
 
 Responses are non-streaming (Haiku answers small tool-augmented prompts in
 a couple of seconds), and the conversation history lives in the browser

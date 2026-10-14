@@ -10,7 +10,9 @@ against web-admin's own backends:
   microcut definition and the loss-event threshold come from the shared
   ``common`` package (common/microcuts.py, common/aggregates.py), the same
   code the MCP server, the alerter and the reports read, so the two
-  assistants cannot drift apart on what a microcut is
+  assistants cannot drift apart on what a microcut is; ``diagnose_loss``
+  and ``get_incident_history`` answer through common/incident_answers.py,
+  the MCP server's own code path
 
 ``TOOLS`` is the Anthropic ``tools`` schema list; ``execute_tool`` is the
 dispatcher. Mutating tools are listed in ``MUTATING_TOOLS`` and are executed
@@ -30,7 +32,7 @@ from datetime import datetime
 from typing import Any
 
 from app.services.config_api import ConfigAPIGateway, over_budget_message
-from common import cadence, microcuts
+from common import cadence, incident_answers, microcuts
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +254,58 @@ TOOLS = [
                         "Optional fixed loss percentage 0-100 for every target, "
                         "instead of the default: two or more lost pings."
                     ),
+                },
+            },
+        },
+    },
+    {
+        "name": "diagnose_loss",
+        "description": (
+            "Say what each loss episode in the window was, with its evidence "
+            "and how sure that is. Start here for 'what happened?', 'is it me "
+            "or the internet?', 'why did the call drop last night?'. Every "
+            "incident gets one class: probe_miss, local_wifi, local_link, "
+            "monitor, destination, upstream or unclear, with detail, "
+            "confidence, summary, evidence and against. Report the classes, "
+            "not raw counts; use get_loss_events or get_microcut_stats only "
+            "to go deeper into one incident."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": (
+                        "Lookback window in hours (default 24, at most "
+                        f"{incident_answers.DIAGNOSE_MAX_HOURS})."
+                    ),
+                },
+            },
+        },
+    },
+    {
+        "name": "get_incident_history",
+        "description": (
+            "Past loss incidents, as diagnose_loss classified them, from the "
+            "stored history: for 'what happened last month?', 'how often does "
+            "the line cut out?', 'when was the last outage?'. The last ~30 "
+            "minutes are never in it yet; for the last hours use "
+            "diagnose_loss. 'stored_from' null means nothing is stored yet "
+            "(the alerts service writes it): say so instead of 'no incidents'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": (
+                        "Lookback in days (default 30, at most "
+                        f"{incident_answers.HISTORY_MAX_DAYS})."
+                    ),
+                },
+                "include_probe_miss": {
+                    "type": "boolean",
+                    "description": "Also list single-point probe misses.",
                 },
             },
         },
@@ -554,6 +608,40 @@ def _get_loss_events(tool_input: dict) -> dict:
     }
 
 
+def _cadences() -> dict:
+    """Each target's step and pings; empty when the query fails -- the
+    cadence refines the answer, it is never a reason to refuse one."""
+    try:
+        return cadence.by_target(query_influx(cadence.cadence_flux()))
+    except Exception:  # influx client raises many exception types
+        return {}
+
+
+def _diagnose_loss(tool_input: dict) -> dict:
+    hours, err = _validate_hours(tool_input.get("hours"))
+    if err:
+        return {"error": err}
+    if hours > incident_answers.DIAGNOSE_MAX_HOURS:
+        return {"error": "hours must be at most "
+                f"{incident_answers.DIAGNOSE_MAX_HOURS} for a diagnosis."}
+    return incident_answers.diagnose(query_influx, hours, _cadences())
+
+
+def _get_incident_history(tool_input: dict) -> dict:
+    raw = tool_input.get("days")
+    if raw is None:
+        raw = 30
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        return {"error": f"Invalid days value {raw!r}: must be an integer."}
+    if not 1 <= days <= incident_answers.HISTORY_MAX_DAYS:
+        return {"error": "days must be between 1 and "
+                f"{incident_answers.HISTORY_MAX_DAYS} (got {days})."}
+    return incident_answers.history(query_influx, influx_bucket(), days,
+                                    bool(tool_input.get("include_probe_miss")))
+
+
 def _get_microcut_stats(tool_input: dict) -> dict:
     """Same definition as the MCP server's tool: cuts (runs of windows above
     ``MICROCUT_LOSS_PCT``, folded by common.microcuts), the per-target floor
@@ -681,6 +769,8 @@ _DISPATCH = {
     "get_latency_stats": _get_latency_stats,
     "get_loss_events": _get_loss_events,
     "get_microcut_stats": _get_microcut_stats,
+    "diagnose_loss": _diagnose_loss,
+    "get_incident_history": _get_incident_history,
 }
 
 

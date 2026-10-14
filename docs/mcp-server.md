@@ -289,8 +289,10 @@ Two things worth knowing:
   InfluxDB (`topsites`, `netflix`, `dns`). `links.py` maps from the *database*
   vocabulary, because that is what `list_targets` returns.
 
-The web-admin AI chat does **not** yet include links in its tool results. It
-has its own copy of the tool surface, and the pages it renders already build
+The web-admin AI chat does **not** yet include links in its tool results. Its
+`diagnose_loss` and `get_incident_history` share this server's code
+(`common/incident_answers.py`), but web-admin is given no link settings, so
+their `graph` fields stay empty; its other tools are its own copies. The pages it renders already build
 correct Grafana links client-side from `window.location.hostname` — which needs
 no configuration at all, since the reader is by definition already on the host
 that works.
