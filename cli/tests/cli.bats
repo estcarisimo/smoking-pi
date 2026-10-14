@@ -317,8 +317,10 @@ stub_installed_skill() {
     run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]
     grep -qx 'SKILL --reload' "$DOCKER_LOG"
-    [[ "$output" == *"previous release's guide"* ]]
+    [[ "$output" == *"differs from this release's"* ]]
     [[ "$output" == *"Refreshed it and reloaded the gateway."* ]]
+    # A copy tuned in place was replaced too: the output says where it went.
+    [[ "$output" == *"$HOME/.openclaw/skills/smokeping-monitoring/SKILL.md.bak"* ]]
     [[ "$output" == *"Start a NEW chat session"* ]]
     # Already current: no reload, no message -- a gateway restart on every
     # upgrade would cut whatever chat was going on, for nothing.
@@ -339,9 +341,15 @@ stub_installed_skill() {
 @test "upgrade: a skill that cannot be refreshed is named with the command that fixes it, and upgrade still succeeds" {
     stub_openclaw
     stub_installed_skill
-    STUB_SKILL_RC=1 run "$CLI" upgrade --skip-doctor
+    printf '#!/bin/sh\necho "cp: cannot create SKILL.md: Permission denied"\nexit 1\n' \
+        > "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
+    run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARNING: it could not be refreshed"* ]]
+    # Why, in the installer's words, and the likely cause.
+    [[ "$output" == *"| cp: cannot create SKILL.md: Permission denied"* ]]
+    [[ "$output" == *"owns $HOME/.openclaw/skills/smokeping-monitoring"* ]]
+    stub_openclaw
     [[ "$output" == *"  smoking-pi openclaw"* ]]
     [[ "$output" != *"Refreshed it"* ]]
     # A package needs sudo for it, and says so.
@@ -353,6 +361,45 @@ stub_installed_skill() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"No gateway answered"* ]]
     [[ "$output" != *"reloaded the gateway"* ]]
+}
+
+@test "upgrade: no openclaw command found, the skill is still refreshed and the reload is left to the person" {
+    stub_openclaw
+    stub_installed_skill
+    rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    grep -qx 'SKILL --reload' "$DOCKER_LOG"
+    [[ "$output" == *"No openclaw command here"* ]]
+    [[ "$output" != *"reloaded the gateway"* ]]
+}
+
+@test "upgrade under sudo: the skill compared and refreshed is the sudo user's, whatever OPENCLAW_SKILLS_DIR says" {
+    stub_openclaw
+    rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    local home="$BATS_TEST_TMPDIR/alice"
+    stub_nvm_openclaw "$home" v24.18.0
+    mkdir -p "$STUB_HOME/examples/openclaw/smokeping-monitoring" "$home/.openclaw/skills/smokeping-monitoring"
+    echo "new guide" > "$STUB_HOME/examples/openclaw/smokeping-monitoring/SKILL.md"
+    echo "old guide" > "$home/.openclaw/skills/smokeping-monitoring/SKILL.md"
+    # root's own skills directory, current: were it the one compared, the
+    # stale skill alice's gateway reads would never be refreshed.
+    export OPENCLAW_SKILLS_DIR="$BATS_TEST_TMPDIR/rootskills"
+    mkdir -p "$OPENCLAW_SKILLS_DIR/smokeping-monitoring"
+    cp "$STUB_HOME/examples/openclaw/smokeping-monitoring/SKILL.md" "$OPENCLAW_SKILLS_DIR/smokeping-monitoring/"
+    export SUDO_USER=alice HOME="$BATS_TEST_TMPDIR/root"
+    printf '#!/bin/sh\n[ "$1" = -u ] && [ -n "$2" ] && { echo 1000; exit 0; }\n[ "$1" = -u ] && { echo 0; exit 0; }\necho root\n' \
+        > "$BATS_TEST_TMPDIR/bin/id"
+    printf '#!/bin/sh\necho "alice:x:1000:1000::%s:/bin/bash"\n' "$home" > "$BATS_TEST_TMPDIR/bin/getent"
+    printf '#!/bin/sh\necho "SUDO $*" >> "%s"\nshift 3\nexec "$@"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/sudo"
+    chmod +x "$BATS_TEST_TMPDIR/bin/id" "$BATS_TEST_TMPDIR/bin/getent" "$BATS_TEST_TMPDIR/bin/sudo"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"$home/.openclaw/skills/smokeping-monitoring/SKILL.md differs"* ]]
+    grep -q "SUDO -u alice -H env PATH=$home/.nvm/versions/node/v24.18.0/bin:.*install-openclaw-skill.sh --reload" "$DOCKER_LOG"
+    grep -qx 'SKILL --reload' "$DOCKER_LOG"
 }
 
 @test "upgrade with the real installer: the stale skill is replaced, the old one kept as .bak" {
