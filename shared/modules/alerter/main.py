@@ -278,7 +278,7 @@ def run_iteration() -> None:
                 "  [%s/%s]%s %s",
                 incident["severity"],
                 incident["rule"],
-                " (quiet: tail of an uplink_down)" if incident.get("quiet") else "",
+                " (quiet: tail of a total loss)" if incident.get("quiet") else "",
                 incident["message"],
             )
     else:

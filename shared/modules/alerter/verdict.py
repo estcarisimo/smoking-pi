@@ -271,8 +271,28 @@ def classify(
     #     wifi_link allows -- a hung radio reports a healthy link and
     #     receives nothing, which is the one shape a person cannot see from
     #     the router's lights.
-    if any(i.get("rule") == "uplink_down" for i in incidents):
-        return _out("monitor_uplink", _uplink_line(wifi))
+    # 1a. The monitor's own name resolution: named destinations all lost
+    #     while the first hop and the resolvers queried by address answer.
+    if any(i.get("rule") == "monitor_dns" for i in incidents):
+        return _out(
+            "monitoring",
+            "The monitor, not the network — this host cannot resolve names, "
+            "while its gateway and the DNS resolvers answer by address; the "
+            "named sites are probably fine.",
+        )
+
+    uplink = next((i for i in incidents if i.get("rule") == "uplink_down"), None)
+    if uplink is not None:
+        return _out("monitor_uplink", _uplink_line(wifi, uplink.get("first_hop", "lost")))
+
+    # 1c. Everything lost while the ISP gateway answers: past the house.
+    if any(i.get("rule") == "internet_down" for i in incidents):
+        return _out(
+            "isp_upstream",
+            "Not you — every destination is unreachable while your ISP "
+            "gateway answers: the ISP or beyond, not this host or the house's "
+            "line.",
+        )
 
     if total == 0:
         return _out(
@@ -359,10 +379,16 @@ def classify(
     )
 
 
-def _uplink_line(wifi: dict | None) -> str:
-    """The monitor_uplink verdict, specific to what the Wi-Fi hour shows."""
+def _uplink_line(wifi: dict | None, first_hop: str | None = "lost") -> str:
+    """The monitor_uplink verdict, specific to what the Wi-Fi hour shows.
+
+    ``first_hop`` is the rule's own reading: "lost", or None when there is
+    no first-hop measurement -- then it says so instead of claiming it."""
     tail = ("every destination including the first hop is unreachable from "
-            "this host, so nothing beyond it can be judged.")
+            "this host, so nothing beyond it can be judged."
+            if first_hop == "lost" else
+            "every destination is unreachable from this host, and with no "
+            "first-hop measurement its own link cannot be told from the ISP.")
     if not wifi or not wifi.get("uplink"):
         return f"This host's uplink — {tail}"
     iface = wifi["interface"]

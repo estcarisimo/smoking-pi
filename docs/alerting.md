@@ -24,7 +24,9 @@ The service runs with `network_mode: host`, so it reaches InfluxDB on
 
 | Rule | Severity | Condition | Tunables (default) |
 |------|----------|-----------|--------------------|
-| `uplink_down` | critical | Most targets (`WIDESPREAD_PCT` of those reporting) at 100% loss in each of the latest 3 probe cycles, consecutive in time (one absent cycle tolerated) — every destination including the first hop is unreachable from this host, so the monitor's own uplink is gone. ONE incident; the per-target ones it would fan out into are not sent | `WIDESPREAD_PCT` (80 %), `DOWN_WINDOW` |
+| `uplink_down` | critical | Most targets (`WIDESPREAD_PCT` of those reporting) at 100% loss in each of the latest 3 probe cycles, consecutive in time (one absent cycle tolerated), and the first hop (the ISP gateway, category `cpe`) lost too — the monitor's own uplink is gone. With no first-hop measurement it says the two cannot be told apart. The first hop never counts in the breadth: it is evidence, not a destination. ONE incident; the per-target ones it would fan out into are not sent | `WIDESPREAD_PCT` (80 %), `DOWN_WINDOW` |
+| `internet_down` | critical | The same total loss while the first hop **answers**: the Internet beyond the house is down, not this host or the line. Before, this read "this host's uplink is down". Verdict `isp_upstream` | as `uplink_down` |
+| `monitor_dns` | critical | Every named destination at 100% for the same 3 cycles while the first hop and the DNS resolvers queried by address (`dns_latency`) answer: this host cannot resolve names (its own DNS; 2026-08: a frozen `resolv.conf`), the network is fine. Verdict `monitoring` | as `uplink_down` |
 | `outage` | warning | A run of probe cycles in which most targets lost at least `WIDESPREAD_LOSS_PCT` at once — a brief cut of the link that had ended by the time it was seen. ONE incident per run, keyed by its first cycle — and by the first cycle of the outage it continues once that has slid out of the window, so a long one is still one incident; *transient*: it leaves the window on its own and no recovery notice follows. The tail of an `uplink_down` (lost cycles still in the window after the uplink returned) is not an outage: it suppresses the per-target incidents and is never sent | `WIDESPREAD_PCT` (80 %), `WIDESPREAD_LOSS_PCT` (30 %) |
 | `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points. Not sent while anything widespread is active | `DOWN_WINDOW` (1200 s) |
 | `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold **and** the loss persisted: at least `HIGH_LOSS_MIN_POINTS` probe cycles that lost two or more pings (see [Probe cadence](#probe-cadence)) within the same 15 minutes the mean covers. Targets already down are excluded; not sent while anything widespread is active | `HIGH_LOSS_PCT` (20 %), `HIGH_LOSS_MIN_POINTS` (2) |
@@ -68,7 +70,8 @@ State lives in a JSON file (`ALERT_STATE_FILE`, default
 - **"Was down N min"** runs from the first alert to the first cycle the
   rule no longer fired. The `ALERT_RESOLVE_AFTER` wait before the notice is
   not counted. It is said only by the rules where nothing answered
-  (`target_down`, `uplink_down`, `ipv6_down`, `exporter_stale`): they need
+  (`target_down`, `uplink_down`, `internet_down`, `monitor_dns`,
+  `ipv6_down`, `exporter_stale`): they need
   every cycle in their window lost, so they clear on the first good one.
   They also fire only after their window has filled, so the figure can
   undercount by that window (20 minutes for `target_down`); it never
@@ -82,8 +85,12 @@ State lives in a JSON file (`ALERT_STATE_FILE`, default
   has enough points to judge (three in the down window) is *held*: neither
   missing nor recovered, whatever the reason — a stalled probe, the
   exporter itself (`exporter_stale`), a renamed or removed target. Its
-  recovery comes once data shows it answering. `uplink_down` and `outage`
-  are held when no target has data at all. After 24 hours with no data the
+  recovery comes once data shows it answering. `uplink_down`,
+  `internet_down`, `monitor_dns` and `outage` are held when no target has
+  data at all. The three total-loss incidents are one at a time: when the
+  reading changes mid-outage (the gateway reboots, or comes back before
+  the ISP does), the new one supersedes the old without a "recovered", and
+  is sent as news. After 24 hours with no data the
   incident is dropped without a notice. `list_alert_state` shows a held
   incident's `no_data_since`.
 - **Worse replaces milder.** A target that goes down usually crossed
@@ -344,7 +351,7 @@ missing reports directory is skipped quietly.
 | `STALE_WINDOW` | `1200` | `exporter_stale` window (seconds); same step arithmetic as `DOWN_WINDOW`, raised the same way |
 | `HIGH_LOSS_PCT` | `20` | `high_loss` threshold (percent) |
 | `HIGH_LOSS_MIN_POINTS` | `2` | Probe cycles with two or more lost pings (15% on a 10-ping probe) that `high_loss` needs within the mean's own 15 minutes (the latest three cycles of the down window, so a cycle that aged out of the mean cannot corroborate a new one). One bad cycle can average over `HIGH_LOSS_PCT` on its own, and one cycle is a blink |
-| `WIDESPREAD_PCT` | `80` | Share of the reporting targets that must be lossy in the same probe cycle for `outage`, or at 100% for `uplink_down` |
+| `WIDESPREAD_PCT` | `80` | Share of the reporting targets (the first hop excluded) that must be lossy in the same probe cycle for `outage`, or at 100% for `uplink_down`/`internet_down`. `monitor_dns` is judged on the named targets alone |
 | `WIDESPREAD_LOSS_PCT` | `30` | Loss percent a point needs to count toward `outage` — above the single-lost-ping background. A point must also have lost two or more pings, so a probe sending few pings cannot reach it on one lost ping, however low this is set |
 | `MICROCUT_BURST_N` | `3` | Possible cuts (isolated single windows above the threshold) per 60 min to flag a burst when there is no confirmed cut. Windows are ~30 s apart (`CPE_PROBE_WINDOW + CPE_PROBE_IDLE`); "consecutive" tolerates one missing window (`common/microcuts.py` `GAP_S`), rescale it if you change `CPE_PROBE_IDLE` |
 | `MICROCUT_LOSS_PCT` | `50` | Loss percent above which a 10 s CPE window counts as a microcut. CPE gateways rate-limit ICMP, giving a constant single-digit loss floor, so counting any loss at all would flag that floor permanently |
@@ -391,7 +398,7 @@ Scopes, in precedence order — the first match wins:
 
 | Scope | Meaning |
 |---|---|
-| `monitoring` | `exporter_stale` fired. **Outranks everything unconditionally**: announcing a network fault from an *absence* of data is the worst thing this can do |
+| `monitoring` | `exporter_stale` or `monitor_dns` fired. **Outranks everything unconditionally**: announcing a network fault from an *absence* of data is the worst thing this can do |
 | `monitor_uplink` | `uplink_down` fired: every destination including the first hop is unreachable from this host, so nothing beyond it can be judged. Named as precisely as `wifi_link` allows — *"still associated at −49 dBm but it has received nothing for the whole window: the radio is hung, not the network"* when the packets-received counter did not move; *"the link dropped N times"* on a carrier drop; the generic line on a wired host |
 | `wifi` | The first hop is dropping *and* the host's own Wi-Fi uplink was weak or dropped in the same hour (no breadth requirement — a dropped uplink takes everything with it). Only on a host whose default route is wireless; see [wifi.md](wifi.md) |
 | `local_link` | Broad impairment *and* the first hop is dropping |
@@ -442,7 +449,8 @@ moment it was made.
 ### The diagnosis: what the episode was, and how sure
 
 When a loss alert fires (`target_down`, `high_loss`, `microcut_burst`,
-`outage`, `uplink_down`, `ipv6_down`), the alerter diagnoses the last
+`outage`, `uplink_down`, `internet_down`, `ipv6_down`), the alerter
+diagnoses the last
 `ALERT_DIAGNOSIS_HOURS` (default 3) exactly as the assistants'
 `diagnose_loss` tool does. Both use one code path,
 `common/diagnosis_query.py`. The alert then carries the incident that covers
@@ -454,8 +462,10 @@ worse than attaching none, so the match is strict:
 - `microcut_burst` (the first hop) gets a cut on the line or this host's
   deaf radio.
 - `ipv6_down` gets only an incident that was IPv6 alone.
-- `outage` and `uplink_down` get the newest incident on this host's Wi-Fi,
-  the line, or upstream.
+- `outage`, `uplink_down` and `internet_down` get the newest incident on
+  this host's Wi-Fi, the line, or upstream. `monitor_dns` gets none: the
+  diagnosis has no name-resolution class yet, and would read the same
+  minutes as upstream (to be shared in one definition).
 
 The diagnosis sees more than the verdict: the first hop's loss against its
 usual level, whether this host's radio was deaf, and the TCP/HTTP siblings.
@@ -475,7 +485,7 @@ mute: say "mute google for 2h"
 
 The context line drops the verdict's own reading of the line, which would
 otherwise contradict the diagnosis. A count such as `12 of 16 affected`
-appears there only under `outage` and `uplink_down`, and it is the rule's
+appears there only under `outage` and the total-loss rules, and it is the rule's
 own: the targets that lost packets in the cut, out of those reporting.
 
 At **low confidence**, for an `unclear` incident, or with no incident to
@@ -808,7 +818,7 @@ What follows from a target's cadence:
 - The mean behind `high_loss` and `ipv6_down` covers three steps of the
   slowest probe: 15 min on the shipped step. Persistence counts each
   target's own latest three cycles.
-- `outage` and `uplink_down` bucket points to the slowest step. A faster
+- `outage` and the total-loss rules bucket points to the slowest step. A faster
   target's several points in one bucket are averaged, so one lost point of
   five does not make it "lost" for that cycle.
 

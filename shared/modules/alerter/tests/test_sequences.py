@@ -29,8 +29,9 @@ class Replay:
     readable from the moment the step starts, as an RRD row is.
     """
 
-    def __init__(self, monkeypatch, timeline):
+    def __init__(self, monkeypatch, timeline, categories=None):
         self.timeline = timeline
+        self.categories = categories or {}
         self.now = T0
         monkeypatch.setattr(evaluator, "_query", self.query)
 
@@ -45,7 +46,8 @@ class Replay:
                     value = loss(i)
                     if value is not None:
                         rows.append({"target": target, "_value": value,
-                                     "_time": at, "category": "topsites"})
+                                     "_time": at, "_measurement": "latency",
+                                     "category": self.categories.get(target, "topsites")})
             i += 1
         return rows
 
@@ -263,3 +265,21 @@ def test_a_hang_the_alerter_could_not_report_arrives_as_one_summary(monkeypatch)
     # The recovery, decided after the return, is sent as itself.
     assert kinds[-1][1:] == ("recovery", "uplink_down")
     assert len(delivered) == 3
+
+
+
+def test_an_isp_outage_is_named_as_one_and_ends_as_one(monkeypatch):
+    """Every destination lost for an hour while the ISP gateway answers.
+
+    Before: "this host's uplink is down", for a fault past the house.
+    """
+    timeline = everyone(lambda i: 1.0 if 3 <= i < 15 else 0.0,
+                        targets=[t for t in TARGETS if t != "CPE_IPv4"])
+    timeline["CPE_IPv4"] = lambda i: 0.1  # its rate-limit floor; it answers
+    sent = Replay(monkeypatch, timeline, categories={"CPE_IPv4": "cpe"}).run(140)
+    onset = int((T0 + timedelta(seconds=3 * STEP)).timestamp())
+    assert sent == [
+        (15, "alert", f"outage:{onset}"),
+        (25, "alert", "internet_down"),
+        (90, "recovery", "internet_down"),
+    ]

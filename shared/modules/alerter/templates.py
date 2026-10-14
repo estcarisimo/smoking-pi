@@ -139,7 +139,8 @@ def assemble(sections: list[Section], limit: int) -> str:
 # its event is inside the window (microcut_burst: any cut in 60 min;
 # high_loss: a 15 min mean), so a 5 min burst would read as 15 min or an
 # hour: it gets no duration. A rule in neither set says "lasted".
-DOWN_RULES = frozenset({"target_down", "uplink_down", "ipv6_down", "exporter_stale"})
+DOWN_RULES = frozenset({"target_down", "uplink_down", "internet_down",
+                        "monitor_dns", "ipv6_down", "exporter_stale"})
 WINDOWED_RULES = frozenset({"microcut_burst", "high_loss"})
 
 
@@ -277,7 +278,10 @@ def alert_sections(event: dict) -> list[Section]:
         line = f"{scope_emoji} {esc(verdict['line'])}".strip()
         sections.append(Section(0, line))
 
-    sections.append(Section(0, esc(event.get("message", ""))))
+    # One cause per message: when the diagnosis leads, the rule's line gives
+    # its numbers (``observation``) without its own reading of the cause.
+    body = event.get("observation") if leads and event.get("observation") else None
+    sections.append(Section(0, esc(body or event.get("message", ""))))
 
     # The evidence behind the diagnosis: what a reader checks before
     # believing it. Below the numbers, above the context line.

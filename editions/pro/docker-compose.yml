@@ -560,7 +560,8 @@ services:
       - HIGH_LOSS_MIN_POINTS=${HIGH_LOSS_MIN_POINTS:-2}
       # Widespread loss (one incident instead of one per target): the share
       # of reporting targets that must lose WIDESPREAD_LOSS_PCT in the same
-      # probe cycle. All of them at 100% for three cycles is uplink_down.
+      # probe cycle. All of them at 100% for three cycles is uplink_down,
+      # internet_down or monitor_dns, by what still answers.
       - WIDESPREAD_PCT=${WIDESPREAD_PCT:-80}
       - WIDESPREAD_LOSS_PCT=${WIDESPREAD_LOSS_PCT:-30}
       # microcut_burst fires on any confirmed cut (two consecutive windows

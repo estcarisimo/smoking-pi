@@ -140,7 +140,7 @@ def _down_points_flux(window_s: int) -> str:
     return (
         flux.base_flux(["latency", "dns_latency"], f"-{int(window_s)}s")
         + '|> filter(fn: (r) => r._field == "loss") '
-        + '|> keep(columns: ["_value", "_time", "target"]) '
+        + '|> keep(columns: ["_value", "_time", "target", "_measurement", "category"]) '
     )
 
 
@@ -675,7 +675,7 @@ def rule_widespread(
     step_s: int = STEP_S,
     cadences: dict[str, cadence.Cadence] | None = None,
     ongoing: Collection[str] = (),
-    uplink_last_seen: float | None = None,
+    total_open: tuple[str, float] | None = None,
 ) -> list[dict]:
     """One incident for a loss that hit most targets in the same probe cycle.
 
@@ -712,12 +712,25 @@ def rule_widespread(
       "brief cut of the link" warning, sent just as delivery worked again.
       Once fewer than ``min_points`` lost cycles remain in view the shape
       alone cannot say so, so a run at the window's first cycle that began
-      while the uplink was still down -- no later than one cycle after the
-      open ``uplink_down`` was last seen (``uplink_last_seen``) -- is its
-      tail too. A quiet tail ``continues`` that incident: reconcile
+      while the total loss was still being seen -- no later than one cycle
+      after the open one (``total_open``: its key and ``last_seen``) -- is
+      its tail too. A quiet tail ``continues`` that incident: reconcile
       announces its recovery only once the tail has left the window. The
-      bound is what ends it: loss that goes on after the uplink returned
-      starts after that, and is an outage of its own.
+      bound is what ends it: loss that goes on after it returned starts
+      after that, and is an outage of its own.
+
+    Total loss has three causes, told apart by what still answers (the
+    first hop is the ``cpe`` category: the ISP gateway past the home
+    router; it is evidence, not a destination, and never counts in the
+    breadth):
+
+    - the first hop is lost too, or unmeasured: ``uplink_down``, this
+      host's own link (unmeasured, the message says it cannot be told);
+    - the first hop answers, and so do the DNS resolvers queried by
+      address (``dns_latency``), while every named destination is lost:
+      ``monitor_dns``, this host's own name resolution, not the network;
+    - the first hop answers otherwise: ``internet_down``, beyond the house.
+      Before, all three read "this host's uplink is down".
     - A run that starts at the window's first cycle may have started before
       it. When an outage was active in the previous evaluation (``ongoing``,
       keys of open records not in their grace period), the run keeps that
@@ -730,13 +743,28 @@ def rule_widespread(
         loss_pct = _env_float("WIDESPREAD_LOSS_PCT", DEFAULT_WIDESPREAD_LOSS_PCT)
 
     ratios: dict[tuple[int, str], list[float]] = {}
+    hop: dict[tuple[int, str], list[float]] = {}
+    measurement: dict[str, str] = {}
     for row in rows:
         target = row.get("target")
         value = row.get("_value")
         step = _step_of(row.get("_time"), step_s)
         if target is None or value is None or step is None:
             continue
-        ratios.setdefault((step, target), []).append(flux.clamp_loss_ratio(value))
+        into = hop if row.get("category") == FIRST_HOP_CATEGORY else ratios
+        into.setdefault((step, target), []).append(flux.clamp_loss_ratio(value))
+        if row.get("_measurement"):
+            measurement[target] = row["_measurement"]
+
+    def first_hop(step: int) -> str | None:
+        """'answers', 'lost', or None when the first hop has no point in
+        this cycle or the one before (one missing cycle tolerated, as
+        everywhere here)."""
+        for at in (step, step - step_s):
+            mine = [sum(v) / len(v) for (s, _), v in hop.items() if s == at]
+            if mine:
+                return "answers" if min(mine) < DOWN_LOSS_RATIO else "lost"
+        return None
 
     reporting: dict[int, set[str]] = {}
     lossy: dict[int, set[str]] = {}
@@ -764,25 +792,64 @@ def rule_widespread(
     def contiguous(run: list[int]) -> bool:
         return all(b - a <= 2 * step_s for a, b in zip(run, run[1:]))
 
+    def names_only(step: int) -> bool:
+        """Every named destination lost while the first hop and every DNS
+        resolver (queried by address) answer. Judged on the named targets
+        alone: answering resolvers must not dilute the share below
+        WIDESPREAD_PCT (review of #336)."""
+        named = {t for t in reporting[step] if measurement.get(t) != "dns_latency"}
+        resolvers = reporting[step] - named
+        return (first_hop(step) == "answers" and len(named) >= min_targets
+                and bool(resolvers) and not (resolvers & lost.get(step, set()))
+                and named <= lost.get(step, set()))
+
     latest = steps[-min_points:]
     if (
         len(latest) >= min_points
         and contiguous(latest)
-        and all(share(lost, s) >= share_pct for s in latest)
+        and (all(share(lost, s) >= share_pct for s in latest)
+             or all(names_only(s) for s in latest))
     ):
         step = latest[-1]
         n_lost, n_all = len(lost[step]), len(reporting[step])
+        seen = first_hop(step)
+        named = {t for t in reporting[step] if measurement.get(t) != "dns_latency"}
+        observation = (f"{n_lost} of {n_all} targets at 100% loss for "
+                       f"{len(latest)} consecutive probe cycles")
+        if names_only(step):
+            rule = "monitor_dns"
+            observation = (f"every named destination ({len(named)}) at 100% loss "
+                           f"for {len(latest)} consecutive probe cycles, while "
+                           "the ISP gateway and the DNS resolvers answer by "
+                           "address")
+            cause = ("this host cannot resolve names (its own DNS), "
+                     "not the network")
+        elif seen == "answers":
+            rule = "internet_down"
+            observation += ", while the ISP gateway (first hop) answers"
+            cause = ("the Internet beyond the house is down; this host's "
+                     "link and the line to the ISP are fine")
+        elif seen == "lost":
+            rule = "uplink_down"
+            observation += ", the ISP gateway (first hop) included"
+            cause = "this host's uplink is down; nothing beyond it can be judged"
+        else:
+            rule = "uplink_down"
+            cause = ("this host's uplink, or everything beyond it, is down: "
+                     "with no first-hop measurement the two cannot be told apart")
         return [
             {
-                "rule": "uplink_down",
+                "rule": rule,
                 "severity": "critical",
-                "key": "uplink_down",
+                "key": rule,
                 "target": None,
-                "message": (
-                    f"{n_lost} of {n_all} targets at 100% loss for "
-                    f"{len(latest)} consecutive probe cycles — this host's "
-                    "uplink is down; nothing beyond it can be judged"
-                ),
+                # One total loss at a time: a reading that changes mid-outage
+                # (the gateway rebooting, back before the ISP) retires the
+                # previous one without a "recovered" (review of #336).
+                "supersedes": [r for r in TOTAL_RULES if r != rule],
+                "message": f"{observation} — {cause}",
+                "observation": observation,
+                "first_hop": seen,
                 "value": round(share(lost, step), 1),
                 "breadth": _breadth(lost[step], n_all),
             }
@@ -857,14 +924,14 @@ def rule_widespread(
                 "breadth": _breadth(lossy[widest], n_all),
             }
             tail_of_open = (
-                uplink_last_seen is not None
+                total_open is not None
                 and first == steps[0]
-                and first <= uplink_last_seen + step_s
+                and first <= total_open[1] + step_s
             )
             if was_uplink_down(run) or tail_of_open:
                 incident["quiet"] = True
-                if uplink_last_seen is not None:
-                    incident["continues"] = "uplink_down"
+                if total_open is not None:
+                    incident["continues"] = total_open[0]
             incidents.append(incident)
             run = []
         if step is not None and share(lossy, step) >= share_pct:
@@ -886,6 +953,8 @@ def suppress_widespread(incidents: list[dict], widespread: list[dict]) -> list[d
     """
     if not widespread:
         return incidents
+    # Only when the first hop is lost too: with it answering, a cut on it is
+    # evidence about the line, not the same fact again.
     uplink_down = any(i.get("rule") == "uplink_down" for i in widespread)
     dropped = {"target_down", "high_loss"}
     if uplink_down:
@@ -1086,7 +1155,7 @@ def evaluate_with_context(
     widespread = rule_widespread(
         down_rows, step_s=windows["step"], cadences=cadences,
         ongoing=ongoing,
-        uplink_last_seen=records.get("uplink_down", {}).get("last_seen"),
+        total_open=_total_open(records),
     )
     incidents = widespread + suppress_widespread(incidents, widespread)
     # Nothing in the window: a stall, or a stack that has never measured.
@@ -1132,6 +1201,22 @@ def _measurements_stale(window_s: int, open_keys: Collection[str]) -> list[dict]
         return []
     return rule_measurement_stale(counts, last_written, time.time(), window_s,
                                   open_keys)
+
+
+# The three total-loss incidents (rule_widespread): one at a time, keyed by
+# the rule.
+TOTAL_RULES = ("uplink_down", "internet_down", "monitor_dns")
+FIRST_HOP_CATEGORY = "cpe"
+
+
+def _total_open(records: dict) -> tuple[str, float] | None:
+    """The open total-loss incident most recently seen, as (key, last_seen)."""
+    found = [(float(records[k].get("last_seen") or 0), k)
+             for k in TOTAL_RULES if k in records]
+    if not found:
+        return None
+    last_seen, key = max(found)
+    return key, last_seen
 
 
 def judged_targets(rows: list[dict], min_points: int = DOWN_MIN_POINTS) -> set[str]:

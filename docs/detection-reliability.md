@@ -74,7 +74,10 @@ per target, plus a background counted as events.**
 
 - `rule_widespread` reads the raw down-window points per probe cycle. When
   `WIDESPREAD_PCT` (80%) of the reporting targets are at 100% in each of the
-  latest three cycles it emits one `uplink_down` critical; otherwise a run of
+  latest three cycles it emits one critical, named by what still answers
+  (since PR 4 of the front-8 audit): `uplink_down` when the ISP gateway is
+  lost too, `internet_down` when it answers, `monitor_dns` when it and the
+  resolvers answer by address while every named site is lost; otherwise a run of
   cycles in which that share lost `WIDESPREAD_LOSS_PCT` (30%) becomes one
   `outage` warning keyed by its first cycle. `suppress_widespread` drops
   every `target_down` and `high_loss` while either is active (and

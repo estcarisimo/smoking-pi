@@ -341,3 +341,34 @@ def test_a_blind_spell_restarts_the_grace_period(state_file, monkeypatch):
     assert actions["recoveries"] == []                            # grace again
     actions = state.reconcile(st, [], now=5200.0, judged={"google"})
     assert [r["key"] for r in actions["recoveries"]] == ["target_down:google"]
+
+
+def test_every_total_loss_is_held_when_nothing_has_data(state_file, monkeypatch):
+    """Review of #336: internet_down and monitor_dns too, not only
+    uplink_down -- a data gap is no recovery."""
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "100")
+    for rule in ("internet_down", "monitor_dns"):
+        st = state.load_state()
+        state.reconcile(st, [_incident(key=rule, rule=rule, target=None)],
+                        now=1000.0, judged={"google"})
+        for now in (1100.0, 1300.0, 5000.0):
+            assert state.reconcile(st, [], now=now, judged=set())["recoveries"] == []
+        assert rule in st["incidents"]
+
+
+def test_a_reclassified_total_loss_retires_the_old_one_without_a_recovery(
+        state_file, monkeypatch):
+    """Review of #336: an uplink_down open (as at the first deploy of this
+    change), then the same outage read as internet_down: one new alert,
+    no "uplink_down recovered" in the middle of it."""
+    monkeypatch.setenv("ALERT_RESOLVE_AFTER", "100")
+    st = state.load_state()
+    state.reconcile(st, [_incident(key="uplink_down", rule="uplink_down", target=None)],
+                    now=1000.0, judged={"google"})
+    internet = _incident(key="internet_down", rule="internet_down", target=None,
+                         supersedes=["uplink_down", "monitor_dns"])
+    actions = state.reconcile(st, [internet], now=1060.0, judged={"google"})
+    assert [a["key"] for a in actions["alerts"]] == ["internet_down"]
+    for now in (1200.0, 1500.0, 3000.0):
+        assert state.reconcile(st, [internet], now=now, judged={"google"})["recoveries"] == []
+    assert "uplink_down" not in st["incidents"]
