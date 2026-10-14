@@ -47,9 +47,9 @@ openclaw_bin() {
 # on PATH (nvm keeps `node` beside it) and that user's session bus, so
 # `systemctl --user restart openclaw-gateway` reaches their gateway.
 as_openclaw_user() {
-    local user uid path
+    local user uid path="$PATH"
     user="$(openclaw_user)"
-    path="$(dirname "$OPENCLAW_BIN"):$PATH"
+    [ -z "${OPENCLAW_BIN:-}" ] || path="$(dirname "$OPENCLAW_BIN"):$PATH"
     if [ -z "$user" ]; then
         PATH="$path" "$@"
         return
@@ -109,11 +109,68 @@ openclaw_evidence() {
     echo "your recorded history. The usual causes, in order:" >&2
     echo "  1. The gateway still has its cached tool set. 'openclaw mcp reload'," >&2
     echo "     restart the gateway, and start a NEW chat session." >&2
-    echo "  2. The skill is missing, so nothing redirects the agent:" >&2
-    echo "     $SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh --check" >&2
+    echo "  2. The skill is missing or stale, so nothing redirects the agent:" >&2
+    echo "     $(cli_name) openclaw   (installs the current one)" >&2
     echo "  3. The server is not registered: 'openclaw mcp probe smokeping'." >&2
     echo "$SMOKING_PI_HOME/docs/openclaw-integration.md, 'Verify with evidence', has the detail." >&2
     return 1
+}
+
+# The skill is the release's answering guide (shared/modules/common/guide.py),
+# which changes in most releases, so an upgrade leaves the installed copy
+# behind: the agent goes on answering in the old shape and nothing says so
+# (v2.32.0, both Pis, until the installer was run by hand). `upgrade` calls
+# this last. A skill that was never installed stays uninstalled; a stale
+# one is refreshed and the gateway reloaded, as step 5 of `openclaw` does --
+# the upgrade has just recreated the MCP server under that gateway anyway.
+# A copy tuned in place differs too and is replaced the same way: the
+# installer keeps it as SKILL.md.bak, and this says so, by path -- one
+# .bak only, so the next upgrade's would overwrite it. Never fails the
+# upgrade: what it cannot do, it names.
+openclaw_refresh_skill() {
+    local script="$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh"
+    local source="$SMOKING_PI_HOME/examples/openclaw/smokeping-monitoring/SKILL.md"
+    local user home dest said rc=0
+    [ -x "$script" ] && [ -f "$source" ] || return 0
+    user="$(openclaw_user)"
+    if [ -n "$user" ]; then
+        # The installer runs as that user through sudo, which drops
+        # OPENCLAW_SKILLS_DIR: compare the file it will write, or a stale
+        # skill elsewhere would be "refreshed" on every upgrade.
+        home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
+        [ -n "$home" ] || return 0
+        dest="$home/.openclaw/skills/smokeping-monitoring/SKILL.md"
+    else
+        dest="${OPENCLAW_SKILLS_DIR:-$HOME/.openclaw/skills}/smokeping-monitoring/SKILL.md"
+    fi
+    [ -f "$dest" ] || return 0
+    cmp -s "$source" "$dest" && return 0
+    echo
+    echo "The OpenClaw skill in $dest differs from this release's;"
+    echo "refreshing it and reloading the gateway (up to half a minute)..."
+    OPENCLAW_BIN="$(openclaw_bin)"
+    said="$(as_openclaw_user "$script" --reload 2>&1)" || rc=$?
+    if [ "$rc" != 0 ] && [ "$rc" != 3 ]; then
+        echo "WARNING: it could not be refreshed, so the assistant answers from the old" >&2
+        echo "one. The installer said:" >&2
+        printf '%s\n' "${said:-(nothing)}" | tail -3 | sed 's/^/  | /' >&2
+        echo "Check that ${user:-$(id -un)} owns $(dirname "$dest"), then refresh it," >&2
+        echo "and reload the gateway, with:" >&2
+        echo "  $(cli_name) openclaw" >&2
+        return 0
+    fi
+    if [ "$rc" = 3 ]; then
+        echo "Refreshed it. No gateway answered, so nothing reloaded: a gateway reads"
+        echo "the new skill when it starts ('openclaw gateway status' says why)."
+    elif [ -z "$OPENCLAW_BIN" ]; then
+        echo "Refreshed it. No openclaw command here to reload the gateway with: unless"
+        echo "it runs as a systemd user unit (restarted), restart it however you run it."
+    else
+        echo "Refreshed it and reloaded the gateway."
+    fi
+    echo "The copy it replaced is $dest.bak: if you tuned the skill in place (its"
+    echo "description:), apply that to the new one -- the next refresh replaces the .bak."
+    echo "Start a NEW chat session: an open one keeps the skill it started with."
 }
 
 cmd_openclaw() {

@@ -22,6 +22,23 @@ the backup was taken from and records it), and `smoking-pi upgrade` pulls or reb
 and runs the doctor — [Packaging](packaging.md#the-command). The procedures
 below are what those commands do, for when you need one step of them.
 
+`upgrade` also brings an installed OpenClaw skill up to the new release.
+The skill is the answering guide, which changes in most releases, and an
+old copy fails silently: the assistant keeps answering in the previous
+release's shape. When `~/.openclaw/skills/smokeping-monitoring/SKILL.md`
+exists for the user who ran `sudo` (or for you, from a clone) and differs
+from the release's, `upgrade` replaces it, reloads the gateway and says to
+start a new chat session. The copy it replaced is kept as `SKILL.md.bak`,
+which matters if you tuned the skill in place (its `description:`): apply
+that to the new one, because the next refresh overwrites the `.bak`.
+A skill that was never installed stays that way, and a current one is left
+alone, so the gateway is not restarted for nothing. If the refresh fails,
+`upgrade` still succeeds and prints the command that does it:
+
+```bash
+sudo smoking-pi openclaw
+```
+
 One command changes the containers at a time. A second `upgrade`, `up` or
 `config set` started meanwhile says *Another smoking-pi command is changing
 this stack; waiting for it to finish* and runs after it. Two Compose runs

@@ -301,6 +301,120 @@ fail_docker_on() {
     [[ "$output" == *"nothing installed to upgrade"* ]]
 }
 
+# An installed OpenClaw skill is the release's answering guide; upgrade
+# keeps it current. HOME is the test's own, so ~/.openclaw is never the
+# developer's.
+stub_installed_skill() {
+    export HOME="$BATS_TEST_TMPDIR/user"
+    mkdir -p "$STUB_HOME/examples/openclaw/smokeping-monitoring" "$HOME/.openclaw/skills/smokeping-monitoring"
+    echo "new guide" > "$STUB_HOME/examples/openclaw/smokeping-monitoring/SKILL.md"
+    echo "${1:-old guide}" > "$HOME/.openclaw/skills/smokeping-monitoring/SKILL.md"
+}
+
+@test "upgrade refreshes a stale OpenClaw skill and reloads the gateway, and leaves a current or absent one alone" {
+    stub_openclaw
+    stub_installed_skill
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    grep -qx 'SKILL --reload' "$DOCKER_LOG"
+    [[ "$output" == *"differs from this release's"* ]]
+    [[ "$output" == *"Refreshed it and reloaded the gateway."* ]]
+    # A copy tuned in place was replaced too: the output says where it went.
+    [[ "$output" == *"$HOME/.openclaw/skills/smokeping-monitoring/SKILL.md.bak"* ]]
+    [[ "$output" == *"Start a NEW chat session"* ]]
+    # Already current: no reload, no message -- a gateway restart on every
+    # upgrade would cut whatever chat was going on, for nothing.
+    stub_installed_skill "new guide"
+    : > "$DOCKER_LOG"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    if grep -q '^SKILL' "$DOCKER_LOG"; then false; fi
+    [[ "$output" != *"skill"* ]]
+    # Never installed: upgrade does not install one.
+    rm -r "$HOME/.openclaw"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    if grep -q '^SKILL' "$DOCKER_LOG"; then false; fi
+    [ ! -e "$HOME/.openclaw" ]
+}
+
+@test "upgrade: a skill that cannot be refreshed is named with the command that fixes it, and upgrade still succeeds" {
+    stub_openclaw
+    stub_installed_skill
+    printf '#!/bin/sh\necho "cp: cannot create SKILL.md: Permission denied"\nexit 1\n' \
+        > "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARNING: it could not be refreshed"* ]]
+    # Why, in the installer's words, and the likely cause.
+    [[ "$output" == *"| cp: cannot create SKILL.md: Permission denied"* ]]
+    [[ "$output" == *"owns $HOME/.openclaw/skills/smokeping-monitoring"* ]]
+    stub_openclaw
+    [[ "$output" == *"  smoking-pi openclaw"* ]]
+    [[ "$output" != *"Refreshed it"* ]]
+    # A package needs sudo for it, and says so.
+    SMOKING_PI_PACKAGED=1 STUB_SKILL_RC=1 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"  sudo smoking-pi openclaw"* ]]
+    # No gateway answering is not "reloaded".
+    STUB_SKILL_RC=3 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"No gateway answered"* ]]
+    [[ "$output" != *"reloaded the gateway"* ]]
+}
+
+@test "upgrade: no openclaw command found, the skill is still refreshed and the reload is left to the person" {
+    stub_openclaw
+    stub_installed_skill
+    rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    grep -qx 'SKILL --reload' "$DOCKER_LOG"
+    [[ "$output" == *"No openclaw command here"* ]]
+    [[ "$output" != *"reloaded the gateway"* ]]
+}
+
+@test "upgrade under sudo: the skill compared and refreshed is the sudo user's, whatever OPENCLAW_SKILLS_DIR says" {
+    stub_openclaw
+    rm -f "$BATS_TEST_TMPDIR/bin/openclaw"
+    export PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin"
+    local home="$BATS_TEST_TMPDIR/alice"
+    stub_nvm_openclaw "$home" v24.18.0
+    mkdir -p "$STUB_HOME/examples/openclaw/smokeping-monitoring" "$home/.openclaw/skills/smokeping-monitoring"
+    echo "new guide" > "$STUB_HOME/examples/openclaw/smokeping-monitoring/SKILL.md"
+    echo "old guide" > "$home/.openclaw/skills/smokeping-monitoring/SKILL.md"
+    # root's own skills directory, current: were it the one compared, the
+    # stale skill alice's gateway reads would never be refreshed.
+    export OPENCLAW_SKILLS_DIR="$BATS_TEST_TMPDIR/rootskills"
+    mkdir -p "$OPENCLAW_SKILLS_DIR/smokeping-monitoring"
+    cp "$STUB_HOME/examples/openclaw/smokeping-monitoring/SKILL.md" "$OPENCLAW_SKILLS_DIR/smokeping-monitoring/"
+    export SUDO_USER=alice HOME="$BATS_TEST_TMPDIR/root"
+    printf '#!/bin/sh\n[ "$1" = -u ] && [ -n "$2" ] && { echo 1000; exit 0; }\n[ "$1" = -u ] && { echo 0; exit 0; }\necho root\n' \
+        > "$BATS_TEST_TMPDIR/bin/id"
+    printf '#!/bin/sh\necho "alice:x:1000:1000::%s:/bin/bash"\n' "$home" > "$BATS_TEST_TMPDIR/bin/getent"
+    printf '#!/bin/sh\necho "SUDO $*" >> "%s"\nshift 3\nexec "$@"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/sudo"
+    chmod +x "$BATS_TEST_TMPDIR/bin/id" "$BATS_TEST_TMPDIR/bin/getent" "$BATS_TEST_TMPDIR/bin/sudo"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"$home/.openclaw/skills/smokeping-monitoring/SKILL.md differs"* ]]
+    grep -q "SUDO -u alice -H env PATH=$home/.nvm/versions/node/v24.18.0/bin:.*install-openclaw-skill.sh --reload" "$DOCKER_LOG"
+    grep -qx 'SKILL --reload' "$DOCKER_LOG"
+}
+
+@test "upgrade with the real installer: the stale skill is replaced, the old one kept as .bak" {
+    stub_installed_skill
+    skill_script_setup
+    unset OPENCLAW_SKILLS_DIR
+    cp "$REPO/shared/scripts/install-openclaw-skill.sh" "$STUB_HOME/shared/scripts/"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    cmp -s "$STUB_HOME/examples/openclaw/smokeping-monitoring/SKILL.md" "$HOME/.openclaw/skills/smokeping-monitoring/SKILL.md"
+    grep -qx 'old guide' "$HOME/.openclaw/skills/smokeping-monitoring/SKILL.md.bak"
+    grep -q 'openclaw mcp reload' "$DOCKER_LOG"
+    [[ "$output" == *"Refreshed it and reloaded the gateway."* ]]
+}
+
 @test "backup dumps postgres, stops the stack, tars the volumes the active services mount by key, restarts" {
     run "$CLI" backup "$BATS_TEST_TMPDIR/bk"
     [ "$status" -eq 0 ]
@@ -1093,11 +1207,12 @@ STUB
     [[ "$output" != *"did not answer"* ]]
 }
 
-@test "openclaw --check, agent answered from its shell: the advice names the skill check by its full path" {
+@test "openclaw --check, agent answered from its shell: the advice names the command that installs the skill" {
     stub_openclaw
     run "$CLI" openclaw --check
     [ "$status" -eq 1 ]
-    [[ "$output" == *"$STUB_HOME/shared/scripts/install-openclaw-skill.sh --check"* ]]
+    [[ "$output" == *"missing or stale"*"smoking-pi openclaw   (installs the current one)"* ]]
+    [[ "$output" != *"install-openclaw-skill.sh"* ]]
 }
 
 @test "openclaw --check passes only on a tool= line from the server" {

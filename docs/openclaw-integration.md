@@ -142,7 +142,13 @@ and the gateway reads it when it starts. `smoking-pi openclaw` reports that case
 
 Re-run it after **any** change to the skill. A stale copy is the failure mode
 worth guarding against, because it is invisible — the agent keeps answering,
-just in the old shape, and the install looks like it silently did nothing:
+just in the old shape, and the install looks like it silently did nothing.
+The skill carries the answering guide, which changes in most releases, so
+`smoking-pi upgrade` does this for you: when the installed skill differs
+from the new release's, it refreshes it, reloads the gateway, and says so
+([Upgrades](upgrades.md#with-the-command)). When it cannot, it says to run
+`smoking-pi openclaw` (with `sudo` on a package install), which installs
+the current skill as its step 5. To check by hand:
 
 ```bash
 ./shared/scripts/install-openclaw-skill.sh --check    # exits non-zero if stale

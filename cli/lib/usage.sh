@@ -34,8 +34,9 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      every start. For assistants use 'connect --tailscale'.
   upgrade [--skip-doctor]
                      After a new package or checkout: pull the release's images
-                     (or rebuild, from a clone), recreate what changed, run the
-                     doctor. Read docs/upgrades.md first for a PostgreSQL or
+                     (or rebuild, from a clone), recreate what changed, refresh
+                     a stale OpenClaw skill, run the doctor.
+                     Read docs/upgrades.md first for a PostgreSQL or
                      InfluxDB major; 'backup' before one.
   backup [DIR] [--online]
                      pg_dumpall, then every volume the stack mounts as a

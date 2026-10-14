@@ -65,6 +65,9 @@ cmd_upgrade() {
     publish_avahi
     # A clone installed before setup.sh linked the command gets it here.
     link_cli --quiet
+    # The new release's answering guide, to the assistant that already had
+    # the old one (cli/lib/openclaw.sh).
+    openclaw_refresh_skill || true
     # An `if`, not `[ ] &&`: as the function's last statement a false test
     # would become its exit status, and --skip-doctor would "fail".
     if [ "$doctor" = 1 ]; then run_doctor --live; fi

@@ -9,6 +9,29 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`smoking-pi upgrade` refreshes an installed OpenClaw skill.** The skill
+  is the answering guide (`common/guide.py`), which changes in most
+  releases, and nothing refreshed the installed copy: after v2.32.0 was
+  installed on 2026-10-14, the skill was stale on both the production and
+  the staging Pi, and the OpenClaw assistant went on answering from the
+  previous guide until the installer was run by hand. Nothing said so: a
+  stale skill answers fluently, just in the old shape. `upgrade` now
+  compares the installed skill of the user who ran `sudo` with the
+  release's and, when they differ, replaces it and reloads the gateway, as
+  `smoking-pi openclaw` does in its step 5; then it says to start a new
+  chat session. The copy it replaced is kept as `SKILL.md.bak`, and the
+  output names it: a skill tuned in place is replaced too, and its
+  tuning has to be applied to the new one before the next upgrade
+  overwrites that `.bak`. A skill that was never installed is not
+  installed, and a current one is left alone, so the gateway is not
+  restarted on every upgrade. If the refresh fails, the upgrade still
+  succeeds, shows what the installer said, and names the command that does
+  it, `sudo smoking-pi openclaw`. `smoking-pi openclaw --check` now gives
+  that command for a missing or stale skill too, instead of the
+  installer's script path.
+
 ## [2.32.0] — 2026-10-13
 
 The path from a measurement to a message on the phone was audited end to
