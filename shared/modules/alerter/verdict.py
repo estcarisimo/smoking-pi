@@ -356,8 +356,13 @@ def classify(
                 f"while IPv4 is healthy.",
             )
 
+    # Resolvers by either vocabulary (InfluxDB tag "dns", database
+    # "dns_resolvers"); never "dns_wizard", whose services are sites that
+    # vote on breadth, not resolvers (review of #342).
     if impaired and all(
-        (measurable[t][1] or "").lower().startswith("dns") for t in impaired
+        (measurable[t][1] or "").lower() in (definitions.RESOLVER_CATEGORY,
+                                             "dns_resolvers")
+        for t in impaired
     ):
         return _out(
             "dns",

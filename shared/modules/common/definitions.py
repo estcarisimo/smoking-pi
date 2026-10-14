@@ -41,26 +41,29 @@ BREADTH_ONLY_MEASUREMENTS = ("http_latency", "tcp_latency")
 def breadth_voters(rows: list[dict], cadences: dict[str, Cadence]) -> set[str]:
     """The breadth-only targets whose loss counts in this window.
 
-    A target votes when at least one of its points in the window was
-    clean (lost under one and a half pings' worth, as everywhere: see
-    common.cadence.is_event). A CDN that never answers ICMP, or a probe
-    that is always lossy, would otherwise sit in every cycle's "lost"
-    share and make a cut of a few sites look like everything. A target
-    lost for the whole window does not vote either; the targets that
-    always do decide that cycle, as before.
+    A target votes when most of its points in the window -- at least half
+    -- were clean (lost under one and a half pings' worth, as everywhere:
+    see common.cadence.is_event). A CDN that never answers ICMP, or a probe
+    that is lossy all the time (an HTTP/3 path that is blocked half the
+    time), would otherwise sit in every cycle's "lost" or "impaired" share
+    and make a cut of a few sites look like everything. A target lost for
+    most of the window does not vote either: the targets that always vote
+    decide that cycle, as before, so a long outage is judged as it was.
 
     ``rows``: ``loss`` points (ratio 0-1) with ``target``; ``cadences``:
     their pings per point (unknown: the default ten).
     """
-    voters = set()
+    clean: dict[str, int] = {}
+    seen: dict[str, int] = {}
     for row in rows:
         target, value = row.get("target"), row.get("_value")
-        if target is None or value is None or target in voters:
+        if target is None or value is None:
             continue
         ratio = min(1.0, max(0.0, float(value)))
+        seen[target] = seen.get(target, 0) + 1
         if not is_event(ratio, of(cadences, target).pings):
-            voters.add(target)
-    return voters
+            clean[target] = clean.get(target, 0) + 1
+    return {t for t, n in seen.items() if 2 * clean.get(t, 0) >= n}
 
 
 # Total loss, by what still answers: one incident at a time.

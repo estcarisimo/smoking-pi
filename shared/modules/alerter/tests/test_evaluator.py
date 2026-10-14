@@ -1148,13 +1148,41 @@ def _breadth_rows(per_target, pings=3, measurement="http_latency",
     return rows
 
 
-def test_breadth_voters_need_one_clean_point_in_the_window():
-    cad = cadence.by_target(_cadence_rows(cdn=(300, 10), head=(300, 3)))
+def test_breadth_voters_need_most_of_their_window_clean():
+    cad = cadence.by_target(_cadence_rows(cdn=(300, 10), head=(300, 3), h3=(300, 3)))
     rows = (_loss_points("cdn", [1.0, 1.0, 1.0, 1.0])       # never answers ICMP
             + _loss_points("lossy", [0.5, 0.4, 0.6])        # always an event
-            + _loss_points("cut", [0.0, 1.0, 1.0])          # answered, then lost
+            + _loss_points("h3", [2 / 3, 0.0, 2 / 3, 2 / 3])  # blocked most cycles
+            + _loss_points("cut", [0.0, 0.0, 1.0, 1.0])     # half clean, then lost
+            + _loss_points("long", [0.0, 1.0, 1.0, 1.0])    # lost most of the window
             + _loss_points("head", [1 / 3, 1 / 3, 1 / 3]))  # one ping of three
     assert definitions.breadth_voters(rows, cad) == {"cut", "head"}
+
+
+def test_a_breadth_target_on_a_slower_step_does_not_vote():
+    """A 600 s probe has a point in one 300 s bucket of two: counted, the
+    share would swing with the denominator from one cycle to the next."""
+    rows = _breadth_rows({"slow": [0.0, 0.0]}, pings=3)
+    for row in rows:
+        if row["_field"] == "step":
+            row["_value"] = 600
+    loss, means, cad = evaluator.breadth_only_rows(rows, 900, step_s=300)
+    assert (loss, means, cad) == ([], [], {})
+    loss, _, _ = evaluator.breadth_only_rows(rows, 1800, step_s=600)
+    assert {r["target"] for r in loss} == {"slow"}
+
+
+def test_monitor_dns_holds_with_a_named_straggler_that_still_answers():
+    """Among hundreds of named targets, one reached by address (or a cached
+    answer) still answers while this host's DNS is gone: still the
+    monitor's DNS, not the Internet."""
+    rows = _total(named=20, resolvers=3, hop="answers", resolvers_lost=False)
+    for row in rows:
+        if row["target"] == "site0":
+            row["_value"] = 0.0
+    [inc] = evaluator.rule_widespread(rows)
+    assert inc["rule"] == "monitor_dns"
+    assert inc["observation"].startswith("19 of 20 named destinations")
 
 
 def test_a_few_lost_sites_are_not_widespread_once_the_breadth_answers():

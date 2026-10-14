@@ -62,9 +62,12 @@ makes `outage`, `uplink_down`, `internet_down` and `monitor_dns`, and in
 the verdict's count. Before, the breadth was the ICMP and resolver targets
 alone, 19 of 247 on the reference Pi, so a handful of sites losing packets
 read as "the link". A breadth-only target counts in a window only when at
-least one of its points in that window was clean (under one and a half
-lost pings): a CDN that drops ICMP sits at 100% forever and would otherwise
-be in every cycle's "lost" share.
+least half of its points in that window were clean (under one and a half
+lost pings): a CDN that drops ICMP sits at 100% forever, and a path that
+blocks HTTP/3 half the time is lossy all day; either would otherwise be in
+every cycle's share. One on a slower step than the rules' bucket does not
+count: it would report in one cycle of two. `monitor_dns` needs
+`WIDESPREAD_PCT` of the named targets lost, not every one.
 
 ## Incident lifecycle
 
