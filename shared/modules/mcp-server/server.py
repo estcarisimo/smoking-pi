@@ -35,6 +35,7 @@ import links
 from backends import ConfigAPIError, flux_str, influx_bucket, query_influx
 from common import (
     aggregates,
+    breadth,
     cadence,
     charts,
     definitions,
@@ -965,6 +966,7 @@ def _loss_episodes(
 def _widespread_runs(
     events: list[dict], reporting: dict[int, int], step_s: int = STEP_S,
     hop: dict[int, bool] | None = None, resolvers: dict[int, int] | None = None,
+    breadth_steps: dict[int, dict[str, int]] | None = None,
 ) -> list[dict]:
     """Probe steps in which WIDESPREAD_SHARE of the targets reporting IN
     THAT STEP had an event, folded into runs. Newest first.
@@ -993,10 +995,17 @@ def _widespread_runs(
     is the Internet beyond the house; answering with the resolvers queried
     by address (``resolvers``) while every named site was lost is this
     host's own DNS. The first hop is never a destination in the share.
+
+    ``breadth_steps``: the HTTP, TCP and DNS wizard targets that vote on
+    breadth, as counts per step (common.breadth.per_step) -- in every share
+    and count, as in the alerter's rule, and never an event of their own.
     """
     hop = hop or {}
+    breadth_steps = breadth_steps or {}
+    zero = {"reporting": 0, "lossy": 0, "lost": 0}
     resolvers = resolvers or {}
     resolver_hit: set[int] = set()
+    named_hit: set[int] = set()
     by_step: dict[int, dict[str, bool]] = {}
     for event in events:
         epoch = event.get("_epoch")
@@ -1004,6 +1013,8 @@ def _widespread_runs(
             continue
         if event.get("measurement") == "dns_latency":
             resolver_hit.add(int(epoch // step_s) * step_s)
+        else:
+            named_hit.add(int(epoch // step_s) * step_s)
     for event in events:
         if event.get("_category") == definitions.FIRST_HOP_CATEGORY:
             continue
@@ -1018,13 +1029,22 @@ def _widespread_runs(
 
     share = definitions.widespread_pct() / 100.0
 
+    def total(step: int) -> int:
+        return reporting.get(step, 0) + breadth_steps.get(step, zero)["reporting"]
+
+    def lossy(step: int) -> int:
+        return len(by_step.get(step, {})) + breadth_steps.get(step, zero)["lossy"]
+
+    def lost(step: int) -> int:
+        return (sum(by_step.get(step, {}).values())
+                + breadth_steps.get(step, zero)["lost"])
+
     def needed(step: int) -> float | None:
-        total = reporting.get(step, 0)
-        return share * total if total >= 3 else None
+        return share * total(step) if total(step) >= 3 else None
 
     steps = sorted(
-        step for step, hits in by_step.items()
-        if needed(step) is not None and len(hits) >= needed(step)
+        step for step in by_step.keys() | breadth_steps.keys()
+        if needed(step) is not None and lossy(step) and lossy(step) >= needed(step)
     )
     runs: list[dict] = []
     run: list[int] = []
@@ -1035,12 +1055,12 @@ def _widespread_runs(
             run.append(step)
             continue
         if run:
-            affected = max(len(by_step[s]) for s in run)
+            affected = max(lossy(s) for s in run)
             # A cut that starts or ends mid-cycle shows partial loss in its
             # edge cycles; the 3 h 20 min hang began with one at 95%. Total
             # loss in every cycle but the two edges is total loss.
             lost_steps = sum(
-                1 for s in run if sum(by_step[s].values()) >= needed(s)
+                1 for s in run if lost(s) >= needed(s)
             )
             all_lost = (
                 lost_steps >= len(run) - 2 if len(run) > 2 else lost_steps == len(run)
@@ -1052,7 +1072,10 @@ def _widespread_runs(
                 first_hop = (None if not measured else
                              "lost" if all(hop[s] for s in measured)
                              else "answers")
+                # Named destinations among the lost: breadth-only targets
+                # alone, the pinged ones answering, are not this host's DNS.
                 names_only = (any(resolvers.get(s) for s in run)
+                              and any(s in named_hit for s in run)
                               and not any(s in resolver_hit for s in run))
                 reading, why = definitions.total_loss(first_hop, names_only)
             runs.append(
@@ -1061,7 +1084,7 @@ def _widespread_runs(
                     "end": datetime.fromtimestamp(run[-1], tz=timezone.utc).isoformat(),
                     "minutes": (run[-1] - run[0]) // 60 + step_s // 60,
                     "targets_affected": affected,
-                    "targets_total": max(reporting[s] for s in run),
+                    "targets_total": max(total(s) for s in run),
                     "all_lost": all_lost,
                     "reading": reading,
                     "cause": (
@@ -1088,7 +1111,9 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
     however many that target's probe sends) -- and returns them three ways:
 
       - `widespread`: runs of probe steps in which most targets (80%) had
-        loss at once, with a `cause` line. `all_lost: true` for three or
+        loss at once, with a `cause` line. The shares and counts include
+        the HTTP, TCP and DNS wizard targets that vote on breadth, as the
+        alerts count them; they are never listed below. `all_lost: true` for three or
         more cycles means every target lost every packet from this host:
         its own uplink was down, and the per-target numbers for that span
         say nothing about any target. Shorter runs are a brief cut of the
@@ -1283,8 +1308,20 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
             continue
         step = int(epoch // step_s) * step_s
         hop_lost[step] = hop_lost.get(step, True) and float(row["_value"]) >= 0.999
+    # The HTTP, TCP and DNS wizard targets that vote on breadth, counted as
+    # the alerter counts them (common.breadth), at the caller's bar when one
+    # was given. Optional: a failed query leaves the ICMP and resolver
+    # targets alone, as before.
+    try:
+        breadth_steps = breadth.fetch(
+            query_influx, hours, step_s,
+            bar=None if threshold is None else bar)
+    except Exception:  # influx client raises many exception types
+        log.warning("get_loss_events: breadth-only query failed", exc_info=True)
+        breadth_steps = {}
     widespread = _widespread_runs(events, reporting, step_s, hop=hop_lost,
-                                  resolvers=counts["resolver"])
+                                  resolvers=counts["resolver"],
+                                  breadth_steps=breadth_steps)
     for event in events:
         del event["_epoch"]
         del event["_category"]
@@ -1295,7 +1332,9 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
         "min_lost_pings": cadence.EVENT_LOST_PINGS if threshold is None else None,
         "event_count": len(events),
         "truncated": len(events) >= MAX_EVENT_ROWS,
-        "targets_reporting": max(reporting.values(), default=0),
+        "targets_reporting": max(
+            (reporting.get(s, 0) + breadth_steps.get(s, {}).get("reporting", 0)
+             for s in reporting.keys() | breadth_steps.keys()), default=0),
         "background_points": background,
         "widespread": widespread,
         "episodes": episodes,
@@ -1354,8 +1393,13 @@ def diagnose_loss(hours: int = 24) -> dict:
     because they lost everything nearly all window (they do not answer
     ICMP, or are gone); `coverage` says which evidence existed: `wifi`
     (this host's wifi_link), `cpe` (the first-hop probe), `app_layer`
-    (TCP/HTTP siblings). A class that needs missing evidence is never
-    `high`.
+    (TCP/HTTP siblings), `breadth_only` (the HTTP, TCP and DNS wizard
+    targets counted in the breadth). A class that needs missing evidence
+    is never `high`.
+
+    The "N of M destinations" counts and `targets_reporting` include those
+    breadth-only targets, as the alerts count them; `targets` names only
+    the pinged sites and resolvers, so a broad incident may list two.
 
     Report the classes, not the raw counts: "two short cuts on your line at
     03:10 and 03:40 (high confidence: the first hop cut out with 14 of 18

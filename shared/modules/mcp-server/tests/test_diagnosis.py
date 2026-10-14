@@ -306,7 +306,8 @@ def test_diagnose_loss_end_to_end(monkeypatch, no_api):
     assert result["by_class"] == {"probe_miss": 1}
     inc = result["incidents"][0]
     assert inc["start"] == ts(3).isoformat() and inc["end"] == ts(4).isoformat()
-    assert result["coverage"] == {"wifi": False, "cpe": False, "app_layer": False}
+    assert result["coverage"] == {"wifi": False, "cpe": False, "app_layer": False,
+                                  "breadth_only": False}
 
 
 def test_diagnose_loss_survives_optional_queries_failing(monkeypatch, no_api):
@@ -507,3 +508,80 @@ def test_history_query_failure_is_a_static_error(monkeypatch):
     out = server.get_incident_history()
     assert out["error"].startswith("InfluxDB query failed")
     assert "secret" not in str(out)
+
+
+# ---------------------------------------------------------------------------
+# Breadth-only voters (common.breadth): counted per cycle, never named
+# ---------------------------------------------------------------------------
+
+
+def _breadth(steps, reporting=30, lossy=0, lost=0):
+    return {T0 + s * STEP: {"reporting": reporting, "lossy": lossy, "lost": lost}
+            for s in steps}
+
+
+def test_breadth_only_voters_make_two_sites_part_of_a_broad_loss():
+    """Two pinged sites alone are theirs; with 25 of 30 web services lossy
+    in the same cycle they are part of 27 of 40."""
+    events = [ev(t, 3, 60.0) for t in ("site1", "site2")]
+    assert only(diagnosis.diagnose(events, ctx(), 288))["class"] == "destination"
+    inc = only(diagnosis.diagnose(
+        events, ctx(breadth=_breadth(range(0, 10), lossy=0) | _breadth([3], lossy=25)),
+        288))
+    assert inc["class"] == "upstream"
+    assert inc["evidence"][0].startswith(
+        "27 of 40 destinations lost packets in the same cycle")
+    assert inc["targets"] == ["site1", "site2"]
+    assert inc["targets_affected"] == 27 and inc["targets_reporting"] == 40
+
+
+def test_breadth_only_voters_answering_keep_two_sites_theirs():
+    events = [ev(t, s, 60.0) for t in ("site1", "site2") for s in (3, 4)]
+    inc = only(diagnosis.diagnose(events, ctx(breadth=_breadth(range(0, 10))), 288))
+    assert inc["class"] == "destination"
+    assert "(2 of 40 destinations)" in inc["evidence"][0]
+
+
+def test_a_cut_of_the_breadth_alone_is_an_incident_that_names_no_target():
+    inc = only(diagnosis.diagnose(
+        [], ctx(breadth=_breadth(range(0, 10)) | _breadth([5, 6], lossy=28)), 288))
+    assert inc["class"] == "upstream"
+    assert inc["targets"] == [] and inc["targets_affected"] == 28
+    assert inc["max_loss_pct"] == 0.0
+
+
+def test_scattered_breadth_loss_never_makes_an_incident_of_its_own():
+    """A few web services losing a point here and there: below the broad
+    share, so no incident -- and no per-target one either."""
+    result = diagnosis.diagnose(
+        [], ctx(breadth=_breadth(range(0, 10), lossy=3)), 288)
+    assert result["incidents"] == []
+
+
+def test_breadth_total_loss_with_pings_answering_is_not_this_hosts_dns():
+    floor = {"cycles": {T0 + s * STEP: 10.0 for s in range(0, 10)}, "usual": 10.0}
+    inc = only(diagnosis.diagnose(
+        [], ctx(breadth=_breadth(range(0, 10), reporting=50)
+                | _breadth([4, 5, 6], reporting=50, lossy=50, lost=50),
+                resolvers={T0 + s * STEP: 3 for s in range(0, 10)}, floor=floor), 288))
+    assert (inc["class"], inc["detail"]) == ("upstream", "outage")
+
+
+def test_diagnose_loss_counts_the_breadth_in_targets_reporting(monkeypatch, no_api):
+    ts = lambda step: datetime.fromtimestamp(T0 + step * STEP, tz=timezone.utc)  # noqa: E731
+
+    def fake(flux):
+        if "reduce(" in flux:
+            return [{"_time": ts(s), "reporting": 30, "lossy": 0, "lost": 0}
+                    for s in range(0, 10)]
+        if '"http_latency"' in flux and "mean()" in flux:
+            return [{"target": f"svc{i}", "_value": 1.0} for i in range(30)]
+        if "distinct(column: \"target\") |> count()" in flux:
+            return [{"_time": ts(s), "_value": 10} for s in range(0, 10)]
+        return []
+
+    monkeypatch.setattr(server, "query_influx", fake)
+    monkeypatch.setattr(server, "_cadences", lambda: {})
+    result = server.diagnose_loss(hours=24)
+    assert result["targets_reporting"] == 40
+    assert result["coverage"]["breadth_only"] is True

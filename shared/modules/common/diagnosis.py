@@ -30,6 +30,13 @@ gets one **class**:
   while the first hop answered (the alerter's ``internet_down``).
 - ``unclear``: none of the above fits; the evidence is listed anyway.
 
+Breadth -- "most destinations at once", "everything lost" -- counts the
+HTTP, TCP and DNS wizard targets that vote (common.breadth), per cycle, as
+the alerter's widespread rule does, so an alert and its diagnosis count the
+same set. They are counts only: an incident's ``targets``, the
+one-or-two-sites classes and the "over the span" spread are the ICMP and
+resolver targets alone.
+
 and a **confidence**: ``high`` when two or more independent signals agree
 and none contradicts, ``low`` when one contradicts or the data a class
 needs is missing, ``medium`` otherwise. ``evidence`` lists what supports the
@@ -203,9 +210,13 @@ def chronic_targets(events: list[dict], window_steps: int) -> list[str]:
 
 
 def fold_incidents(events: list[dict], step_s: int,
-                   exclude: set[str] | frozenset = frozenset()) -> list[dict]:
+                   exclude: set[str] | frozenset = frozenset(),
+                   extra_steps: set[int] | frozenset = frozenset()) -> list[dict]:
     """Fold loss events of every target into incidents: runs of steps with
     any event, no more than GAP_STEPS apart. Oldest first.
+
+    ``extra_steps``: cycles that are lossy without an event of their own
+    (the breadth-only targets made them broad: :func:`breadth_steps`).
 
     ``events``: ``target``, ``category``, ``loss_pct`` (0-100), ``_epoch``.
     Each incident: ``steps`` {step epoch: {target: loss_pct}}, ``lo``/``hi``
@@ -221,6 +232,8 @@ def fold_incidents(events: list[dict], step_s: int,
         hits = by_step.setdefault(step, {})
         hits[e["target"]] = max(hits.get(e["target"], 0.0), float(e["loss_pct"]))
         categories.setdefault(e["target"], e.get("category"))
+    for step in extra_steps:
+        by_step.setdefault(step, {})
     incidents: list[dict] = []
     for step in sorted(by_step):
         if incidents and step - incidents[-1]["_last"] <= GAP_STEPS * step_s:
@@ -240,6 +253,31 @@ def fold_incidents(events: list[dict], step_s: int,
     return incidents
 
 
+def breadth_steps(events: list[dict], ctx: dict,
+                  exclude: set[str] | frozenset = frozenset()) -> set[int]:
+    """Cycles in which the breadth-only voters (``ctx["breadth"]``) make the
+    loss broad with the events of the other targets: a cut of the web
+    sites alone, while every ping answered, is still an incident."""
+    breadth = ctx.get("breadth") or {}
+    if not breadth:
+        return set()
+    step_s = ctx["step_s"]
+    hits: dict[int, set[str]] = {}
+    for e in events:
+        if (e.get("_epoch") is None or e["target"] in exclude
+                or (e.get("category") or "").lower() == FIRST_HOP_CATEGORY):
+            continue
+        hits.setdefault(int(e["_epoch"] // step_s) * step_s, set()).add(e["target"])
+    out = set()
+    for step, b in breadth.items():
+        reporting = ctx["reporting"].get(step, 0) + b["reporting"]
+        lossy = len(hits.get(step, ())) + b["lossy"]
+        if (reporting >= MIN_TARGETS and lossy
+                and lossy >= definitions.broad_pct() / 100.0 * reporting):
+            out.add(step)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Classification
 # ---------------------------------------------------------------------------
@@ -257,6 +295,8 @@ def classify(inc: dict, ctx: dict) -> dict:
     ``ctx``: ``step_s``; ``reporting`` {step: targets reporting};
     ``cuts`` link cuts and ``deaf`` this host's spans, each with
     ``start_epoch``, ``seconds``, ``confirmed`` (cuts) or ``deaf`` (spans);
+    ``breadth`` {step: {reporting, lossy, lost}} of the breadth-only voters
+    (common.breadth), counted in every per-cycle share and never named;
     ``cpe`` whether the CPE probe reported in the window; ``wifi`` per
     minute (:func:`wifi_minutes`) or None; ``app`` {site: [(epoch,
     loss_ratio)]} for app-layer events and ``app_sites`` the sites with
@@ -268,24 +308,40 @@ def classify(inc: dict, ctx: dict) -> dict:
     steps = inc["steps"]
     targets = sorted(inc["categories"])
     n = len(targets)
+    breadth = ctx.get("breadth") or {}
+    zero = {"reporting": 0, "lossy": 0, "lost": 0}
     shares = []
     peak = (0, 0)
     total_peak = (0, 0)
     total_steps = 0
+    # Per cycle, every voter: the named targets and the breadth-only ones.
+    wide = 0
     for s, hits in steps.items():
-        reporting = ctx["reporting"].get(s, 0)
+        b = breadth.get(s, zero)
+        reporting = ctx["reporting"].get(s, 0) + b["reporting"]
+        lossy = len(hits) + b["lossy"]
+        wide = max(wide, lossy)
         if reporting >= MIN_TARGETS:
-            shares.append(len(hits) / reporting)
-            if len(hits) / reporting >= max(shares):
-                peak = (len(hits), reporting)
-            lost = sum(1 for v in hits.values() if v >= TOTAL)
+            shares.append(lossy / reporting)
+            if lossy / reporting >= max(shares):
+                peak = (lossy, reporting)
+            lost = sum(1 for v in hits.values() if v >= TOTAL) + b["lost"]
             if lost >= definitions.widespread_pct() / 100.0 * reporting:
                 total_steps += 1
                 total_peak = max(total_peak, (lost, reporting))
     share = max(shares, default=0.0)
-    reporting = max((ctx["reporting"].get(s, 0) for s in steps), default=0)
-    broad = n >= MIN_TARGETS and share >= definitions.broad_pct() / 100.0
-    max_loss = max(v for hits in steps.values() for v in hits.values())
+    reporting = max((ctx["reporting"].get(s, 0) + breadth.get(s, zero)["reporting"]
+                     for s in steps), default=0)
+    # The named targets alone: the "over the span" spread counts distinct
+    # targets across cycles, which hundreds of breadth-only ones, each
+    # losing a point now and then, would turn into "most of them".
+    named_reporting = max((ctx["reporting"].get(s, 0) for s in steps), default=0)
+    affected = max(n, wide)
+    broad = affected >= MIN_TARGETS and share >= definitions.broad_pct() / 100.0
+    max_loss = max((v for hits in steps.values() for v in hits.values()),
+                   default=None)
+    if max_loss is None:
+        max_loss = TOTAL if any(breadth.get(s, zero)["lost"] for s in steps) else 0.0
 
     cuts = [c for c in ctx.get("cuts") or []
             if _overlap(lo, hi, c["start_epoch"], c["start_epoch"] + c["seconds"]) > 0]
@@ -302,8 +358,8 @@ def classify(inc: dict, ctx: dict) -> dict:
                   if floor_now is not None else None)
     # Most destinations, though never most at the same moment: a low-grade
     # loss shared by every path. Breadth over the incident, not per cycle.
-    spread = (not broad and n >= MIN_TARGETS and reporting
-              and n / reporting >= definitions.broad_pct() / 100.0)
+    spread = (not broad and n >= MIN_TARGETS and named_reporting
+              and n / named_reporting >= definitions.broad_pct() / 100.0)
 
     def app_sibling(target: str) -> str | None:
         """'lossy', 'clean', or None (no app-layer data for the site)."""
@@ -320,7 +376,7 @@ def classify(inc: dict, ctx: dict) -> dict:
         "end_epoch": hi,
         "minutes": _minutes(span),
         "targets": targets,
-        "targets_affected": n,
+        "targets_affected": affected,
         "targets_reporting": reporting,
         "max_loss_pct": round(max_loss, 1),
         "all_lost_steps": total_steps,
@@ -360,8 +416,8 @@ def classify(inc: dict, ctx: dict) -> dict:
     if wifi_reasons:
         evidence.extend(wifi_reasons)
         if total_steps or broad:
-            evidence.append(f"{n} of {reporting} destinations lost packets at once, "
-                            "as a deaf monitor makes them")
+            evidence.append(f"{peak[0]} of {peak[1]} destinations lost packets at "
+                            "once, as a deaf monitor makes them")
         detail = ("deaf" if deaf_s >= 0.5 * span else "disassociated"
                   if unassoc_s >= 0.5 * span else "carrier")
         return done("local_wifi", detail)
@@ -385,7 +441,7 @@ def classify(inc: dict, ctx: dict) -> dict:
 
     # 2. The line: everything lost everything while the radio still heard,
     #    or the first hop cut out together with several destinations.
-    if total_steps and n >= MIN_TARGETS:
+    if total_steps and affected >= MIN_TARGETS:
         evidence.append(f"nearly every destination lost every packet in "
                         f"{total_steps} cycle(s) (up to {total_peak[0]} of the "
                         f"{total_peak[1]} reporting)")
@@ -395,7 +451,10 @@ def classify(inc: dict, ctx: dict) -> dict:
         # the window), none of them in it (review of #337).
         resolvers_seen = max((n for s, n in (ctx.get("resolvers") or {}).items()
                               if lo - step_s < s <= hi + step_s), default=0)
-        named_only = (resolvers_seen > 0 and definitions.RESOLVER_CATEGORY
+        # Named destinations among the lost: an incident of breadth-only
+        # targets alone, the pinged ones answering, is not this host's DNS.
+        named_only = (resolvers_seen > 0 and n > 0
+                      and definitions.RESOLVER_CATEGORY
                       not in set(inc["categories"].values()))
         if hop_answered and named_only:
             # The resolvers, queried by address, kept answering while every
@@ -426,19 +485,21 @@ def classify(inc: dict, ctx: dict) -> dict:
         if confirmed_cuts:
             evidence.append(f"the first hop (CPE) cut out too ({len(confirmed_cuts)} cut(s))")
         return done("local_link", "outage")
-    if confirmed_cuts and n >= 2:
+    if confirmed_cuts and affected >= 2:
         evidence.append(f"the first hop (CPE) cut out ({len(confirmed_cuts)} confirmed "
-                        f"cut(s)) while {n} destinations lost packets")
+                        f"cut(s)) while {affected} destinations lost packets")
         if broad:
-            evidence.append(f"{n} of {reporting} destinations affected")
+            evidence.append(f"{peak[0]} of {peak[1]} destinations lost packets "
+                            "in the same cycle")
         if weak:
             against.append(f"this host's Wi-Fi was weak at the time "
                            f"({wifi['min_dbm']:.0f} dBm): the air may be the cause")
         return done("local_link", "cuts")
 
     if (broad or spread) and floor_up:
-        evidence.append(f"{n} of {reporting} destinations lost packets"
-                        + (" at once" if broad else " over the span"))
+        evidence.append(f"{peak[0]} of {peak[1]} destinations lost packets at once"
+                        if broad else f"{n} of {named_reporting} destinations "
+                        "lost packets over the span")
         evidence.append(floor_line + ": the air or the line, which every path "
                         "crosses")
         if wifi_held():
@@ -447,7 +508,7 @@ def classify(inc: dict, ctx: dict) -> dict:
 
     # 3. Broad, with a clean first hop: beyond the line.
     if spread and ctx.get("cpe") and floor_now is not None:
-        evidence.append(f"{n} of {reporting} destinations lost a ping or more over "
+        evidence.append(f"{n} of {named_reporting} destinations lost a ping or more over "
                         f"{_minutes(span)} minutes, never most of them at once "
                         f"(at most {share:.0%} in a cycle)")
         evidence.append(floor_line + ": the first-hop probe crosses the same Wi-Fi "
@@ -460,7 +521,8 @@ def classify(inc: dict, ctx: dict) -> dict:
         return out_
     if broad:
         evidence.append(f"{peak[0]} of {peak[1]} destinations lost packets in the "
-                        f"same cycle ({n} over the episode)")
+                        "same cycle" + (f" ({n} over the episode)" if n > peak[0]
+                                        else ""))
         cats = {c for c in inc["categories"].values() if c}
         if len(cats) >= 2:
             evidence.append(f"across {len(cats)} kinds of destination "
@@ -479,7 +541,8 @@ def classify(inc: dict, ctx: dict) -> dict:
 
     # 4. One point on one target with nothing around it: the probe.
     kept = list(against)
-    if n == 1 and len(steps) == 1 and max_loss < TOTAL and not cuts and not kept:
+    if (n == 1 and wide == 1 and len(steps) == 1 and max_loss < TOTAL
+            and not cuts and not kept):
         t = targets[0]
         evidence.append(f"one point on {t} ({max_loss:.0f}% loss) and nothing else "
                         "around it")
@@ -493,7 +556,7 @@ def classify(inc: dict, ctx: dict) -> dict:
         against[:] = kept
 
     # 5. One or two destinations, their peers fine: theirs.
-    if n <= 2:
+    if 1 <= n <= 2 and wide <= 2:
         detail = None
         cats = {inc["categories"][t] for t in targets}
         if all((c or "").lower().startswith("dns") for c in cats):
@@ -516,7 +579,7 @@ def classify(inc: dict, ctx: dict) -> dict:
             against.append("the first hop had a possible cut then")
         return done("destination", detail)
 
-    evidence.append(f"{n} of {reporting} destinations lost packets "
+    evidence.append(f"{affected} of {reporting} destinations lost packets "
                     f"(at most {share:.0%} in a cycle), neither one site nor most "
                     "of them")
     if floor_line:
@@ -625,8 +688,10 @@ def diagnose(events: list[dict], ctx: dict, window_steps: int) -> dict:
         # They report in every cycle but are not destinations that can fail.
         ctx = {**ctx, "reporting": {s: max(0, n - len(chronic))
                                     for s, n in ctx["reporting"].items()}}
+    extra_steps = breadth_steps(events, ctx, set(chronic))
     incidents = [classify(inc, ctx)
-                 for inc in fold_incidents(events, ctx["step_s"], set(chronic))]
+                 for inc in fold_incidents(events, ctx["step_s"], set(chronic),
+                                           extra_steps)]
 
     def covered(lo: float, hi: float) -> bool:
         return any(_overlap(lo, hi, i["start_epoch"] - ctx["step_s"],
