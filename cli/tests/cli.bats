@@ -1853,6 +1853,43 @@ STUB
     if grep -q '^DIGEST_' "$SMOKING_PI_ENV_FILE"; then false; fi
 }
 
+# --- alerts --quiet ----------------------------------------------------------------
+
+@test "alerts --quiet alone sets the hours in the digest's zone and touches nothing about delivery" {
+    alerts_setup
+    printf 'DIGEST_TZ=America/Chicago\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts --quiet 23:00-7:00
+    [ "$status" -eq 0 ]
+    grep -qx 'QUIET_FROM=23:00' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'QUIET_UNTIL=07:00' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"23:00 to 07:00 America/Chicago"* ]]
+    [[ "$output" == *"never held"* ]]
+    run "$CLI" alerts --quiet off
+    [ "$status" -eq 0 ]
+    if grep -qE '^QUIET_(FROM|UNTIL)=.+' "$SMOKING_PI_ENV_FILE"; then false; fi
+    [[ "$output" == *"Quiet hours off"* ]]
+}
+
+@test "alerts --quiet refuses what the alerter could not read, before writing anything" {
+    alerts_setup
+    for bad in 23:00 23:00-23:00 24:00-07:00 23:00-7 night 23:00-07:00-08:00; do
+        run "$CLI" alerts --quiet "$bad"
+        [ "$status" -eq 2 ]
+    done
+    run "$CLI" alerts --quiet --openclaw
+    [ "$status" -eq 2 ]
+    if grep -q '^QUIET_' "$SMOKING_PI_ENV_FILE"; then false; fi
+}
+
+@test "alerts --quiet with --digest sets both in one go" {
+    alerts_setup
+    run "$CLI" alerts --digest 08:00 --quiet 23:00-07:00
+    [ "$status" -eq 0 ]
+    grep -qx 'DIGEST_AT=08:00' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'QUIET_FROM=23:00' "$SMOKING_PI_ENV_FILE"
+}
+
 @test "alerts --digest off turns it off; with a mode, both are set in one go" {
     alerts_setup
     run "$CLI" alerts --digest off

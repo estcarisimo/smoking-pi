@@ -51,6 +51,30 @@ alerts_set_digest() {
     esac
 }
 
+alerts_set_quiet() {
+    # $1: HH:MM-HH:MM or off (validated and normalized by the caller).
+    if [ "$1" = off ]; then
+        env_set QUIET_FROM ""
+        env_set QUIET_UNTIL ""
+        echo "Quiet hours off: every alert is sent when it happens."
+        return 0
+    fi
+    env_set QUIET_FROM "${1%-*}"
+    env_set QUIET_UNTIL "${1#*-}"
+    local zone
+    zone="$(env_get DIGEST_TZ)"; zone="${zone:-$(env_get TZ)}"
+    echo "Quiet hours ${1%-*} to ${1#*-} ${zone:-UTC}: alerts are held and sent as one message when they end."
+    echo "A total loss (the uplink, the Internet, this host's DNS) is never held."
+}
+
+# HH:MM, or H:MM made HH:MM (as the alerter reads it); empty when neither.
+alerts_hhmm() {
+    case "$1" in
+        [0-9]:[0-5][0-9]) echo "0$1" ;;
+        [01][0-9]:[0-5][0-9]|2[0-3]:[0-5][0-9]) echo "$1" ;;
+    esac
+}
+
 alerts_telegram() {
     # $1: a chat id from --to, or empty; $2: --yes. The token is a secret:
     # typed (hidden) or read from stdin, never argv, never printed. The chat
@@ -115,13 +139,15 @@ alerts_telegram() {
 }
 
 cmd_alerts() {
-    local mode="" to="" url="" test_msg="" yes=0 digest="" digest_tz=""
+    local mode="" to="" url="" test_msg="" yes=0 digest="" digest_tz="" quiet=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --digest) case "${2:-}" in ""|-*) echo "--digest needs HH:MM or off" >&2; return 2 ;; esac
                       digest="$2"; shift 2 ;;
             --digest-tz) case "${2:-}" in ""|-*) echo "--digest-tz needs a zone (Europe/London)" >&2; return 2 ;; esac
                          digest_tz="$2"; shift 2 ;;
+            --quiet) case "${2:-}" in ""|-*) echo "--quiet needs HH:MM-HH:MM or off" >&2; return 2 ;; esac
+                     quiet="$2"; shift 2 ;;
             --telegram) mode=telegram; shift ;;
             --openclaw) mode=openclaw; shift ;;
             --webhook) mode=webhook; shift ;;
@@ -157,9 +183,21 @@ cmd_alerts() {
     if [ -n "$digest_tz" ] && [ ! -f "/usr/share/zoneinfo/$digest_tz" ]; then
         echo "$digest_tz is not a time zone here (/usr/share/zoneinfo); for example Europe/London." >&2; return 2
     fi
-    if [ -n "$digest" ] && [ -z "$mode" ]; then
-        # Only the digest: nothing about where alerts go changes.
-        alerts_set_digest "$digest" "$digest_tz"
+    case "$quiet" in
+        ""|off) ;;
+        *-*)
+            local q_from q_until
+            q_from="$(alerts_hhmm "${quiet%-*}")"; q_until="$(alerts_hhmm "${quiet#*-}")"
+            if [ -z "$q_from" ] || [ -z "$q_until" ] || [ "$q_from" = "$q_until" ]; then
+                echo "--quiet takes two different 24-hour times, HH:MM-HH:MM (23:00-07:00), or off." >&2; return 2
+            fi
+            quiet="$q_from-$q_until" ;;
+        *) echo "--quiet takes two different 24-hour times, HH:MM-HH:MM (23:00-07:00), or off." >&2; return 2 ;;
+    esac
+    if { [ -n "$digest" ] || [ -n "$quiet" ]; } && [ -z "$mode" ]; then
+        # Only the schedule: nothing about where alerts go changes.
+        [ -z "$digest" ] || alerts_set_digest "$digest" "$digest_tz"
+        [ -z "$quiet" ] || alerts_set_quiet "$quiet"
         config_apply DIGEST_AT
         return 0
     fi
@@ -238,6 +276,7 @@ cmd_alerts() {
     esac
 
     [ -z "$digest" ] || alerts_set_digest "$digest" "$digest_tz"
+    [ -z "$quiet" ] || alerts_set_quiet "$quiet"
     env_set COMPOSE_PROFILES "$(profiles_with alerts)"
     # The mcp-server delivers get_chart through the same OpenClaw keys.
     local services="alerter"

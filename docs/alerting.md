@@ -332,6 +332,33 @@ nothing afterwards said what had happened.
 One limit remains: the state file is written once per cycle, after the
 sends. A crash between a send and that write sends it again on restart.
 
+### Quiet hours
+
+Between `QUIET_FROM` and `QUIET_UNTIL` alerts, recoveries and watchdog
+events are held instead of sent. When quiet hours end, everything held goes
+out as **one message**, type `held`, without a notification sound: what is
+open now, then each incident once, when it started and whether it
+recovered. It is the same summary as the outbox's. A total loss
+(`uplink_down`, `internet_down`, `monitor_dns`) is never held. When the
+summary can't be delivered, the outbox keeps it like any alert.
+
+```bash
+sudo smoking-pi alerts --quiet 23:00-07:00
+sudo smoking-pi alerts --quiet off
+```
+
+The times are in the digest's zone (`DIGEST_TZ`, then `TZ`, then UTC), and
+a span may cross midnight. Both are checked before anything is written.
+Quiet hours are off while either value is empty or unreadable; the alerter
+logs a warning and sends everything as it happens. Turning them off sends
+what was held on the next cycle. The history the digest reads records a
+held notification's `delivery` as `held`.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `QUIET_FROM` | *(unset)* | `HH:MM` when quiet hours begin |
+| `QUIET_UNTIL` | *(unset)* | `HH:MM` when they end and the held message goes out |
+
 ## Daily report delivery
 
 If the `ai-insights` service (profile `ai`) is writing Markdown reports to

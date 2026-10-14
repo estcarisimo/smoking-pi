@@ -70,6 +70,11 @@ SCRUB_ENV_VARS = [
     # Mutes are read on the delivery path; an exported value would point the
     # suite at a real mutes file and could silence the alerts it asserts on.
     "ALERT_MUTES_FILE",
+    # Quiet hours read these (and the digest's zone): an exported value
+    # would hold the alerts a test expects to see sent.
+    "QUIET_FROM",
+    "QUIET_UNTIL",
+    "DIGEST_TZ",
 ]
 
 

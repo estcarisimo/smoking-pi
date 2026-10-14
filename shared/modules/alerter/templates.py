@@ -345,9 +345,10 @@ def _mean_saw_nothing(verdict: dict) -> bool:
 
 def format_message(event: dict, limit: int = TG_TEXT_LIMIT) -> str:
     """Render one event to the text that will be delivered."""
-    if event.get("type") in ("report", "undelivered"):
+    if event.get("type") in ("report", "undelivered", "held"):
         # Pre-rendered: a report by ai-insights, an outbox summary by
-        # outbox.build (already escaped for the markup).
+        # outbox.build, a quiet-hours one by quiet.build (already escaped
+        # for the markup).
         return assemble([Section(0, str(event.get("message", "")))], limit)
     if event.get("type") == "digest":
         # The body is pre-rendered by digest.render(), which already builds

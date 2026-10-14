@@ -24,6 +24,7 @@ import flux
 import incident_history
 import notifier
 import outbox
+import quiet
 import reports_watcher
 import state
 import verdict
@@ -162,7 +163,10 @@ def _deliver(current: dict, payload: dict, image: bytes | None = None,
     """
     if now is None:
         now = time.time()
-    if outbox.pending(current):
+    if quiet.holds(payload, now):
+        quiet.hold(current, payload, now)
+        payload["delivery"] = "held"
+    elif outbox.pending(current):
         outbox.enqueue(current, payload, now)
         payload["delivery"] = "queued"
     elif notifier.notify(payload, image=image):
@@ -219,6 +223,7 @@ def _unreadable(current: dict, exc: Exception, now: float) -> None:
     for event in actions["recoveries"]:
         _deliver(current, {**event, "type": "recovery",
                            "duration_s": _duration_of(event)}, now=now)
+    quiet.release(current, now, lambda event: _deliver(current, event, now=now))
     if outbox.flush(current, now, send=notifier.notify,
                     reachable=notifier.reachable):
         digest.record_history(current, {"type": "undelivered",
@@ -342,6 +347,8 @@ def run_iteration() -> None:
             _deliver(current, payload)
     except Exception:  # noqa: BLE001 - must never cost the cycle's state
         log.exception("Watchdog events failed")
+    # What quiet hours held, as one message, once they are over.
+    quiet.release(current, time.time(), lambda event: _deliver(current, event))
     # Whatever is waiting, as one message, once delivery works again.
     if outbox.flush(current, time.time(), send=notifier.notify,
                     reachable=notifier.reachable):

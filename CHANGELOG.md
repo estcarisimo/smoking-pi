@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Quiet hours: `smoking-pi alerts --quiet 23:00-07:00`.** Every alert
+  went out the moment it was decided, so a lossy hour at 3 a.m. buzzed the
+  phone as often as it would at noon. The only answers were muting
+  targets one by one, which risks missing the next real outage, or
+  turning delivery off. Between `QUIET_FROM` and `QUIET_UNTIL` (in the
+  digest's zone), alerts, recoveries and watchdog events are now held. When
+  quiet hours end they go out as one silent message: what is open now, then
+  each incident once with when it started and whether it recovered (the
+  outbox's summary). A total loss (`uplink_down`, `internet_down`,
+  `monitor_dns`) is never held. Off by default; `--quiet off` turns it off
+  and sends what was held.
+
 ### Changed
 
 - **HTTP, TCP and DNS wizard targets count toward "widespread".** The

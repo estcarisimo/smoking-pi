@@ -84,6 +84,7 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      works from anywhere (a Cloudflare tunnel), scheme included.
   alerts [--telegram [--to CHAT_ID] | --openclaw [--to RECIPIENT] | --webhook
          | --off] [--test] [--yes] [--digest HH:MM|off [--digest-tz ZONE]]
+         [--quiet HH:MM-HH:MM|off]
                      Where alerts go (Pro): set NOTIFY_MODE and its keys, turn
                      on the alerts profile, recreate the alerter and print its
                      own delivery preflight. --telegram: a bot of your own,
@@ -93,6 +94,9 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      message: the only proof one arrives.
                      --digest: a daily summary at HH:MM (in ZONE, else TZ),
                      alone or with the rest.
+                     --quiet: hold alerts between the two times (the
+                     digest's zone) and send them as one message after; a
+                     total loss is never held.
   connect --tailscale [--off] [--yes]
                      Publish the MCP server for remote assistants through
                      Tailscale Funnel (Pro): installs Tailscale if asked, signs
