@@ -1071,7 +1071,7 @@
       "id": 34,
       "type": "stat",
       "title": "ISP gateway cut windows",
-      "description": "10-second ISP gateway probe windows that lost more than half their pings in the selected range: the raw material of a microcut (common/microcuts.py; 50% is MICROCUT_LOSS_PCT's default). The gateway's rate-limit floor stays below it. \"the link\" are windows the house's connection lost; \"this Pi's radio\" are windows during which the Pi's own Wi-Fi was deaf (associated but receiving nothing, or not associated), so the probe could not hear a link that may have been fine. The split is per window, so it can differ by a few from the cut totals of CPE microcuts and the assistant, which judge a whole cut. Details: CPE microcuts.",
+      "description": "10-second ISP gateway probe windows that lost more than half their pings in the selected range: the raw material of a microcut (common/microcuts.py; 50% is MICROCUT_LOSS_PCT's default). The gateway's rate-limit floor stays below it. \"the link\" are windows the house's connection lost; \"this Pi's radio\" are windows during which the Pi's own Wi-Fi was deaf (associated but receiving nothing, or not associated), so the probe could not hear a link that may have been fine. The split is per window and looser than the assistant's, which judges a whole cut: one deaf sample marks the windows of the 20 s before it as the radio's, with no requirement that deaf samples cover the whole cut. So it leans toward \"this Pi's radio\" by a few windows (33 against 37 link windows over one week on a test Pi). A side with no windows in the range is not shown. Details: CPE microcuts.",
       "datasource": {
         "uid": "influxdb"
       },

@@ -526,30 +526,38 @@ def sql_values_in(query: str, columns) -> set[tuple[str, str]]:
 _PIVOT_RE = re.compile(r'pivot\([^)]*columnKey:\s*\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]')
 
 
+def _set_values(query: str, column: str) -> set[str]:
+    """The values a query names on a stream it builds:
+    ``set(key: "<column>", value: "x")``."""
+    return set(re.findall(
+        r'set\(\s*key:\s*"' + re.escape(column) + r'",\s*value:\s*"([^"]+)"', query))
+
+
 def _selected_values(query: str, column: str) -> set[str]:
     """The values a query selects for one column: ``r.<column> == "x"``, or
-    sets on a stream it builds: ``set(key: "<column>", value: "x")``."""
+    sets on a stream it builds (:func:`_set_values`)."""
     col = re.escape(column)
-    return set(re.findall(r'r\.' + col + r'\s*==\s*"([^"]+)"', query)) | set(
-        re.findall(r'set\(\s*key:\s*"' + col + r'",\s*value:\s*"([^"]+)"', query)
-    )
+    return set(re.findall(r'r\.' + col + r'\s*==\s*"([^"]+)"', query)) | _set_values(
+        query, column)
 
 
-def _pivots(query: str) -> list[tuple[int, set[str]]]:
+def _pivots(query: str, set_only: bool = False) -> list[tuple[int, set[str]]]:
     """Each ``pivot()``'s position and the columns it makes: the values
-    selected for its column key before it."""
+    selected for its column key before it (with ``set_only``, only those
+    the query named with ``set()``)."""
+    values = _set_values if set_only else _selected_values
     return [
-        (m.start(), _selected_values(query[: m.start()], m.group(1)))
+        (m.start(), values(query[: m.start()], m.group(1)))
         for m in _PIVOT_RE.finditer(query)
     ]
 
 
-def _pivoted_after(query: str) -> list[tuple[str, set[str]]]:
+def _pivoted_after(query: str, set_only: bool = False) -> list[tuple[str, set[str]]]:
     """The query cut at each pivot: ``(text, columns exempt in it)``. The
     text before the first pivot exempts nothing; each later piece exempts
     every column a pivot before it made."""
     pieces, exempt, start = [], set(), 0
-    for pos, made in _pivots(query):
+    for pos, made in _pivots(query, set_only):
         pieces.append((query[start:pos], set(exempt)))
         exempt |= made
         start = pos
@@ -611,10 +619,13 @@ def shows_text(query: str) -> bool:
         renamed = set(re.findall(r'_value:\s*"([^"]+)"', query))
         if kept - _VALUE_COLUMNS - renamed:
             return True
-    # ``_value: r.cut`` after a pivot that made ``cut`` reads a field: a number.
+    # ``_value: r.cut`` after a pivot over a stream the query named with
+    # ``set(key: "_field", value: "cut")`` reads a value the query made
+    # itself (a count, here). A stored field picked with ``r._field ==
+    # "ip"`` can be a string, so ``_value: r.ip`` still reads as text.
     return any(
         _TEXT_VALUE_RE.search(_pivoted_value_re(exempt).sub("", _RENAME_RE.sub("", text)))
-        for text, exempt in _pivoted_after(query)
+        for text, exempt in _pivoted_after(query, set_only=True)
     )
 
 
@@ -625,15 +636,22 @@ def _pivoted_value_re(columns: set[str]) -> re.Pattern:
     return re.compile(r"_value:\s*r\.(?:" + names + r")\b(?!\s*\+)")
 
 
+_STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
 def _final_statement(query: str) -> str:
-    """The statement a Flux query answers with: from its last line that
-    does not continue a pipe (``|>``) to the end. A one-line query is
-    itself."""
+    """The statement a Flux query answers with: from the last line that
+    starts a statement to the end. A line starts one when no bracket is
+    open before it (string literals aside) and it does not continue a pipe
+    (``|>``). A one-line query is itself."""
     lines = query.strip().splitlines()
-    start = 0
+    start, depth = 0, 0
     for i, line in enumerate(lines):
-        if line.strip() and not line.lstrip().startswith("|>"):
+        if depth == 0 and line.strip() and not line.lstrip().startswith("|>"):
             start = i
+        bare = _STRING_RE.sub('""', line)
+        depth = max(0, depth + sum(bare.count(c) for c in "([{")
+                    - sum(bare.count(c) for c in ")]}"))
     return "\n".join(lines[start:])
 
 

@@ -89,9 +89,13 @@ A query that joins streams (the Overview's gateway cut windows, split by the
 radio's deaf samples) can pivot more than once. Each pivot exempts the
 columns it made from there on: the values selected with `r.<key> == "x"` or
 named with `set(key: "<key>", value: "x")` before it. For
-`text-stats-name-their-field`, only the final statement's `keep()` counts;
-a `keep()` that shapes an assigned stream for a join says nothing about the
-answer.
+`text-stats-name-their-field`, only the final statement's `keep()` counts
+(a statement starts on a line outside every bracket that does not continue
+a `|>` pipe); a `keep()` that shapes an assigned stream for a join says
+nothing about the answer. `_value: r.<column>` after a pivot reads as a
+number only when the query named that column itself with `set()`; a stored
+field picked with `r._field == "ip"` may be a string, so it still counts
+as text.
 
 ClickHouse queries are SQL, and a column name there is always valid, so the
 check compares *values* instead: every `category` / `measurement_type`

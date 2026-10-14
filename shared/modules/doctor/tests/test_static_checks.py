@@ -1012,6 +1012,35 @@ def test_a_joined_query_answers_with_a_number():
     assert sources.shows_text(JOINED_QUERY + ' |> keep(columns:["series"])')
 
 
+def test_a_stored_field_read_after_a_pivot_can_still_be_text():
+    """The Overview's Public address (IPv4): ``ip`` is a string field picked
+    with r._field == "ip"; only columns the query named with set() are
+    taken for numbers (review of #338)."""
+    from doctor import sources
+
+    query = (
+        'from(bucket:"s") |> filter(fn:(r) => r._measurement == "public_ip" and '
+        '(r._field == "ip" or r._field == "asn")) '
+        '|> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value") '
+        '|> map(fn:(r) => ({_time: r._time, _value: r.ip}))'
+    )
+    assert sources.shows_text(query)
+
+
+def test_a_keep_above_a_multi_line_map_is_the_answer():
+    """A formatted query whose last lines sit inside a map()'s brackets: the
+    keep() above them is still the final statement's."""
+    from doctor import sources
+
+    query = (
+        'from(bucket:"s") |> filter(fn:(r) => r._measurement == "wifi_link")\n'
+        '  |> keep(columns:["_time","ssid"]) |> map(fn:(r) => ({\n'
+        '      r with n: 1\n'
+        '  }))'
+    )
+    assert sources.shows_text(query)
+
+
 # ---------------------------------------------------------------------------
 # text-stats-name-their-field
 # ---------------------------------------------------------------------------

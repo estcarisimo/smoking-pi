@@ -14,12 +14,14 @@ version gets a matching GitHub release and git tag.
 - **Grafana reads cuts and loss the way the alerts do.** The Overview's
   *ISP gateway cut windows* counted every window above 50%, including those
   in the Pi's own deaf-radio spells. On the staging Pi over seven days it
-  showed 2 083 in red, and 2 050 of them were one 17-hour radio hang. It now
+  showed 2 083 in red, and 2 050 of them were one 17-hour radio hang: a
+  reader would blame the line for the monitor's own radio. It now
   shows *the link* and *this Pi's radio* apart, from the same `wifi_link`
   evidence as `common.microcuts`. The *CPE Microcut Detection* dashboard
   turned red at 5% loss, below the gateway's normal rate-limit floor (daily
-  p90 14–22%), so a healthy gateway was red all day. It is now yellow at
-  30% and red above 50%, a cut window. The ClickHouse dashboards' red
+  p90 14–22%), so a healthy gateway was red all day, and a red that is always
+  on hides the one that matters. It is now yellow at 30% and red above
+  50%, a cut window. The ClickHouse dashboards' red
   *unreachable* overlay marked only steps that lost everything, while the
   InfluxDB one has marked 1.5 lost pings per 15 minutes since 2026-09-24;
   both now use the latter rule. The doctor learned to read a query that
