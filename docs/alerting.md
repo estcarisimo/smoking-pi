@@ -76,10 +76,14 @@ One difference: the alerter takes the vote over its own window (20
 minutes), they take it over theirs (hours to a week). A target lossy for
 most of the week does not vote in a week's diagnosis, even in a cycle where
 the alerter counted it; at the moment an alert fires, the two sets are the
-same unless a target was lossy for most of the diagnosis window. The counts
-are aggregated in Flux: one row per target to
-decide who votes, one per cycle for how many reported, were lossy, and lost
-everything. The few breadth-only targets that lose a point in any cycle
+same unless a target was lossy for most of the diagnosis window. Over
+those windows only queries InfluxDB answers from its storage engine are
+asked -- points per target, points at or above the event bar, each
+target's first and last point, and the voters' lossy points -- and the
+cycles are counted in Python: about 0.3 s a query on the staging Pi for a
+week. The breadth is counted over a week at most: a longer
+`get_loss_events` counts the ICMP and resolver targets alone and says so
+(`breadth_only: false`). The few breadth-only targets that lose a point in any cycle
 count only once a cycle is broad: beside one named site's miss they are
 background. Breadth-only targets are counts there and nothing else: an
 incident's `targets`, the one-or-two-sites `destination` class and every

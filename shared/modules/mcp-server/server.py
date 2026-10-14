@@ -1113,7 +1113,8 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
       - `widespread`: runs of probe steps in which most targets (80%) had
         loss at once, with a `cause` line. The shares and counts include
         the HTTP, TCP and DNS wizard targets that vote on breadth, as the
-        alerts count them; they are never listed below. `all_lost: true` for three or
+        alerts count them, over windows up to 168 h (`breadth_only` says
+        whether they were counted); they are never listed below. `all_lost: true` for three or
         more cycles means every target lost every packet from this host:
         its own uplink was down, and the per-target numbers for that span
         say nothing about any target. Shorter runs are a brief cut of the
@@ -1310,15 +1311,18 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
         hop_lost[step] = hop_lost.get(step, True) and float(row["_value"]) >= 0.999
     # The HTTP, TCP and DNS wizard targets that vote on breadth, counted as
     # the alerter counts them (common.breadth), at the caller's bar when one
-    # was given. Optional: a failed query leaves the ICMP and resolver
-    # targets alone, as before.
-    try:
-        breadth_steps = breadth.fetch(
-            query_influx, hours, step_s,
-            bar=None if threshold is None else bar)
-    except Exception:  # influx client raises many exception types
-        log.warning("get_loss_events: breadth-only query failed", exc_info=True)
-        breadth_steps = {}
+    # was given. Optional: a failed query, or a window past a week
+    # (breadth.MAX_HOURS), leaves the ICMP and resolver targets alone, and
+    # ``breadth_only`` says so.
+    breadth_steps: dict[int, dict[str, int]] = {}
+    if hours <= breadth.MAX_HOURS:
+        try:
+            breadth_steps = breadth.fetch(
+                query_influx, hours, step_s,
+                bar=None if threshold is None else threshold / 100.0)
+        except Exception:  # influx client raises many exception types
+            log.warning("get_loss_events: breadth-only query failed",
+                        exc_info=True)
     widespread = _widespread_runs(events, reporting, step_s, hop=hop_lost,
                                   resolvers=counts["resolver"],
                                   breadth_steps=breadth_steps)
@@ -1336,6 +1340,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
             (reporting.get(s, 0) + breadth_steps.get(s, {}).get("reporting", 0)
              for s in reporting.keys() | breadth_steps.keys()), default=0),
         "background_points": background,
+        "breadth_only": bool(breadth_steps),
         "widespread": widespread,
         "episodes": episodes,
         "by_target": by_target,
