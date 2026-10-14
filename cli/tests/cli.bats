@@ -1848,7 +1848,26 @@ STUB
     done
     run sh -c "printf 'https://x/y\n' | '$CLI' alerts --deadman --openclaw"
     [ "$status" -eq 2 ]
+    run sh -c "printf 'https://x/y\n' | '$CLI' alerts --deadman --quiet off"
+    [ "$status" -eq 2 ]
+    # Anything Compose or the env file would read as something else.
+    for bad in 'https://x/$HOME' 'https://x/a\b' 'https://x/a"b'; do
+        printf '%s\n' "$bad" > "$BATS_TEST_TMPDIR/url"
+        run sh -c "'$CLI' alerts --deadman < '$BATS_TEST_TMPDIR/url'"
+        [ "$status" -eq 2 ]
+    done
     if grep -q '^ALERT_DEADMAN_URL=.' "$SMOKING_PI_ENV_FILE"; then false; fi
+}
+
+@test "alerts --deadman trims what a paste brings, and says so about plain http" {
+    alerts_setup
+    run sh -c "printf '  https://hc-ping.example/u \r\n' | '$CLI' alerts --deadman"
+    [ "$status" -eq 0 ]
+    grep -qx 'ALERT_DEADMAN_URL=https://hc-ping.example/u' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" != *"in the clear"* ]]
+    run sh -c "printf 'http://hc.lan/u\n' | '$CLI' alerts --deadman"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"travels in the clear"* ]]
 }
 
 @test "alerts --deadman with the alerter running shows its first check-in, by host" {

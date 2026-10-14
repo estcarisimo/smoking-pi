@@ -398,14 +398,22 @@ down.
 
 What the alerter sends:
 - After every evaluation that ran, a GET to the URL: alive, and judging.
-- While it cannot read InfluxDB, a GET to `URL/fail`: alive, and blind. The
-  service reports that at once instead of after its grace period.
-- At most one check-in every 5 minutes, and one right away when that state
-  changes. That is about 300 requests a day, roughly a megabyte, against
-  the usage budget.
+- Once it has been unable to read InfluxDB for 5 minutes (when its own
+  `influx_unreadable` alert fires), a GET to `URL/fail`: alive, and blind.
+  The service reports that at once instead of after its grace period. A
+  shorter blindness, such as an InfluxDB restart during an upgrade or a
+  backup, sends nothing and is covered by the grace period.
+- At most one check-in every 5 minutes, one right away when that state
+  changes, and never two tries within a minute. A failed check-in is
+  retried a minute later. That is about 300 requests a day, roughly a
+  megabyte, against the usage budget.
 
-An alerter that crashes before the end of an iteration does not check in,
-which is the point. `sudo smoking-pi alerts --deadman off` turns it off.
+It covers the alerter being alive and judging. It does not cover
+delivery: a revoked bot token is the outbox's to report, not this
+switch's. An alerter that crashes before the end of an iteration does not
+check in, which is the point. With `ALERT_INTERVAL` above 5 minutes it
+checks in once per iteration, so set the check's period to match.
+`sudo smoking-pi alerts --deadman off` turns it off.
 
 | Variable | Default | Meaning |
 |---|---|---|

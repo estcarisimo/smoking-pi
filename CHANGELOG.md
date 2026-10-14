@@ -34,8 +34,9 @@ version gets a matching GitHub release and git tag.
   simply stopped. Silence read as "all well" until someone opened a
   dashboard. The alerter now checks in with an outside service
   (`ALERT_DEADMAN_URL`, a healthchecks.io ping URL or a self-hosted
-  Healthchecks) after every evaluation, at most every 5 minutes, and with
-  `URL/fail` while it cannot read InfluxDB. The service alerts you when
+  Healthchecks) after every evaluation, at most every 5 minutes. Once it
+  has been unable to read InfluxDB for 5 minutes, it uses `URL/fail`
+  instead, so an InfluxDB restart is not a page. The service alerts you when
   the check-ins stop, even when the whole house is down. The URL is a
   credential: read hidden or from stdin, never logged (the host is). The
   command prints the alerter's first check-in. Off by default.

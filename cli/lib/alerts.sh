@@ -96,10 +96,17 @@ alerts_deadman() {
     else
         IFS= read -r url || true
     fi
+    # A pasted URL brings a trailing space or a CR; trim it, then refuse
+    # anything the env file or Compose would read as something else.
+    url="${url//$'\r'/}"
+    url="${url#"${url%%[![:space:]]*}"}"; url="${url%"${url##*[![:space:]]}"}"
     case "$url" in
-        *"'"*|*" "*) echo "That is not a ping URL; nothing changed." >&2; return 2 ;;
+        *[[:space:]\'\"\$\\\`]*) echo "That is not a ping URL (it has a space, a quote, \$ or \\); nothing changed." >&2; return 2 ;;
         http://?*/*|https://?*/*) ;;
         *) echo "That is not a ping URL (https://..., with a path); nothing changed." >&2; return 2 ;;
+    esac
+    case "$url" in
+        http://*) echo "Note: http, not https -- the URL is the credential, and it travels in the clear." >&2 ;;
     esac
     env_set ALERT_DEADMAN_URL "$url"
     local since line i
