@@ -23,9 +23,9 @@ resolver ones, so a few sites losing packets no longer reads as the link.
 None of those targets raises an alert of its own, and the verdict's
 "DNS only" and this host's own DNS failure (`monitor_dns`) are judged on
 the same wider set. Quiet hours and the switch are off until you turn
-them on. `smoking-pi upgrade`
-refreshes an installed OpenClaw skill that the new release left stale, so
-the assistant answers from the current guide.
+them on. `smoking-pi upgrade` refreshes an installed OpenClaw skill that
+the new release left stale, so the assistant answers from the current
+guide.
 
 ### Added
 
