@@ -30,7 +30,7 @@ import charts
 import notifier
 import schedule
 import templates
-from common import aggregates, links, mutes
+from common import aggregates, definitions, links, mutes
 
 log = logging.getLogger("alerter.digest")
 
@@ -279,7 +279,7 @@ def render(
         lines.append("")
         lines.append(b("Local link"))
         drops = int(wifi.get("disconnects") or 0)
-        weak = wifi["min_dbm"] < _env_float("WIFI_WEAK_DBM", -75.0)
+        weak = wifi["min_dbm"] < definitions.wifi_weak_dbm()
         light = bad if drops >= 3 else (watch if drops or weak else ok)
         where = esc(str(wifi.get("ssid") or wifi.get("interface") or "wi-fi"))
         if wifi.get("channel"):

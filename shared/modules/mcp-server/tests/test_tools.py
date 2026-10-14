@@ -985,6 +985,8 @@ def _loss_fake(per_target, background=0, targets=None, steps=None):
         steps = max((len(v) for v in per_target.values()), default=0)
 
     def fake(flux):
+        if 'r.category == "cpe"' in flux:
+            return []  # no first hop unless a test adds one (_with_first_hop)
         if "distinct(" in flux:
             # One row per probe step: how many targets reported in it.
             return [{"_time": _T0 + timedelta(seconds=300 * i), "_value": total}
@@ -1007,7 +1009,7 @@ def test_loss_events_default_threshold_skips_single_lost_pings(monkeypatch, no_a
     # (distinct() does; count(column: "target") does not -- seen live), and
     # it must be PER STEP: over a day more names rotate through than report
     # in any one cycle, which put 80% out of reach -- also seen live.
-    assert 'group(columns: ["_time"])' in captured[3]
+    assert 'group(columns: ["_time", "_measurement", "category"])' in captured[3]
     assert 'distinct(column: "target") |> count()' in captured[3]
     assert "count(column" not in captured[3]
     # The excluded background is counted, not hidden.
@@ -1035,9 +1037,31 @@ def test_loss_events_folds_a_run_into_one_episode(monkeypatch, no_api):
     assert result["widespread"] == []
 
 
+def _with_first_hop(fake, hop_values, steps=4):
+    """The fake plus the first hop (CPE_IPv4, category cpe): its events at
+    ``hop_values`` per step, and one hop reporting in each step."""
+    hop_rows = [{"_time": _T0 + timedelta(seconds=300 * i), "target": "CPE_IPv4",
+                 "_measurement": "latency", "category": "cpe", "_value": v}
+                for i, v in enumerate(hop_values)]
+
+    def wrapped(flux):
+        if 'r.category == "cpe"' in flux:
+            return hop_rows  # its own points, zeros included: no event bar
+        rows = fake(flux)
+        if "distinct(" in flux:
+            return rows + [{"_time": _T0 + timedelta(seconds=300 * i), "_value": 1,
+                            "_measurement": "latency", "category": "cpe"}
+                           for i in range(steps)]
+        if "r._value > 0.0 and" in flux:
+            return rows
+        return rows + [r for r in hop_rows if r["_value"]]
+    return wrapped
+
+
 def test_loss_events_names_the_hung_radio_night_as_this_hosts_uplink(monkeypatch, no_api):
-    per_target = {t: [1.0, 1.0, 1.0, 1.0] for t in _TEN}
-    _patch_influx(monkeypatch, _loss_fake(per_target))
+    per_target = {t: [1.0, 1.0, 1.0, 1.0] for t in _TEN if t != "CPE_IPv4"}
+    per_target["Extra"] = [1.0] * 4
+    _patch_influx(monkeypatch, _with_first_hop(_loss_fake(per_target), [1.0] * 4))
     result = server.get_loss_events(hours=24)
     assert result["targets_reporting"] == 10
     assert len(result["widespread"]) == 1
@@ -1046,11 +1070,12 @@ def test_loss_events_names_the_hung_radio_night_as_this_hosts_uplink(monkeypatch
     assert run["all_lost"] is True
     assert run["minutes"] == 20
     assert run["start"] == "2026-09-20T01:40:00+00:00"
-    assert "this host's uplink" in run["cause"]
+    assert run["reading"] == "uplink_down"
+    assert "this host's uplink is down" in run["cause"]
     assert "for 4 cycles" in run["cause"]
-    assert "not the ISP" in run["cause"]
-    # Still reported per target underneath, for anyone who wants the detail.
-    assert len(result["episodes"]) == 10
+    # Still reported per target underneath, for anyone who wants the detail:
+    # the ten destinations and the first hop.
+    assert len(result["episodes"]) == 11
 
 
 def test_loss_events_one_total_loss_cycle_is_a_cut_not_the_uplink(monkeypatch, no_api):
@@ -1370,3 +1395,48 @@ def test_measurement_queries_leave_the_dns_wizard_out():
     q = server._base_flux(["latency", "http_latency"], 1)
     assert '(r._measurement == "latency" or r._measurement == "http_latency")' in q
     assert 'not exists r.category or r.category != "dns_wizard"' in q
+
+
+
+# --- one definition with the alerter (front-8 audit, PR 5) ---------------------
+
+def test_loss_events_total_loss_with_the_gateway_answering_is_the_internet(
+        monkeypatch, no_api):
+    """Before: "this host's uplink ... not the ISP" for an ISP outage."""
+    per_target = {t: [1.0] * 4 for t in _TEN if t != "CPE_IPv4"}
+    per_target["Extra"] = [1.0] * 4
+    _patch_influx(monkeypatch, _with_first_hop(_loss_fake(per_target), [0.0] * 4))
+    run = server.get_loss_events(hours=24)["widespread"][0]
+    assert run["reading"] == "internet_down"
+    assert "the Internet beyond the house is down" in run["cause"]
+    # The first hop is not a destination: ten named, not eleven.
+    assert run["targets_total"] == 10
+
+
+def test_loss_events_without_first_hop_data_says_it_cannot_tell(monkeypatch, no_api):
+    per_target = {t: [1.0] * 4 for t in _TEN}
+    _patch_influx(monkeypatch, _loss_fake(per_target))
+    run = server.get_loss_events(hours=24)["widespread"][0]
+    assert run["reading"] == "uplink_down"
+    assert "cannot be told apart" in run["cause"]
+
+
+def test_loss_events_reads_the_shared_widespread_setting(monkeypatch, no_api):
+    per_target = {t: ([1.0] * 4 if i < 7 else [0.0] * 4) for i, t in enumerate(_TEN)}
+    _patch_influx(monkeypatch, _loss_fake(per_target, targets=_TEN))
+    assert server.get_loss_events(hours=24)["widespread"] == []
+    monkeypatch.setenv("WIDESPREAD_PCT", "70")
+    assert len(server.get_loss_events(hours=24)["widespread"]) == 1
+
+
+
+def test_loss_events_first_hop_reading_ignores_the_callers_threshold(monkeypatch, no_api):
+    """Review of #337: the first hop is read from its own points, not from
+    the events a caller's threshold filtered. "Lost" means every packet, as
+    in the alerts, so a gateway at 60% answers whatever the threshold, and
+    one at 100% is lost whatever the threshold."""
+    per_target = {t: [1.0] * 4 for t in _TEN if t != "CPE_IPv4"}
+    per_target["Extra"] = [1.0] * 4
+    _patch_influx(monkeypatch, _with_first_hop(_loss_fake(per_target), [1.0] * 4))
+    run = server.get_loss_events(hours=24, min_loss_pct=95)["widespread"][0]
+    assert run["reading"] == "uplink_down"

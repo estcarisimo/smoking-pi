@@ -20,7 +20,7 @@ from collections.abc import Collection
 from datetime import datetime, timezone
 
 import flux
-from common import aggregates, cadence, microcuts
+from common import aggregates, cadence, definitions, microcuts
 
 log = logging.getLogger("alerter.evaluator")
 
@@ -85,12 +85,10 @@ MEAN_STEPS = 3
 # reported once per target: 18 target_down criticals plus 18 high_loss
 # warnings, re-sent every cooldown, for the night the Pi's Wi-Fi radio hung
 # (2026-09-20: associated at -49 dBm, zero packets received for 3 h 20 min).
-# A step counts as widespread when WIDESPREAD_PCT of the targets reporting
-# in it lost at least WIDESPREAD_LOSS_PCT -- and more than one ping's worth,
-# so a probe sending few pings cannot reach it on a single lost one; see
-# rule_widespread for what each
-# shape becomes.
-DEFAULT_WIDESPREAD_PCT = 80.0  # percent of reporting targets; WIDESPREAD_PCT
+# A step counts as widespread when WIDESPREAD_PCT (common.definitions) of
+# the targets reporting in it lost at least WIDESPREAD_LOSS_PCT -- and more
+# than one ping's worth, so a probe sending few pings cannot reach it on a
+# single lost one; see rule_widespread for what each shape becomes.
 DEFAULT_WIDESPREAD_LOSS_PCT = 30.0  # percent loss per point; WIDESPREAD_LOSS_PCT
 WIDESPREAD_MIN_TARGETS = 3  # below this, breadth means nothing
 STEP_S = cadence.DEFAULT_STEP  # the default step; real ones come from cadence
@@ -167,9 +165,6 @@ def _microcut_flux(loss_pct: float) -> str:
     return microcuts.cut_windows_flux("-60m", loss_pct)
 
 
-# A Wi-Fi uplink signal below this counts as weak (see verdict.py for how
-# many weak samples it takes). The mcp-server reads the same variable.
-DEFAULT_WIFI_WEAK_DBM = -75.0  # WIFI_WEAK_DBM
 
 
 def _wifi_signal_flux(weak_dbm: float) -> str:
@@ -738,7 +733,7 @@ def rule_widespread(
       slides out of the window.
     """
     if share_pct is None:
-        share_pct = _env_float("WIDESPREAD_PCT", DEFAULT_WIDESPREAD_PCT)
+        share_pct = definitions.widespread_pct()
     if loss_pct is None:
         loss_pct = _env_float("WIDESPREAD_LOSS_PCT", DEFAULT_WIDESPREAD_LOSS_PCT)
 
@@ -816,27 +811,16 @@ def rule_widespread(
         named = {t for t in reporting[step] if measurement.get(t) != "dns_latency"}
         observation = (f"{n_lost} of {n_all} targets at 100% loss for "
                        f"{len(latest)} consecutive probe cycles")
-        if names_only(step):
-            rule = "monitor_dns"
+        rule, cause = definitions.total_loss(seen, names_only(step))
+        if rule == "monitor_dns":
             observation = (f"every named destination ({len(named)}) at 100% loss "
                            f"for {len(latest)} consecutive probe cycles, while "
                            "the ISP gateway and the DNS resolvers answer by "
                            "address")
-            cause = ("this host cannot resolve names (its own DNS), "
-                     "not the network")
         elif seen == "answers":
-            rule = "internet_down"
             observation += ", while the ISP gateway (first hop) answers"
-            cause = ("the Internet beyond the house is down; this host's "
-                     "link and the line to the ISP are fine")
         elif seen == "lost":
-            rule = "uplink_down"
             observation += ", the ISP gateway (first hop) included"
-            cause = "this host's uplink is down; nothing beyond it can be judged"
-        else:
-            rule = "uplink_down"
-            cause = ("this host's uplink, or everything beyond it, is down: "
-                     "with no first-hop measurement the two cannot be told apart")
         return [
             {
                 "rule": rule,
@@ -1095,7 +1079,7 @@ def evaluate_with_context(
     wifi_rows = {}
     for name, source in (
         ("signal", lambda: _wifi_signal_flux(
-            _env_float("WIFI_WEAK_DBM", DEFAULT_WIFI_WEAK_DBM))),
+            definitions.wifi_weak_dbm())),
         ("drops", _wifi_drops_flux),
         ("uplink", _wifi_uplink_flux),
         ("rx", lambda: _wifi_rx_flux(down_window)),
@@ -1205,8 +1189,8 @@ def _measurements_stale(window_s: int, open_keys: Collection[str]) -> list[dict]
 
 # The three total-loss incidents (rule_widespread): one at a time, keyed by
 # the rule.
-TOTAL_RULES = ("uplink_down", "internet_down", "monitor_dns")
-FIRST_HOP_CATEGORY = "cpe"
+TOTAL_RULES = definitions.TOTAL_RULES
+FIRST_HOP_CATEGORY = definitions.FIRST_HOP_CATEGORY
 
 
 def _total_open(records: dict) -> tuple[str, float] | None:

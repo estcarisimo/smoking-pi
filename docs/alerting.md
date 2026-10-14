@@ -463,9 +463,8 @@ worse than attaching none, so the match is strict:
   deaf radio.
 - `ipv6_down` gets only an incident that was IPv6 alone.
 - `outage`, `uplink_down` and `internet_down` get the newest incident on
-  this host's Wi-Fi, the line, or upstream. `monitor_dns` gets none: the
-  diagnosis has no name-resolution class yet, and would read the same
-  minutes as upstream (to be shared in one definition).
+  this host's Wi-Fi, the line, or upstream. `monitor_dns` gets only a
+  `monitor` incident (the same reading), never another cause.
 
 The diagnosis sees more than the verdict: the first hop's loss against its
 usual level, whether this host's radio was deaf, and the TCP/HTTP siblings.

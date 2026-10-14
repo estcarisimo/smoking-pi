@@ -27,14 +27,13 @@ from __future__ import annotations
 import logging
 import os
 
-from common import aggregates
+from common import aggregates, definitions
 from evaluator import DEFAULT_MICROCUT_BURST_N, _is_ipv6_target
 
 log = logging.getLogger("alerter.verdict")
 
-# Share of measurable targets that must be impaired before a problem counts
-# as broad rather than site-specific.
-DEFAULT_BROAD_PCT = 60.0  # VERDICT_BROAD_PCT
+# The share of measurable targets that makes a problem broad rather than
+# site-specific is common.definitions.broad_pct(): the diagnosis uses it too.
 # Below this many measurable targets, breadth means nothing and we say so.
 DEFAULT_MIN_TARGETS = 3  # VERDICT_MIN_TARGETS
 # Mean loss percent above which a target counts as impaired.
@@ -46,11 +45,10 @@ DEFAULT_STALE_DOWN_HOURS = 6.0  # VERDICT_STALE_DOWN_HOURS
 CHRONIC_LOSS_RATIO = 0.999
 
 # The Wi-Fi uplink (wifi_link, when the host has one) counts as weak once
-# this many samples in the hour were below WIFI_WEAK_DBM (the threshold
-# lives in evaluator.py, next to the query that applies it) -- one minute's
-# worth at the collector's default 10 s interval, anywhere in the window, so
-# a single dip never flips a verdict. Rescale with WIFI_SAMPLE_INTERVAL.
-DEFAULT_WIFI_WEAK_SAMPLES = 6  # WIFI_WEAK_SAMPLES
+# common.definitions.wifi_weak_samples() samples in the hour were below
+# WIFI_WEAK_DBM -- one minute's worth at the collector's default 10 s
+# interval, anywhere in the window, so a single dip never flips a verdict.
+# Rescale with WIFI_SAMPLE_INTERVAL. The diagnosis counts the same.
 
 
 def _env_float(name: str, default: float) -> float:
@@ -190,7 +188,11 @@ def classify(
         now = time.time()
     records = records or {}
 
-    broad_pct = _env_float("VERDICT_BROAD_PCT", DEFAULT_BROAD_PCT)
+    broad_pct = definitions.broad_pct()
+    # The first hop is evidence about the line (cutting, below), not a
+    # destination: out of the breadth, as in the rules and the diagnosis.
+    mean_rows = [r for r in mean_rows
+                 if r.get("category") != definitions.FIRST_HOP_CATEGORY]
     min_targets = _env_int("VERDICT_MIN_TARGETS", DEFAULT_MIN_TARGETS)
     impaired_pct = _env_float(
         "VERDICT_IMPAIRED_LOSS_PCT", DEFAULT_IMPAIRED_LOSS_PCT
@@ -199,7 +201,7 @@ def classify(
         "VERDICT_STALE_DOWN_HOURS", DEFAULT_STALE_DOWN_HOURS
     )
     burst_n = _env_int("MICROCUT_BURST_N", DEFAULT_MICROCUT_BURST_N)
-    weak_samples = _env_int("WIFI_WEAK_SAMPLES", DEFAULT_WIFI_WEAK_SAMPLES)
+    weak_samples = definitions.wifi_weak_samples()
 
     means = _mean_by_target(mean_rows)
     excluded = [

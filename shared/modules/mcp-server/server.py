@@ -37,6 +37,7 @@ from common import (
     aggregates,
     cadence,
     charts,
+    definitions,
     diagnosis,
     diagnosis_query,
     microcuts,
@@ -216,9 +217,8 @@ _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 # that one is for SmokePing section names and rejects the dot and the dash.
 _IFACE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,15}$")
 
-# Below this the Wi-Fi link is called weak; shared with the alerter's verdict
-# through the same env var (docs/wifi.md).
-DEFAULT_WIFI_WEAK_DBM = -75.0
+# Below WIFI_WEAK_DBM (common.definitions) the Wi-Fi link is called weak, as
+# in the alerter's verdict and the diagnosis (docs/wifi.md).
 
 MAX_HOURS = 24 * 365
 MAX_EVENT_ROWS = 500
@@ -237,10 +237,9 @@ MAX_ROLLUP_ROWS = 5000
 # its probe steps is one episode: one missing point does not split a cut in
 # two. Each target's own step (common.cadence), 300 s when unknown.
 EPISODE_GAP_STEPS = 2
-# Share of the reporting targets that must have an event in the same probe
-# step for that step to count as widespread -- the same bar the alerter's
-# rule_widespread applies (its own copy; the alerter is not importable here).
-WIDESPREAD_SHARE = 0.8
+# The share of the reporting targets that must have an event in the same
+# probe step for that step to count as widespread is the alerter's
+# WIDESPREAD_PCT, read in common.definitions (this was a copy of 0.8).
 STEP_S = cadence.DEFAULT_STEP
 # Cycles of total loss before a widespread run is attributed to this host's
 # uplink rather than to a brief cut -- the alerter's DOWN_MIN_POINTS.
@@ -270,11 +269,8 @@ def _validate_interface(name: Any) -> str | None:
 
 
 def _wifi_weak_dbm() -> float:
-    raw = (os.environ.get("WIFI_WEAK_DBM") or "").strip()
-    try:
-        return float(raw) if raw else DEFAULT_WIFI_WEAK_DBM
-    except ValueError:
-        return DEFAULT_WIFI_WEAK_DBM
+    """WIFI_WEAK_DBM, as the alerter and the diagnosis read it."""
+    return definitions.wifi_weak_dbm()
 
 
 def _validate_hours(hours: Any) -> tuple[int | None, str | None]:
@@ -966,7 +962,8 @@ def _loss_episodes(
 
 
 def _widespread_runs(
-    events: list[dict], reporting: dict[int, int], step_s: int = STEP_S
+    events: list[dict], reporting: dict[int, int], step_s: int = STEP_S,
+    hop: dict[int, bool] | None = None, resolvers: dict[int, int] | None = None,
 ) -> list[dict]:
     """Probe steps in which WIDESPREAD_SHARE of the targets reporting IN
     THAT STEP had an event, folded into runs. Newest first.
@@ -987,9 +984,28 @@ def _widespread_runs(
     September 2026, associated and receiving nothing for 3 and 21 hours) --
     and nothing beyond it could be judged, so the per-target picture for
     those steps is not evidence about any target.
+
+    Total loss is named by what still answered, as the alerter names it
+    (common.definitions.total_loss): the first hop (category cpe; ``hop``:
+    per step it reported in, whether it lost everything -- read from its own
+    points, not from the events) lost too is this host's uplink; answering
+    is the Internet beyond the house; answering with the resolvers queried
+    by address (``resolvers``) while every named site was lost is this
+    host's own DNS. The first hop is never a destination in the share.
     """
+    hop = hop or {}
+    resolvers = resolvers or {}
+    resolver_hit: set[int] = set()
     by_step: dict[int, dict[str, bool]] = {}
     for event in events:
+        epoch = event.get("_epoch")
+        if epoch is None or event.get("_category") == definitions.FIRST_HOP_CATEGORY:
+            continue
+        if event.get("measurement") == "dns_latency":
+            resolver_hit.add(int(epoch // step_s) * step_s)
+    for event in events:
+        if event.get("_category") == definitions.FIRST_HOP_CATEGORY:
+            continue
         epoch = event.get("_epoch")
         if epoch is None:
             continue
@@ -999,9 +1015,11 @@ def _widespread_runs(
             event["loss_pct"] >= 99.9
         )
 
+    share = definitions.widespread_pct() / 100.0
+
     def needed(step: int) -> float | None:
         total = reporting.get(step, 0)
-        return WIDESPREAD_SHARE * total if total >= 3 else None
+        return share * total if total >= 3 else None
 
     steps = sorted(
         step for step, hits in by_step.items()
@@ -1027,6 +1045,15 @@ def _widespread_runs(
                 lost_steps >= len(run) - 2 if len(run) > 2 else lost_steps == len(run)
             )
             uplink = all_lost and lost_steps >= UPLINK_MIN_STEPS
+            reading = None
+            if uplink:
+                measured = [s for s in run if s in hop]
+                first_hop = (None if not measured else
+                             "lost" if all(hop[s] for s in measured)
+                             else "answers")
+                names_only = (any(resolvers.get(s) for s in run)
+                              and not any(s in resolver_hit for s in run))
+                reading, why = definitions.total_loss(first_hop, names_only)
             runs.append(
                 {
                     "start": datetime.fromtimestamp(run[0], tz=timezone.utc).isoformat(),
@@ -1035,11 +1062,10 @@ def _widespread_runs(
                     "targets_affected": affected,
                     "targets_total": max(reporting[s] for s in run),
                     "all_lost": all_lost,
+                    "reading": reading,
                     "cause": (
-                        "this host's uplink: every target lost every packet for "
-                        f"{lost_steps} cycles, so nothing beyond it could be judged "
-                        "(a hung Wi-Fi radio, a dropped association, a cable) — "
-                        "not the ISP"
+                        f"every target lost every packet for {lost_steps} cycles "
+                        f"— {why}"
                         if uplink
                         else "the link: a brief cut that hit every target at once"
                         + (", every packet lost" if all_lost else "")
@@ -1146,14 +1172,25 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
     # distinct() writes into _value; count(column: "target") would write
     # the count into the target column instead, where nothing reads it --
     # verified live: that shape returned 0 targets.
+    # Per kind too: the named destinations, the resolvers queried by
+    # address and the first hop, which is evidence and not a destination.
     targets_flux = (
-        base + '|> group(columns: ["_time"]) |> keep(columns: ["_time", "target"]) '
+        base + '|> group(columns: ["_time", "_measurement", "category"]) '
+        + '|> keep(columns: ["_time", "_measurement", "category", "target"]) '
         + '|> distinct(column: "target") |> count()'
+    )
+    # The first hop's own points, without the event bar: whether it answered
+    # must not depend on the threshold a caller chose (review of #337).
+    hop_flux = (
+        base + f'|> filter(fn: (r) => r.category == '
+        f'{flux_str(definitions.FIRST_HOP_CATEGORY)}) '
+        + '|> keep(columns: ["_time", "_value"])'
     )
     try:
         rows = query_influx(flux)
         background_rows = query_influx(background_flux)
         targets_rows = query_influx(targets_flux)
+        hop_rows = query_influx(hop_flux)
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
 
@@ -1164,6 +1201,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
             "measurement": row.get("_measurement"),
             "loss_pct": round(float(row.get("_value", 0.0)) * 100.0, 2),
             "_epoch": _epoch(row.get("_time")),
+            "_category": row.get("category"),
         }
         for row in rows
     ]
@@ -1204,15 +1242,27 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
         if entry_links:
             entry["links"] = entry_links
 
-    reporting: dict[int, int] = {}
+    # Summed over the kinds' groups at one _time; max over the _time values
+    # of one step: if jitter ever splits a cycle over two, the larger count
+    # is the cycle's.
+    at_time: dict[tuple, int] = {}
     for row in targets_rows:
         epoch = _epoch(row.get("_time"))
         if epoch is None or row.get("_value") is None:
             continue
-        # max, not overwrite: if jitter ever splits one cycle over two
-        # _time values, the larger count is the cycle's.
+        kind = ("hop" if row.get("category") == definitions.FIRST_HOP_CATEGORY
+                else "resolver" if row.get("_measurement") == "dns_latency"
+                else "named")
+        key = (epoch, kind)
+        at_time[key] = at_time.get(key, 0) + int(row["_value"])
+    counts: dict[str, dict[int, int]] = {"named": {}, "resolver": {}, "hop": {}}
+    for (epoch, kind), n in at_time.items():
         step = int(epoch // step_s) * step_s
-        reporting[step] = max(reporting.get(step, 0), int(row["_value"]))
+        counts[kind][step] = max(counts[kind].get(step, 0), n)
+    reporting: dict[int, int] = {}
+    for kind in ("named", "resolver"):
+        for step, n in counts[kind].items():
+            reporting[step] = reporting.get(step, 0) + n
     background = 0
     for row in background_rows:
         if row.get("_value") is not None:
@@ -1225,9 +1275,18 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
         )
         if episode_links.get("graph"):
             episode["graph"] = episode_links["graph"]
-    widespread = _widespread_runs(events, reporting, step_s)
+    hop_lost: dict[int, bool] = {}
+    for row in hop_rows:
+        epoch = _epoch(row.get("_time"))
+        if epoch is None or row.get("_value") is None:
+            continue
+        step = int(epoch // step_s) * step_s
+        hop_lost[step] = hop_lost.get(step, True) and float(row["_value"]) >= 0.999
+    widespread = _widespread_runs(events, reporting, step_s, hop=hop_lost,
+                                  resolvers=counts["resolver"])
     for event in events:
         del event["_epoch"]
+        del event["_category"]
 
     result = {
         "window_hours": hours,
@@ -1276,10 +1335,13 @@ def diagnose_loss(hours: int = 24) -> dict:
         modem or the ISP's access (`detail`: `outage` = every destination
         lost everything while the monitor still heard its network, `cuts`,
         `microcut`).
+      - `monitor`: every named destination lost while the gateway and the
+        DNS resolvers answered by address (`detail` `names`): this host's
+        own name resolution, not the network.
       - `destination`: one or two destinations, their peers fine
         (`detail` `dns` or `ipv6` when that is all it was). Theirs, not yours.
       - `upstream`: most destinations at once while the first hop stayed
-        up: beyond your line.
+        up (`detail` `outage` when every one was lost): beyond your line.
       - `unclear`: no single cause fits; say so and give the evidence.
 
     Each carries `confidence` (`high`: two or more signals agree and none
