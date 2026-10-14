@@ -58,7 +58,9 @@ def diagnose(query: Query, hours: int, cadences: dict | None = None) -> dict:
     }
 
 
-def history(query: Query, bucket: str, days: int, include_probe_miss: bool = False) -> dict:
+def history(
+    query: Query, bucket: str, days: int, include_probe_miss: bool = False
+) -> dict:
     """The stored incidents (``loss_incident``, written by the alerter) of
     the last ``days``, newest first. Raises whatever ``query`` raises."""
     flux = (f'from(bucket: {flux_str(bucket)}) |> range(start: -{int(days)}d) '

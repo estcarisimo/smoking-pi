@@ -101,9 +101,13 @@ tab — reloading the page starts a fresh conversation.
 The default model is Claude Haiku 4.5 (about $1 per million input tokens,
 $5 per million output tokens). A daily report consumes roughly 2–4 k input
 tokens and <1 k output tokens — **around a tenth of a cent per report, i.e.
-pennies per month**. Chat usage is similarly cheap; the `AI_REPORTS_PER_DAY`
-cap (default 8) bounds the reporter even if it is misconfigured to run in a
-tight loop.
+pennies per month**. The chat costs more per question: every model round
+resends the shared guide and the tool list (about 4.6 k input tokens before
+the conversation itself), and a question that calls two or three tools
+takes three or four rounds, so expect one to two cents per question, more
+for a week-long `diagnose_loss` (up to 50 incidents with their evidence).
+The `AI_REPORTS_PER_DAY` cap (default 8) bounds the reporter even if it is
+misconfigured to run in a tight loop.
 
 ## Environment variables
 

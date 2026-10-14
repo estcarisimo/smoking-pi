@@ -38,7 +38,7 @@ ai_bp = Blueprint('ai', __name__)
 DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 MAX_TOOL_ROUNDS = 6          # max model<->tool round-trips per POST
 MAX_HISTORY_MESSAGES = 80    # bound prompt size / cost per request
-MAX_OUTPUT_TOKENS = 1024
+MAX_OUTPUT_TOKENS = 2048     # the guide's report shape runs to several sections
 
 # What only this chat needs; how to answer is the shared guide
 # (common/guide.py), the same text every MCP client and the OpenClaw skill
@@ -53,9 +53,13 @@ CHAT_HEADER = (
     "after the person confirms an action card in the page; the "
     "configuration is regenerated automatically after them. The guide "
     "below is shared by every assistant and names some tools you were not "
-    "given (for example get_chart or get_wifi_stats): you cannot call "
-    "those, so say what they would show and point to the Grafana "
-    "dashboards instead."
+    "given (get_chart, get_wifi_stats, the mute and ack tools): you cannot "
+    "call those, so say what they would show and point to the Grafana "
+    "dashboards instead. Your tool results carry no links: where the guide "
+    "asks for a link, name the dashboard and the time instead, and never "
+    "write a URL yourself. This chat shows plain text, not Markdown: write "
+    "section headings as plain lines and bullets with a hyphen, no "
+    "asterisks."
 )
 
 

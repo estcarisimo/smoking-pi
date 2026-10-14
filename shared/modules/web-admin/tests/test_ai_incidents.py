@@ -26,6 +26,14 @@ def test_the_system_prompt_is_the_shared_guide(monkeypatch):
     assert "get_chart" in guide.GUIDE and "get_chart" in ai.CHAT_HEADER
 
 
+def test_the_header_covers_what_this_chat_cannot_do():
+    """Review of #339: the guide asks for a link on every warning bullet and
+    for bold headings, but this chat's results carry no links and the page
+    shows plain text (textContent, pre-wrap)."""
+    assert "never write a URL" in ai.CHAT_HEADER
+    assert "plain text, not Markdown" in ai.CHAT_HEADER
+
+
 def test_the_chat_sends_it(client, monkeypatch):
     """The prompt the model receives is the one built above, not a copy."""
     from tests.test_ai import fake_anthropic, login, text_response
