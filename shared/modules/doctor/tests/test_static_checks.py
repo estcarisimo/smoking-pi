@@ -972,6 +972,46 @@ def test_a_field_named_before_the_pivot_is_still_a_tag_filter():
     assert sources.tag_refs_in(query) == {"loss"}
 
 
+# Two streams joined by a second pivot: the Overview's gateway cut windows
+# split by whether the Pi's radio was deaf.
+JOINED_QUERY = (
+    'cut = from(bucket:"s") |> filter(fn:(r) => r._field == "loss") |> group() '
+    '|> set(key:"_field", value:"cut")\n'
+    'deaf = from(bucket:"s") |> filter(fn:(r) => r.interface != "" and '
+    '(r._field == "rx_packets" or r._field == "uplink")) '
+    '|> keep(columns:["_time","_field","_value","interface"]) '
+    '|> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value") '
+    '|> filter(fn:(r) => r.uplink == 1 and r.rx_packets == 0) '
+    '|> map(fn:(r) => ({_time: r._time, _value: 1})) |> set(key:"_field", value:"deaf")\n'
+    'union(tables:[cut, deaf]) |> group() '
+    '|> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value") '
+    '|> filter(fn:(r) => exists r.cut) '
+    '|> map(fn:(r) => ({_value: r.cut, series: if exists r.deaf then "radio" else "link"}))'
+)
+
+
+def test_every_pivot_exempts_the_columns_it_makes():
+    """The second pivot makes r.cut and r.deaf from set(key: "_field"); the
+    first made r.uplink and r.rx_packets. None of them is a tag filter."""
+    from doctor import sources
+
+    assert sources.tag_refs_in(JOINED_QUERY) == {"interface"}
+    # r.cut ahead of the pivot that makes it is still a tag filter.
+    early = JOINED_QUERY.replace('|> group() |> set', '|> filter(fn:(r) => r.cut > 0) |> set', 1)
+    assert sources.tag_refs_in(early) == {"interface", "cut"}
+
+
+def test_a_joined_query_answers_with_a_number():
+    """The deaf stream's keep() names a tag, but it shapes a join, not the
+    answer; and _value: r.cut reads a pivoted field."""
+    from doctor import sources
+
+    assert not sources.shows_text(JOINED_QUERY)
+    # The answer itself still counts when it is text.
+    assert sources.shows_text(JOINED_QUERY + ' |> map(fn:(r) => ({_value: r.series}))')
+    assert sources.shows_text(JOINED_QUERY + ' |> keep(columns:["series"])')
+
+
 # ---------------------------------------------------------------------------
 # text-stats-name-their-field
 # ---------------------------------------------------------------------------

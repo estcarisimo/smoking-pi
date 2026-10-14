@@ -83,6 +83,16 @@ Panel queries **and** template-variable queries are both checked, including
 panels nested inside collapsed rows. The `DNS_Resolvers` mistake lived in a
 variable query, not a panel.
 
+A `pivot()` turns values into columns, so `r.loss` after
+`pivot(columnKey: ["_field"])` reads a field the query selected, not a tag.
+A query that joins streams (the Overview's gateway cut windows, split by the
+radio's deaf samples) can pivot more than once. Each pivot exempts the
+columns it made from there on: the values selected with `r.<key> == "x"` or
+named with `set(key: "<key>", value: "x")` before it. For
+`text-stats-name-their-field`, only the final statement's `keep()` counts;
+a `keep()` that shapes an assigned stream for a join says nothing about the
+answer.
+
 ClickHouse queries are SQL, and a column name there is always valid, so the
 check compares *values* instead: every `category` / `measurement_type`
 literal a query over `smokeping.*` compares with `=`, `!=`, `<>` or `IN`

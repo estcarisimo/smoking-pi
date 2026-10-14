@@ -1071,7 +1071,7 @@
       "id": 34,
       "type": "stat",
       "title": "ISP gateway cut windows",
-      "description": "10-second ISP gateway probe windows that lost more than half their pings in the selected range: the raw material of a microcut (common/microcuts.py; 50% is MICROCUT_LOSS_PCT's default). The gateway's rate-limit floor stays below it. Details: CPE microcuts.",
+      "description": "10-second ISP gateway probe windows that lost more than half their pings in the selected range: the raw material of a microcut (common/microcuts.py; 50% is MICROCUT_LOSS_PCT's default). The gateway's rate-limit floor stays below it. \"the link\" are windows the house's connection lost; \"this Pi's radio\" are windows during which the Pi's own Wi-Fi was deaf (associated but receiving nothing, or not associated), so the probe could not hear a link that may have been fine. The split is per window, so it can differ by a few from the cut totals of CPE microcuts and the assistant, which judge a whole cut. Details: CPE microcuts.",
       "datasource": {
         "uid": "influxdb"
       },
@@ -1089,7 +1089,7 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value",
+        "textMode": "value_and_name",
         "graphMode": "none",
         "colorMode": "value",
         "justifyMode": "auto",
@@ -1114,9 +1114,26 @@
                 "value": 10
               }
             ]
-          }
+          },
+          "displayName": "${__field.labels.series}"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "this Pi's radio"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
@@ -1124,7 +1141,7 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r._field == \"loss\") |> group() |> filter(fn:(r) => r._value > 50.0) |> count() |> keep(columns:[\"_value\"])"
+          "query": "import \"internal/debug\"\n\ncut = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r._field == \"loss\" and r._value > 50.0) |> group() |> aggregateWindow(every:10s, fn:count, createEmpty:false) |> set(key:\"_field\", value:\"cut\")\ndeaf = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and (r._field == \"rx_packets\" or r._field == \"associated\" or r._field == \"uplink\")) |> keep(columns:[\"_time\",\"_field\",\"_value\",\"interface\"]) |> group(columns:[\"interface\"]) |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> sort(columns:[\"_time\"]) |> map(fn:(r) => ({r with uplink: if r.associated == 0 then debug.null(type:\"int\") else r.uplink})) |> fill(column:\"uplink\", usePrevious:true) |> difference(columns:[\"rx_packets\"]) |> filter(fn:(r) => r.uplink == 1 and (r.rx_packets == 0 or r.associated == 0)) |> map(fn:(r) => ({_time: r._time, _value: 1})) |> group()\nheard = union(tables:[deaf, deaf |> timeShift(duration:-10s), deaf |> timeShift(duration:-20s)]) |> group() |> aggregateWindow(every:10s, fn:count, createEmpty:false) |> set(key:\"_field\", value:\"deaf\")\nunion(tables:[cut, heard]) |> group() |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> filter(fn:(r) => exists r.cut) |> map(fn:(r) => ({_value: r.cut, series: if exists r.deaf then \"this Pi's radio\" else \"the link\"})) |> group(columns:[\"series\"]) |> sum()"
         }
       ]
     },

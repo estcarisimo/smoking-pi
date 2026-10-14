@@ -302,6 +302,27 @@ Not changed: the 78 possible cuts (single windows at 52–78%). They alerted
 twice in 68 days (8 and 9 August, three or more in an hour), and 28 of them
 coincide with Internet loss above 20%, so they are not all the floor.
 
+**Grafana caught up on 2026-10-13.** The Overview's *ISP gateway cut
+windows* stat still counted every window above 50%, the radio's deaf spells
+included. On the staging Pi over seven days that was 2 083 windows in red, of
+which 2 050 fell in one 17-hour hang. The stat now splits them with the same
+evidence (`wifi_link` samples whose interface held the default route and
+whose received-packet counter did not move, or that were not associated):
+
+![ISP gateway cut windows: 33 the link, 2050 this Pi's radio](img/overview-cut-windows.png)
+
+The split is made per window. A cut that the deaf samples cover only in part
+stays the link's in `attribute()` but is split here, so the stat can differ
+by a few windows from `get_microcut_stats` (33 against 37 for those seven
+days).
+
+The *CPE Microcut Detection* dashboard turned yellow at 1% and red at 5%,
+so a gateway sitting on its normal rate-limit floor was red all day. Its loss
+panels and stat tiles are now yellow at 30%, above the floor's p90, and red
+above 50%, which is a cut window:
+
+![CPE packet loss before and after: the floor no longer reads red](img/cpe-loss-thresholds.png)
+
 ### Microcut backlog
 
 1. `GAP_S` and the 30 s cadence are constants; if `CPE_PROBE_IDLE` is

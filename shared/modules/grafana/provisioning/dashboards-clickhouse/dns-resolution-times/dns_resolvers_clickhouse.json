@@ -420,7 +420,7 @@
         {
           "refId": "I",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, CASE WHEN max(packet_loss) >= 100.0 THEN 500.0 ELSE 0.0 END as unreachable FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'dns' AND measurement_type = 'dns_latency' GROUP BY timestamp HAVING max(packet_loss) >= 100.0 ORDER BY timestamp",
+          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, 500.0 as unreachable FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, target, sum(least(packet_loss, 100.0) / 100.0 * coalesce(packets_sent, if(measurement_type = 'latency', 10, 5))) as lost FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'dns' AND measurement_type = 'dns_latency' GROUP BY w, target HAVING lost >= 1.5) GROUP BY w ORDER BY w",
           "format": 1
         }
       ]
