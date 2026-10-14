@@ -204,6 +204,7 @@ def _link_line(links: dict | None) -> str:
 DIAGNOSIS_EMOJI = {
     "local_wifi": "📶",
     "local_link": "🏠",
+    "monitor": "🛠",
     "destination": "🎯",
     "upstream": "🌐",
     "unclear": "❔",

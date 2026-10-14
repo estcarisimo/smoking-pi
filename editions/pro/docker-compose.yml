@@ -443,8 +443,14 @@ services:
       # says the same thing the alerter would. Same defaults as the alerter.
       - HIGH_LOSS_PCT=${HIGH_LOSS_PCT:-20}
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
-      # get_wifi_stats calls the uplink weak below this; same as the alerter.
+      # The alerter's own thresholds (common.definitions): get_wifi_stats,
+      # get_loss_events and diagnose_loss judge with the same ones, so an
+      # assistant and an alert never disagree on what "weak", "broad" or
+      # "widespread" means.
       - WIFI_WEAK_DBM=${WIFI_WEAK_DBM:--75}
+      - WIFI_WEAK_SAMPLES=${WIFI_WEAK_SAMPLES:-6}
+      - WIDESPREAD_PCT=${WIDESPREAD_PCT:-80}
+      - VERDICT_BROAD_PCT=${VERDICT_BROAD_PCT:-60}
       - TZ=${TZ:-UTC}
     volumes:
       - alerter-mutes:/var/lib/alerter-mutes

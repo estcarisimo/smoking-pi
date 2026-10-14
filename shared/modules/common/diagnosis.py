@@ -21,9 +21,13 @@ gets one **class**:
 - ``local_link``: the line between the house and the ISP -- the first hop
   (the CPE probe) cut out with several destinations, or every destination
   lost everything while this host's Wi-Fi was still receiving.
+- ``monitor``: every named destination lost while the first hop and the
+  DNS resolvers queried by address answered: this host's own name
+  resolution (the alerter's ``monitor_dns``).
 - ``destination``: one or two destinations, their peers fine. Theirs.
 - ``upstream``: most destinations at once with a clean first hop: beyond
-  the line, a wider Internet problem.
+  the line, a wider Internet problem -- including every destination lost
+  while the first hop answered (the alerter's ``internet_down``).
 - ``unclear``: none of the above fits; the evidence is listed anyway.
 
 and a **confidence**: ``high`` when two or more independent signals agree
@@ -40,9 +44,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# A share of the targets reporting in a step at or above which damage is
-# broad rather than site-specific; the alerter's VERDICT_BROAD_PCT.
-BROAD_SHARE = 0.6
+from common import definitions
+
+# The share of the targets reporting in a step at or above which damage is
+# broad rather than site-specific, and the Wi-Fi weak thresholds, are the
+# alerter's settings, read in common.definitions: tuning them changes the
+# diagnosis too (they were copies here, kept in step by hand).
 # Below this many reporting targets breadth means nothing.
 MIN_TARGETS = 3
 # Events at most this many cycles apart are one incident: one silent cycle
@@ -52,10 +59,6 @@ GAP_STEPS = 2
 # an episode: it does not answer (bare amazon.com) or it is gone. Listed
 # apart, kept out of breadth.
 CHRONIC_SHARE = 0.9
-# wifi_link signal below this is weak (the alerter's WIFI_WEAK_DBM), and
-# this many weak samples (a minute at 10 s) make the radio's hour weak.
-WEAK_DBM = -75.0
-WEAK_SAMPLES = 6
 # An app-layer sibling counts as lossy at or above this loss ratio.
 APP_LOSS = 0.5
 TOTAL = 99.9
@@ -66,9 +69,10 @@ FLOOR_RISE_PCT = 10.0
 # Category of the ISP first hop in `latency` (CPE_IPv4 / CPE_IPv6): its
 # ping loss is that rate-limit floor. The 10 s CPE probe (cpe_latency) is
 # the first-hop evidence; these points are not destinations.
-FIRST_HOP_CATEGORY = "cpe"
+FIRST_HOP_CATEGORY = definitions.FIRST_HOP_CATEGORY
 
-CLASSES = ("probe_miss", "local_wifi", "local_link", "destination", "upstream",
+CLASSES = ("probe_miss", "local_wifi", "local_link", "monitor", "destination",
+           "upstream",
            "unclear")
 
 _SITE_SUFFIX = re.compile(r"_(icmp|h[123]|tcp\d*|tcp443)$")
@@ -98,7 +102,7 @@ def wifi_minutes(rows: list[dict]) -> list[dict] | None:
     rows (``_time`` epoch in ``_epoch``, ``_field``, ``_value``,
     ``interface``), or None when there are none (a wired host, or no
     collector). Fields read: ``signal_dbm`` (min), ``weak`` (count of
-    samples below WEAK_DBM), ``associated`` (min), ``drops`` (carrier_down
+    samples below WIFI_WEAK_DBM), ``associated`` (min), ``drops`` (carrier_down
     increase), ``uplink`` (max). Only interfaces that carried the default
     route at some point count: a spare radio's signal is not the link's."""
     if not rows:
@@ -276,12 +280,12 @@ def classify(inc: dict, ctx: dict) -> dict:
             if len(hits) / reporting >= max(shares):
                 peak = (len(hits), reporting)
             lost = sum(1 for v in hits.values() if v >= TOTAL)
-            if lost >= 0.8 * reporting:
+            if lost >= definitions.widespread_pct() / 100.0 * reporting:
                 total_steps += 1
                 total_peak = max(total_peak, (lost, reporting))
     share = max(shares, default=0.0)
     reporting = max((ctx["reporting"].get(s, 0) for s in steps), default=0)
-    broad = n >= MIN_TARGETS and share >= BROAD_SHARE
+    broad = n >= MIN_TARGETS and share >= definitions.broad_pct() / 100.0
     max_loss = max(v for hits in steps.values() for v in hits.values())
 
     cuts = [c for c in ctx.get("cuts") or []
@@ -300,7 +304,7 @@ def classify(inc: dict, ctx: dict) -> dict:
     # Most destinations, though never most at the same moment: a low-grade
     # loss shared by every path. Breadth over the incident, not per cycle.
     spread = (not broad and n >= MIN_TARGETS and reporting
-              and n / reporting >= BROAD_SHARE)
+              and n / reporting >= definitions.broad_pct() / 100.0)
 
     def app_sibling(target: str) -> str | None:
         """'lossy', 'clean', or None (no app-layer data for the site)."""
@@ -352,7 +356,7 @@ def classify(inc: dict, ctx: dict) -> dict:
     if wifi and wifi["drops"]:
         line = f"this host's Wi-Fi carrier dropped {wifi['drops']} time(s)"
         (wifi_reasons if len(steps) <= 3 else wifi_context).append(line)
-    weak = bool(wifi and wifi["weak"] >= WEAK_SAMPLES and wifi["min_dbm"] is not None)
+    weak = bool(wifi and wifi["weak"] >= definitions.wifi_weak_samples() and wifi["min_dbm"] is not None)
     if wifi_reasons:
         evidence.extend(wifi_reasons)
         if total_steps or broad:
@@ -385,8 +389,21 @@ def classify(inc: dict, ctx: dict) -> dict:
         evidence.append(f"nearly every destination lost every packet in "
                         f"{total_steps} cycle(s) (up to {total_peak[0]} of the "
                         f"{total_peak[1]} reporting)")
-        if ctx.get("cpe") and floor_now is not None and not floor_up \
-                and not confirmed_cuts:
+        hop_answered = (ctx.get("cpe") and floor_now is not None and not floor_up
+                        and not confirmed_cuts)
+        named_only = (ctx.get("resolvers") and definitions.RESOLVER_CATEGORY
+                      not in set(inc["categories"].values()))
+        if hop_answered and named_only:
+            # The resolvers, queried by address, kept answering while every
+            # named destination was lost, and so did the gateway: this host
+            # could not resolve names (2026-08: a frozen resolv.conf). The
+            # alerter's monitor_dns, read the same way.
+            evidence.append(floor_line + ": the ISP gateway kept answering")
+            evidence.append(f"the {ctx['resolvers']} DNS resolver(s), queried by "
+                            "address, kept answering while every named "
+                            "destination was lost")
+            return done("monitor", "names")
+        if hop_answered:
             # The first hop kept answering at its usual rate through it: the
             # house's line held, so the loss was past it. Before, this read
             # "the line between the house and the ISP".
@@ -527,7 +544,7 @@ def standalone(cut_or_span: dict, kind: str, ctx: dict) -> dict:
                         f"({cut_or_span.get('deaf') or 'deaf'})")
         evidence.append("the first-hop probe lost everything for exactly that span")
         cls, detail = "local_wifi", "deaf"
-    elif wifi and wifi["weak"] >= WEAK_SAMPLES and wifi["min_dbm"] is not None:
+    elif wifi and wifi["weak"] >= definitions.wifi_weak_samples() and wifi["min_dbm"] is not None:
         evidence.append(f"the first hop (CPE) cut out for {seconds} s")
         evidence.append(f"this host's Wi-Fi signal fell to {wifi['min_dbm']:.0f} dBm then")
         cls, detail = "local_wifi", "weak_signal"
@@ -555,6 +572,9 @@ _SUMMARY = {
                   "hear, so nothing beyond it can be judged for that span.",
     "local_link": "The line between the house and the ISP (router, modem or the "
                   "ISP's access).",
+    "monitor": "This host's own name resolution, not the network: the gateway "
+               "and the DNS resolvers answered by address while every named "
+               "destination failed.",
     "destination": "Those destinations, not you: their peers were fine.",
     "upstream": "Beyond your line: most destinations at once while the first hop "
                 "stayed up.",
@@ -577,6 +597,8 @@ _DETAIL = {
     "spread": "A low-grade loss on most paths, never most at once, while the "
               "first hop was normal.",
     "dns": "Only DNS resolvers were affected.",
+    "names": "Check this host's DNS (its resolv.conf, a VPN client that took "
+             "it over).",
     "ipv6": "Only IPv6 destinations were affected.",
 }
 

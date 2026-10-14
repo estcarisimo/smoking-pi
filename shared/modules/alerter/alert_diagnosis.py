@@ -32,7 +32,8 @@ log = logging.getLogger("alerter.diagnosis")
 # The rules about loss, which the diagnosis classifies. exporter_stale is
 # about the monitor and has no loss to explain.
 LOSS_RULES = frozenset({"target_down", "high_loss", "microcut_burst", "outage",
-                        "uplink_down", "internet_down", "ipv6_down"})
+                        "uplink_down", "internet_down", "monitor_dns",
+                        "ipv6_down"})
 DEFAULT_ALERT_DIAGNOSIS_HOURS = 3  # 0 turns it off
 # An incident still counts as the one an alert is about if it ended this
 # many probe steps ago: the alert's window looks back further than its last
@@ -116,6 +117,10 @@ def for_event(event: dict, result: dict | None, step_s: int,
               and i.get("class") != "probe_miss"]
     if rule == "microcut_burst":
         fits = [i for i in recent if i.get("class") in MICROCUT_CLASSES]
+    elif rule == "monitor_dns":
+        # Only the same reading: anything else would put a second cause on
+        # an alert that has one.
+        fits = [i for i in recent if i.get("class") == "monitor"]
     elif rule == "ipv6_down":
         # About IPv6 as a whole (its target is the word "ipv6"): only an
         # incident that was IPv6 alone.

@@ -25,6 +25,8 @@ def no_wifi_influx(monkeypatch):
     monkeypatch.setattr(backends, "query_influx", lambda flux: [])
     monkeypatch.setattr(server, "query_influx", lambda flux: [])
     monkeypatch.delenv("WIFI_WEAK_DBM", raising=False)
+    for name in ("WIDESPREAD_PCT", "VERDICT_BROAD_PCT", "WIFI_WEAK_SAMPLES"):
+        monkeypatch.delenv(name, raising=False)
     # The microcut threshold too: a developer's exported value would move
     # every cut/floor assertion in the suite.
     monkeypatch.delenv("MICROCUT_LOSS_PCT", raising=False)

@@ -333,3 +333,18 @@ def test_one_cause_per_message_when_the_diagnosis_leads():
 def test_internet_down_is_diagnosed_like_any_outage():
     assert "internet_down" in alert_diagnosis.LOSS_RULES
     assert "internet_down" in alert_diagnosis.UNTARGETED_RULES
+
+
+
+def test_monitor_dns_gets_only_the_same_reading():
+    now = 1_791_900_000.0
+    result = {"incidents": [
+        {"class": "upstream", "detail": "outage", "end_epoch": now, "confidence": "high",
+         "summary": "Beyond", "targets": ["a"]},
+        {"class": "monitor", "detail": "names", "end_epoch": now - 60,
+         "confidence": "high", "summary": "Own DNS", "targets": ["a"]},
+    ]}
+    found = alert_diagnosis.for_event({"rule": "monitor_dns", "target": None},
+                                      result, 300, now=now)
+    assert found["class"] == "monitor"
+    assert "monitor" in templates.DIAGNOSIS_EMOJI

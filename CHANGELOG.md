@@ -11,6 +11,25 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **"Widespread", "broad" and "weak Wi-Fi" mean one thing everywhere.**
+  The alerter's rules and verdict, the diagnosis (alert lines, MCP
+  `diagnose_loss`, the incident history) and MCP `get_loss_events` kept
+  their own copies: 80% here, 60% there, a bare 0.8, -75 dBm and 6
+  samples in three places, with comments saying "the same as the
+  alerter's". Only the alerter read the settings, so tuning
+  `WIDESPREAD_PCT` or `VERDICT_BROAD_PCT` changed the alert and not the
+  diagnosis that led it, nor what an assistant was told. They are now read
+  once, in `common/definitions.py`, and the MCP server gets the same
+  settings. The ISP gateway (first hop) is out of every breadth count
+  (the verdict and `get_loss_events` still counted it), and
+  `get_loss_events` names a total loss the way the alerts do, in a new
+  `reading` field: `uplink_down`, `internet_down` or `monitor_dns`, instead
+  of "this host's uplink ... not the ISP" whatever still answered. The
+  diagnosis gains a `monitor` class (`names`): every named site lost while
+  the gateway and the resolvers answered, so `diagnose_loss`, the incident
+  history and a `monitor_dns` alert now agree. The answering guide and the
+  OpenClaw skill say so.
+
 - **A total outage now says where it is.** Every destination at 100% read
   "this host's uplink is down; nothing beyond it can be judged" whatever
   still answered, so an ISP outage, the monitor's own name resolution
@@ -28,9 +47,7 @@ version gets a matching GitHub release and git tag.
   mid-outage (the gateway reboots, or is back before the ISP) supersedes
   the old one without a "recovered". Because the first hop no longer
   counts in the breadth, a stack with fewer than three destinations
-  besides it no longer raises these. Known gap until the diagnosis shares
-  one definition: for `monitor_dns`, `diagnose_loss` and the incident
-  history still read the same minutes as upstream.
+  besides it no longer raises these.
 
 - **What the watchdog does is now told.** `smoking-pi watchdog` reloads a
   hung Wi-Fi driver, reboots the Pi and restarts SmokePing exactly when

@@ -74,9 +74,13 @@ attributed:
   microcut; say the line is unknown for that span.
 - `local_link` -- the line between the house and the ISP: router, modem or
   the ISP's access (`outage`, `cuts`, `degraded`, `microcut`).
+- `monitor` -- every named site lost while the gateway and the DNS
+  resolvers answered by address (`names`): the Pi's own name resolution,
+  not the network. Say the sites were probably fine.
 - `destination` -- one or two sites, their peers fine. Theirs, not yours.
 - `upstream` -- most destinations with a normal first hop (`spread`: a
-  low-grade loss on most paths, never most at once). Beyond the line.
+  low-grade loss on most paths, never most at once; `outage`: every
+  destination lost while the gateway answered). Beyond the line.
 - `unclear` -- say so, and give the evidence.
 
 For anything older than a week, or counts over weeks ("how often does the
@@ -85,10 +89,12 @@ the same incidents, as the alerter wrote them down once they were over.
 Its newest half hour is never there yet; that is `diagnose_loss`'s.
 
 `diagnose_loss` already reads the rest; when you go to `get_loss_events`
-yourself, read `widespread` first: a run with `all_lost: true` means every
-target, the gateway included, lost every packet from this Pi -- its own
-uplink was down. Report it as this Pi's uplink with the start and the
-duration, never as each target failing. In `get_microcut_stats`, `deaf`
+yourself, read `widespread` first: a run with `all_lost: true` is one
+event, never each target failing. Its `reading` says where it was:
+`uplink_down` (the gateway lost too: this Pi's own uplink), `internet_down`
+(the gateway answered: beyond the house) or `monitor_dns` (the gateway and
+the resolvers answered: this Pi's own name resolution). Report that, with
+the start and the duration. In `get_microcut_stats`, `deaf`
 spans are when the Pi's own Wi-Fi heard nothing: not microcuts -- the line
 is unknown for them. `worst_windows` holds only windows above the cut
 threshold (`cut_loss_pct`); never turn a top five into five events. If the

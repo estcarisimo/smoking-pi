@@ -803,7 +803,7 @@ def test_a_failed_uplink_query_costs_nothing(monkeypatch):
 def test_wifi_weak_threshold_reaches_the_query(monkeypatch):
     monkeypatch.setenv("WIFI_WEAK_DBM", "-70")
     assert "r._value < -70.0" in evaluator._wifi_signal_flux(
-        evaluator._env_float("WIFI_WEAK_DBM", evaluator.DEFAULT_WIFI_WEAK_DBM))
+        evaluator.definitions.wifi_weak_dbm())
 
 
 # ---------------------------------------------------------------------------

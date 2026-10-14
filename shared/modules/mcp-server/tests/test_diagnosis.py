@@ -118,6 +118,30 @@ def test_everything_lost_while_the_gateway_answered_is_beyond_the_line():
     assert "Beyond your line" in inc["summary"]
 
 
+def test_named_sites_lost_while_gateway_and_resolvers_answer_is_the_monitor():
+    """2026-08: a frozen resolv.conf; the alerter's monitor_dns."""
+    events = [ev(t, s, 100.0) for t in TARGETS for s in range(3, 6)]
+    floor = diagnosis.first_hop_floor(
+        [{"_epoch": T0 + i * STEP, "_value": 11.0} for i in range(0, 40)], STEP)
+    inc = only(diagnosis.diagnose(events, ctx(floor=floor, resolvers=3), 288))
+    assert (inc["class"], inc["detail"]) == ("monitor", "names")
+    assert "own name resolution" in inc["summary"]
+    # The resolvers lost too: the Internet, not names.
+    events += [ev("quad9", s, 100.0, "dns") for s in range(3, 6)]
+    inc = only(diagnosis.diagnose(events, ctx(floor=floor, resolvers=3), 288))
+    assert (inc["class"], inc["detail"]) == ("upstream", "outage")
+
+
+def test_the_shared_thresholds_reach_the_diagnosis(monkeypatch):
+    """VERDICT_BROAD_PCT tunes the diagnosis as it tunes the verdict."""
+    events = [ev(t, s, 40.0) for t in TARGETS[:5] for s in (4, 5)]
+    floor = diagnosis.first_hop_floor(
+        [{"_epoch": T0 + i * STEP, "_value": 11.0} for i in range(0, 40)], STEP)
+    assert only(diagnosis.diagnose(events, ctx(floor=floor), 288))["class"] != "upstream"
+    monkeypatch.setenv("VERDICT_BROAD_PCT", "50")
+    assert only(diagnosis.diagnose(events, ctx(floor=floor), 288))["class"] == "upstream"
+
+
 def test_everything_lost_with_the_gateway_lost_too_is_still_the_line():
     events = [ev(t, s, 100.0) for t in TARGETS for s in range(3, 6)]
     wifi = [{"_epoch": T0 + i * 60, "signal_dbm": -55.0, "associated": 1.0}
