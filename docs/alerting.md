@@ -840,6 +840,11 @@ that is exactly the old "15-minute mean at 5% or more" (5% of 3 × 10
 pings), and it stays one lost ping short of a mark whatever the step.
 Points written before the exporter recorded `pings` count as 10 for
 `latency` and 5 for DNS, HTTP and TCP: what those probes always sent.
+The ClickHouse dashboards apply the same rule from `packet_loss` ×
+`packets_sent`, with the same 10 and 5 for a step that lost everything,
+because the ClickHouse exporter writes no `packets_sent` for such a step.
+Until 2026-10-13 they marked only those total-loss steps, so the same
+target could show a red overlay on one database and none on the other.
 The alerter's flat default of 10 is a different case. It reads each
 target's latest `pings` from the last 6 hours, and the alerter ships in
 the same release as the exporter that writes it, so every target has a

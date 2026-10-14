@@ -526,9 +526,43 @@ def sql_values_in(query: str, columns) -> set[tuple[str, str]]:
 _PIVOT_RE = re.compile(r'pivot\([^)]*columnKey:\s*\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]')
 
 
+def _set_values(query: str, column: str) -> set[str]:
+    """The values a query names on a stream it builds:
+    ``set(key: "<column>", value: "x")``."""
+    return set(re.findall(
+        r'set\(\s*key:\s*"' + re.escape(column) + r'",\s*value:\s*"([^"]+)"', query))
+
+
 def _selected_values(query: str, column: str) -> set[str]:
-    """The values a query selects for one column: ``r.<column> == "x"``."""
-    return set(re.findall(r'r\.' + re.escape(column) + r'\s*==\s*"([^"]+)"', query))
+    """The values a query selects for one column: ``r.<column> == "x"``, or
+    sets on a stream it builds (:func:`_set_values`)."""
+    col = re.escape(column)
+    return set(re.findall(r'r\.' + col + r'\s*==\s*"([^"]+)"', query)) | _set_values(
+        query, column)
+
+
+def _pivots(query: str, set_only: bool = False) -> list[tuple[int, set[str]]]:
+    """Each ``pivot()``'s position and the columns it makes: the values
+    selected for its column key before it (with ``set_only``, only those
+    the query named with ``set()``)."""
+    values = _set_values if set_only else _selected_values
+    return [
+        (m.start(), values(query[: m.start()], m.group(1)))
+        for m in _PIVOT_RE.finditer(query)
+    ]
+
+
+def _pivoted_after(query: str, set_only: bool = False) -> list[tuple[str, set[str]]]:
+    """The query cut at each pivot: ``(text, columns exempt in it)``. The
+    text before the first pivot exempts nothing; each later piece exempts
+    every column a pivot before it made."""
+    pieces, exempt, start = [], set(), 0
+    for pos, made in _pivots(query, set_only):
+        pieces.append((query[start:pos], set(exempt)))
+        exempt |= made
+        start = pos
+    pieces.append((query[start:], exempt))
+    return pieces
 
 
 def tag_refs_in(query: str) -> set[str]:
@@ -541,14 +575,14 @@ def tag_refs_in(query: str) -> set[str]:
     selected with ``r.path == "cache"`` are the columns ``r.cache``.
 
     Only references AFTER the pivot are exempt, and only for values selected
-    before it: ``r.loss`` ahead of the pivot is still a tag filter.
+    before it: ``r.loss`` ahead of the pivot is still a tag filter. A query
+    joining streams can pivot more than once; each pivot exempts what it
+    made from there on.
     """
-    pivot = _PIVOT_RE.search(query)
-    cut = pivot.start() if pivot else len(query)
-    pivoted = _selected_values(query[:cut], pivot.group(1)) if pivot else set()
-    before = set(_TAG_REF_RE.findall(query[:cut]))
-    after = set(_TAG_REF_RE.findall(query[cut:])) - pivoted
-    return {name for name in before | after if name not in FLUX_BUILTIN_COLUMNS}
+    refs = set()
+    for text, exempt in _pivoted_after(query):
+        refs |= set(_TAG_REF_RE.findall(text)) - exempt
+    return {name for name in refs if name not in FLUX_BUILTIN_COLUMNS}
 
 
 _KEEP_RE = re.compile(r"keep\(\s*columns:\s*\[([^\]]*)\]\s*\)")
@@ -573,15 +607,52 @@ def shows_text(query: str) -> bool:
     column that is not a Flux value column (a tag such as ``ssid``), or a
     ``map()`` builds ``_value`` from a tag or a string literal. A string
     *field* selected as-is (``r._field == "owner"``) is not recognizable.
+
+    Only the final statement's ``keep()`` counts: a query that assigns
+    streams first (``deaf = ... |> keep(columns: ["interface"])``) shapes
+    them for a join, not for the panel.
     """
-    keeps = _KEEP_RE.findall(query)
+    keeps = _KEEP_RE.findall(_final_statement(query))
     if keeps:
         kept = set(re.findall(r'"([^"]+)"', keeps[-1]))
         # rename(columns:{_value:"ICMP ping"}) keeps a number under a name.
         renamed = set(re.findall(r'_value:\s*"([^"]+)"', query))
         if kept - _VALUE_COLUMNS - renamed:
             return True
-    return bool(_TEXT_VALUE_RE.search(_RENAME_RE.sub("", query)))
+    # ``_value: r.cut`` after a pivot over a stream the query named with
+    # ``set(key: "_field", value: "cut")`` reads a value the query made
+    # itself (a count, here). A stored field picked with ``r._field ==
+    # "ip"`` can be a string, so ``_value: r.ip`` still reads as text.
+    return any(
+        _TEXT_VALUE_RE.search(_pivoted_value_re(exempt).sub("", _RENAME_RE.sub("", text)))
+        for text, exempt in _pivoted_after(query, set_only=True)
+    )
+
+
+def _pivoted_value_re(columns: set[str]) -> re.Pattern:
+    if not columns:
+        return re.compile(r"(?!)")
+    names = "|".join(re.escape(c) for c in sorted(columns))
+    return re.compile(r"_value:\s*r\.(?:" + names + r")\b(?!\s*\+)")
+
+
+_STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+def _final_statement(query: str) -> str:
+    """The statement a Flux query answers with: from the last line that
+    starts a statement to the end. A line starts one when no bracket is
+    open before it (string literals aside) and it does not continue a pipe
+    (``|>``). A one-line query is itself."""
+    lines = query.strip().splitlines()
+    start, depth = 0, 0
+    for i, line in enumerate(lines):
+        if depth == 0 and line.strip() and not line.lstrip().startswith("|>"):
+            start = i
+        bare = _STRING_RE.sub('""', line)
+        depth = max(0, depth + sum(bare.count(c) for c in "([{")
+                    - sum(bare.count(c) for c in ")]}"))
+    return "\n".join(lines[start:])
 
 
 _YIELD_NAME_RE = re.compile(r'yield\(\s*name:\s*"([^"]+)"\s*\)')

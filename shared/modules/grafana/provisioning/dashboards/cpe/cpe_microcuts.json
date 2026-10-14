@@ -251,7 +251,7 @@
     {
       "type": "timeseries",
       "title": "CPE Packet Loss (%) – IPv6",
-      "description": "Loss per probe burst for $cpe, in percent (0-100) as written by microcut_detector.py. Thresholds match the stat tiles: yellow >= 1%, red >= 5%.",
+      "description": "Loss per probe burst for $cpe, in percent (0-100) as written by microcut_detector.py. Gateways rate-limit ICMP, so a healthy one loses part of most bursts (the reference Pi's daily p90 is 14-22%). Yellow at 30% is above that floor; red above 50% is a cut window (MICROCUT_LOSS_PCT's default, common/microcuts.py). A spell of the Pi's own deaf radio also reads 100% here: check the Wi-Fi panel. Thresholds match the stat tiles.",
       "datasource": { "uid": "influxdb" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
       "maxDataPoints": 720,
@@ -269,8 +269,8 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 5 }
+              { "color": "yellow", "value": 30 },
+              { "color": "red", "value": 51 }
             ]
           },
           "custom": {
@@ -294,7 +294,7 @@
     {
       "type": "timeseries",
       "title": "CPE Packet Loss (%) – IPv4",
-      "description": "Loss per probe burst for $cpe, in percent (0-100) as written by microcut_detector.py. Thresholds match the stat tiles: yellow >= 1%, red >= 5%.",
+      "description": "Loss per probe burst for $cpe, in percent (0-100) as written by microcut_detector.py. Gateways rate-limit ICMP, so a healthy one loses part of most bursts (the reference Pi's daily p90 is 14-22%). Yellow at 30% is above that floor; red above 50% is a cut window (MICROCUT_LOSS_PCT's default, common/microcuts.py). A spell of the Pi's own deaf radio also reads 100% here: check the Wi-Fi panel. Thresholds match the stat tiles.",
       "datasource": { "uid": "influxdb" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
       "maxDataPoints": 720,
@@ -312,8 +312,8 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 5 }
+              { "color": "yellow", "value": 30 },
+              { "color": "red", "value": 51 }
             ]
           },
           "custom": {
@@ -357,7 +357,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] }
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 30 }, { "color": "red", "value": 51 }] }
         }
       },
       "targets": [
@@ -438,7 +438,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] }
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 30 }, { "color": "red", "value": 51 }] }
         }
       },
       "targets": [
