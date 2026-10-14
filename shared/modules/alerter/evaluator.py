@@ -20,7 +20,7 @@ from collections.abc import Collection
 from datetime import datetime, timezone
 
 import flux
-from common import aggregates, cadence, definitions, microcuts
+from common import aggregates, cadence, definitions, microcuts, tsdb
 
 log = logging.getLogger("alerter.evaluator")
 
@@ -140,6 +140,55 @@ def _down_points_flux(window_s: int) -> str:
         + '|> filter(fn: (r) => r._field == "loss") '
         + '|> keep(columns: ["_value", "_time", "target", "_measurement", "category"]) '
     )
+
+
+def _breadth_only_flux(window_s: int) -> str:
+    """Loss, pings and step of the targets that vote on breadth only
+    (common.definitions.BREADTH_ONLY_MEASUREMENTS and the DNS wizard's
+    services). The cadence comes from the same points: no 6-hour lookback
+    for targets that only ever feed one rule."""
+    only = " or ".join(
+        f"r._measurement == {flux.flux_str(m)}"
+        for m in definitions.BREADTH_ONLY_MEASUREMENTS
+    )
+    return (
+        flux.base_flux(["latency", "dns_latency", *definitions.BREADTH_ONLY_MEASUREMENTS],
+                       f"-{int(window_s)}s", include_wizard=True)
+        + f"|> filter(fn: (r) => {only} or r.category == "
+        + f"{flux.flux_str(tsdb.WIZARD_CATEGORY)}) "
+        + '|> filter(fn: (r) => r._field == "loss" or r._field == "pings" '
+        + 'or r._field == "step") '
+        + '|> keep(columns: ["_value", "_time", "_field", "target", "_measurement", "category"]) '
+    )
+
+
+def breadth_only_rows(
+    rows: list[dict], mean_window_s: int
+) -> tuple[list[dict], list[dict], dict[str, cadence.Cadence]]:
+    """(loss points, 15-minute means, cadences) of the breadth-only targets
+    that vote in this window (common.definitions.breadth_voters).
+
+    The means are taken here, over the newest ``mean_window_s`` of the
+    points already fetched, in the shape of :func:`_mean_loss_flux`'s rows,
+    for the verdict: it counts the same set the rule does.
+    """
+    loss = [r for r in rows if r.get("_field") == "loss"]
+    cadences = cadence.by_target(
+        [r for r in rows if r.get("_field") in ("step", "pings")])
+    voters = definitions.breadth_voters(loss, cadences)
+    loss = [r for r in loss if r.get("target") in voters]
+    times = [cadence.epoch(r.get("_time")) for r in loss]
+    newest = max((t for t in times if t is not None), default=None)
+    sums: dict[tuple[str, str | None], list[float]] = {}
+    for row, at in zip(loss, times):
+        if at is None or row.get("_value") is None or newest is None:
+            continue
+        if at > newest - mean_window_s:
+            sums.setdefault((row["target"], row.get("category")), []).append(
+                flux.clamp_loss_ratio(row["_value"]))
+    means = [{"target": t, "category": c, "_value": sum(v) / len(v)}
+             for (t, c), v in sorted(sums.items())]
+    return loss, means, cadences
 
 
 def _mean_loss_flux(window_s: int = MEAN_STEPS * STEP_S) -> str:
@@ -1136,8 +1185,19 @@ def evaluate_with_context(
         key for key, record in records.items()
         if record.get("missing_since") is None
     ]
+    # The targets that vote on breadth only. Optional like the Wi-Fi
+    # evidence: a failed query leaves the breadth to the targets that
+    # always vote, never the cycle without its rules.
+    try:
+        breadth_rows, breadth_means, breadth_cadences = breadth_only_rows(
+            _query(_breadth_only_flux(down_window)), windows["mean"])
+    except Exception:  # influx client raises many exception types
+        log.warning("breadth-only query failed; the breadth goes without "
+                    "the HTTP, TCP and DNS wizard targets", exc_info=True)
+        breadth_rows, breadth_means, breadth_cadences = [], [], {}
     widespread = rule_widespread(
-        down_rows, step_s=windows["step"], cadences=cadences,
+        down_rows + breadth_rows, step_s=windows["step"],
+        cadences={**breadth_cadences, **cadences},
         ongoing=ongoing,
         total_open=_total_open(records),
     )
@@ -1161,6 +1221,8 @@ def evaluate_with_context(
     context = {
         "down_rows": down_rows,
         "mean_rows": mean_rows,
+        # The verdict's breadth, beside mean_rows: never a per-target rule's.
+        "breadth_mean_rows": breadth_means,
         "micro_rows": micro_rows,
         "stale_rows": stale_rows,
         "wifi_rows": wifi_rows,

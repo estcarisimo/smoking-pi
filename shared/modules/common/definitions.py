@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import os
 
+from .cadence import Cadence, is_event, of
+
 DEFAULT_WIDESPREAD_PCT = 80.0  # WIDESPREAD_PCT
 DEFAULT_VERDICT_BROAD_PCT = 60.0  # VERDICT_BROAD_PCT
 DEFAULT_WIFI_WEAK_DBM = -75.0  # WIFI_WEAK_DBM
@@ -26,6 +28,40 @@ DEFAULT_WIFI_WEAK_SAMPLES = 6  # WIFI_WEAK_SAMPLES
 FIRST_HOP_CATEGORY = "cpe"
 # The DNS resolvers, queried by address (``dns_latency``).
 RESOLVER_CATEGORY = "dns"
+
+# Targets that vote on breadth and nothing else (decision of 2026-10-14):
+# the HTTP and TCP probes, and the DNS wizard's adopted services (every
+# protocol). Before, the breadth was the ICMP and resolver targets alone --
+# 19 of 247 on the reference Pi -- so "most destinations" meant a handful.
+# None of them raises a per-target alert: many CDNs drop ICMP, and the
+# wizard's targets are exploratory (common.tsdb.WIZARD_CATEGORY).
+BREADTH_ONLY_MEASUREMENTS = ("http_latency", "tcp_latency")
+
+
+def breadth_voters(rows: list[dict], cadences: dict[str, Cadence]) -> set[str]:
+    """The breadth-only targets whose loss counts in this window.
+
+    A target votes when at least one of its points in the window was
+    clean (lost under one and a half pings' worth, as everywhere: see
+    common.cadence.is_event). A CDN that never answers ICMP, or a probe
+    that is always lossy, would otherwise sit in every cycle's "lost"
+    share and make a cut of a few sites look like everything. A target
+    lost for the whole window does not vote either; the targets that
+    always do decide that cycle, as before.
+
+    ``rows``: ``loss`` points (ratio 0-1) with ``target``; ``cadences``:
+    their pings per point (unknown: the default ten).
+    """
+    voters = set()
+    for row in rows:
+        target, value = row.get("target"), row.get("_value")
+        if target is None or value is None or target in voters:
+            continue
+        ratio = min(1.0, max(0.0, float(value)))
+        if not is_event(ratio, of(cadences, target).pings):
+            voters.add(target)
+    return voters
+
 
 # Total loss, by what still answers: one incident at a time.
 TOTAL_RULES = ("uplink_down", "internet_down", "monitor_dns")

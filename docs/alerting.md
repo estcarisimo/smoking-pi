@@ -54,6 +54,18 @@ blinked. Both shapes are now one incident, and its verdict line says what it
 is (see `monitor_uplink` below). The evidence and the numbers behind the
 thresholds are in [detection-reliability.md](detection-reliability.md).
 
+**Which targets count in the breadth.** Every ICMP and DNS resolver target
+counts and can also alert on its own. The HTTP and TCP probes and the DNS
+wizard's adopted services (every protocol) count in the breadth only: they
+never raise a `target_down` or `high_loss`, but they are in the share that
+makes `outage`, `uplink_down`, `internet_down` and `monitor_dns`, and in
+the verdict's count. Before, the breadth was the ICMP and resolver targets
+alone, 19 of 247 on the reference Pi, so a handful of sites losing packets
+read as "the link". A breadth-only target counts in a window only when at
+least one of its points in that window was clean (under one and a half
+lost pings): a CDN that drops ICMP sits at 100% forever and would otherwise
+be in every cycle's "lost" share.
+
 ## Incident lifecycle
 
 State lives in a JSON file (`ALERT_STATE_FILE`, default

@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **HTTP, TCP and DNS wizard targets count toward "widespread".** The
+  alerter judged breadth on the ICMP and resolver targets alone: 19 of
+  247 on the reference Pi. With that few, four sites losing packets in the
+  same cycle were "the link" (an `outage` warning), and the verdict's
+  "N of M destinations" described the same small set. The HTTP and TCP
+  probes and the DNS wizard's adopted services now vote on breadth, in the
+  rules and the verdict alike, and on nothing else: none of them raises
+  a per-target alert. A breadth-only target counts in a window only when
+  one of its points there was clean, so a CDN that drops ICMP, at 100%
+  forever, never reads as part of an outage. It costs one more Flux query
+  per cycle (loss, pings and step together, over the down window); a
+  failed one leaves the breadth as it was, not the cycle without rules.
+  `diagnose_loss`, the incident history and `get_loss_events` still count
+  the ICMP and resolver targets only.
+
 ### Fixed
 
 - **`smoking-pi upgrade` refreshes an installed OpenClaw skill.** The skill
