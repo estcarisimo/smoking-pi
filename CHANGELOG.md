@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.33.0] — 2026-10-14
+
+Alerts can now stay quiet at night, and a dead host is no longer silence.
+Quiet hours (`smoking-pi alerts --quiet 23:00-07:00`) hold alerts
+overnight and send them as one silent message when they end. A total loss
+and a monitor that has gone blind still go out at once. A dead man's
+switch (`smoking-pi alerts --deadman`) checks in with an outside service
+such as healthchecks.io, which tells you when this host stops checking in,
+even when the whole house is down. Whether a loss is "everywhere" is now
+judged on the HTTP, TCP and DNS wizard targets too, not only the ICMP and
+resolver ones, so a few sites losing packets no longer reads as the link.
+None of those targets raises an alert of its own. `smoking-pi upgrade`
+refreshes an installed OpenClaw skill that the new release left stale, so
+the assistant answers from the current guide.
+
 ### Added
 
 - **Quiet hours: `smoking-pi alerts --quiet 23:00-07:00`.** Every alert
