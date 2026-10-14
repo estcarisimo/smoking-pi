@@ -585,3 +585,20 @@ def test_diagnose_loss_counts_the_breadth_in_targets_reporting(monkeypatch, no_a
     result = server.diagnose_loss(hours=24)
     assert result["targets_reporting"] == 40
     assert result["coverage"]["breadth_only"] is True
+
+
+def test_a_lone_miss_beside_scattered_breadth_loss_is_still_a_probe_miss():
+    """Review of #346: a few of 200 web services losing a point in the same
+    cycle is their background, not part of the named site's miss."""
+    for lossy in (1, 3, 10):
+        c = ctx(breadth=_breadth(range(0, 10), reporting=200, lossy=lossy))
+        inc = only(diagnosis.diagnose([ev("site1", 3, 20.0)], c, 288))
+        assert inc["class"] == "probe_miss" and inc["targets_affected"] == 1
+
+
+def test_one_site_beside_scattered_breadth_loss_is_still_the_destination():
+    c = ctx(breadth=_breadth(range(0, 10), reporting=200, lossy=3))
+    inc = only(diagnosis.diagnose([ev("site1", s, 60.0) for s in (3, 4)], c, 288))
+    assert inc["class"] == "destination"
+    assert inc["evidence"][0] == "only site1 lost packets (1 of 210 destinations)"
+    assert inc["targets_affected"] == 1

@@ -186,7 +186,10 @@ def per_step(rows: list[dict], step_s: int) -> dict[int, dict[str, int]]:
     """:func:`steps_flux` rows bucketed into ``step_s`` cycles:
     ``{step: {"reporting", "lossy", "lost"}}``. Several point times in one
     cycle (jitter): the largest count of each is the cycle's, as the
-    reporting counts of the other targets are taken."""
+    reporting counts of the other targets are taken. A voter on a step
+    faster than ``step_s`` has several point times in a cycle, and its
+    lossy points are counted at the busiest one, not per cycle as the
+    alerter buckets them: the shipped probes all share the 300 s step."""
     out: dict[int, dict[str, int]] = {}
     for row in rows:
         ts = cadence.epoch(row.get("_time"))

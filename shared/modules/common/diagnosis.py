@@ -336,8 +336,13 @@ def classify(inc: dict, ctx: dict) -> dict:
     # targets across cycles, which hundreds of breadth-only ones, each
     # losing a point now and then, would turn into "most of them".
     named_reporting = max((ctx["reporting"].get(s, 0) for s in steps), default=0)
-    affected = max(n, wide)
-    broad = affected >= MIN_TARGETS and share >= definitions.broad_pct() / 100.0
+    # The breadth-only voters widen the count only once a cycle is broad or
+    # lost everywhere: a few of 200 losing a point beside one named miss is
+    # their background, and must not turn a probe miss into "unclear"
+    # (review of #346).
+    broad_share = share >= definitions.broad_pct() / 100.0
+    affected = max(n, wide) if broad_share or total_steps else n
+    broad = affected >= MIN_TARGETS and broad_share
     max_loss = max((v for hits in steps.values() for v in hits.values()),
                    default=None)
     if max_loss is None:
@@ -508,7 +513,8 @@ def classify(inc: dict, ctx: dict) -> dict:
 
     # 3. Broad, with a clean first hop: beyond the line.
     if spread and ctx.get("cpe") and floor_now is not None:
-        evidence.append(f"{n} of {named_reporting} destinations lost a ping or more over "
+        evidence.append(f"{n} of {named_reporting} destinations lost a ping or more "
+                        "over "
                         f"{_minutes(span)} minutes, never most of them at once "
                         f"(at most {share:.0%} in a cycle)")
         evidence.append(floor_line + ": the first-hop probe crosses the same Wi-Fi "
@@ -541,8 +547,7 @@ def classify(inc: dict, ctx: dict) -> dict:
 
     # 4. One point on one target with nothing around it: the probe.
     kept = list(against)
-    if (n == 1 and wide == 1 and len(steps) == 1 and max_loss < TOTAL
-            and not cuts and not kept):
+    if n == 1 and len(steps) == 1 and max_loss < TOTAL and not cuts and not kept:
         t = targets[0]
         evidence.append(f"one point on {t} ({max_loss:.0f}% loss) and nothing else "
                         "around it")
@@ -556,7 +561,7 @@ def classify(inc: dict, ctx: dict) -> dict:
         against[:] = kept
 
     # 5. One or two destinations, their peers fine: theirs.
-    if 1 <= n <= 2 and wide <= 2:
+    if 1 <= n <= 2:
         detail = None
         cats = {inc["categories"][t] for t in targets}
         if all((c or "").lower().startswith("dns") for c in cats):

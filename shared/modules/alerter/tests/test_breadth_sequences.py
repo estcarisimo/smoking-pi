@@ -73,7 +73,8 @@ class Influx:
         if '"http_latency"' in src and "mean()" in src:  # breadth.voters_flux
             clean = {}
             for target, _m, pings, _s, _at, value in self._breadth_points(seconds):
-                clean.setdefault(target, []).append(0.0 if value >= 1.5 / pings else 1.0)
+                clean.setdefault(target, []).append(
+                    0.0 if value >= 1.5 / pings else 1.0)
             return [{"target": t, "_value": sum(v) / len(v)} for t, v in clean.items()]
         if '"http_latency"' in src and "last()" in src:  # breadth.cadence_flux
             return [row for t, (_m, pings, step, _l) in self.breadth.items()
