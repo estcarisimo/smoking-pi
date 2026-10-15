@@ -9,6 +9,14 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Overview's folder is *Connection*, not *Home*.** Grafana matches
+  folder titles without regard to case, so on the 2.34.0 candidate *Home*
+  reused the old `home` folder and the title stayed lowercase. A name no
+  old folder had sidesteps it; the emptied `home` goes on the next upgrade
+  like the others.
+
 ## [2.34.0] — 2026-10-15
 
 The dashboards, after the audit of every one of them. Fifteen became ten:
@@ -27,8 +35,8 @@ a link names is provisioned.
 
 - **Grafana's folders have names, and there are four of them.** The eleven
   provisioned folders were the repository's directory names (`home`, `cpe`,
-  `quality`, `side-by-side-pings`…), one dashboard each. Now: *Home* (the
-  Overview, Connectivity & Quality), *Targets* (Target Detail, Individual
+  `quality`, `side-by-side-pings`…), one dashboard each. Now: *Connection*
+  (the Overview, Connectivity & Quality), *Targets* (Target Detail, Individual
   Pings, Side-by-Side, HTTP by Version), *Network* (Wi-Fi Link, CPE Microcut
   Detection) and *DNS* (DNS Resolvers, DNS Wizard); the ClickHouse tree
   follows. Dashboard uids do not change, so no link does. Provisioning moves
