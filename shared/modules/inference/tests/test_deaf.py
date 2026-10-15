@@ -43,3 +43,19 @@ def test_a_sample_time_may_be_a_timestamp_string():
     b = (T0 // 900) * 900
     rows = [{"_time": pd.Timestamp(t, unit="s", tz="UTC").isoformat()} for t in range(b, b + 900, 10)]
     assert deaf.deaf_bins(rows) == {b}
+
+
+def test_a_period_ending_off_a_boundary_counts_its_last_bin_and_a_short_one_counts_one():
+    b = (T0 // 900) * 900
+    periods = [{"start": b + 100, "end": b + 1000}, {"start": b + 10, "end": b + 20}]
+    deaf.label(periods, {b + 900})
+    assert periods[0]["deaf_share"] == 0.5   # bins b and b+900
+    assert periods[1]["deaf_share"] == 0.0   # one bin, b, not deaf
+
+
+def test_the_cadence_comes_from_the_exporters_setting(monkeypatch):
+    b = (T0 // 900) * 900
+    rows = _deaf_samples(b, b + 450, every=30)  # 15 samples
+    assert deaf.deaf_bins(rows) == set()          # at 10 s they cover 150 s
+    monkeypatch.setenv("WIFI_SAMPLE_INTERVAL", "30")
+    assert deaf.deaf_bins(rows) == {b}            # at 30 s they cover 450 s: half

@@ -86,11 +86,18 @@ other evidence and written beside each period, never fed back into it:
   under *Monitor deaf (experimental)* and says so in the text; Connectivity
   & Quality draws them gray on the timeline and leaves them out of the
   degradation count. A wired host never has a deaf period.
-- **`coverage`**: the share of the period's bins that had any data. A
-  congestion period that spans a gap of hours (a hang, a reboot) reads as
-  such — "data in 40 % of the span" in its annotation — instead of looking
-  like a solid span; the first read of the reference Pi found a 49-hour
-  period of a 3.7 ms jump that straddled two hangs.
+- **`coverage`**: the share of the period's bins that had data — for a
+  congestion period, bins with at least one answered ping (what Jitterbug
+  reads; a bin of total loss is empty to it), for a degradation period,
+  bins with at least one probe cycle (loss is recorded even when nothing
+  answers). A congestion period that spans a gap of hours (a hang, a
+  reboot) reads as such — "data in 40 % of the span" in its annotation —
+  instead of looking like a solid span; the first read of the reference Pi
+  found a 49-hour period of a 3.7 ms jump that straddled two hangs.
+  The deaf samples come from the same query the alerter uses, capped at
+  20 000 rows (about 55 hours of deaf time at the default 10 s cadence);
+  past that the service logs a warning and the newest deaf periods may read
+  as loss.
 
 ## Pass history
 

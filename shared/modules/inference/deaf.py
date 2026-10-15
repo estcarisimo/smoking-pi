@@ -18,14 +18,16 @@ as such with ``coverage`` beside it instead of looking like a solid span.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pandas as pd
 
 BIN_S = 900
-# A wifi_link sample every ~10 s: deaf samples * SAMPLE_S / BIN_S is the
-# share of a bin the radio spent deaf.
-SAMPLE_S = 10
+# The exporter's cadence (WIFI_SAMPLE_INTERVAL, 10 s by default; the compose
+# file hands the same value to this service): deaf samples * cadence / BIN_S
+# is the share of a bin the radio spent deaf.
+DEFAULT_SAMPLE_S = 10
 DEAF_BIN_SHARE = 0.5
 DEAF_PERIOD_SHARE = 0.5
 
@@ -44,6 +46,14 @@ def _epoch(value: Any) -> float | None:
         return None
 
 
+def sample_s() -> int:
+    try:
+        value = int(os.environ.get("WIFI_SAMPLE_INTERVAL", "") or DEFAULT_SAMPLE_S)
+    except ValueError:
+        return DEFAULT_SAMPLE_S
+    return value if value > 0 else DEFAULT_SAMPLE_S
+
+
 def deaf_bins(rows: list[dict]) -> set[int]:
     """The 15-minute bins (by start epoch) in which the radio was deaf for
     at least half the time, from :func:`common.microcuts.uplink_flux` rows
@@ -55,7 +65,8 @@ def deaf_bins(rows: list[dict]) -> set[int]:
             continue
         b = int(epoch // BIN_S) * BIN_S
         count[b] = count.get(b, 0) + 1
-    return {b for b, n in count.items() if n * SAMPLE_S >= DEAF_BIN_SHARE * BIN_S}
+    cadence = sample_s()
+    return {b for b, n in count.items() if n * cadence >= DEAF_BIN_SHARE * BIN_S}
 
 
 def _span_bins(start: int, end: int) -> list[int]:
