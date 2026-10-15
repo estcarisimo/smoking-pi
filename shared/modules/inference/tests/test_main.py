@@ -93,3 +93,45 @@ def test_influx_down_at_the_start_of_a_pass_is_a_failed_pass_not_a_crash():
 def test_a_clean_pass_records_last_ok():
     report = main.run_once(now=NOW, list_targets=lambda s: [])
     assert report["last_ok"] == NOW
+
+
+def test_a_pass_labels_deaf_periods_and_records_itself():
+    c_start, d_start = main.windows(NOW)
+    b = ((d_start + 3600) // 900) * 900
+    pings = pd.DataFrame({"epoch": [c_start + 10], "values": [7.0]})
+    loss = pd.DataFrame({"epoch": [b + 60, b + 960], "loss_pct": [100.0, 100.0]})
+    deaf_rows = [{"_time": float(t)} for t in range(b, b + 1800, 10)]
+    written, passes = {}, []
+
+    def degradation(lo):
+        return {"periods": [{"start": b, "end": b + 1800, "mean_loss_pct": 100.0}],
+                "change_points": 1}
+
+    report = main.run_once(
+        now=NOW, fetch=lambda t, s: (pings, loss),
+        list_targets=lambda s: [("Google", "topsites")],
+        find_congestion=lambda p: {"periods": [], "change_points": 0},
+        find_degradation=degradation,
+        replace=lambda m, t, c, periods, start, now: written.setdefault(m, periods),
+        fetch_deaf=lambda start: deaf_rows,
+        record_pass=lambda r, now: passes.append((r["seconds"], now)))
+    (period,) = written[store.DEGRADATION]
+    assert period["class"] == "monitor_deaf" and period["deaf_share"] == 1.0
+    assert period["coverage"] == 1.0
+    assert report["targets"]["Google"]["degradation"]["monitor_deaf"] == 1
+    assert report["deaf_bins"] == 2
+    assert passes == [(report["seconds"], NOW)]
+
+
+def test_a_history_write_that_fails_does_not_fail_the_pass():
+    def boom(report, now):
+        raise RuntimeError("influx away")
+
+    report = main.run_once(
+        now=NOW, fetch=lambda t, s: (pd.DataFrame({"epoch": [], "values": []}),
+                                      pd.DataFrame({"epoch": [], "loss_pct": []})),
+        list_targets=lambda s: [("Google", "topsites")],
+        find_congestion=lambda p: {"periods": [], "change_points": 0},
+        find_degradation=lambda lo: {"periods": [], "change_points": 0},
+        replace=lambda *a: None, fetch_deaf=lambda start: [], record_pass=boom)
+    assert report["errors"] == 0 and "last_ok" in report

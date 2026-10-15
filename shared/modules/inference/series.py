@@ -14,11 +14,16 @@ import re
 
 import pandas as pd
 
+import logging
+
+from common import microcuts
+from common.microcuts import uplink_flux
 from common.tsdb import flux_str, influx_bucket, query_influx
 
 # Influx tag vocabulary (not the database's: top_sites is topsites here).
 DEFAULT_CATEGORIES = "topsites,custom,cpe"
 PING_FIELD = re.compile(r"^ping\d+$")
+log = logging.getLogger("inference.series")
 
 
 def categories() -> list[str]:
@@ -82,3 +87,23 @@ def fetch(target: str, start: int, query=query_influx) -> tuple[pd.DataFrame, pd
     p = pd.DataFrame(pings, columns=["epoch", "values"]).sort_values("epoch", kind="stable")
     lo = pd.DataFrame(loss, columns=["epoch", "loss_pct"]).sort_values("epoch", kind="stable")
     return p.reset_index(drop=True), lo.reset_index(drop=True)
+
+
+def deaf_rows(start: int, query=query_influx) -> list[dict]:
+    """The host's deaf Wi-Fi samples since ``start``: the same query the
+    alerter and the MCP server use to tell a radio hang from a cut
+    (``common.microcuts.uplink_flux``). Empty on a wired host, or when the
+    database cannot be read -- a period is then never labeled deaf, which
+    is the old behavior, not a guess."""
+    try:
+        rows = list(query(uplink_flux(str(int(start)))))
+    except Exception:  # noqa: BLE001 -- a label is optional; the detectors are not
+        return []
+    # The shared query stops at MAX_ROWS * 4 samples, oldest first: about
+    # 55 h of deaf time at a 10 s cadence. Past that the newest hangs would
+    # read as loss again, so say so rather than let it pass in silence.
+    if len(rows) >= microcuts.MAX_ROWS * 4:
+        log.warning("deaf samples truncated at %d rows: the newest deaf periods may "
+                    "be labeled loss; a %d-row week means the radio was deaf most of it",
+                    len(rows), len(rows))
+    return rows

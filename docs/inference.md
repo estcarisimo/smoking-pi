@@ -70,6 +70,43 @@ on every destination and on the CPE target is the local link or the Pi;
 on every destination but not on the CPE, it is beyond the first hop; on one
 destination only, it is that destination.
 
+## What a period carries besides its detection
+
+The detectors run on the raw series, as published. Two things are read off
+other evidence and written beside each period, never fed back into it:
+
+- **`class`: `loss` or `monitor_deaf`** (degradation only). A radio hang
+  records 100 % loss on every destination for hours, and BCP on loss then
+  finds a "degradation" of every target that is really the monitor being
+  deaf — 22 of the first 51 periods on the reference Pi were this. The
+  period is labeled `monitor_deaf` when at least half of its 15-minute bins
+  were deaf by the alerter's own test (`common/microcuts.py`: the uplink
+  interface was not associated, or its received-packet counter did not
+  move), with the share in `deaf_share`. Target Detail shades those gray
+  under *Monitor deaf (experimental)* and says so in the text; Connectivity
+  & Quality draws them gray on the timeline and leaves them out of the
+  degradation count. A wired host never has a deaf period.
+- **`coverage`**: the share of the period's bins that had data — for a
+  congestion period, bins with at least one answered ping (what Jitterbug
+  reads; a bin of total loss is empty to it), for a degradation period,
+  bins with at least one probe cycle (loss is recorded even when nothing
+  answers). A congestion period that spans a gap of hours (a hang, a
+  reboot) reads as such — "data in 40 % of the span" in its annotation —
+  instead of looking like a solid span; the first read of the reference Pi
+  found a 49-hour period of a 3.7 ms jump that straddled two hangs.
+  The deaf samples come from the same query the alerter uses, capped at
+  20 000 rows (about 55 hours of deaf time at the default 10 s cadence);
+  past that the service logs a warning and the newest deaf periods may read
+  as loss.
+
+## Pass history
+
+Every pass writes one `inference_pass` point: `seconds`, `targets`,
+`errors`, `congestion_periods`, `degradation_periods`. Connectivity &
+Quality shows the seconds and failures per pass under the episode timeline;
+`status.json` keeps only the last pass, and the container's log does not
+survive an upgrade, so this is the record of what a pass costs over time.
+
 ## Turning it on
 
 Pro edition, InfluxDB backend:

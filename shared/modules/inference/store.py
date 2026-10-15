@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 
 CONGESTION = "persistent_congestion"
 DEGRADATION = "loss_degradation"
+# One point per pass: how long, how many targets, how many failed.
+PASS = "inference_pass"
 
 
 def _client():
@@ -76,11 +78,47 @@ def points(measurement: str, target: str, category: str, periods: list[dict],
               .time(int(p["start"]), WritePrecision.S)
               .field("end", int(p["end"]))
               .field("duration_s", int(p["end"] - p["start"])))
-        for key in ("confidence", "jump_ms", "ks_p", "mean_loss_pct"):
+        for key in ("confidence", "jump_ms", "ks_p", "mean_loss_pct", "coverage", "deaf_share"):
             if p.get(key) is not None:
                 pt = pt.field(key, float(p[key]))
+        # "loss" or "monitor_deaf" (deaf.py): a field, like everything else
+        # here, so a relabeled period rewrites the same point.
+        if p.get("class"):
+            pt = pt.field("class", str(p["class"]))
         out.append(pt)
     return out
+
+
+def pass_point(report: dict, now: int):
+    """The ``inference_pass`` point of one pass: its duration, how many
+    targets it covered and how many failed, and the periods it found."""
+    from influxdb_client import Point, WritePrecision
+
+    targets = report.get("targets") or {}
+    congested = sum((t.get("congestion") or {}).get("periods", 0) for t in targets.values())
+    degraded = sum((t.get("degradation") or {}).get("periods", 0) for t in targets.values())
+    # The literal, not PASS: the doctor reads measurement names from here.
+    return (Point("inference_pass").time(int(now), WritePrecision.S)
+            .field("seconds", float(report.get("seconds") or 0.0))
+            .field("targets", int(len(targets)))
+            .field("errors", int(report.get("errors") or 0))
+            .field("congestion_periods", int(congested))
+            .field("degradation_periods", int(degraded)))
+
+
+def write_pass(report: dict, now: int, client=None) -> None:
+    """Record the pass. A failure here is logged by the caller and never
+    fails the pass: the history is a convenience, the results are not."""
+    own = client is None
+    client = client or _client()
+    try:
+        from influxdb_client.client.write_api import SYNCHRONOUS
+
+        client.write_api(write_options=SYNCHRONOUS).write(
+            bucket=_bucket(), record=pass_point(report, now))
+    finally:
+        if own:
+            client.close()
 
 
 def replace(measurement: str, target: str, category: str, periods: list[dict],

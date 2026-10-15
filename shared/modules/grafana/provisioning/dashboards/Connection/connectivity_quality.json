@@ -222,7 +222,7 @@
       "id": 4,
       "type": "stat",
       "title": "Loss degradation periods (experimental)",
-      "description": "Periods the inference module found where a destination's loss rose and stayed (Bayesian change points on 15-minute loss) that overlap the range; the ISP gateway and the DNS wizard's targets are left out. Empty when the inference profile is off: `smoking-pi enable inference`.",
+      "description": "Periods the inference module found where a destination's loss rose and stayed (Bayesian change points on 15-minute loss) that overlap the range; the ISP gateway and the DNS wizard's targets are left out. Empty when the inference profile is off: `smoking-pi enable inference`. Periods in which the monitor itself was deaf are not counted.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -274,7 +274,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"date\"\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"loss_degradation\" and r._field == \"end\" and r.category != \"cpe\" and r.category != \"dns_wizard\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> group() |> count(column: \"end\")"
+          "query": "import \"date\"\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"loss_degradation\" and (r._field == \"end\" or r._field == \"class\") and r.category != \"cpe\" and r.category != \"dns_wizard\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> group() |> count(column: \"end\")"
         }
       ]
     },
@@ -460,7 +460,7 @@
       "id": 13,
       "type": "state-timeline",
       "title": "Detected episodes, by target (experimental)",
-      "description": "What the inference module found, on the same time axis: red is loss degradation, orange is persistent congestion (Jitterbug). Every target the module analyzes, the ISP gateway included: its rows say whether the first hop moved too. Detected, not confirmed: compare with the loss and latency above. Empty when the inference profile is off.",
+      "description": "What the inference module found, on the same time axis: red is loss degradation, orange is persistent congestion (Jitterbug). Every target the module analyzes, the ISP gateway included: its rows say whether the first hop moved too. Detected, not confirmed: compare with the loss and latency above. Empty when the inference profile is off. Gray: the monitor itself was deaf for most of the period (its radio heard nothing), so the loss is this Pi's, not the destination's.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -507,6 +507,10 @@
               {
                 "color": "#FF9830",
                 "value": 2
+              },
+              {
+                "color": "#8e8e8e",
+                "value": 3
               }
             ]
           },
@@ -525,6 +529,10 @@
                 "2": {
                   "text": "persistent congestion",
                   "index": 2
+                },
+                "3": {
+                  "text": "monitor deaf (this Pi's radio)",
+                  "index": 3
                 }
               }
             }
@@ -540,9 +548,80 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"date\"\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\nloss_degradation = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target + \" · loss degradation\", end: time(v: r.end * 1000000000)}))\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target + \" · persistent congestion\", end: time(v: r.end * 1000000000)}))\nstarts = union(tables: [\n    loss_degradation |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 1})),\n    persistent_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 2})),\n])\nends = union(tables: [loss_degradation, persistent_congestion]) |> map(fn: (r) => ({_time: r.end, target: r.target, _value: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\"]) |> sort(columns: [\"_time\", \"_value\"])"
+          "query": "import \"date\"\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\n// class is \"monitor_deaf\" when this Pi's radio heard nothing for most of the period (deaf.py); periods written before the class existed are loss.\ndegradations = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and (r._field == \"end\" or r._field == \"class\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\nloss_degradation = degradations |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target + \" · loss degradation\", end: time(v: r.end * 1000000000)}))\nmonitor_deaf = degradations |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target + \" · monitor deaf\", end: time(v: r.end * 1000000000)}))\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target + \" · persistent congestion\", end: time(v: r.end * 1000000000)}))\nstarts = union(tables: [\n    loss_degradation |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 1})),\n    persistent_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 2})),\n    monitor_deaf |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 3})),\n])\nends = union(tables: [loss_degradation, persistent_congestion, monitor_deaf]) |> map(fn: (r) => ({_time: r.end, target: r.target, _value: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\"]) |> sort(columns: [\"_time\", \"_value\"])"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference passes (experimental): seconds per hourly pass, failures",
+      "id": 23,
+      "description": "One point per pass of the inference service: how long the pass took for all its targets, and how many targets failed. The record the service keeps of itself (status.json holds only the last pass).",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"inference_pass\" and (r._field == \"seconds\" or r._field == \"errors\")) |> keep(columns: [\"_time\", \"_field\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 4,
+            "spanNulls": false
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "errors"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     },
     {
       "id": 20,
@@ -552,7 +631,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 37
       },
       "collapsed": false,
       "panels": []
@@ -572,7 +651,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 33
+        "y": 38
       },
       "options": {
         "calculate": false,
@@ -678,7 +757,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 33
+        "y": 38
       },
       "options": {
         "calculate": false,

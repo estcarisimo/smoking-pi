@@ -9,6 +9,30 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **A degradation period says when the monitor itself was deaf.** The first
+  read of the reference Pi's inference output found that 22 of its 51 loss
+  degradation periods were the two radio hangs: 100 % loss on every
+  destination for hours, which BCP on loss duly reports as a degradation of
+  each target — shaded red on Target Detail as if the destinations had
+  failed. The detector is unchanged (the published method, on the raw loss
+  series); each period now carries `class` (`loss` or `monitor_deaf`, by
+  the alerter's own deaf test from `common/microcuts.py`, when at least
+  half of its bins were deaf) and `deaf_share`. Target Detail shades deaf
+  periods gray under a *Monitor deaf (experimental)* annotation that says
+  the loss is this Pi's; Connectivity & Quality draws them gray and leaves
+  them out of the degradation count.
+- **Every period carries its data coverage.** `coverage` is the share of
+  the period's 15-minute bins that had data; the annotation says "data in
+  40 % of the span". A 49-hour congestion period of a 3.7 ms jump that
+  straddled the two hangs had looked like a solid span.
+- **A per-pass history.** Each pass writes one `inference_pass` point
+  (seconds, targets, errors, periods found); Connectivity & Quality shows
+  seconds and failures per pass. `status.json` kept only the last pass and
+  the container log vanished at every upgrade, so "what does a pass cost
+  over time" had no answer.
+
 ## [2.34.0] — 2026-10-15
 
 The dashboards, after the audit of every one of them. Fifteen became ten:

@@ -26,6 +26,7 @@ import time
 from datetime import datetime, timezone
 
 import congestion
+import deaf
 import degradation
 import series
 import status
@@ -70,7 +71,8 @@ def windows(now: int) -> tuple[int, int]:
 
 def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.targets,
              find_congestion=congestion.detect, find_degradation=degradation.detect,
-             replace=store.replace) -> dict:
+             replace=store.replace, fetch_deaf=series.deaf_rows,
+             record_pass=store.write_pass) -> dict:
     """One pass over every target. A target that fails is logged and skipped;
     the others still run."""
     now = int(time.time()) if now is None else now
@@ -87,17 +89,27 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
         selected = []
     if not selected and "failed" not in report:
         log.warning("no target matched INFERENCE_CATEGORIES / INFERENCE_TARGETS")
+    # The host's deaf samples, once per pass: every target shares the radio.
+    deaf_bins = deaf.deaf_bins(fetch_deaf(d_start)) if selected else set()
+    report["deaf_bins"] = len(deaf_bins)
     for target, category in selected:
         row = {}
         try:
             pings, loss = fetch(target, min(c_start, d_start))
-            c = find_congestion(pings[pings["epoch"] >= c_start])
+            c_pings = pings[pings["epoch"] >= c_start]
+            c = find_congestion(c_pings)
+            deaf.coverage(c["periods"], c_pings["epoch"])
             row["congestion"] = {"periods": len(c["periods"]),
                                  "change_points": c["change_points"]}
             replace(store.CONGESTION, target, category, c["periods"], c_start, now)
-            d = find_degradation(loss[loss["epoch"] >= d_start])
+            d_loss = loss[loss["epoch"] >= d_start]
+            d = find_degradation(d_loss)
+            deaf.coverage(d["periods"], d_loss["epoch"])
+            deaf.label(d["periods"], deaf_bins)
             row["degradation"] = {"periods": len(d["periods"]),
-                                  "change_points": d["change_points"]}
+                                  "change_points": d["change_points"],
+                                  "monitor_deaf": sum(1 for p in d["periods"]
+                                                      if p.get("class") == deaf.MONITOR_DEAF)}
             replace(store.DEGRADATION, target, category, d["periods"], d_start, now)
         except Exception:  # noqa: BLE001 -- one target must not stop the others
             log.warning("inference failed for %s", target, exc_info=True)
@@ -109,6 +121,11 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
         report["last_ok"] = now
     log.info("inference pass: %d targets in %.0f s, %d failed",
              len(report["targets"]), report["seconds"], report["errors"])
+    if selected:
+        try:
+            record_pass(report, now)
+        except Exception:  # noqa: BLE001 -- the history is a convenience
+            log.warning("could not record the pass", exc_info=True)
     return report
 
 

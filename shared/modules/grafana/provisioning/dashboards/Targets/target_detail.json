@@ -66,7 +66,21 @@
         "target": {
           "refId": "Anno",
           "queryType": "flux",
-          "query": "import \"date\"\nimport \"regexp\"\n// Same target matching as the panels: any probe of this base name.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still shaded.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r.target =~ re and (r._field == \"end\" or r._field == \"mean_loss_pct\"))\n  |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end * 1000000000), text: \"Loss degradation (experimental) on \" + r.target + \": \" + (if exists r.mean_loss_pct then string(v: float(v: int(v: r.mean_loss_pct * 10.0)) / 10.0) else \"?\") + \" % mean loss\", tags: \"experimental\"}))"
+          "query": "import \"date\"\nimport \"regexp\"\n// Same target matching as the panels: any probe of this base name.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still shaded.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r.target =~ re and (r._field == \"end\" or r._field == \"mean_loss_pct\" or r._field == \"class\" or r._field == \"coverage\"))\n  |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n  // Periods written before the class existed have none: they are loss.\n  |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\")\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end * 1000000000), text: \"Loss degradation (experimental) on \" + r.target + \": \" + (if exists r.mean_loss_pct then string(v: float(v: int(v: r.mean_loss_pct * 10.0)) / 10.0) else \"?\") + \" % mean loss\" + (if exists r.coverage then \", data in \" + string(v: int(v: r.coverage * 100.0)) + \" % of the span\" else \"\"), tags: \"experimental\"}))"
+        }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#8e8e8e",
+        "name": "Monitor deaf (experimental)",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "import \"date\"\nimport \"regexp\"\n// Same target matching as the panels: any probe of this base name.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still shaded.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r.target =~ re and (r._field == \"end\" or r._field == \"mean_loss_pct\" or r._field == \"class\" or r._field == \"coverage\"))\n  |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n  |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\")\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end * 1000000000), text: \"The monitor was deaf (experimental): this Pi's radio heard nothing for most of this span, so the \" + (if exists r.mean_loss_pct then string(v: float(v: int(v: r.mean_loss_pct * 10.0)) / 10.0) else \"?\") + \" % loss on \" + r.target + \" is the monitor's, not the destination's\", tags: \"experimental\"}))"
         }
       },
       {

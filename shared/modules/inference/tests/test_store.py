@@ -70,3 +70,23 @@ def test_a_quote_never_reaches_the_delete_predicate():
     with pytest.raises(ValueError):
         store.replace(store.CONGESTION, 'x" OR target="y', "c", [], W0, W0 + 60,
                       client=FakeClient())
+
+
+def test_a_period_carries_its_class_coverage_and_deaf_share():
+    (pt,) = store.points(store.DEGRADATION, "Google", "topsites",
+                         [{"start": W0 + 900, "end": W0 + 4500, "mean_loss_pct": 96.0,
+                           "class": "monitor_deaf", "deaf_share": 1.0, "coverage": 0.75}], W0)
+    line = pt.to_line_protocol()
+    assert 'class="monitor_deaf"' in line
+    assert "deaf_share=1," in line and "coverage=0.75" in line
+
+
+def test_a_pass_becomes_one_point_with_its_cost_and_counts():
+    report = {"seconds": 63.8, "errors": 1,
+              "targets": {"a": {"congestion": {"periods": 1}, "degradation": {"periods": 2}},
+                          "b": {"error": True}}}
+    line = store.pass_point(report, W0).to_line_protocol()
+    assert line.startswith("inference_pass ")
+    assert "seconds=63.8" in line and "targets=2i" in line and "errors=1i" in line
+    assert "congestion_periods=1i" in line and "degradation_periods=2i" in line
+    assert line.endswith(str(W0))
