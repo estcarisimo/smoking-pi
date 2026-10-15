@@ -9,6 +9,13 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.33.4] — 2026-10-15
+
+Three dashboard fixes from the dashboards audit (roadmap front 2): the
+DNS Wizard's service table renders again where names are exported, the
+CPE dashboard opens on the gateway that is being measured instead of a
+dead one, and the HTTP dashboard's TCP panel has its own row.
+
 ### Fixed
 
 - **The DNS Wizard's *Top services by presence* table renders again where
