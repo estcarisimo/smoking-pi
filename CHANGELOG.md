@@ -13,11 +13,12 @@ version gets a matching GitHub release and git tag.
 
 The dashboards now lead from an aggregate to the series behind it. On
 Connectivity & Quality, a category line opens that category's targets
-side by side over the same range, a new table lists the destinations
-behind the loss in the range, and every side-by-side panel opens Target
-Detail for its target. Nothing new runs on the Pi: the links and one
-query, measured at a fraction of a second over a week of the reference
-Pi's history.
+side by side over the same range (the gateway's and the resolvers' lines
+open their own dashboards), a new table lists the destinations behind
+the loss in the range with each row opening Target Detail or Individual
+Pings, and every side-by-side panel opens Target Detail for its target.
+No new service: besides the links, the only new work is the table's
+query, 0.2 s over a week of the reference Pi's history.
 
 ### Added
 
