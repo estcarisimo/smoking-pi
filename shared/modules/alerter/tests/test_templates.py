@@ -35,7 +35,6 @@ def _alert(**over):
         },
         "links": {
             "graph": "http://h:3000/d/x?var-target=Cloudflare",
-            "per_ping_detail": "http://h:3000/d/y",
             "compare_with_peers": "http://h:3000/d/z",
             "edit": "http://h:8080/targets/?q=Cloudflare",
         },

@@ -13,6 +13,7 @@ run on the Pi.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
@@ -82,6 +83,7 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_panel_tags_are_written(repo, influx, clickhouse),
         check_text_stats_name_their_field(influx),
         check_overrides_match_a_series(influx),
+        check_links_name_provisioned_dashboards(repo, influx),
         check_alerter_env_defaults_match(repo),
         check_alerter_env_declared(repo),
         check_mcp_tools_documented(repo),
@@ -510,6 +512,56 @@ def _same_value(module_value: object, compose_value: str) -> bool:
         return float(module_value) == float(compose_value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return str(module_value) == compose_value
+
+
+UID_IN_CODE_RE = re.compile(r"""["']([a-z0-9_]+(?:-[a-z0-9_]+)*-v\d+)["']""")
+DASHBOARD_LINK_RE = re.compile(r"/d/([A-Za-z0-9_-]+)")
+
+
+def check_links_name_provisioned_dashboards(repo: Repo, influx) -> CheckResult:
+    """A dashboard uid named in common/links.py or the web admin's category
+    map is a deep link every alert and assistant answer carries; one that no
+    provisioned dashboard has (retired, renamed) opens Grafana's "not found"
+    page. The retired SmokePing Latency twins were still the alerts' `graph`
+    after their newer versions existed."""
+    uids = {d.uid for d in influx if d.uid}
+    findings = []
+    checked = 0
+    # Dashboards link each other too (the Overview's "Where to look next",
+    # panel links): a /d/<uid> in any dashboard must resolve as well.
+    for dashboard in influx:
+        for uid in sorted(set(DASHBOARD_LINK_RE.findall(json.dumps(dashboard.data)))):
+            checked += 1
+            if uid not in uids:
+                findings.append(
+                    Finding(
+                        f"links /d/{uid}, which no dashboard in the InfluxDB tree "
+                        f"carries",
+                        where=dashboard.rel,
+                    )
+                )
+    for path in (
+        repo.common / "links.py",
+        repo.root / "shared/modules/web-admin/app/templates/dashboard.html",
+    ):
+        if not path.is_file():
+            continue
+        for uid in sorted(set(UID_IN_CODE_RE.findall(path.read_text()))):
+            checked += 1
+            if uid not in uids:
+                findings.append(
+                    Finding(
+                        f"names dashboard uid {uid!r}, which no dashboard in the "
+                        f"InfluxDB tree carries",
+                        where=str(path.relative_to(repo.root)),
+                    )
+                )
+    return result(
+        "links-name-provisioned-dashboards",
+        findings,
+        f"{checked} dashboard uids linked from links.py, the web admin and the "
+        f"dashboards are provisioned",
+    )
 
 
 def check_alerter_env_defaults_match(repo: Repo) -> CheckResult:

@@ -169,7 +169,6 @@ def _link_line(links: dict | None) -> str:
     labels = (
         # Per-target links, from links.target_links().
         ("graph", "graph"),
-        ("per_ping_detail", "per-ping"),
         ("compare_with_peers", "peers"),
         ("edit", "edit"),
         ("graph_tunnel", "🌐 anywhere"),
