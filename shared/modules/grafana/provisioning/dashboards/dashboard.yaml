@@ -2,11 +2,14 @@
 #
 # One provider walks this directory recursively; foldersFromFilesStructure
 # maps each first-level subdirectory to a Grafana folder, with the directory
-# name as the folder's title: Home (the Overview and Connectivity & Quality),
-# Targets (one target, every target of a category, HTTP by version), Network
-# (Wi-Fi, the ISP gateway) and DNS (resolvers, the wizard). Renaming a
-# directory moves its dashboards and leaves the old folder behind, empty:
-# `smoking-pi upgrade` deletes those (RETIRED_FOLDERS in cli/lib/lifecycle.sh).
+# name as the folder's title: Connection (the Overview and Connectivity &
+# Quality), Targets (one target, every target of a category, HTTP by
+# version), Network (Wi-Fi, the ISP gateway) and DNS (resolvers, the wizard).
+# Renaming a directory moves its dashboards and leaves the old folder behind,
+# empty: `smoking-pi upgrade` deletes those (RETIRED_FOLDERS in
+# cli/lib/lifecycle.sh). Grafana matches folder titles case-insensitively:
+# a new name must not be an old slug in other letters (Home reused `home`,
+# and stayed lowercase, on the 2.34.0 candidate).
 # Do NOT add
 # additional providers pointing at the subdirectories: the recursive walk of
 # the parent would claim the same JSON files twice and cause duplicate-UID
