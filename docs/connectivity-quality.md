@@ -54,7 +54,8 @@ one day to the next, but it is not a count of probe rounds.
   persistent congestion. Every target the module analyzes has a row, the
   ISP gateway included, so you can see whether the first hop moved too.
   These are detections, not confirmations. Compare them with the two panels
-  above before believing one. The panel is empty unless the module is on
+  above before believing one. Click a bar for every layer of that target
+  over the same range, with the period shaded. The panel is empty unless the module is on
   (`sudo smoking-pi enable inference`).
 - **Loss incidents (diagnosed).** The dark red markers along the bottom of
   the charts are the alerter's diagnosed incidents (see
