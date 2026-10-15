@@ -12,11 +12,11 @@ version gets a matching GitHub release and git tag.
 ## [2.33.2] — 2026-10-15
 
 v2.33.1's wider count worked on the staging Pi but not on the reference
-Pi. With its 224 web and DNS wizard targets, InfluxDB refused one of the
-queries, and a week of their lost packets was more than the query was
+Pi. With its 224 HTTP, TCP and DNS wizard targets, InfluxDB refused one of
+the queries, and a week of their lost packets was more than the query was
 allowed to return. Nothing failed: the answers fell back to the pinged
-sites and resolvers, as designed, so the alert and its diagnosis still
-counted differently there. InfluxDB now counts those targets per cycle
+sites and resolvers, as designed, so the diagnosis still counted fewer
+targets than the alert there. InfluxDB now counts those targets per cycle
 itself. Measured on the reference Pi, that takes about 3 s for a day and
 16 s for a week.
 
