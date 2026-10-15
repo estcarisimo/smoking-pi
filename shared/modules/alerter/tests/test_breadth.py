@@ -56,8 +56,13 @@ def test_cycle_count_flux_counts_only_the_targets_per_cycle():
     src = breadth.cycle_count_flux(24, {"b", "a"}, 0.15, 300)
     assert ('|> filter(fn: (r) => r._value >= 0.15) '
             '|> filter(fn: (r) => contains(value: r.target, set: ["a", "b"])) ') in src
-    assert ('|> group() |> aggregateWindow(every: 300s, fn: count, '
-            'createEmpty: false, timeSrc: "_start")') in src
+    window = ('aggregateWindow(every: 300s, fn: count, createEmpty: false, '
+              'timeSrc: "_start")')
+    # Per target first, then per cycle: a target counts once per cycle,
+    # however many points it has there (review of #349).
+    assert f'|> group(columns: ["target"]) |> {window} |> group() |> {window}' in src
+    assert src.index("aggregateWindow") > src.index("contains(")
+    assert "keep(" not in src.split("aggregateWindow")[0]
 
 
 def test_cycle_count_flux_never_nests_with_the_number_of_targets():
@@ -87,10 +92,32 @@ def test_per_step_counts_reporting_over_each_span_and_sums_the_bars():
     assert breadth.per_step(spans, lossy, lost, 300) == {
         STEP0: {"reporting": 1, "lossy": 0, "lost": 0},
         STEP0 + 300: {"reporting": 1, "lossy": 1, "lost": 1},
-        # Never more lossy than reporting, whatever two bars' counts add up to.
         STEP0 + 600: {"reporting": 2, "lossy": 2, "lost": 0},
         STEP0 + 900: {"reporting": 1, "lossy": 0, "lost": 0},
     }
+
+
+def test_per_step_clamps_a_miscount_down_never_the_denominator_up():
+    """A count above the cycle's reporting voters is a miscount; raising
+    the denominator to it would read 3 lossy targets of 10 as 12 of 12."""
+    spans = {f"t{i}": (STEP0, STEP0) for i in range(10)}
+    out = breadth.per_step(spans, [{"_time": T0, "_value": 12}],
+                           [{"_time": T0, "_value": 11}], 300)
+    assert out == {STEP0: {"reporting": 10, "lossy": 10, "lost": 10}}
+    # And a count in a cycle where no voter reported is no cycle at all.
+    assert breadth.per_step({}, [{"_time": T0, "_value": 3}], [], 300) == {}
+
+
+def test_per_step_buckets_a_clipped_first_window_and_a_boundary_point():
+    """aggregateWindow's first window starts at the range start, not on a
+    cycle boundary (timeSrc "_start"); a point exactly on a boundary opens
+    the next window. Both fall in the cycle Python buckets them in."""
+    spans = {"a": (STEP0, STEP0 + 600)}
+    clipped = T0 + timedelta(seconds=137)
+    boundary = T0 + timedelta(seconds=300)
+    out = breadth.per_step(spans, [{"_time": clipped, "_value": 1},
+                                   {"_time": boundary, "_value": 1}], [], 300)
+    assert out[STEP0]["lossy"] == 1 and out[STEP0 + 300]["lossy"] == 1
 
 
 class Fake:
@@ -160,10 +187,10 @@ def test_fetch_refuses_past_a_week():
         breadth.fetch(Fake({}), breadth.MAX_HOURS + 1, 300)
 
 
-def test_fetch_counts_a_long_outage_without_a_row_bound():
+def test_fetch_counts_a_long_outage_cycle_by_cycle():
     """v2.33.1 fetched every lossy point and gave up past 20 000: a week of
-    the reference Pi's 224 voters always did. Counts per cycle have no
-    bound to reach."""
+    the reference Pi's 224 voters always did. Now the counts come per
+    cycle (the shape is pinned in the cycle_count_flux tests)."""
     fake = Fake({f"t{i}": [0.0] * 20 + [1.0] * 4 for i in range(30)})
     out = breadth.fetch(fake, 168, 300)
     assert out[STEP0 + 300 * 23] == {"reporting": 30, "lossy": 30, "lost": 30}

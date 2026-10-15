@@ -124,6 +124,8 @@ def window_rows(
 # the ICMP and resolver targets alone, and says so: a month of every
 # breadth-only target's lossy points is no question to put to a Pi.
 MAX_HOURS = 168
+
+
 def cadence_flux() -> str:
     """The newest ``step`` and ``pings`` per breadth-only target
     (cadence.cadence_flux leaves the wizard out, and reads no HTTP/TCP)."""
@@ -162,20 +164,23 @@ def _targets_set(targets: set[str]) -> str:
 
 def cycle_count_flux(hours: int, targets: set[str], bar: float,
                      step_s: int) -> str:
-    """Per ``step_s`` cycle, how many of ``targets``' loss points were at or
-    above ``bar``: one row per cycle with any, however many targets. The
-    value filter comes first, alone, so the storage engine applies it; the
-    target set is checked only on the points it lets through. Each point
-    counts once, which is once per target and cycle for a target on the
-    cycle's own step -- every shipped probe."""
+    """Per ``step_s`` cycle, how many of ``targets`` had a loss point at or
+    above ``bar``: one row per cycle with any, at most one per cycle of the
+    window. The value filter comes first, alone, so the storage engine
+    applies it; the target set is checked only on the points it lets
+    through. Two stages, so a target counts once per cycle however many
+    points it has there -- one on a faster step than the cycle, or split
+    over several series (review of #349): per target, its points per
+    cycle; then, per cycle, the targets."""
+    window = (f"|> aggregateWindow(every: {int(step_s)}s, fn: count, "
+              'createEmpty: false, timeSrc: "_start") ')
     return (
         _loss(hours)
         + f"|> filter(fn: (r) => r._value >= {cadence.flux_float(bar)}) "
         + "|> filter(fn: (r) => contains(value: r.target, set: "
         + f"{_targets_set(targets)})) "
-        + "|> group() "
-        + f"|> aggregateWindow(every: {int(step_s)}s, fn: count, "
-        + 'createEmpty: false, timeSrc: "_start") '
+        + '|> group(columns: ["target"]) ' + window
+        + "|> group() " + window
         + '|> keep(columns: ["_time", "_value"])'
     )
 
@@ -216,8 +221,10 @@ def per_step(spans: dict[str, tuple[float, float]], lossy_rows: list[dict],
     every cycle between them -- a gap of a few cycles in a target that
     otherwise reports is counted as reporting, which a probe stall makes
     every target do alike. ``lossy_rows`` and ``lost_rows``: per-cycle
-    counts (:func:`cycle_count_flux`), summed per cycle (one query per
-    distinct bar), never above the cycle's reporting count."""
+    target counts (:func:`cycle_count_flux`), summed per cycle (one query
+    per distinct bar: each target has one, so the sets are disjoint), and
+    clamped to the cycle's reporting count -- never the reverse, which
+    would turn a miscount into a larger denominator (review of #349)."""
     out: dict[int, dict[str, int]] = {}
     # A sweep over +1 at each first cycle and -1 after each last one: one
     # pass over the cycles, not one per voter and cycle.
@@ -242,9 +249,9 @@ def per_step(spans: dict[str, tuple[float, float]], lossy_rows: list[dict],
                                     {"reporting": 0, "lossy": 0, "lost": 0})
             counts[key] += int(row["_value"])
     for counts in out.values():
-        counts["reporting"] = max(counts["reporting"], counts["lossy"],
-                                  counts["lost"])
-    return out
+        counts["lossy"] = min(counts["lossy"], counts["reporting"])
+        counts["lost"] = min(counts["lost"], counts["reporting"])
+    return {s: c for s, c in out.items() if c["reporting"]}
 
 
 def fetch(query: Query, hours: int, step_s: int,
@@ -253,8 +260,9 @@ def fetch(query: Query, hours: int, step_s: int,
     (:func:`per_step`); ``bar`` (a loss ratio) replaces each target's event
     bar for "lossy", never for who votes. Raises whatever ``query`` raises,
     and ValueError past MAX_HOURS: callers leave the breadth out on either.
-    Every query answers one row per target or per cycle, however long the
-    outage: v2.33.1 fetched the voters' lossy points themselves, and a
+    Every query answers one row per target, or one per cycle with any
+    (2 016 for a week), however long the outage; what InfluxDB reads still
+    grows with the points above the bar: v2.33.1 fetched the voters' lossy points themselves, and a
     week of the reference Pi's 224 had more than its 20 000-row bound."""
     if hours > MAX_HOURS:
         raise ValueError(f"breadth is counted over at most {MAX_HOURS} h")

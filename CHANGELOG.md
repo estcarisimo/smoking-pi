@@ -20,10 +20,12 @@ version gets a matching GitHub release and git tag.
   Both fell back as designed, so nothing failed, but `breadth_only` stayed
   false and the counts stayed at the pinged targets. The voters are now a
   set (`contains`), which is flat at any size, and InfluxDB counts the
-  lossy and the lost voters per cycle (one query per distinct event bar),
-  so no answer grows with an outage and there is no row bound. Measured on
-  the reference Pi, read-only: about 3 s for a day and 16 s for a week of
-  224 targets.
+  lossy and the lost voters per cycle, each target once however many
+  points it has there (one query per distinct event bar), so what comes
+  back no longer grows with an outage and there is no row bound; what
+  InfluxDB reads still grows with the lossy points. Measured on the
+  reference Pi, read-only: about 3 s for a day and 16 s for a week of 224
+  targets.
 
 ## [2.33.1] — 2026-10-14
 
