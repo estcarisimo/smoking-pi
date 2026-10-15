@@ -79,14 +79,16 @@ cycle where the alerter counted it; at the moment an alert fires, the two
 sets are the same unless a target was lossy for most of the diagnosis
 window. Over those windows only queries InfluxDB answers from its storage
 engine are asked -- points per target, points at or above the event bar,
-each target's first and last point, and the voters' lossy points -- and the
-cycles are counted in Python: about 0.3 s a query on the staging Pi for a
-week. A target reports in every cycle from its first point to its last, so
-a gap of a few cycles counts as reporting. The breadth is counted over a
-week at most: a longer `get_loss_events` counts the ICMP and resolver
-targets alone. `breadth_only: false` (in `diagnose_loss`'s `coverage`)
-means the breadth was not counted for any reason: a longer window, a failed
-query, more than 20 000 lossy points, or no target voting. The alerter's
+each target's first and last point, and per cycle how many voters were
+lossy and how many lost everything -- and the cycles are put together in
+Python. On the reference Pi (224 breadth-only targets) that is about 3 s
+for a day and 16 s for a week; every query answers one row per target or
+per cycle, however long an outage. A target reports in every cycle from its
+first point to its last, so a gap of a few cycles counts as reporting. The
+breadth is counted over a week at most: a longer `get_loss_events` counts
+the ICMP and resolver targets alone. `breadth_only: false` (in
+`diagnose_loss`'s `coverage`) means the breadth was not counted for any
+reason: a longer window, a failed query, or no target voting. The alerter's
 and the MCP server's logs say which. The few breadth-only targets that lose
 a point in any cycle count only once a cycle is broad: beside one named
 site's miss they are background. Breadth-only targets are counts there and
