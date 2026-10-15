@@ -13,11 +13,12 @@ version gets a matching GitHub release and git tag.
 
 v2.33.2's count of the HTTP, TCP and DNS wizard targets was right but
 slow over a week: on the reference Pi, InfluxDB checked every lossy point
-against the list of 224 targets one name at a time. A week's diagnosis
-took 22.5 s, against 8.4 s before those targets were counted, and the
-longer an outage in the window, the slower it got. InfluxDB now picks the
-targets itself before it reads their points. Same answers; on the
-reference Pi, their count for a week takes 1.7 s instead of 13.6 s.
+against the list of 224 targets one name at a time, and a week held about
+45 000 of them. InfluxDB now picks the targets itself before it reads
+their points. Same answers; on the reference Pi, the count for a week
+takes 1.7 s of InfluxDB's time instead of 13.6 s, and a week's whole
+diagnosis 9.9 s instead of 22.9 s (8.4 s before those targets were
+counted).
 
 ### Fixed
 
@@ -26,9 +27,10 @@ reference Pi, their count for a week takes 1.7 s instead of 13.6 s.
   which no part of InfluxDB pushes down: Flux scanned the 224 names for
   every lossy point. A week on the reference Pi held a 16-hour outage of
   all of them, about 45 000 such points, so the four per-cycle counts took
-  13 s of InfluxDB's time, `diagnose_loss(168)` 22.5 s against 8.4 s
-  before the breadth, and `get_loss_events(168)` 20.7 s; a longer outage
-  would have cost more. The non-voters were not the cost (6 targets, a
+  13 s of InfluxDB's time; called in the MCP server, `diagnose_loss(168)`
+  took 22.5 s against 8.4 s before the breadth, and `get_loss_events(168)`
+  20.7 s. The scan grows with the lossy points, so a longer outage would
+  have cost more. The non-voters were not the cost (6 targets, a
   twentieth of the points): the scan was. The targets are now a balanced
   `or` tree of tag comparisons, which the storage engine applies, and
   which nests as deep as log2 of the names (8 for 224, 11 for 2 000), so
