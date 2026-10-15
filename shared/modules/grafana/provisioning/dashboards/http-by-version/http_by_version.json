@@ -325,6 +325,19 @@
       "id": 2
     },
     {
+      "type": "row",
+      "title": "TCP handshake \u2013 all targets",
+      "collapsed": false,
+      "id": 4,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      },
+      "panels": []
+    },
+    {
       "type": "timeseries",
       "title": "TCP handshake time \u2013 all targets \u2013 median (ms)",
       "description": "SYN to SYN/ACK on port 443 (TCPPing), median of 5 per cycle. No TLS, no HTTP.",

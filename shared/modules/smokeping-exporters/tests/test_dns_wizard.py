@@ -115,3 +115,16 @@ def test_resolution_points_per_bucket_and_path_in_seconds_names_or_not():
 
 def test_no_resolution_section_writes_nothing_more():
     assert dns_wizard.resolution_points(SNAP) == []
+
+
+def test_a_service_without_cdn_or_network_carries_only_the_tags_it_has():
+    snap = json.loads(json.dumps(SNAP))
+    snap["top"].append({"rank": 2, "service": "local.lan", "presence_h": 3,
+                        "queries_24h": 40, "queries_1h": 1, "host": "nas.local.lan",
+                        "cdn": None, "asn": "", "org": None})
+    points = dns_wizard.points_for(snap, names=True)
+    svc = [p for p in points if p.to_line_protocol().startswith("dns_wizard_service")]
+    assert len(svc) == 2
+    # Writing "" would silently drop the tag anyway; say so by not writing it.
+    assert tags(svc[1]) == {"service": "local.lan"}
+    assert fields(svc[1])["rank"] == 2

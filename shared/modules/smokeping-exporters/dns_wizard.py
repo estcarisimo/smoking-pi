@@ -92,13 +92,18 @@ def service_points(snap: dict, ts: int) -> list[Point]:
     """One ``dns_wizard_service`` point per top service (names: opt-in)."""
     points = []
     for s in snap.get("top") or []:
+        p = Point("dns_wizard_service").tag("service", s.get("service") or "?")
+        # An empty tag value is dropped from the line protocol, so a service
+        # without a CDN, network or name has no such tag at all; the Wizard's
+        # table fills the missing columns before it pivots on them.
+        if s.get("cdn"):
+            p = p.tag("cdn", s["cdn"])
+        if s.get("asn"):
+            p = p.tag("asn", s["asn"])
+        if s.get("org"):
+            p = p.tag("org", s["org"])
         p = (
-            Point("dns_wizard_service")
-            .tag("service", s.get("service") or "?")
-            .tag("cdn", s.get("cdn") or "")
-            .tag("asn", s.get("asn") or "")
-            .tag("org", s.get("org") or "")
-            .field("rank", int(s.get("rank", 0)))
+            p.field("rank", int(s.get("rank", 0)))
             .field("presence_h", int(s.get("presence_h", 0)))
             .field("queries_24h", int(s.get("queries_24h", 0)))
             .field("queries_1h", int(s.get("queries_1h", 0)))

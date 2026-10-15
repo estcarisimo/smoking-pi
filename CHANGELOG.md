@@ -9,6 +9,26 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The DNS Wizard's *Top services by presence* table renders again where
+  names are exported.** A service with no CDN, network or network name was
+  written with an empty tag, which InfluxDB drops, so the table's pivot on
+  `cdn`/`asn`/`org` failed with *specified row key column does not exist* on
+  the reference Pi — the one install with `DNS_EXPORT_NAMES=1`; staging, whose
+  observer sees no names, never showed it. The query now fills the missing
+  columns before pivoting, and the exporter writes only the tags a service
+  has instead of an empty value that was never stored.
+- **The CPE dashboard opens on the live gateway.** Its `cpe` variable listed
+  every gateway ever measured, alphabetically, and Grafana picked the first:
+  on the reference Pi a gateway last seen a week earlier, so every panel was
+  blank unless you arrived through a link. The variable now lists the
+  gateways written in the last 7 days, most recent first.
+- **The HTTP-by-version dashboard's TCP panel sits in its own row** (both
+  backends) instead of floating under the repeated per-site panels.
+
+(Found by the dashboards audit of 2026-10-15, roadmap front 2.)
+
 ## [2.33.3] — 2026-10-15
 
 v2.33.2's count of the HTTP, TCP and DNS wizard targets was right but
