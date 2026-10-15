@@ -14,6 +14,7 @@ import re
 
 import pandas as pd
 
+from common.microcuts import uplink_flux
 from common.tsdb import flux_str, influx_bucket, query_influx
 
 # Influx tag vocabulary (not the database's: top_sites is topsites here).
@@ -82,3 +83,15 @@ def fetch(target: str, start: int, query=query_influx) -> tuple[pd.DataFrame, pd
     p = pd.DataFrame(pings, columns=["epoch", "values"]).sort_values("epoch", kind="stable")
     lo = pd.DataFrame(loss, columns=["epoch", "loss_pct"]).sort_values("epoch", kind="stable")
     return p.reset_index(drop=True), lo.reset_index(drop=True)
+
+
+def deaf_rows(start: int, query=query_influx) -> list[dict]:
+    """The host's deaf Wi-Fi samples since ``start``: the same query the
+    alerter and the MCP server use to tell a radio hang from a cut
+    (``common.microcuts.uplink_flux``). Empty on a wired host, or when the
+    database cannot be read -- a period is then never labeled deaf, which
+    is the old behavior, not a guess."""
+    try:
+        return list(query(uplink_flux(str(int(start)))))
+    except Exception:  # noqa: BLE001 -- a label is optional; the detectors are not
+        return []
