@@ -16,10 +16,12 @@ v2.33.0 counted the HTTP, TCP and DNS wizard targets when judging whether
 a loss was everywhere, but the diagnosis under the alert, `diagnose_loss`,
 `get_loss_events` and the incident history still counted the pinged sites
 and resolvers alone. An alert could say "180 of 243" over a diagnosis that
-said "19 of 19". They now count the same way, and the extra targets are
-only ever counts, never named on their own. Counting them over a day or a
-week costs a few small InfluxDB queries, about 0.3 s each on a Raspberry
-Pi, and is limited to a week.
+said "19 of 19", and a cut of the web services alone could raise an outage
+alert with no incident to explain it. They now count the same way, and the
+extra targets are only ever counts, never named on their own. Counting
+them over a day or a week costs eight small InfluxDB queries, about 0.3 s
+each on a Raspberry Pi; longer windows count the pinged sites and
+resolvers alone.
 
 ### Fixed
 
@@ -43,17 +45,17 @@ Pi, and is limited to a week.
   queries of about 0.3 s each for a week on the staging Pi. A first
   version grouped every point by time and reduced it in Flux; it took 108
   s for a week of 63 targets on staging, a 30-day `get_loss_events` froze
-  that Pi until its hardware watchdog reset it, and it was never released;
-  as merged it did not even compile in InfluxDB (a doubled brace the
-  mocked tests could not see), so every reader quietly fell back to the
-  old count. A test now checks every breadth query for balanced brackets
-  and for the shapes that cost that. The breadth is counted over a week at
-  most: a longer `get_loss_events` counts the ICMP and resolver targets
-  alone, and its new `breadth_only` field is false, as is
-  `diagnose_loss`'s `coverage.breadth_only` whenever the breadth was not
-  counted (a failed query, more than 20 000 lossy points, no target
-  voting). A failed breadth query leaves the breadth as it was.
-  Breadth-only targets stay counts: an incident's `targets`, the
+  that Pi until its hardware watchdog reset it, and it was never released:
+  as first merged (after v2.33.0, so in no release) it did not even
+  compile in InfluxDB (a doubled brace the mocked tests could not see), so
+  every reader quietly fell back to the old count. A test now checks every
+  breadth query for balanced brackets and for the shapes that cost that.
+  The breadth is counted over a week at most: a longer `get_loss_events`
+  counts the ICMP and resolver targets alone, and its new `breadth_only`
+  field is false, as is `diagnose_loss`'s `coverage.breadth_only` whenever
+  the breadth was not counted (a failed query, more than 20 000 lossy
+  points, no target voting). A failed breadth query leaves the breadth as
+  it was. Breadth-only targets stay counts: an incident's `targets`, the
   `probe_miss` and `destination` classes and every per-target list are the
   ICMP and resolver targets, scattered breadth-only loss widens a count
   only in a broad cycle, and a loss of breadth-only targets alone is never
