@@ -378,13 +378,19 @@ def test_ping_target_gets_graph_layers_peers_and_edit(configured):
     # The graph IS the per-ping dashboard since 2.34.0; the old overview-style
     # twin drew a subset of the same queries and is gone.
     assert "/d/individual-pings-v1" in result["graph"]
-    assert "/d/top_sites-side-by-side-v1" in result["compare_with_peers"]
+    # One side-by-side dashboard for every category: the link carries the
+    # InfluxDB category tag (topsites), not the database's name (top_sites).
+    assert "/d/side-by-side-v1" in result["compare_with_peers"]
+    assert _query(result["compare_with_peers"])["var-category"] == ["topsites"]
+    assert _query(result["compare_with_peers"])["var-target"] == ["Amazon"]
 
 
 def test_dns_target_points_at_the_dns_dashboard(configured):
     result = links.target_links("Google_DNS", "dns_latency", "dns_resolvers")
     assert "/d/dns-resolvers-v1" in result["graph"]
     assert "per_ping_detail" not in result
+    assert "/d/dns-resolvers-v1" in result["compare_with_peers"]
+    assert "var-category" not in result["compare_with_peers"]
 
 
 def test_unknown_category_just_omits_the_comparison(configured):
@@ -422,7 +428,7 @@ def test_base_name_pattern_matches_the_dashboard():
     import pathlib
 
     dashboard = (pathlib.Path(__file__).resolve().parents[2] / "grafana" / "provisioning"
-                 / "dashboards" / "target-detail" / "target_detail.json")
+                 / "dashboards" / "Targets" / "target_detail.json")
     assert f"/{common.links.PROBE_SUFFIX_RE.pattern}/" in dashboard.read_text()
 
 
@@ -489,7 +495,7 @@ def test_every_dashboard_uid_referenced_here_is_provisioned():
     }
     referenced = (
         {uid for uid, _ in links.DASHBOARD_BY_MEASUREMENT.values()}
-        | set(links.COMPARE_BY_DB_CATEGORY.values())
+        | {links.COMPARE_UID, links.COMPARE_DNS[0]}
     )
     assert referenced <= provisioned, (
         f"links.py points at dashboards that are not provisioned: "

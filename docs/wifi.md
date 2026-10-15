@@ -188,21 +188,23 @@ would measure a path none of the Pi's real traffic takes.
 
 ## The dashboard
 
-*Wi-Fi Link* (uid `wifi-link-v1`, folder *wifi*, variable `interface`), six
-rows top to bottom:
+*Wi-Fi Link* (uid `wifi-link-v1`, folder *Network*, variable `interface`),
+six rows top to bottom and one folded:
 
 1. **Link now** — SSID, BSSID, channel, width, signal (green above −67 dBm,
    yellow to −75, red below), negotiated TX bitrate, time associated, and
    carrier drops in the selected range.
 2. **Signal** — signal and its driver average with the −67/−75 dBm lines
-   dashed; noise floor and SNR beside it, empty on drivers without a survey.
-3. **Bitrate (PHY rate)** — tx/rx negotiated rate; MCS, spatial streams and
-   width where the driver prints them.
+   dashed.
+3. **Bitrate (PHY rate)** — tx/rx negotiated rate.
 4. **Data rate (throughput)** — bit/s and packets/s from the counters.
-5. **Quality** — failures, retries, beacon loss and drops per second;
-   channel-busy share and link quality.
+5. **Quality** — failures, retries, beacon loss and drops per second.
 6. **Roaming and association** — a timeline of the BSSID, a timeline of the
    associated flag, and the cumulative carrier-drop counter.
+7. **Only on drivers that report it** (collapsed) — noise floor and SNR,
+   modulation (MCS, spatial streams, width), channel-busy share and link
+   quality. The reference Pi's `brcmfmac` reports none of these, so the row
+   is empty there; it opens with a click on a driver that does.
 
 The **CPE Microcut Detection** dashboard carries one Wi-Fi panel under its
 latency panels — signal with TX failures/s on the right axis — so a cut and a

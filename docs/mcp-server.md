@@ -135,7 +135,7 @@ page, a side-by-side against its peers, and the web-admin page for editing it:
  "links": {
    "graph": "http://192.168.1.10:3000/d/individual-pings-v1?var-target=Amazon&from=now-24h&to=now",
    "all_layers": "http://192.168.1.10:3000/d/target-detail-v1?var-target=Amazon&...",
-   "compare_with_peers": "http://192.168.1.10:3000/d/top_sites-side-by-side-v1?...",
+   "compare_with_peers": "http://192.168.1.10:3000/d/side-by-side-v1?var-category=topsites&...",
    "edit": "http://192.168.1.10:8080/targets/?q=Amazon"}}
 ```
 

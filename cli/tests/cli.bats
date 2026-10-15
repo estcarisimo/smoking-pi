@@ -325,6 +325,36 @@ fail_docker_on() {
     [ "$(grep -c '^SLEEP 5$' "$DOCKER_LOG")" -eq 11 ]
 }
 
+# Provisioning moves dashboards to the new folders and leaves the old ones
+# behind, empty. upgrade deletes those -- and only those: a retired name
+# holding anything (here "SmokePing", the ClickHouse tree's parent) stays,
+# and a folder with a name nobody retired is never looked at.
+@test "upgrade deletes the empty folders of retired dashboards and keeps every other folder" {
+    printf 'GF_SECURITY_ADMIN_PASSWORD=s3cret\n' >> "$SMOKING_PI_ENV_FILE"
+    cat > "$BATS_TEST_TMPDIR/bin/curl" <<'STUB'
+#!/bin/sh
+echo "CURL $*" >> "$DOCKER_LOG"
+cfg=$(cat | tr "\n" " "); echo "CURLCFG $cfg" >> "$DOCKER_LOG"
+case "$cfg" in
+    *"/api/dashboards/uid/"*) printf 404 ;;
+    *"/api/folders\" request = \"GET\""*) printf '%s\n200' '[{"uid":"f-home","title":"home"},{"uid":"f-sp","title":"SmokePing"},{"uid":"f-mine","title":"My own"},{"uid":"f-ip","title":"Individual Pings"}]' ;;
+    *"/api/search?folderUIDs=f-sp&"*) printf '%s\n200' '[{"uid":"x","type":"dash-db"}]' ;;
+    *"/api/search?folderUIDs="*) printf '%s\n200' '[]' ;;
+    *"/api/folders/"*'request = "DELETE"'*) printf '{"message":"deleted"}\n200' ;;
+    *) printf 500 ;;
+esac
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/curl"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Removed 2 empty folder(s)"* ]]
+    grep -q '^CURLCFG .*api/folders/f-home".*request = "DELETE"' "$DOCKER_LOG"
+    grep -q '^CURLCFG .*api/folders/f-ip".*request = "DELETE"' "$DOCKER_LOG"
+    ! grep -q 'api/folders/f-sp"' "$DOCKER_LOG"
+    ! grep -q 'f-mine' "$DOCKER_LOG"
+    ! grep '^CURL ' "$DOCKER_LOG" | grep -q s3cret
+}
+
 @test "upgrade without a Grafana password asks Grafana nothing" {
     run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]

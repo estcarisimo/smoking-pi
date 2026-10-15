@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from common.links import (
     BACKEND_HINT,
-    COMPARE_BY_DB_CATEGORY,
+    COMPARE_CATEGORY_BY_DB,
+    COMPARE_DNS,
+    COMPARE_UID,
     CONFIG_HINT,
     DASHBOARD_BY_MEASUREMENT,
     DEFAULT_GRAFANA_PORT,
@@ -35,7 +37,9 @@ from common.links import (
 
 __all__ = [
     "BACKEND_HINT",
-    "COMPARE_BY_DB_CATEGORY",
+    "COMPARE_CATEGORY_BY_DB",
+    "COMPARE_DNS",
+    "COMPARE_UID",
     "CONFIG_HINT",
     "DASHBOARD_BY_MEASUREMENT",
     "DEFAULT_GRAFANA_PORT",

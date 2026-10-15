@@ -43,19 +43,26 @@
       }
     ]
   },
-  "uid": "custom-side-by-side-v1",
+  "uid": "side-by-side-v1",
   "id": null,
-  "title": "Custom Targets – Side-by-Side",
+  "title": "Side-by-Side – every target of one category",
   "schemaVersion": 37,
   "version": 1,
-  "tags": ["smokeping", "custom"],
-  "time": { "from": "now-6h", "to": "now" },
-
+  "tags": [
+    "smokeping",
+    "side-by-side"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "links": [
     {
       "title": "SmokePing dashboards",
       "type": "dashboards",
-      "tags": ["smokeping"],
+      "tags": [
+        "smokeping"
+      ],
       "asDropdown": true,
       "includeVars": false,
       "keepTime": true,
@@ -63,15 +70,36 @@
       "targetBlank": false
     }
   ],
-
   "templating": {
     "list": [
       {
         "type": "query",
+        "name": "category",
+        "label": "Category",
+        "datasource": {
+          "uid": "influxdb"
+        },
+        "query": "from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"latency\" and r.category != \"dns_wizard\" and r.category != \"cpe\" and r.category != \"dns\") |> keep(columns: [\"category\"]) |> distinct(column: \"category\") |> sort(columns: [\"category\"])",
+        "description": "The InfluxDB category tag: topsites, netflix, custom (the database calls them top_sites, netflix_oca, custom; links map between the two).",
+        "hide": 0,
+        "multi": false,
+        "includeAll": false,
+        "refresh": 1,
+        "sort": 0,
+        "current": {
+          "selected": true,
+          "text": "topsites",
+          "value": "topsites"
+        }
+      },
+      {
+        "type": "query",
         "name": "target",
         "label": "Target",
-        "datasource": { "uid": "influxdb" },
-        "query": "from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"latency\" and r.category == \"custom\") |> keep(columns: [\"target\"]) |> distinct(column: \"target\") |> sort(columns: [\"target\"])",
+        "datasource": {
+          "uid": "influxdb"
+        },
+        "query": "from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"latency\" and r.category == \"${category}\") |> keep(columns: [\"target\"]) |> distinct(column: \"target\") |> sort(columns: [\"target\"])",
         "hide": 0,
         "multi": true,
         "includeAll": true,
@@ -84,117 +112,293 @@
       }
     ]
   },
-
   "panels": [
     {
       "type": "timeseries",
-      "title": "Custom Targets Target – [[target]]",
+      "title": "[[target]]",
       "description": "Latency percentiles (p10/p20/p80/p90), mean, median and min/max envelope per target; red bars mark downtime windows.",
-      "datasource": { "uid": "influxdb" },
+      "datasource": {
+        "uid": "influxdb"
+      },
       "repeat": "target",
       "repeatDirection": "h",
       "maxPerRow": 3,
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
           "min": 0,
-          "custom": { "lineWidth": 1, "fillOpacity": 15 }
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 15
+          }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "median" },
+            "matcher": {
+              "id": "byName",
+              "options": "median"
+            },
             "properties": [
-              { "id": "custom.lineWidth",   "value": 2 },
-              { "id": "custom.fillOpacity", "value": 0 },
-              { "id": "custom.zindex",      "value": 3 },
-              { "id": "displayName",        "value": "Median" }
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.zindex",
+                "value": 3
+              },
+              {
+                "id": "displayName",
+                "value": "Median"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "mean" },
+            "matcher": {
+              "id": "byName",
+              "options": "mean"
+            },
             "properties": [
-              { "id": "custom.lineWidth",   "value": 1.5 },
-              { "id": "custom.drawStyle",   "value": "line" },
-              { "id": "custom.lineStyle",   "value": { "dash": [10, 10], "fill": "dash" } },
-              { "id": "custom.fillOpacity", "value": 0 },
-              { "id": "custom.zindex",      "value": 2 },
-              { "id": "displayName",        "value": "Mean" }
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.zindex",
+                "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "Mean"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "p10" },
+            "matcher": {
+              "id": "byName",
+              "options": "p10"
+            },
             "properties": [
-              { "id": "custom.lineWidth",   "value": 1 },
-              { "id": "custom.drawStyle",   "value": "line" },
-              { "id": "custom.fillOpacity", "value": 0 },
-              { "id": "custom.zindex",      "value": 2 },
-              { "id": "displayName",        "value": "P10" }
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.zindex",
+                "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "P10"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "p20" },
+            "matcher": {
+              "id": "byName",
+              "options": "p20"
+            },
             "properties": [
-              { "id": "custom.lineWidth",   "value": 1 },
-              { "id": "custom.drawStyle",   "value": "line" },
-              { "id": "custom.fillOpacity", "value": 0 },
-              { "id": "custom.zindex",      "value": 2 },
-              { "id": "displayName",        "value": "P20" }
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.zindex",
+                "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "P20"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "p80" },
+            "matcher": {
+              "id": "byName",
+              "options": "p80"
+            },
             "properties": [
-              { "id": "custom.fillOpacity", "value": 40 },
-              { "id": "custom.fillBelowTo", "value": "p20" },
-              { "id": "custom.zindex",      "value": 1 },
-              { "id": "displayName",        "value": "P80" }
+              {
+                "id": "custom.fillOpacity",
+                "value": 40
+              },
+              {
+                "id": "custom.fillBelowTo",
+                "value": "p20"
+              },
+              {
+                "id": "custom.zindex",
+                "value": 1
+              },
+              {
+                "id": "displayName",
+                "value": "P80"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "p90" },
+            "matcher": {
+              "id": "byName",
+              "options": "p90"
+            },
             "properties": [
-              { "id": "custom.fillOpacity", "value": 25 },
-              { "id": "custom.fillBelowTo", "value": "p10" },
-              { "id": "custom.zindex",      "value": 0 },
-              { "id": "displayName",        "value": "P90" }
+              {
+                "id": "custom.fillOpacity",
+                "value": 25
+              },
+              {
+                "id": "custom.fillBelowTo",
+                "value": "p10"
+              },
+              {
+                "id": "custom.zindex",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "P90"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "unreachable" },
+            "matcher": {
+              "id": "byName",
+              "options": "unreachable"
+            },
             "properties": [
-              { "id": "custom.drawStyle",   "value": "bars" },
-              { "id": "custom.fillOpacity", "value": 40 },
-              { "id": "color.mode",         "value": "fixed" },
-              { "id": "color.fixedColor",   "value": "dark-red" },
-              { "id": "custom.zindex",      "value": 4 },
-              { "id": "displayName",        "value": "Downtime" }
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 40
+              },
+              {
+                "id": "color.mode",
+                "value": "fixed"
+              },
+              {
+                "id": "color.fixedColor",
+                "value": "dark-red"
+              },
+              {
+                "id": "custom.zindex",
+                "value": 4
+              },
+              {
+                "id": "displayName",
+                "value": "Downtime"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "min" },   
+            "matcher": {
+              "id": "byName",
+              "options": "min"
+            },
             "properties": [
-              { "id": "custom.lineWidth",   "value": 1 },
-              { "id": "custom.drawStyle",   "value": "line" },
-              { "id": "custom.fillOpacity", "value": 0 },         
-              { "id": "custom.zindex",      "value": 2 },         
-              { "id": "displayName",        "value": "Min" }
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.zindex",
+                "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "Min"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "max" },
+            "matcher": {
+              "id": "byName",
+              "options": "max"
+            },
             "properties": [
-              { "id": "custom.lineWidth",   "value": 1 },
-              { "id": "custom.drawStyle",   "value": "line" },
-              { "id": "custom.fillOpacity", "value": 25 },        
-              { "id": "custom.fillBelowTo", "value": "min" },  
-              { "id": "custom.zindex",      "value": 1 },
-              { "id": "displayName",        "value": "Max" }
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 25
+              },
+              {
+                "id": "custom.fillBelowTo",
+                "value": "min"
+              },
+              {
+                "id": "custom.zindex",
+                "value": 1
+              },
+              {
+                "id": "displayName",
+                "value": "Max"
+              }
             ]
           }
         ]
       },
-
       "targets": [
         {
           "refId": "A",
@@ -243,5 +447,6 @@
         }
       ]
     }
-  ]
+  ],
+  "description": "Every target of one category on one screen, three per row: latency percentiles, mean, median, min/max envelope and the pings lost per cycle. Pick the category (top sites, Netflix OCA slots, your own targets) with the variable; DNS resolvers have their own side-by-side under DNS. Replaces the three per-category dashboards retired after the dashboards audit of 2026-10-15."
 }

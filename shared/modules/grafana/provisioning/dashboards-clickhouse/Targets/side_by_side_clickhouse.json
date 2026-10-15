@@ -1,12 +1,12 @@
 {
-  "uid": "topsites-side-by-side-clickhouse-v1",
+  "uid": "side-by-side-clickhouse-v1",
   "id": null,
-  "title": "Top Sites \u2013 Side-by-Side",
+  "title": "Side-by-Side \u2013 every target of one category",
   "schemaVersion": 37,
   "version": 1,
   "tags": [
     "smokeping",
-    "top_sites"
+    "side-by-side"
   ],
   "time": {
     "from": "now-6h",
@@ -16,42 +16,23 @@
     "list": [
       {
         "type": "query",
-        "name": "status",
-        "label": "Status",
+        "name": "category",
+        "label": "Category",
         "datasource": {
-          "uid": "postgresql-targets"
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse"
         },
-        "query": "SELECT DISTINCT CASE WHEN t.is_active THEN 'active' ELSE 'inactive' END as status FROM targets t JOIN target_categories c ON t.category_id = c.id WHERE c.name = 'topsites' ORDER BY status DESC",
+        "query": "SELECT DISTINCT category FROM smokeping.latency WHERE category NOT IN ('dns', 'cpe', 'http', 'tcp', 'unknown') ORDER BY category",
         "hide": 0,
         "multi": false,
-        "includeAll": true,
-        "allValue": "all",
+        "includeAll": false,
+        "refresh": 1,
+        "sort": 0,
         "current": {
           "selected": true,
-          "text": "active",
-          "value": "active"
-        },
-        "options": [
-          {
-            "selected": true,
-            "text": "active",
-            "value": "active"
-          },
-          {
-            "selected": false,
-            "text": "inactive",
-            "value": "inactive"
-          },
-          {
-            "selected": false,
-            "text": "All",
-            "value": "all"
-          }
-        ],
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 1
+          "text": "topsites",
+          "value": "topsites"
+        }
       },
       {
         "type": "query",
@@ -61,11 +42,10 @@
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse"
         },
-        "query": "SELECT DISTINCT target FROM smokeping.latency WHERE category = 'topsites' AND measurement_type <> 'dns_latency' ORDER BY target",
+        "query": "SELECT DISTINCT target FROM smokeping.latency WHERE category = '${category}' AND measurement_type <> 'dns_latency' ORDER BY target",
         "hide": 0,
         "multi": true,
         "includeAll": true,
-        "allValue": "'Google','Amazon','Apple','Facebook','NYT'",
         "current": {
           "selected": false,
           "text": "",
@@ -82,7 +62,7 @@
   "panels": [
     {
       "type": "timeseries",
-      "title": "Top Sites Target \u2013 [[target]]",
+      "title": "[[target]]",
       "datasource": {
         "type": "grafana-clickhouse-datasource",
         "uid": "clickhouse"
@@ -205,37 +185,37 @@
         {
           "refId": "A",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as average FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'topsites' AND measurement_type <> 'dns_latency' AND avg_latency > 0 GROUP BY timestamp ORDER BY timestamp",
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as average FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = '${category}' AND measurement_type <> 'dns_latency' AND avg_latency > 0 GROUP BY timestamp ORDER BY timestamp",
           "format": 1
         },
         {
           "refId": "B",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as mean FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'topsites' AND measurement_type <> 'dns_latency' AND avg_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as mean FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = '${category}' AND measurement_type <> 'dns_latency' AND avg_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
           "format": 1
         },
         {
           "refId": "C",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p10_latency) as p10 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'topsites' AND measurement_type <> 'dns_latency' AND p10_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p10_latency) as p10 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = '${category}' AND measurement_type <> 'dns_latency' AND p10_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
           "format": 1
         },
         {
           "refId": "D",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p20_latency) as p20 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'topsites' AND measurement_type <> 'dns_latency' AND p20_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p20_latency) as p20 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = '${category}' AND measurement_type <> 'dns_latency' AND p20_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
           "format": 1
         },
         {
           "refId": "E",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p80_latency) as p80 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'topsites' AND measurement_type <> 'dns_latency' AND p80_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p80_latency) as p80 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = '${category}' AND measurement_type <> 'dns_latency' AND p80_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
           "format": 1
         },
         {
           "refId": "F",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p90_latency) as p90 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'topsites' AND measurement_type <> 'dns_latency' AND p90_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(p90_latency) as p90 FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = '${category}' AND measurement_type <> 'dns_latency' AND p90_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
           "format": 1
         }
       ]

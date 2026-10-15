@@ -33,7 +33,13 @@ cmd_restart() {
 # is gone Grafana only unprovisions it, and it stays in the list pointing
 # at the old generation until someone deletes it. Done here, once per
 # upgrade. A uid that is already gone is not an error.
-RETIRED_DASHBOARDS="smokeping-lat-pct-v28 smokeping-dns-resolvers-v4 smokeping-lat-compare-v2 smokeping-lat-pct-clickhouse-v1 smokeping-lat-compare-clickhouse-v1 smokeping-dns-resolvers-clickhouse-v1"
+RETIRED_DASHBOARDS="smokeping-lat-pct-v28 smokeping-dns-resolvers-v4 smokeping-lat-compare-v2 smokeping-lat-pct-clickhouse-v1 smokeping-lat-compare-clickhouse-v1 smokeping-dns-resolvers-clickhouse-v1 top_sites-side-by-side-v1 netflix_oca-side-by-side-v1 custom-side-by-side-v1 topsites-side-by-side-clickhouse-v1 netflix-side-by-side-clickhouse-v1 custom-side-by-side-clickhouse-v1"
+# Folders a release stopped provisioning (the directory names of the old
+# tree, and four an older provisioning scheme left on the reference Pi).
+# Provisioning moves a dashboard to its new folder and leaves the old one
+# behind, empty. Deleted only when EMPTY: a folder holding anything -- a
+# person's own dashboard, the ClickHouse tree's "SmokePing" parent -- stays.
+RETIRED_FOLDERS="home|overview|cpe|quality|wifi|side-by-side-pings|individual-pings|target-detail|http-by-version|dns-resolution-times|dns-wizard|SmokePing|Side-by-Side Pings|Individual Pings|DNS Resolution Times"
 
 retire_dashboards() {
     has_service grafana || return 0
@@ -65,6 +71,41 @@ retire_dashboards() {
     done
     [ "$gone" = 0 ] || echo "Removed $gone retired dashboard(s) from Grafana."
     [ -z "$kept" ] || echo "Could not remove retired dashboard(s), with Grafana's answer:$kept. They can be deleted from Grafana's dashboard list." >&2
+    return 0
+}
+
+grafana_api() {
+    # $1 method, $2 path: status on stdout's last line, body before it.
+    # Credentials on stdin (-K -), never in argv: see cli/lib/openclaw.sh.
+    printf 'url = "http://127.0.0.1:3000%s"\nrequest = "%s"\nsilent\nwrite-out = "\\n%%{http_code}"\nuser = "%s:%s"\n' \
+        "$2" "$1" "$(curl_cfg_quote "$GRAFANA_USER")" "$(curl_cfg_quote "$GRAFANA_PASSWORD")" \
+        | curl -K - 2>/dev/null || true
+}
+
+retire_folders() {
+    has_service grafana || return 0
+    command -v python3 >/dev/null || return 0
+    GRAFANA_PASSWORD="$(env_get GF_SECURITY_ADMIN_PASSWORD)"; [ -n "$GRAFANA_PASSWORD" ] || return 0
+    GRAFANA_USER="$(env_get GF_SECURITY_ADMIN_USER)"; GRAFANA_USER="${GRAFANA_USER:-admin}"
+    local listing status pairs uid title answer gone=0
+    listing="$(grafana_api GET /api/folders)"; status="${listing##*$'\n'}"
+    [ "$status" = 200 ] || return 0
+    # "uid<TAB>title" per top-level folder whose title is retired.
+    pairs="$(printf '%s' "${listing%$'\n'*}" | RETIRED_FOLDERS="$RETIRED_FOLDERS" python3 -c '
+import json, os, sys
+retired = set(os.environ["RETIRED_FOLDERS"].split("|"))
+for f in json.load(sys.stdin):
+    if f.get("title") in retired and f.get("uid"):
+        print(f["uid"] + "\t" + f["title"])' 2>/dev/null)" || return 0
+    while IFS=$'\t' read -r uid title; do
+        [ -n "$uid" ] || continue
+        # Anything inside -- a dashboard, a subfolder -- and the folder stays.
+        answer="$(grafana_api GET "/api/search?folderUIDs=$uid&limit=1")"
+        [ "${answer##*$'\n'}" = 200 ] && [ "${answer%$'\n'*}" = "[]" ] || continue
+        answer="$(grafana_api DELETE "/api/folders/$uid")"
+        [ "${answer##*$'\n'}" = 200 ] && gone=$((gone + 1))
+    done <<< "$pairs"
+    [ "$gone" = 0 ] || echo "Removed $gone empty folder(s) of retired dashboards from Grafana."
     return 0
 }
 
@@ -104,6 +145,7 @@ cmd_upgrade() {
     compose up -d --remove-orphans
     remove_disabled
     retire_dashboards
+    retire_folders
     publish_avahi
     # A clone installed before setup.sh linked the command gets it here.
     link_cli --quiet

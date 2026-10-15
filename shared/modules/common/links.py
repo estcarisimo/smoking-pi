@@ -86,19 +86,22 @@ HTTP_VERSION_SUFFIX_RE = re.compile(r"_h[123]$")
 TARGET_DETAIL = ("target-detail-v1", "target")
 TARGET_DETAIL_MEASUREMENTS = ("latency", "dns_latency", "http_latency", "tcp_latency")
 # Kept in step with the dashboard's own copy of this pattern
-# (target-detail/target_detail.json); a test compares the two.
+# (Targets/target_detail.json); a test compares the two.
 PROBE_SUFFIX_RE = re.compile(r"(_h[123]|_tcp(443)?|_icmp)$")
 
-# Side-by-side comparison dashboards, keyed by the category vocabulary the
-# DATABASE uses. Note this differs from the category tag the exporter writes
-# into InfluxDB (top_sites/netflix_oca/dns_resolvers here vs topsites/netflix/
-# dns there) -- the two vocabularies drifted apart and both are live.
-COMPARE_BY_DB_CATEGORY = {
-    "custom": "custom-side-by-side-v1",
-    "netflix_oca": "netflix_oca-side-by-side-v1",
-    "top_sites": "top_sites-side-by-side-v1",
-    "dns_resolvers": "dns-resolvers-v1",
+# Side-by-side comparison: one dashboard, every target of a category, picked
+# with its `category` variable. The variable takes the category tag the
+# exporter writes into InfluxDB (topsites/netflix/custom), while targets come
+# from the DATABASE with its own vocabulary (top_sites/netflix_oca/custom) --
+# the two drifted apart and both are live, so this is where they meet. DNS
+# resolvers are a different measurement and keep their own dashboard.
+COMPARE_UID = "side-by-side-v1"
+COMPARE_CATEGORY_BY_DB = {
+    "custom": "custom",
+    "netflix_oca": "netflix",
+    "top_sites": "topsites",
 }
+COMPARE_DNS = ("dns-resolvers-v1", "target")
 
 # A target's probe decides which measurement it lands in.
 MEASUREMENT_BY_PROBE = {
@@ -306,11 +309,15 @@ def grafana_url(
     hours: int | None = None,
     at: Any = None,
     base: str | None = None,
+    extra: dict[str, str] | None = None,
 ) -> str | None:
     base = base or grafana_base()
     if not base:
         return None
     params: dict[str, str] = {}
+    # Dashboard variables first (a category before the target it selects).
+    if extra:
+        params.update(extra)
     if var_name and target:
         params[f"var-{var_name}"] = target
     params.update(_time_range(hours, at))
@@ -375,9 +382,14 @@ def _target_links_for(
         if url:
             out["all_layers"] = url
 
-    compare_uid = COMPARE_BY_DB_CATEGORY.get(db_category or "")
-    if compare_uid and grafana:
-        url = grafana_url(compare_uid, "target", name, hours=hours, at=at, base=grafana)
+    if db_category == "dns_resolvers" and grafana:
+        uid, var = COMPARE_DNS
+        url = grafana_url(uid, var, name, hours=hours, at=at, base=grafana)
+        if url:
+            out["compare_with_peers"] = url
+    elif db_category in COMPARE_CATEGORY_BY_DB and grafana:
+        url = grafana_url(COMPARE_UID, "target", name, hours=hours, at=at, base=grafana,
+                          extra={"var-category": COMPARE_CATEGORY_BY_DB[db_category]})
         if url:
             out["compare_with_peers"] = url
 

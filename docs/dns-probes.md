@@ -66,7 +66,7 @@ vocabularies are mapped in `common/links.py`, and both have consumers.
 ## Dashboards
 
 - **DNS Resolvers – Side-by-Side (Resolution Time & Packet Loss)**, in the
-  `dns-resolution-times` folder: one row per resolver, repeated over the
+  *DNS* folder: one row per resolver, repeated over the
   `target` variable (every target with `dns_latency` data in the last 24
   hours). The left panel is the resolution time in milliseconds — median,
   mean, p10/p20/p80/p90, min and max of the five samples — and the right
