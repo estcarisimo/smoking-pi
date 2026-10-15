@@ -185,10 +185,10 @@ def cycle_count_flux(hours: int, targets: set[str], bar: float,
     above ``bar``: one row per cycle with any, at most one per cycle of the
     window. The value filter and the targets are both predicates the
     storage engine applies (:func:`_targets_predicate`), so Flux sees only
-    the voters' points above the bar. Two stages, so a target counts once per cycle however many
-    points it has there -- one on a faster step than the cycle, or split
-    over several series (review of #349): per target, its points per
-    cycle; then, per cycle, the targets."""
+    the voters' points above the bar. Two stages, so a target counts once
+    per cycle however many points it has there -- one on a faster step
+    than the cycle, or split over several series (review of #349): per
+    target, its points per cycle; then, per cycle, the targets."""
     window = (f"|> aggregateWindow(every: {int(step_s)}s, fn: count, "
               'createEmpty: false, timeSrc: "_start") ')
     return (

@@ -86,7 +86,7 @@ def test_cycle_count_flux_never_nests_with_the_number_of_targets():
     for n in (2, 3, 224, 2000):
         names = {f"t{i}" for i in range(n)}
         tree = breadth.cycle_count_flux(168, names, 0.15, 300)
-        assert {f't{i}' for i in range(n)} == set(
+        assert {f"t{i}" for i in range(n)} == set(
             part.split('"')[1] for part in tree.split("r.target == ")[1:])
 
 
