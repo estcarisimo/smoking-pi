@@ -39,7 +39,9 @@ one day to the next, but it is not a count of probe rounds.
 
 - **ICMP loss by category (0–10 %).** This is the Overview's loss panel
   zoomed to the range where everyday loss lives. A cut above 10 % runs off
-  the top, and the Overview shows the full scale. Several categories rising
+  the top; a red dot on the top edge marks each window where a category
+  did, and the tooltip still shows the real value (the Overview shows the
+  full scale). Several categories rising
   together is the link; one alone is its destinations. Unlike the tiles,
   this chart keeps the ISP gateway's line: it sits on its own floor, and a
   band the gateway does not share is beyond the access link.
@@ -54,6 +56,16 @@ one day to the next, but it is not a count of probe rounds.
   These are detections, not confirmations. Compare them with the two panels
   above before believing one. The panel is empty unless the module is on
   (`sudo smoking-pi enable inference`).
+- **Loss incidents (diagnosed).** The dark red markers along the bottom of
+  the charts are the alerter's diagnosed incidents (see
+  [alerting](alerting.md)), whatever they blamed: this host's Wi-Fi, the
+  line, upstream, or the destinations. Hover one for the diagnosis in a
+  sentence and its length; the link in it zooms this dashboard to the
+  incident with a quarter of its length on either side. Toggle them off at
+  the top of the dashboard when they get in the way. A probe missing a few
+  pings is not shown.
+
+  ![Red dots mark windows above the 10 % scale; an incident's hover text ends in a link that zooms to it](img/connectivity-quality-events.png)
 
 ## From an aggregate to a target
 
