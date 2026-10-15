@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.33.1] — 2026-10-14
+
+An alert and the diagnosis attached to it now count the same targets.
+v2.33.0 counted the HTTP, TCP and DNS wizard targets when judging whether
+a loss was everywhere, but the diagnosis under the alert, `diagnose_loss`,
+`get_loss_events` and the incident history still counted the pinged sites
+and resolvers alone. An alert could say "180 of 243" over a diagnosis that
+said "19 of 19". They now count the same way, and the extra targets are
+only ever counts, never named on their own. Counting them over a day or a
+week costs a few small InfluxDB queries, about 0.3 s each on a Raspberry
+Pi, and is limited to a week.
+
 ### Fixed
 
 - **An alert and its diagnosis count the same destinations.** v2.33.0 let
