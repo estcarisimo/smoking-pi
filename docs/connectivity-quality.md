@@ -64,16 +64,16 @@ category's targets, click a target to see every layer of it.**
 - A **category line** in either chart opens the
   side-by-side dashboard (*Targets* folder) for that category over the same
   range, one panel per target: hover the line and click the link in the
-  tooltip. The ISP gateway's line opens the gateway's cut dashboard instead,
-  since it is a single target with a dashboard of its own, and a DNS
-  resolvers line opens the resolvers' side-by-side under *DNS*.
+  tooltip. The ISP gateway's line, in the loss chart, opens the gateway's cut
+  dashboard instead, since it is a single target with a dashboard of its
+  own; a DNS resolvers line opens the resolvers' side-by-side under *DNS*.
 - **Targets behind the loss, most loss first** lists every destination that
   lost packets in the selected range: the share of its pings lost, the
   number of probe cycles in which it lost at least one, and its worst cycle.
   Several targets of one category at the top is that category's problem; the
   same share on every target, whatever its category, is the link. A target
-  name opens Target Detail ([every layer of it](target-detail.md) on one page) or its individual
-  pings; a category opens the side-by-side. As in the tiles, the ISP
+  name opens Target Detail ([every layer of it](target-detail.md) on one
+  page) or its individual pings; a category opens the side-by-side. As in the tiles, the ISP
   gateway and the DNS wizard's targets are left out.
 
   ![The targets behind the loss, with a target's two links open](img/connectivity-quality-targets.png)
