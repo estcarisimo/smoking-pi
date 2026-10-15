@@ -64,6 +64,19 @@
         "iconColor": "rgba(0, 211, 255, 1)",
         "name": "Annotations & Alerts",
         "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#C4162A",
+        "name": "Loss incidents (diagnosed)",
+        "target": {
+          "refId": "Anno",
+          "query": "import \"date\"\n// Every diagnosed incident that overlaps the range, whatever it blamed (except a probe missing a few pings). An incident is stamped at its start: reach back a week.\n// The link zooms this dashboard to the incident with a quarter of its length on either side.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 7d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"loss_incident\" and (r._field == \"class\" or r._field == \"confidence\" or r._field == \"summary\" or r._field == \"end_epoch\" or r._field == \"minutes\"))\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.class != \"probe_miss\" and r.end_epoch * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end_epoch * 1000000000), text: \"Loss incident, \" + r.class + \" (\" + r.confidence + \" confidence, \" + string(v: r.minutes) + \" min): \" + r.summary + \" <a href=\\\"/d/connectivity-quality-v1?from=\" + string(v: int(v: r._time) / 1000000 - int(v: r.minutes) * 15000) + \"&to=\" + string(v: r.end_epoch * 1000 + int(v: r.minutes) * 15000) + \"\\\">Zoom to this window</a>\", tags: \"incident,\" + r.class}))"
+        }
       }
     ]
   },
@@ -355,7 +368,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "ICMP loss by category, mean across targets (0–10 %)",
-      "description": "The Overview's loss panel zoomed to 0–10 %, where everyday loss lives; a cut above 10 % runs off the top (the Overview shows the full scale). Several categories rising together is the link; one alone is its destinations. The ISP gateway rate-limits ICMP, so its line sits on a floor of its own. Click a line to open that category's targets side by side over the same range.",
+      "description": "The Overview's loss panel zoomed to 0–10 %, where everyday loss lives; a cut above 10 % runs off the top, and a red dot on the top edge marks each window where a category did; hover it for the real value (the Overview shows the full scale). Several categories rising together is the link; one alone is its destinations. The ISP gateway rate-limits ICMP, so its line sits on a floor of its own. Click a line to open that category's targets side by side over the same range.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -434,6 +447,49 @@
                 ]
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "above 10 %"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 6
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": true,
+                  "viz": false
+                }
+              },
+              {
+                "id": "links",
+                "value": []
+              }
+            ]
           }
         ]
       },
@@ -445,6 +501,14 @@
             "uid": "influxdb"
           },
           "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> map(fn:(r) => ({r with name: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> drop(columns:[\"_start\",\"_stop\"]) |> group(columns:[\"category\",\"name\"]) |> sort(columns:[\"_time\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> filter(fn:(r) => r._value > 0.1) |> keep(columns:[\"_time\",\"_value\"]) |> group() |> unique(column:\"_time\") |> map(fn:(r) => ({r with _value: 0.1})) |> set(key:\"_field\", value:\"above\") |> sort(columns:[\"_time\"])"
         }
       ]
     },
@@ -530,7 +594,7 @@
       "id": 13,
       "type": "state-timeline",
       "title": "Detected episodes, by target (experimental)",
-      "description": "What the inference module found, on the same time axis: red is loss degradation, orange is persistent congestion (Jitterbug). Every target the module analyzes, the ISP gateway included: its rows say whether the first hop moved too. Detected, not confirmed: compare with the loss and latency above. Empty when the inference profile is off. Gray: the monitor itself was deaf for most of the period (its radio heard nothing), so the loss is this Pi's, not the destination's.",
+      "description": "What the inference module found, on the same time axis: red is loss degradation, orange is persistent congestion (Jitterbug). Every target the module analyzes, the ISP gateway included: its rows say whether the first hop moved too. Detected, not confirmed: compare with the loss and latency above. Empty when the inference profile is off. Gray: the monitor itself was deaf for most of the period (its radio heard nothing), so the loss is this Pi's, not the destination's. Click a bar for every layer of that target over the same range, with the period shaded.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -555,7 +619,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "displayName": "${__field.labels.target}",
+          "displayName": "${__field.labels.target} · ${__field.labels.kind}",
           "color": {
             "mode": "thresholds"
           },
@@ -607,7 +671,14 @@
               }
             }
           ],
-          "noValue": "none found"
+          "noValue": "none found",
+          "links": [
+            {
+              "title": "Every layer of ${__field.labels.target}, same range",
+              "url": "/d/target-detail-v1?var-target=${__field.labels.target}&${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
         },
         "overrides": []
       },
@@ -618,7 +689,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"date\"\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\n// class is \"monitor_deaf\" when this Pi's radio heard nothing for most of the period (deaf.py); periods written before the class existed are loss.\ndegradations = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and (r._field == \"end\" or r._field == \"class\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\nloss_degradation = degradations |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target + \" · loss degradation\", end: time(v: r.end * 1000000000)}))\nmonitor_deaf = degradations |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target + \" · monitor deaf\", end: time(v: r.end * 1000000000)}))\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target + \" · persistent congestion\", end: time(v: r.end * 1000000000)}))\nstarts = union(tables: [\n    loss_degradation |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 1})),\n    persistent_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 2})),\n    monitor_deaf |> map(fn: (r) => ({_time: r._time, target: r.target, _value: 3})),\n])\nends = union(tables: [loss_degradation, persistent_congestion, monitor_deaf]) |> map(fn: (r) => ({_time: r.end, target: r.target, _value: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\"]) |> sort(columns: [\"_time\", \"_value\"])"
+          "query": "import \"date\"\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\n// class is \"monitor_deaf\" when this Pi's radio heard nothing for most of the period (deaf.py); periods written before the class existed are loss.\ndegradations = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and (r._field == \"end\" or r._field == \"class\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\nloss_degradation = degradations |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"loss degradation\", end: time(v: r.end * 1000000000)}))\nmonitor_deaf = degradations |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"monitor deaf\", end: time(v: r.end * 1000000000)}))\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"persistent congestion\", end: time(v: r.end * 1000000000)}))\nstarts = union(tables: [\n    loss_degradation |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 1})),\n    persistent_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 2})),\n    monitor_deaf |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 3})),\n])\nends = union(tables: [loss_degradation, persistent_congestion, monitor_deaf]) |> map(fn: (r) => ({_time: r.end, target: r.target, kind: r.kind, _value: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\", \"kind\"]) |> sort(columns: [\"_time\", \"_value\"])"
         }
       ]
     },

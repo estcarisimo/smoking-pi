@@ -9,6 +9,21 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Events explain themselves on Connectivity & Quality, and off-scale
+  loss is marked.** The loss chart is capped at 10 % so everyday loss is
+  readable, which left a 100 % cut as a line running off the top with
+  nothing saying so; a red dot on the top edge now marks each window where
+  a category went above the scale, with the real value in the tooltip. The
+  alerter's diagnosed loss incidents are drawn as annotations: hovering one
+  gives the diagnosis (this host's Wi-Fi, the line, upstream, the
+  destinations), its confidence and length, and a link that zooms the
+  dashboard to the incident with a quarter of its length on either side.
+  A bar on the detected-episodes timeline links to Target Detail for that
+  target over the same range, where the period is shaded. The latency
+  chart keeps its full scale on purpose: its spikes are the signal.
+
 ## [2.36.0] — 2026-10-15
 
 The dashboards now lead from an aggregate to the series behind it. On
