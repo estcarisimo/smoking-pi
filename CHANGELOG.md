@@ -9,6 +9,25 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A week's diagnosis is fast again on the reference Pi.** v2.33.2 picked
+  the voting HTTP, TCP and DNS wizard targets with `contains(set: [...])`,
+  which no part of InfluxDB pushes down: Flux scanned the 224 names for
+  every lossy point. A week on the reference Pi held a 16-hour outage of
+  all of them, about 45 000 such points, so the four per-cycle counts took
+  13 s of InfluxDB's time, `diagnose_loss(168)` 22.5 s against 8.4 s
+  before the breadth, and `get_loss_events(168)` 20.7 s; a longer outage
+  would have cost more. The non-voters were not the cost (6 targets, a
+  twentieth of the points): the scan was. The targets are now a balanced
+  `or` tree of tag comparisons, which the storage engine applies, and
+  which nests as deep as log2 of the names (8 for 224, 11 for 2 000), so
+  it never meets "nested too deep". Measured read-only on the reference
+  Pi, same answers cycle for cycle: the breadth's InfluxDB time for a
+  week went from 13.6 s to 1.7 s, the week's whole diagnosis from 22.9 s
+  to 9.9 s; a day stays at 1.2 s. A Flux `dict` lookup, measured too, was
+  slower than the scan (13.8 s).
+
 ## [2.33.2] — 2026-10-15
 
 v2.33.1's wider count worked on the staging Pi but not on the reference

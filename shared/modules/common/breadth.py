@@ -154,31 +154,47 @@ def span_flux(hours: int, end: str) -> str:
     return _loss(hours) + f'|> {end}() |> keep(columns: ["target", "_time"])'
 
 
-def _targets_set(targets: set[str]) -> str:
-    """A Flux array of the names, for ``contains``. Not an ``or`` chain:
-    Flux parses one as nested binary expressions and refuses about 200 of
-    them ("Program is nested too deep") -- the reference Pi's 224 voters
-    did, its staging Pi's 63 did not (v2.33.1)."""
-    return "[" + ", ".join(flux_str(t) for t in sorted(targets)) + "]"
+def _targets_predicate(targets: set[str]) -> str:
+    """A Flux predicate true for the named targets: their equalities as a
+    balanced ``or`` tree, so the storage engine applies it.
+
+    Not a chain: Flux parses ``a or b or c ...`` as nested binary
+    expressions and refuses about 200 of them ("Program is nested too
+    deep") -- the reference Pi's 224 voters did (v2.33.1). A balanced tree
+    nests as deep as log2 of the names: 8 for 224, 11 for 2 000. Not
+    ``contains(set: [...])`` either, which v2.33.1 used: no engine pushes it
+    down, so Flux scanned the whole list for every point above the bar --
+    5.2 of the 5.4 s the reference Pi took to count a week of lost cycles
+    (2026-10-15), 0.4 s as a tree."""
+    if not targets:
+        raise ValueError("no targets to select")
+    names = sorted(targets)
+
+    def tree(lo: int, hi: int) -> str:
+        if hi - lo == 1:
+            return f"r.target == {flux_str(names[lo])}"
+        mid = (lo + hi) // 2
+        return f"({tree(lo, mid)} or {tree(mid, hi)})"
+
+    return tree(0, len(names))
 
 
 def cycle_count_flux(hours: int, targets: set[str], bar: float,
                      step_s: int) -> str:
     """Per ``step_s`` cycle, how many of ``targets`` had a loss point at or
     above ``bar``: one row per cycle with any, at most one per cycle of the
-    window. The value filter comes first, alone, so the storage engine
-    applies it; the target set is checked only on the points it lets
-    through. Two stages, so a target counts once per cycle however many
-    points it has there -- one on a faster step than the cycle, or split
-    over several series (review of #349): per target, its points per
-    cycle; then, per cycle, the targets."""
+    window. The value filter and the targets are both predicates the
+    storage engine applies (:func:`_targets_predicate`), so Flux sees only
+    the voters' points above the bar. Two stages, so a target counts once
+    per cycle however many points it has there -- one on a faster step
+    than the cycle, or split over several series (review of #349): per
+    target, its points per cycle; then, per cycle, the targets."""
     window = (f"|> aggregateWindow(every: {int(step_s)}s, fn: count, "
               'createEmpty: false, timeSrc: "_start") ')
     return (
         _loss(hours)
         + f"|> filter(fn: (r) => r._value >= {cadence.flux_float(bar)}) "
-        + "|> filter(fn: (r) => contains(value: r.target, set: "
-        + f"{_targets_set(targets)})) "
+        + f"|> filter(fn: (r) => {_targets_predicate(targets)}) "
         + '|> group(columns: ["target"]) ' + window
         + "|> group() " + window
         + '|> keep(columns: ["_time", "_value"])'
