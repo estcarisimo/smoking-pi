@@ -74,7 +74,7 @@ class Influx:
                 return [{"target": t, "_time": pick(v)} for t, v in spans.items()]
         if "aggregateWindow(" in src:  # breadth.cycle_count_flux
             bar = float(re.search(r"r\._value >= ([0-9.]+)\) \|> filter", src).group(1))
-            voting = set(re.findall(r'"([^"]+)"', src.split("set: [")[1].split("]")[0]))
+            voting = set(re.findall(r'r\.target == "([^"]+)"', src))
             per_cycle = {}
             for t, *_rest, at, v in self._breadth_points(seconds):
                 if t in voting and v >= bar:

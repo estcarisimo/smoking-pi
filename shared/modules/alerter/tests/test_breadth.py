@@ -1,6 +1,7 @@
 """common.breadth: the breadth-only targets' queries and voting, for every
 reader of breadth (the alerter, the diagnosis, the MCP tools)."""
 
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -55,23 +56,51 @@ def test_count_flux_filters_on_the_value_only_when_asked():
 def test_cycle_count_flux_counts_only_the_targets_per_cycle():
     src = breadth.cycle_count_flux(24, {"b", "a"}, 0.15, 300)
     assert ('|> filter(fn: (r) => r._value >= 0.15) '
-            '|> filter(fn: (r) => contains(value: r.target, set: ["a", "b"])) ') in src
+            '|> filter(fn: (r) => (r.target == "a" or r.target == "b")) ') in src
     window = ('aggregateWindow(every: 300s, fn: count, createEmpty: false, '
               'timeSrc: "_start")')
     # Per target first, then per cycle: a target counts once per cycle,
     # however many points it has there (review of #349).
     assert f'|> group(columns: ["target"]) |> {window} |> group() |> {window}' in src
-    assert src.index("aggregateWindow") > src.index("contains(")
+    assert src.index("aggregateWindow") > src.index('r.target == "b"')
     assert "keep(" not in src.split("aggregateWindow")[0]
+
+
+def _depth(src: str) -> int:
+    depth = deepest = 0
+    for ch in src:
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        deepest = max(deepest, depth)
+    return deepest
 
 
 def test_cycle_count_flux_never_nests_with_the_number_of_targets():
     """224 voters as an ``or`` chain were "Program is nested too deep" to
-    InfluxDB on the reference Pi (v2.33.1); 63 on staging were not. A set
-    is flat at any size."""
+    InfluxDB on the reference Pi (v2.33.1); 63 on staging were not. A
+    balanced tree nests as deep as log2 of the names: a 2 000-name one ran
+    on the reference Pi (2026-10-15)."""
+    one = breadth.cycle_count_flux(168, {"a"}, 0.15, 300)
     src = breadth.cycle_count_flux(168, {f"t{i}" for i in range(2000)}, 0.15, 300)
-    assert " or r.target" not in src
-    assert src.count("contains(") == 1
+    assert src.count("r.target == ") == 2000
+    assert _depth(src) - _depth(one) <= 11
+    for n in (2, 3, 224, 2000):
+        names = {f"t{i}" for i in range(n)}
+        tree = breadth.cycle_count_flux(168, names, 0.15, 300)
+        assert {f't{i}' for i in range(n)} == set(
+            part.split('"')[1] for part in tree.split("r.target == ")[1:])
+
+
+def test_cycle_count_flux_asks_for_no_list_scan():
+    """``contains(set: [...])`` is not pushed down: Flux scanned the 224
+    names for every point above the bar, 5.2 s of a week's 5.4 s lost
+    count on the reference Pi; the tree took 0.4 s (2026-10-15)."""
+    src = breadth.cycle_count_flux(168, {f"t{i}" for i in range(224)}, 0.15, 300)
+    assert "contains(" not in src
+
+
+def test_cycle_count_flux_refuses_no_targets():
+    with pytest.raises(ValueError):
+        breadth.cycle_count_flux(168, set(), 0.15, 300)
 
 
 def test_voters_need_half_their_points_clean_and_the_breadths_step():
@@ -144,10 +173,10 @@ class Fake:
                     for t, vs in self.loss.items()]
         if "aggregateWindow(" in src:
             bar = float(src.split("r._value >= ")[1].split(")")[0])
-            targets = src.split("set: [")[1].split("]")[0]
+            targets = set(re.findall(r'r\.target == "([^"]+)"', src))
             per_cycle = {}
             for t, vs in self.loss.items():
-                if f'"{t}"' in targets:
+                if t in targets:
                     for i, v in enumerate(vs):
                         if v >= bar:
                             per_cycle[i] = per_cycle.get(i, 0) + 1
