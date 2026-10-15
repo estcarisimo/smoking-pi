@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.34.0] — 2026-10-15
+
+The dashboards, after the audit of every one of them. Fifteen became ten:
+the three oldest, which drew a subset of newer ones, are gone, and the
+three per-category side-by-side copies are one dashboard with a category
+switch. Four folders with names instead of eleven directory slugs. The
+alert and assistant links land on the per-ping dashboard; the digest's on
+the Overview. Panels this hardware cannot fill — the Wi-Fi driver's noise
+and modulation, IPv6 on a host without it — are folded away instead of
+sitting blank at the top. `smoking-pi upgrade` removes the retired
+dashboards and the emptied folders from an installed Grafana, since
+provisioning never deletes, and the doctor now checks that every dashboard
+a link names is provisioned.
+
 ### Changed
 
 - **Grafana's folders have names, and there are four of them.** The eleven
