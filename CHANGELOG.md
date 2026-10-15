@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.36.0] — 2026-10-15
+
+The dashboards now lead from an aggregate to the series behind it. On
+Connectivity & Quality, a category line opens that category's targets
+side by side over the same range, a new table lists the destinations
+behind the loss in the range, and every side-by-side panel opens Target
+Detail for its target. Nothing new runs on the Pi: the links and one
+query, measured at a fraction of a second over a week of the reference
+Pi's history.
+
 ### Added
 
 - **From an aggregate to the targets behind it, inside Grafana.** Connectivity
