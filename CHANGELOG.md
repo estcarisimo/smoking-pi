@@ -51,7 +51,6 @@ a link names is provisioned.
   take the full width. The CPE dashboard's five IPv6 panels, blank on a host
   without global IPv6, are a collapsed row as well, and the IPv4 panels take
   the width.
-
 - **The three oldest dashboards are retired: *SmokePing Latency & Loss –
   Percentiles / Mean*, *SmokePing DNS Resolvers* and *SmokePing Latency –
   Side-by-Side*, with their ClickHouse twins.** The dashboards audit compared
