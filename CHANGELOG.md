@@ -31,7 +31,9 @@ a link names is provisioned.
   (the Overview, Connectivity & Quality), *Targets* (Target Detail, Individual
   Pings, Side-by-Side, HTTP by Version), *Network* (Wi-Fi Link, CPE Microcut
   Detection) and *DNS* (DNS Resolvers, DNS Wizard); the ClickHouse tree
-  follows. Dashboard uids do not change, so no link does. Provisioning moves
+  follows. (*Connection* rather than *Home*: Grafana matches folder titles
+  without regard to case, so a new name must not be an old slug in other
+  letters — *Home* would have reused `home`, lowercase and all.) Dashboard uids do not change, so no link does. Provisioning moves
   a dashboard and leaves its old folder behind, empty: `smoking-pi upgrade`
   deletes those folders, and the four an older scheme left on the reference
   Pi, **only when they are empty** — anything inside, a dashboard of your
@@ -72,14 +74,6 @@ a link names is provisioned.
   (`links-name-provisioned-dashboards`): a uid in `common/links.py` or the
   web admin's category map that no dashboard carries would open Grafana's
   "not found" page from every alert.
-
-### Fixed
-
-- **The Overview's folder is *Connection*, not *Home*.** Grafana matches
-  folder titles without regard to case, so on the 2.34.0 candidate *Home*
-  reused the old `home` folder and the title stayed lowercase. A name no
-  old folder had sidesteps it; the emptied `home` goes on the next upgrade
-  like the others.
 
 ## [2.33.4] — 2026-10-15
 
