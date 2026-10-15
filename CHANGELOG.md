@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.33.3] — 2026-10-15
+
+v2.33.2's count of the HTTP, TCP and DNS wizard targets was right but
+slow over a week: on the reference Pi, InfluxDB checked every lossy point
+against the list of 224 targets one name at a time. A week's diagnosis
+took 22.5 s, against 8.4 s before those targets were counted, and the
+longer an outage in the window, the slower it got. InfluxDB now picks the
+targets itself before it reads their points. Same answers; on the
+reference Pi, their count for a week takes 1.7 s instead of 13.6 s.
+
 ### Fixed
 
 - **A week's diagnosis is fast again on the reference Pi.** v2.33.2 picked
