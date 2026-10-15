@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.35.0] — 2026-10-15
+
+The first read of a week of the experimental detectors on the reference
+Pi found that nearly half of the "loss degradation" periods were the Pi's
+own radio hangs, shaded red as if the destinations had failed, and that
+a two-day congestion period had straddled two of those hangs without
+saying so. The detectors are unchanged: each period now says whether the
+monitor itself was deaf and how much of its span had data, the dashboards
+shade a deaf period gray and leave it out of the count, and every pass
+leaves a record of what it cost.
+
 ### Added
 
 - **A degradation period says when the monitor itself was deaf.** The first
