@@ -15,7 +15,7 @@ def _long_window_shapes():
     return [breadth.cadence_flux(), breadth.count_flux(168),
             breadth.count_flux(168, 0.5), breadth.span_flux(168, "first"),
             breadth.span_flux(168, "last"),
-            breadth.lossy_flux(168, {"a", "head"}, 0.15)]
+            breadth.cycle_count_flux(168, {"a", "head"}, 0.15, 300)]
 
 
 def test_every_shape_asks_for_http_tcp_and_the_wizard():
@@ -52,10 +52,26 @@ def test_count_flux_filters_on_the_value_only_when_asked():
     assert "|> filter(fn: (r) => r._value >= 0.5) |> count()" in src
 
 
-def test_lossy_flux_reads_only_the_voters_and_is_bounded():
-    src = breadth.lossy_flux(24, {"b", "a"}, 0.15)
-    assert 'r._value >= 0.15 and (r.target == "a" or r.target == "b")' in src
-    assert src.endswith(f"|> limit(n: {breadth.MAX_LOSSY_ROWS + 1})")
+def test_cycle_count_flux_counts_only_the_targets_per_cycle():
+    src = breadth.cycle_count_flux(24, {"b", "a"}, 0.15, 300)
+    assert ('|> filter(fn: (r) => r._value >= 0.15) '
+            '|> filter(fn: (r) => contains(value: r.target, set: ["a", "b"])) ') in src
+    window = ('aggregateWindow(every: 300s, fn: count, createEmpty: false, '
+              'timeSrc: "_start")')
+    # Per target first, then per cycle: a target counts once per cycle,
+    # however many points it has there (review of #349).
+    assert f'|> group(columns: ["target"]) |> {window} |> group() |> {window}' in src
+    assert src.index("aggregateWindow") > src.index("contains(")
+    assert "keep(" not in src.split("aggregateWindow")[0]
+
+
+def test_cycle_count_flux_never_nests_with_the_number_of_targets():
+    """224 voters as an ``or`` chain were "Program is nested too deep" to
+    InfluxDB on the reference Pi (v2.33.1); 63 on staging were not. A set
+    is flat at any size."""
+    src = breadth.cycle_count_flux(168, {f"t{i}" for i in range(2000)}, 0.15, 300)
+    assert " or r.target" not in src
+    assert src.count("contains(") == 1
 
 
 def test_voters_need_half_their_points_clean_and_the_breadths_step():
@@ -66,23 +82,42 @@ def test_voters_need_half_their_points_clean_and_the_breadths_step():
     assert breadth.voters(totals, events, cad, 600) == {"half", "slow"}
 
 
-def test_per_step_counts_reporting_over_each_span_and_lossy_once_per_cycle():
+def test_per_step_counts_reporting_over_each_span_and_sums_the_bars():
     spans = {"a": (STEP0, STEP0 + 900), "b": (STEP0 + 600, STEP0 + 600)}
-    rows = [
-        {"target": "a", "_time": T0 + timedelta(seconds=300), "_value": 0.5},
-        # A second point of a in the same cycle: still one lossy target.
-        {"target": "a", "_time": T0 + timedelta(seconds=420), "_value": 1.0},
-        # Above the lowest bar, under b's own: not lossy.
-        {"target": "b", "_time": T0 + timedelta(seconds=600), "_value": 0.2},
-        {"target": "stranger", "_time": T0, "_value": 1.0},
-    ]
-    out = breadth.per_step(spans, rows, {"a": 0.15, "b": 0.5}, 300)
-    assert out == {
+    lossy = [{"_time": T0 + timedelta(seconds=300), "_value": 1},   # bar 0.15
+             {"_time": T0 + timedelta(seconds=600), "_value": 1},   # bar 0.5
+             {"_time": T0 + timedelta(seconds=600), "_value": 1},
+             {"_time": None, "_value": 9}]
+    lost = [{"_time": T0 + timedelta(seconds=300), "_value": 1}]
+    assert breadth.per_step(spans, lossy, lost, 300) == {
         STEP0: {"reporting": 1, "lossy": 0, "lost": 0},
         STEP0 + 300: {"reporting": 1, "lossy": 1, "lost": 1},
-        STEP0 + 600: {"reporting": 2, "lossy": 0, "lost": 0},
+        STEP0 + 600: {"reporting": 2, "lossy": 2, "lost": 0},
         STEP0 + 900: {"reporting": 1, "lossy": 0, "lost": 0},
     }
+
+
+def test_per_step_clamps_a_miscount_down_never_the_denominator_up():
+    """A count above the cycle's reporting voters is a miscount; raising
+    the denominator to it would read 3 lossy targets of 10 as 12 of 12."""
+    spans = {f"t{i}": (STEP0, STEP0) for i in range(10)}
+    out = breadth.per_step(spans, [{"_time": T0, "_value": 12}],
+                           [{"_time": T0, "_value": 11}], 300)
+    assert out == {STEP0: {"reporting": 10, "lossy": 10, "lost": 10}}
+    # And a count in a cycle where no voter reported is no cycle at all.
+    assert breadth.per_step({}, [{"_time": T0, "_value": 3}], [], 300) == {}
+
+
+def test_per_step_buckets_a_clipped_first_window_and_a_boundary_point():
+    """aggregateWindow's first window starts at the range start, not on a
+    cycle boundary (timeSrc "_start"); a point exactly on a boundary opens
+    the next window. Both fall in the cycle Python buckets them in."""
+    spans = {"a": (STEP0, STEP0 + 600)}
+    clipped = T0 + timedelta(seconds=137)
+    boundary = T0 + timedelta(seconds=300)
+    out = breadth.per_step(spans, [{"_time": clipped, "_value": 1},
+                                   {"_time": boundary, "_value": 1}], [], 300)
+    assert out[STEP0]["lossy"] == 1 and out[STEP0 + 300]["lossy"] == 1
 
 
 class Fake:
@@ -107,11 +142,17 @@ class Fake:
             return [{"target": t, "_time": T0 + timedelta(seconds=300 * (len(vs) - 1
                                                                        if last else 0))}
                     for t, vs in self.loss.items()]
-        if "limit(n:" in src:
-            bar = float(src.split("r._value >= ")[1].split(" ")[0])
-            return [{"target": t, "_time": T0 + timedelta(seconds=300 * i), "_value": v}
-                    for t, vs in self.loss.items() if f'"{t}"' in src
-                    for i, v in enumerate(vs) if v >= bar]
+        if "aggregateWindow(" in src:
+            bar = float(src.split("r._value >= ")[1].split(")")[0])
+            targets = src.split("set: [")[1].split("]")[0]
+            per_cycle = {}
+            for t, vs in self.loss.items():
+                if f'"{t}"' in targets:
+                    for i, v in enumerate(vs):
+                        if v >= bar:
+                            per_cycle[i] = per_cycle.get(i, 0) + 1
+            return [{"_time": T0 + timedelta(seconds=300 * i), "_value": n}
+                    for i, n in per_cycle.items()]
         raise AssertionError(src)
 
 
@@ -122,9 +163,11 @@ def test_fetch_counts_voters_per_cycle_at_their_own_bars():
     out = breadth.fetch(fake, 24, 300)
     assert out[STEP0 + 300] == {"reporting": 2, "lossy": 1, "lost": 0}
     assert out[STEP0 + 600] == {"reporting": 2, "lossy": 2, "lost": 1}
-    # One count per distinct bar: 0.5 (three pings) and 0.15 (ten).
+    # One count per distinct bar: 0.5 (three pings) and 0.15 (ten), for the
+    # vote and again per cycle; the dead CDN is in no per-cycle count.
     assert sum("r._value >= 0." in s and "|> count()" in s for s in fake.asked) == 2
-    assert '"dead"' not in fake.asked[-1]
+    cycles = [s for s in fake.asked if "aggregateWindow(" in s]
+    assert len(cycles) == 3 and not any('"dead"' in s for s in cycles)
 
 
 def test_fetch_at_the_callers_bar_counts_lossy_but_never_changes_who_votes():
@@ -136,15 +179,21 @@ def test_fetch_at_the_callers_bar_counts_lossy_but_never_changes_who_votes():
 def test_fetch_asks_nothing_more_without_a_voter():
     fake = Fake({"dead": [1.0] * 4})
     assert breadth.fetch(fake, 24, 300) == {}
-    assert not any("limit(n:" in s or "first()" in s for s in fake.asked)
+    assert not any("aggregateWindow(" in s or "first()" in s for s in fake.asked)
 
 
-def test_fetch_refuses_past_a_week_and_past_the_row_bound(monkeypatch):
+def test_fetch_refuses_past_a_week():
     with pytest.raises(ValueError):
         breadth.fetch(Fake({}), breadth.MAX_HOURS + 1, 300)
-    monkeypatch.setattr(breadth, "MAX_LOSSY_ROWS", 2)
-    with pytest.raises(breadth.TooMany):
-        breadth.fetch(Fake({"a": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0]}), 24, 300)
+
+
+def test_fetch_counts_a_long_outage_cycle_by_cycle():
+    """v2.33.1 fetched every lossy point and gave up past 20 000: a week of
+    the reference Pi's 224 voters always did. Now the counts come per
+    cycle (the shape is pinned in the cycle_count_flux tests)."""
+    fake = Fake({f"t{i}": [0.0] * 20 + [1.0] * 4 for i in range(30)})
+    out = breadth.fetch(fake, 168, 300)
+    assert out[STEP0 + 300 * 23] == {"reporting": 30, "lossy": 30, "lost": 30}
 
 
 def test_fetch_raises_what_the_query_raises():
@@ -172,7 +221,7 @@ def test_fetch_sums_a_target_split_over_several_series():
         if "|> last()" in src:
             return [{"target": "a", "_time": T0 + timedelta(seconds=300)},
                     {"target": "a", "_time": T0 + timedelta(seconds=900)}]
-        return [{"target": "a", "_time": T0 + timedelta(seconds=300), "_value": 1.0}]
+        return [{"_time": T0 + timedelta(seconds=300), "_value": 1}]  # per cycle
 
     out = breadth.fetch(query, 24, 300)
     # 2 lossy of 6: votes. Reports in all four cycles, once.

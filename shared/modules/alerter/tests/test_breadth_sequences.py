@@ -72,12 +72,14 @@ class Influx:
                     spans.setdefault(target, []).append(at)
                 pick = min if end == "first" else max
                 return [{"target": t, "_time": pick(v)} for t, v in spans.items()]
-        if "limit(n: 20001)" in src:  # breadth.lossy_flux: the voters only
-            bar = float(re.search(r"r\._value >= ([0-9.]+) and", src).group(1))
-            voting = set(re.findall(r'r\.target == "([^"]+)"', src))
-            return [{"_time": at, "_value": v, "target": t}
-                    for t, *_rest, at, v in self._breadth_points(seconds)
-                    if t in voting and v >= bar]
+        if "aggregateWindow(" in src:  # breadth.cycle_count_flux
+            bar = float(re.search(r"r\._value >= ([0-9.]+)\) \|> filter", src).group(1))
+            voting = set(re.findall(r'"([^"]+)"', src.split("set: [")[1].split("]")[0]))
+            per_cycle = {}
+            for t, *_rest, at, v in self._breadth_points(seconds):
+                if t in voting and v >= bar:
+                    per_cycle[at] = per_cycle.get(at, 0) + 1
+            return [{"_time": at, "_value": n} for at, n in per_cycle.items()]
         if '"http_latency"' in src and "last()" in src:  # breadth.cadence_flux
             return [row for t, (_m, pings, step, _l) in self.breadth.items()
                     for row in ({"target": t, "_field": "pings", "_value": pings},

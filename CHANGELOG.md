@@ -9,6 +9,24 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The breadth is counted on the reference Pi, not only on staging.**
+  v2.33.1 counted the HTTP, TCP and DNS wizard targets in the diagnosis
+  and `get_loss_events` on the staging Pi (63 of them) but on none of
+  production's 224: InfluxDB refused the query that picks the voters'
+  lossy points, whose 224 `or` comparisons were "nested too deep", and
+  over a week those points were more than the 20 000-row bound anyway.
+  Both fell back as designed, so nothing failed, but `breadth_only` stayed
+  false and the counts stayed at the pinged targets. The voters are now a
+  set (`contains`), which is flat at any size, and InfluxDB counts the
+  lossy and the lost voters per cycle, each target once however many
+  points it has there (one query per distinct event bar), so what comes
+  back no longer grows with an outage and there is no row bound; what
+  InfluxDB reads still grows with the lossy points. Measured on the
+  reference Pi, read-only: about 3 s for a day and 16 s for a week of 224
+  targets.
+
 ## [2.33.1] — 2026-10-14
 
 An alert and the diagnosis attached to it now count the same targets.
