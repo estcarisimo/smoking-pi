@@ -28,8 +28,8 @@ version gets a matching GitHub release and git tag.
   (`side-by-side-v1`, ClickHouse `side-by-side-clickhouse-v1`) picks the
   category with a variable; the `compare_with_peers` link and the web
   admin's category links carry it (`var-category=topsites`, the InfluxDB
-  tag, not the database's `top_sites`). The three old dashboards are retired
-  and deleted on upgrade like the others.
+  tag, not the database's `top_sites`). The three old dashboards and their
+  ClickHouse twins are retired and deleted on upgrade like the others.
 - **Panels this hardware cannot fill are folded away.** The Wi-Fi dashboard's
   noise floor/SNR, modulation and channel-busy panels were blank on the
   reference Pi (`brcmfmac` reports none of it) and sat in the top rows; they

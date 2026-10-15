@@ -108,7 +108,8 @@
           "selected": false,
           "text": "",
           "value": ""
-        }
+        },
+        "refresh": 1
       }
     ]
   },

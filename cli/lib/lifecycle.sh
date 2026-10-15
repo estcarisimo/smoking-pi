@@ -78,18 +78,27 @@ grafana_api() {
     # $1 method, $2 path: status on stdout's last line, body before it.
     # Credentials on stdin (-K -), never in argv: see cli/lib/openclaw.sh.
     printf 'url = "http://127.0.0.1:3000%s"\nrequest = "%s"\nsilent\nwrite-out = "\\n%%{http_code}"\nuser = "%s:%s"\n' \
-        "$2" "$1" "$(curl_cfg_quote "$GRAFANA_USER")" "$(curl_cfg_quote "$GRAFANA_PASSWORD")" \
+        "$(curl_cfg_quote "$2")" "$1" "$(curl_cfg_quote "$GRAFANA_USER")" "$(curl_cfg_quote "$GRAFANA_PASSWORD")" \
         | curl -K - 2>/dev/null || true
 }
 
 retire_folders() {
     has_service grafana || return 0
     command -v python3 >/dev/null || return 0
+    # Dynamically scoped: grafana_api, called from here, reads them; nothing
+    # after this function does.
+    local GRAFANA_USER GRAFANA_PASSWORD
     GRAFANA_PASSWORD="$(env_get GF_SECURITY_ADMIN_PASSWORD)"; [ -n "$GRAFANA_PASSWORD" ] || return 0
     GRAFANA_USER="$(env_get GF_SECURITY_ADMIN_USER)"; GRAFANA_USER="${GRAFANA_USER:-admin}"
-    local listing status pairs uid title answer gone=0
-    listing="$(grafana_api GET /api/folders)"; status="${listing##*$'\n'}"
-    [ "$status" = 200 ] || return 0
+    local listing status pairs uid title answer gone=0 try=0
+    # Grafana may still be starting (retire_dashboards usually absorbed that
+    # wait); half a minute, then the folders go on the next upgrade.
+    while :; do
+        listing="$(grafana_api GET /api/folders)"; status="${listing##*$'\n'}"
+        [ "$status" = 200 ] && break
+        try=$((try + 1)); [ "$try" -lt 6 ] || return 0
+        sleep 5
+    done
     # "uid<TAB>title" per top-level folder whose title is retired.
     pairs="$(printf '%s' "${listing%$'\n'*}" | RETIRED_FOLDERS="$RETIRED_FOLDERS" python3 -c '
 import json, os, sys

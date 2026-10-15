@@ -322,7 +322,9 @@ fail_docker_on() {
     run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]
     [[ "$output" == *"Could not remove retired dashboard(s)"*"smokeping-lat-pct-v28(000)"* ]]
-    [ "$(grep -c '^SLEEP 5$' "$DOCKER_LOG")" -eq 11 ]
+    # 11 waits for the dashboards (a shared budget of 12 tries), then 5 for
+    # the folder listing before that too is left for the next upgrade.
+    [ "$(grep -c '^SLEEP 5$' "$DOCKER_LOG")" -eq 16 ]
 }
 
 # Provisioning moves dashboards to the new folders and leaves the old ones
