@@ -9,14 +9,6 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
-### Fixed
-
-- **The Overview's folder is *Connection*, not *Home*.** Grafana matches
-  folder titles without regard to case, so on the 2.34.0 candidate *Home*
-  reused the old `home` folder and the title stayed lowercase. A name no
-  old folder had sidesteps it; the emptied `home` goes on the next upgrade
-  like the others.
-
 ## [2.34.0] — 2026-10-15
 
 The dashboards, after the audit of every one of them. Fifteen became ten:
@@ -80,6 +72,14 @@ a link names is provisioned.
   (`links-name-provisioned-dashboards`): a uid in `common/links.py` or the
   web admin's category map that no dashboard carries would open Grafana's
   "not found" page from every alert.
+
+### Fixed
+
+- **The Overview's folder is *Connection*, not *Home*.** Grafana matches
+  folder titles without regard to case, so on the 2.34.0 candidate *Home*
+  reused the old `home` folder and the title stayed lowercase. A name no
+  old folder had sidesteps it; the emptied `home` goes on the next upgrade
+  like the others.
 
 ## [2.33.4] — 2026-10-15
 
