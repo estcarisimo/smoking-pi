@@ -48,19 +48,23 @@ retire_dashboards() {
     for uid in $RETIRED_DASHBOARDS; do
         while :; do
             # Credentials on stdin (-K -), never in argv: see cli/lib/openclaw.sh.
+            # curl prints its write-out (000) AND exits non-zero when nothing
+            # listens, so no `|| echo 000` here: that made "000000", which
+            # matched no case and skipped the retry. Empty (no curl) is 000.
             code="$(printf 'url = "http://127.0.0.1:3000/api/dashboards/uid/%s"\nrequest = "DELETE"\nsilent\noutput = "/dev/null"\nwrite-out = "%%{http_code}"\nuser = "%s:%s"\n' \
                 "$uid" "$(curl_cfg_quote "$user")" "$(curl_cfg_quote "$password")" \
-                | curl -K - 2>/dev/null || echo 000)"
+                | curl -K - 2>/dev/null)" || true
+            code="${code:-000}"
             case "$code" in
                 200) gone=$((gone + 1)); break ;;
                 404) break ;;
-                400|000) budget=$((budget - 1)); [ "$budget" -gt 0 ] || { kept="$kept $uid"; break; }; sleep 5 ;;
-                *) kept="$kept $uid"; break ;;
+                400|000) budget=$((budget - 1)); [ "$budget" -gt 0 ] || { kept="$kept $uid($code)"; break; }; sleep 5 ;;
+                *) kept="$kept $uid($code)"; break ;;
             esac
         done
     done
     [ "$gone" = 0 ] || echo "Removed $gone retired dashboard(s) from Grafana."
-    [ -z "$kept" ] || echo "Could not remove retired dashboard(s):$kept (Grafana answered $code). They can be deleted from Grafana's dashboard list." >&2
+    [ -z "$kept" ] || echo "Could not remove retired dashboard(s), with Grafana's answer:$kept. They can be deleted from Grafana's dashboard list." >&2
     return 0
 }
 

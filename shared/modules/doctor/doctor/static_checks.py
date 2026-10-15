@@ -13,6 +13,7 @@ run on the Pi.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
@@ -514,6 +515,7 @@ def _same_value(module_value: object, compose_value: str) -> bool:
 
 
 UID_IN_CODE_RE = re.compile(r"""["']([a-z0-9_]+(?:-[a-z0-9_]+)*-v\d+)["']""")
+DASHBOARD_LINK_RE = re.compile(r"/d/([A-Za-z0-9_-]+)")
 
 
 def check_links_name_provisioned_dashboards(repo: Repo, influx) -> CheckResult:
@@ -525,6 +527,19 @@ def check_links_name_provisioned_dashboards(repo: Repo, influx) -> CheckResult:
     uids = {d.uid for d in influx if d.uid}
     findings = []
     checked = 0
+    # Dashboards link each other too (the Overview's "Where to look next",
+    # panel links): a /d/<uid> in any dashboard must resolve as well.
+    for dashboard in influx:
+        for uid in sorted(set(DASHBOARD_LINK_RE.findall(json.dumps(dashboard.data)))):
+            checked += 1
+            if uid not in uids:
+                findings.append(
+                    Finding(
+                        f"links /d/{uid}, which no dashboard in the InfluxDB tree "
+                        f"carries",
+                        where=dashboard.rel,
+                    )
+                )
     for path in (
         repo.common / "links.py",
         repo.root / "shared/modules/web-admin/app/templates/dashboard.html",
@@ -544,7 +559,8 @@ def check_links_name_provisioned_dashboards(repo: Repo, influx) -> CheckResult:
     return result(
         "links-name-provisioned-dashboards",
         findings,
-        f"{checked} dashboard uids in links.py and the web admin are provisioned",
+        f"{checked} dashboard uids linked from links.py, the web admin and the "
+        f"dashboards are provisioned",
     )
 
 

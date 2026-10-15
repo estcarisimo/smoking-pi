@@ -312,7 +312,20 @@ fail_docker_on() {
     ! grep '^CURL ' "$DOCKER_LOG" | grep -q s3cret
 }
 
-@test "upgrade without a Grafana password, or on an edition without Grafana, asks Grafana nothing" {
+# Nothing listening: curl prints 000 and exits non-zero. The retry must see
+# 000, not "000000", and give up after its minute without failing upgrade.
+@test "upgrade retries a Grafana that is not listening yet, then gives up and still succeeds" {
+    printf 'GF_SECURITY_ADMIN_PASSWORD=s3cret\n' >> "$SMOKING_PI_ENV_FILE"
+    printf '#!/bin/sh\necho "CURL $*" >> "%s"\ncat > /dev/null\nprintf 000\nexit 7\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/curl"
+    printf '#!/bin/sh\necho "SLEEP $*" >> "%s"\n' "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/sleep"
+    chmod +x "$BATS_TEST_TMPDIR/bin/sleep" "$BATS_TEST_TMPDIR/bin/curl"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Could not remove retired dashboard(s)"*"smokeping-lat-pct-v28(000)"* ]]
+    [ "$(grep -c '^SLEEP 5$' "$DOCKER_LOG")" -eq 11 ]
+}
+
+@test "upgrade without a Grafana password asks Grafana nothing" {
     run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]
     ! grep -q 'api/dashboards' "$DOCKER_LOG"

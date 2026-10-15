@@ -57,7 +57,7 @@ DASHBOARD_BY_MEASUREMENT = {
     # The per-ping dashboards: median, mean and percentiles of each cycle,
     # the pings themselves, and the pings lost. Their older twins
     # (smokeping-lat-pct-v28, smokeping-dns-resolvers-v4) drew a subset of
-    # the same queries and were retired in 2.34.0; `smoking-pi upgrade`
+    # the same queries and were retired after the 2026-10-15 audit; `smoking-pi upgrade`
     # deletes them from an installed Grafana.
     "latency": ("individual-pings-v1", "target"),
     "dns_latency": ("dns-resolvers-v1", "target"),
