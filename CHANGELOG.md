@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.37.0] — 2026-10-15
+
+Connectivity & Quality explains its own events. A red dot on the top
+edge of the loss chart marks each window a category went above the
+10 % scale, with the real value in the tooltip; the alerter's diagnosed
+incidents are drawn as annotations whose hover text gives the diagnosis
+and a link that zooms the dashboard to the incident; and a bar on the
+episodes timeline opens Target Detail for that target over the same
+range. The latency chart keeps its full scale on purpose.
+
 ### Added
 
 - **Events explain themselves on Connectivity & Quality, and off-scale
