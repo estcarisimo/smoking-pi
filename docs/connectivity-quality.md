@@ -55,6 +55,34 @@ one day to the next, but it is not a count of probe rounds.
   above before believing one. The panel is empty unless the module is on
   (`sudo smoking-pi enable inference`).
 
+## From an aggregate to a target
+
+Every panel above speaks of categories; the ones below name the targets.
+The rule is the same throughout the dashboards: **click a line to see its
+category's targets, click a target to see every layer of it.**
+
+- A **category line** in either chart opens the
+  side-by-side dashboard (*Targets* folder) for that category over the same
+  range, one panel per target: hover the line and click the link in the
+  tooltip. The ISP gateway's line, in the loss chart, opens the gateway's cut
+  dashboard instead, since it is a single target with a dashboard of its
+  own; a DNS resolvers line opens the resolvers' side-by-side under *DNS*.
+- **Targets behind the loss, most loss first** lists every destination that
+  lost packets in the selected range: the share of its pings lost, the
+  number of probe cycles in which it lost at least one, and its worst cycle.
+  Several targets of one category at the top is that category's problem; the
+  same share on every target, whatever its category, is the link. A target
+  name opens Target Detail ([every layer of it](target-detail.md) on one
+  page) or its individual pings; a category opens the side-by-side. As in the tiles, the ISP
+  gateway and the DNS wizard's targets are left out.
+
+  ![The targets behind the loss, with a target's two links open](img/connectivity-quality-targets.png)
+- On the **side-by-side**, each panel's link icon and each series open
+  Target Detail for that target, keeping the range.
+
+The links keep the time range you are looking at, so the burst you clicked
+on is still in view two dashboards later.
+
 ## When does it happen?
 
 The two heatmaps cover the last 30 days, whatever the range picker says.

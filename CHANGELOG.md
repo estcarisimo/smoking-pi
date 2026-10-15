@@ -9,6 +9,25 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **From an aggregate to the targets behind it, inside Grafana.** Connectivity
+  & Quality said "loss rose on the top sites at 21:00", and finding which
+  destinations carried it meant opening the side-by-side dashboard, picking
+  the category by hand, then re-entering the time range, and then doing the
+  same again on Target Detail: three dashboards, two variables, the range
+  typed twice. Each category line now opens that category's targets side by
+  side over the same range (the ISP gateway's line opens its cut dashboard,
+  the resolvers' line theirs); a new table, *Targets behind the loss*, lists
+  every destination that lost packets in the range with its mean loss, the
+  cycles with loss and the worst cycle, most loss first, each row opening
+  Target Detail or Individual Pings; and every side-by-side panel opens
+  Target Detail for its target. One rule, in the docs: click a line for
+  its category's targets, click a target for every layer of it. The table is
+  three storage-engine aggregates per target (0.2 s for seven days of the
+  reference Pi's 247 targets); the category lines keep their tag as a label
+  instead of renaming it, so the link carries `topsites`, not "Top sites".
+
 ## [2.35.0] — 2026-10-15
 
 The first read of a week of the experimental detectors on the reference

@@ -355,7 +355,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "ICMP loss by category, mean across targets (0–10 %)",
-      "description": "The Overview's loss panel zoomed to 0–10 %, where everyday loss lives; a cut above 10 % runs off the top (the Overview shows the full scale). Several categories rising together is the link; one alone is its destinations. The ISP gateway rate-limits ICMP, so its line sits on a floor of its own.",
+      "description": "The Overview's loss panel zoomed to 0–10 %, where everyday loss lives; a cut above 10 % runs off the top (the Overview shows the full scale). Several categories rising together is the link; one alone is its destinations. The ISP gateway rate-limits ICMP, so its line sits on a floor of its own. Click a line to open that category's targets side by side over the same range.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -388,10 +388,54 @@
             "spanNulls": 600000,
             "showPoints": "never"
           },
-          "displayName": "${__field.labels.category}",
-          "max": 0.1
+          "displayName": "${__field.labels.name}",
+          "max": 0.1,
+          "links": [
+            {
+              "title": "Every target of this category, same range",
+              "url": "/d/side-by-side-v1?var-category=${__field.labels.category}&${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ISP gateway"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "The ISP gateway's cuts, same range",
+                    "url": "/d/cpe-microcut-v1?${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DNS resolvers"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "The resolvers side by side, same range",
+                    "url": "/d/dns-resolvers-v1?${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
@@ -400,7 +444,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> map(fn:(r) => ({r with name: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> drop(columns:[\"_start\",\"_stop\"]) |> group(columns:[\"category\",\"name\"]) |> sort(columns:[\"_time\"])"
         }
       ]
     },
@@ -408,7 +452,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "ICMP latency by category, median across targets",
-      "description": "The median of every target's median ping in each window, per category. A step in one line is that kind of destination; a step in all of them is the house or the ISP. The ISP gateway is left out: it answers ICMP from its control plane, whose spikes of hundreds of milliseconds would flatten every other line (the Overview charts it toward the ISP).",
+      "description": "The median of every target's median ping in each window, per category. A step in one line is that kind of destination; a step in all of them is the house or the ISP. The ISP gateway is left out: it answers ICMP from its control plane, whose spikes of hundreds of milliseconds would flatten every other line (the Overview charts it toward the ISP). Click a line to open that category's targets side by side over the same range.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -441,9 +485,35 @@
             "spanNulls": 600000,
             "showPoints": "never"
           },
-          "displayName": "${__field.labels.category}"
+          "displayName": "${__field.labels.name}",
+          "links": [
+            {
+              "title": "Every target of this category, same range",
+              "url": "/d/side-by-side-v1?var-category=${__field.labels.category}&${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DNS resolvers"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "The resolvers side by side, same range",
+                    "url": "/d/dns-resolvers-v1?${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
@@ -452,7 +522,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"median\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> map(fn:(r) => ({r with category: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false)"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"median\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false) |> map(fn:(r) => ({r with name: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> drop(columns:[\"_start\",\"_stop\"]) |> group(columns:[\"category\",\"name\"]) |> sort(columns:[\"_time\"])"
         }
       ]
     },
@@ -624,6 +694,227 @@
       }
     },
     {
+      "id": 15,
+      "type": "row",
+      "title": "The targets behind the loss, over the selected range",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Targets behind the loss, most loss first",
+      "description": "Every destination that lost packets in the selected range: the share of its pings lost, the probe cycles in which it lost at least one, and its worst cycle. Several targets of one category at the top is that category; the same share on every target is the link. Click a target for every layer of it on one page or for its individual pings, a category for its targets side by side. The ISP gateway and the DNS wizard's targets are left out, as in the tiles.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Mean loss",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "target": 0,
+              "category": 1,
+              "mean": 2,
+              "lossy": 3,
+              "worst": 4
+            },
+            "renameByName": {
+              "target": "Target",
+              "category": "Category",
+              "mean": "Mean loss",
+              "lossy": "Cycles with loss",
+              "worst": "Worst cycle"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Every layer for ${__value.raw}",
+                    "url": "/d/target-detail-v1?var-target=${__value.raw}&${__url_time_range}",
+                    "targetBlank": false
+                  },
+                  {
+                    "title": "Individual pings for ${__value.raw}",
+                    "url": "/d/individual-pings-v1?var-target=${__value.raw}&${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Category"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "topsites": {
+                        "text": "Top sites"
+                      },
+                      "netflix": {
+                        "text": "Netflix OCA"
+                      },
+                      "custom": {
+                        "text": "Custom"
+                      },
+                      "dns": {
+                        "text": "DNS resolvers"
+                      },
+                      "unknown": {
+                        "text": "Uncategorized"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Every target of this category, same range",
+                    "url": "/d/side-by-side-v1?var-category=${__value.raw}&${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean loss"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.01
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.2
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cycles with loss"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Worst cycle"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "base = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\")\n// Three bare aggregates per target, each answered in the storage engine; the join is a pivot over a few hundred rows.\nmean = base |> mean() |> set(key:\"_field\", value:\"mean\") |> keep(columns:[\"target\",\"category\",\"_field\",\"_value\"])\nworst = base |> max() |> set(key:\"_field\", value:\"worst\") |> keep(columns:[\"target\",\"category\",\"_field\",\"_value\"])\nlossy = base |> filter(fn:(r) => r._value > 0.0) |> count() |> toFloat() |> set(key:\"_field\", value:\"lossy\") |> keep(columns:[\"target\",\"category\",\"_field\",\"_value\"])\nunion(tables:[mean, worst, lossy]) |> group() |> pivot(rowKey:[\"target\",\"category\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> filter(fn:(r) => r.mean > 0.0) |> sort(columns:[\"mean\"], desc:true)"
+        }
+      ]
+    },
+    {
       "id": 20,
       "type": "row",
       "title": "When does it happen? (last 30 days, local time)",
@@ -631,7 +922,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 48
       },
       "collapsed": false,
       "panels": []
@@ -651,7 +942,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 38
+        "y": 49
       },
       "options": {
         "calculate": false,
@@ -757,7 +1048,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 38
+        "y": 49
       },
       "options": {
         "calculate": false,
