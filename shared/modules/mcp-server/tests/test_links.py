@@ -55,7 +55,7 @@ def test_no_config_means_no_links():
     assert links.web_admin_base() is None
     assert links.grafana_tunnel_base() is None
     assert links.has_tunnel_links() is False
-    assert links.grafana_url("smokeping-lat-pct-v28", "target", "UBA") is None
+    assert links.grafana_url("individual-pings-v1", "target", "UBA") is None
     assert links.web_admin_target_url("UBA") is None
     assert links.target_links("UBA", "latency", "custom") == {}
     assert links.entry_point_links() == {}
@@ -119,7 +119,7 @@ def test_ipv6_literal_is_bracketed_and_gets_the_port(
 
 def test_ipv6_base_builds_a_parseable_link(monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_HOST", "2001:db8::5")
-    url = links.grafana_url("smokeping-lat-pct-v28", "target", "UBA")
+    url = links.grafana_url("individual-pings-v1", "target", "UBA")
     parsed = urlparse(url)
     assert parsed.hostname == "2001:db8::5"
     assert parsed.port == 3000
@@ -221,12 +221,10 @@ def test_both_tiers_emit_twinned_links(both_tiers):
     result = links.target_links("Amazon", "latency", "top_sites", hours=24)
     assert set(result) == {
         "graph",
-        "per_ping_detail",
         "all_layers",
         "compare_with_peers",
         "edit",
         "graph_tunnel",
-        "per_ping_detail_tunnel",
         "all_layers_tunnel",
         "compare_with_peers_tunnel",
         "edit_tunnel",
@@ -319,8 +317,8 @@ def configured(monkeypatch):
 
 
 def test_grafana_url_carries_variable_and_relative_window(configured):
-    url = links.grafana_url("smokeping-lat-pct-v28", "target", "UBA", hours=6)
-    assert url.startswith("http://192.168.86.27:3000/d/smokeping-lat-pct-v28?")
+    url = links.grafana_url("individual-pings-v1", "target", "UBA", hours=6)
+    assert url.startswith("http://192.168.86.27:3000/d/individual-pings-v1?")
     assert _query(url) == {
         "var-target": ["UBA"],
         "from": ["now-6h"],
@@ -374,20 +372,19 @@ def test_web_admin_link_prefilters_the_target_list(configured):
 # ---------------------------------------------------------------------------
 
 
-def test_ping_target_gets_graph_detail_peers_and_edit(configured):
+def test_ping_target_gets_graph_layers_peers_and_edit(configured):
     result = links.target_links("Amazon", "latency", "top_sites", hours=24)
-    assert set(result) == {
-        "graph", "per_ping_detail", "all_layers", "compare_with_peers", "edit"
-    }
-    assert "/d/smokeping-lat-pct-v28" in result["graph"]
-    assert "/d/individual-pings-v1" in result["per_ping_detail"]
+    assert set(result) == {"graph", "all_layers", "compare_with_peers", "edit"}
+    # The graph IS the per-ping dashboard since 2.34.0; the old overview-style
+    # twin drew a subset of the same queries and is gone.
+    assert "/d/individual-pings-v1" in result["graph"]
     assert "/d/top_sites-side-by-side-v1" in result["compare_with_peers"]
 
 
-def test_dns_target_points_at_the_dns_dashboards(configured):
+def test_dns_target_points_at_the_dns_dashboard(configured):
     result = links.target_links("Google_DNS", "dns_latency", "dns_resolvers")
-    assert "/d/smokeping-dns-resolvers-v4" in result["graph"]
-    assert "/d/dns-resolvers-v1" in result["per_ping_detail"]
+    assert "/d/dns-resolvers-v1" in result["graph"]
+    assert "per_ping_detail" not in result
 
 
 def test_unknown_category_just_omits_the_comparison(configured):
@@ -492,7 +489,6 @@ def test_every_dashboard_uid_referenced_here_is_provisioned():
     }
     referenced = (
         {uid for uid, _ in links.DASHBOARD_BY_MEASUREMENT.values()}
-        | {uid for uid, _ in links.DETAIL_BY_MEASUREMENT.values()}
         | set(links.COMPARE_BY_DB_CATEGORY.values())
     )
     assert referenced <= provisioned, (

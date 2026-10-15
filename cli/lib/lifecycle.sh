@@ -27,6 +27,43 @@ cmd_restart() {
     fi
 }
 
+# Dashboards a release retired, by uid. Provisioning never deletes one
+# (disableDeletion: true, so an edit to the bind-mounted tree cannot wipe
+# a dashboard with months of a person's history behind it); when its file
+# is gone Grafana only unprovisions it, and it stays in the list pointing
+# at the old generation until someone deletes it. Done here, once per
+# upgrade. A uid that is already gone is not an error.
+RETIRED_DASHBOARDS="smokeping-lat-pct-v28 smokeping-dns-resolvers-v4 smokeping-lat-compare-v2 smokeping-lat-pct-clickhouse-v1 smokeping-lat-compare-clickhouse-v1 smokeping-dns-resolvers-clickhouse-v1"
+
+retire_dashboards() {
+    has_service grafana || return 0
+    local password user; password="$(env_get GF_SECURITY_ADMIN_PASSWORD)"
+    [ -n "$password" ] || return 0
+    user="$(env_get GF_SECURITY_ADMIN_USER)"; user="${user:-admin}"
+    # Grafana unprovisions a dashboard whose file disappeared on its first
+    # scan after start, which can land after the API answers: 400 (still
+    # provisioned) and 000 (not listening yet) are retried, one minute in
+    # all so a Grafana that never comes up does not hold the upgrade.
+    local uid code gone=0 kept="" budget=12
+    for uid in $RETIRED_DASHBOARDS; do
+        while :; do
+            # Credentials on stdin (-K -), never in argv: see cli/lib/openclaw.sh.
+            code="$(printf 'url = "http://127.0.0.1:3000/api/dashboards/uid/%s"\nrequest = "DELETE"\nsilent\noutput = "/dev/null"\nwrite-out = "%%{http_code}"\nuser = "%s:%s"\n' \
+                "$uid" "$(curl_cfg_quote "$user")" "$(curl_cfg_quote "$password")" \
+                | curl -K - 2>/dev/null || echo 000)"
+            case "$code" in
+                200) gone=$((gone + 1)); break ;;
+                404) break ;;
+                400|000) budget=$((budget - 1)); [ "$budget" -gt 0 ] || { kept="$kept $uid"; break; }; sleep 5 ;;
+                *) kept="$kept $uid"; break ;;
+            esac
+        done
+    done
+    [ "$gone" = 0 ] || echo "Removed $gone retired dashboard(s) from Grafana."
+    [ -z "$kept" ] || echo "Could not remove retired dashboard(s):$kept (Grafana answered $code). They can be deleted from Grafana's dashboard list." >&2
+    return 0
+}
+
 cmd_upgrade() {
     local doctor=1
     while [ $# -gt 0 ]; do
@@ -62,6 +99,7 @@ cmd_upgrade() {
     # Only the services whose image or config changed are recreated.
     compose up -d --remove-orphans
     remove_disabled
+    retire_dashboards
     publish_avahi
     # A clone installed before setup.sh linked the command gets it here.
     link_cli --quiet

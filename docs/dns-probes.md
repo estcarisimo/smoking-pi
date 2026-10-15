@@ -71,8 +71,6 @@ vocabularies are mapped in `common/links.py`, and both have consumers.
   hours). The left panel is the resolution time in milliseconds — median,
   mean, p10/p20/p80/p90, min and max of the five samples — and the right
   one the share of queries lost.
-- **SmokePing DNS Resolvers – Resolution Time & Loss (Percentiles /
-  Mean)**, in the `overview` folder: the same data, one resolver at a time.
 - [Target Detail](target-detail.md) shows a resolver's DNS time next to the
   other layers measured for the same target.
 

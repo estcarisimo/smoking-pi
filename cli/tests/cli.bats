@@ -294,6 +294,30 @@ fail_docker_on() {
     [[ "$output" != *"build"* ]]
 }
 
+# A retired dashboard's file is gone from the image, but Grafana keeps the
+# dashboard (disableDeletion) and only unprovisions it; upgrade deletes it
+# by uid, with the admin credentials on curl's stdin.
+@test "upgrade deletes the retired dashboards from Grafana and keeps the password off the command line" {
+    printf 'GF_SECURITY_ADMIN_PASSWORD=s3cret\n' >> "$SMOKING_PI_ENV_FILE"
+    # 400 (still provisioned) once for the first uid, then 200; 404 for the rest.
+    printf '#!/bin/sh\necho "CURL $*" >> "%s"\ncfg=$(cat | tr "\\n" " "); echo "CURLCFG $cfg" >> "%s"\ncase "$cfg" in *smokeping-lat-pct-v28*) if [ -f "%s.once" ]; then echo 200; else : > "%s.once"; echo 400; fi ;; *) echo 404 ;; esac\n' \
+        "$DOCKER_LOG" "$DOCKER_LOG" "$DOCKER_LOG" "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/curl"
+    printf '#!/bin/sh\n' > "$BATS_TEST_TMPDIR/bin/sleep"; chmod +x "$BATS_TEST_TMPDIR/bin/sleep" "$BATS_TEST_TMPDIR/bin/curl"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Removed 1 retired dashboard(s)"* ]]
+    [ "$(grep -c '^CURLCFG .*api/dashboards/uid/smokeping-lat-pct-v28.*request = "DELETE"' "$DOCKER_LOG")" -eq 2 ]
+    grep -q '^CURLCFG .*api/dashboards/uid/smokeping-dns-resolvers-clickhouse-v1' "$DOCKER_LOG"
+    grep -q '^CURLCFG .*user = "admin:s3cret"' "$DOCKER_LOG"
+    ! grep '^CURL ' "$DOCKER_LOG" | grep -q s3cret
+}
+
+@test "upgrade without a Grafana password, or on an edition without Grafana, asks Grafana nothing" {
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    ! grep -q 'api/dashboards' "$DOCKER_LOG"
+}
+
 @test "upgrade refuses without an env file" {
     rm -f "$SMOKING_PI_ENV_FILE"
     run "$CLI" upgrade

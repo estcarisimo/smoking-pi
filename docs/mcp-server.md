@@ -126,15 +126,14 @@ configured, so it is not in the target list.
 
 ## Deep links
 
-Tool responses can carry a `links` object pointing at the Grafana panel for the
-target being discussed, the per-ping detail, every layer measured for it on one
+Tool responses can carry a `links` object pointing at the target's own Grafana
+dashboard (its pings, cycle by cycle), every layer measured for it on one
 page, a side-by-side against its peers, and the web-admin page for editing it:
 
 ```json
 {"target": "Amazon", "median_ms": 21.4, "avg_loss_pct": 0.0,
  "links": {
-   "graph": "http://192.168.1.10:3000/d/smokeping-lat-pct-v28?var-target=Amazon&from=now-24h&to=now",
-   "per_ping_detail": "http://192.168.1.10:3000/d/individual-pings-v1?...",
+   "graph": "http://192.168.1.10:3000/d/individual-pings-v1?var-target=Amazon&from=now-24h&to=now",
    "all_layers": "http://192.168.1.10:3000/d/target-detail-v1?var-target=Amazon&...",
    "compare_with_peers": "http://192.168.1.10:3000/d/top_sites-side-by-side-v1?...",
    "edit": "http://192.168.1.10:8080/targets/?q=Amazon"}}
@@ -149,12 +148,13 @@ no such page.
 ±15-minute range around when it happened, so the link opens on the event rather
 than on the day containing it.
 
-`system_status` carries the entry points — `grafana_overview`,
+`system_status` carries the entry points — `grafana_overview` (the Overview
+dashboard),
 `grafana_cpe_microcuts`, `grafana_wifi_link`, `web_admin_targets` — each with
 a `_tunnel` twin when a tunnel base is configured. The Wi-Fi dashboard
 (`wifi-link-v1`, variable `interface`) is linked through `links.wifi_links()`
 rather than `target_links()`: an interface has a graph and nothing else — no
-per-ping detail, no peers, no web-admin page to edit.
+peers, no web-admin page to edit.
 
 ### The `from`/`to` contract
 
@@ -254,8 +254,8 @@ TUNNEL_BASE_HOST=https://smokingpi.example.com   # from anywhere
 
 ```json
 {"links": {
-   "graph": "http://192.168.1.10:3000/d/smokeping-lat-pct-v28?var-target=Amazon&...",
-   "graph_tunnel": "https://smokingpi.example.com/d/smokeping-lat-pct-v28?var-target=Amazon&...",
+   "graph": "http://192.168.1.10:3000/d/individual-pings-v1?var-target=Amazon&...",
+   "graph_tunnel": "https://smokingpi.example.com/d/individual-pings-v1?var-target=Amazon&...",
    "edit": "http://192.168.1.10:8080/targets/?q=Amazon",
    "edit_tunnel": "https://smokingpi.example.com/targets/?q=Amazon"}}
 ```

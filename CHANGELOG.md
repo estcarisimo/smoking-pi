@@ -9,6 +9,30 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **The three oldest dashboards are retired: *SmokePing Latency & Loss –
+  Percentiles / Mean*, *SmokePing DNS Resolvers* and *SmokePing Latency –
+  Side-by-Side*, with their ClickHouse twins.** The dashboards audit compared
+  them query by query: the first two draw a strict subset of *Individual
+  Pings* and *DNS Resolvers – Side-by-Side* (same six queries, minus the
+  per-ping min/max and the pings lost), and the third is *Top Sites –
+  Side-by-Side* without its category filter. Yet every alert and assistant
+  answer linked the old pair as its `graph` while the web admin opened the
+  new one — two answers to "show me this target". The `graph` link now opens
+  *Individual Pings* (or *DNS Resolvers – Side-by-Side* for a resolver), the
+  `per_ping_detail` link is gone because it would be the same URL, and the
+  digest's `grafana_overview` opens the Overview rather than a per-target
+  dashboard. `smoking-pi upgrade` deletes the retired dashboards from an
+  installed Grafana: provisioning never deletes (`disableDeletion: true`),
+  so without that step they would stay in the list pointing at the old
+  generation. ClickHouse mode keeps six per-target dashboards and is
+  documented as such.
+- **The doctor checks that every dashboard a link names is provisioned**
+  (`links-name-provisioned-dashboards`): a uid in `common/links.py` or the
+  web admin's category map that no dashboard carries would open Grafana's
+  "not found" page from every alert.
+
 ## [2.33.4] — 2026-10-15
 
 Three dashboard fixes from the dashboards audit (roadmap front 2): the

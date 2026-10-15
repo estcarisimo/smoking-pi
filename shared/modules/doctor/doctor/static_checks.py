@@ -82,6 +82,7 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_panel_tags_are_written(repo, influx, clickhouse),
         check_text_stats_name_their_field(influx),
         check_overrides_match_a_series(influx),
+        check_links_name_provisioned_dashboards(repo, influx),
         check_alerter_env_defaults_match(repo),
         check_alerter_env_declared(repo),
         check_mcp_tools_documented(repo),
@@ -510,6 +511,41 @@ def _same_value(module_value: object, compose_value: str) -> bool:
         return float(module_value) == float(compose_value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return str(module_value) == compose_value
+
+
+UID_IN_CODE_RE = re.compile(r"""["']([a-z0-9_]+(?:-[a-z0-9_]+)*-v\d+)["']""")
+
+
+def check_links_name_provisioned_dashboards(repo: Repo, influx) -> CheckResult:
+    """A dashboard uid named in common/links.py or the web admin's category
+    map is a deep link every alert and assistant answer carries; one that no
+    provisioned dashboard has (retired, renamed) opens Grafana's "not found"
+    page. The retired SmokePing Latency twins were still the alerts' `graph`
+    after their newer versions existed."""
+    uids = {d.uid for d in influx if d.uid}
+    findings = []
+    checked = 0
+    for path in (
+        repo.common / "links.py",
+        repo.root / "shared/modules/web-admin/app/templates/dashboard.html",
+    ):
+        if not path.is_file():
+            continue
+        for uid in sorted(set(UID_IN_CODE_RE.findall(path.read_text()))):
+            checked += 1
+            if uid not in uids:
+                findings.append(
+                    Finding(
+                        f"names dashboard uid {uid!r}, which no dashboard in the "
+                        f"InfluxDB tree carries",
+                        where=str(path.relative_to(repo.root)),
+                    )
+                )
+    return result(
+        "links-name-provisioned-dashboards",
+        findings,
+        f"{checked} dashboard uids in links.py and the web admin are provisioned",
+    )
 
 
 def check_alerter_env_defaults_match(repo: Repo) -> CheckResult:

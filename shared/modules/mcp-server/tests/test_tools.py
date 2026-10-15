@@ -765,7 +765,7 @@ def test_list_targets_carries_links(api, linked):
     result = server.list_targets()
     first = result["targets"][0]
     assert first["links"]["edit"].endswith("/targets/?q=google_dns")
-    assert "/d/smokeping-lat-pct-v28?var-target=google_dns" in first["links"]["graph"]
+    assert "/d/individual-pings-v1?var-target=google_dns" in first["links"]["graph"]
 
 
 def test_list_targets_omits_links_when_unconfigured(api, unlinked):
@@ -863,7 +863,7 @@ def test_loss_events_roll_up_per_target(monkeypatch, api, linked):
     # Rows arrive newest-first, so first_time must be the OLDEST of the two.
     assert busiest["first_time"] == "2026-07-28T04:00:00+00:00"
     assert busiest["last_time"] == "2026-07-28T05:00:00+00:00"
-    assert "/d/smokeping-lat-pct-v28" in busiest["links"]["graph"]
+    assert "/d/individual-pings-v1" in busiest["links"]["graph"]
 
 
 def test_microcut_cuts_and_worst_windows_link_to_their_own_moment(monkeypatch, no_api, linked):
@@ -1141,7 +1141,7 @@ def test_loss_events_episode_carries_a_graph_link(monkeypatch, api, linked):
     per_target = {"NYT": [1.0, 1.0, 1.0]}
     _patch_influx(monkeypatch, _loss_fake(per_target, targets=_TEN))
     episode = server.get_loss_events(hours=6)["episodes"][0]
-    assert "/d/smokeping-lat-pct-v28" in episode["graph"]
+    assert "/d/individual-pings-v1" in episode["graph"]
     assert "var-target=NYT" in episode["graph"]
 
 

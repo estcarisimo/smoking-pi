@@ -54,8 +54,13 @@ DEFAULT_WEB_ADMIN_PORT = 8080
 # contract; a dashboard that changes its UID breaks these links (which is one
 # of the things the instrumentation doctor checks).
 DASHBOARD_BY_MEASUREMENT = {
-    "latency": ("smokeping-lat-pct-v28", "target"),
-    "dns_latency": ("smokeping-dns-resolvers-v4", "target"),
+    # The per-ping dashboards: median, mean and percentiles of each cycle,
+    # the pings themselves, and the pings lost. Their older twins
+    # (smokeping-lat-pct-v28, smokeping-dns-resolvers-v4) drew a subset of
+    # the same queries and were retired in 2.34.0; `smoking-pi upgrade`
+    # deletes them from an installed Grafana.
+    "latency": ("individual-pings-v1", "target"),
+    "dns_latency": ("dns-resolvers-v1", "target"),
     "cpe_latency": ("cpe-microcut-v1", "cpe"),
     # The HTTP dashboard is per site, not per target: its variable is the
     # target name minus the _h1/_h2/_h3 version suffix, so all three versions
@@ -72,12 +77,6 @@ DASHBOARD_BY_MEASUREMENT = {
 # Curl targets carry the HTTP version they were probed with as a name suffix
 # (Google_h2); the exporters and the dashboard both key on it.
 HTTP_VERSION_SUFFIX_RE = re.compile(r"_h[123]$")
-
-# Per-ping detail, for "show me the actual pings" follow-ups.
-DETAIL_BY_MEASUREMENT = {
-    "latency": ("individual-pings-v1", "target"),
-    "dns_latency": ("dns-resolvers-v1", "target"),
-}
 
 # One target, every layer (ICMP, TCP, HTTP by version, DNS) on one page.
 # The dashboard pairs a target's probes by the name without its probe
@@ -369,13 +368,6 @@ def _target_links_for(
         if url:
             out["graph"] = url
 
-    detail = DETAIL_BY_MEASUREMENT.get(measurement)
-    if detail and grafana:
-        uid, var = detail
-        url = grafana_url(uid, var, name, hours=hours, at=at, base=grafana)
-        if url:
-            out["per_ping_detail"] = url
-
     if measurement in TARGET_DETAIL_MEASUREMENTS and grafana:
         uid, var = TARGET_DETAIL
         url = grafana_url(uid, var, target_base_name(name), hours=hours, at=at,
@@ -476,7 +468,7 @@ def wifi_links(
 
 
 def entry_point_links(hours: int = 24) -> dict[str, str]:
-    """The front doors: latency overview, CPE microcuts, Wi-Fi link, targets.
+    """The front doors: the Overview, CPE microcuts, Wi-Fi link, targets.
 
     Lives here rather than in the MCP server so both tiers are assembled in
     one place -- a second hand-rolled copy is how the tunnel twin would end up
@@ -488,7 +480,7 @@ def entry_point_links(hours: int = 24) -> dict[str, str]:
     def tier(grafana: str | None, web_admin: str | None) -> dict[str, str]:
         out: dict[str, str] = {}
         if grafana:
-            overview = grafana_url("smokeping-lat-pct-v28", hours=hours, base=grafana)
+            overview = grafana_url("smoking-pi-overview-v1", hours=hours, base=grafana)
             if overview:
                 out["grafana_overview"] = overview
             cpe = grafana_url("cpe-microcut-v1", hours=hours, base=grafana)

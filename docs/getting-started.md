@@ -385,7 +385,7 @@ SmokePing's step is 300 seconds, so the first point of every graph exists
 five minutes after the containers start, and the graphs are empty until
 then. That is the single most common "it's broken" that isn't. Wait, then
 open SmokePing and look at *top\_sites → Google*, or, in Grafana, the
-**SmokePing Latency & Loss – Percentiles / Mean** dashboard.
+**Individual Pings – Latency & Loss** dashboard.
 
 Standard and Pro answer this for you: the web admin's dashboard has a
 **Measurements** card that checks, for every configured target, when

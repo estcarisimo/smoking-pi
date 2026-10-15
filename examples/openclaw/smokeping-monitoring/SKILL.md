@@ -233,10 +233,10 @@ The rules that make it read well:
 
 ## Links
 
-Tool results carry a `links` object (`graph`, `per_ping_detail`,
-`all_layers`, `compare_with_peers`, `edit`) and, when a tunnel is set, a
-`_tunnel` twin of each; `all_layers` is the one page for a destination in
-depth. `system_status` returns the front doors the same way
+Tool results carry a `links` object (`graph`, `all_layers`,
+`compare_with_peers`, `edit`) and, when a tunnel is set, a `_tunnel` twin
+of each; `graph` is the destination's own pings, `all_layers` the one page
+for it in depth. `system_status` returns the front doors the same way
 (`grafana_overview`, `grafana_cpe_microcuts`, `grafana_wifi_link`,
 `web_admin_targets`). Offer both, labeled for where the reader is: *home* /
 *anywhere* -- the home link is faster at home, the other is the only one
