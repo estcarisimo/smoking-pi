@@ -777,13 +777,13 @@
     // Per-target SmokePing graph links and per-category Grafana links.
     // Built client-side from the browser's hostname so they work no matter
     // how the Pi is reached (IP, mDNS name, tunnel...).
-    // Wider on purpose than common/links.py COMPARE_BY_DB_CATEGORY, which
+    // Wider on purpose than common/links.py COMPARE_CATEGORY_BY_DB, which
     // lists only dashboards with a per-target peer comparison. Uids are the
     // InfluxDB tree's; ClickHouse installs provision other uids.
     const GRAFANA_DASHBOARD_UIDS = {
-        'top_sites': 'top_sites-side-by-side-v1',
-        'netflix_oca': 'netflix_oca-side-by-side-v1',
-        'custom': 'custom-side-by-side-v1',
+        'top_sites': 'side-by-side-v1',
+        'netflix_oca': 'side-by-side-v1',
+        'custom': 'side-by-side-v1',
         'dns_resolvers': 'dns-resolvers-v1',
         // HTTP and TCP targets have no ICMP pings to show on the default;
         // both are on the HTTP-by-version dashboard (TCP at the bottom).
@@ -792,6 +792,14 @@
         'dns_wizard': 'dns-wizard-v1',
     };
     const GRAFANA_DEFAULT_UID = 'individual-pings-v1';
+    // The side-by-side dashboard shows one category at a time, named by the
+    // InfluxDB tag (topsites), not the database's name (top_sites) -- the
+    // same mapping as common/links.py COMPARE_CATEGORY_BY_DB.
+    const GRAFANA_DASHBOARD_VARS = {
+        'top_sites': 'var-category=topsites',
+        'netflix_oca': 'var-category=netflix',
+        'custom': 'var-category=custom',
+    };
 
     function initExternalLinks() {
         const host = window.location.hostname;
@@ -800,7 +808,8 @@
         });
         document.querySelectorAll('.grafana-link').forEach(link => {
             const uid = GRAFANA_DASHBOARD_UIDS[link.dataset.category] || GRAFANA_DEFAULT_UID;
-            link.href = `http://${host}:3000/d/${uid}`;
+            const vars = GRAFANA_DASHBOARD_VARS[link.dataset.category];
+            link.href = `http://${host}:3000/d/${uid}` + (vars ? `?${vars}` : '');
         });
     }
     initExternalLinks();

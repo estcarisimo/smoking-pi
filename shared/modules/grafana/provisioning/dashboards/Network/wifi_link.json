@@ -569,7 +569,7 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 6
       },
@@ -653,92 +653,6 @@
       ]
     },
     {
-      "id": 12,
-      "type": "timeseries",
-      "title": "Noise floor and SNR",
-      "description": "Only on drivers that report a channel survey (brcmfmac on a Raspberry Pi does not; this panel stays empty there).",
-      "datasource": {
-        "uid": "influxdb"
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 6
-      },
-      "maxDataPoints": 720,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "spanNulls": false,
-            "pointSize": 3,
-            "showPoints": "auto"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "A"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dBm"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dB"
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              }
-            ]
-          }
-        ]
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"noise_dbm\") |> yield(name:\"noise\")"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"snr_db\") |> yield(name:\"snr\")"
-        }
-      ]
-    },
-    {
       "id": 13,
       "type": "row",
       "title": "Bitrate (PHY rate)",
@@ -761,7 +675,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 16
       },
@@ -807,97 +721,6 @@
             "uid": "influxdb"
           },
           "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_bitrate_mbps\") |> yield(name:\"rx\")"
-        }
-      ]
-    },
-    {
-      "id": 15,
-      "type": "timeseries",
-      "title": "Modulation (MCS · spatial streams · width)",
-      "description": "Only on drivers that print them on the bitrate line (brcmfmac does not).",
-      "datasource": {
-        "uid": "influxdb"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 16
-      },
-      "maxDataPoints": 720,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "spanNulls": false,
-            "pointSize": 3,
-            "showPoints": "auto"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "C"
-            },
-            "properties": [
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              }
-            ]
-          }
-        ]
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_mcs\") |> yield(name:\"tx MCS\")"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_nss\") |> yield(name:\"tx NSS\")"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_width_mhz\") |> yield(name:\"width MHz\")"
-        },
-        {
-          "refId": "D",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_mcs\") |> yield(name:\"rx MCS\")"
-        },
-        {
-          "refId": "E",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_nss\") |> yield(name:\"rx NSS\")"
         }
       ]
     },
@@ -1055,7 +878,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 34
       },
@@ -1121,96 +944,6 @@
             "uid": "influxdb"
           },
           "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_drop_misc\") |> derivative(unit: 1s, nonNegative: true) |> yield(name:\"rx drop misc\")"
-        }
-      ]
-    },
-    {
-      "id": 21,
-      "type": "timeseries",
-      "title": "Channel busy (%) and link quality",
-      "description": "Channel-busy share is anyone's traffic on the channel, from the driver survey (absent on brcmfmac). Link quality is the legacy /proc/net/wireless figure, driver-scaled.",
-      "datasource": {
-        "uid": "influxdb"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 34
-      },
-      "maxDataPoints": 720,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "spanNulls": false,
-            "pointSize": 3,
-            "showPoints": "auto"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "A"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "min",
-                "value": 0
-              },
-              {
-                "id": "max",
-                "value": 100
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
-            },
-            "properties": [
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              }
-            ]
-          }
-        ]
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"chan_busy_pct\") |> yield(name:\"busy %\")"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "uid": "influxdb"
-          },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"link_quality\") |> yield(name:\"link quality\")"
         }
       ]
     },
@@ -1370,6 +1103,287 @@
             "uid": "influxdb"
           },
           "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"carrier_down_count\")"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Only on drivers that report it: noise, modulation, channel busy",
+      "collapsed": true,
+      "id": 26,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 54
+      },
+      "panels": [
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Noise floor and SNR",
+          "description": "Only on drivers that report a channel survey (brcmfmac on a Raspberry Pi does not; this panel stays empty there).",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "maxDataPoints": 720,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "spanNulls": false,
+                "pointSize": 3,
+                "showPoints": "auto"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "A"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "dBm"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "B"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "dB"
+                  },
+                  {
+                    "id": "custom.axisPlacement",
+                    "value": "right"
+                  }
+                ]
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"noise_dbm\") |> yield(name:\"noise\")"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"snr_db\") |> yield(name:\"snr\")"
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Modulation (MCS · spatial streams · width)",
+          "description": "Only on drivers that print them on the bitrate line (brcmfmac does not).",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "maxDataPoints": 720,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "spanNulls": false,
+                "pointSize": 3,
+                "showPoints": "auto"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "C"
+                },
+                "properties": [
+                  {
+                    "id": "custom.axisPlacement",
+                    "value": "right"
+                  }
+                ]
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_mcs\") |> yield(name:\"tx MCS\")"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_nss\") |> yield(name:\"tx NSS\")"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"tx_width_mhz\") |> yield(name:\"width MHz\")"
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_mcs\") |> yield(name:\"rx MCS\")"
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"rx_nss\") |> yield(name:\"rx NSS\")"
+            }
+          ]
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "Channel busy (%) and link quality",
+          "description": "Channel-busy share is anyone's traffic on the channel, from the driver survey (absent on brcmfmac). Link quality is the legacy /proc/net/wireless figure, driver-scaled.",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 9
+          },
+          "maxDataPoints": 720,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "spanNulls": false,
+                "pointSize": 3,
+                "showPoints": "auto"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "A"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "B"
+                },
+                "properties": [
+                  {
+                    "id": "custom.axisPlacement",
+                    "value": "right"
+                  }
+                ]
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"chan_busy_pct\") |> yield(name:\"busy %\")"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r.interface == \"${interface}\" and r._field == \"link_quality\") |> yield(name:\"link quality\")"
+            }
+          ]
         }
       ]
     }

@@ -11,6 +11,33 @@ version gets a matching GitHub release and git tag.
 
 ### Changed
 
+- **Grafana's folders have names, and there are four of them.** The eleven
+  provisioned folders were the repository's directory names (`home`, `cpe`,
+  `quality`, `side-by-side-pings`…), one dashboard each. Now: *Home* (the
+  Overview, Connectivity & Quality), *Targets* (Target Detail, Individual
+  Pings, Side-by-Side, HTTP by Version), *Network* (Wi-Fi Link, CPE Microcut
+  Detection) and *DNS* (DNS Resolvers, DNS Wizard); the ClickHouse tree
+  follows. Dashboard uids do not change, so no link does. Provisioning moves
+  a dashboard and leaves its old folder behind, empty: `smoking-pi upgrade`
+  deletes those folders, and the four an older scheme left on the reference
+  Pi, **only when they are empty** — anything inside, a dashboard of your
+  own or the ClickHouse tree's *SmokePing* parent, keeps the folder.
+- **One side-by-side dashboard instead of three.** *Top Sites*, *Netflix OCA*
+  and *Custom Targets – Side-by-Side* were the same JSON with a different
+  category filter. *Side-by-Side – every target of one category*
+  (`side-by-side-v1`, ClickHouse `side-by-side-clickhouse-v1`) picks the
+  category with a variable; the `compare_with_peers` link and the web
+  admin's category links carry it (`var-category=topsites`, the InfluxDB
+  tag, not the database's `top_sites`). The three old dashboards and their
+  ClickHouse twins are retired and deleted on upgrade like the others.
+- **Panels this hardware cannot fill are folded away.** The Wi-Fi dashboard's
+  noise floor/SNR, modulation and channel-busy panels were blank on the
+  reference Pi (`brcmfmac` reports none of it) and sat in the top rows; they
+  are now one collapsed row at the bottom, and the panels that do have data
+  take the full width. The CPE dashboard's five IPv6 panels, blank on a host
+  without global IPv6, are a collapsed row as well, and the IPv4 panels take
+  the width.
+
 - **The three oldest dashboards are retired: *SmokePing Latency & Loss –
   Percentiles / Mean*, *SmokePing DNS Resolvers* and *SmokePing Latency –
   Side-by-Side*, with their ClickHouse twins.** The dashboards audit compared
