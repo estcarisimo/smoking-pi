@@ -88,7 +88,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "average"
+              "options": "median"
             },
             "properties": [
               {
@@ -102,6 +102,10 @@
               {
                 "id": "custom.zindex",
                 "value": 3
+              },
+              {
+                "id": "displayName",
+                "value": "Median"
               }
             ]
           },
@@ -136,6 +140,10 @@
               {
                 "id": "custom.zindex",
                 "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "Mean"
               }
             ]
           },
@@ -185,7 +193,7 @@
         {
           "refId": "A",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as average FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = '${category}' AND measurement_type <> 'dns_latency' AND avg_latency > 0 GROUP BY timestamp ORDER BY timestamp",
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(median_latency) as median FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = '${category}' AND measurement_type <> 'dns_latency' AND median_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
           "format": 1
         },
         {
