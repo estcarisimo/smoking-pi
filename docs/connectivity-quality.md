@@ -98,9 +98,12 @@ on is still in view two dashboards later.
 
 ## When does it happen?
 
-The two heatmaps cover the last 30 days, whatever the range picker says.
+The four heatmaps cover the last 30 days, whatever the range picker says.
 Each cell is one hour of one day in the dashboard's time zone (the browser's
-unless Grafana is set otherwise):
+unless Grafana is set otherwise). A column that repeats day after day is a
+daily band; a single bright cell is one event.
+
+![Loss and latency by day and hour of day, over 30 days](img/connectivity-quality-heatmaps.png)
 
 - **Mean loss across destinations.** A single long cut lights a cell
   brightly. The color scale is compressed so that small everyday loss still
@@ -109,7 +112,46 @@ unless Grafana is set otherwise):
   cycles in which destinations lost packets together. A cut counts once per
   cycle, however deep it was. A recurring evening band here is loss the
   destinations share, every day at the same time.
+- **ICMP median latency, share above the day's quietest hour.** The hourly
+  mean of the median latency across destinations, as a share above the
+  lowest hour of that same day. Latency moves by a few percent where loss
+  moves by orders of magnitude, so an absolute scale would show nothing:
+  relative to the day's own floor, a 19 ms and a 40 ms connection read
+  alike, and the nightly rise that goes with the loss band shows. Each
+  day's quietest hour is blank, and the scale saturates at +50 %. A step
+  between days (the whole connection getting slower) is not shown here; the
+  latency chart above keeps it.
+- **HTTP median latency, share above the day's quietest hour.** The same,
+  for the [HTTP probes](http-probes.md). HTTP time includes the servers'
+  side, so a band here that the ICMP heatmap does not share is beyond the
+  network: the sites, or the path to them, are slower at that hour.
 
 A band in the heatmaps while the [ISP gateway](cpe-last-mile.md)'s loss
 line stays flat is beyond the access link. A band that appears together
 with Wi-Fi drops (see the [Wi-Fi dashboard](wifi.md)) is closer to home.
+
+Two signals were tried and left out because the reference installation
+showed no daily band in 30 days: the ISP gateway's loss (it lost pings only
+when every destination did; on every other hour its loss stayed under
+0.4 %) and the Wi-Fi link's signal (its hourly mean moved by 0.6 dB across
+the 24 hours of the day).
+
+### Shading a window of your choice
+
+Once the heatmaps show you a band, the **Selected window** box at the top
+of the dashboard shades it on every day of the selected range, on each
+time-axis panel, so you can see what loss, latency and the detected episodes
+did inside it. Type the window as `HH:MM-HH:MM` in the dashboard's time
+zone, for example `20:00-23:00`; a window that crosses midnight, such as
+`23:00-02:00`, works too. Leave the box empty and nothing is shaded.
+
+![A selected window shaded on every day of the range](img/connectivity-quality-window.png)
+
+The shading is the annotation *Your selected window*, and its hover text
+repeats the window you typed. The name says what it is: a band **you**
+chose, generated from the variable, with no judgment behind it. The
+dashboard does not detect recurring windows by itself. If it ever did, the
+detected band would be a separate annotation set with its own name and
+color, never this one, so that what you selected and what the system found
+can never be read as the same thing. Whether to build that detection is an
+open decision, not a planned feature.
