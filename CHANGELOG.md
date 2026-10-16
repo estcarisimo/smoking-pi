@@ -28,9 +28,10 @@ version gets a matching GitHub release and git tag.
   through an annotation named *Your selected window*: your choice, not a
   detected pattern, and the docs say a detected band would be a separate,
   labeled annotation set. The ISP gateway's loss and the Wi-Fi signal were
-  evaluated and left out: on the reference installation the gateway lost
-  pings only when every destination did (under 0.4 % on every other hour)
-  and the signal's hourly mean moved by 0.6 dB over the day.
+  evaluated and left out: on the reference installation the gateway (two
+  weeks of data) lost pings only in the hours when every destination did,
+  with an hour-of-day mean under 0.4 % otherwise, and the Wi-Fi signal's
+  hourly mean moved by 0.6 dB over the day.
 
 ## [2.37.0] — 2026-10-15
 
