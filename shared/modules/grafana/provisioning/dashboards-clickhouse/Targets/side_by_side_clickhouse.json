@@ -140,6 +140,10 @@
               {
                 "id": "custom.zindex",
                 "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "Mean"
               }
             ]
           },

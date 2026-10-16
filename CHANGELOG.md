@@ -31,8 +31,8 @@ version gets a matching GitHub release and git tag.
   the solid line and the dashed *mean* line were both `avg(avg_latency)`,
   so comparing the targets of a category in ClickHouse mode showed no
   median, the line the InfluxDB Side by Side leads with, and a single
-  spiky ping pulled the only line drawn. The solid line is
-  `avg(median_latency)` again, labeled *Median*. The ClickHouse Individual
+  spiky ping pulled the only line drawn. The solid line is now
+  `avg(median_latency)`, labeled *Median*, and the dashed one *Mean*. The ClickHouse Individual
   Pings dashboard already drew average and median once each.
 - **DNS dashboards, the smaller things a panel-by-panel audit found.** The
   packet-loss legend read `loss {category="dns", probe_type="dns",
