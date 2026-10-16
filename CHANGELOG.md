@@ -9,6 +9,45 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Downtime" on the latency panels meant 5% loss, and a bar could span
+  hours of good measurements.** The red overlay on every per-target
+  latency panel (Individual Pings, Side by Side, DNS Resolvers and their
+  ClickHouse twins) was named *Downtime* and marked a 15-minute window
+  that lost 1.5 pings' worth, the alerter's *loss event* rule: a window
+  with 28 answered pings of 30 was "down". Worse, the series held only
+  the marked windows, and Grafana sizes bars by the spacing of the points
+  it is given, so one marked window at 12:45 and the next at 14:45 were
+  drawn as a single block from one to the other, and a lone mark was as
+  wide as Grafana's guess. On the reference installation on 2026-10-15
+  Amazon, Facebook and the ISP gateway each showed a solid "Downtime"
+  block over nearly three hours of a panel that answered all along
+  (one lossy window each, at the 12:45 spike). A reader was told the
+  connection was down while the chart beside the block showed it
+  answering, and the one word that should mean something on a
+  monitoring panel meant nothing. The overlay is now two: red
+  **Unreachable (nothing answered)** marks a window only when every
+  cycle in it lost every ping, and a lighter orange **Lossy (≥ 1.5
+  pings lost in 15 min)** keeps the loss-event rule under its own name.
+  Both series are dense (a 0 for every clean window, which draws
+  nothing), so each bar is one window wide and sits over the window it
+  judges; a window with no measurements at all is left blank, because
+  no data is not nothing answered; both stay out of the tooltip. The
+  red is now red: the overlay's color was written as two property ids
+  Grafana does not know (`color.mode`, `color.fixedColor`), so every
+  "Downtime" bar since 2026-09-24 was drawn in the palette's blue; the
+  override now sets `color` the way every working override does. Verified
+  read-only against production through Grafana's API: over 2026-10-15
+  16:00–22:00 UTC, Amazon, Facebook and the gateway go from 1 "Downtime"
+  mark each (Apple 2) to 0 unreachable and 1 lossy (Apple 2); over the
+  Pi's deaf-radio spell of 2026-10-12 15:00–21:00 UTC every target goes
+  from 23 marks to 22 unreachable and 23 lossy (the first window
+  answered something before the radio hung). The gateway's permanent
+  ICMP floor marks nothing unreachable. The ClickHouse dashboards apply
+  the same two rules from `packet_loss` and `packets_sent`.
+  [Alerting](docs/alerting.md) describes the overlays as they are.
+
 ## [2.38.0] — 2026-10-15
 
 Connectivity & Quality now shows when latency rises, not only when
