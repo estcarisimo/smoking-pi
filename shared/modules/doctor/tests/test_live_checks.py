@@ -1078,7 +1078,9 @@ def _disk(total, free, images="", used=f"{REG}/alerter:2.38.2\n"):
 def test_plenty_of_space_is_ok_and_names_the_mount_and_the_free_space():
     res, seen = _disk(117 * GB, 74 * GB)
     assert res.status is Status.OK
-    assert seen["path"] == "/var/lib/docker"
+    # The mount is what is read: /var/lib/docker itself is root's, 0710, so a
+    # docker-group user without sudo could not statvfs it and got a skip.
+    assert seen["path"] == "/"
     assert res.summary == "/ (Docker's data root) has 74 GB free of 117 GB (63%)"
 
 
@@ -1099,10 +1101,12 @@ def test_five_gigabytes_on_a_small_card_warns_even_above_ten_percent():
     assert "4.5 GB free of 32 GB (14%)" in res.findings[0].message
 
 
-def test_under_two_percent_fails():
+def test_under_two_percent_or_one_gigabyte_fails():
     res, _ = _disk(117 * GB, 2 * GB)
     assert res.status is Status.FAIL
     assert "2.0 GB free of 117 GB (2%)" in res.findings[0].message
+    res, _ = _disk(32 * GB, 0.7 * GB)   # 2.2 %, but under 1 GB
+    assert res.status is Status.FAIL
 
 
 def test_old_image_tags_are_named_with_the_command_that_removes_them():
@@ -1111,7 +1115,7 @@ def test_old_image_tags_are_named_with_the_command_that_removes_them():
     res, _ = _disk(117 * GB, 3 * GB, images=images)
     assert res.status is Status.WARN
     msg = res.findings[0].message
-    assert "3 image tag(s) of other releases are on disk (2.37.0, 2.38.1, <none>)" in msg
+    assert "images of 3 other release(s) are on disk (tags 2.37.0, 2.38.1, <none>)" in msg
     assert "`smoking-pi upgrade` removes them" in msg
     # And on a healthy disk the summary still says so.
     res, _ = _disk(117 * GB, 74 * GB, images=images)
@@ -1135,6 +1139,17 @@ def test_the_mount_point_is_the_first_mounted_ancestor():
         docker, statvfs=lambda p: Stat(500 * GB, 300 * GB),
         ismount=lambda p: p in ("/", "/mnt/ssd"), registry=REG)
     assert res.summary.startswith("/mnt/ssd (Docker's data root) has 300 GB free of 500 GB")
+
+
+def test_the_data_root_itself_being_unreadable_does_not_matter():
+    docker = FakeDocker({INFO_ROOT: (0, "/var/lib/docker\n"), PS_IMAGES: (0, "")})
+    def statvfs(path):
+        if path == "/var/lib/docker":
+            raise PermissionError(13, "denied")
+        return Stat(117 * GB, 74 * GB)
+    res = live_checks.check_disk_free(
+        docker, statvfs=statvfs, ismount=lambda p: p == "/", registry=REG)
+    assert res.status is Status.OK
 
 
 def test_no_docker_or_no_daemon_or_unreadable_filesystem_skips():

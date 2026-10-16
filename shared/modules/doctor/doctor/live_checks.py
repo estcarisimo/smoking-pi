@@ -964,6 +964,7 @@ def check_avahi_host_name(proc: pathlib.Path = PROC,
 DISK_WARN_FRACTION = 0.10
 DISK_WARN_BYTES = 5 * 10**9
 DISK_FAIL_FRACTION = 0.02
+DISK_FAIL_BYTES = 10**9
 DEFAULT_REGISTRY = "ghcr.io/estcarisimo/smoking-pi"
 
 
@@ -1000,7 +1001,8 @@ def _old_image_tags(docker: Docker, registry: str) -> list[str] | None:
     if code != 0:
         return None
     old = {ref.rpartition(":")[2] for ref in listing.split()} - in_use
-    return sorted(old)
+    # A <none> tag is what a pull left behind: counted, named last.
+    return sorted(old - {"<none>"}) + (["<none>"] if "<none>" in old else [])
 
 
 def check_disk_free(
@@ -1011,7 +1013,7 @@ def check_disk_free(
 ) -> CheckResult:
     """Whether the filesystem holding Docker's data root is about to fill.
 
-    Warns under 10 % or 5 GB free, fails under 2 %. When the registry's
+    Warns under 10 % or 5 GB free, fails under 2 % or 1 GB. When the registry's
     images carry tags no container runs, the message says that
     ``smoking-pi upgrade`` removes them: since that command removes the
     images of other releases, old tags on disk mean an upgrade that was
@@ -1025,16 +1027,19 @@ def check_disk_free(
     root = out.strip()
     if code != 0 or not root:
         return skipped(name, "could not ask Docker for its data root (is the daemon running?)")
+    # The mount, not the data root itself: /var/lib/docker is root's, mode
+    # 0710, so a docker-group user without sudo cannot statvfs it, and the
+    # person who can reach the daemon would be the one with no warning.
+    mount = _mount_point(root, ismount)
     try:
-        st = statvfs(root)
+        st = statvfs(mount)
     except OSError:
-        return skipped(name, f"cannot read the filesystem holding {root}")
+        return skipped(name, f"cannot read the filesystem at {mount} holding {root}")
     total = st.f_blocks * st.f_frsize
     free = st.f_bavail * st.f_frsize
     if total <= 0:
-        return skipped(name, f"the filesystem holding {root} reports no size")
+        return skipped(name, f"the filesystem at {mount} reports no size")
     fraction = free / total
-    mount = _mount_point(root, ismount)
     registry = registry or os.environ.get("SMOKING_PI_REGISTRY", DEFAULT_REGISTRY)
     old = _old_image_tags(docker, registry) or []
     state = (f"{mount} (Docker's data root) has {_gigabytes(free)} free of "
@@ -1042,11 +1047,12 @@ def check_disk_free(
     old_note = ""
     if old:
         shown = ", ".join(old[:5]) + (", …" if len(old) > 5 else "")
-        old_note = (f"; {len(old)} image tag(s) of other releases are on disk "
-                    f"({shown}): `smoking-pi upgrade` removes them")
+        old_note = (f"; images of {len(old)} other release(s) are on disk "
+                    f"(tags {shown}): `smoking-pi upgrade` removes them")
     if fraction >= DISK_WARN_FRACTION and free >= DISK_WARN_BYTES:
         return result(name, [], state + old_note)
-    status = Status.FAIL if fraction < DISK_FAIL_FRACTION else Status.WARN
+    critical = fraction < DISK_FAIL_FRACTION or free < DISK_FAIL_BYTES
+    status = Status.FAIL if critical else Status.WARN
     cost = ("a full card stops PostgreSQL, Grafana and InfluxDB, and InfluxDB "
             "keeps refusing writes until its container is restarted")
     return result(

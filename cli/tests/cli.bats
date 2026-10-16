@@ -385,11 +385,16 @@ STUB_RELEASE_IMAGES="$REG/alerter:2.12.0 aaa111 300MB\n$REG/alerter:2.11.0 bbb22
     if grep -q "image rm $REG/grafana:2.10.0" "$DOCKER_LOG"; then false; fi
     if grep -q "image prune" "$DOCKER_LOG"; then false; fi
     if grep -q "cloudflared" "$DOCKER_LOG"; then false; fi
-    [[ "$output" == *"Removed 3 image(s) of other releases, about 1.7 GB"* ]]
-    # After the stack is up, never before: a failed up keeps the fallback.
+    [[ "$output" == *"Removed 3 image(s) of other releases, up to 1.7 GB"* ]]
+    # Only the registry's images are even listed.
+    grep -qx "docker image ls --filter reference=$REG/\* --format {{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}" "$DOCKER_LOG"
+    # After the stack is up and still up ten seconds later, never before: a
+    # failed up, or a release that crashes on its first request, keeps the
+    # fallback.
     up=$(grep -n " up -d --remove-orphans" "$DOCKER_LOG" | cut -d: -f1 | head -1)
+    settle=$(grep -n "^sleep 10" "$DOCKER_LOG" | cut -d: -f1 | head -1)
     rm=$(grep -n "image rm" "$DOCKER_LOG" | cut -d: -f1 | head -1)
-    [ "$up" -lt "$rm" ]
+    [ "$up" -lt "$settle" ] && [ "$settle" -lt "$rm" ]
 }
 
 @test "upgrade from a clone keeps the :dev images it just built and removes the release tags" {

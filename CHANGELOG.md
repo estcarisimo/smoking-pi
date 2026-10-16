@@ -22,13 +22,13 @@ version gets a matching GitHub release and git tag.
   was freed: sixteen minutes of measurements lost, and the RRDs kept
   writing only because their files already existed. `upgrade` now removes
   the images of other releases once every container of the new release is
-  running: each `ghcr.io/estcarisimo/smoking-pi/*` image whose tag is not
+  running, and still running ten seconds later: each `ghcr.io/estcarisimo/smoking-pi/*` image whose tag is not
   the version just brought up, one `docker image rm` at a time (never
   `docker image prune -a`, which would take cloudflared and whatever else
   the daemon holds), never an image a container still references, and
-  nothing at all while a container is not running, so a failed upgrade
-  keeps the previous release to go back to. It says how many it removed
-  and about how much space. The release's package-install test asserts
+  nothing at all while a container is not running at either look, so a
+  failed upgrade keeps the previous release to go back to. It says how
+  many it removed and up to how much space. The release's package-install test asserts
   that the previous release's images are gone after the upgrade.
 
 ### Added
@@ -36,7 +36,7 @@ version gets a matching GitHub release and git tag.
 - **Doctor `disk-free` live check.** Nothing had said the card was
   filling. The doctor now reads the free space of the filesystem under
   Docker's data root: a warning under 10 % or 5 GB free, a failure under
-  2 %, the mount and the free space in the message, and, when the
+  2 % or 1 GB, the mount and the free space in the message, and, when the
   registry's images carry tags no container runs, the note that
   `smoking-pi upgrade` removes them.
 
