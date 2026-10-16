@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.38.0] — 2026-10-15
+
+Connectivity & Quality now shows when latency rises, not only when
+packets are lost, and lets you shade a window of your own choice on every
+day of the range. Two heatmaps join the "When does it happen?" row, ICMP
+and HTTP median latency as a share above each day's quietest hour; a
+"Selected window" box shades its band through an annotation named for
+what it is, your selection, never a detected pattern. The ISP gateway's
+loss and the Wi-Fi signal were evaluated for a heatmap and left out.
+
 ### Added
 
 - **Connectivity & Quality shows when latency rises, and shades a window
