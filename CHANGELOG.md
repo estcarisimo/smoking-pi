@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.38.2] — 2026-10-16
+
+The DNS & Services dashboards, audited panel by panel. A single lossy
+window no longer flattens the latency panel it marks: the overlay bars
+live on a hidden scale of their own, so the latency axis keeps its range.
+The ClickHouse DNS Resolvers and Side by Side dashboards drew the mean
+twice and never the median; they lead with the median again, as their
+InfluxDB twins do. The DNS Wizard gets a log scale, HTTP-sized thresholds,
+links to Target Detail and ordered legends, and the seed's `uba_ar`
+target says what it measures: Imperva's CDN edge, not Buenos Aires.
+
 ### Fixed
 
 - **One lossy window flattened the latency panel it marked.** The
