@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.38.1] — 2026-10-15
+
+The red bar on the per-target latency panels says "unreachable" only when
+nothing answered. It had been marking 5 % loss as "Downtime", drawing one
+mark as a block reaching the next one, hours wide over a panel that was
+answering all along, and in the palette's blue because its color never
+applied. It is now two honest overlays, each bar one 15-minute window
+wide: red for windows in which every ping was lost, lighter orange for
+windows that lost 1.5 pings' worth, the alerter's loss-event rule, under
+that name; a window with no measurements stays blank.
+
 ### Fixed
 
 - **"Downtime" on the latency panels meant 5% loss, and a bar could span
