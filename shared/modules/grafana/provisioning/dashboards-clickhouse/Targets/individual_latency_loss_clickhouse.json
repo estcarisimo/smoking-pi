@@ -349,12 +349,31 @@
                 "value": 40
               },
               {
-                "id": "color.mode",
-                "value": "fixed"
+                "id": "custom.lineWidth",
+                "value": 0
               },
               {
-                "id": "color.fixedColor",
-                "value": "dark-red"
+                "id": "custom.barWidthFactor",
+                "value": 1
+              },
+              {
+                "id": "custom.barAlignment",
+                "value": -1
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": true,
+                  "viz": false
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-red"
+                }
               },
               {
                 "id": "custom.zindex",
@@ -362,7 +381,58 @@
               },
               {
                 "id": "displayName",
-                "value": "Downtime"
+                "value": "Unreachable (nothing answered)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "lossy"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 15
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.barWidthFactor",
+                "value": 1
+              },
+              {
+                "id": "custom.barAlignment",
+                "value": -1
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": true,
+                  "viz": false
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-orange"
+                }
+              },
+              {
+                "id": "custom.zindex",
+                "value": 3
+              },
+              {
+                "id": "displayName",
+                "value": "Lossy (\u2265 1.5 pings lost in 15 min)"
               }
             ]
           }
@@ -420,7 +490,13 @@
         {
           "refId": "I",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, 500.0 as unreachable FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, target, sum(least(packet_loss, 100.0) / 100.0 * coalesce(packets_sent, if(measurement_type = 'latency', 10, 5))) as lost FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' GROUP BY w, target HAVING lost >= 1.5) GROUP BY w ORDER BY w",
+          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, unreachable FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(min(least(packet_loss, 100.0)) >= 100.0, 500.0, 0.0) as unreachable FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' GROUP BY w) ORDER BY time",
+          "format": 1
+        },
+        {
+          "refId": "J",
+          "queryType": "sql",
+          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, lossy FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(sum(least(packet_loss, 100.0) / 100.0 * coalesce(packets_sent, if(measurement_type = 'latency', 10, 5))) >= 1.5, 500.0, 0.0) as lossy FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' GROUP BY w) ORDER BY time",
           "format": 1
         }
       ]

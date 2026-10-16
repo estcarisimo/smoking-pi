@@ -963,28 +963,54 @@ the loss events that `get_loss_events`, the digest and the AI report count
 all use this rule (`common.cadence.EVENT_LOST_PINGS`). The `high_loss` mean
 threshold (`HIGH_LOSS_PCT`) stays a percent: it is an average, not a count.
 
-The Grafana panels' red **unreachable** overlay follows the same idea:
-a 15-minute window is marked when it lost 1.5 pings' worth in total
-(the sum of loss × pings over the window). On the shipped 300 s step
-that is exactly the old "15-minute mean at 5% or more" (5% of 3 × 10
-pings), and it stays one lost ping short of a mark whatever the step.
-Points written before the exporter recorded `pings` count as 10 for
-`latency` and 5 for DNS, HTTP and TCP: what those probes always sent.
-The ClickHouse dashboards apply the same rule from `packet_loss` ×
-`packets_sent`, with the same 10 and 5 for a step that lost everything,
-because the ClickHouse exporter writes no `packets_sent` for such a step.
-Until 2026-10-13 they marked only those total-loss steps, so the same
-target could show a red overlay on one database and none on the other.
-The alerter's flat default of 10 is a different case. It reads each
-target's latest `pings` from the last 6 hours, and the alerter ships in
-the same release as the exporter that writes it, so every target has a
-real count within one exporter cycle (60 s).
+The Grafana panels draw two overlays on each per-target latency panel,
+and neither says "downtime" unless nothing answered:
 
-On the shipped probes, all of this is exactly what it was. The only
-difference is that one lost DNS query (20%) is no longer an event. On the
-reference Pi, seven days of loss events came to 843 under both rules. The
-overlay's only difference is the same one: a single lost fetch or query
-out of 5 no longer marks a window.
+- The red **Unreachable (nothing answered)** bar marks a 15-minute window
+  in which every cycle lost every ping (`loss` at 1.0 on each point of the
+  window). A window that answered anything, however little, is not
+  unreachable: a 5% window has 28 answered pings of 30. The first and
+  last windows of an outage usually answered something, so they are lossy,
+  not unreachable; the bar starts at the first window that lost it all.
+- The lighter orange **Lossy (≥ 1.5 pings lost in 15 min)** bar follows
+  the loss-event rule above: a window is marked when it lost 1.5 pings'
+  worth in total (the sum of loss × pings over the window). On the shipped
+  300 s step that is the old "15-minute mean at 5% or more" (5% of 3 × 10
+  pings), and it stays one lost ping short of a mark whatever the step.
+  Points written before the exporter recorded `pings` count as 10 for
+  `latency` and 5 for DNS, HTTP and TCP: what those probes always sent.
+
+Each bar is exactly one window wide and sits over the window it judges.
+Both series are dense (a 0 for every unmarked window, which draws
+nothing), because Grafana sizes bars by the spacing of the points it is
+given: until 2026-10-15 the series held only the marked windows, so one
+marked window at 12:45 and the next at 14:45 were drawn as a single bar
+from one to the other, and a lone mark was as wide as Grafana's guess.
+That is the "Downtime" block over hours of good measurements that
+prompted the change. A window with no measurements at all (SmokePing
+stopped, the exporter behind) is left blank in both overlays: no data is
+not nothing answered. The overlays stay out of the tooltip.
+
+![Before: the old "Downtime" overlay over the staging Pi's 17-hour radio hang, drawn in the palette's blue, every bar a guess wide](img/latency-overlay-before.png)
+
+![After: one red block of 15-minute windows in which nothing answered, an orange lossy window at its edge](img/latency-overlay-after.png)
+
+![An outage that answered something in every window is lossy, not unreachable, and the hours with no measurements stay blank](img/latency-overlay-nodata.png)
+
+The ClickHouse dashboards apply the same two rules from `packet_loss`
+(every point at 100 for unreachable) and `packet_loss` × `packets_sent`
+(lossy), with the same 10 and 5 for a step that lost everything, because
+the ClickHouse exporter writes no `packets_sent` for such a step. The
+alerter's flat default of 10 is a different case. It reads each target's
+latest `pings` from the last 6 hours, and the alerter ships in the same
+release as the exporter that writes it, so every target has a real count
+within one exporter cycle (60 s).
+
+On the shipped probes, the loss-event rule is exactly what it was. The
+only difference is that one lost DNS query (20%) is no longer an event.
+On the reference Pi, seven days of loss events came to 843 under both
+rules. The lossy overlay's only difference is the same one: a single lost
+fetch or query out of 5 does not mark a window.
 
 ## Flap damping, and why the cooldown alone is not enough
 
