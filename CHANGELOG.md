@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The seed's `uba_ar` target is labeled for what it measures.** Its
+  host, `uba.ar`, resolves to Imperva's anycast CDN, so the probe reaches
+  the nearest Imperva edge (a few milliseconds away) and never Buenos
+  Aires; next to the `UBA` name-server target (ns1.uba.ar, a far longer
+  path) the two rows looked like the same place with contradictory
+  numbers, and the gap read as a problem on the way to Buenos Aires that
+  was never there. The title now says *uba.ar (Imperva CDN edge)* and the
+  template explains why. The target name, and so its RRD history, is
+  unchanged; an existing install keeps its own title until it is edited.
+
 ## [2.38.1] — 2026-10-15
 
 The red bar on the per-target latency panels says "unreachable" only when

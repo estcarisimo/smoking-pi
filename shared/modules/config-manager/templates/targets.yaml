@@ -56,11 +56,15 @@ active_targets:
       lookup: quad9.net
       category: dns_resolvers
 
-  # Custom targets - add your own here
+  # Custom targets - add your own here. Check what a host resolves to
+  # before trusting its label; a CDN-fronted name measures the CDN.
   custom:
+    # uba.ar is fronted by Imperva's CDN, so pinging it measures the
+    # nearest Imperva edge, not the university in Buenos Aires
+    # (ns1.uba.ar, 157.92.0.0/16, is the real path there).
     - name: uba_ar
       host: uba.ar
-      title: uba.ar
+      title: uba.ar (Imperva CDN edge)
       probe: FPing
       category: custom
 
