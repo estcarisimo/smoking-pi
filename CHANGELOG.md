@@ -9,6 +9,30 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Connectivity & Quality shows when latency rises, and shades a window
+  of your choice.** The "When does it happen?" row showed loss by day and
+  hour of day and nothing else, so the nightly latency rise that goes with
+  the loss band on the reference installation (about 02:00–05:00, +1 to
+  +2 ms on a 19 ms floor, 15 of 28 days) was invisible, and the HTTP
+  layer's daily swing (+17 % at night over the midday floor, every day
+  since the HEAD probes) was not shown anywhere; and a band you had
+  spotted in a heatmap could not be followed on the time axis without
+  reading hours off the chart. Two heatmaps join the row, ICMP median
+  latency and HTTP median latency, each hour as a share above that day's
+  quietest hour, so a 19 ms and a 40 ms connection read alike and a step
+  between days does not drown the band (the latency chart keeps the
+  step). A **Selected window** box (`HH:MM-HH:MM`, dashboard time zone,
+  crossing midnight allowed) shades that band on every day of the range
+  through an annotation named *Your selected window*: your choice, not a
+  detected pattern, and the docs say a detected band would be a separate,
+  labeled annotation set. The ISP gateway's loss and the Wi-Fi signal were
+  evaluated and left out: on the reference installation the gateway (two
+  weeks of data) lost pings only in the hours when every destination did,
+  with an hour-of-day mean under 0.4 % otherwise, and the Wi-Fi signal's
+  hourly mean moved by 0.6 dB over the day.
+
 ## [2.37.0] — 2026-10-15
 
 Connectivity & Quality explains its own events. A red dot on the top

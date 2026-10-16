@@ -2,7 +2,7 @@
   "uid": "connectivity-quality-v1",
   "id": null,
   "title": "Connectivity & Quality",
-  "description": "Is the connection's quality changing, and when? Loss and latency by kind of destination on one time axis, the episodes the inference module detected, and loss by day and hour of day.",
+  "description": "Is the connection's quality changing, and when? Loss and latency by kind of destination on one time axis, the episodes the inference module detected, loss and latency by day and hour of day, and a window of your choice shaded on every day.",
   "schemaVersion": 37,
   "version": 1,
   "tags": [
@@ -77,11 +77,46 @@
           "refId": "Anno",
           "query": "import \"date\"\n// Every diagnosed incident that overlaps the range, whatever it blamed (except a probe missing a few pings). An incident is stamped at its start: reach back a week.\n// The link zooms this dashboard to the incident with a quarter of its length on either side.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 7d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"loss_incident\" and (r._field == \"class\" or r._field == \"confidence\" or r._field == \"summary\" or r._field == \"end_epoch\" or r._field == \"minutes\"))\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.class != \"probe_miss\" and r.end_epoch * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end_epoch * 1000000000), text: \"Loss incident, \" + r.class + \" (\" + r.confidence + \" confidence, \" + string(v: r.minutes) + \" min): \" + r.summary + \" <a href=\\\"/d/connectivity-quality-v1?from=\" + string(v: int(v: r._time) / 1000000 - int(v: r.minutes) * 15000) + \"&to=\" + string(v: r.end_epoch * 1000 + int(v: r.minutes) * 15000) + \"\\\">Zoom to this window</a>\", tags: \"incident,\" + r.class}))"
         }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#8AB8FF",
+        "name": "Your selected window (not a detected pattern)",
+        "target": {
+          "refId": "Window",
+          "query": "import \"date\"\nimport \"strings\"\nimport \"generate\"\nimport \"regexp\"\nimport \"timezone\"\n// The window typed in the \"Selected window\" box (\"HH:MM-HH:MM\", dashboard time zone), shaded on every day of the range.\n// This is the viewer's choice, not a detected pattern: empty, or anything but two clock times, shades nothing.\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nwin = strings.trimSpace(v: \"${window}\")\nok = regexp.matchRegexpString(r: /^([01]?[0-9]|2[0-3])(:[0-5][0-9])?-([01]?[0-9]|2[0-3])(:[0-5][0-9])?$/, v: win)\nparts = if ok then strings.split(v: win, t: \"-\") else [\"0\", \"0\"]\na = strings.split(v: parts[0], t: \":\")\nb = strings.split(v: parts[1], t: \":\")\nsm = int(v: a[0]) * 60 + (if length(arr: a) > 1 then int(v: a[1]) else 0)\nem0 = int(v: b[0]) * 60 + (if length(arr: b) > 1 then int(v: b[1]) else 0)\nem = if em0 <= sm then em0 + 1440 else em0\n// Two rows per day, 12 h apart, then one per local day: a day is never skipped or doubled across a DST change.\nfirst = date.sub(d: 1d, from: v.timeRangeStart)\nhalves = int(v: (int(v: v.timeRangeStop) - int(v: first)) / 43200000000000) + 2\ngenerate.from(count: halves, fn: (n) => n, start: first, stop: date.add(d: duration(v: halves * 43200000000000), to: first))\n  |> map(fn: (r) => ({_start: date.truncate(t: r._time, unit: 1d, location: loc)}))\n  |> unique(column: \"_start\")\n  |> map(fn: (r) => ({_start: r._start, _time: date.add(d: duration(v: sm * 60000000000), to: r._start, location: loc), _stop: date.add(d: duration(v: em * 60000000000), to: r._start, location: loc)}))\n  |> filter(fn: (r) => ok and r._time < v.timeRangeStop and r._start >= first)\n  |> map(fn: (r) => ({_time: r._time, timeEnd: r._stop, text: \"Your selected window, \" + win + \" (set by the window variable, not a detected pattern)\", tags: \"selected-window\"}))"
+        }
       }
     ]
   },
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "window",
+        "label": "Selected window (HH:MM-HH:MM, dashboard time zone)",
+        "type": "textbox",
+        "description": "Shades this band on every day of the range, on each time-axis panel. Your choice, not a detected pattern; empty, or anything but two clock times, shades nothing.",
+        "query": "",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      }
+    ]
   },
   "panels": [
     {
@@ -1207,6 +1242,220 @@
             "uid": "influxdb"
           },
           "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> aggregateWindow(every: 5m, fn: max, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _value: if r._value > 0.0 then 1 else 0})) |> group() |> aggregateWindow(every: 5m, fn: sum, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({r with _value: if r._value >= 2 then 1.0 else 0.0})) |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "heatmap",
+      "title": "ICMP median latency, share above the day’s quietest hour, day × hour",
+      "description": "Each cell is one hour of one day: the hourly mean of the median latency across destinations (the ISP gateway and the DNS wizard's targets left out), as a share above that day's quietest hour. A band at the same hour across the days is a daily pattern; one day brighter than its neighbors is a day whose quietest hour was itself low. Each day's quietest hour is blank, the scale saturates at +50 %, and a day with only a few hours yet (the first and the last) takes its floor from those hours. A level shift between days is not shown here: the latency chart above keeps it.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "timeFrom": "30d",
+      "hideTimeOverride": false,
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 0,
+        "y": 60
+      },
+      "options": {
+        "calculate": false,
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": false,
+          "axisLabel": "hour of day"
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "fill": "dark-orange",
+          "scale": "exponential",
+          "exponent": 0.5,
+          "steps": 64,
+          "reverse": false,
+          "min": 0,
+          "max": 0.5
+        },
+        "cellGap": 1,
+        "filterValues": {
+          "le": 1e-09
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": false,
+          "showColorScale": true
+        },
+        "legend": {
+          "show": true
+        },
+        "showValue": "never",
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "_time": 0,
+              "00": 1,
+              "01": 2,
+              "02": 3,
+              "03": 4,
+              "04": 5,
+              "05": 6,
+              "06": 7,
+              "07": 8,
+              "08": 9,
+              "09": 10,
+              "10": 11,
+              "11": 12,
+              "12": 13,
+              "13": 14,
+              "14": 15,
+              "15": 16,
+              "16": 17,
+              "17": 18,
+              "18": 19,
+              "19": 20,
+              "20": 21,
+              "21": 22,
+              "22": 23,
+              "23": 24
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\nimport \"join\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nhourly = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"median\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _start: date.truncate(t: r._time, unit: 1d, location: loc), _value: r._value})) |> group(columns: [\"_start\"])\nfloor = hourly |> min()\njoin.inner(left: hourly, right: floor, on: (l, r) => l._start == r._start, as: (l, r) => ({_start: l._start, _time: l._time, _value: if r._value > 0.0 then l._value / r._value - 1.0 else 0.0})) |> group() |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "heatmap",
+      "title": "HTTP median latency, share above the day’s quietest hour, day × hour",
+      "description": "Each cell is one hour of one day: the hourly mean of the HTTP median across the HTTP targets (the DNS wizard's left out), as a share above that day's quietest hour. HTTP time includes the server's side, so a band here that the ICMP heatmap does not share is beyond the network. Each day's quietest hour is blank, the scale saturates at +50 %, and a day with only a few hours yet takes its floor from those hours.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "timeFrom": "30d",
+      "hideTimeOverride": false,
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 12,
+        "y": 60
+      },
+      "options": {
+        "calculate": false,
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": false,
+          "axisLabel": "hour of day"
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "fill": "dark-orange",
+          "scale": "exponential",
+          "exponent": 0.5,
+          "steps": 64,
+          "reverse": false,
+          "min": 0,
+          "max": 0.5
+        },
+        "cellGap": 1,
+        "filterValues": {
+          "le": 1e-09
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": false,
+          "showColorScale": true
+        },
+        "legend": {
+          "show": true
+        },
+        "showValue": "never",
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "_time": 0,
+              "00": 1,
+              "01": 2,
+              "02": 3,
+              "03": 4,
+              "04": 5,
+              "05": 6,
+              "06": 7,
+              "07": 8,
+              "08": 9,
+              "09": 10,
+              "10": 11,
+              "11": 12,
+              "12": 13,
+              "13": 14,
+              "14": 15,
+              "15": 16,
+              "16": 17,
+              "17": 18,
+              "18": 19,
+              "19": 20,
+              "20": 21,
+              "21": 22,
+              "22": 23,
+              "23": 24
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"timezone\"\nimport \"date\"\nimport \"join\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nhourly = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"http_latency\" and r._field == \"median\" and r.category != \"dns_wizard\") |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _start: date.truncate(t: r._time, unit: 1d, location: loc), _value: r._value})) |> group(columns: [\"_start\"])\nfloor = hourly |> min()\njoin.inner(left: hourly, right: floor, on: (l, r) => l._start == r._start, as: (l, r) => ({_start: l._start, _time: l._time, _value: if r._value > 0.0 then l._value / r._value - 1.0 else 0.0})) |> group() |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
         }
       ]
     }
