@@ -989,7 +989,11 @@ from one to the other, and a lone mark was as wide as Grafana's guess.
 That is the "Downtime" block over hours of good measurements that
 prompted the change. A window with no measurements at all (SmokePing
 stopped, the exporter behind) is left blank in both overlays: no data is
-not nothing answered. The overlays stay out of the tooltip.
+not nothing answered. The overlays stay out of the tooltip, and they
+draw on a hidden scale of their own, from 0 to 1, so a marked window fills
+the panel's height without touching the latency axis. Until 2026-10-16 a
+marked window was a bar 500 ms tall on that axis: one lossy window
+stretched a panel of 10 ms resolver lines to 500 ms and flattened them.
 
 ![Before: the old "Downtime" overlay over the staging Pi's 17-hour radio hang, drawn in the palette's blue, every bar a guess wide](img/latency-overlay-before.png)
 

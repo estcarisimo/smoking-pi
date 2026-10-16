@@ -382,6 +382,22 @@
               {
                 "id": "displayName",
                 "value": "Unreachable (nothing answered)"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
               }
             ]
           },
@@ -433,6 +449,22 @@
               {
                 "id": "displayName",
                 "value": "Lossy (\u2265 1.5 pings lost in 15 min)"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
               }
             ]
           }
@@ -490,13 +522,13 @@
         {
           "refId": "I",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, unreachable FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(min(least(packet_loss, 100.0)) >= 100.0, 500.0, 0.0) as unreachable FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' GROUP BY w) ORDER BY time",
+          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, unreachable FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(min(least(packet_loss, 100.0)) >= 100.0, 1.0, 0.0) as unreachable FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' GROUP BY w) ORDER BY time",
           "format": 1
         },
         {
           "refId": "J",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, lossy FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(sum(least(packet_loss, 100.0) / 100.0 * coalesce(packets_sent, if(measurement_type = 'latency', 10, 5))) >= 1.5, 500.0, 0.0) as lossy FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' GROUP BY w) ORDER BY time",
+          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, lossy FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(sum(least(packet_loss, 100.0) / 100.0 * coalesce(packets_sent, if(measurement_type = 'latency', 10, 5))) >= 1.5, 1.0, 0.0) as lossy FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND measurement_type <> 'dns_latency' GROUP BY w) ORDER BY time",
           "format": 1
         }
       ]

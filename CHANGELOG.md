@@ -11,6 +11,32 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **One lossy window flattened the latency panel it marked.** The
+  *Unreachable* and *Lossy* overlays on every per-target latency panel
+  (DNS Resolvers, Individual Pings, Side by Side and the ClickHouse
+  twins) were bars 500 ms tall on the latency axis, so a single marked
+  15-minute window stretched a panel of 10–50 ms lines to 500 ms and
+  flattened exactly the period someone opened it to look at. The bars now
+  sit on a hidden 0–1 scale of their own: they still fill the panel's
+  height, and the latency axis keeps the latency's range.
+- **The ClickHouse DNS Resolvers dashboard drew the mean twice and never
+  the median.** Its solid line and its dashed *Mean* line were both
+  `avg(avg_latency)`, so the one line the InfluxDB version leads with was
+  missing although `median_latency` is in the table. The solid line is
+  the median again. An unused *Status* variable (a PostgreSQL query no
+  panel read) and a hardcoded list of the three seeded resolvers for
+  *All* are gone.
+- **DNS dashboards, the smaller things a panel-by-panel audit found.** The
+  packet-loss legend read `loss {category="dns", probe_type="dns",
+  target=…}` and is now *Loss*, with a description. On DNS Wizard: the
+  per-protocol median is on a logarithmic scale (ICMP and TCP, about
+  9 ms, lay flat at zero under HTTP's 130 ms); the latest-median table
+  colors HTTP at 300 ms / 1 s instead of ICMP's 80 / 200 ms, which had
+  painted every HTTP cell orange; a service in either table links to its
+  Target Detail; the legends run top 5, 10, 20 and services, CDNs,
+  networks instead of alphabetically; three stat titles no longer cut off
+  at 1600 px; and the header says *summarizes*.
+
 - **The seed's `uba_ar` target is labeled for what it measures.** Its
   host, `uba.ar`, resolves to Imperva's anycast CDN, so the probe reaches
   the nearest Imperva edge (a few milliseconds away) and never Buenos

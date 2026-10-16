@@ -202,7 +202,11 @@
               { "id": "custom.hideFrom",    "value": { "legend": false, "tooltip": true, "viz": false } },
               { "id": "color",              "value": { "mode": "fixed", "fixedColor": "dark-red" } },
               { "id": "custom.zindex",      "value": 4 },
-              { "id": "displayName",        "value": "Unreachable (nothing answered)" }
+              { "id": "displayName",        "value": "Unreachable (nothing answered)" },
+              { "id": "custom.axisPlacement", "value": "hidden" },
+              { "id": "unit",               "value": "none" },
+              { "id": "min",                "value": 0 },
+              { "id": "max",                "value": 1 }
             ]
           },
           {
@@ -216,7 +220,11 @@
               { "id": "custom.hideFrom",    "value": { "legend": false, "tooltip": true, "viz": false } },
               { "id": "color",              "value": { "mode": "fixed", "fixedColor": "dark-orange" } },
               { "id": "custom.zindex",      "value": 3 },
-              { "id": "displayName",        "value": "Lossy (≥ 1.5 pings lost in 15 min)" }
+              { "id": "displayName",        "value": "Lossy (≥ 1.5 pings lost in 15 min)" },
+              { "id": "custom.axisPlacement", "value": "hidden" },
+              { "id": "unit",               "value": "none" },
+              { "id": "min",                "value": 0 },
+              { "id": "max",                "value": 1 }
             ]
           }
         ]
@@ -265,12 +273,12 @@
         {
           "refId": "I",
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.target == \"[[target]]\" and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: if r._value > 1.0 then 1.0 else r._value })) |> aggregateWindow(every:15m, fn: min, createEmpty:true) |> map(fn:(r)=> ({ r with _value: if not exists r._value then 0.0 else if r._value >= 1.0 then 500.0 else 0.0 })) |> set(key:\"_field\", value:\"unreachable\") |> group(columns:[\"_start\", \"_stop\", \"_measurement\", \"_field\", \"target\", \"category\", \"probe_type\"]) |> yield(name:\"unreachable\")"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.target == \"[[target]]\" and r._field == \"loss\") |> map(fn:(r)=> ({ r with _value: if r._value > 1.0 then 1.0 else r._value })) |> aggregateWindow(every:15m, fn: min, createEmpty:true) |> map(fn:(r)=> ({ r with _value: if not exists r._value then 0.0 else if r._value >= 1.0 then 1.0 else 0.0 })) |> set(key:\"_field\", value:\"unreachable\") |> group(columns:[\"_start\", \"_stop\", \"_measurement\", \"_field\", \"target\", \"category\", \"probe_type\"]) |> yield(name:\"unreachable\")"
         },
         {
           "refId": "J",
           "queryType": "flux",
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.target == \"[[target]]\" and (r._field == \"loss\" or r._field == \"pings\")) |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> map(fn:(r)=> ({ r with _value: (if not exists r.loss then 0.0 else if r.loss > 1.0 then 1.0 else r.loss) * (if exists r.pings then float(v: r.pings) else if r._measurement == \"latency\" then 10.0 else 5.0) })) |> aggregateWindow(every:15m, fn: sum, createEmpty:true) |> map(fn:(r)=> ({ r with _value: if not exists r._value then 0.0 else if r._value >= 1.5 then 500.0 else 0.0 })) |> set(key:\"_field\", value:\"lossy\") |> group(columns:[\"_start\", \"_stop\", \"_measurement\", \"_field\", \"target\", \"category\", \"probe_type\"]) |> yield(name:\"lossy\")"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.target == \"[[target]]\" and (r._field == \"loss\" or r._field == \"pings\")) |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> map(fn:(r)=> ({ r with _value: (if not exists r.loss then 0.0 else if r.loss > 1.0 then 1.0 else r.loss) * (if exists r.pings then float(v: r.pings) else if r._measurement == \"latency\" then 10.0 else 5.0) })) |> aggregateWindow(every:15m, fn: sum, createEmpty:true) |> map(fn:(r)=> ({ r with _value: if not exists r._value then 0.0 else if r._value >= 1.5 then 1.0 else 0.0 })) |> set(key:\"_field\", value:\"lossy\") |> group(columns:[\"_start\", \"_stop\", \"_measurement\", \"_field\", \"target\", \"category\", \"probe_type\"]) |> yield(name:\"lossy\")"
         }
       ]
     },
