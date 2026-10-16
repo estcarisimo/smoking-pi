@@ -991,6 +991,12 @@ prompted the change. A window with no measurements at all (SmokePing
 stopped, the exporter behind) is left blank in both overlays: no data is
 not nothing answered. The overlays stay out of the tooltip.
 
+![Before: the old "Downtime" overlay over the staging Pi's 17-hour radio hang, drawn in the palette's blue, every bar a guess wide](img/latency-overlay-before.png)
+
+![After: one red block of 15-minute windows in which nothing answered, an orange lossy window at its edge](img/latency-overlay-after.png)
+
+![An outage that answered something in every window is lossy, not unreachable, and the hours with no measurements stay blank](img/latency-overlay-nodata.png)
+
 The ClickHouse dashboards apply the same two rules from `packet_loss`
 (every point at 100 for unreachable) and `packet_loss` × `packets_sent`
 (lossy), with the same 10 and 5 for a step that lost everything, because
