@@ -118,6 +118,83 @@ for f in json.load(sys.stdin):
     return 0
 }
 
+# The images of releases this host no longer runs. Every `upgrade` pulls a
+# new set of thirteen images and left every previous set on disk: by
+# v2.38.2 the reference Pi carried 513 Smoking Pi images, 92 GB of a
+# 117 GB card, and the pull that filled it took PostgreSQL (crash loop on
+# postmaster.pid), Grafana (SQLite "database or disk is full") and
+# InfluxDB (WAL writes refused until the container was restarted, 16
+# minutes of measurements lost) down with it. Per image, by name, never
+# `docker image prune -a`: that would take cloudflared and whatever else
+# the person runs on the same daemon. Only images of this project's
+# registry, only tags other than the one just brought up, and never one a
+# container (running or stopped) still references; `image rm` without
+# `-f` refuses those anyway. Called once the new containers run and are
+# still running ten seconds later, so a failed upgrade keeps the previous
+# release's images to go back to.
+remove_old_images() {
+    local registry="${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}"
+    local keep="${SMOKING_PI_VERSION:-dev}"
+    local listing name state pass
+    # "name state" per container of the project, twice, ten seconds apart:
+    # `up -d` returns as soon as the containers start, and a release that
+    # crashes on its first request is still "running" at that instant. A
+    # container that is not running is the previous release's fallback,
+    # kept intact.
+    for pass in 1 2; do
+        [ "$pass" = 1 ] || sleep 10
+        listing="$(project_containers)"
+        while read -r name state; do
+            [ -n "$name" ] || continue
+            if [ "$state" != running ]; then
+                echo "Keeping the images of the previous release: $name is $state, not running ($(cli_name) status)." >&2
+                return 0
+            fi
+        done <<< "$listing"
+    done
+    local used images ref id size removed=0 bytes=0 kept=""
+    # What any container references, by name or by id: skipped before docker
+    # is asked, so the log holds no refusals.
+    used="$(docker ps -a --format '{{.Image}}' 2>/dev/null || true)"
+    # "repo:tag id size" per image of the registry; <none> is a tag whose
+    # layers a pull replaced (an image rm names it by id).
+    images="$(docker image ls --filter "reference=$registry/*" \
+        --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}' 2>/dev/null || true)"
+    while read -r ref id size; do
+        [ -n "$ref" ] || continue
+        [ "${ref##*:}" != "$keep" ] || continue
+        case "$ref" in *":<none>") ref="$id" ;; esac
+        if grep -qxF -e "$ref" -e "$id" <<< "$used"; then continue; fi
+        if docker image rm "$ref" >/dev/null 2>&1; then
+            removed=$((removed + 1)); bytes=$((bytes + $(size_bytes "$size")))
+        else
+            kept="$kept $ref"
+        fi
+    done <<< "$images"
+    if [ "$removed" = 0 ]; then
+        echo "No images of other releases to remove."
+    else
+        echo "Removed $removed image(s) of other releases, up to $(human_bytes "$bytes") (their sizes added; layers shared with the $keep images stay)."
+    fi
+    [ -z "$kept" ] || echo "Could not remove image(s):$kept (docker image rm refused; a container may still use them)." >&2
+    return 0
+}
+
+size_bytes() {
+    # "92.1MB", "1.2GB", "512kB", "0B" (docker's units are decimal) -> bytes.
+    awk -v s="$1" 'BEGIN {
+        n = s; sub(/[^0-9.].*$/, "", n); u = s; sub(/^[0-9.]*/, "", u)
+        m["B"] = 1; m["kB"] = 1e3; m["MB"] = 1e6; m["GB"] = 1e9; m["TB"] = 1e12
+        printf "%.0f", n * (u in m ? m[u] : 1) }'
+}
+
+human_bytes() {
+    awk -v b="$1" 'BEGIN {
+        if (b >= 1e9) printf "%.1f GB", b / 1e9
+        else if (b >= 1e6) printf "%.0f MB", b / 1e6
+        else printf "%d kB", b / 1e3 }'
+}
+
 cmd_upgrade() {
     local doctor=1
     while [ $# -gt 0 ]; do
@@ -156,6 +233,8 @@ cmd_upgrade() {
     retire_dashboards
     retire_folders
     publish_avahi
+    # With the new release running: the images of every other one.
+    remove_old_images
     # A clone installed before setup.sh linked the command gets it here.
     link_cli --quiet
     # The new release's answering guide, to the assistant that already had

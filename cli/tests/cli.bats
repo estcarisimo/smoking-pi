@@ -69,6 +69,10 @@ case "$*" in
     # current one last.
     *"ps -a --filter label=io.smoking-pi.quick-tunnel "*) printf '%b' "${STUB_TUNNELS:-}" ;;
     "ps -a --format {{.Names}} {{.Image}}") printf '%b' "${STUB_NAMES:-}" ;;
+    # upgrade's image cleanup: what any container references (STUB_USED) and
+    # the registry's images as "repo:tag id size" (STUB_IMAGES).
+    "ps -a --format {{.Image}}") printf '%b' "${STUB_USED:-}" ;;
+    *"image ls --filter reference="*) printf '%b' "${STUB_IMAGES:-}" ;;
     # cloudflared logs its own API endpoint too (on a failed request).
     "logs "*tunnel-*) printf 'INF https://old-one.trycloudflare.com\nINF https://%s-now.trycloudflare.com\nERR POST https://api.trycloudflare.com/tunnel\n' "${2##*-}" ;;
     *"system df -v"*) printf 'VOLUME NAME LINKS SIZE\npro_postgres-data 1 48MB\npro_grafana-data 1 240MB\n' ;;
@@ -361,6 +365,69 @@ STUB
     run "$CLI" upgrade --skip-doctor
     [ "$status" -eq 0 ]
     ! grep -q 'api/dashboards' "$DOCKER_LOG"
+}
+
+# Every upgrade pulled a new set of images and kept every old one: 513
+# images, 92 GB, filled the reference Pi's card on the v2.38.2 upgrade.
+REG=ghcr.io/estcarisimo/smoking-pi
+STUB_RELEASE_IMAGES="$REG/alerter:2.12.0 aaa111 300MB\n$REG/alerter:2.11.0 bbb222 300MB\n$REG/grafana:2.11.0 ccc333 1.15GB\n$REG/grafana:2.10.0 ddd444 1.1GB\n$REG/config-manager:<none> eee555 250MB\n"
+
+@test "upgrade removes the images of other releases one by one, after up, and says how many and how much" {
+    export STUB_IMAGES="$STUB_RELEASE_IMAGES" STUB_USED="$REG/alerter:2.12.0\n$REG/grafana:2.10.0\ncloudflare/cloudflared:latest\n"
+    SMOKING_PI_VERSION=2.12.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    grep -qx "docker image rm $REG/alerter:2.11.0" "$DOCKER_LOG"
+    grep -qx "docker image rm $REG/grafana:2.11.0" "$DOCKER_LOG"
+    grep -qx "docker image rm eee555" "$DOCKER_LOG"
+    # The release just brought up, the image a container still uses, and
+    # anything outside the registry: never.
+    if grep -q "image rm $REG/alerter:2.12.0" "$DOCKER_LOG"; then false; fi
+    if grep -q "image rm $REG/grafana:2.10.0" "$DOCKER_LOG"; then false; fi
+    if grep -q "image prune" "$DOCKER_LOG"; then false; fi
+    if grep -q "cloudflared" "$DOCKER_LOG"; then false; fi
+    [[ "$output" == *"Removed 3 image(s) of other releases, up to 1.7 GB"* ]]
+    # Only the registry's images are even listed.
+    grep -qx "docker image ls --filter reference=$REG/\* --format {{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}" "$DOCKER_LOG"
+    # After the stack is up and still up ten seconds later, never before: a
+    # failed up, or a release that crashes on its first request, keeps the
+    # fallback.
+    up=$(grep -n " up -d --remove-orphans" "$DOCKER_LOG" | cut -d: -f1 | head -1)
+    settle=$(grep -n "^sleep 10" "$DOCKER_LOG" | cut -d: -f1 | head -1)
+    rm=$(grep -n "image rm" "$DOCKER_LOG" | cut -d: -f1 | head -1)
+    [ "$up" -lt "$settle" ] && [ "$settle" -lt "$rm" ]
+}
+
+@test "upgrade from a clone keeps the :dev images it just built and removes the release tags" {
+    export STUB_IMAGES="$REG/alerter:dev fff666 300MB\n$REG/alerter:2.12.0 aaa111 300MB\n" STUB_USED="$REG/alerter:dev\n"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    grep -qx "docker image rm $REG/alerter:2.12.0" "$DOCKER_LOG"
+    if grep -q "image rm $REG/alerter:dev" "$DOCKER_LOG"; then false; fi
+}
+
+@test "upgrade with nothing to remove says so and removes nothing" {
+    export STUB_IMAGES="$REG/alerter:2.12.0 aaa111 300MB\n"
+    SMOKING_PI_VERSION=2.12.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    if grep -q "image rm" "$DOCKER_LOG"; then false; fi
+    [[ "$output" == *"No images of other releases to remove."* ]]
+}
+
+@test "upgrade keeps every image while a container of the project is not running" {
+    export STUB_IMAGES="$STUB_RELEASE_IMAGES" STUB_STATES="pro-postgres-1 running\npro-influxdb-1 restarting\n"
+    SMOKING_PI_VERSION=2.12.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    if grep -q "image rm" "$DOCKER_LOG"; then false; fi
+    [[ "$output" == *"Keeping the images of the previous release: pro-influxdb-1 is restarting"* ]]
+}
+
+@test "upgrade: an image docker refuses to remove is named, and upgrade still succeeds" {
+    export STUB_IMAGES="$STUB_RELEASE_IMAGES"
+    fail_docker_on "image rm $REG/grafana:2.11.0"
+    SMOKING_PI_VERSION=2.12.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Could not remove image(s): $REG/grafana:2.11.0"* ]]
+    [[ "$output" == *"Removed 3 image(s) of other releases"* ]]
 }
 
 @test "upgrade refuses without an env file" {

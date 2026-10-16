@@ -39,6 +39,28 @@ alone, so the gateway is not restarted for nothing. If the refresh fails,
 sudo smoking-pi openclaw
 ```
 
+`upgrade` also removes the images of the releases this host no longer
+runs. Every upgrade pulls (or builds) a new set of thirteen images, and
+until this change every previous set stayed on disk: on 2026-10-16 the
+reference Pi's upgrade pulled onto a card that already held every release's
+images since 2.13.8 (513 images, 92 GB of 117), and the card filled.
+PostgreSQL crash-looped on `postmaster.pid`, Grafana's SQLite reported the
+disk full, and InfluxDB refused every WAL write until its container was
+restarted, even after space was freed, sixteen minutes of measurements
+lost. Now, once the new release's containers are all running, and still
+running ten seconds later, `upgrade`
+removes each `ghcr.io/estcarisimo/smoking-pi/*` image whose tag is not the
+version it just brought up, one `docker image rm` at a time, and says how
+many it removed and up to how much space (their sizes added; layers the
+new images share stay). It never runs `docker image
+prune`, which would take cloudflared and whatever else the daemon holds;
+it never removes an image a container (running or stopped) still
+references; and while any container of the stack is not running at
+either look it removes nothing, so a failed upgrade keeps the previous release's images
+to go back to. The doctor's `disk-free` check (`smoking-pi doctor --live`)
+warns when the filesystem under Docker's data root is under 10 % or 5 GB
+free (fails under 2 % or 1 GB), and names old image tags when it sees them.
+
 One command changes the containers at a time. A second `upgrade`, `up` or
 `config set` started meanwhile says *Another smoking-pi command is changing
 this stack; waiting for it to finish* and runs after it. Two Compose runs
