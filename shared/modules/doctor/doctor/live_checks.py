@@ -49,6 +49,7 @@ import datetime
 import hashlib
 import importlib.util
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -804,6 +805,7 @@ def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
         check_silent_series(docker),
         check_uplink_interface(),
         check_avahi_host_name(),
+        check_disk_free(docker),
     ]
 
 
@@ -949,4 +951,107 @@ def check_avahi_host_name(proc: pathlib.Path = PROC,
             f"smoking-pi.local (the mdns service) still works (docs/mdns.md)")],
         "",
         status=Status.WARN,
+    )
+
+
+# The filesystem under Docker's data root. On 2026-10-16 the reference
+# Pi's upgrade to v2.38.2 pulled thirteen more images onto a card that
+# already held every release's since 2.13.8 (513 images, 92 GB of 117):
+# PostgreSQL crash-looped on postmaster.pid, Grafana's SQLite reported the
+# disk full, and InfluxDB refused every WAL write until its container was
+# restarted, even after space was freed. Sixteen minutes of measurements
+# lost, and nothing had said the card was filling.
+DISK_WARN_FRACTION = 0.10
+DISK_WARN_BYTES = 5 * 10**9
+DISK_FAIL_FRACTION = 0.02
+DEFAULT_REGISTRY = "ghcr.io/estcarisimo/smoking-pi"
+
+
+def _gigabytes(n: int) -> str:
+    gb = n / 1e9
+    return f"{gb:.1f} GB" if gb < 10 else f"{gb:.0f} GB"
+
+
+def _mount_point(path: str, ismount) -> str:
+    """The mount the path sits on: the first ancestor that is a mount point."""
+    current = os.path.abspath(path)
+    while not ismount(current):
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return current
+
+
+def _old_image_tags(docker: Docker, registry: str) -> list[str] | None:
+    """The registry's image tags on disk that no container uses, or None when
+    nothing of the project runs (then every tag would look old)."""
+    code, used = docker.run(["ps", "-a", "--format", "{{.Image}}"])
+    if code != 0:
+        return None
+    prefix = registry + "/"
+    in_use = {ref.rpartition(":")[2] for ref in used.split() if ref.startswith(prefix)}
+    if not in_use:
+        return None
+    code, listing = docker.run([
+        "image", "ls", "--filter", f"reference={registry}/*",
+        "--format", "{{.Repository}}:{{.Tag}}",
+    ])
+    if code != 0:
+        return None
+    old = {ref.rpartition(":")[2] for ref in listing.split()} - in_use
+    return sorted(old)
+
+
+def check_disk_free(
+    docker: Docker | None = None,
+    statvfs=os.statvfs,
+    ismount=os.path.ismount,
+    registry: str | None = None,
+) -> CheckResult:
+    """Whether the filesystem holding Docker's data root is about to fill.
+
+    Warns under 10 % or 5 GB free, fails under 2 %. When the registry's
+    images carry tags no container runs, the message says that
+    ``smoking-pi upgrade`` removes them: since that command removes the
+    images of other releases, old tags on disk mean an upgrade that was
+    interrupted or predates it.
+    """
+    name = "disk-free"
+    docker = docker or Docker()
+    if not docker.available():
+        return skipped(name, "docker is not on PATH")
+    code, out = docker.run(["info", "-f", "{{.DockerRootDir}}"])
+    root = out.strip()
+    if code != 0 or not root:
+        return skipped(name, "could not ask Docker for its data root (is the daemon running?)")
+    try:
+        st = statvfs(root)
+    except OSError:
+        return skipped(name, f"cannot read the filesystem holding {root}")
+    total = st.f_blocks * st.f_frsize
+    free = st.f_bavail * st.f_frsize
+    if total <= 0:
+        return skipped(name, f"the filesystem holding {root} reports no size")
+    fraction = free / total
+    mount = _mount_point(root, ismount)
+    registry = registry or os.environ.get("SMOKING_PI_REGISTRY", DEFAULT_REGISTRY)
+    old = _old_image_tags(docker, registry) or []
+    state = (f"{mount} (Docker's data root) has {_gigabytes(free)} free of "
+             f"{_gigabytes(total)} ({fraction:.0%})")
+    old_note = ""
+    if old:
+        shown = ", ".join(old[:5]) + (", …" if len(old) > 5 else "")
+        old_note = (f"; {len(old)} image tag(s) of other releases are on disk "
+                    f"({shown}): `smoking-pi upgrade` removes them")
+    if fraction >= DISK_WARN_FRACTION and free >= DISK_WARN_BYTES:
+        return result(name, [], state + old_note)
+    status = Status.FAIL if fraction < DISK_FAIL_FRACTION else Status.WARN
+    cost = ("a full card stops PostgreSQL, Grafana and InfluxDB, and InfluxDB "
+            "keeps refusing writes until its container is restarted")
+    return result(
+        name,
+        [Finding(f"{state}: {cost}{old_note}")],
+        "",
+        status=status,
     )

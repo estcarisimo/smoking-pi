@@ -315,7 +315,31 @@ It skips when Avahi is not running or cannot be seen. `smoking-pi.local`, the md
 service's name, is not this check's business: that service says which
 name it holds itself (`smoking-pi url`).
 
-The Docker checks skip cleanly when Docker is absent, so `--live` is safe
+### `disk-free`
+
+How much of the filesystem under Docker's data root (`docker info`,
+`DockerRootDir`) is free. Warns under 10 % or under 5 GB, fails under 2 %,
+and the message names the mount and the free space. When images of the
+project's registry carry tags no container runs, it says so and names the
+command that removes them:
+
+```text
+[warn] disk-free                      1 problem
+          - / (Docker's data root) has 4.1 GB free of 117 GB (3%): a full card stops PostgreSQL, Grafana and InfluxDB, and InfluxDB keeps refusing writes until its container is restarted; 24 image tag(s) of other releases are on disk (2.13.8, 2.14.0, 2.15.0, 2.15.1, 2.15.2, …): `smoking-pi upgrade` removes them
+```
+
+On 2026-10-16 the reference Pi's upgrade to v2.38.2 did exactly that:
+every release's images since 2.13.8 were still on the card (513 images,
+92 GB of 117), the pull filled it, PostgreSQL crash-looped on
+`postmaster.pid`, Grafana's SQLite reported the disk full and InfluxDB
+refused every WAL write until its container was restarted, sixteen
+minutes of measurements lost. `smoking-pi upgrade` now removes the
+images of other releases once the new ones run
+([Upgrades](upgrades.md#with-the-command)); this check is for the card
+that fills anyway. It skips without Docker, without a daemon, or where the
+data root's filesystem cannot be read.
+
+The Docker checks (`disk-free` among them) skip cleanly when Docker is absent, so `--live` is safe
 to run anywhere; `uplink-interface` asks the kernel rather than Docker and
 answers on any Linux host, skipping only where `/proc/net` is not there, and
 `avahi-host-name` skips where Avahi does not run.

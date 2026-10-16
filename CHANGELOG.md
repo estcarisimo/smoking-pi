@@ -9,6 +9,38 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`smoking-pi upgrade` left every previous release's images on disk.**
+  Each upgrade pulled a new set of thirteen images and removed none of
+  the old, so a host that had upgraded since 2.13.8 carried every release
+  in between: on 2026-10-16 the reference Pi's upgrade to v2.38.2 pulled
+  onto a 117 GB card already holding 513 Smoking Pi images (92 GB), and
+  the card filled. PostgreSQL crash-looped on `postmaster.pid`, Grafana's
+  SQLite reported the disk full, and InfluxDB refused every WAL write
+  ("no space left") until its container was restarted, even after space
+  was freed: sixteen minutes of measurements lost, and the RRDs kept
+  writing only because their files already existed. `upgrade` now removes
+  the images of other releases once every container of the new release is
+  running: each `ghcr.io/estcarisimo/smoking-pi/*` image whose tag is not
+  the version just brought up, one `docker image rm` at a time (never
+  `docker image prune -a`, which would take cloudflared and whatever else
+  the daemon holds), never an image a container still references, and
+  nothing at all while a container is not running, so a failed upgrade
+  keeps the previous release to go back to. It says how many it removed
+  and about how much space. The release's package-install test asserts
+  that the previous release's images are gone after the upgrade.
+
+### Added
+
+- **Doctor `disk-free` live check.** Nothing had said the card was
+  filling. The doctor now reads the free space of the filesystem under
+  Docker's data root: a warning under 10 % or 5 GB free, a failure under
+  2 %, the mount and the free space in the message, and, when the
+  registry's images carry tags no container runs, the note that
+  `smoking-pi upgrade` removes them.
+
+
 ## [2.38.2] — 2026-10-16
 
 The DNS & Services dashboards, audited panel by panel. A single lossy

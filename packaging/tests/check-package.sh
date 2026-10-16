@@ -246,6 +246,10 @@ if [ -n "$START" ]; then
         [ "$want" != "$old_tag" ] || fail "the new package names the same images as the old one (:$want)"
         echo "$new_images" | grep -q ":$want\$" || fail "after upgrade the stack does not run the :$want images"
         ! echo "$new_images" | grep -q ":$old_tag\$" || fail "after upgrade a container still runs :$old_tag"
+        # And the previous release's images are off the disk: every upgrade
+        # kept them until 513 of them filled the reference Pi's card.
+        left=$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep ":$old_tag\$" || true)
+        [ -z "$left" ] || fail "after upgrade the previous release's images are still on disk: $left"
     else
         smoking-pi install --edition "$START" --yes
         [ "$(cat /etc/smoking-pi/edition)" = "$START" ] || fail "install did not record the edition"

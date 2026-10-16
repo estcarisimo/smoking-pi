@@ -318,6 +318,7 @@ def test_run_all_returns_every_check(repo, host_resolv):
         "silent-series",
         "uplink-interface",
         "avahi-host-name",
+        "disk-free",
     ]
     # Without a daemon the two Docker checks skip rather than report a broken
     # deployment. uplink-interface asks the kernel, not Docker, so it answers
@@ -1041,3 +1042,106 @@ def test_hidden_processes_skip_with_their_own_reason(tmp_path):
     (tmp_path / "689").mkdir()
     res = live_checks.check_avahi_host_name(tmp_path, hostname="x")
     assert res.status.value == "skip" and "hidepid" in res.summary
+
+
+# --- disk-free ------------------------------------------------------------
+
+GB = 10**9
+REG = "ghcr.io/estcarisimo/smoking-pi"
+INFO_ROOT = "info -f {{.DockerRootDir}}"
+PS_IMAGES = "ps -a --format {{.Image}}"
+IMAGE_LS = f"image ls --filter reference={REG}/* --format"
+
+
+class Stat:
+    def __init__(self, total: int, free: int, frsize: int = 4096):
+        self.f_frsize = frsize
+        self.f_blocks = total // frsize
+        self.f_bavail = free // frsize
+
+
+def _disk(total, free, images="", used=f"{REG}/alerter:2.38.2\n"):
+    docker = FakeDocker({
+        INFO_ROOT: (0, "/var/lib/docker\n"),
+        PS_IMAGES: (0, used),
+        IMAGE_LS: (0, images),
+    })
+    seen = {}
+    def statvfs(path):
+        seen["path"] = path
+        return Stat(total, free)
+    res = live_checks.check_disk_free(
+        docker, statvfs=statvfs, ismount=lambda p: p == "/", registry=REG)
+    return res, seen
+
+
+def test_plenty_of_space_is_ok_and_names_the_mount_and_the_free_space():
+    res, seen = _disk(117 * GB, 74 * GB)
+    assert res.status is Status.OK
+    assert seen["path"] == "/var/lib/docker"
+    assert res.summary == "/ (Docker's data root) has 74 GB free of 117 GB (63%)"
+
+
+@pytest.mark.parametrize("free", [9 * GB, 4 * GB])
+def test_under_ten_percent_or_five_gigabytes_warns(free):
+    # 9 GB of 117 is 8 %; 4 GB of 50 is 8 % too, and under 5 GB regardless.
+    total = 117 * GB if free == 9 * GB else 50 * GB
+    res, _ = _disk(total, free)
+    assert res.status is Status.WARN
+    msg = res.findings[0].message
+    assert "/ (Docker's data root) has" in msg
+    assert "InfluxDB keeps refusing writes until its container is restarted" in msg
+
+
+def test_five_gigabytes_on_a_small_card_warns_even_above_ten_percent():
+    res, _ = _disk(32 * GB, 4.5 * GB)   # 14 %, but under 5 GB
+    assert res.status is Status.WARN
+    assert "4.5 GB free of 32 GB (14%)" in res.findings[0].message
+
+
+def test_under_two_percent_fails():
+    res, _ = _disk(117 * GB, 2 * GB)
+    assert res.status is Status.FAIL
+    assert "2.0 GB free of 117 GB (2%)" in res.findings[0].message
+
+
+def test_old_image_tags_are_named_with_the_command_that_removes_them():
+    images = (f"{REG}/alerter:2.38.2\n{REG}/alerter:2.38.1\n{REG}/grafana:2.38.1\n"
+              f"{REG}/grafana:2.37.0\n{REG}/config-manager:<none>\n")
+    res, _ = _disk(117 * GB, 3 * GB, images=images)
+    assert res.status is Status.WARN
+    msg = res.findings[0].message
+    assert "3 image tag(s) of other releases are on disk (2.37.0, 2.38.1, <none>)" in msg
+    assert "`smoking-pi upgrade` removes them" in msg
+    # And on a healthy disk the summary still says so.
+    res, _ = _disk(117 * GB, 74 * GB, images=images)
+    assert res.status is Status.OK and "`smoking-pi upgrade` removes them" in res.summary
+
+
+def test_only_the_running_release_on_disk_says_nothing_about_upgrade():
+    res, _ = _disk(117 * GB, 74 * GB, images=f"{REG}/alerter:2.38.2\n")
+    assert "upgrade" not in res.summary
+
+
+def test_with_no_container_of_the_project_every_tag_is_not_old():
+    images = f"{REG}/alerter:2.38.2\n{REG}/alerter:2.38.1\n"
+    res, _ = _disk(117 * GB, 74 * GB, images=images, used="cloudflare/cloudflared:latest\n")
+    assert res.status is Status.OK and "upgrade" not in res.summary
+
+
+def test_the_mount_point_is_the_first_mounted_ancestor():
+    docker = FakeDocker({INFO_ROOT: (0, "/mnt/ssd/docker\n"), PS_IMAGES: (0, "")})
+    res = live_checks.check_disk_free(
+        docker, statvfs=lambda p: Stat(500 * GB, 300 * GB),
+        ismount=lambda p: p in ("/", "/mnt/ssd"), registry=REG)
+    assert res.summary.startswith("/mnt/ssd (Docker's data root) has 300 GB free of 500 GB")
+
+
+def test_no_docker_or_no_daemon_or_unreadable_filesystem_skips():
+    assert live_checks.check_disk_free(FakeDocker({}, present=False)).status is Status.SKIP
+    assert live_checks.check_disk_free(FakeDocker({INFO_ROOT: (1, "")})).status is Status.SKIP
+    def boom(path):
+        raise OSError("gone")
+    res = live_checks.check_disk_free(
+        FakeDocker({INFO_ROOT: (0, "/var/lib/docker\n")}), statvfs=boom, registry=REG)
+    assert res.status is Status.SKIP and "/var/lib/docker" in res.summary

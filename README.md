@@ -182,7 +182,7 @@ Everything is Compose, run by `smoking-pi`. Optional services are behind profile
 smoking-pi enable                 # which optional services are on
 sudo smoking-pi enable alerts mcp # records them and starts them
 sudo smoking-pi up                # the whole stack, ClickHouse overlay and profiles included
-sudo smoking-pi upgrade           # after a new package or checkout: pull or rebuild, recreate, doctor
+sudo smoking-pi upgrade           # after a new package or checkout: pull or rebuild, recreate, remove old images, doctor
 ```
 
 Working on the code from a clone, rebuilding one service by hand is still
