@@ -17,45 +17,6 @@
     "list": [
       {
         "type": "query",
-        "name": "status",
-        "label": "Status",
-        "datasource": {
-          "uid": "postgresql-targets"
-        },
-        "query": "SELECT DISTINCT CASE WHEN t.is_active THEN 'active' ELSE 'inactive' END as status FROM targets t JOIN target_categories c ON t.category_id = c.id WHERE c.name = 'dns_resolvers' ORDER BY status DESC",
-        "hide": 0,
-        "multi": false,
-        "includeAll": true,
-        "allValue": "all",
-        "current": {
-          "selected": true,
-          "text": "active",
-          "value": "active"
-        },
-        "options": [
-          {
-            "selected": true,
-            "text": "active",
-            "value": "active"
-          },
-          {
-            "selected": false,
-            "text": "inactive",
-            "value": "inactive"
-          },
-          {
-            "selected": false,
-            "text": "All",
-            "value": "all"
-          }
-        ],
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 1
-      },
-      {
-        "type": "query",
         "name": "target",
         "label": "Target",
         "datasource": {
@@ -71,7 +32,7 @@
         "options": [],
         "includeAll": true,
         "multi": true,
-        "allValue": "'CloudflareDNS','GoogleDNS','Quad9DNS'",
+        "allValue": null,
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -102,13 +63,14 @@
           "custom": {
             "lineWidth": 1,
             "fillOpacity": 15
-          }
+          },
+          "min": 0
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "average"
+              "options": "median"
             },
             "properties": [
               {
@@ -125,7 +87,7 @@
               },
               {
                 "id": "displayName",
-                "value": "Average"
+                "value": "Median"
               }
             ]
           },
@@ -382,6 +344,22 @@
               {
                 "id": "displayName",
                 "value": "Unreachable (nothing answered)"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
               }
             ]
           },
@@ -433,6 +411,22 @@
               {
                 "id": "displayName",
                 "value": "Lossy (\u2265 1.5 pings lost in 15 min)"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
               }
             ]
           }
@@ -442,7 +436,7 @@
         {
           "refId": "A",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(avg_latency) as average FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'dns' AND measurement_type = 'dns_latency' AND avg_latency > 0 GROUP BY timestamp ORDER BY timestamp",
+          "rawSql": "SELECT toUnixTimestamp(timestamp)*1000 as time, avg(median_latency) as median FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'dns' AND measurement_type = 'dns_latency' AND median_latency IS NOT NULL GROUP BY timestamp ORDER BY timestamp",
           "format": 1
         },
         {
@@ -490,13 +484,13 @@
         {
           "refId": "I",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, unreachable FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(min(least(packet_loss, 100.0)) >= 100.0, 500.0, 0.0) as unreachable FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'dns' AND measurement_type = 'dns_latency' GROUP BY w) ORDER BY time",
+          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, unreachable FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(min(least(packet_loss, 100.0)) >= 100.0, 1.0, 0.0) as unreachable FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'dns' AND measurement_type = 'dns_latency' GROUP BY w) ORDER BY time",
           "format": 1
         },
         {
           "refId": "J",
           "queryType": "sql",
-          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, lossy FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(sum(least(packet_loss, 100.0) / 100.0 * coalesce(packets_sent, if(measurement_type = 'latency', 10, 5))) >= 1.5, 500.0, 0.0) as lossy FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'dns' AND measurement_type = 'dns_latency' GROUP BY w) ORDER BY time",
+          "rawSql": "SELECT toUnixTimestamp(w + INTERVAL 15 MINUTE)*1000 as time, lossy FROM (SELECT toStartOfInterval(timestamp, INTERVAL 15 MINUTE) as w, if(sum(least(packet_loss, 100.0) / 100.0 * coalesce(packets_sent, if(measurement_type = 'latency', 10, 5))) >= 1.5, 1.0, 0.0) as lossy FROM smokeping.latency WHERE timestamp >= toDateTime64($__from/1000, 3) AND timestamp <= toDateTime64($__to/1000, 3) AND target IN (${target:sqlstring}) AND category = 'dns' AND measurement_type = 'dns_latency' GROUP BY w) ORDER BY time",
           "format": 1
         }
       ]
@@ -523,7 +517,8 @@
           "max": 100,
           "custom": {
             "lineWidth": 2
-          }
+          },
+          "displayName": "Loss"
         }
       },
       "targets": [

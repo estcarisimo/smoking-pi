@@ -449,11 +449,19 @@ targets would read as "down". The alerter, the daily digest and the
 assistant leave the `dns_wizard` category out, and so do the target pickers
 of the other dashboards. The DNS Wizard dashboard shows them:
 
-- the median latency per protocol across the adopted services;
-- the latest median and loss per service and protocol.
+- the median latency per protocol across the adopted services, on a
+  logarithmic scale so ICMP's few milliseconds stay readable under HTTP's
+  hundred or more;
+- the latest median and loss per service and protocol. Median colors
+  follow each protocol: ICMP and TCP turn orange at 80 ms and red at
+  200 ms, HTTP (which includes TLS and the server's answer) at 300 ms and
+  1 s. Click a service for its Target Detail, every layer of it.
 
-Both look at the last 30 minutes only, so a target that stops reporting
-drops out of the tables by itself.
+The chart follows the dashboard's time range; the tables look at the last
+30 minutes only, so a target that stops reporting drops out of them by
+itself.
+
+![DNS Wizard: per-protocol median of the adopted services on a log scale, and the latest median and loss per service, each service a link to its Target Detail](img/dns-wizard-services.png)
 
 ### How fast the house's queries resolve
 

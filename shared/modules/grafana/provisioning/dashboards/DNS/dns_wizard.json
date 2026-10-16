@@ -61,7 +61,7 @@
    },
    "options": {
     "mode": "markdown",
-    "content": "**What the house uses, from its DNS.** The DNS observer summarises what the house resolves: services (registrable domains), who serves them (CDN) and on which networks (AS). It ranks them by **presence**, the hours of the last week each was seen. It changes no target: it shows what an automatic selection would work from. The top-services table needs `smoking-pi config set DNS_EXPORT_NAMES 1`, because service names are private and Grafana may be reachable from outside. See docs/dns-observer.md, \"The DNS wizard\"."
+    "content": "**What the house uses, from its DNS.** The DNS observer summarizes what the house resolves: services (registrable domains), who serves them (CDN) and on which networks (AS). It ranks them by **presence**, the hours of the last week each was seen. It changes no target: it shows what an automatic selection would work from. The top-services table needs `smoking-pi config set DNS_EXPORT_NAMES 1`, because service names are private and Grafana may be reachable from outside. See docs/dns-observer.md, \"The DNS wizard\"."
    }
   },
   {
@@ -188,8 +188,8 @@
   {
    "id": 5,
    "type": "stat",
-   "title": "Networks (AS) this week",
-   "description": "Distinct origin networks behind those services.",
+   "title": "Networks this week",
+   "description": "Distinct origin networks (autonomous systems, AS) behind those services.",
    "datasource": {
     "type": "influxdb",
     "uid": "influxdb"
@@ -296,7 +296,7 @@
   {
    "id": 7,
    "type": "stat",
-   "title": "Top 10 kept since yesterday",
+   "title": "Top 10 kept, 1 day",
    "description": "Jaccard of today's top-10 services with yesterday's. 100% = no churn.",
    "datasource": {
     "type": "influxdb",
@@ -359,8 +359,8 @@
   {
    "id": 8,
    "type": "stat",
-   "title": "The Pi's own share (24 h)",
-   "description": "Queries from the Pi itself (image pulls, tunnel, alerts, SmokePing lookups) left out of everything here.",
+   "title": "Pi's own share",
+   "description": "Share of the last 24 h's queries that came from the Pi itself (image pulls, tunnel, alerts, SmokePing lookups), left out of everything here.",
    "datasource": {
     "type": "influxdb",
     "uid": "influxdb"
@@ -722,6 +722,19 @@
      },
      "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_effective_hhi\" or r._field == \"cdn_effective_hhi\" or r._field == \"asn_effective_hhi\")) |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false) |> drop(columns: [\"_start\", \"_stop\", \"_measurement\"]) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
     }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "_time": 0,
+       "service_effective_hhi": 1,
+       "cdn_effective_hhi": 2,
+       "asn_effective_hhi": 3
+      }
+     }
+    }
    ]
   },
   {
@@ -807,6 +820,19 @@
       "uid": "influxdb"
      },
      "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"dns_wizard\" and (r._field == \"service_cov5\" or r._field == \"service_cov10\" or r._field == \"service_cov20\")) |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false) |> drop(columns: [\"_start\", \"_stop\", \"_measurement\"]) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "_time": 0,
+       "service_cov5": 1,
+       "service_cov10": 2,
+       "service_cov20": 3
+      }
+     }
     }
    ]
   },
@@ -1217,7 +1243,7 @@
    "id": 19,
    "type": "timeseries",
    "title": "Median latency by protocol, across adopted services",
-   "description": "The median over all adopted services of each protocol's median, per window. ICMP and TCP are network round trips; HTTP includes TLS and the server's answer. Empty until services are adopted (smoking-pi dns adopt).",
+   "description": "The median over all adopted services of each protocol's median, per window. ICMP and TCP are network round trips; HTTP includes TLS and the server's answer. Empty until services are adopted (smoking-pi dns adopt). Logarithmic scale, so ICMP's and TCP's few milliseconds stay readable under HTTP's hundred or more.",
    "datasource": {
     "type": "influxdb",
     "uid": "influxdb"
@@ -1241,10 +1267,13 @@
    "fieldConfig": {
     "defaults": {
      "unit": "ms",
-     "min": 0,
      "custom": {
       "lineWidth": 2,
-      "spanNulls": 1800000
+      "spanNulls": 1800000,
+      "scaleDistribution": {
+       "type": "log",
+       "log": 10
+      }
      }
     },
     "overrides": []
@@ -1256,7 +1285,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "import \"regexp\"\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.category == \"dns_wizard\" and r._field == \"median\") |> map(fn: (r) => ({r with _field: if r.probe_type == \"fping\" or r.probe_type == \"fping6\" then \"ICMP\" else if r.probe_type == \"tcpping\" then \"TCP\" else if r.probe_type == \"http1\" then \"HTTP/1.1\" else if r.probe_type == \"http2\" then \"HTTP/2\" else if r.probe_type == \"http3\" then \"HTTP/3\" else r.probe_type})) |> map(fn: (r) => ({r with _value: float(v: r._value) * 1000.0})) |> group(columns: [\"_field\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"_field\"])"
+     "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.category == \"dns_wizard\" and r._field == \"median\") |> map(fn: (r) => ({r with _field: if r.probe_type == \"fping\" or r.probe_type == \"fping6\" then \"ICMP\" else if r.probe_type == \"tcpping\" then \"TCP\" else if r.probe_type == \"http1\" then \"HTTP/1.1\" else if r.probe_type == \"http2\" then \"HTTP/2\" else if r.probe_type == \"http3\" then \"HTTP/3\" else r.probe_type})) |> map(fn: (r) => ({r with _value: float(v: r._value) * 1000.0})) |> group(columns: [\"_field\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"_field\"])"
     }
    ]
   },
@@ -1264,7 +1293,7 @@
    "id": 20,
    "type": "table",
    "title": "Latest median per service (ms)",
-   "description": "Each adopted service's latest median, per protocol, from the last 30 min only: a retired target drops out by itself. Blank cells: the protocol failed or is not answered (many CDNs drop ICMP).",
+   "description": "Each adopted service's latest median, per protocol, from the last 30 min only: a retired target drops out by itself. Blank cells: the protocol failed or is not answered (many CDNs drop ICMP). Colors: ICMP and TCP turn orange at 80 ms and red at 200 ms; HTTP, which includes TLS and the server's answer, at 300 ms and 1 s. Click a service for its Target Detail.",
    "datasource": {
     "type": "influxdb",
     "uid": "influxdb"
@@ -1326,6 +1355,99 @@
         "value": {
          "type": "auto"
         }
+       },
+       {
+        "id": "links",
+        "value": [
+         {
+          "title": "Target Detail: every layer of this service",
+          "url": "/d/target-detail-v1?var-target=W_${__value.raw}&${__url_time_range}"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "HTTP/1.1"
+      },
+      "properties": [
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 300
+          },
+          {
+           "color": "red",
+           "value": 1000
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "HTTP/2"
+      },
+      "properties": [
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 300
+          },
+          {
+           "color": "red",
+           "value": 1000
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "HTTP/3"
+      },
+      "properties": [
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 300
+          },
+          {
+           "color": "red",
+           "value": 1000
+          }
+         ]
+        }
        }
       ]
      }
@@ -1361,7 +1483,7 @@
    "id": 21,
    "type": "table",
    "title": "Latest loss per service",
-   "description": "Share of pings lost in the latest round, per protocol. HTTP/3 loss often means the service does not offer QUIC.",
+   "description": "Share of pings lost in the latest round, per protocol. HTTP/3 loss often means the service does not offer QUIC. Click a service for its Target Detail.",
    "datasource": {
     "type": "influxdb",
     "uid": "influxdb"
@@ -1423,6 +1545,15 @@
         "value": {
          "type": "auto"
         }
+       },
+       {
+        "id": "links",
+        "value": [
+         {
+          "title": "Target Detail: every layer of this service",
+          "url": "/d/target-detail-v1?var-target=W_${__value.raw}&${__url_time_range}"
+         }
+        ]
        }
       ]
      }
