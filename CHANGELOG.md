@@ -26,6 +26,14 @@ version gets a matching GitHub release and git tag.
   the median again. An unused *Status* variable (a PostgreSQL query no
   panel read) and a hardcoded list of the three seeded resolvers for
   *All* are gone.
+- **The ClickHouse Side by Side dashboard drew the mean twice and never
+  the median, too.** The same bug as DNS Resolvers, in its Targets twin:
+  the solid line and the dashed *mean* line were both `avg(avg_latency)`,
+  so comparing the targets of a category in ClickHouse mode showed no
+  median, the line the InfluxDB Side by Side leads with, and a single
+  spiky ping pulled the only line drawn. The solid line is
+  `avg(median_latency)` again, labeled *Median*. The ClickHouse Individual
+  Pings dashboard already drew average and median once each.
 - **DNS dashboards, the smaller things a panel-by-panel audit found.** The
   packet-loss legend read `loss {category="dns", probe_type="dns",
   target=…}` and is now *Loss*, with a description. On DNS Wizard: the
