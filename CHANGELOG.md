@@ -46,7 +46,7 @@ version gets a matching GitHub release and git tag.
   answered something before the radio hung). The gateway's permanent
   ICMP floor marks nothing unreachable. The ClickHouse dashboards apply
   the same two rules from `packet_loss` and `packets_sent`.
-  [Alerting](docs/alerting.md) describes the overlays as they are.
+  [Alerting](alerting.md) describes the overlays as they are.
 
 ## [2.38.0] — 2026-10-15
 
