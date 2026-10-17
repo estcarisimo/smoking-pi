@@ -24,6 +24,8 @@ from .report import CheckResult, Finding, Status, result, skipped
 # The two dashboard trees, and the datasource each is provisioned alongside.
 INFLUX_TREE = "dashboards"
 CLICKHOUSE_TREE = "dashboards-clickhouse"
+# Where the .deb installs the command (packaging/deb/build.sh).
+PACKAGED_CLI_DIR = pathlib.Path("/usr/lib/smoking-pi")
 
 
 class Repo:
@@ -58,15 +60,14 @@ class Repo:
         """Where the command's ``lib/`` modules live. A clone has them at
         ``cli/`` beside ``shared/``; the package puts ``/opt/smoking-pi``
         (no ``cli/``) next to ``/usr/lib/smoking-pi``, and the command
-        says where it runs from through ``SMOKING_PI_CLI_DIR``. From
-        v2.39.0 to the v2.40.0 candidate the doctor looked under the root
-        only, so every package install reported ``watchdog_event`` as a
-        measurement nothing writes."""
+        says where it runs from through ``SMOKING_PI_CLI_DIR``. Looking
+        under the root only made every package install report
+        ``watchdog_event`` as a measurement nothing writes."""
         candidates = [root / "cli"]
         env = os.environ.get("SMOKING_PI_CLI_DIR")
         if env:
             candidates.append(pathlib.Path(env))
-        candidates.append(pathlib.Path("/usr/lib/smoking-pi"))
+        candidates.append(PACKAGED_CLI_DIR)
         for candidate in candidates:
             if (candidate / "lib/watchdog.sh").is_file():
                 return candidate
