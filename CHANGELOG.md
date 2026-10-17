@@ -65,16 +65,16 @@ version gets a matching GitHub release and git tag.
   (the ClickHouse dashboards' dropdowns, which had no time window at all,
   get the same day), and a link or bookmark can still bring any name. Three
   tiles now open the dashboard. *Time since the last measurement* is the age
-  of the newest point in the range, green within two SmokePing steps, orange
-  within a day, red beyond, or "no data in this range". *Is it measured
-  now?* says "measured now", or when the target stopped and, for a retired
+  of the newest point in the range, green within 11 minutes (two steps at
+  the default step), orange within a day, red beyond, or "no data in this range". *Is it measured
+  now?* says "measured in the last 24 h", or when the target stopped and, for a retired
   Netflix appliance name, which live slot carries its number and since when
   (from `target_host`; by slot number, not by address, because the appliance
   behind a slot changes daily), with a link to that slot and to the Netflix
-  side-by-side. *Monitor deaf in range* counts the minutes in which this
+  side-by-side. *Monitor deaf in range* is the time in which this
   Pi's radio heard nothing (the alerter's `local_wifi` incidents and the
-  inference module's `monitor_deaf` periods, the span every labeled target
-  shares), so the loss tiles, which include those minutes, can be read for
+  inference module's `monitor_deaf` periods, the shortest of those starting
+  together), so the loss tiles, which include those minutes, can be read for
   what they are. The loss computation itself is unchanged.
 
 ## [2.39.0] — 2026-10-16

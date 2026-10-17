@@ -29,13 +29,13 @@ looking at.
 
 The first row says whether the page describes the present. **Time since the
 last measurement** is the age of the newest point any probe of the target
-wrote inside the selected range: green within two SmokePing steps, orange
-within a day, red beyond, and "no data in this range" when the range holds
+wrote inside the selected range, relative to now: green within 11 minutes
+(two steps at the default 5-minute step), orange within a day, red beyond, and "no data in this range" when the range holds
 nothing from it. A red tile means every number beside it is history, however
 recent the range looks.
 
-**Is it measured now?** says "measured now" when the target wrote a point in
-the last 24 hours. Otherwise it says when the target stopped (looking in the
+**Is it measured now?** says "measured in the last 24 h" when the target wrote
+a point in the last 24 hours, whatever range is selected. Otherwise it says when the target stopped (looking in the
 range and the 30 days before it), and what it can about why:
 
 - A retired Netflix appliance name (the `Ocean_Reef_…_5` style names the
@@ -55,10 +55,11 @@ The target dropdown offers the names with a point in the last 24 hours, so a
 retired name is reached only through a link or a bookmark; the dashboard
 still shows whatever history the name has.
 
-**Monitor deaf in range** is the number of minutes inside the range in which
+**Monitor deaf in range** is the time inside the range in which
 this Pi's own radio heard nothing: the alerter's incidents diagnosed
 `local_wifi` and the inference module's periods labeled `monitor_deaf`,
-taking the span every labeled target shares. The loss tiles are the mean
+taking, of the periods that start together, the shortest: the span every
+target labeled then shares. The loss tiles are the mean
 over the range with those minutes included, so a target that was fine while
 the monitor was deaf still shows loss; subtract the deaf minutes before
 blaming the destination. The *Monitor deaf* and *Loss incidents*

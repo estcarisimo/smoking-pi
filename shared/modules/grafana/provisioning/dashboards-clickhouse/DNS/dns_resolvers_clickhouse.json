@@ -23,7 +23,7 @@
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse"
         },
-        "query": "SELECT DISTINCT target FROM smokeping.latency WHERE timestamp >= now() - INTERVAL 1 DAY AND category = 'dns' AND measurement_type = 'dns_latency' ORDER BY target",
+        "query": "SELECT DISTINCT target FROM smokeping.latency WHERE category = 'dns' AND measurement_type = 'dns_latency' ORDER BY target",
         "current": {
           "selected": true,
           "text": "All",
