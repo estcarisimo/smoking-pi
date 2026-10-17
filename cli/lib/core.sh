@@ -258,7 +258,9 @@ run_doctor() {
     if [ -d "$SMOKING_PI_HOME/shared/modules/doctor" ] && "$py" -c 'import yaml' 2>/dev/null; then
         # No bytecode: under sudo it would be root's __pycache__ inside the
         # package's /opt tree, which dpkg does not own and never removes.
-        ( cd "$SMOKING_PI_HOME" && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SMOKING_PI_HOME/shared/modules/doctor${PYTHONPATH:+:$PYTHONPATH}" "$py" -m doctor --repo-root . "$@" )
+        # SMOKING_PI_CLI_DIR: a package install has no cli/ under the home;
+        # the doctor reads the watchdog's writes from the command's lib/.
+        ( cd "$SMOKING_PI_HOME" && PYTHONDONTWRITEBYTECODE=1 SMOKING_PI_CLI_DIR="$CLI_DIR" PYTHONPATH="$SMOKING_PI_HOME/shared/modules/doctor${PYTHONPATH:+:$PYTHONPATH}" "$py" -m doctor --repo-root . "$@" )
     else
         echo "(doctor skipped: PyYAML not installed -- apt install python3-yaml)"
     fi

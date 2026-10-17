@@ -64,6 +64,15 @@ Connectivity & Quality hands the inference pass timing to Diagnostics.
 
 ### Fixed
 
+- **The doctor failed every package install on `watchdog_event`.** The
+  check that reads the watchdog's line-protocol writes (above) looked for
+  `cli/lib/watchdog.sh` under the repository root; a package install has
+  `/opt/smoking-pi` without `cli/` and the command at `/usr/lib/smoking-pi`,
+  so on every host of the v2.40.0-rc.1 Release run the doctor reported the
+  Diagnostics dashboard's `watchdog_event` panel as a measurement nothing
+  writes, and the candidate was refused. `smoking-pi doctor` now tells the
+  doctor where the command runs from (`SMOKING_PI_CLI_DIR`), and the doctor
+  falls back to the packaged path; a clone's own `cli/` still wins.
 - **A target that stopped being measured looked like a live, lossy one.**
   Target Detail opened on `Ocean_Reef_Club_Airport_ATL_c344_5`, one of the
   Netflix appliance names retired on 2026-10-12 when the

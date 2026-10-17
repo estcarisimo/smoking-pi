@@ -1329,3 +1329,33 @@ def test_the_command_and_the_doctor_read_the_templates_the_same_way(edition):
     python = [[s.key, s.section or "", " ".join(s.meta), s.value] for s in settings]
     assert not orphans
     assert shell == python
+
+
+def test_cli_dir_follows_the_command_when_the_root_has_no_cli(tmp_path, monkeypatch):
+    """A package install has /opt/smoking-pi without cli/ and the command at
+    /usr/lib/smoking-pi: the doctor must read the watchdog's writes from
+    where the command says it runs, or every package install fails the
+    measurement check on watchdog_event (the v2.40.0-rc.1 Release run)."""
+    root = tmp_path / "opt"
+    root.mkdir()
+    elsewhere = tmp_path / "usr-lib-smoking-pi"
+    (elsewhere / "lib").mkdir(parents=True)
+    (elsewhere / "lib/watchdog.sh").write_text("#!/bin/sh\n")
+    packaged = tmp_path / "packaged"
+    monkeypatch.setattr(static_checks, "PACKAGED_CLI_DIR", packaged)
+    monkeypatch.delenv("SMOKING_PI_CLI_DIR", raising=False)
+    assert static_checks.Repo.cli_dir(root) == root / "cli"  # nothing found: the clone layout
+    monkeypatch.setenv("SMOKING_PI_CLI_DIR", str(elsewhere))
+    assert static_checks.Repo.cli_dir(root) == elsewhere
+    assert static_checks.Repo(root).writers[-1] == elsewhere / "lib/watchdog.sh"
+    # The variable names a directory without the writer: fall through to the
+    # packaged path when it has one, else to the clone layout.
+    monkeypatch.setenv("SMOKING_PI_CLI_DIR", str(tmp_path / "wrong"))
+    assert static_checks.Repo.cli_dir(root) == root / "cli"
+    (packaged / "lib").mkdir(parents=True)
+    (packaged / "lib/watchdog.sh").write_text("#!/bin/sh\n")
+    assert static_checks.Repo.cli_dir(root) == packaged
+    # A clone's own cli/ wins over the environment.
+    (root / "cli/lib").mkdir(parents=True)
+    (root / "cli/lib/watchdog.sh").write_text("#!/bin/sh\n")
+    assert static_checks.Repo.cli_dir(root) == root / "cli"

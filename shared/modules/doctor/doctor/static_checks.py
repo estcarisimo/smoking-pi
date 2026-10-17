@@ -14,6 +14,7 @@ run on the Pi.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 
@@ -23,6 +24,8 @@ from .report import CheckResult, Finding, Status, result, skipped
 # The two dashboard trees, and the datasource each is provisioned alongside.
 INFLUX_TREE = "dashboards"
 CLICKHOUSE_TREE = "dashboards-clickhouse"
+# Where the .deb installs the command (packaging/deb/build.sh).
+PACKAGED_CLI_DIR = pathlib.Path("/usr/lib/smoking-pi")
 
 
 class Repo:
@@ -40,7 +43,7 @@ class Repo:
                         # loss_incident (incident_history.py)
                         root / "shared/modules/alerter",
                         # watchdog_event, as line protocol from the host
-                        root / "cli/lib/watchdog.sh")
+                        self.cli_dir(root) / "lib/watchdog.sh")
         self.alerter = root / "shared/modules/alerter"
         # Shared code copied into the alerter image; it reads env too.
         self.common = root / "shared/modules/common"
@@ -51,6 +54,24 @@ class Repo:
         self.mcp_server = root / "shared/modules/mcp-server/server.py"
         self.mcp_doc = root / "docs/mcp-server.md"
         self.env_templates = sorted(root.glob("editions/*/.env.template"))
+
+    @staticmethod
+    def cli_dir(root: pathlib.Path) -> pathlib.Path:
+        """Where the command's ``lib/`` modules live. A clone has them at
+        ``cli/`` beside ``shared/``; the package puts ``/opt/smoking-pi``
+        (no ``cli/``) next to ``/usr/lib/smoking-pi``, and the command
+        says where it runs from through ``SMOKING_PI_CLI_DIR``. Looking
+        under the root only made every package install report
+        ``watchdog_event`` as a measurement nothing writes."""
+        candidates = [root / "cli"]
+        env = os.environ.get("SMOKING_PI_CLI_DIR")
+        if env:
+            candidates.append(pathlib.Path(env))
+        candidates.append(PACKAGED_CLI_DIR)
+        for candidate in candidates:
+            if (candidate / "lib/watchdog.sh").is_file():
+                return candidate
+        return candidates[0]
 
     def exists(self) -> bool:
         return self.provisioning.is_dir()
