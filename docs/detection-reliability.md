@@ -323,6 +323,20 @@ above 50%, which is a cut window:
 
 ![CPE packet loss before and after: the floor no longer reads red](img/cpe-loss-thresholds.png)
 
+The thresholds alone still read as "40% packet loss" to someone who did
+not know the gateway rate-limits ICMP (the maintainer, reviewing production
+on 2026-10-17). Since v2.40.1 the loss panel is titled *ICMP the gateway
+did not answer – loss per 10 s window (%)*, its legend names the two lines
+(*cut window (> 50 %)*, *watch (≥ 30 %)*) and draws the gateway's own
+floor over the last 24 hours as a band from the median window (p50) to the
+90th percentile (p90), computed in InfluxDB with `quantile` over the same
+`cpe_latency` rows (no new probe). Bars inside the band are the floor; on
+the reference gateway it sat at p50 10% / p90 16% on 2026-10-17. The
+*Current Loss %* tile explains the same in its description and colors
+below 30% green, 30–50% orange and above 50% red:
+
+![CPE loss per 10 s window with the 24 h floor band and the named cut and watch lines](img/cpe-loss-floor.png)
+
 ### Microcut backlog
 
 1. `GAP_S` and the 30 s cadence are constants; if `CPE_PROBE_IDLE` is

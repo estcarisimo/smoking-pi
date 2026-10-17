@@ -9,6 +9,50 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **CPE Microcut Detection says what its loss bars are.** The *CPE Packet
+  Loss (%)* panel drew bars reaching 20–40 % all day over a healthy
+  gateway, with a dashed line at 30 and another at 50 that nothing named,
+  and the *Current Loss %* tile showed the newest window in green with no
+  explanation. The truth sat in a panel description and in
+  `docs/detection-reliability.md`: home gateways rate-limit ICMP, so the
+  5 pps probe loses answers at the router in most 10 s windows and the
+  reference gateway's daily p90 is 14–22 % with nothing wrong; a microcut
+  is a window above `MICROCUT_LOSS_PCT` (50). What it cost: the maintainer
+  read "40 % packet loss" on production on 2026-10-17 and worried, which is
+  what the alerter's own definition exists to prevent. The panel is now
+  titled *ICMP the gateway did not answer – loss per 10 s window (%)*; the
+  two lines are series named in the legend, *cut window (> 50 %)* and
+  *watch (≥ 30 %)*; and the gateway's own floor over the last 24 hours is
+  drawn as a band from the median window (p50) to the 90th percentile
+  (p90), computed in InfluxDB with `quantile` over the rows already written
+  (no new probe, no extra traffic; p50 10 % / p90 16 % on the reference
+  gateway on 2026-10-17). The *Current Loss %* tile describes the floor and
+  colors below 30 % green, 30–50 % orange and above 50 % red, the cut
+  definition's `>`; the IPv6 twins in the collapsed row get the same. The
+  loss series is named `loss` instead of carrying its three tags.
+- **Side-by-Side says it is one category at a time.** With `topsites`
+  selected the dashboard showed five panels and nothing said why only
+  those; the maintainer asked. The category variable is now labeled
+  *Category (one at a time)*, and its description and the dashboard's say
+  which categories exist (topsites, netflix as the five OCA slots, custom),
+  that the DNS Wizard's targets are not offered here (well over a hundred
+  panels) and where they are (the DNS Wizard dashboard and Target Detail);
+  the Overview's *Where to look next* entry carries the same hint. The
+  ClickHouse twin gets the same text.
+- **Individual Pings and DNS Resolvers show each target's latency and loss
+  on one row.** Both dashboards repeated two panels independently over the
+  `target` variable (two per row, or one column each), so with *All*
+  selected the page was a block of latency panels followed, rows later, by
+  a block of loss panels: a lossy quarter hour and the latency it came with
+  were a screen apart. Each dashboard is now a Grafana row repeated per
+  target, titled with the target, holding its latency panel (two thirds of
+  the width, with the Unreachable and Lossy bars as before) and its loss
+  panel beside it. Deep links with `var-target=<name>` still land on that
+  one target's row. The ClickHouse twins get the same shape; the Individual
+  Pings loss series is named *Loss* instead of its tags.
+
 ## [2.40.0] — 2026-10-17
 
 Target Detail now says whether the page describes the present. A target

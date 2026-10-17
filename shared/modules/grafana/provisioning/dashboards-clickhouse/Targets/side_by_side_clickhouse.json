@@ -3,7 +3,7 @@
   "id": null,
   "title": "Side-by-Side \u2013 every target of one category",
   "schemaVersion": 37,
-  "version": 1,
+  "version": 2,
   "tags": [
     "smokeping",
     "side-by-side"
@@ -17,7 +17,7 @@
       {
         "type": "query",
         "name": "category",
-        "label": "Category",
+        "label": "Category (one at a time)",
         "datasource": {
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse"
@@ -32,7 +32,8 @@
           "selected": true,
           "text": "topsites",
           "value": "topsites"
-        }
+        },
+        "description": "One category at a time: pick it above. topsites (the top sites), netflix (the five OCA slots), custom (your own targets). The DNS Wizard's targets are not offered here, well over a hundred panels; use the DNS Wizard dashboard and Target Detail for those, and DNS resolvers have their own side-by-side under DNS."
       },
       {
         "type": "query",
@@ -228,5 +229,6 @@
         }
       ]
     }
-  ]
+  ],
+  "description": "One category at a time: pick it above. topsites (the top sites), netflix (the five OCA slots), custom (your own targets). The DNS Wizard's targets are not offered here, well over a hundred panels; use the DNS Wizard dashboard and Target Detail for those, and DNS resolvers have their own side-by-side under DNS. Every target of the category on one screen, four per row: latency percentiles, mean, median and min/max envelope from ClickHouse. Click a target for every layer of it."
 }

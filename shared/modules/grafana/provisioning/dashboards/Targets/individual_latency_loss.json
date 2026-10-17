@@ -46,8 +46,9 @@
   "uid": "individual-pings-v1",
   "id": null,
   "title": "Individual Pings – Latency & Loss (Percentiles/Mean)",
+  "description": "One row per target: its latency on the left (median, mean, percentile bands, min/max envelope, with the 15-minute windows in which nothing answered or 1.5 pings or more were lost as bars) and its loss on the right, so a lossy quarter hour and the latency it came with are read together. Pick targets above; All is every target measured in the last day except the DNS Wizard's, which have their own dashboard.",
   "schemaVersion": 37,
-  "version": 1,
+  "version": 2,
   "tags": ["smokeping", "detailed"],
   "time": { "from": "now-6h", "to": "now" },
 
@@ -97,14 +98,20 @@
 
   "panels": [
     {
+      "type": "row",
+      "title": "$target",
+      "repeat": "target",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+
+    {
       "type": "timeseries",
       "title": "Latency – [[target]]",
       "description": "Median, mean, percentile bands and min/max envelope built from the individual pings of each cycle; red bars mark 15-minute windows in which nothing answered (every ping lost); lighter orange bars mark windows that lost 1.5 pings' worth or more, the alerter's loss-event rule; a window with no measurements at all is left blank.",
       "datasource": { "uid": "influxdb" },
-      "repeat": "target",
-      "repeatDirection": "h",
-      "maxPerRow": 2,
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 1 },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
@@ -288,12 +295,9 @@
       "title": "Loss – [[target]] (%)",
       "description": "Fraction of pings lost per cycle (0–1); the exporter divides the RRD loss count by SMOKEPING_PINGS.",
       "datasource": { "uid": "influxdb" },
-      "repeat": "target",
-      "repeatDirection": "h",
-      "maxPerRow": 2,
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
-      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "lineWidth": 2 } } },
-      "targets": [ { "refId": "loss", "queryType": "flux", "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart) |> filter(fn:(r)=> (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.target==\"[[target]]\" and r._field==\"loss\")" } ]
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "displayName": "Loss", "custom": { "lineWidth": 2 } } },
+      "targets": [ { "refId": "loss", "queryType": "flux", "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r)=> (r._measurement == \"latency\" or r._measurement == \"http_latency\" or r._measurement == \"tcp_latency\") and r.target==\"[[target]]\" and r._field==\"loss\")" } ]
     }
   ]
 }

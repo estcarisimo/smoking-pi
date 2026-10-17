@@ -3,7 +3,7 @@
   "id": null,
   "title": "DNS Resolvers \u2013 Side-by-Side (Resolution Time & Packet Loss)",
   "schemaVersion": 37,
-  "version": 1,
+  "version": 2,
   "tags": [
     "smokeping",
     "dns",
@@ -43,19 +43,30 @@
   },
   "panels": [
     {
+      "type": "row",
+      "title": "$target",
+      "repeat": "target",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
       "type": "timeseries",
       "title": "DNS Resolution Time \u2013 [[target]] (ms)",
       "datasource": {
         "type": "grafana-clickhouse-datasource",
         "uid": "clickhouse"
       },
-      "repeat": "target",
-      "repeatDirection": "v",
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 16,
         "x": 0,
-        "y": 0
+        "y": 1
       },
       "fieldConfig": {
         "defaults": {
@@ -502,13 +513,11 @@
         "type": "grafana-clickhouse-datasource",
         "uid": "clickhouse"
       },
-      "repeat": "target",
-      "repeatDirection": "v",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
+        "w": 8,
+        "x": 16,
+        "y": 1
       },
       "fieldConfig": {
         "defaults": {
@@ -530,5 +539,6 @@
         }
       ]
     }
-  ]
+  ],
+  "description": "One row per resolver: its resolution time on the left (median, mean, percentile bands, min/max envelope of the five queries, with the 15-minute windows in which nothing answered or 1.5 queries or more were lost as bars) and the share of queries lost on the right. Pick resolvers above."
 }

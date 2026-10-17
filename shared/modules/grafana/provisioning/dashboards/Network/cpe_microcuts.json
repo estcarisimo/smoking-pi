@@ -46,9 +46,9 @@
   "uid": "cpe-microcut-v1",
   "id": null,
   "title": "CPE Microcut Detection",
-  "description": "High-frequency (5 pps) probing of the CPE/first hop. Loss here is written by microcut_detector.py as PERCENT (0-100), unlike the SmokePing exporter which writes a 0-1 ratio.",
+  "description": "High-frequency (5 pps) probing of the CPE/first hop, the home gateway. Loss here is written by microcut_detector.py as PERCENT (0-100), unlike the SmokePing exporter which writes a 0-1 ratio. Gateways rate-limit ICMP, so the loss panels draw the gateway's own 24 h floor (p50-p90 band) and name the cut threshold (> 50 %, MICROCUT_LOSS_PCT): a microcut is a window above it, not a bar inside the band.",
   "schemaVersion": 37,
-  "version": 3,
+  "version": 4,
   "tags": [
     "smokeping",
     "cpe",
@@ -338,8 +338,8 @@
     },
     {
       "type": "timeseries",
-      "title": "CPE Packet Loss (%) – IPv4",
-      "description": "Loss per probe burst for $cpe, in percent (0-100) as written by microcut_detector.py. Gateways rate-limit ICMP, so a healthy one loses part of most bursts (the reference Pi's daily p90 is 14-22%). Yellow at 30% is above that floor; red above 50% is a cut window (MICROCUT_LOSS_PCT's default, common/microcuts.py). A spell of the Pi's own deaf radio also reads 100% here: check the Wi-Fi panel. Thresholds match the stat tiles.",
+      "title": "ICMP the gateway did not answer – loss per 10 s window (%), IPv4",
+      "description": "Each bar is one 10 s window of 50 pings (5 pps) to $cpe: the share the gateway did not answer, in percent (0-100) as written by microcut_detector.py. Home gateways rate-limit ICMP, so a healthy gateway loses part of most windows; the shaded band is this gateway's own floor over the last 24 h, from the median window (p50) to the 90th percentile (p90), and bars inside it are normal. A bar above the red line (> 50 %, MICROCUT_LOSS_PCT) is a cut window, what the alerter and the assistant count as a microcut; the yellow line (30 %) is the floor's tail, worth a look and nothing more. A spell of the Pi's own deaf radio also reads 100 % here: check the Wi-Fi panel. The stat tiles below use the same colors.",
       "datasource": {
         "uid": "influxdb"
       },
@@ -369,34 +369,165 @@
             "fixedColor": "red",
             "mode": "fixed"
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 30
-              },
-              {
-                "color": "red",
-                "value": 51
-              }
-            ]
-          },
           "custom": {
             "drawStyle": "bars",
             "fillOpacity": 80,
             "lineWidth": 0,
             "pointSize": 5,
             "spanNulls": false,
-            "thresholdsStyle": {
-              "mode": "dashed"
-            }
+            "showPoints": "never"
           }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "floor p90 (24 h)"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 20
+              },
+              {
+                "id": "custom.fillBelowTo",
+                "value": "floor p50 (24 h)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "floor p50 (24 h)"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "watch (≥ 30 %)"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cut window (> 50 %)"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
@@ -404,7 +535,35 @@
           "datasource": {
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv4\" and r._field == \"loss\") |> yield(name:\"loss\")"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv4\" and r._field == \"loss\") |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"category\", \"protocol\", \"target\"]) |> yield(name:\"loss\")"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "q = from(bucket:\"smokeping\") |> range(start: -24h) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv4\" and r._field == \"loss\") |> quantile(q: 0.5, method: \"estimate_tdigest\") |> set(key: \"_field\", value: \"floor p50 (24 h)\") |> keep(columns: [\"_field\", \"_value\"])\nunion(tables: [q |> map(fn: (r) => ({r with _time: v.timeRangeStart})), q |> map(fn: (r) => ({r with _time: v.timeRangeStop}))]) |> group(columns: [\"_field\"]) |> sort(columns: [\"_time\"]) |> yield(name: \"p50\")"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "q = from(bucket:\"smokeping\") |> range(start: -24h) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv4\" and r._field == \"loss\") |> quantile(q: 0.9, method: \"estimate_tdigest\") |> set(key: \"_field\", value: \"floor p90 (24 h)\") |> keep(columns: [\"_field\", \"_value\"])\nunion(tables: [q |> map(fn: (r) => ({r with _time: v.timeRangeStart})), q |> map(fn: (r) => ({r with _time: v.timeRangeStop}))]) |> group(columns: [\"_field\"]) |> sort(columns: [\"_time\"]) |> yield(name: \"p90\")"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\narray.from(rows: [{_time: v.timeRangeStart, _value: 30.0}, {_time: v.timeRangeStop, _value: 30.0}]) |> set(key: \"_field\", value: \"watch (≥ 30 %)\") |> group(columns: [\"_field\"]) |> yield(name: \"watch\")"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\narray.from(rows: [{_time: v.timeRangeStart, _value: 50.0}, {_time: v.timeRangeStop, _value: 50.0}]) |> set(key: \"_field\", value: \"cut window (> 50 %)\") |> group(columns: [\"_field\"]) |> yield(name: \"cut\")"
         }
       ]
     },
@@ -450,13 +609,14 @@
         "defaults": {
           "unit": "percent",
           "thresholds": {
+            "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "orange",
                 "value": 30
               },
               {
@@ -475,7 +635,8 @@
           },
           "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv4\" and r._field == \"loss\") |> last()"
         }
-      ]
+      ],
+      "description": "Loss in the newest 10 s window (%). Green is the gateway's ICMP floor (rate limiting, not a fault), orange (30-50 %) the floor's tail; a microcut is a window above 50 % (MICROCUT_LOSS_PCT), red."
     },
     {
       "type": "stat",
@@ -711,8 +872,8 @@
         },
         {
           "type": "timeseries",
-          "title": "CPE Packet Loss (%) – IPv6",
-          "description": "Loss per probe burst for $cpe, in percent (0-100) as written by microcut_detector.py. Gateways rate-limit ICMP, so a healthy one loses part of most bursts (the reference Pi's daily p90 is 14-22%). Yellow at 30% is above that floor; red above 50% is a cut window (MICROCUT_LOSS_PCT's default, common/microcuts.py). A spell of the Pi's own deaf radio also reads 100% here: check the Wi-Fi panel. Thresholds match the stat tiles.",
+          "title": "ICMP the gateway did not answer – loss per 10 s window (%), IPv6",
+          "description": "Each bar is one 10 s window of 50 pings (5 pps) to $cpe: the share the gateway did not answer, in percent (0-100) as written by microcut_detector.py. Home gateways rate-limit ICMP, so a healthy gateway loses part of most windows; the shaded band is this gateway's own floor over the last 24 h, from the median window (p50) to the 90th percentile (p90), and bars inside it are normal. A bar above the red line (> 50 %, MICROCUT_LOSS_PCT) is a cut window, what the alerter and the assistant count as a microcut; the yellow line (30 %) is the floor's tail, worth a look and nothing more. A spell of the Pi's own deaf radio also reads 100 % here: check the Wi-Fi panel. The stat tiles below use the same colors.",
           "datasource": {
             "uid": "influxdb"
           },
@@ -742,34 +903,165 @@
                 "fixedColor": "red",
                 "mode": "fixed"
               },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "yellow",
-                    "value": 30
-                  },
-                  {
-                    "color": "red",
-                    "value": 51
-                  }
-                ]
-              },
               "custom": {
                 "drawStyle": "bars",
                 "fillOpacity": 80,
                 "lineWidth": 0,
                 "pointSize": 5,
                 "spanNulls": false,
-                "thresholdsStyle": {
-                  "mode": "dashed"
-                }
+                "showPoints": "never"
               }
-            }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "floor p90 (24 h)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.drawStyle",
+                    "value": "line"
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 20
+                  },
+                  {
+                    "id": "custom.fillBelowTo",
+                    "value": "floor p50 (24 h)"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "floor p50 (24 h)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.drawStyle",
+                    "value": "line"
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "watch (≥ 30 %)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.drawStyle",
+                    "value": "line"
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "yellow"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cut window (> 50 %)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.drawStyle",
+                    "value": "line"
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
           },
           "targets": [
             {
@@ -777,7 +1069,35 @@
               "datasource": {
                 "uid": "influxdb"
               },
-              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv6\" and r._field == \"loss\") |> yield(name:\"loss\")"
+              "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv6\" and r._field == \"loss\") |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"category\", \"protocol\", \"target\"]) |> yield(name:\"loss\")"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "q = from(bucket:\"smokeping\") |> range(start: -24h) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv6\" and r._field == \"loss\") |> quantile(q: 0.5, method: \"estimate_tdigest\") |> set(key: \"_field\", value: \"floor p50 (24 h)\") |> keep(columns: [\"_field\", \"_value\"])\nunion(tables: [q |> map(fn: (r) => ({r with _time: v.timeRangeStart})), q |> map(fn: (r) => ({r with _time: v.timeRangeStop}))]) |> group(columns: [\"_field\"]) |> sort(columns: [\"_time\"]) |> yield(name: \"p50\")"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "q = from(bucket:\"smokeping\") |> range(start: -24h) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv6\" and r._field == \"loss\") |> quantile(q: 0.9, method: \"estimate_tdigest\") |> set(key: \"_field\", value: \"floor p90 (24 h)\") |> keep(columns: [\"_field\", \"_value\"])\nunion(tables: [q |> map(fn: (r) => ({r with _time: v.timeRangeStart})), q |> map(fn: (r) => ({r with _time: v.timeRangeStop}))]) |> group(columns: [\"_field\"]) |> sort(columns: [\"_time\"]) |> yield(name: \"p90\")"
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "import \"array\"\narray.from(rows: [{_time: v.timeRangeStart, _value: 30.0}, {_time: v.timeRangeStop, _value: 30.0}]) |> set(key: \"_field\", value: \"watch (≥ 30 %)\") |> group(columns: [\"_field\"]) |> yield(name: \"watch\")"
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "uid": "influxdb"
+              },
+              "query": "import \"array\"\narray.from(rows: [{_time: v.timeRangeStart, _value: 50.0}, {_time: v.timeRangeStop, _value: 50.0}]) |> set(key: \"_field\", value: \"cut window (> 50 %)\") |> group(columns: [\"_field\"]) |> yield(name: \"cut\")"
             }
           ]
         },
@@ -811,13 +1131,14 @@
             "defaults": {
               "unit": "percent",
               "thresholds": {
+                "mode": "absolute",
                 "steps": [
                   {
                     "color": "green",
                     "value": null
                   },
                   {
-                    "color": "yellow",
+                    "color": "orange",
                     "value": 30
                   },
                   {
@@ -836,7 +1157,8 @@
               },
               "query": "from(bucket:\"smokeping\") |> range(start:-5m) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r.target == \"${cpe}\" and r.protocol == \"ipv6\" and r._field == \"loss\") |> last()"
             }
-          ]
+          ],
+          "description": "Loss in the newest 10 s window (%). Green is the gateway's ICMP floor (rate limiting, not a fault), orange (30-50 %) the floor's tail; a microcut is a window above 50 % (MICROCUT_LOSS_PCT), red."
         },
         {
           "type": "stat",
