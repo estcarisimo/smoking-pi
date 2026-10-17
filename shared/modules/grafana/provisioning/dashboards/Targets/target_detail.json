@@ -139,7 +139,7 @@
           "type": "influxdb",
           "uid": "influxdb"
         },
-        "query": "import \"regexp\"\nimport \"strings\"\nimport \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -7d, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r._value, t: \"\") })) |> map(fn: (r) => ({ r with key: strings.toLower(v: r._value) })) |> group(columns: [\"key\"]) |> sort(columns: [\"_value\"]) |> first() |> group() |> keep(columns: [\"_value\"]) |> sort()",
+        "query": "import \"regexp\"\nimport \"strings\"\nimport \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -24h, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\") |> map(fn: (r) => ({ _value: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r._value, t: \"\") })) |> map(fn: (r) => ({ r with key: strings.toLower(v: r._value) })) |> group(columns: [\"key\"]) |> sort(columns: [\"_value\"]) |> first() |> group() |> keep(columns: [\"_value\"]) |> sort()",
         "current": {
           "text": "Google",
           "value": "Google"
@@ -150,7 +150,8 @@
         "refresh": 1,
         "regex": "",
         "sort": 0,
-        "allowCustomValue": true
+        "allowCustomValue": true,
+        "description": "Targets with a point in the last 24 hours (SmokePing's step is 5 minutes). A link can still bring a name that is not listed: the first row then says when that target was last measured and, for a retired Netflix appliance name, which slot measures the appliances now."
       }
     ]
   },
@@ -174,13 +175,237 @@
     },
     {
       "type": "stat",
+      "title": "Time since the last measurement",
+      "description": "How long ago any probe of this target (ICMP, TCP, HTTP or DNS) last wrote a point inside the selected range, and when that point is. Green within two SmokePing steps, orange within a day, red beyond: a red value means the tiles beside it describe the past, not the present. \"no data in this range\": nothing from this target in the range at all.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\nimport \"strings\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// The newest point any probe of this target wrote inside the range, as its age now;\n// the point's own time travels as the field name, which the tile shows under the age.\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop)\n  |> filter(fn:(r)=> (r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\") and r.target =~ re and r._field == \"loss\")\n  |> last() |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1)\n  |> map(fn:(r)=> ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0, _field: \"newest point \" + strings.replace(v: strings.substring(v: string(v: r._time), start: 0, end: 16), t: \"T\", u: \" \", i: 1) + \" UTC\"}))\n  |> keep(columns:[\"_time\",\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "decimals": 1,
+          "noValue": "no data in this range",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 660
+              },
+              {
+                "color": "red",
+                "value": 86400
+              }
+            ]
+          },
+          "displayName": "${__field.labels._field}"
+        },
+        "overrides": []
+      },
+      "id": 18,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Is it measured now?",
+      "description": "Whether this target wrote a point in the last 24 hours. When it did not: when it stopped, and, for a retired Netflix appliance name, which slot (Netflix_<slot>_<site>) measures the appliances now: the slots keep their names while the appliance behind each changes daily (target_host records which). The newest point is looked for in the range and the 30 days before it. Click the text to open the slot, or the Netflix side-by-side.",
+      "gridPos": {
+        "h": 4,
+        "w": 13,
+        "x": 6,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"array\"\nimport \"date\"\nimport \"regexp\"\nimport \"strings\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// The newest point of this target, reaching 30 days back from the range start\n// so a target that stopped before the range still says when.\nnewest = from(bucket:\"smokeping\") |> range(start: date.sub(d: 30d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn:(r)=> (r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\") and r.target =~ re and r._field == \"loss\")\n  |> last() |> keep(columns:[\"_time\",\"category\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1)\n  |> findRecord(fn: (key) => true, idx: 0)\n// The Netflix slots keep their names while the appliance behind each changes daily\n// (target_host records which). A retired appliance name ends in its slot number:\n// the live slot carrying that number is where its measurements continue.\nslot = regexp.findString(r: /_[0-9]+$/, v: base)\nslotRe = regexp.compile(v: if slot == \"\" then \"^$\" else \"^[A-Za-z]+\" + regexp.quoteMeta(v: slot) + \"_\")\nlive = from(bucket:\"smokeping\") |> range(start:-24h)\n  |> filter(fn:(r)=> r._measurement == \"latency\" and r.category == \"netflix\" and r._field == \"loss\" and r.target =~ slotRe)\n  |> last() |> keep(columns:[\"target\"]) |> group() |> limit(n:1)\n  |> findRecord(fn: (key) => true, idx: 0)\nsince = from(bucket:\"smokeping\") |> range(start:-1y)\n  |> filter(fn:(r)=> r._measurement == \"target_host\" and r._field == \"host\" and r.category == \"netflix\" and r.target =~ slotRe)\n  |> first() |> keep(columns:[\"_time\",\"target\"]) |> group() |> sort(columns:[\"_time\"]) |> limit(n:1)\n  |> findRecord(fn: (key) => true, idx: 0)\nwhen = if exists newest._time then strings.replace(v: strings.substring(v: string(v: newest._time), start: 0, end: 16), t: \"T\", u: \" \", i: 1) + \" UTC\" else \"\"\ncategory = if exists newest.category then newest.category else \"\"\nslotName = if exists live.target and exists since._time and category == \"netflix\" then live.target else \"\"\nsinceDay = if exists since._time then strings.substring(v: string(v: since._time), start: 0, end: 10) else \"\"\nstale = not exists newest._time or int(v: now()) - int(v: newest._time) >= 86400000000000\narray.from(rows: [{\n  _time: now(),\n  // The data link opens the slot; for a target without one it opens this target again.\n  slot: if slotName != \"\" then slotName else base,\n  _value: if not exists newest._time then \"no data: nothing from this target in the range nor in the 30 days before it\"\n    else if not stale then \"measured now: a point in the last 24 h\"\n    else if slotName != \"\" then \"stopped \" + when + \" · retired name: its slot is measured as \" + slotName + \" since \" + sinceDay\n    else if category == \"netflix\" then \"stopped \" + when + \" · retired name: the Netflix appliances are measured as the Netflix_<slot>_<site> targets\"\n    else \"stopped \" + when + \" · nothing measured since (removed from the targets, or its probe stopped)\"}])\n  |> keep(columns:[\"_time\",\"_value\",\"slot\"])"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^(_value|Value)$/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "text": {
+          "valueSize": 16
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "no data",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^stopped.*",
+                "result": {
+                  "color": "orange",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^no data.*",
+                "result": {
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "links": [
+            {
+              "title": "Open the slot in Target Detail",
+              "url": "/d/target-detail-v1?var-target=${__data.fields.slot}&${__url_time_range}",
+              "targetBlank": false
+            },
+            {
+              "title": "Netflix slots side by side",
+              "url": "/d/side-by-side-v1?var-category=netflix&${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "id": 19,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Monitor deaf in range",
+      "description": "Minutes inside the range in which this Pi's own radio heard nothing: the alerter's incidents diagnosed local_wifi, and the inference module's periods labeled monitor_deaf (the span every labeled target shares). Loss in those minutes is the monitor's, not any destination's: subtract it before reading the loss tiles. \"none\": no such span in the range. The \"Monitor deaf\" and \"Loss incidents\" annotations mark the spans on the charts.",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"date\"\nstart = int(v: v.timeRangeStart)\nstop = int(v: v.timeRangeStop)\n// Spans in which this Pi's radio heard nothing, whatever any destination did: the\n// alerter's incidents diagnosed local_wifi and the inference module's periods labeled\n// monitor_deaf (on any target: a deaf radio is deaf to all of them). Both are stamped\n// at their start; reach back for ones that began before the range.\nincidents = from(bucket:\"smokeping\") |> range(start: date.sub(d: 7d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement == \"loss_incident\" and (r._field == \"class\" or r._field == \"end_epoch\"))\n  |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn:(r)=> r.class == \"local_wifi\")\n  |> map(fn:(r)=> ({_time: r._time, _start: int(v: r._time), _stop: r.end_epoch * 1000000000}))\nperiods = from(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement == \"loss_degradation\" and (r._field == \"class\" or r._field == \"end\"))\n  |> pivot(rowKey:[\"_time\", \"target\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn:(r)=> exists r.class and r.class == \"monitor_deaf\")\n  |> map(fn:(r)=> ({_time: r._time, _start: int(v: r._time), _stop: r.end * 1000000000}))\n// Clip every span to the range; of the periods that start together keep the one that\n// ends first (the span every labeled target shares, not the longest target's tail);\n// then add them up without counting an overlap twice.\nunion(tables: [incidents, periods])\n  |> map(fn:(r)=> ({_time: r._time, _start: if r._start > start then r._start else start, _stop: if r._stop < stop then r._stop else stop}))\n  |> filter(fn:(r)=> r._stop > r._start)\n  |> group(columns:[\"_time\"]) |> min(column: \"_stop\")\n  |> group() |> sort(columns:[\"_start\"])\n  |> reduce(identity: {_stop: 0, _value: 0}, fn: (r, accumulator) => ({\n      _stop: if r._stop > accumulator._stop then r._stop else accumulator._stop,\n      _value: accumulator._value + (if r._start > accumulator._stop then r._stop - r._start else if r._stop > accumulator._stop then r._stop - accumulator._stop else 0)}))\n  |> map(fn:(r)=> ({_value: float(v: r._value) / 60000000000.0}))\n  |> set(key:\"_field\", value:\"deaf\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "decimals": 0,
+          "noValue": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "displayName": "the radio heard nothing for"
+        },
+        "overrides": []
+      },
+      "id": 20,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "stat",
       "title": "ICMP",
-      "description": "Ping (FPing): the network path, no application. \"not measured\": this target has no such probe (or it wrote nothing in the range).",
+      "description": "Ping (FPing): the network path, no application. \"not measured\": this target has no such probe (or it wrote nothing in the range). The loss is the mean over the range, this monitor's deaf minutes included: see \"Monitor deaf in range\".",
       "gridPos": {
         "h": 5,
         "w": 5,
         "x": 0,
-        "y": 1
+        "y": 5
       },
       "targets": [
         {
@@ -277,12 +502,12 @@
     {
       "type": "stat",
       "title": "TCP handshake",
-      "description": "SYN / SYN-ACK to port 443: the transport floor under HTTP. \"not measured\": this target has no such probe (or it wrote nothing in the range).",
+      "description": "SYN / SYN-ACK to port 443: the transport floor under HTTP. \"not measured\": this target has no such probe (or it wrote nothing in the range). The loss is the mean over the range, this monitor's deaf minutes included: see \"Monitor deaf in range\".",
       "gridPos": {
         "h": 5,
         "w": 5,
         "x": 5,
-        "y": 1
+        "y": 5
       },
       "targets": [
         {
@@ -379,12 +604,12 @@
     {
       "type": "stat",
       "title": "HTTP",
-      "description": "A HEAD request over HTTP/1.1, HTTP/2 and HTTP/3 (connect + TLS + request + response headers, minus DNS). \"not measured\": this target has no such probe (or it wrote nothing in the range).",
+      "description": "A HEAD request over HTTP/1.1, HTTP/2 and HTTP/3 (connect + TLS + request + response headers, minus DNS). \"not measured\": this target has no such probe (or it wrote nothing in the range). The loss is the mean over the range, this monitor's deaf minutes included: see \"Monitor deaf in range\".",
       "gridPos": {
         "h": 5,
         "w": 9,
         "x": 10,
-        "y": 1
+        "y": 5
       },
       "targets": [
         {
@@ -481,12 +706,12 @@
     {
       "type": "stat",
       "title": "DNS",
-      "description": "A DNS query answered by this target, when it is a resolver. \"not measured\": this target has no such probe (or it wrote nothing in the range).",
+      "description": "A DNS query answered by this target, when it is a resolver. \"not measured\": this target has no such probe (or it wrote nothing in the range). The loss is the mean over the range, this monitor's deaf minutes included: see \"Monitor deaf in range\".",
       "gridPos": {
         "h": 5,
         "w": 5,
         "x": 19,
-        "y": 1
+        "y": 5
       },
       "targets": [
         {
@@ -588,7 +813,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 10
       },
       "panels": [],
       "id": 6,
@@ -605,7 +830,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 7
+        "y": 11
       },
       "targets": [
         {
@@ -750,7 +975,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 7
+        "y": 11
       },
       "targets": [
         {
@@ -806,7 +1031,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 19
       },
       "panels": [],
       "id": 9,
@@ -823,7 +1048,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 16
+        "y": 20
       },
       "targets": [
         {
@@ -968,7 +1193,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 16
+        "y": 20
       },
       "targets": [
         {
@@ -1024,7 +1249,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 28
       },
       "panels": [],
       "id": 12,
@@ -1041,7 +1266,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 25
+        "y": 29
       },
       "targets": [
         {
@@ -1126,7 +1351,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 25
+        "y": 29
       },
       "targets": [
         {
@@ -1213,7 +1438,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 37
       },
       "panels": [],
       "id": 15,
@@ -1230,7 +1455,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 34
+        "y": 38
       },
       "targets": [
         {
@@ -1375,7 +1600,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 34
+        "y": 38
       },
       "targets": [
         {
