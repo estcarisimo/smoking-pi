@@ -39,7 +39,7 @@
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse"
         },
-        "query": "SELECT DISTINCT replaceRegexpOne(target, '_h[123]$', '') AS site FROM smokeping.latency WHERE measurement_type = 'http_latency' ORDER BY site",
+        "query": "SELECT DISTINCT replaceRegexpOne(target, '_h[123]$', '') AS site FROM smokeping.latency WHERE timestamp >= now() - INTERVAL 1 DAY AND measurement_type = 'http_latency' ORDER BY site",
         "current": {
           "selected": true,
           "text": "All",
