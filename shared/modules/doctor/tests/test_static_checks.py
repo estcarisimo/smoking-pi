@@ -1243,6 +1243,8 @@ def test_exporter_vocabulary_reads_a_shell_line_protocol_writer(tmp_path):
         "    printf 'watchdog_event,area=%s message=\"%s\" %s%09d\\n' "
         "\"$area\" \"$msg\" \"$(wd_now)\" 0 | influx write\n"
         "    printf 'not line protocol: %s\\n' \"$1\"\n"
+        "    printf 'export FOO=%s\\n' \"$1\"\n"
+        "    printf 'untagged field=%s\\n' \"$1\"\n"
         "}\n"
     )
     vocab = exporter_vocabulary(a, script, tmp_path / "missing.sh")

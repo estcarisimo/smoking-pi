@@ -19,11 +19,11 @@ Open it from the Overview's *Where to look next* list or from the
 | | Host collectors | The same for the Wi-Fi sampler, the uplink byte meter, the public-address and resolver-identity collectors and the uplink heartbeat, each against its own cadence |
 | | Services | The same for the inference module's passes, the budget report, the DNS wizard's hourly snapshot and the house's DNS timing |
 | Series that stopped | Silent targets | Every target that wrote in the last 24 hours and has been silent longer than its window, longest silence first. Click a target for every layer it is measured on |
-| | Silent targets (count), Series with data (24 h) | The table's size and the population it is drawn from. `0` silent is the normal reading |
+| | Silent targets (count), Series with data (24 h) | The table's size and the population it is drawn from. `0` silent is the normal reading; a target you just removed, paused or renamed reads silent for up to 24 h, until its last point ages out of the window |
 | | Points written per 15 minutes, by layer | A flat line per layer is normal. A dip every layer shares is a gap in the InfluxDB copy (the database down, the card full, the exporter restarting); a dip in one layer is that probe |
 | The services, about themselves | Inference passes | Seconds and failures per hourly pass, moved here from Connectivity & Quality (it is the module's health, not the connection's) |
 | | What the watchdog did | Driver reloads, reboots and SmokePing restarts the host watchdog recorded (`watchdog_event`). Empty is the healthy reading |
-| | Loss incidents the alerter diagnosed | One row per closed incident: class, summary, minutes, confidence, targets affected |
+| | Loss incidents the alerter diagnosed | One row per closed incident: class, summary, minutes, confidence (low, medium or high), targets affected |
 | | Measurement budget report | Whether the budget exporter priced every probe, how many it could not, and whether the estimate is over the ceiling. These flags were written since v2.16.0 and shown nowhere until now |
 | Text | Empty on purpose; where the rest lives | Why a panel is blank on this hardware, and which command or card holds the health that never reaches InfluxDB |
 

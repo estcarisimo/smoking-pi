@@ -19,8 +19,9 @@ version gets a matching GitHub release and git tag.
   been written since v2.16.0 and charted nowhere, the watchdog's
   `watchdog_event` records had no panel, and no dashboard said how old each
   collector's newest point was or which target series had stopped. A gap in
-  the InfluxDB copy (the sixteen minutes the v2.38.2 upgrade cost when the
-  card filled) was visible only by noticing a chart's hole. The new
+  the InfluxDB copy (the sixteen minutes v2.39.0 records the v2.38.2
+  upgrade cost when the card filled) was visible only by noticing a
+  chart's hole. The new
   `diagnostics-v1` dashboard answers those questions for a maintainer: the
   age of every collector's newest point against its cadence, the targets
   silent for longer than two steps plus a minute (the web admin's rule, from
@@ -32,12 +33,14 @@ version gets a matching GitHub release and git tag.
   `smoking-pi watchdog status`). The Overview's index links it;
   `docs/diagnostics.md` describes it. ClickHouse has no version of it, as
   decided for every non-per-target dashboard on 2026-10-15.
-- **The doctor reads the watchdog's InfluxDB writes.** `panel-measurements-
-  written` and `panel-tags-written` learned the exporters' vocabulary from
-  Python `Point()` calls only; `cli/lib/watchdog.sh` writes `watchdog_event`
-  as line protocol through the database container's CLI, so any panel over
-  it would have failed the doctor. The vocabulary now includes a shell
-  writer's `printf` line-protocol literals (measurement and tag names).
+- **The doctor reads the watchdog's InfluxDB writes.** The checks
+  `panel-measurements-written` and `panel-tags-written` learned the
+  exporters' vocabulary from Python `Point()` calls only;
+  `cli/lib/watchdog.sh` writes `watchdog_event` as line protocol through
+  the database container's CLI, so any panel over it would have failed the
+  doctor. The vocabulary now includes a shell writer's `printf`
+  line-protocol literals (a measurement with at least one tag, then a
+  field).
 
 ### Changed
 

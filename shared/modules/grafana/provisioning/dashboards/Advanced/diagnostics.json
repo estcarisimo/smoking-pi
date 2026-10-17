@@ -898,7 +898,7 @@
       "id": 11,
       "type": "table",
       "title": "Silent targets, longest silence first",
-      "description": "Every target that wrote at least once in the last 24 h and has not written for longer than two steps plus a minute (the rule the web admin's measurement card applies). A target that never wrote cannot appear here; that is the doctor's `targets-measured` check and the web admin's card, which compare against the configured targets. A paused or deleted target drops off after a day. Click a target for every layer it is measured on.",
+      "description": "Every target that wrote at least once in the last 24 h and has not written for longer than two steps plus a minute (the rule the web admin's measurement card applies). A target that never wrote cannot appear here; that is the doctor's `targets-measured` check and the web admin's card, which compare against the configured targets. A target you just removed, paused or renamed reads silent here for up to 24 h, until its last point ages out of the window; the web admin and the doctor know it is gone. Click a target for every layer it is measured on.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -1114,16 +1114,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "text",
                 "value": null
-              },
-              {
-                "color": "orange",
-                "value": 660
-              },
-              {
-                "color": "red",
-                "value": 1800
               }
             ]
           },
@@ -1504,7 +1496,7 @@
       "id": 23,
       "type": "table",
       "title": "Loss incidents the alerter diagnosed (loss_incident)",
-      "description": "One row per incident the alerter closed and diagnosed: its class (what it blamed), the one-line summary, how long it lasted, the confidence, and how many targets it affected out of those reporting. The same records feed the Overview's incident annotations and the assistant's incident history. Empty when no loss episode crossed the alert rules in the range.",
+      "description": "One row per incident the alerter closed and diagnosed: its class (what it blamed), the one-line summary, how long it lasted, the confidence (low, medium or high), and how many targets it affected out of those reporting. The same records feed the Overview's incident annotations and the assistant's incident history. Empty when no loss episode crossed the alert rules in the range.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -1548,22 +1540,6 @@
               {
                 "id": "unit",
                 "value": "m"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Confidence"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percentunit"
               },
               {
                 "id": "decimals",
@@ -1658,16 +1634,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "text",
                 "value": null
-              },
-              {
-                "color": "orange",
-                "value": 660
-              },
-              {
-                "color": "red",
-                "value": 1800
               }
             ]
           },

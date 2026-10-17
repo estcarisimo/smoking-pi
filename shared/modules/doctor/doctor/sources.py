@@ -353,13 +353,15 @@ def exporter_vocabulary(*exporter_dirs: pathlib.Path) -> ExporterVocabulary:
     return vocab
 
 
-# A line-protocol literal in a shell printf: ``printf 'watchdog_event,area=%s
-# message="%s" %s'`` -- the measurement, then ``,tag=`` pairs, then a space
-# and the first ``field=``, which a plain printf message lacks. Only literals are read; a measurement named through a variable is
+# A line-protocol literal in a shell printf, such as
+# ``printf 'watchdog_event,area=%s message="%s" %s'``: the measurement, at
+# least one ``,tag=`` pair, then a space and the first ``field=``. Both are
+# required so an ordinary ``printf 'export FOO=%s'`` is not a measurement.
+# Only literals are read; a measurement named through a variable is
 # invisible here, as a ``Point(name)`` with no resolvable helper is above.
 _SHELL_LINE_PROTOCOL_RE = re.compile(
-    r"""printf\s+(['"])([A-Za-z_][A-Za-z0-9_]*)((?:,[A-Za-z_][A-Za-z0-9_]*=[^ ,'"]*)*)"""
-    r"""[ ][A-Za-z_][A-Za-z0-9_]*="""
+    r"""printf\s+(['"])([A-Za-z_][A-Za-z0-9_]*)"""
+    r"""((?:,[A-Za-z_][A-Za-z0-9_]*=[^ ,'"]*)+)[ ][A-Za-z_][A-Za-z0-9_]*="""
 )
 
 
