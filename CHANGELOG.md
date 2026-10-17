@@ -49,6 +49,34 @@ version gets a matching GitHub release and git tag.
   service rather than the connection; it moved to the Diagnostics
   dashboard unchanged.
 
+### Fixed
+
+- **A target that stopped being measured looked like a live, lossy one.**
+  Target Detail opened on `Ocean_Reef_Club_Airport_ATL_c344_5`, one of the
+  Netflix appliance names retired on 2026-10-12 when the
+  `Netflix_<slot>_<site>` targets replaced them, showed 18.5 % loss and a
+  56 ms median over the last seven days as if the target were still being
+  measured. Nothing said that its data ended on 2026-10-11, that most of
+  that loss fell inside the eleven hours this Pi's radio was deaf that day,
+  or that the appliances are measured under the slot names now: a reader was
+  told a destination was lossy when the monitor had stopped looking at it
+  five days earlier. The target dropdown had offered every name with a point
+  in the last seven days; it now offers those with one in the last 24 hours
+  (the ClickHouse dashboards' dropdowns, which had no time window at all,
+  get the same day), and a link or bookmark can still bring any name. Three
+  tiles now open the dashboard. *Time since the last measurement* is the age
+  of the newest point in the range, green within 11 minutes (two steps at
+  the default step), orange within a day, red beyond, or "no data in this range". *Is it measured
+  now?* says "measured in the last 24 h", or when the target stopped and, for a retired
+  Netflix appliance name, which live slot carries its number and since when
+  (from `target_host`; by slot number, not by address, because the appliance
+  behind a slot changes daily), with a link to that slot and to the Netflix
+  side-by-side. *Monitor deaf in range* is the time in which this
+  Pi's radio heard nothing (the alerter's `local_wifi` incidents and the
+  inference module's `monitor_deaf` periods, the shortest of those starting
+  together), so the loss tiles, which include those minutes, can be read for
+  what they are. The loss computation itself is unchanged.
+
 ## [2.39.0] — 2026-10-16
 
 An upgrade no longer fills the card. `smoking-pi upgrade` had kept every
