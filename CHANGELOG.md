@@ -9,6 +9,19 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.40.0] — 2026-10-17
+
+Target Detail now says whether the page describes the present. A target
+that stopped being measured, such as a Netflix appliance name retired by
+the stable slots, had read as a live target with its last days' loss;
+three tiles now give the age of the newest point, whether the target is
+measured now (and, for a retired Netflix name, which live slot carries it),
+and how long the monitor's own radio was deaf inside the range, and the
+target dropdowns list what wrote a point in the last day. A Diagnostics
+dashboard in a new *Advanced* folder answers whether every collector is
+writing and which series stopped; the doctor reads the watchdog's writes;
+Connectivity & Quality hands the inference pass timing to Diagnostics.
+
 ### Added
 
 - **Diagnostics dashboard, in a new *Advanced* Grafana folder.** The
