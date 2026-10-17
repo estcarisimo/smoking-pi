@@ -102,10 +102,11 @@ other evidence and written beside each period, never fed back into it:
 ## Pass history
 
 Every pass writes one `inference_pass` point: `seconds`, `targets`,
-`errors`, `congestion_periods`, `degradation_periods`. Connectivity &
-Quality shows the seconds and failures per pass under the episode timeline;
-`status.json` keeps only the last pass, and the container's log does not
-survive an upgrade, so this is the record of what a pass costs over time.
+`errors`, `congestion_periods`, `degradation_periods`. The
+[Diagnostics dashboard](diagnostics.md) (Advanced folder) charts the seconds
+and failures per pass; `status.json` keeps only the last pass, and the
+container's log does not survive an upgrade, so this is the record of what a
+pass costs over time.
 
 ## Turning it on
 

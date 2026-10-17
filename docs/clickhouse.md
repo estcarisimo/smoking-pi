@@ -21,8 +21,8 @@ other command then add the ClickHouse overlay and profile by themselves.
   `provisioning/dashboards-clickhouse/`, provisioned only in ClickHouse mode:
   Individual Pings, DNS Resolvers, HTTP by Version and the three
   side-by-side comparisons. They are the per-target views; the Overview,
-  Target Detail, Connectivity & Quality, Wi-Fi Link, CPE Microcut Detection
-  and DNS Wizard dashboards read InfluxDB and have no ClickHouse version
+  Target Detail, Connectivity & Quality, Wi-Fi Link, CPE Microcut Detection,
+  DNS Wizard and Diagnostics dashboards read InfluxDB and have no ClickHouse version
   (decision of 2026-10-15: no known ClickHouse install asks for them).
 
 ## Things that are not obvious

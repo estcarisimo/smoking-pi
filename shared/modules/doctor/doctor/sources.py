@@ -324,6 +324,13 @@ def exporter_vocabulary(*exporter_dirs: pathlib.Path) -> ExporterVocabulary:
     writes InfluxDB points (the traffic meter)."""
     vocab = ExporterVocabulary()
     paths = sorted(p for d in exporter_dirs if d.is_dir() for p in d.glob("*.py"))
+    # A shell writer (the host watchdog) is named by file, not directory.
+    for path in sorted(d for d in exporter_dirs if d.is_file() and d.suffix == ".sh"):
+        measurements, tags = shell_line_protocol(path)
+        if measurements:
+            vocab.measurements |= measurements
+            vocab.tag_names |= tags
+            vocab.sources.append(path.name)
     for path in paths:
         # ClickHouse support is parked and writes a different schema.
         if "clickhouse" in path.name:
@@ -344,6 +351,34 @@ def exporter_vocabulary(*exporter_dirs: pathlib.Path) -> ExporterVocabulary:
             vocab.tag_names |= visitor.tag_names
             vocab.sources.append(path.name)
     return vocab
+
+
+# A line-protocol literal in a shell printf, such as
+# ``printf 'watchdog_event,area=%s message="%s" %s'``: the measurement, at
+# least one ``,tag=`` pair, then a space and the first ``field=``. Both are
+# required so an ordinary ``printf 'export FOO=%s'`` is not a measurement.
+# Only literals are read; a measurement named through a variable is
+# invisible here, as a ``Point(name)`` with no resolvable helper is above.
+_SHELL_LINE_PROTOCOL_RE = re.compile(
+    r"""printf\s+(['"])([A-Za-z_][A-Za-z0-9_]*)"""
+    r"""((?:,[A-Za-z_][A-Za-z0-9_]*=[^ ,'"]*)+)[ ][A-Za-z_][A-Za-z0-9_]*="""
+)
+
+
+def shell_line_protocol(path: pathlib.Path) -> tuple[set[str], set[str]]:
+    """Measurements and tag names a shell script writes as InfluxDB line
+    protocol (``cli/lib/watchdog.sh`` records ``watchdog_event`` through the
+    database container's own CLI). Unreadable file: nothing."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return set(), set()
+    measurements: set[str] = set()
+    tags: set[str] = set()
+    for _quote, measurement, tag_part in _SHELL_LINE_PROTOCOL_RE.findall(text):
+        measurements.add(measurement)
+        tags |= set(re.findall(r",([A-Za-z_][A-Za-z0-9_]*)=", tag_part))
+    return measurements, tags
 
 
 def _function_results(func: ast.FunctionDef, dicts: dict[str, dict]) -> set[str]:

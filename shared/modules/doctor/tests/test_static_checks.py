@@ -1228,6 +1228,31 @@ def test_exporter_vocabulary_reads_every_writer(tmp_path):
     assert "service" in vocab.tag_names
 
 
+def test_exporter_vocabulary_reads_a_shell_line_protocol_writer(tmp_path):
+    """The host watchdog records ``watchdog_event`` with printf and the
+    database container's CLI, not a Point(): the Diagnostics dashboard
+    charts it, so the doctor must know the measurement and its tag."""
+    from doctor.sources import exporter_vocabulary
+
+    a = tmp_path / "a"
+    a.mkdir()
+    (a / "x.py").write_text('from influxdb_client import Point\nPoint("first")\n')
+    script = tmp_path / "watchdog.sh"
+    script.write_text(
+        "wd_record() {\n"
+        "    printf 'watchdog_event,area=%s message=\"%s\" %s%09d\\n' "
+        "\"$area\" \"$msg\" \"$(wd_now)\" 0 | influx write\n"
+        "    printf 'not line protocol: %s\\n' \"$1\"\n"
+        "    printf 'export FOO=%s\\n' \"$1\"\n"
+        "    printf 'untagged field=%s\\n' \"$1\"\n"
+        "}\n"
+    )
+    vocab = exporter_vocabulary(a, script, tmp_path / "missing.sh")
+    assert vocab.measurements == {"first", "watchdog_event"}
+    assert vocab.tag_names == {"area"}
+    assert "watchdog.sh" in vocab.sources
+
+
 # --- settings-schema ---------------------------------------------------------
 
 
