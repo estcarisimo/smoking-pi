@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.39.0] — 2026-10-16
+
+An upgrade no longer fills the card. `smoking-pi upgrade` had kept every
+previous release's images, and on the reference Pi the v2.38.2 upgrade
+landed on a card already holding 513 of them: PostgreSQL and Grafana
+went down and InfluxDB lost sixteen minutes. Once the new
+release is up and stays up, the upgrade now removes the images of other
+releases, one at a time and never one a container still uses; the
+package-install test checks that it does. The doctor gains a `disk-free`
+live check so a filling card is a warning before it is an outage.
+
 ### Fixed
 
 - **`smoking-pi upgrade` left every previous release's images on disk.**
@@ -22,14 +33,16 @@ version gets a matching GitHub release and git tag.
   was freed: sixteen minutes of measurements lost, and the RRDs kept
   writing only because their files already existed. `upgrade` now removes
   the images of other releases once every container of the new release is
-  running, and still running ten seconds later: each `ghcr.io/estcarisimo/smoking-pi/*` image whose tag is not
-  the version just brought up, one `docker image rm` at a time (never
+  running, and still running ten seconds later: each
+  `ghcr.io/estcarisimo/smoking-pi/*` image whose tag is not the version
+  just brought up, one `docker image rm` at a time (never
   `docker image prune -a`, which would take cloudflared and whatever else
   the daemon holds), never an image a container still references, and
   nothing at all while a container is not running at either look, so a
   failed upgrade keeps the previous release to go back to. It says how
-  many it removed and up to how much space. The release's package-install test asserts
-  that the previous release's images are gone after the upgrade.
+  many it removed and up to how much space. The release's package-install
+  test asserts that the previous release's images are gone after the
+  upgrade.
 
 ### Added
 
@@ -39,7 +52,6 @@ version gets a matching GitHub release and git tag.
   2 % or 1 GB, the mount and the free space in the message, and, when the
   registry's images carry tags no container runs, the note that
   `smoking-pi upgrade` removes them.
-
 
 ## [2.38.2] — 2026-10-16
 
