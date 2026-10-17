@@ -729,77 +729,6 @@
       ]
     },
     {
-      "type": "timeseries",
-      "title": "Inference passes (experimental): seconds per hourly pass, failures",
-      "id": 23,
-      "description": "One point per pass of the inference service: how long the pass took for all its targets, and how many targets failed. The record the service keeps of itself (status.json holds only the last pass).",
-      "datasource": {
-        "type": "influxdb",
-        "uid": "influxdb"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 24,
-        "x": 0,
-        "y": 32
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "influxdb",
-            "uid": "influxdb"
-          },
-          "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"inference_pass\" and (r._field == \"seconds\" or r._field == \"errors\")) |> keep(columns: [\"_time\", \"_field\", \"_value\"])"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "points",
-            "pointSize": 4,
-            "spanNulls": false
-          },
-          "unit": "s"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "errors"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "none"
-              },
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#F2495C"
-                }
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
       "id": 15,
       "type": "row",
       "title": "The targets behind the loss, over the selected range",
@@ -808,7 +737,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 32
       },
       "panels": []
     },
@@ -825,7 +754,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 33
       },
       "options": {
         "showHeader": true,
@@ -1028,7 +957,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 48
+        "y": 43
       },
       "collapsed": false,
       "panels": []
@@ -1048,7 +977,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 49
+        "y": 44
       },
       "options": {
         "calculate": false,
@@ -1154,7 +1083,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 49
+        "y": 44
       },
       "options": {
         "calculate": false,
@@ -1260,7 +1189,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 55
       },
       "options": {
         "calculate": false,
@@ -1367,7 +1296,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 55
       },
       "options": {
         "calculate": false,

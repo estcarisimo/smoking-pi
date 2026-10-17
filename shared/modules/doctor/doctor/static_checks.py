@@ -38,7 +38,9 @@ class Repo:
         self.writers = (self.exporters, root / "shared/modules/netmeter",
                         root / "shared/modules/inference",
                         # loss_incident (incident_history.py)
-                        root / "shared/modules/alerter")
+                        root / "shared/modules/alerter",
+                        # watchdog_event, as line protocol from the host
+                        root / "cli/lib/watchdog.sh")
         self.alerter = root / "shared/modules/alerter"
         # Shared code copied into the alerter image; it reads env too.
         self.common = root / "shared/modules/common"

@@ -1,0 +1,1843 @@
+{
+  "uid": "diagnostics-v1",
+  "id": null,
+  "title": "Diagnostics – collectors, series and missing data",
+  "description": "Internals, off the main path: is every collector writing to InfluxDB, which target series stopped, how many points reach the database per quarter hour, and what the services (inference, watchdog, alerter, budget) record about themselves. Plus why a panel can be empty on this hardware, and where the health that never reaches InfluxDB lives.",
+  "schemaVersion": 37,
+  "version": 1,
+  "tags": [
+    "smokeping",
+    "diagnostics"
+  ],
+  "timezone": "browser",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "graphTooltip": 1,
+  "editable": false,
+  "links": [
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/d/smoking-pi-overview-v1",
+      "icon": "dashboard",
+      "tooltip": "The landing page",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
+    {
+      "title": "Connectivity & Quality",
+      "type": "link",
+      "url": "/d/connectivity-quality-v1",
+      "icon": "dashboard",
+      "tooltip": "Loss and latency on one time axis",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": [
+        "smokeping"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Is every collector writing? Age of its newest point (last 24 h)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "SmokePing probes, by layer",
+      "description": "How long ago the last measurement of each layer reached InfluxDB. The probes run on a 300 s step (the ISP gateway's high-frequency probe writes about once a minute): orange past two steps and a minute, the rule the web admin's measurement card applies per target; red past half an hour. A layer with no target configured (no DNS resolvers, no HTTP targets) reads \"none in 24 h\" and is not a fault. All layers aging together means the exporter or InfluxDB stopped, not the probes: `smoking-pi doctor --live`.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 660
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          },
+          "noValue": "nothing in 24 h",
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 999999.0,
+                "to": 1000000000000000.0,
+                "result": {
+                  "text": "none in 24 h",
+                  "color": "text",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "ICMP"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 660
+                    },
+                    {
+                      "color": "red",
+                      "value": 1800
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "DNS"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 660
+                    },
+                    {
+                      "color": "red",
+                      "value": 1800
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "TCP"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 660
+                    },
+                    {
+                      "color": "red",
+                      "value": 1800
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "HTTP"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 660
+                    },
+                    {
+                      "color": "red",
+                      "value": 1800
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "ISP gateway (CPE)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 180
+                    },
+                    {
+                      "color": "red",
+                      "value": 600
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"dns_latency\" and r._field == \"loss\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"tcp_latency\" and r._field == \"loss\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"http_latency\" and r._field == \"loss\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r._field == \"loss\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Host collectors",
+      "description": "The collectors that read the host rather than SmokePing, each with its cadence: the Wi-Fi sampler (empty on a wired Pi), the uplink byte meter (netmeter), the public-address and resolver-identity collectors, and the host_uplink heartbeat the Wi-Fi collector writes every minute while nothing changes. Thresholds follow each cadence. The DNS observer, mdns and the alerter keep no heartbeat here: their state is in `smoking-pi dns status`, the container healthchecks and the web admin's cards.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 660
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          },
+          "noValue": "nothing in 24 h",
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 999999.0,
+                "to": 1000000000000000.0,
+                "result": {
+                  "text": "none in 24 h",
+                  "color": "text",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Wi-Fi link (10 s)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 90
+                    },
+                    {
+                      "color": "red",
+                      "value": 300
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Uplink meter (5 min)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 660
+                    },
+                    {
+                      "color": "red",
+                      "value": 1800
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Public address (15 min)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1860
+                    },
+                    {
+                      "color": "red",
+                      "value": 3600
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Resolver identity (15 min)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1860
+                    },
+                    {
+                      "color": "red",
+                      "value": 3600
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Uplink heartbeat (1 min)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 180
+                    },
+                    {
+                      "color": "red",
+                      "value": 600
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"wifi_link\" and r._field == \"signal_dbm\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"uplink_traffic\" and r._field == \"mb_per_day\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"public_ip\" and r._field == \"ip\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"dns_resolver\" and r._field == \"via\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-168h) |> filter(fn:(r) => r._measurement == \"host_uplink\" and r._field == \"interface\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Services",
+      "description": "What the optional services write about their own runs: the inference module (one point per hourly pass; \"nothing in 24 h\" when the inference profile is off), the measurement-budget report, the DNS wizard's hourly snapshot and the house's DNS resolution timing (both empty while the DNS observer receives no queries).",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 660
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          },
+          "noValue": "nothing in 24 h",
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 999999.0,
+                "to": 1000000000000000.0,
+                "result": {
+                  "text": "none in 24 h",
+                  "color": "text",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Inference pass (1 h)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 9000
+                    },
+                    {
+                      "color": "red",
+                      "value": 14400
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Budget report (5 min)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 660
+                    },
+                    {
+                      "color": "red",
+                      "value": 1800
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "DNS wizard snapshot (1 h)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 7260
+                    },
+                    {
+                      "color": "red",
+                      "value": 14400
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "House DNS timing (5 min)"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 660
+                    },
+                    {
+                      "color": "red",
+                      "value": 1800
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"inference_pass\" and r._field == \"seconds\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"measurement_budget\" and r._field == \"bandwidth_pct\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"dns_wizard\" and r._field == \"queries_1h\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"array\"\nnewest = from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"dns_resolution\" and r._field == \"p99\") |> keep(columns:[\"_time\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:1) |> map(fn:(r) => ({_time: r._time, _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0}))\nunion(tables:[newest, array.from(rows:[{_time: now(), _value: 999999.0}])]) |> group() |> min()"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Series that stopped: targets with data in the last 24 h whose last point is older than their window",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Silent targets, longest silence first",
+      "description": "Every target that wrote at least once in the last 24 h and has not written for longer than two steps plus a minute (the rule the web admin's measurement card applies). A target that never wrote cannot appear here; that is the doctor's `targets-measured` check and the web admin's card, which compare against the configured targets. A paused or deleted target drops off after a day. Click a target for every layer it is measured on.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 0,
+        "y": 12
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Every layer for ${__value.raw}",
+                    "url": "/d/target-detail-v1?var-target=${__value.raw}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Silent for"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 660
+                    },
+                    {
+                      "color": "red",
+                      "value": 3600
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Step"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Layer"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "latency": {
+                        "text": "ICMP",
+                        "index": 0
+                      },
+                      "dns_latency": {
+                        "text": "DNS",
+                        "index": 1
+                      },
+                      "tcp_latency": {
+                        "text": "TCP",
+                        "index": 2
+                      },
+                      "http_latency": {
+                        "text": "HTTP",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "_measurement": 0,
+              "target": 1,
+              "category": 2,
+              "age_s": 3,
+              "step_s": 4
+            },
+            "renameByName": {
+              "_measurement": "Layer",
+              "target": "Target",
+              "category": "Category",
+              "age_s": "Silent for",
+              "step_s": "Step"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "layers = from(bucket:\"smokeping\") |> range(start:-24h)\n  |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and (r._field == \"loss\" or r._field == \"step\"))\n  |> group(columns:[\"_measurement\",\"target\",\"category\",\"_field\"]) |> last()\n// Two streams named by set(): the age of the last loss point, and the step the probe runs on.\nage = layers |> filter(fn:(r) => r._field == \"loss\") |> map(fn:(r) => ({r with _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0})) |> set(key:\"_field\", value:\"age_s\")\nstep = layers |> filter(fn:(r) => r._field == \"step\") |> map(fn:(r) => ({r with _value: float(v: r._value)})) |> set(key:\"_field\", value:\"step_s\")\nunion(tables:[age, step]) |> drop(columns:[\"_start\",\"_stop\",\"_time\"])\n  |> group(columns:[\"_measurement\",\"target\",\"category\"])\n  |> pivot(rowKey:[\"_measurement\",\"target\",\"category\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  // The web admin's rule: silent past two steps and a minute (300 s when the probe wrote no step).\n  |> filter(fn:(r) => exists r.age_s and r.age_s > 2.0 * (if exists r.step_s then r.step_s else 300.0) + 60.0)\n  |> group() |> sort(columns:[\"age_s\"], desc:true)\n  |> keep(columns:[\"_measurement\",\"target\",\"category\",\"age_s\",\"step_s\"])"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Silent targets",
+      "description": "How many rows the table has. 0 is the normal reading: every target that has data wrote within its window.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 12
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 660
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          },
+          "noValue": "0",
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "layers = from(bucket:\"smokeping\") |> range(start:-24h)\n  |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and (r._field == \"loss\" or r._field == \"step\"))\n  |> group(columns:[\"_measurement\",\"target\",\"category\",\"_field\"]) |> last()\n// Two streams named by set(): the age of the last loss point, and the step the probe runs on.\nage = layers |> filter(fn:(r) => r._field == \"loss\") |> map(fn:(r) => ({r with _value: float(v: int(v: now()) - int(v: r._time)) / 1000000000.0})) |> set(key:\"_field\", value:\"age_s\")\nstep = layers |> filter(fn:(r) => r._field == \"step\") |> map(fn:(r) => ({r with _value: float(v: r._value)})) |> set(key:\"_field\", value:\"step_s\")\nunion(tables:[age, step]) |> drop(columns:[\"_start\",\"_stop\",\"_time\"])\n  |> group(columns:[\"_measurement\",\"target\",\"category\"])\n  |> pivot(rowKey:[\"_measurement\",\"target\",\"category\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  // The web admin's rule: silent past two steps and a minute (300 s when the probe wrote no step).\n  |> filter(fn:(r) => exists r.age_s and r.age_s > 2.0 * (if exists r.step_s then r.step_s else 300.0) + 60.0)\n  |> group() |> sort(columns:[\"age_s\"], desc:true)\n  |> keep(columns:[\"_measurement\",\"target\",\"category\",\"age_s\",\"step_s\"])\n  |> count(column:\"age_s\") |> rename(columns:{age_s: \"_value\"}) |> keep(columns:[\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Series with data (24 h)",
+      "description": "Target × layer series that wrote at least once in the last 24 h: the population the table above is drawn from. A drop between two looks is targets removed, paused or gone silent for a whole day.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 17
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 660
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          },
+          "noValue": "0",
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => (r._measurement == \"latency\" or r._measurement == \"dns_latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\") and r._field == \"loss\") |> group(columns:[\"_measurement\",\"target\"]) |> last() |> group() |> count() |> keep(columns:[\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Points written per 15 minutes, by layer",
+      "description": "How many measurement rounds reached InfluxDB in each quarter hour, per layer: a flat line is the normal reading (targets × 3 for a 300 s step), a dip every layer shares is a gap in the copy (InfluxDB down, the card full, the exporter restarting), a dip in one layer is that probe. The RRDs SmokePing writes are not affected by a gap here; the dashboards and the assistant are. Zero is drawn, not left blank, so a gap is a visible hole.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels._field}",
+          "unit": "none",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\n// Whole windows only: the range starts on a quarter hour and the partial last window is dropped, so neither edge reads as a dip.\nfrom(bucket:\"smokeping\") |> range(start: date.truncate(t: v.timeRangeStart, unit: 15m), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\") |> set(key:\"_field\", value:\"ICMP\") |> group(columns:[\"_field\"]) |> aggregateWindow(every: 15m, fn: count, createEmpty: true) |> filter(fn:(r) => r._time < v.timeRangeStop)"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\n// Whole windows only: the range starts on a quarter hour and the partial last window is dropped, so neither edge reads as a dip.\nfrom(bucket:\"smokeping\") |> range(start: date.truncate(t: v.timeRangeStart, unit: 15m), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"dns_latency\" and r._field == \"loss\") |> set(key:\"_field\", value:\"DNS\") |> group(columns:[\"_field\"]) |> aggregateWindow(every: 15m, fn: count, createEmpty: true) |> filter(fn:(r) => r._time < v.timeRangeStop)"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\n// Whole windows only: the range starts on a quarter hour and the partial last window is dropped, so neither edge reads as a dip.\nfrom(bucket:\"smokeping\") |> range(start: date.truncate(t: v.timeRangeStart, unit: 15m), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"tcp_latency\" and r._field == \"loss\") |> set(key:\"_field\", value:\"TCP\") |> group(columns:[\"_field\"]) |> aggregateWindow(every: 15m, fn: count, createEmpty: true) |> filter(fn:(r) => r._time < v.timeRangeStop)"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\n// Whole windows only: the range starts on a quarter hour and the partial last window is dropped, so neither edge reads as a dip.\nfrom(bucket:\"smokeping\") |> range(start: date.truncate(t: v.timeRangeStart, unit: 15m), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"http_latency\" and r._field == \"loss\") |> set(key:\"_field\", value:\"HTTP\") |> group(columns:[\"_field\"]) |> aggregateWindow(every: 15m, fn: count, createEmpty: true) |> filter(fn:(r) => r._time < v.timeRangeStop)"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\n// Whole windows only: the range starts on a quarter hour and the partial last window is dropped, so neither edge reads as a dip.\nfrom(bucket:\"smokeping\") |> range(start: date.truncate(t: v.timeRangeStart, unit: 15m), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"cpe_latency\" and r._field == \"loss\") |> set(key:\"_field\", value:\"ISP gateway (CPE)\") |> group(columns:[\"_field\"]) |> aggregateWindow(every: 15m, fn: count, createEmpty: true) |> filter(fn:(r) => r._time < v.timeRangeStop)"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "The services, about themselves",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference passes (experimental): seconds per hourly pass, failures",
+      "id": 21,
+      "description": "One point per pass of the inference module: how long the pass took for all its targets, and how many targets failed. The record the service keeps of itself (status.json holds only the last pass). Empty when the inference profile is off: `smoking-pi enable inference`.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 31
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"inference_pass\" and (r._field == \"seconds\" or r._field == \"errors\")) |> keep(columns: [\"_time\", \"_field\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 4,
+            "spanNulls": false
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "errors"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "table",
+      "title": "What the watchdog did (watchdog_event)",
+      "description": "Every action `smoking-pi watchdog` took on the host and recorded here: a Wi-Fi driver reload, a reboot, a SmokePing restart, or an action it could not take. Empty is the expected reading on a healthy Pi: nothing has happened since the watchdog started recording (v2.32.0). `smoking-pi watchdog status` shows the same log from the host, including events before that release and the enable/disable marks, which are not written here.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 31
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "When",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "no action taken"
+        },
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "_time": 0,
+              "area": 1,
+              "_value": 2
+            },
+            "renameByName": {
+              "_time": "When",
+              "area": "Area",
+              "_value": "Event"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"watchdog_event\" and r._field == \"message\") |> keep(columns:[\"_time\",\"area\",\"_value\"]) |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:100)"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "table",
+      "title": "Loss incidents the alerter diagnosed (loss_incident)",
+      "description": "One row per incident the alerter closed and diagnosed: its class (what it blamed), the one-line summary, how long it lasted, the confidence, and how many targets it affected out of those reporting. The same records feed the Overview's incident annotations and the assistant's incident history. Empty when no loss episode crossed the alert rules in the range.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 39
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Started",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "no incident"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Minutes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "m"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Confidence"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "_start": true,
+              "_stop": true,
+              "_measurement": true
+            },
+            "indexByName": {
+              "_time": 0,
+              "class": 1,
+              "summary": 2,
+              "minutes": 3,
+              "confidence": 4,
+              "targets_affected": 5,
+              "targets_reporting": 6
+            },
+            "renameByName": {
+              "_time": "Started",
+              "class": "Class",
+              "summary": "Summary",
+              "minutes": "Minutes",
+              "confidence": "Confidence",
+              "targets_affected": "Targets affected",
+              "targets_reporting": "Targets reporting"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"loss_incident\" and (r._field == \"class\" or r._field == \"summary\" or r._field == \"minutes\" or r._field == \"confidence\" or r._field == \"targets_affected\" or r._field == \"targets_reporting\")) |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> group() |> sort(columns:[\"_time\"], desc:true) |> limit(n:100)"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Measurement budget report: is the estimate trustworthy?",
+      "description": "The budget exporter's own flags, never shown on the Overview: whether its last report priced every probe (incomplete means a probe's cost table is missing and the MB/day estimate is low), how many probes it could not price, and whether the estimate is over the configured ceiling. See docs/measurement-budget.md.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 39
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 660
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          },
+          "noValue": "no report in 24 h",
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Report"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "complete",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "0": {
+                        "text": "incomplete",
+                        "color": "orange",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Unpriced probes"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Against the ceiling"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "within",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "over",
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"measurement_budget\" and r._field == \"complete\") |> group() |> last() |> keep(columns:[\"_value\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"measurement_budget\" and r._field == \"unpriced\") |> group() |> last() |> keep(columns:[\"_value\"])"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket:\"smokeping\") |> range(start:-24h) |> filter(fn:(r) => r._measurement == \"measurement_budget\" and r._field == \"over\") |> group() |> last() |> keep(columns:[\"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Why a panel can be empty here, and where the rest of the health lives",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "text",
+      "title": "Empty on purpose",
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Some panels in these dashboards are blank on a given Pi because the data does not exist there, not because something broke:\n\n- **IPv6** (Overview *Public IPv6*, CPE *IPv6* row): the host has no global IPv6 address, so IPv6 targets are gated out of the configuration.\n- **Wi-Fi noise, modulation, channel busy** (Wi-Fi Link, collapsed row): the Raspberry Pi's brcmfmac driver reports none of them.\n- **DNS Wizard** rows and *Top services*: the DNS observer receives no queries (the router does not forward to the Pi), or `DNS_EXPORT_NAMES` is off.\n- **Traffic *Last month*, *Traffic per month***: the uplink meter has written since it was installed; a month fills in after a full calendar month.\n- **What the watchdog did**: no action was needed since v2.32.0 started recording them.\n- **Detected episodes, inference passes**: the inference profile is off (`smoking-pi enable inference`).\n- **A target's DNS, TCP or HTTP row** in Target Detail: that layer is not measured for the target (\"not measured\").\n- **Unreachable / Lossy** overlays: nothing was lost in the range. A dead-flat 100 % loss with no variance is a host that does not answer that probe (bare `amazon.com` drops ICMP), not an outage."
+      }
+    },
+    {
+      "id": 32,
+      "type": "text",
+      "title": "Where the rest of the health lives",
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "This dashboard can only show what reaches InfluxDB. The rest:\n\n- **Is SmokePing measuring every configured target?** The web admin's *Measurements* card (fresh / pending / stale / missing per target, from the RRD files against the generated configuration) and `sudo smoking-pi doctor --live` (`targets-measured`, `silent-series`).\n- **Is the stack healthy?** `smoking-pi status` (container health), `sudo smoking-pi doctor --live` (deployed code, container DNS, the database the config manager runs on, the uplink interface, the host name, free disk).\n- **DNS observer**: `smoking-pi dns status` (receiving queries, the canary through the router, AdGuard answering) and the web admin's DNS observer card.\n- **Uplink meter**: `smoking-pi traffic` and the Overview's budget row; the meter's own state is its container healthcheck.\n- **Watchdog**: `smoking-pi watchdog status` (the full event log, including events from before they were recorded here).\n- **Alerts**: `smoking-pi alerts` and the alerter's dead-man check-in, which lives off this host on purpose.\n\n[Overview](/d/smoking-pi-overview-v1) · [Connectivity & Quality](/d/connectivity-quality-v1) · [Target detail](/d/target-detail-v1)"
+      }
+    }
+  ]
+}
