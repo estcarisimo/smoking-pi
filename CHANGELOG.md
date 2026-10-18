@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.43.0] — 2026-10-18
+
+The doctor now sees two failures that used to leave it green: a Wi-Fi
+radio that hears nothing (`monitor-radio` fails while it is deaf and warns
+on deaf runs in the day) and a target SmokePing measures whose points never
+reach InfluxDB (`targets-in-tsdb`); `docs/doctor.md` says what each live
+check covers per edition and backend. The daily digest no longer turns a
+target red for loss that fell inside the monitor's own incident spans, and
+Dependabot no longer proposes a Python the inference image cannot build on.
+
 ### Added
 
 - **The doctor sees a deaf radio and a target that never reaches
