@@ -11,7 +11,7 @@ version gets a matching GitHub release and git tag.
 
 ## [2.40.1] — 2026-10-17
 
-Three dashboards say what they show, after a review of production on
+Four dashboards say what they show, after a review of production on
 2026-10-17. The CPE loss panel names its lines and draws the gateway's own
 24-hour floor so a 20 % bar is not read as a fault; Side-by-Side says it is
 one category at a time and where the DNS Wizard's targets are; Individual
