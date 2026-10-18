@@ -30,8 +30,9 @@ version gets a matching GitHub release and git tag.
   (no new probe, no extra traffic; p50 10 % / p90 16 % on the reference
   gateway on 2026-10-17). The *Current Loss %* tile describes the floor and
   colors below 30 % green, 30–50 % orange and above 50 % red, the cut
-  definition's `>`; the IPv6 twins in the collapsed row get the same. The
-  loss series is named `loss` instead of carrying its three tags.
+  definition's `>`, and the bars use the same three colors by value; the
+  IPv6 twins in the collapsed row get the same. The loss series is named
+  `loss` instead of carrying its three tags.
 - **Side-by-Side says it is one category at a time.** With `topsites`
   selected the dashboard showed five panels and nothing said why only
   those; the maintainer asked. The category variable is now labeled
@@ -50,8 +51,8 @@ version gets a matching GitHub release and git tag.
   target, titled with the target, holding its latency panel (two thirds of
   the width, with the Unreachable and Lossy bars as before) and its loss
   panel beside it. Deep links with `var-target=<name>` still land on that
-  one target's row. The ClickHouse twins get the same shape; the Individual
-  Pings loss series is named *Loss* instead of its tags.
+  one target's row. The ClickHouse twins get the same shape; the InfluxDB
+  Individual Pings loss series is named *Loss* instead of its tags.
 
 ## [2.40.0] — 2026-10-17
 

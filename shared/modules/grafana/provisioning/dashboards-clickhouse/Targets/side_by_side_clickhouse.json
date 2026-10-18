@@ -33,7 +33,7 @@
           "text": "topsites",
           "value": "topsites"
         },
-        "description": "One category at a time: pick it above. topsites (the top sites), netflix (the five OCA slots), custom (your own targets). The DNS Wizard's targets are not offered here, well over a hundred panels; use the DNS Wizard dashboard and Target Detail for those, and DNS resolvers have their own side-by-side under DNS."
+        "description": "One category at a time: pick it above. topsites (the top sites), netflix (the five OCA slots), custom (your own targets). The DNS Wizard's targets are not offered here (the ClickHouse exporter files that directory as unknown, which this variable excludes; it would be well over a hundred panels); use the DNS Wizard dashboard and Target Detail for those, and DNS resolvers have their own side-by-side under DNS."
       },
       {
         "type": "query",
@@ -230,5 +230,5 @@
       ]
     }
   ],
-  "description": "One category at a time: pick it above. topsites (the top sites), netflix (the five OCA slots), custom (your own targets). The DNS Wizard's targets are not offered here, well over a hundred panels; use the DNS Wizard dashboard and Target Detail for those, and DNS resolvers have their own side-by-side under DNS. Every target of the category on one screen, four per row: latency percentiles, mean, median and min/max envelope from ClickHouse. Click a target for every layer of it."
+  "description": "One category at a time: pick it above. topsites (the top sites), netflix (the five OCA slots), custom (your own targets). The DNS Wizard's targets are not offered here (the ClickHouse exporter files that directory as unknown, which this variable excludes; it would be well over a hundred panels); use the DNS Wizard dashboard and Target Detail for those, and DNS resolvers have their own side-by-side under DNS. Every target of the category on one screen, four per row: latency percentiles, mean, median and min/max envelope from ClickHouse. Click a target for every layer of it."
 }

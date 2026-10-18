@@ -339,7 +339,7 @@
     {
       "type": "timeseries",
       "title": "ICMP the gateway did not answer – loss per 10 s window (%), IPv4",
-      "description": "Each bar is one 10 s window of 50 pings (5 pps) to $cpe: the share the gateway did not answer, in percent (0-100) as written by microcut_detector.py. Home gateways rate-limit ICMP, so a healthy gateway loses part of most windows; the shaded band is this gateway's own floor over the last 24 h, from the median window (p50) to the 90th percentile (p90), and bars inside it are normal. A bar above the red line (> 50 %, MICROCUT_LOSS_PCT) is a cut window, what the alerter and the assistant count as a microcut; the yellow line (30 %) is the floor's tail, worth a look and nothing more. A spell of the Pi's own deaf radio also reads 100 % here: check the Wi-Fi panel. The stat tiles below use the same colors.",
+      "description": "Each bar is one 10 s window of 50 pings (5 pps) to $cpe: the share the gateway did not answer, in percent (0-100) as written by microcut_detector.py. Home gateways rate-limit ICMP, so a healthy gateway loses part of most windows; the shaded band is this gateway's own floor over the last 24 h from now (whatever range is shown), from the median window (p50) to the 90th percentile (p90), and bars inside it are normal. Bars are colored by value with the stat tiles' steps: green below 30 %, orange 30-50 %, red above 50 %. A bar above the red line (> 50 %, MICROCUT_LOSS_PCT) is a cut window, what the alerter and the assistant count as a microcut; the yellow line (30 %) is the floor's tail, worth a look and nothing more. A spell of the Pi's own deaf radio also reads 100 % here: check the Wi-Fi panel. The stat tiles below use the same colors.",
       "datasource": {
         "uid": "influxdb"
       },
@@ -366,8 +366,7 @@
           "min": 0,
           "max": 100,
           "color": {
-            "fixedColor": "red",
-            "mode": "fixed"
+            "mode": "thresholds"
           },
           "custom": {
             "drawStyle": "bars",
@@ -375,7 +374,25 @@
             "lineWidth": 0,
             "pointSize": 5,
             "spanNulls": false,
-            "showPoints": "never"
+            "showPoints": "never",
+            "gradientMode": "scheme"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 51
+              }
+            ]
           }
         },
         "overrides": [
@@ -411,6 +428,10 @@
               {
                 "id": "custom.fillBelowTo",
                 "value": "floor p50 (24 h)"
+              },
+              {
+                "id": "custom.gradientMode",
+                "value": "none"
               }
             ]
           },
@@ -442,6 +463,10 @@
                   "mode": "fixed",
                   "fixedColor": "blue"
                 }
+              },
+              {
+                "id": "custom.gradientMode",
+                "value": "none"
               }
             ]
           },
@@ -483,6 +508,10 @@
                     10
                   ]
                 }
+              },
+              {
+                "id": "custom.gradientMode",
+                "value": "none"
               }
             ]
           },
@@ -524,6 +553,10 @@
                     10
                   ]
                 }
+              },
+              {
+                "id": "custom.gradientMode",
+                "value": "none"
               }
             ]
           }
@@ -873,7 +906,7 @@
         {
           "type": "timeseries",
           "title": "ICMP the gateway did not answer – loss per 10 s window (%), IPv6",
-          "description": "Each bar is one 10 s window of 50 pings (5 pps) to $cpe: the share the gateway did not answer, in percent (0-100) as written by microcut_detector.py. Home gateways rate-limit ICMP, so a healthy gateway loses part of most windows; the shaded band is this gateway's own floor over the last 24 h, from the median window (p50) to the 90th percentile (p90), and bars inside it are normal. A bar above the red line (> 50 %, MICROCUT_LOSS_PCT) is a cut window, what the alerter and the assistant count as a microcut; the yellow line (30 %) is the floor's tail, worth a look and nothing more. A spell of the Pi's own deaf radio also reads 100 % here: check the Wi-Fi panel. The stat tiles below use the same colors.",
+          "description": "Each bar is one 10 s window of 50 pings (5 pps) to $cpe: the share the gateway did not answer, in percent (0-100) as written by microcut_detector.py. Home gateways rate-limit ICMP, so a healthy gateway loses part of most windows; the shaded band is this gateway's own floor over the last 24 h from now (whatever range is shown), from the median window (p50) to the 90th percentile (p90), and bars inside it are normal. Bars are colored by value with the stat tiles' steps: green below 30 %, orange 30-50 %, red above 50 %. A bar above the red line (> 50 %, MICROCUT_LOSS_PCT) is a cut window, what the alerter and the assistant count as a microcut; the yellow line (30 %) is the floor's tail, worth a look and nothing more. A spell of the Pi's own deaf radio also reads 100 % here: check the Wi-Fi panel. The stat tiles below use the same colors.",
           "datasource": {
             "uid": "influxdb"
           },
@@ -900,8 +933,7 @@
               "min": 0,
               "max": 100,
               "color": {
-                "fixedColor": "red",
-                "mode": "fixed"
+                "mode": "thresholds"
               },
               "custom": {
                 "drawStyle": "bars",
@@ -909,7 +941,25 @@
                 "lineWidth": 0,
                 "pointSize": 5,
                 "spanNulls": false,
-                "showPoints": "never"
+                "showPoints": "never",
+                "gradientMode": "scheme"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 30
+                  },
+                  {
+                    "color": "red",
+                    "value": 51
+                  }
+                ]
               }
             },
             "overrides": [
@@ -945,6 +995,10 @@
                   {
                     "id": "custom.fillBelowTo",
                     "value": "floor p50 (24 h)"
+                  },
+                  {
+                    "id": "custom.gradientMode",
+                    "value": "none"
                   }
                 ]
               },
@@ -976,6 +1030,10 @@
                       "mode": "fixed",
                       "fixedColor": "blue"
                     }
+                  },
+                  {
+                    "id": "custom.gradientMode",
+                    "value": "none"
                   }
                 ]
               },
@@ -1017,6 +1075,10 @@
                         10
                       ]
                     }
+                  },
+                  {
+                    "id": "custom.gradientMode",
+                    "value": "none"
                   }
                 ]
               },
@@ -1058,6 +1120,10 @@
                         10
                       ]
                     }
+                  },
+                  {
+                    "id": "custom.gradientMode",
+                    "value": "none"
                   }
                 ]
               }
