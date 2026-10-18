@@ -295,8 +295,11 @@ def render(
     lines.append(b("Targets"))
     if lossy:
         # Worst first, capped: a digest is a summary, not a table dump.
+        # A target's own loss first: five heard only through a deaf radio
+        # must not push the one red destination under "…and N more".
         for target in sorted(
-            lossy, key=lambda t: float(t.get("avg_loss_pct", 0.0) or 0.0), reverse=True
+            lossy, key=lambda t: (own_loss(t), float(t.get("avg_loss_pct", 0.0) or 0.0)),
+            reverse=True,
         )[:5]:
             loss = float(target.get("avg_loss_pct", 0.0) or 0.0)
             light = bad if own_loss(target) >= high else watch

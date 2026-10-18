@@ -534,6 +534,19 @@ def test_a_target_measured_mostly_while_the_monitor_was_deaf_is_not_red(collecte
             "measure)") in text
 
 
+def test_a_red_destination_is_listed_before_the_deaf_spells_targets(collected):
+    """Review of #391: five targets at 70% inside the deaf span filled the
+    five lines, and the one red destination fell under "…and 1 more"."""
+    collected["value"]["targets"] = _targets(
+        *[(f"Reef_{i}", 70.4, 0.0) for i in range(5)], ("Broken", 40.0, 35.0))
+    collected["value"]["incidents"] = {
+        "by_class": {"local_wifi": 1}, "monitor_minutes": 340, "truncated": False,
+        "incidents": [_incident("local_wifi", 340, "This host's own Wi-Fi, not the line.")]}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert "🔴 Broken — 40.0% loss (35.0% while it could)" in text
+    assert "…and 1 more with loss." in text
+
+
 def test_a_destination_lossy_outside_the_deaf_spell_stays_red(collected):
     collected["value"]["targets"] = _targets(("Broken", 60.0, 45.0), ("B", 24.0, 0.0))
     collected["value"]["incidents"] = {

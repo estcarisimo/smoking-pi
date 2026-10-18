@@ -339,3 +339,27 @@ def test_without_monitor_spans_the_measurable_figures_are_the_plain_ones(monkeyp
 
 def test_overlapping_monitor_spans_are_merged():
     assert aggregates.merge_spans([(5, 9), (0, 3), (3, 4), (8, 12)]) == [(0, 4), (5, 12)]
+
+
+def test_a_failed_span_query_leaves_the_plain_figures(monkeypatch):
+    """The measurable figures are a refinement: a failed in-span query
+    costs them, not the digest."""
+    now = 1_800_000_000
+    monkeypatch.setattr(aggregates.time, "time", lambda: now)
+
+    def handler(flux):
+        if "stop:" in flux:
+            raise RuntimeError("influx timeout")
+        return _target_rows(flux)
+
+    def run(query, hours, cadences):
+        return {"incidents": [
+            {"class": "local_wifi", "confidence": "high", "start_epoch": now - 3600,
+             "end_epoch": now - 600, "minutes": 50, "targets": [], "summary": "x"}],
+            "by_class": {"local_wifi": 1}, "rows_truncated": False}
+
+    _dispatch(monkeypatch, handler)
+    monkeypatch.setattr(aggregates.diagnosis_query, "run", run)
+    g = {t["target"]: t for t in collector.collect(hours=24)["targets"]}["google_dns"]
+    assert g["avg_loss_pct_measurable"] == g["avg_loss_pct"] == 2.0
+    assert g["loss_events_measurable"] == 7

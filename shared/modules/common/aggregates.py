@@ -135,6 +135,38 @@ def _in_spans_flux(spans: list[tuple[float, float]], tail: str) -> str:
     return "union(tables: [" + ", ".join(tables) + "]) "
 
 
+def _subtract_spans(stats: dict, mean_loss: dict[tuple, float], base: str,
+                    loss: str, events: str, group: str, prelude: str,
+                    spans: list[tuple[float, float]]) -> None:
+    """Each target's measurable figures: its whole-window sum and count less
+    those of its points inside ``spans``. The in-span queries read only
+    those minutes; the whole-window count is one pass like the mean's
+    (``mean_loss``, unrounded ratios). All four queries run before any entry changes, so a failure leaves the
+    plain figures whole."""
+
+    def _rows(rows: list[dict]) -> dict[tuple, float]:
+        return {(r.get("target"), r.get("_measurement")): float(r["_value"])
+                for r in rows if r.get("_value") is not None}
+
+    count_all = _rows(query_influx(base + loss + group + "|> count()"))
+    span_sum = _rows(query_influx(_in_spans_flux(spans, loss) + group + "|> sum()"))
+    span_count = _rows(query_influx(_in_spans_flux(spans, loss) + group + "|> count()"))
+    span_events = _rows(query_influx(
+        prelude + _in_spans_flux(spans, loss + events) + group + "|> count()"))
+    for k, entry in stats.items():
+        n_in = span_count.get(k, 0.0)
+        if not n_in:
+            continue
+        entry["loss_events_measurable"] = max(
+            0, entry["loss_events"] - int(span_events.get(k, 0.0)))
+        n_out = count_all.get(k, 0.0) - n_in
+        if n_out <= 0:
+            entry["avg_loss_pct_measurable"] = None
+            continue
+        own = (mean_loss.get(k, 0.0) * count_all[k] - span_sum.get(k, 0.0)) / n_out
+        entry["avg_loss_pct_measurable"] = round(min(1.0, max(0.0, own)) * 100.0, 2)
+
+
 def _collect_target_stats(hours: int,
                           monitor_spans: list[tuple[float, float]] | None = None
                           ) -> list[dict]:
@@ -151,6 +183,9 @@ def _collect_target_stats(hours: int,
     spell): heard only through a deaf radio, it has no loss of its own to
     report. Without spans both equal the plain figures.
     """
+    # The window's start, taken before the first query: a span clipped to a
+    # later one would leave out edge points the whole-window counts hold.
+    start = time.time() - int(hours) * 3600
     base = _destinations(f"-{int(hours)}h")
     group = '|> group(columns: ["target", "_measurement"]) '
     median_filter = '|> filter(fn: (r) => r._field == "median") '
@@ -199,32 +234,16 @@ def _collect_target_stats(hours: int,
 
     # Clipped to the window: a span reaching back past its start would
     # subtract points the whole-window figures never counted.
-    start = time.time() - int(hours) * 3600
     spans = merge_spans([(max(lo, start), hi) for lo, hi in monitor_spans or ()
                          if hi > start])
     if spans:
-        # Each target's sum and count less the spans': the in-span queries
-        # read only those minutes, the whole-window count is one pass like
-        # the mean's.
-        count_all = _rows(query_influx(base + loss + group + "|> count()"))
-        span_sum = _rows(query_influx(_in_spans_flux(spans, loss) + group + "|> sum()"))
-        span_count = _rows(query_influx(
-            _in_spans_flux(spans, loss) + group + "|> count()"))
-        span_events = _rows(query_influx(
-            prelude + _in_spans_flux(spans, loss + events) + group + "|> count()"))
-        for k, entry in stats.items():
-            n_in = span_count.get(k, 0.0)
-            if not n_in:
-                continue
-            entry["loss_events_measurable"] = max(
-                0, entry["loss_events"] - int(span_events.get(k, 0.0)))
-            n_out = count_all.get(k, 0.0) - n_in
-            if n_out <= 0:
-                entry["avg_loss_pct_measurable"] = None
-                continue
-            own = (mean_loss.get(k, 0.0) * count_all[k] - span_sum.get(k, 0.0)) / n_out
-            entry["avg_loss_pct_measurable"] = round(
-                min(1.0, max(0.0, own)) * 100.0, 2)
+        try:
+            _subtract_spans(stats, mean_loss, base, loss, events, group, prelude,
+                            spans)
+        except Exception:  # influx client raises many exception types
+            # The plain figures stand: a digest with them beats no digest.
+            log.warning("in-span loss query failed; measurable loss = plain loss",
+                        exc_info=True)
 
     # Worst first: by the loss that is the target's own, then by mean loss,
     # then p95 latency -- so the MAX_TARGETS cap keeps the targets with a
@@ -591,6 +610,11 @@ def _collect_incidents(hours: int) -> dict | None:
     # The points those incidents cover, for the per-target figures: a point
     # stamped t measured the step before it, so it heard the monitor's
     # trouble when (t - step, t) overlaps the incident's (start, end).
+    # SmokePing's RRD points sit on multiples of their step, as do the
+    # incidents' bounds, so start + 1 leaves out the clean point at start.
+    # The longest step is the tail for every target: one on a shorter step
+    # loses the few points it took in that tail after the spell -- clean
+    # ones, which only lowers its measurable loss by their share.
     step_s = cadence.longest_step(cadences)
     return {
         "by_class": result["by_class"],
