@@ -47,7 +47,7 @@
   "id": null,
   "title": "Side-by-Side – every target of one category",
   "schemaVersion": 37,
-  "version": 1,
+  "version": 2,
   "tags": [
     "smokeping",
     "side-by-side"
@@ -75,12 +75,12 @@
       {
         "type": "query",
         "name": "category",
-        "label": "Category",
+        "label": "Category (one at a time)",
         "datasource": {
           "uid": "influxdb"
         },
         "query": "from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"latency\" and r.category != \"dns_wizard\" and r.category != \"cpe\" and r.category != \"dns\") |> keep(columns: [\"category\"]) |> distinct(column: \"category\") |> sort(columns: [\"category\"])",
-        "description": "The InfluxDB category tag: topsites, netflix, custom (the database calls them top_sites, netflix_oca, custom; links map between the two).",
+        "description": "One category at a time: pick it above. topsites (the top sites), netflix (the five OCA slots), custom (your own targets). The DNS Wizard's targets are not offered here, well over a hundred panels; use the DNS Wizard dashboard and Target Detail for those, and DNS resolvers have their own side-by-side under DNS. (InfluxDB tag names; the database calls them top_sites, netflix_oca, custom; links map between the two.)",
         "hide": 0,
         "multi": false,
         "includeAll": false,
@@ -575,5 +575,5 @@
       ]
     }
   ],
-  "description": "Every target of one category on one screen, three per row: latency percentiles, mean, median, min/max envelope and the pings lost per cycle. Pick the category (top sites, Netflix OCA slots, your own targets) with the variable; DNS resolvers have their own side-by-side under DNS. Replaces the three per-category dashboards retired after the dashboards audit of 2026-10-15. Click a target for every layer of it; the Connectivity & Quality dashboard's category lines open this one."
+  "description": "One category at a time: pick it above. topsites (the top sites), netflix (the five OCA slots), custom (your own targets). The DNS Wizard's targets are not offered here, well over a hundred panels; use the DNS Wizard dashboard and Target Detail for those, and DNS resolvers have their own side-by-side under DNS. Every target of the category on one screen, three per row: latency percentiles, mean, median, min/max envelope and the pings lost per cycle. Replaces the three per-category dashboards retired after the dashboards audit of 2026-10-15. Click a target for every layer of it; the Connectivity & Quality dashboard's category lines open this one."
 }

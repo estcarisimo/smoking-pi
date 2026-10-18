@@ -66,11 +66,17 @@ vocabularies are mapped in `common/links.py`, and both have consumers.
 ## Dashboards
 
 - **DNS Resolvers – Side-by-Side (Resolution Time & Packet Loss)**, in the
-  *DNS* folder: one row per resolver, repeated over the
+  *DNS* folder: one row per resolver, a Grafana row repeated over the
   `target` variable (every target with `dns_latency` data in the last 24
-  hours). The left panel is the resolution time in milliseconds — median,
-  mean, p10/p20/p80/p90, min and max of the five samples — and the right
-  one the share of queries lost.
+  hours) and titled with the resolver's name. The left panel is the
+  resolution time in milliseconds — median, mean, p10/p20/p80/p90, min and
+  max of the five samples, with the 15-minute windows that lost queries as
+  bars — and the right one, on the same row, the share of queries lost, so
+  a lossy quarter hour and the resolution time it came with are read
+  together. *Individual Pings – Latency & Loss* in the *Targets* folder has
+  the same shape for every other target:
+
+  ![Individual Pings: one row per target, latency on the left and loss on the right](img/individual-pings-rows.png)
 - [Target Detail](target-detail.md) shows a resolver's DNS time next to the
   other layers measured for the same target.
 
