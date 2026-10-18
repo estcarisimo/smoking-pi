@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dependabot proposed Python 3.14 for the inference image (#384).**
+  The image is on 3.13 because `ruptures`, which Jitterbug requires,
+  publishes no cp314 wheels (checked on PyPI 2026-10-18: 1.1.10 ships
+  cp39-cp313 for aarch64 and x86_64); merged, the build would have failed, or
+  compiled from source on either architecture. The inference directory now has its own
+  Dependabot block that ignores `python` >= 3.14, with a comment saying when
+  to lift it; the shared block now lists the other directories explicitly.
+
 ## [2.42.0] — 2026-10-18
 
 Every reader of loss now tells the same story. The web admin's chat
