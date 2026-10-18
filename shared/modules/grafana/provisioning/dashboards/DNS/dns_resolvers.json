@@ -46,8 +46,9 @@
   "uid": "dns-resolvers-v1",
   "id": null,
   "title": "DNS Resolvers – Side-by-Side (Resolution Time & Packet Loss)",
+  "description": "One row per resolver: its resolution time on the left (median, mean, percentile bands, min/max envelope of the five queries, with the 15-minute windows in which nothing answered or 1.5 queries or more were lost as bars) and the share of queries lost on the right. Pick resolvers above; All is every resolver measured in the last day.",
   "schemaVersion": 37,
-  "version": 1,
+  "version": 2,
   "tags": ["smokeping", "dns", "side-by-side"],
   "time": { "from": "now-6h", "to": "now" },
 
@@ -92,13 +93,20 @@
 
   "panels": [
     {
+      "type": "row",
+      "title": "$target",
+      "repeat": "target",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+
+    {
       "type": "timeseries",
       "title": "DNS Resolution Time – [[target]] (ms)",
       "description": "Median, mean, percentile bands and min/max envelope of DNS resolution time per resolver; red bars mark 15-minute windows in which nothing answered (every ping lost); lighter orange bars mark windows that lost 1.5 pings' worth or more, the alerter's loss-event rule; a window with no measurements at all is left blank.",
       "datasource": { "uid": "influxdb" },
-      "repeat": "target",
-      "repeatDirection": "v",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 1 },
 
       "fieldConfig": {
         "defaults": {
@@ -283,9 +291,7 @@
       "title": "DNS Packet Loss – [[target]] (%)",
       "description": "Share of each cycle's DNS queries that got no answer, per resolver (0–100 %, from the 0–1 loss ratio).",
       "datasource": { "uid": "influxdb" },
-      "repeat": "target",
-      "repeatDirection": "v",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
