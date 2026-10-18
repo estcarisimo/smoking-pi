@@ -6,7 +6,7 @@
 # requires, publishes no 3.14 wheels yet, and building it from source would
 # need a compiler in the image. torch comes from PyTorch's CPU-only index:
 # the default one resolves CUDA builds, gigabytes the Pi cannot use.
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 # One thread for torch and the BLAS libraries: compose gives the container one
 # core, and torch would otherwise start a thread per host core and be
