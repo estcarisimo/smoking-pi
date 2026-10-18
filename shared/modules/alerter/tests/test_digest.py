@@ -35,10 +35,12 @@ def _at(hour=8, minute=30, day=30):
 
 
 def _targets(*specs):
+    """``(name, loss)`` or ``(name, loss, loss outside the monitor's spans)``."""
     return [
-        {"target": name, "measurement": "latency", "avg_loss_pct": loss,
-         "median_ms": 10.0, "p95_ms": 20.0}
-        for name, loss in specs
+        {"target": name, "measurement": "latency", "avg_loss_pct": spec[0],
+         "median_ms": 10.0, "p95_ms": 20.0,
+         **({"avg_loss_pct_measurable": spec[1]} if len(spec) > 1 else {})}
+        for name, *spec in specs
     ]
 
 
@@ -498,7 +500,8 @@ def test_a_deaf_radio_day_is_the_monitors_not_two_dozen_destinations(collected):
     and the steady targets' mean loss was ~24% (340 of 1440 minutes). The
     digest said "problems worth a look" with five destinations in red; the
     alert and the assistants said this host's Wi-Fi."""
-    collected["value"]["targets"] = _targets(("Google", 24.1), ("GoogleDNS", 23.8))
+    collected["value"]["targets"] = _targets(("Google", 24.1, 0.1),
+                                             ("GoogleDNS", 23.8, 0.0))
     collected["value"]["incidents"] = {
         "by_class": {"local_wifi": 1}, "monitor_minutes": 340, "truncated": False,
         "incidents": [_incident("local_wifi", 340, "This host's own Wi-Fi, not the line.")]}
@@ -507,7 +510,52 @@ def test_a_deaf_radio_day_is_the_monitors_not_two_dozen_destinations(collected):
         "🟡 Last 24h: the monitor itself could not measure for 5 h 40 min.")
     assert "5 h 40 min: This host's own Wi-Fi, not the line." in text
     assert "🔴" not in text
+    assert "🟡 Google — 24.1% loss (0.1% while it could)" in text
     assert "not the targets'" in text
+
+
+def test_a_target_measured_mostly_while_the_monitor_was_deaf_is_not_red(collected):
+    """The replay of 2026-10-13 after #387: five Ocean_Reef_* targets,
+    renamed the day before (#310), had most of their points inside the deaf
+    span and a 70.4% mean. A share of the window (340 of 1440 minutes)
+    explains 23.6 points of it, so they stayed red; their loss outside the
+    span is what decides."""
+    collected["value"]["targets"] = _targets(("Ocean_Reef_1", 70.4, 0.3),
+                                             ("Ocean_Reef_2", 100.0, None),
+                                             ("Google", 24.1, 0.1))
+    collected["value"]["incidents"] = {
+        "by_class": {"local_wifi": 1}, "monitor_minutes": 340, "truncated": False,
+        "incidents": [_incident("local_wifi", 340, "This host's own Wi-Fi, not the line.")]}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert text.startswith("🟡 Last 24h: the monitor itself could not measure")
+    assert "🔴" not in text
+    assert "🟡 Ocean_Reef_1 — 70.4% loss (0.3% while it could)" in text
+    assert ("🟡 Ocean_Reef_2 — 100.0% loss (all while the monitor could not "
+            "measure)") in text
+
+
+def test_a_red_destination_is_listed_before_the_deaf_spells_targets(collected):
+    """Review of #391: five targets at 70% inside the deaf span filled the
+    five lines, and the one red destination fell under "…and 1 more"."""
+    collected["value"]["targets"] = _targets(
+        *[(f"Reef_{i}", 70.4, 0.0) for i in range(5)], ("Broken", 40.0, 35.0))
+    collected["value"]["incidents"] = {
+        "by_class": {"local_wifi": 1}, "monitor_minutes": 340, "truncated": False,
+        "incidents": [_incident("local_wifi", 340, "This host's own Wi-Fi, not the line.")]}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert "🔴 Broken — 40.0% loss (35.0% while it could)" in text
+    assert "…and 1 more with loss." in text
+
+
+def test_a_destination_lossy_outside_the_deaf_spell_stays_red(collected):
+    collected["value"]["targets"] = _targets(("Broken", 60.0, 45.0), ("B", 24.0, 0.0))
+    collected["value"]["incidents"] = {
+        "by_class": {"local_wifi": 1}, "monitor_minutes": 340, "truncated": False,
+        "incidents": [_incident("local_wifi", 340, "This host's own Wi-Fi, not the line.")]}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert text.startswith("🔴 Last 24h: problems worth a look.")
+    assert "🔴 Broken — 60.0% loss (45.0% while it could)" in text
+    assert "🟡 B — 24.0% loss" in text
 
 
 def test_a_cut_of_the_line_is_named_when_the_means_are_clean(collected):
@@ -539,7 +587,7 @@ def test_the_red_light_is_the_alerts_high_loss_pct(collected, monkeypatch):
 def test_a_short_deaf_spell_does_not_hide_a_dead_destination(collected):
     """Review of #387: five deaf minutes explain 0.3% of a day's loss, not a
     destination lost all day."""
-    collected["value"]["targets"] = _targets(("Dead", 100.0), ("B", 0.4))
+    collected["value"]["targets"] = _targets(("Dead", 100.0, 100.0), ("B", 0.4, 0.4))
     collected["value"]["incidents"] = {
         "by_class": {"local_wifi": 1}, "monitor_minutes": 5, "truncated": False,
         "incidents": [_incident("local_wifi", 5, "This host's own Wi-Fi, not the line.")]}

@@ -201,3 +201,28 @@ def test_render_summary_says_when_incidents_could_not_be_read():
     quiet = {"by_class": {}, "monitor_minutes": 0, "truncated": False, "incidents": []}
     assert "Incidents: none in this window." in reporter.render_summary(
         {**SAMPLE_DATA, "incidents": quiet})
+
+
+def test_render_summary_gives_both_loss_figures_after_a_deaf_spell():
+    """The report sees each target's loss with and without the minutes the
+    monitor could not measure, and is told which one to judge by."""
+    deaf = {"by_class": {"local_wifi": 1}, "monitor_minutes": 340, "truncated": False,
+            "incidents": [{"class": "local_wifi", "confidence": "high",
+                           "start": "2026-10-12T10:10:00-05:00",
+                           "end": "2026-10-12T15:50:00-05:00", "minutes": 340,
+                           "targets": 24, "summary": "This host's own Wi-Fi."}]}
+    targets = [{**SAMPLE_DATA["targets"][0], "avg_loss_pct": 70.4,
+                "avg_loss_pct_measurable": 0.3, "loss_events": 60,
+                "loss_events_measurable": 1},
+               {**SAMPLE_DATA["targets"][0], "target": "renamed",
+                "avg_loss_pct": 100.0, "avg_loss_pct_measurable": None,
+                "loss_events": 68, "loss_events_measurable": 0}]
+    text = reporter.render_summary({**SAMPLE_DATA, "targets": targets,
+                                    "incidents": deaf})
+    assert "judge a target by those" in text
+    assert "avg_loss=70.4% avg_loss_measurable=0.3% " in text
+    assert "loss_events=60 loss_events_measurable=1\n" in text
+    assert "avg_loss=100.0% avg_loss_measurable=n/a " in text
+    # Without monitor minutes the two are the same and only one is shown.
+    quiet = reporter.render_summary({**SAMPLE_DATA, "targets": targets})
+    assert "measurable" not in quiet

@@ -67,11 +67,16 @@ Incidents (classified by the same diagnosis as the alerts and the assistants; ci
 {%- else -%}
 Incidents: none in this window.
 {% endif %}
-Per-target stats (latency in ms; loss in %; loss_events = samples that lost 1.5 pings' worth or more (two lost pings, of however many the probe sends)):
+Per-target stats (latency in ms; loss in %; loss_events = samples that lost 1.5 pings' worth or more (two lost pings, of however many the probe sends)\
+{% if incidents and incidents.monitor_minutes %}; the *_measurable figures leave out the samples taken while the monitor itself could not measure: judge a target by those, the plain ones include the monitor's own loss; measurable n/a = every sample fell in that time{% endif %}):
 {% for t in data.targets -%}
 - {{ t.target }} [{{ t.measurement }}]: median={{ t.median_ms|default('n/a') }}ms \
 p95={{ t.p95_ms|default('n/a') }}ms avg_loss={{ t.avg_loss_pct }}% \
-max_loss={{ t.max_loss_pct|default(0) }}% loss_events={{ t.loss_events }}
+{% if incidents and incidents.monitor_minutes and t.avg_loss_pct_measurable is defined %}\
+avg_loss_measurable={{ 'n/a' if t.avg_loss_pct_measurable is none else t.avg_loss_pct_measurable ~ '%' }} \
+{% endif %}\
+max_loss={{ t.max_loss_pct|default(0) }}% loss_events={{ t.loss_events }}\
+{% if incidents and incidents.monitor_minutes and t.loss_events_measurable is defined %} loss_events_measurable={{ t.loss_events_measurable }}{% endif %}
 {% else -%}
 (no latency/dns data points in this window)
 {% endfor %}
