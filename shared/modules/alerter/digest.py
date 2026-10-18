@@ -238,22 +238,22 @@ def render(
     )
 
     high = definitions.high_loss_pct()
-    worst_loss = float(worst.get("avg_loss_pct", 0.0) or 0.0)
     listed = (incidents or {}).get("incidents") or []
     # Minutes in which the monitor itself could not measure (its own Wi-Fi
     # or DNS, common.aggregates.MONITOR_CLASSES): every target's loss in
     # them is the monitor's, so a high mean is no destination's problem.
     monitor_minutes = int((incidents or {}).get("monitor_minutes") or 0)
-    # The most of a target's mean loss those minutes can account for: every
-    # ping lost while the monitor could not hear. Only the rest is the
-    # target's -- a destination dead all day is still red after a five-
-    # minute deaf radio.
-    explained = min(100.0, 100.0 * monitor_minutes / max(1, hours * 60))
 
     def own_loss(target: dict) -> float:
-        return float(target.get("avg_loss_pct", 0.0) or 0.0) - explained
+        """The target's loss outside those minutes (aggregates'
+        avg_loss_pct_measurable): a destination dead all day is still red
+        after a five-minute deaf radio, one renamed into a five-hour one is
+        not. 0 when it has no point outside them."""
+        if "avg_loss_pct_measurable" not in target:
+            return float(target.get("avg_loss_pct", 0.0) or 0.0)
+        return float(target.get("avg_loss_pct_measurable") or 0.0)
 
-    if active or own_loss(worst) >= high:
+    if active or max((own_loss(t) for t in targets), default=0.0) >= high:
         headline = f"{bad} Last {hours}h: problems worth a look."
     elif monitor_minutes:
         headline = (f"{watch} Last {hours}h: the monitor itself could not "
@@ -302,6 +302,11 @@ def render(
             light = bad if own_loss(target) >= high else watch
             median = target.get("median_ms")
             detail = f"{loss:.1f}% loss"
+            if monitor_minutes and "avg_loss_pct_measurable" in target:
+                own = target.get("avg_loss_pct_measurable")
+                detail += (" (all while the monitor could not measure)"
+                           if own is None
+                           else f" ({float(own):.1f}% while it could)")
             if median is not None:
                 detail += f", {float(median):.1f} ms median"
             lines.append(f"{light} {esc(target['target'])} — {detail}.")

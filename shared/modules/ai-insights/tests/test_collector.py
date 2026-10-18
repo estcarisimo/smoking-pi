@@ -250,3 +250,92 @@ def test_a_failed_diagnosis_is_none_not_no_incidents(monkeypatch):
     monkeypatch.setattr(aggregates.diagnosis_query, "run", run)
     assert collector.collect(hours=24)["incidents"] is None
     assert collector.collect(hours=24 * 30)["incidents"] is None
+
+
+def test_loss_inside_the_monitors_own_spans_is_not_the_targets(monkeypatch):
+    """2026-10-13 on the reference Pi: the radio was deaf for 5 h 40 min,
+    and five Netflix targets renamed the day before (#310) had most of
+    their points inside that span -- a 70.4% mean that read red in the
+    digest. Each target's loss is also given with the span's points left
+    out; one measured only inside it has none of its own."""
+    import time as _time
+
+    now = 1_800_000_000
+    monkeypatch.setattr(aggregates.time, "time", lambda: now)
+    deaf_lo, deaf_hi = now - 6 * 3600, now - 6 * 3600 + 340 * 60
+    whole = {"steady": (288, 68 / 288), "renamed": (68, 1.0), "dead": (288, 1.0)}
+    inside = {"steady": 68, "renamed": 68, "dead": 68}  # all at 100% loss
+    seen = []
+
+    def rows(values):
+        return [{"target": t, "_measurement": "latency", "_value": v}
+                for t, v in values.items()]
+
+    def handler(flux):
+        seen.append(flux)
+        if "cpe_latency" in flux:
+            return _cpe_rows(flux)
+        if '"latency"' not in flux:  # cadence, Wi-Fi, uplink, resolver
+            return []
+        in_span = "stop:" in flux
+        if '"median"' in flux:
+            return rows({t: 0.01 for t in whole})
+        if "mean()" in flux:
+            return rows({t: m for t, (n, m) in whole.items()})
+        if "max()" in flux:
+            return rows({t: 1.0 for t in whole})
+        if "sum()" in flux and in_span:
+            return rows({t: float(n) for t, n in inside.items()})
+        if "count()" in flux:
+            source = inside if in_span else {t: n for t, (n, _) in whole.items()}
+            return rows(source)  # every point inside is an event, and dead's all
+        return []
+
+    def run(query, hours, cadences):
+        return {"incidents": [
+            {"class": "local_wifi", "confidence": "high", "start_epoch": deaf_lo,
+             "end_epoch": deaf_hi, "minutes": 340, "targets": ["steady"],
+             "summary": "This host's own Wi-Fi."}],
+            "by_class": {"local_wifi": 1}, "rows_truncated": False}
+
+    _dispatch(monkeypatch, handler)
+    monkeypatch.setattr(aggregates.diagnosis_query, "run", run)
+    data = collector.collect(hours=24)
+    by = {t["target"]: t for t in data["targets"]}
+
+    assert by["steady"]["avg_loss_pct"] == 23.61
+    assert by["steady"]["avg_loss_pct_measurable"] == 0.0
+    assert by["renamed"]["avg_loss_pct"] == 100.0
+    assert by["renamed"]["avg_loss_pct_measurable"] is None
+    assert by["renamed"]["loss_events_measurable"] == 0
+    assert by["dead"]["avg_loss_pct_measurable"] == 100.0
+    # The target with loss of its own leads, whatever the plain means say.
+    assert data["targets"][0]["target"] == "dead"
+    assert "monitor_spans" not in data["incidents"]
+    # The span's points, by a pushed-down range: from just after the
+    # incident's start to one step past its end.
+    stamp = lambda e: _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(e))  # noqa: E731
+    spans = [f for f in seen if "stop:" in f]
+    assert spans and all(
+        f"range(start: {stamp(deaf_lo + 1)}, stop: {stamp(deaf_hi + 300)})" in f
+        for f in spans)
+    assert all('r.category != "cpe"' in f for f in spans)
+
+
+def test_without_monitor_spans_the_measurable_figures_are_the_plain_ones(monkeypatch):
+    seen = []
+
+    def handler(flux):
+        seen.append(flux)
+        return _target_rows(flux)
+
+    _dispatch(monkeypatch, handler)
+    data = collector.collect(hours=24)
+    g = {t["target"]: t for t in data["targets"]}["google_dns"]
+    assert g["avg_loss_pct_measurable"] == g["avg_loss_pct"] == 2.0
+    assert g["loss_events_measurable"] == g["loss_events"] == 7
+    assert not any("stop:" in f for f in seen)
+
+
+def test_overlapping_monitor_spans_are_merged():
+    assert aggregates.merge_spans([(5, 9), (0, 3), (3, 4), (8, 12)]) == [(0, 4), (5, 12)]

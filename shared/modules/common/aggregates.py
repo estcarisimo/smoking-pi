@@ -27,8 +27,9 @@ cpe_latency loss is a percent.
 from __future__ import annotations
 
 import logging
+import time
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 log = logging.getLogger("aggregates")
@@ -95,58 +96,97 @@ def _base_flux(measurements: list[str], hours: int) -> str:
     return base_flux(measurements, f"-{int(hours)}h")
 
 
-def _collect_target_stats(hours: int) -> list[dict]:
+def _rfc3339(epoch: float) -> str:
+    return datetime.fromtimestamp(int(epoch), timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+
+
+def merge_spans(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Overlapping or touching ``(lo, hi)`` spans merged, oldest first."""
+    merged: list[list[float]] = []
+    for lo, hi in sorted(spans):
+        if merged and lo <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    return [(lo, hi) for lo, hi in merged]
+
+
+def _destinations(range_start: str, range_stop: str | None = None) -> str:
+    """latency/dns_latency over a range, destinations only: the ISP first
+    hop's ping target (category cpe) is evidence about the line, not a
+    destination (common.definitions); its rate-limit floor would read as a
+    lossy target every day."""
+    return (base_flux(["latency", "dns_latency"], range_start,
+                      range_stop=range_stop)
+            + '|> filter(fn: (r) => not exists r.category or r.category != '
+            + flux_str(definitions.FIRST_HOP_CATEGORY) + ") ")
+
+
+def _in_spans_flux(spans: list[tuple[float, float]], tail: str) -> str:
+    """The destinations' points inside ``spans`` (epoch ``[lo, hi)``), one
+    pushed-down range per span, unioned. Not one range with a ``_time``
+    filter: that reads every point of the window through the Flux
+    evaluator, these read only the minutes the monitor could not measure."""
+    tables = [_destinations(_rfc3339(lo), _rfc3339(hi)) + tail
+              for lo, hi in spans]
+    if len(tables) == 1:
+        return tables[0]
+    return "union(tables: [" + ", ".join(tables) + "]) "
+
+
+def _collect_target_stats(hours: int,
+                          monitor_spans: list[tuple[float, float]] | None = None
+                          ) -> list[dict]:
     """Per-target aggregates from the ``latency``/``dns_latency`` series.
 
     Latency fields are stored in seconds (converted here to ms); loss is a
     0-1 ratio (converted here to a 0-100 percentage).
+
+    ``monitor_spans``: epoch ``(lo, hi)`` spans in which the monitor itself
+    could not measure (MONITOR_CLASSES incidents). Each target also gets
+    ``avg_loss_pct_measurable`` and ``loss_events_measurable``: its loss
+    with the points inside them left out. The first is None when every
+    point the target has falls inside them (one renamed into a deaf
+    spell): heard only through a deaf radio, it has no loss of its own to
+    report. Without spans both equal the plain figures.
     """
-    # Destinations only: the ISP first hop's ping target (category cpe) is
-    # evidence about the line, not a destination (common.definitions); its
-    # rate-limit floor would read as a lossy target every day.
-    base = (_base_flux(["latency", "dns_latency"], hours)
-            + '|> filter(fn: (r) => not exists r.category or r.category != '
-            + flux_str(definitions.FIRST_HOP_CATEGORY) + ") ")
+    base = _destinations(f"-{int(hours)}h")
     group = '|> group(columns: ["target", "_measurement"]) '
     median_filter = '|> filter(fn: (r) => r._field == "median") '
-    loss_filter = '|> filter(fn: (r) => r._field == "loss") '
+    loss = '|> filter(fn: (r) => r._field == "loss") ' + _CLAMP_LOSS_RATIO
 
     median_flux = base + median_filter + group + "|> median()"
     p95_flux = base + median_filter + group + "|> quantile(q: 0.95)"
-    mean_loss_flux = base + loss_filter + _CLAMP_LOSS_RATIO + group + "|> mean()"
-    max_loss_flux = base + loss_filter + _CLAMP_LOSS_RATIO + group + "|> max()"
+    mean_loss_flux = base + loss + group + "|> mean()"
+    max_loss_flux = base + loss + group + "|> max()"
     try:
         cadences = cadence.by_target(query_influx(cadence.cadence_flux()))
     except Exception:  # a missing cadence means the default, not no report
         log.warning("cadence query failed; counting loss events on 10 pings")
         cadences = {}
     prelude, bar = cadence.event_threshold_flux(cadences)
-    loss_events_flux = (
-        prelude + base + loss_filter + _CLAMP_LOSS_RATIO
-        + f"|> filter(fn: (r) => r._value >= {bar}) "
-        + group + "|> count()"
-    )
+    events = f"|> filter(fn: (r) => r._value >= {bar}) "
+    loss_events_flux = prelude + base + loss + events + group + "|> count()"
 
     stats: dict[tuple, dict] = {}
 
-    def _merge(rows: list[dict], key: str, scale: float, digits: int = 3) -> None:
-        for row in rows:
-            value = row.get("_value")
-            if value is None:
-                continue
-            k = (row.get("target"), row.get("_measurement"))
-            entry = stats.setdefault(k, {"target": k[0], "measurement": k[1]})
-            entry[key] = round(float(value) * scale, digits)
+    def _rows(rows: list[dict]) -> dict[tuple, float]:
+        return {(r.get("target"), r.get("_measurement")): float(r["_value"])
+                for r in rows if r.get("_value") is not None}
 
-    _merge(query_influx(median_flux), "median_ms", 1000.0)
-    _merge(query_influx(p95_flux), "p95_ms", 1000.0)
-    _merge(query_influx(mean_loss_flux), "avg_loss_pct", 100.0, 2)
-    _merge(query_influx(max_loss_flux), "max_loss_pct", 100.0, 2)
-    for row in query_influx(loss_events_flux):
-        value = row.get("_value")
-        if value is None:
-            continue
-        k = (row.get("target"), row.get("_measurement"))
+    def _merge(values: dict[tuple, float], key: str, scale: float,
+               digits: int = 3) -> None:
+        for k, value in values.items():
+            entry = stats.setdefault(k, {"target": k[0], "measurement": k[1]})
+            entry[key] = round(value * scale, digits)
+
+    mean_loss = _rows(query_influx(mean_loss_flux))
+    _merge(_rows(query_influx(median_flux)), "median_ms", 1000.0)
+    _merge(_rows(query_influx(p95_flux)), "p95_ms", 1000.0)
+    _merge(mean_loss, "avg_loss_pct", 100.0, 2)
+    _merge(_rows(query_influx(max_loss_flux)), "max_loss_pct", 100.0, 2)
+    for k, value in _rows(query_influx(loss_events_flux)).items():
         entry = stats.setdefault(k, {"target": k[0], "measurement": k[1]})
         entry["loss_events"] = int(value)
 
@@ -154,9 +194,44 @@ def _collect_target_stats(hours: int) -> list[dict]:
     for entry in results:
         entry.setdefault("avg_loss_pct", 0.0)
         entry.setdefault("loss_events", 0)
-    # Worst first: by mean loss, then p95 latency.
+        entry["avg_loss_pct_measurable"] = entry["avg_loss_pct"]
+        entry["loss_events_measurable"] = entry["loss_events"]
+
+    # Clipped to the window: a span reaching back past its start would
+    # subtract points the whole-window figures never counted.
+    start = time.time() - int(hours) * 3600
+    spans = merge_spans([(max(lo, start), hi) for lo, hi in monitor_spans or ()
+                         if hi > start])
+    if spans:
+        # Each target's sum and count less the spans': the in-span queries
+        # read only those minutes, the whole-window count is one pass like
+        # the mean's.
+        count_all = _rows(query_influx(base + loss + group + "|> count()"))
+        span_sum = _rows(query_influx(_in_spans_flux(spans, loss) + group + "|> sum()"))
+        span_count = _rows(query_influx(
+            _in_spans_flux(spans, loss) + group + "|> count()"))
+        span_events = _rows(query_influx(
+            prelude + _in_spans_flux(spans, loss + events) + group + "|> count()"))
+        for k, entry in stats.items():
+            n_in = span_count.get(k, 0.0)
+            if not n_in:
+                continue
+            entry["loss_events_measurable"] = max(
+                0, entry["loss_events"] - int(span_events.get(k, 0.0)))
+            n_out = count_all.get(k, 0.0) - n_in
+            if n_out <= 0:
+                entry["avg_loss_pct_measurable"] = None
+                continue
+            own = (mean_loss.get(k, 0.0) * count_all[k] - span_sum.get(k, 0.0)) / n_out
+            entry["avg_loss_pct_measurable"] = round(
+                min(1.0, max(0.0, own)) * 100.0, 2)
+
+    # Worst first: by the loss that is the target's own, then by mean loss,
+    # then p95 latency -- so the MAX_TARGETS cap keeps the targets with a
+    # problem, not the ones heard only through a deaf radio.
     results.sort(
-        key=lambda e: (e.get("avg_loss_pct", 0.0), e.get("p95_ms", 0.0)),
+        key=lambda e: (e["avg_loss_pct_measurable"] or 0.0,
+                       e.get("avg_loss_pct", 0.0), e.get("p95_ms", 0.0)),
         reverse=True,
     )
     return results
@@ -511,11 +586,17 @@ def _collect_incidents(hours: int) -> dict | None:
                     exc_info=True)
         return None
     listed = [i for i in result["incidents"] if i["class"] != "probe_miss"]
-    monitor_minutes = sum(i.get("minutes") or 0 for i in listed
-                          if i["class"] in MONITOR_CLASSES)
+    monitor = [i for i in listed if i["class"] in MONITOR_CLASSES]
+    monitor_minutes = sum(i.get("minutes") or 0 for i in monitor)
+    # The points those incidents cover, for the per-target figures: a point
+    # stamped t measured the step before it, so it heard the monitor's
+    # trouble when (t - step, t) overlaps the incident's (start, end).
+    step_s = cadence.longest_step(cadences)
     return {
         "by_class": result["by_class"],
         "monitor_minutes": monitor_minutes,
+        "monitor_spans": [(i["start_epoch"] + 1, i["end_epoch"] + step_s)
+                          for i in monitor],
         "truncated": len(listed) > MAX_INCIDENTS or result["rows_truncated"],
         "incidents": [
             {
@@ -538,14 +619,16 @@ def collect(hours: int = 24) -> dict:
     The target list is capped at MAX_TARGETS (worst-by-loss first) so the
     rendered prompt stays small even on installs with hundreds of targets.
     """
-    targets = _collect_target_stats(hours)
+    incidents = _collect_incidents(hours)
+    # Not handed on: they only serve the per-target measurable figures.
+    spans = incidents.pop("monitor_spans") if incidents else []
+    targets = _collect_target_stats(hours, spans)
     total = len(targets)
     truncated = total > MAX_TARGETS
     cpe = _collect_cpe_stats(hours)
     wifi = _collect_wifi_stats(hours)
     uplink = _collect_uplink(hours)
     resolver = collect_resolver(hours)
-    incidents = _collect_incidents(hours)
     return {
         "window_hours": hours,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),

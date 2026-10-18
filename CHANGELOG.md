@@ -18,6 +18,26 @@ version gets a matching GitHub release and git tag.
   compiled from source on either architecture. The inference directory now has its own
   Dependabot block that ignores `python` >= 3.14, with a comment saying when
   to lift it; the shared block now lists the other directories explicitly.
+- **The digest no longer blames a destination for loss the monitor itself
+  caused.** v2.42.0 subtracted the monitor's own minutes (its deaf radio,
+  its DNS) from each target's mean loss as a share of the whole window:
+  5 h 40 min of 24 h explained 23.6 points of anyone's mean. A target that
+  existed for only part of the window was not covered by that. Replaying
+  the 2026-10-13 digest on the reference Pi, it still opened 🔴 "problems
+  worth a look" with five `Ocean_Reef_*` Netflix targets in red at 70.4 %
+  mean loss: renamed the day before (#310), most of the points they had
+  fell inside the deaf span. Each target now also gets
+  `avg_loss_pct_measurable` and `loss_events_measurable`, its loss with
+  the points inside the monitor's incident spans left out (None when it
+  has no point outside them), and the digest lights red on that figure
+  alone, showing it beside the mean ("70.4% loss (0.0% while it could)").
+  The same replay now opens 🟡 "the monitor itself could not measure for
+  5 h 40 min" with no target in red. The AI report gets both figures and
+  is told to judge targets by the measurable one, and the 30 targets it
+  sees are the worst by that figure, not by a mean the radio inflated.
+  The span points are read by one pushed-down range per span, so the
+  queries read only those minutes: 0.19 s of the 14 s a week's digest
+  takes on the reference Pi.
 
 ## [2.42.0] — 2026-10-18
 

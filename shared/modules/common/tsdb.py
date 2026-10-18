@@ -130,8 +130,9 @@ WIZARD_CATEGORY = "dns_wizard"
 
 
 def base_flux(measurements: list[str], range_start: str,
-              include_wizard: bool = False) -> str:
-    """Range + measurement filter prefix. ``range_start`` e.g. ``-300s``."""
+              include_wizard: bool = False, range_stop: str | None = None) -> str:
+    """Range + measurement filter prefix. ``range_start`` e.g. ``-300s``;
+    ``range_stop`` (e.g. an RFC 3339 time) ends it before now."""
     predicate = " or ".join(
         f"r._measurement == {flux_str(m)}" for m in measurements
     )
@@ -140,6 +141,7 @@ def base_flux(measurements: list[str], range_start: str,
                      f"r.category != {flux_str(WIZARD_CATEGORY)})")
     return (
         f"from(bucket: {flux_str(influx_bucket())}) "
-        f"|> range(start: {range_start}) "
+        f"|> range(start: {range_start}"
+        + (f", stop: {range_stop}" if range_stop else "") + ") "
         f"|> filter(fn: (r) => {predicate}) "
     )
