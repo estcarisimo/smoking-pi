@@ -9,6 +9,19 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.42.0] — 2026-10-18
+
+Every reader of loss now tells the same story. The web admin's chat
+answers `get_loss_events` with the MCP server's own code (widespread runs,
+episodes and the reading of a total loss, not the 200 newest raw points);
+the daily digest and the AI report name the window's incidents as the
+alerts and the assistants classify them, instead of summarizing mean loss
+per target; the MCP server's widespread runs keep the alerter's 30 % loss
+floor; the digest reads `HIGH_LOSS_PCT`, `WIFI_WEAK_SAMPLES` and leaves the
+ISP gateway out of its destinations; and the doctor checks that the
+dashboards' loss-event, microcut and weak Wi-Fi literals match `common/`.
+Nothing is measured differently; the audit behind it is summarized in PR #387.
+
 ### Fixed
 
 - **The web admin's chat reads loss as the MCP server does.** Its
@@ -40,7 +53,8 @@ version gets a matching GitHub release and git tag.
   minutes do not excuse a destination lost all day) — and says when the
   incidents could not be read instead of reporting none. A `min_loss_pct`
   given to `get_loss_events` lowers the event bar, not the widespread one:
-  widespread is the alerter's rule whatever the caller asks. The AI report gets the same list ahead of the per-target
+  widespread is the alerter's rule whatever the caller asks. The AI
+  report gets the same list ahead of the per-target
   numbers, with the instruction to cite those causes.
 - **"Widespread" means one thing.** The alerter's rule counts a cycle as
   widespread when `WIDESPREAD_PCT` of the targets lost at least
