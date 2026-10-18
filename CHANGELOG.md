@@ -9,6 +9,15 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.41.0] — 2026-10-18
+
+`smoking-pi doctor --live` now loads every provisioned Grafana dashboard
+through Grafana's API and runs its queries, read-only: a panel whose
+query errors, a variable that offers no value, a link to a dashboard that
+is not installed and a dashboard Grafana does not provision now fail the
+doctor instead of sitting green, and panels that return nothing are
+listed as a warning. Nothing is measured differently.
+
 ### Added
 
 - **`smoking-pi doctor --live` runs every dashboard's queries.** A panel
