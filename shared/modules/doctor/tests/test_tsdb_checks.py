@@ -39,7 +39,7 @@ class FakeDocker:
 
     def __init__(self, measurements=None, last_points=None, uplink=None, deaf=None,
                  influx="pro-influxdb-1", config_manager="pro-config-manager-1",
-                 present=True, fail_queries=False):
+                 present=True, fail_queries=False, started=None):
         self.measurements = measurements
         self.last_points = last_points or []
         self.uplink = uplink or []
@@ -48,16 +48,21 @@ class FakeDocker:
         self.config_manager = config_manager
         self.present = present
         self.fail_queries = fail_queries
+        self.started = started or {}
         self.calls: list[list[str]] = []
 
     def available(self):
         return self.present
 
     def container_for_service(self, service):
-        return {"influxdb": self.influx, "config-manager": self.config_manager}.get(service)
+        return {"influxdb": self.influx, "config-manager": self.config_manager,
+                "smokeping": "pro-smokeping-1"}.get(service)
 
     def run(self, args):
         self.calls.append(args)
+        if args[0] == "inspect":
+            when = self.started.get(args[-1])
+            return (0, _iso(when) + ".123456789Z") if when else (1, "")
         if args[:2] == ["exec", self.config_manager]:
             return 0, json.dumps(self.measurements)
         if args[:2] == ["exec", self.influx]:
@@ -66,8 +71,8 @@ class FakeDocker:
             flux = args[-1]
             if "last()" in flux and "exists r.target" in flux:
                 return 0, _csv(["_time", "target"], self.last_points)
-            if "count()" in flux:
-                return 0, _csv(["_time", "_value", "interface", "n"], self.uplink)
+            if "elapsed(" in flux:
+                return 0, _csv(["at", "interface", "kind", "value"], self.uplink)
             if "rx_packets" in flux:
                 return 0, _csv(["_time", "associated", "interface", "rx_packets"], self.deaf)
         return 1, ""
@@ -123,7 +128,7 @@ def test_a_long_step_widens_the_window():
     d = FakeDocker(rows, [[_iso(NOW - 2 * 3600), "Hourly"]])
     res = live_checks.check_targets_in_tsdb(d, Repo(), now=lambda: NOW)
     assert res.status is Status.OK, res.findings
-    flux = d.calls[-1][-1]
+    flux = next(c for c in d.calls if c[:2] == ["exec", "pro-influxdb-1"])[-1]
     assert "range(start: -11400s)" in flux  # 3 × 3600 + 600
 
 
@@ -152,8 +157,14 @@ def test_the_token_never_reaches_the_command_line():
 
 # ---- monitor-radio --------------------------------------------------------
 
-def _uplink(newest=NOW - 10, interval=10, value=1, interface="wlan0"):
-    return [[_iso(newest), value, interface, int(86400 / interval)]]
+def _uplink(newest=NOW - 10, interval=10, value=1, interface="wlan0", carried=None):
+    """The uplink query's rows: last time on the route, newest sample, spacing."""
+    rows = [[_iso(newest) + "", interface, "newest", float(value)],
+            ["", interface, "interval", float(interval)]]
+    if value == 1 or carried is not None:
+        rows.append([_iso(carried if carried is not None else newest), interface,
+                     "uplink", 1.0])
+    return rows
 
 
 def _deaf(start, seconds, interval=10, interface="wlan0"):
@@ -161,11 +172,20 @@ def _deaf(start, seconds, interval=10, interface="wlan0"):
             for i in range(int(seconds // interval))]
 
 
-def _radio(d, tmp_path, timer=True):
+def _route(tmp_path, iface):
+    path = tmp_path / "route"
+    path.write_text("Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\n"
+                    f"{iface}\t00000000\t0156A8C0\t0003\t0\t0\t600\n")
+    return path
+
+
+def _radio(d, tmp_path, timer=True, route=None):
     path = tmp_path / "smoking-pi-watchdog.timer"
     if timer:
         path.write_text("[Timer]\n")
-    return live_checks.check_monitor_radio(d, Repo(), now=lambda: NOW, watchdog_timer=path)
+    return live_checks.check_monitor_radio(
+        d, Repo(), now=lambda: NOW, watchdog_timer=path,
+        proc_route=route or tmp_path / "no-route")
 
 
 def test_a_radio_that_heard_all_day_passes(tmp_path):
@@ -224,8 +244,8 @@ def test_a_stopped_collector_warns(tmp_path):
 @pytest.mark.parametrize("docker, why", [
     (FakeDocker(present=False), "docker is not available"),
     (FakeDocker(influx=None), "ClickHouse backend"),
-    (FakeDocker(uplink=[]), "does not carry the default route"),
-    (FakeDocker(uplink=_uplink(value=0)), "does not carry the default route"),
+    (FakeDocker(uplink=[]), "carried the default route"),
+    (FakeDocker(uplink=_uplink(value=0)), "carried the default route"),
 ])
 def test_monitor_radio_skips(docker, why, tmp_path):
     res = _radio(docker, tmp_path)
@@ -239,6 +259,74 @@ def test_the_deaf_query_is_microcuts_own(tmp_path):
     flux = d.calls[-1][-1]
     assert 'from(bucket: "BUCKET")' in flux
     assert "r.rx_packets == 0 or r.associated == 0" in flux
+
+
+def test_a_radio_that_lost_its_association_fails(tmp_path):
+    # Not associated: the route left with the radio, so its newest sample
+    # says uplink 0; it carried the route until the drop.
+    d = FakeDocker(uplink=_uplink(newest=NOW - 10, value=0, carried=NOW - 1800),
+                   deaf=[[_iso(NOW - 1800 + 10 * i), 0, "wlan0", 0] for i in range(180)])
+    res = _radio(d, tmp_path)
+    assert res.status is Status.FAIL
+    assert "wlan0 is deaf now" in res.findings[0].message
+
+
+def test_deaf_now_is_not_claimed_when_ethernet_took_the_route(tmp_path):
+    d = FakeDocker(uplink=_uplink(newest=NOW - 10), deaf=_deaf(NOW - 3600, 3600))
+    res = _radio(d, tmp_path, route=_route(tmp_path, "eth0"))
+    assert res.status is Status.WARN
+
+
+def test_the_gap_follows_the_measured_interval(tmp_path):
+    # 30 s sampling: consecutive deaf samples 30 s apart are one run.
+    d = FakeDocker(uplink=_uplink(interval=30), deaf=_deaf(NOW - 7200, 1800, interval=30))
+    res = _radio(d, tmp_path)
+    assert res.status is Status.WARN
+    assert "30 min" in res.findings[0].message
+
+
+def test_a_damaged_common_tree_warns_not_crashes(tmp_path):
+    (tmp_path / "shared/modules/common").mkdir(parents=True)
+    (tmp_path / "shared/modules/common/__init__.py").write_text("")
+    (tmp_path / "shared/modules/common/microcuts.py").write_text("raise RuntimeError('x')\n")
+
+    class Damaged:
+        root = tmp_path
+
+    res = live_checks.check_monitor_radio(FakeDocker(uplink=_uplink()), Damaged(),
+                                          now=lambda: NOW, watchdog_timer=tmp_path / "x")
+    assert res.status is Status.WARN
+    import sys
+    assert not [m for m in sys.modules if m.startswith("_doctor_common")]
+
+
+def test_the_common_import_leaves_nothing_behind(tmp_path):
+    import os
+    import sys
+    before = os.environ.get("INFLUX_BUCKET")
+    _radio(FakeDocker(uplink=_uplink()), tmp_path)
+    assert os.environ.get("INFLUX_BUCKET") == before
+    assert not [m for m in sys.modules if m.startswith("_doctor_common")]
+    assert not list((REPO_ROOT / "shared/modules/common").glob("__pycache__/*doctor*"))
+
+
+def test_nanosecond_times_parse():
+    assert live_checks._epoch("2026-10-18T18:04:17.000000000Z") == live_checks._epoch(
+        "2026-10-18T18:04:17Z")
+
+
+def test_a_late_target_right_after_a_restart_only_warns():
+    d = FakeDocker(_rows(Slow="fresh"), [[_iso(NOW - 2400), "Slow"]],
+                   started={"pro-smokeping-1": NOW - 120})
+    res = live_checks.check_targets_in_tsdb(d, Repo(), now=lambda: NOW)
+    assert res.status is Status.WARN
+    assert "run `sudo smoking-pi doctor --live` again" in res.findings[-1].message
+
+
+def test_a_null_target_list_does_not_crash():
+    d = FakeDocker({"available": True, "targets": None})
+    res = live_checks.check_targets_in_tsdb(d, Repo(), now=lambda: NOW)
+    assert res.status is Status.SKIP
 
 
 def test_a_tree_without_microcuts_warns(tmp_path):

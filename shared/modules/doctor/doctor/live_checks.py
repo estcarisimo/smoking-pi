@@ -1095,9 +1095,12 @@ def _influx_rows(docker: Docker, container: str, flux: str) -> list[dict] | None
 
 
 def _epoch(text: str) -> float | None:
+    """An RFC 3339 time as epoch seconds. The fraction is dropped: InfluxDB
+    prints nanoseconds, which Python 3.10's fromisoformat refuses."""
     try:
-        return datetime.datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
-    except (AttributeError, ValueError):
+        whole = re.sub(r"\.\d+", "", text.replace("Z", "+00:00"))
+        return datetime.datetime.fromisoformat(whole).timestamp()
+    except (AttributeError, TypeError, ValueError):
         return None
 
 
@@ -1132,7 +1135,7 @@ def _measurement_rows(docker: Docker, repo) -> list[dict] | None:
         body = _measured_by_smokeping(docker, repo)
     if not isinstance(body, dict) or not body.get("available", True):
         return None
-    return [r for r in body.get("targets", []) if isinstance(r, dict)]
+    return [r for r in body.get("targets") or [] if isinstance(r, dict)]
 
 
 def check_targets_in_tsdb(docker: Docker | None = None, repo=None,
@@ -1144,8 +1147,11 @@ def check_targets_in_tsdb(docker: Docker | None = None, repo=None,
     TSDB (the exporter skipping a file, a name it cannot parse, a write
     refused) passes both, while every dashboard, alert and assistant answer
     sees nothing for it. This compares the two: each target ``fresh`` in
-    the RRDs must have a point in InfluxDB within three of its steps (plus
-    ten minutes for the exporter's cycle).
+    the RRDs must have a point in InfluxDB within three of its steps plus
+    ten minutes for the exporter's cycle. Within that time of SmokePing or
+    InfluxDB starting (``smoking-pi upgrade`` runs the doctor right after
+    recreating them) a finding is a warning: the exporter may not have
+    caught up yet.
     """
     name = "targets-in-tsdb"
     docker = docker or Docker()
@@ -1173,6 +1179,11 @@ def check_targets_in_tsdb(docker: Docker | None = None, repo=None,
                                      "point")], "", status=Status.WARN)
     newest = {r.get("target"): _epoch(r.get("_time", "")) for r in answer}
     moment = now()
+    lateness = TSDB_LATE_STEPS * max(fresh.values()) + TSDB_SLACK_S
+    started = [t for t in (_started_at(docker, c) for c in
+                           (influx, docker.container_for_service("smokeping")) if c)
+               if t is not None]
+    settling = any(moment - t < lateness for t in started)
     absent, late = [], []
     for target, step in sorted(fresh.items()):
         seen = newest.get(target)
@@ -1194,9 +1205,15 @@ def check_targets_in_tsdb(docker: Docker | None = None, repo=None,
     if late:
         findings.append(Finding(
             f"{len(late)} target(s) reach InfluxDB late (newest point older than "
-            f"{TSDB_LATE_STEPS} steps): {_shown(late)}"))
+            f"{TSDB_LATE_STEPS} of their steps plus {TSDB_SLACK_S // 60} min): {_shown(late)}"))
+    if findings and settling:
+        findings.append(Finding(
+            f"SmokePing or InfluxDB started less than {lateness // 60} min ago, so the "
+            "exporter may not have caught up: run `sudo smoking-pi doctor --live` again "
+            "after that"))
     return result(name, findings,
-                  f"all {len(fresh)} freshly measured targets have recent points in InfluxDB")
+                  f"all {len(fresh)} freshly measured targets have recent points in InfluxDB",
+                  status=Status.WARN if settling else Status.FAIL)
 
 
 # Deaf-radio spans: runs of consecutive deaf samples (common/microcuts.
@@ -1212,35 +1229,67 @@ DEAF_RANGE = "-24h"
 WATCHDOG_TIMER = pathlib.Path("/etc/systemd/system/smoking-pi-watchdog.timer")
 COMMON_PARENT = pathlib.Path("shared/modules")
 
-# Per interface: whether its newest sample carried the default route, when
-# it was taken, and how many samples the day holds (the sampling interval).
-_UPLINK_NEWEST_FLUX = """
+# Per interface: the last time it carried the default route, its newest
+# sample (a radio that lost its association writes uplink 0: the route left
+# with it), and the median spacing of its rx_packets samples, the counter
+# the deaf definition differences (the collector's interval, measured).
+_UPLINK_FLUX = """
 samples = from(bucket: "BUCKET")
   |> range(start: -24h)
   |> filter(fn: (r) => r._measurement == "wifi_link" and r._field == "uplink")
   |> keep(columns: ["_time", "_value", "interface"])
   |> group(columns: ["interface"])
+up = samples |> filter(fn: (r) => r._value == 1) |> last()
+  |> map(fn: (r) => ({interface: r.interface, kind: "uplink", at: string(v: r._time), value: 1.0}))
 newest = samples |> last()
-n = samples |> count() |> map(fn: (r) => ({interface: r.interface, n: r._value}))
-join(tables: {newest: newest, n: n}, on: ["interface"]) |> group()
+  |> map(fn: (r) => ({interface: r.interface, kind: "newest", at: string(v: r._time),
+                      value: float(v: r._value)}))
+spacing = from(bucket: "BUCKET")
+  |> range(start: -24h)
+  |> filter(fn: (r) => r._measurement == "wifi_link" and r._field == "rx_packets")
+  |> keep(columns: ["_time", "_value", "interface"])
+  |> group(columns: ["interface"])
+  |> elapsed(unit: 1s)
+  |> median(column: "elapsed")
+  |> map(fn: (r) => ({interface: r.interface, kind: "interval", at: "",
+                      value: float(v: r.elapsed)}))
+union(tables: [up, newest, spacing]) |> group()
+  |> keep(columns: ["interface", "kind", "at", "value"])
 """
 
 
 def _deaf_flux(repo) -> str | None:
-    """microcuts.uplink_flux over the last day, from the repository's common/."""
-    root = pathlib.Path(getattr(repo, "root", ".")) / COMMON_PARENT
-    if not (root / "common" / "microcuts.py").is_file():
+    """microcuts.uplink_flux over the last day, from the repository's common/.
+
+    Loaded by path under a private package name, without bytecode (under
+    sudo it would be root's __pycache__ in the package's /opt tree), and
+    unloaded afterwards, so no other ``common`` is shadowed or reused.
+    """
+    directory = pathlib.Path(getattr(repo, "root", ".")) / COMMON_PARENT / "common"
+    if not (directory / "microcuts.py").is_file():
         return None
-    saved_path, saved_bucket = list(sys.path), os.environ.get("INFLUX_BUCKET")
+    package = "_doctor_common"
+    saved_bucket = os.environ.get("INFLUX_BUCKET")
+    saved_bytecode = sys.dont_write_bytecode
     try:
-        sys.path.insert(0, str(root))
+        sys.dont_write_bytecode = True
         os.environ["INFLUX_BUCKET"] = "BUCKET"
-        microcuts = importlib.import_module("common.microcuts")
+        spec = importlib.util.spec_from_file_location(
+            package, directory / "__init__.py", submodule_search_locations=[str(directory)])
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[package] = module
+        spec.loader.exec_module(module)
+        microcuts = importlib.import_module(f"{package}.microcuts")
         return microcuts.uplink_flux(DEAF_RANGE)
-    except (ImportError, AttributeError, SyntaxError):
+    # A damaged tree is this check's warning, never the doctor's crash.
+    except Exception:  # noqa: BLE001
         return None
     finally:
-        sys.path[:] = saved_path
+        sys.dont_write_bytecode = saved_bytecode
+        for loaded in [m for m in sys.modules if m == package or m.startswith(package + ".")]:
+            sys.modules.pop(loaded, None)
         if saved_bucket is None:
             os.environ.pop("INFLUX_BUCKET", None)
         else:
@@ -1264,19 +1313,20 @@ def _utc(epoch: float) -> str:
 
 
 def check_monitor_radio(docker: Docker | None = None, repo=None, now=time.time,
-                        watchdog_timer: pathlib.Path = WATCHDOG_TIMER) -> CheckResult:
+                        watchdog_timer: pathlib.Path = WATCHDOG_TIMER,
+                        proc_route: pathlib.Path = PROC_ROUTE) -> CheckResult:
     """The uplink radio heard throughout the last day.
 
     A Wi-Fi radio can hang with the link "up" and associated: it hears
     nothing, every probe times out, and the charts draw an outage of the
-    network that is this host's own (21 h, 3 h 20 min and 17 h on the
-    staging Pi; 5 of 6 confirmed microcuts on the reference Pi in
-    October 2026). Alerts and the digest set those minutes apart as
-    ``monitor_deaf``; this says, in the doctor, whether it happened in the
-    last day and whether it is happening now. Deaf is
-    ``common/microcuts.uplink_flux``: the received-packet counter did not
-    move between two samples, or the radio lost its association, while
-    its interface carried the default route.
+    network that is this host's own (21 h and 3 h 20 min on the staging Pi
+    in September 2026, docs/detection-reliability.md; 1 h 44 min and
+    5 h 31 min on the reference Pi in October). Alerts and the digest set
+    those minutes apart as ``monitor_deaf``; this says, in the doctor,
+    whether it happened in the last day and whether it is happening now.
+    Deaf is ``common/microcuts.uplink_flux``: the received-packet counter
+    did not move between two samples, or the radio lost its association,
+    while its interface carried the default route.
     """
     name = "monitor-radio"
     docker = docker or Docker()
@@ -1286,26 +1336,30 @@ def check_monitor_radio(docker: Docker | None = None, repo=None, now=time.time,
     if not influx:
         return skipped(name, "no InfluxDB here (ClickHouse backend, or not running): "
                              "the Wi-Fi samples are read from InfluxDB")
-    newest_rows = _influx_rows(docker, influx, _UPLINK_NEWEST_FLUX)
-    if newest_rows is None:
+    facts = _influx_rows(docker, influx, _UPLINK_FLUX)
+    if facts is None:
         return result(name, [Finding("could not query InfluxDB for the Wi-Fi samples")], "",
                       status=Status.WARN)
-    uplink = []
-    for r in newest_rows:
-        when = _epoch(r.get("_time", ""))
-        try:
-            count = int(float(r.get("n", "0")))
-        except ValueError:
-            count = 0
-        if r.get("_value") in ("1", "1.0") and when is not None and count > 0:
-            uplink.append((r.get("interface", "?"), when, count))
-    if not uplink:
-        return skipped(name, "the newest Wi-Fi sample does not carry the default route "
+    by_interface: dict[str, dict] = {}
+    for r in facts:
+        entry = by_interface.setdefault(r.get("interface", "?"), {})
+        if r.get("kind") in ("uplink", "newest"):
+            entry[r["kind"]] = _epoch(r.get("at", ""))
+        elif r.get("kind") == "interval":
+            try:
+                entry["interval"] = float(r.get("value", ""))
+            except ValueError:
+                pass
+    carried = [(i, e) for i, e in by_interface.items() if e.get("uplink") is not None]
+    if not carried:
+        return skipped(name, "no Wi-Fi interface carried the default route in the last day "
                              "(a wired uplink, or the Wi-Fi collector is off)")
-    interface, newest, count = max(uplink, key=lambda item: item[1])
-    # The day's samples over the day: the collector's interval, a little
-    # long when it started within the day (which only merges more).
-    interval = min(max(86400 / count, 1.0), 120.0)
+    # The interface that carried the route most recently, even if its newest
+    # sample does not: a radio that lost its association writes uplink 0.
+    interface, entry = max(carried, key=lambda item: item[1]["uplink"])
+    newest = entry.get("newest") or entry["uplink"]
+    interval = entry.get("interval") or 10.0
+    interval = min(max(interval, 1.0), 120.0)
     flux = _deaf_flux(repo)
     if flux is None:
         return result(name, [Finding(f"cannot load {COMMON_PARENT}/common/microcuts.py, "
@@ -1327,7 +1381,11 @@ def check_monitor_radio(docker: Docker | None = None, repo=None, now=time.time,
             f"the newest Wi-Fi sample of {interface} is {int((moment - newest) // 60)} min "
             "old: the collector stopped, so a deaf radio would go unseen. Its log: "
             "`sudo smoking-pi logs smokeping`"))
-    ongoing = bool(spans) and spans[-1][0] + spans[-1][1] >= newest - DEAF_GAP_FACTOR * interval
+    # Deaf now: the newest sample is inside the last run, and the route has
+    # not moved to another interface since (Ethernet taking over is fine).
+    route = sources.default_route_iface(proc_route)
+    ongoing = (bool(spans) and spans[-1][0] + spans[-1][1] >= newest - DEAF_GAP_FACTOR * interval
+               and route in (None, interface))
     if spans:
         total = sum(s[1] for s in spans)
         start, longest = max(spans, key=lambda s: s[1])

@@ -350,15 +350,19 @@ every dashboard, alert and assistant answer saw nothing for it. This takes
 the targets `fresh` in the RRDs (the same `/measurements` classification
 as `targets-measured`) and fails when one has no point in InfluxDB, or a
 newest point older than three of its own steps plus ten minutes for the
-exporter's cycle:
+exporter's cycle (the window it reads is that, and at least 30 minutes):
 
 ```text
 [FAIL] targets-in-tsdb                 1 problem
-          - 1 target(s) SmokePing measures have no point in InfluxDB in the last 25 min, so no dashboard, alert or answer sees them: Netflix_1
+          - 1 target(s) SmokePing measures have no point in InfluxDB in the last 30 min, so no dashboard, alert or answer sees them: Netflix_1
 ```
 
-It skips without InfluxDB (Basic, Standard, and Pro on ClickHouse) and when
-no target has fresh RRDs (that is `targets-measured`'s finding).
+Within that time of SmokePing or InfluxDB starting (`smoking-pi upgrade`
+runs the doctor right after recreating them) a finding is a warning, since
+the exporter may not have caught up. A target added a minute ago can show
+as absent until the exporter's next cycle; run the doctor again. It skips
+without InfluxDB (Basic, Standard, and Pro on ClickHouse) and when no
+target has fresh RRDs (that is `targets-measured`'s finding).
 
 ### `monitor-radio`
 
@@ -379,8 +383,10 @@ are reported; a lone quiet sample is not a hang.
           - wlan0 heard nothing for 331 min in the last day (1 span(s), longest 331 min from 2026-10-12 15:15 UTC): the measurements in those minutes describe this host, not the network
 ```
 
-It **fails** when the newest sample is inside a deaf run (the radio is deaf
-now), **warns** on deaf runs in the last day (naming
+It **fails** when the newest sample is inside a deaf run and the default
+route has not moved to another interface (the radio is deaf now; a radio
+that lost its association counts, though its samples then say it no longer
+carries the route), **warns** on deaf runs in the last day (naming
 `smoking-pi watchdog enable` when the watchdog is off) and when the Wi-Fi
 collector's newest sample is over five minutes old, and skips without
 InfluxDB or when Wi-Fi is not the uplink.
