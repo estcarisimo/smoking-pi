@@ -281,6 +281,9 @@ services:
       WIFI_WEAK_DBM: ${WIFI_WEAK_DBM:--75}
       WIFI_WEAK_SAMPLES: ${WIFI_WEAK_SAMPLES:-6}
       WIDESPREAD_PCT: ${WIDESPREAD_PCT:-80}
+      # get_loss_events is the MCP server's (common.loss_events): its
+      # widespread runs are the alerter's rule, loss floor included.
+      WIDESPREAD_LOSS_PCT: ${WIDESPREAD_LOSS_PCT:-30}
       VERDICT_BROAD_PCT: ${VERDICT_BROAD_PCT:-60}
     depends_on:
       smokeping:
@@ -457,6 +460,7 @@ services:
       - WIFI_WEAK_DBM=${WIFI_WEAK_DBM:--75}
       - WIFI_WEAK_SAMPLES=${WIFI_WEAK_SAMPLES:-6}
       - WIDESPREAD_PCT=${WIDESPREAD_PCT:-80}
+      - WIDESPREAD_LOSS_PCT=${WIDESPREAD_LOSS_PCT:-30}
       - VERDICT_BROAD_PCT=${VERDICT_BROAD_PCT:-60}
       - TZ=${TZ:-UTC}
     volumes:
@@ -489,8 +493,16 @@ services:
       - AI_REPORTS_PER_DAY=${AI_REPORTS_PER_DAY:-8}
       - AI_MAX_INPUT_CHARS=${AI_MAX_INPUT_CHARS:-20000}
       - REPORTS_DIR=/reports
-      # The report reads CPE cuts against the same threshold as the alerter.
+      # The report reads CPE cuts against the same threshold as the alerter,
+      # and its incidents come from the shared diagnosis, which judges
+      # "weak", "broad" and "widespread" with the alerter's thresholds
+      # (WIDESPREAD_LOSS_PCT is get_loss_events', which the report does not
+      # call).
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
+      - WIFI_WEAK_DBM=${WIFI_WEAK_DBM:--75}
+      - WIFI_WEAK_SAMPLES=${WIFI_WEAK_SAMPLES:-6}
+      - WIDESPREAD_PCT=${WIDESPREAD_PCT:-80}
+      - VERDICT_BROAD_PCT=${VERDICT_BROAD_PCT:-60}
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG:-smokeping}

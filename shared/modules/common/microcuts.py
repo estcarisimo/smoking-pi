@@ -61,7 +61,7 @@ MAX_ROWS = 5000
 
 def loss_pct() -> float:
     try:
-        return float(os.environ.get("MICROCUT_LOSS_PCT", "") or DEFAULT_LOSS_PCT)
+        return float(os.environ.get("MICROCUT_LOSS_PCT") or DEFAULT_LOSS_PCT)
     except ValueError:
         return DEFAULT_LOSS_PCT
 

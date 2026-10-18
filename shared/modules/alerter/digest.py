@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import datetime
 
 import charts
 import notifier
@@ -170,6 +171,7 @@ def build(
         int(r.get("muted_suppressed_count", 0) or 0) for r in active.values()
     )
 
+    incidents = data.get("incidents")
     worst = max(targets, key=lambda t: float(t.get("avg_loss_pct", 0.0) or 0.0))
     lossy = [
         t for t in targets
@@ -186,6 +188,7 @@ def build(
         "wifi": data.get("wifi") or {},
         "uplink": data.get("uplink") or {},
         "resolver": data.get("resolver") or {},
+        "incidents": incidents,
         "alerts_fired": len(alerts),
         "recoveries": len(recoveries),
         "active_incidents": len(active),
@@ -198,6 +201,7 @@ def build(
             len(active), active_mutes, suppressed, wifi=data.get("wifi") or {},
             uplink=data.get("uplink") or {},
             resolver=data.get("resolver") or {},
+            incidents=incidents,
         ),
         "links": links.entry_point_links(hours=hours),
     }
@@ -216,6 +220,7 @@ def render(
     wifi: dict | None = None,
     uplink: dict | None = None,
     resolver: dict | None = None,
+    incidents: dict | None = None,
 ) -> str:
     """The digest text, in the same shape as everything else this bot sends.
 
@@ -232,10 +237,28 @@ def render(
         templates.STATUS_EMOJI["bad"],
     )
 
+    high = definitions.high_loss_pct()
     worst_loss = float(worst.get("avg_loss_pct", 0.0) or 0.0)
-    if active or worst_loss >= 20.0:
+    listed = (incidents or {}).get("incidents") or []
+    # Minutes in which the monitor itself could not measure (its own Wi-Fi
+    # or DNS, common.aggregates.MONITOR_CLASSES): every target's loss in
+    # them is the monitor's, so a high mean is no destination's problem.
+    monitor_minutes = int((incidents or {}).get("monitor_minutes") or 0)
+    # The most of a target's mean loss those minutes can account for: every
+    # ping lost while the monitor could not hear. Only the rest is the
+    # target's -- a destination dead all day is still red after a five-
+    # minute deaf radio.
+    explained = min(100.0, 100.0 * monitor_minutes / max(1, hours * 60))
+
+    def own_loss(target: dict) -> float:
+        return float(target.get("avg_loss_pct", 0.0) or 0.0) - explained
+
+    if active or own_loss(worst) >= high:
         headline = f"{bad} Last {hours}h: problems worth a look."
-    elif lossy or alerts:
+    elif monitor_minutes:
+        headline = (f"{watch} Last {hours}h: the monitor itself could not "
+                    f"measure for {_duration(monitor_minutes)}.")
+    elif lossy or alerts or listed:
         headline = f"{watch} Last {hours}h: mostly fine, a few rough edges."
     else:
         headline = f"{ok} Last {hours}h: all clear."
@@ -253,6 +276,21 @@ def render(
     if active:
         lines.append(f"{bad} {_plural(active, 'incident', 'incidents')} still open.")
 
+    # The window's incidents, classified as the alerts and the assistants
+    # classify them (common.diagnosis). A day's mean loss hides a ten-minute
+    # cut of the line, and blames two dozen destinations for a deaf radio.
+    if incidents is None:
+        lines.append(f"{watch} Incidents could not be read for this window.")
+    elif listed:
+        for incident in listed[:5]:
+            minutes = int(incident.get("minutes") or 0)
+            when = _clock(incident.get("start"))
+            lines.append(
+                f"{watch} {esc(when)}, {_duration(minutes)}: "
+                f"{esc(incident.get('summary') or incident['class'])}")
+        if len(listed) > 5:
+            lines.append(f"{watch} …and {len(listed) - 5} more incidents.")
+
     lines.append("")
     lines.append(b("Targets"))
     if lossy:
@@ -261,7 +299,7 @@ def render(
             lossy, key=lambda t: float(t.get("avg_loss_pct", 0.0) or 0.0), reverse=True
         )[:5]:
             loss = float(target.get("avg_loss_pct", 0.0) or 0.0)
-            light = bad if loss >= 20.0 else watch
+            light = bad if own_loss(target) >= high else watch
             median = target.get("median_ms")
             detail = f"{loss:.1f}% loss"
             if median is not None:
@@ -269,8 +307,12 @@ def render(
             lines.append(f"{light} {esc(target['target'])} — {detail}.")
         if len(lossy) > 5:
             lines.append(f"{watch} …and {len(lossy) - 5} more with loss.")
+        if monitor_minutes:
+            lines.append(
+                f"{watch} These include the {_duration(monitor_minutes)} the "
+                f"monitor could not measure: that loss is not the targets'.")
     else:
-        lines.append(f"{ok} All {len(targets)} targets clean.")
+        lines.append(f"{ok} All {len(targets)} pinged and DNS targets clean.")
 
     # Only when the host is on Wi-Fi: the hop every measurement above
     # crossed, in one line, so a bad night on the wireless side is not read
@@ -279,7 +321,9 @@ def render(
         lines.append("")
         lines.append(b("Local link"))
         drops = int(wifi.get("disconnects") or 0)
-        weak = wifi["min_dbm"] < definitions.wifi_weak_dbm()
+        # Weak as everywhere else: WIFI_WEAK_SAMPLES readings under
+        # WIFI_WEAK_DBM, not one dip of the minimum.
+        weak = int(wifi.get("weak_samples") or 0) >= definitions.wifi_weak_samples()
         light = bad if drops >= 3 else (watch if drops or weak else ok)
         where = esc(str(wifi.get("ssid") or wifi.get("interface") or "wi-fi"))
         if wifi.get("channel"):
@@ -347,6 +391,23 @@ def render(
             )
 
     return "\n".join(lines)
+
+
+def _duration(minutes: int) -> str:
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, rest = divmod(minutes, 60)
+    return f"{hours} h {rest} min" if rest else f"{hours} h"
+
+
+def _clock(iso: str | None) -> str:
+    """``Mon 14:05`` in the host's time zone, from an ISO timestamp."""
+    if not iso:
+        return "?"
+    try:
+        return datetime.fromisoformat(iso).astimezone().strftime("%a %H:%M")
+    except ValueError:
+        return iso
 
 
 def check(state: dict, now: float | None = None) -> bool:

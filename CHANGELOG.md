@@ -9,6 +9,72 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The web admin's chat reads loss as the MCP server does.** Its
+  `get_loss_events` was a copy of an early version of the MCP tool: the
+  200 newest loss points and nothing else — no `widespread` runs, no
+  reading of a total loss (this host's uplink, the Internet, its own DNS),
+  no per-target episodes, no background count, no breadth-only voters. The
+  model assembled a story from raw points, or never saw it: asked about
+  the last week on the reference Pi on 2026-10-18, the chat's 200 points
+  were all from 2026-10-12 onward and held nothing of the 255-minute
+  outage of 2026-10-11, which the MCP answer led with (`uplink_down`,
+  247 of 247 targets). Both now call `common/loss_events.py`; the MCP
+  server adds its links and uplink changes on top. Asked the same week,
+  the chat now gets the same two widespread runs and 68 episodes.
+- **The daily digest and the AI report name the incidents the alerts
+  name.** Both summarized per-target mean loss and nothing else, while the
+  alerts, `diagnose_loss`, the incident history and the chat classify
+  every incident with the shared diagnosis. What that cost on the
+  reference Pi: the digest of 2026-10-13 would have opened *problems worth
+  a look* with 24 of 29 destinations at 20–70 % loss — a day the monitor's
+  own radio heard nothing for 5 h 40 min (`local_wifi`, high confidence);
+  the digest of 2026-10-16 said *all clear, all 19 targets clean* (worst
+  mean 0.17 %) the day after a ten-minute cut of the line between the
+  house and the ISP (`local_link`). `common/aggregates.collect` now hands
+  on the window's incidents from `common/diagnosis_query` (probe misses
+  counted, not listed). The digest lists them, says when the monitor
+  itself could not measure — and puts that share of the window down to the
+  monitor, not to the targets, before lighting any of them red (five deaf
+  minutes do not excuse a destination lost all day) — and says when the
+  incidents could not be read instead of reporting none. A `min_loss_pct`
+  given to `get_loss_events` lowers the event bar, not the widespread one:
+  widespread is the alerter's rule whatever the caller asks. The AI report gets the same list ahead of the per-target
+  numbers, with the instruction to cite those causes.
+- **"Widespread" means one thing.** The alerter's rule counts a cycle as
+  widespread when `WIDESPREAD_PCT` of the targets lost at least
+  `WIDESPREAD_LOSS_PCT` (30) *and* had a loss event; the MCP server's
+  `widespread` runs left the 30 % out, so an assistant could call a cycle
+  of two lost pings everywhere widespread that no alert could have fired
+  on (none in the reference Pi's last week, by the numbers above). The
+  setting is read in `common/definitions.py` for both, and the MCP server
+  and the web admin are given it in Compose; the minimum of three
+  reporting targets, the 99.9 % "lost everything" and the three cycles of
+  total loss come from there too instead of copies.
+- **The digest's thresholds are the alerts'.** Its red light was a
+  literal 20 while the alert and the digest's own chart read
+  `HIGH_LOSS_PCT`; its Wi-Fi line turned yellow on one sample under
+  `WIFI_WEAK_DBM` where the verdict and the diagnosis need
+  `WIFI_WEAK_SAMPLES` (6) of them; and its target list counted the ISP
+  gateway's ping target, whose rate-limit floor is evidence about the
+  line, not a destination. All three now follow the shared definitions
+  (`HIGH_LOSS_PCT` moved into `common/definitions.py`; the charts read it
+  and `MICROCUT_LOSS_PCT` as floats through the shared functions, where a
+  value like `20.5` silently fell back to the default).
+
+### Added
+
+- **Doctor: `dashboard-definitions-match`.** A dashboard cannot import
+  Python, so the loss-event bar (1.5 pings' worth), the cut-window bar and
+  its line (50 %) and the weak Wi-Fi step (-75 dBm) are literals in the
+  panels. All twelve matched `common/` on 2026-10-18 and nothing checked
+  it; retuning one in `common/` now fails the static checks until the
+  panels follow. The audit behind these changes found the Connectivity &
+  Quality panels' "cycles with loss on 2+ destinations" (any loss, a fixed
+  count of two) deliberately different from widespread, and says so in
+  their descriptions already; they are unchanged.
+
 ## [2.41.0] — 2026-10-18
 
 `smoking-pi doctor --live` now loads every provisioned Grafana dashboard

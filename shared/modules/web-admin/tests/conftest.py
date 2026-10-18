@@ -24,8 +24,11 @@ os.environ.pop('ENABLE_SCHEDULER', None)
 os.environ['CONFIG_MANAGER_URL'] = 'http://127.0.0.1:9'
 # The assistant's microcut tool reads the shared threshold from the
 # environment (common.microcuts); a developer's exported value would move
-# every cut/floor assertion in the suite.
-os.environ.pop('MICROCUT_LOSS_PCT', None)
+# every cut/floor assertion in the suite. Its loss and diagnosis tools read
+# the alerter's thresholds the same way (common.definitions).
+for _name in ('MICROCUT_LOSS_PCT', 'WIFI_WEAK_DBM', 'WIFI_WEAK_SAMPLES',
+              'WIDESPREAD_PCT', 'WIDESPREAD_LOSS_PCT', 'VERDICT_BROAD_PCT'):
+    os.environ.pop(_name, None)
 
 from app import create_app  # noqa: E402
 

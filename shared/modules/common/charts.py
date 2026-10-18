@@ -43,7 +43,7 @@ import math
 import os
 from datetime import datetime, timezone
 
-from common import tsdb
+from common import definitions, microcuts, tsdb
 
 log = logging.getLogger("charts")
 
@@ -250,8 +250,8 @@ def _loss_threshold(measurement: str) -> tuple[float, str]:
     rate-limits ICMP and carries a permanent loss floor, which is exactly
     why its threshold is the microcut one and not the general one."""
     if measurement == "cpe_latency":
-        return float(_env_int("MICROCUT_LOSS_PCT", 50)), "microcut threshold"
-    return float(_env_int("HIGH_LOSS_PCT", 20)), "alert threshold"
+        return microcuts.loss_pct(), "microcut threshold"
+    return definitions.high_loss_pct(), "alert threshold"
 
 
 def _minor_grid(ax, theme):
@@ -557,7 +557,7 @@ def _render_digest_chart(payload: dict, threshold_pct: float | None = None):
     import matplotlib.pyplot as plt
 
     if threshold_pct is None:
-        threshold_pct = float(os.environ.get("HIGH_LOSS_PCT", "") or 20.0)
+        threshold_pct = definitions.high_loss_pct()
 
     targets = [t for t in payload.get("targets", []) if t.get("target")]
     targets.sort(key=lambda t: t.get("avg_loss_pct", 0.0), reverse=True)

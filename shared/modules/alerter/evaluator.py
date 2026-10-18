@@ -40,7 +40,7 @@ log = logging.getLogger("alerter.evaluator")
 # absorbs the jitter. Keep DOWN_WINDOW/300 strictly greater than
 # DOWN_MIN_POINTS if you retune either.
 DEFAULT_DOWN_WINDOW = 1200  # seconds; DOWN_WINDOW
-DEFAULT_HIGH_LOSS_PCT = 20.0  # percent; HIGH_LOSS_PCT
+DEFAULT_HIGH_LOSS_PCT = definitions.DEFAULT_HIGH_LOSS_PCT  # HIGH_LOSS_PCT
 # Exporter-liveness window. Four 300 s steps, so a burst arriving late does not
 # read as a stall. See _stale_flux for why 10m was too tight.
 DEFAULT_STALE_WINDOW = 1200  # seconds; STALE_WINDOW
@@ -58,10 +58,9 @@ DEFAULT_MICROCUT_BURST_N = 3
 # (observed: p50 10%, p90 14-22% by day) with no outage at all -- counting
 # every window with any loss would flag that floor forever. A real microcut
 # drops most of a 10 s window.
-DEFAULT_MICROCUT_LOSS_PCT = 50.0  # percent; MICROCUT_LOSS_PCT
 
-DOWN_MIN_POINTS = 3
-DOWN_LOSS_RATIO = 0.999  # >= this ratio counts as "no responses"
+DOWN_MIN_POINTS = definitions.TOTAL_MIN_CYCLES
+DOWN_LOSS_RATIO = definitions.LOST_RATIO  # >= this ratio counts as "no responses"
 HEALTHY_LOSS_RATIO = 0.5  # < this mean ratio counts as "healthy" (ipv6 rule)
 
 # high_loss persistence. The rule compares a 15 min MEAN to HIGH_LOSS_PCT, and
@@ -89,8 +88,9 @@ MEAN_STEPS = 3
 # the targets reporting in it lost at least WIDESPREAD_LOSS_PCT -- and more
 # than one ping's worth, so a probe sending few pings cannot reach it on a
 # single lost one; see rule_widespread for what each shape becomes.
-DEFAULT_WIDESPREAD_LOSS_PCT = 30.0  # percent loss per point; WIDESPREAD_LOSS_PCT
-WIDESPREAD_MIN_TARGETS = 3  # below this, breadth means nothing
+# WIDESPREAD_LOSS_PCT is read in common.definitions, as the MCP server's
+# widespread runs read it.
+WIDESPREAD_MIN_TARGETS = definitions.MIN_BREADTH_TARGETS
 STEP_S = cadence.DEFAULT_STEP  # the default step; real ones come from cadence
 # Points a window must be able to hold for its rule: DOWN_MIN_POINTS plus one
 # of slack (see DEFAULT_DOWN_WINDOW), and the four steps of STALE_WINDOW.
@@ -507,7 +507,7 @@ def rule_high_loss(
     bare mean comparison, for callers that have no raw rows.
     """
     if threshold_pct is None:
-        threshold_pct = _env_float("HIGH_LOSS_PCT", DEFAULT_HIGH_LOSS_PCT)
+        threshold_pct = definitions.high_loss_pct()
     if min_points is None:
         min_points = _env_int("HIGH_LOSS_MIN_POINTS", DEFAULT_HIGH_LOSS_MIN_POINTS)
     exclude = exclude or set()
@@ -583,7 +583,7 @@ def rule_microcut_burst(
     """
     if burst_n is None:
         burst_n = _env_int("MICROCUT_BURST_N", DEFAULT_MICROCUT_BURST_N)
-    loss_pct = _env_float("MICROCUT_LOSS_PCT", DEFAULT_MICROCUT_LOSS_PCT)
+    loss_pct = microcuts.loss_pct()
 
     cuts = microcuts.link_cuts(
         microcuts.attribute(microcuts.fold_cuts(window_rows), uplink_rows or [])
@@ -742,7 +742,7 @@ def rule_widespread(
     if share_pct is None:
         share_pct = definitions.widespread_pct()
     if loss_pct is None:
-        loss_pct = _env_float("WIDESPREAD_LOSS_PCT", DEFAULT_WIDESPREAD_LOSS_PCT)
+        loss_pct = definitions.widespread_loss_pct()
 
     ratios: dict[tuple[int, str], list[float]] = {}
     hop: dict[tuple[int, str], list[float]] = {}
@@ -1084,7 +1084,7 @@ def evaluate_with_context(
     down_rows = _query(_down_points_flux(down_window))
     mean_rows = _query(_mean_loss_flux(windows["mean"]))
     micro_rows = _query(
-        _microcut_flux(_env_float("MICROCUT_LOSS_PCT", DEFAULT_MICROCUT_LOSS_PCT))
+        _microcut_flux(microcuts.loss_pct())
     )
     stale_rows = _query(_stale_flux(windows["stale"]))
     # Evidence for the verdict, not input to any rule: a failed query costs

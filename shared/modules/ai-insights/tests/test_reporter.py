@@ -177,3 +177,27 @@ def test_render_summary_keeps_deaf_spans_out_of_the_cuts():
     assert "Not microcuts" in text
     assert "2026-10-01T14:43:02Z: 2260 s, received nothing" in text
     assert "No cuts above the threshold" in text
+
+
+def test_render_summary_leads_with_the_shared_incidents():
+    """The report gets the incidents the alerts and the assistants name,
+    and is told the monitor's own minutes are not the targets' loss; it had
+    only per-target means before, and a deaf radio read as 24 bad sites."""
+    data = {**SAMPLE_DATA, "incidents": {
+        "by_class": {"local_wifi": 1}, "monitor_minutes": 340, "truncated": False,
+        "incidents": [{"class": "local_wifi", "confidence": "high",
+                       "start": "2026-10-12T10:10:00-05:00",
+                       "end": "2026-10-12T15:50:00-05:00", "minutes": 340,
+                       "targets": 24, "summary": "This host's own Wi-Fi, not the line."}]}}
+    text = reporter.render_summary(data)
+    assert "local_wifi, high confidence. This host's own Wi-Fi, not the line." in text
+    assert "for 340 min the monitor itself could not measure" in text
+    assert text.index("Incidents (") < text.index("Per-target stats")
+
+
+def test_render_summary_says_when_incidents_could_not_be_read():
+    text = reporter.render_summary({**SAMPLE_DATA, "incidents": None})
+    assert "could not be read for this window; do not infer that there were none" in text
+    quiet = {"by_class": {}, "monitor_minutes": 0, "truncated": False, "incidents": []}
+    assert "Incidents: none in this window." in reporter.render_summary(
+        {**SAMPLE_DATA, "incidents": quiet})

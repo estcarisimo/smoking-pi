@@ -42,12 +42,16 @@ def _targets(*specs):
     ]
 
 
+_NO_INCIDENTS = {"by_class": {}, "monitor_minutes": 0, "truncated": False,
+                 "incidents": []}
+
+
 @pytest.fixture
 def collected(monkeypatch):
     """Patch aggregates.collect, the one InfluxDB call the digest makes."""
     box = {"value": {"window_hours": 24, "generated_at": "2026-08-30T08:30:00",
                      "target_total": 2, "targets": _targets(("A", 0.0), ("B", 0.0)),
-                     "cpe": []}}
+                     "cpe": [], "incidents": _NO_INCIDENTS}}
 
     def fake_collect(hours=24):
         value = box["value"]
@@ -444,7 +448,7 @@ def test_wifi_line_lights(collected):
             "tx_bitrate_mbps": 100.0, "samples": 10, "max_dbm": -50.0, "median_dbm": -55.0}
     for extra, light in (
         ({"min_dbm": -60.0, "disconnects": 0}, "🟢"),
-        ({"min_dbm": -80.0, "disconnects": 0}, "🟡"),
+        ({"min_dbm": -80.0, "weak_samples": 6, "disconnects": 0}, "🟡"),
         ({"min_dbm": -60.0, "disconnects": 3}, "🔴"),
     ):
         collected["value"]["wifi"] = {**base, **extra}
@@ -452,16 +456,18 @@ def test_wifi_line_lights(collected):
         assert f"{light} Wi-Fi N ch1" in text
 
 
-def test_wifi_line_weak_light_follows_the_configured_threshold(collected, monkeypatch):
-    """The same WIFI_WEAK_DBM the verdict and the MCP tool use, not a literal."""
+def test_wifi_line_weak_light_follows_the_configured_samples(collected, monkeypatch):
+    """Weak as the verdict and the diagnosis read it: WIFI_WEAK_SAMPLES
+    readings under WIFI_WEAK_DBM. One dip of the minimum (-80 dBm once in a
+    day of -55) lit it before."""
     collected["value"]["wifi"] = {"interface": "wlan0", "ssid": "N", "channel": 1,
-                                  "min_dbm": -72.0, "disconnects": 0, "samples": 10}
-    monkeypatch.setenv("WIFI_WEAK_DBM", "-70")
-    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
-    assert "🟡 Wi-Fi N ch1" in text
-    monkeypatch.setenv("WIFI_WEAK_DBM", "-75")
+                                  "min_dbm": -80.0, "weak_samples": 1,
+                                  "disconnects": 0, "samples": 1440}
     text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
     assert "🟢 Wi-Fi N ch1" in text
+    monkeypatch.setenv("WIFI_WEAK_SAMPLES", "1")
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert "🟡 Wi-Fi N ch1" in text
 
 
 def test_a_malformed_uplink_row_does_not_cost_the_digest(monkeypatch):
@@ -478,3 +484,65 @@ def test_a_malformed_uplink_row_does_not_cost_the_digest(monkeypatch):
 
     monkeypatch.setattr(aggregates, "query_influx", fake)
     assert aggregates._collect_uplink(24) == {}
+
+
+# The window's incidents (common.aggregates, from the shared diagnosis).
+def _incident(cls, minutes, summary):
+    return {"class": cls, "confidence": "high", "start": "2026-10-12T10:10:00-05:00",
+            "end": "2026-10-12T15:50:00-05:00", "minutes": minutes, "targets": 24,
+            "summary": summary}
+
+
+def test_a_deaf_radio_day_is_the_monitors_not_two_dozen_destinations(collected):
+    """2026-10-13 on the reference Pi: the radio heard nothing for 5 h 40 min
+    and the steady targets' mean loss was ~24% (340 of 1440 minutes). The
+    digest said "problems worth a look" with five destinations in red; the
+    alert and the assistants said this host's Wi-Fi."""
+    collected["value"]["targets"] = _targets(("Google", 24.1), ("GoogleDNS", 23.8))
+    collected["value"]["incidents"] = {
+        "by_class": {"local_wifi": 1}, "monitor_minutes": 340, "truncated": False,
+        "incidents": [_incident("local_wifi", 340, "This host's own Wi-Fi, not the line.")]}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert text.splitlines()[0] == (
+        "🟡 Last 24h: the monitor itself could not measure for 5 h 40 min.")
+    assert "5 h 40 min: This host's own Wi-Fi, not the line." in text
+    assert "🔴" not in text
+    assert "not the targets'" in text
+
+
+def test_a_cut_of_the_line_is_named_when_the_means_are_clean(collected):
+    """2026-10-16: a ten-minute local_link incident the day before, and every
+    mean under 0.2%. The digest said "all clear"."""
+    collected["value"]["incidents"] = {
+        "by_class": {"local_link": 1}, "monitor_minutes": 0, "truncated": False,
+        "incidents": [_incident("local_link", 10, "The line between the house and the ISP.")]}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert text.startswith("🟡 Last 24h: mostly fine")
+    assert "10 min: The line between the house and the ISP." in text
+
+
+def test_unread_incidents_are_said_not_taken_for_none(collected):
+    collected["value"]["incidents"] = None
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert "Incidents could not be read for this window." in text
+
+
+def test_the_red_light_is_the_alerts_high_loss_pct(collected, monkeypatch):
+    collected["value"]["targets"] = _targets(("A", 30.0), ("B", 0.0))
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert text.startswith("🔴")
+    monkeypatch.setenv("HIGH_LOSS_PCT", "40")
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert text.startswith("🟡") and "🟡 A — 30.0% loss" in text
+
+
+def test_a_short_deaf_spell_does_not_hide_a_dead_destination(collected):
+    """Review of #387: five deaf minutes explain 0.3% of a day's loss, not a
+    destination lost all day."""
+    collected["value"]["targets"] = _targets(("Dead", 100.0), ("B", 0.4))
+    collected["value"]["incidents"] = {
+        "by_class": {"local_wifi": 1}, "monitor_minutes": 5, "truncated": False,
+        "incidents": [_incident("local_wifi", 5, "This host's own Wi-Fi, not the line.")]}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert text.startswith("🔴 Last 24h: problems worth a look.")
+    assert "🔴 Dead — 100.0% loss" in text

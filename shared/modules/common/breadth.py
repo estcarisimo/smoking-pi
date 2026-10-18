@@ -46,7 +46,7 @@ Query = Callable[[str], list]
 MEASUREMENTS = ["latency", *definitions.BREADTH_ONLY_MEASUREMENTS]
 # A point lost everything at or above this ratio (the alerter's
 # DOWN_LOSS_RATIO, the diagnosis's TOTAL).
-LOST_RATIO = 0.999
+LOST_RATIO = definitions.LOST_RATIO
 
 
 def _selector() -> str:
@@ -271,10 +271,13 @@ def per_step(spans: dict[str, tuple[float, float]], lossy_rows: list[dict],
 
 
 def fetch(query: Query, hours: int, step_s: int,
-          bar: float | None = None) -> dict[int, dict[str, int]]:
+          bar: float | None = None,
+          floor: float = 0.0) -> dict[int, dict[str, int]]:
     """The breadth-only voters' counts per cycle over the last ``hours``
     (:func:`per_step`); ``bar`` (a loss ratio) replaces each target's event
-    bar for "lossy", never for who votes. Raises whatever ``query`` raises,
+    bar for "lossy", never for who votes; ``floor`` (a ratio) is the least
+    loss "lossy" needs whatever the bar (the widespread rule's
+    WIDESPREAD_LOSS_PCT). Raises whatever ``query`` raises,
     and ValueError past MAX_HOURS: callers leave the breadth out on either.
     Every query answers one row per target, or one per cycle with any
     (2 016 for a week), however long the outage; what InfluxDB reads still
@@ -301,7 +304,8 @@ def fetch(query: Query, hours: int, step_s: int,
             if row.get("target") in voting and ts is not None:
                 span = spans.setdefault(row["target"], [ts, ts])
                 span[0], span[1] = min(span[0], ts), max(span[1], ts)
-    bars = {t: (bar if bar is not None else event_bars[t]) for t in voting}
+    bars = {t: max(floor, bar if bar is not None else event_bars[t])
+            for t in voting}
     lossy_rows: list[dict] = []
     for level in sorted(set(bars.values())):
         lossy_rows += query(cycle_count_flux(

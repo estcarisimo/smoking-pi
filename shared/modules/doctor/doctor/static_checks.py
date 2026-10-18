@@ -13,6 +13,7 @@ run on the Pi.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import pathlib
@@ -108,6 +109,7 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_overrides_match_a_series(influx),
         check_links_name_provisioned_dashboards(repo, influx),
         check_alerter_env_defaults_match(repo),
+        check_dashboard_definitions_match(repo, dashboards),
         check_alerter_env_declared(repo),
         check_mcp_tools_documented(repo),
         check_settings_schema(repo),
@@ -584,6 +586,104 @@ def check_links_name_provisioned_dashboards(repo: Repo, influx) -> CheckResult:
         findings,
         f"{checked} dashboard uids linked from links.py, the web admin and the "
         f"dashboards are provisioned",
+    )
+
+
+# The shared definitions a dashboard cannot import and so restates: a loss
+# event (lost pings summed in a window against EVENT_LOST_PINGS), a microcut
+# window (cpe_latency loss above MICROCUT_LOSS_PCT) and weak Wi-Fi (a
+# signal threshold at WIFI_WEAK_DBM).
+_EVENT_FLUX_RE = re.compile(r"r\._value >= ([0-9.]+) then 1\.0")
+_EVENT_SQL_RE = re.compile(r"coalesce\(packets_sent[^)]*\)\)\)\s*>=\s*([0-9.]+)")
+_CUT_FLUX_RE = re.compile(r"r\._value > ([0-9.]+)\)")
+_CUT_LINE_RE = re.compile(r"_time: v\.timeRangeStart, _value: ([0-9.]+)\}")
+
+
+def _shared_constants(repo: Repo) -> dict[str, object]:
+    constants: dict[str, object] = {}
+    for name in ("cadence.py", "microcuts.py", "definitions.py"):
+        path = repo.common / name
+        try:
+            constants.update(sources._module_constants(ast.parse(path.read_text())))
+        except (OSError, SyntaxError):
+            continue
+    return constants
+
+
+def _threshold_values(panel: dict) -> set[float]:
+    steps = ((((panel.get("fieldConfig") or {}).get("defaults") or {})
+              .get("thresholds") or {}).get("steps") or [])
+    return {float(step["value"]) for step in steps
+            if isinstance(step, dict) and isinstance(step.get("value"), (int, float))}
+
+
+def check_dashboard_definitions_match(repo: Repo, dashboards) -> CheckResult:
+    """A dashboard literal that restates a shared definition must equal it.
+
+    The alerts, the MCP server, the web admin's chat, the digest and the AI
+    report read a loss event, a microcut and weak Wi-Fi from common/ (one
+    definition, 2026-10-14). A dashboard cannot import Python, so its Flux
+    and its thresholds carry the numbers as literals: 1.5 pings' worth, a
+    window above 50%, -75 dBm. Retuning one in common/ would leave the
+    panels saying the old thing while every answer says the new one."""
+    constants = _shared_constants(repo)
+    event = constants.get("EVENT_LOST_PINGS")
+    cut = constants.get("DEFAULT_LOSS_PCT")
+    weak = constants.get("DEFAULT_WIFI_WEAK_DBM")
+    if event is None or cut is None or weak is None:
+        return skipped("dashboard-definitions-match",
+                       f"no shared definitions under {repo.common}")
+    findings: list[Finding] = []
+    checked = 0
+
+    def compare(dashboard, title, what, found, want, name):
+        nonlocal checked
+        checked += 1
+        if float(found) != float(want):
+            findings.append(Finding(
+                f"panel {title!r}: {what} is {found}, but {name} is {want} "
+                f"in common/ — the panel and every answer disagree",
+                where=dashboard.rel))
+
+    for dashboard in dashboards:
+        for panel in sources.iter_panels(dashboard):
+            title = panel.get("title") or "<untitled panel>"
+            queries = [q for t in panel.get("targets") or [] if isinstance(t, dict)
+                       for q in (t.get("query") or t.get("rawSql"),)
+                       if isinstance(q, str)]
+            for query in queries:
+                if '"pings"' in query:
+                    for value in _EVENT_FLUX_RE.findall(query):
+                        compare(dashboard, title, "the loss-event bar", value,
+                                event, "EVENT_LOST_PINGS")
+                for value in _EVENT_SQL_RE.findall(query):
+                    compare(dashboard, title, "the loss-event bar", value,
+                            event, "EVENT_LOST_PINGS")
+                if "cpe_latency" in query and '"loss"' in query:
+                    for value in _CUT_FLUX_RE.findall(query):
+                        compare(dashboard, title, "the cut-window bar", value,
+                                cut, "MICROCUT_LOSS_PCT")
+            # The drawn threshold line named for the cut (a "watch" line
+            # next to it is the panel's own, not a definition).
+            for query in queries:
+                if 'value: "cut window' in query:
+                    for value in _CUT_LINE_RE.findall(query):
+                        compare(dashboard, title, "the cut-window line", value,
+                                cut, "MICROCUT_LOSS_PCT")
+            if any("signal_dbm" in q for q in queries):
+                values = {v for v in _threshold_values(panel) if v < 0}
+                if values:
+                    checked += 1
+                    if float(weak) not in values:
+                        findings.append(Finding(
+                            f"panel {title!r}: signal thresholds "
+                            f"{sorted(values)} do not include WIFI_WEAK_DBM "
+                            f"({weak} in common/)", where=dashboard.rel))
+    return result(
+        "dashboard-definitions-match",
+        findings,
+        f"{checked} dashboard literals match the shared loss-event, microcut "
+        f"and weak Wi-Fi definitions",
     )
 
 

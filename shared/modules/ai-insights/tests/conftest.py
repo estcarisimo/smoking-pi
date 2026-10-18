@@ -17,6 +17,10 @@ import pytest  # noqa: E402
 @pytest.fixture(autouse=True)
 def _scrub_env(monkeypatch):
     """The collector's CPE summary reads the microcut threshold from the
-    environment (common.microcuts); an exported value would move the Flux
+    environment (common.microcuts), and its incidents the alerter's
+    thresholds (common.definitions); an exported value would move the Flux
     the tests assert on."""
-    monkeypatch.delenv("MICROCUT_LOSS_PCT", raising=False)
+    for name in ("MICROCUT_LOSS_PCT", "WIFI_WEAK_DBM", "WIFI_WEAK_SAMPLES",
+                 "WIDESPREAD_PCT", "WIDESPREAD_LOSS_PCT", "VERDICT_BROAD_PCT",
+                 "HIGH_LOSS_PCT"):
+        monkeypatch.delenv(name, raising=False)
