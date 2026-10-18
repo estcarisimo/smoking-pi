@@ -58,7 +58,7 @@ import subprocess
 import sys
 import time
 
-from . import sources
+from . import dashboard_queries, sources
 from .report import CheckResult, Finding, Status, result, skipped
 
 # module directory in the repo -> its docker-compose SERVICE name. Only
@@ -806,6 +806,7 @@ def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
         check_uplink_interface(),
         check_avahi_host_name(),
         check_disk_free(docker),
+        dashboard_queries.check_dashboard_queries_run(repo, docker),
     ]
 
 

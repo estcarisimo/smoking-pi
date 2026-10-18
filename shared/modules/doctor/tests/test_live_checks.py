@@ -319,6 +319,7 @@ def test_run_all_returns_every_check(repo, host_resolv):
         "uplink-interface",
         "avahi-host-name",
         "disk-free",
+        "dashboard-queries-run",
     ]
     # Without a daemon the two Docker checks skip rather than report a broken
     # deployment. uplink-interface asks the kernel, not Docker, so it answers
