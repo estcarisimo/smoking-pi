@@ -45,6 +45,7 @@ kernel, not Docker, so it answers on any Linux host and skips only where
 
 from __future__ import annotations
 
+import csv
 import datetime
 import hashlib
 import importlib.util
@@ -803,6 +804,8 @@ def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
         check_config_manager_database(docker),
         check_targets_measured(docker, repo),
         check_silent_series(docker),
+        check_targets_in_tsdb(docker, repo),
+        check_monitor_radio(docker, repo),
         check_uplink_interface(),
         check_avahi_host_name(),
         check_disk_free(docker),
@@ -1062,3 +1065,284 @@ def check_disk_free(
         "",
         status=status,
     )
+
+
+# As silent-series runs Flux: the token, org and bucket stay in the
+# InfluxDB container ($VARS expand there), never on this host's command
+# line; the query (no secret in it) is $1, BUCKET replaced there.
+_INFLUX_QUERY = ('influx query --raw --org "$DOCKER_INFLUXDB_INIT_ORG" '
+                 '--token "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" '
+                 '"$(printf %s "$1" | sed "s/BUCKET/$DOCKER_INFLUXDB_INIT_BUCKET/g")"')
+
+
+def _influx_rows(docker: Docker, container: str, flux: str) -> list[dict] | None:
+    """A Flux query's rows as dicts (annotated CSV parsed), or None on error."""
+    code, out = docker.run(["exec", container, "sh", "-c", _INFLUX_QUERY, "sh", flux])
+    if code != 0:
+        return None
+    rows: list[dict] = []
+    header: list[str] | None = None
+    for record in csv.reader(out.splitlines()):
+        if not record or record[0].startswith("#"):
+            header = None if not record else header
+            continue
+        if len(record) > 1 and record[1] == "result":
+            header = record
+            continue
+        if header:
+            rows.append(dict(zip(header, record)))
+    return rows
+
+
+def _epoch(text: str) -> float | None:
+    try:
+        return datetime.datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return None
+
+
+# Newest point per target tag, over every measurement that has a loss field
+# (latency, dns_latency, http_latency, tcp_latency, cpe_latency).
+_LAST_POINT_FLUX = """
+from(bucket: "BUCKET")
+  |> range(start: -RANGEs)
+  |> filter(fn: (r) => r._field == "loss" and exists r.target)
+  |> keep(columns: ["_time", "_value", "target"])
+  |> group(columns: ["target"])
+  |> last()
+  |> group()
+  |> keep(columns: ["_time", "target"])
+"""
+# A target is late in the TSDB when its newest point is older than this many
+# of its own steps, plus the exporter's slack.
+TSDB_LATE_STEPS = 3
+TSDB_SLACK_S = 600
+
+
+def _measurement_rows(docker: Docker, repo) -> list[dict] | None:
+    """/measurements' rows (config-manager, else SmokePing's own files)."""
+    container = docker.container_for_service("config-manager")
+    if container:
+        code, out = docker.run(["exec", container, "python", "-c", _MEASUREMENTS_PROBE])
+        try:
+            body = json.loads(out) if code == 0 else None
+        except ValueError:
+            body = None
+    else:
+        body = _measured_by_smokeping(docker, repo)
+    if not isinstance(body, dict) or not body.get("available", True):
+        return None
+    return [r for r in body.get("targets", []) if isinstance(r, dict)]
+
+
+def check_targets_in_tsdb(docker: Docker | None = None, repo=None,
+                          now=time.time) -> CheckResult:
+    """Every target SmokePing measures has recent points in InfluxDB.
+
+    ``targets-measured`` reads SmokePing's RRD files and ``silent-series``
+    reads InfluxDB: a target with fresh RRDs whose points never reach the
+    TSDB (the exporter skipping a file, a name it cannot parse, a write
+    refused) passes both, while every dashboard, alert and assistant answer
+    sees nothing for it. This compares the two: each target ``fresh`` in
+    the RRDs must have a point in InfluxDB within three of its steps (plus
+    ten minutes for the exporter's cycle).
+    """
+    name = "targets-in-tsdb"
+    docker = docker or Docker()
+    if not docker.available():
+        return skipped(name, "docker is not available here")
+    influx = docker.container_for_service("influxdb")
+    if not influx:
+        return skipped(name, "no InfluxDB here (ClickHouse backend, or not running): "
+                             "only InfluxDB is compared")
+    rows = _measurement_rows(docker, repo)
+    if rows is None:
+        return skipped(name, "could not read what SmokePing measures (see targets-measured)")
+    fresh = {}
+    for row in rows:
+        if row.get("state") == "fresh" and row.get("name"):
+            step = row.get("step") if isinstance(row.get("step"), int) else 300
+            fresh[str(row["name"])] = max(fresh.get(str(row["name"]), 0), step)
+    if not fresh:
+        return skipped(name, "no target has fresh SmokePing data to compare "
+                             "(see targets-measured)")
+    window = max(TSDB_LATE_STEPS * max(fresh.values()) + TSDB_SLACK_S, 1800)
+    answer = _influx_rows(docker, influx, _LAST_POINT_FLUX.replace("RANGE", str(window)))
+    if answer is None:
+        return result(name, [Finding("could not query InfluxDB for each target's newest "
+                                     "point")], "", status=Status.WARN)
+    newest = {r.get("target"): _epoch(r.get("_time", "")) for r in answer}
+    moment = now()
+    absent, late = [], []
+    for target, step in sorted(fresh.items()):
+        seen = newest.get(target)
+        if seen is None:
+            absent.append(target)
+        elif moment - seen > TSDB_LATE_STEPS * step + TSDB_SLACK_S:
+            late.append(target)
+    findings = []
+    if absent and len(absent) == len(fresh):
+        findings.append(Finding(
+            f"none of the {len(fresh)} targets SmokePing measures has a point in InfluxDB "
+            f"in the last {window // 60} min: the exporter is not writing. Its log: "
+            "`sudo smoking-pi logs smokeping`"))
+    elif absent:
+        findings.append(Finding(
+            f"{len(absent)} target(s) SmokePing measures have no point in InfluxDB in the "
+            f"last {window // 60} min, so no dashboard, alert or answer sees them: "
+            f"{_shown(absent)}"))
+    if late:
+        findings.append(Finding(
+            f"{len(late)} target(s) reach InfluxDB late (newest point older than "
+            f"{TSDB_LATE_STEPS} steps): {_shown(late)}"))
+    return result(name, findings,
+                  f"all {len(fresh)} freshly measured targets have recent points in InfluxDB")
+
+
+# Deaf-radio spans: runs of consecutive deaf samples (common/microcuts.
+# uplink_flux, the one definition the alerter and the assistant use).
+# Consecutive means closer than DEAF_GAP_FACTOR sampling intervals, the
+# interval measured from the day's samples (WIFI_SAMPLE_INTERVAL is 10 s by
+# default, 30 s on the staging Pi). A lone sample whose counter did not
+# move is not a hang; a run shorter than one SmokePing step is not
+# reported: the hangs this exists for lasted hours.
+DEAF_GAP_FACTOR = 1.5
+DEAF_MIN_S = 300
+DEAF_RANGE = "-24h"
+WATCHDOG_TIMER = pathlib.Path("/etc/systemd/system/smoking-pi-watchdog.timer")
+COMMON_PARENT = pathlib.Path("shared/modules")
+
+# Per interface: whether its newest sample carried the default route, when
+# it was taken, and how many samples the day holds (the sampling interval).
+_UPLINK_NEWEST_FLUX = """
+samples = from(bucket: "BUCKET")
+  |> range(start: -24h)
+  |> filter(fn: (r) => r._measurement == "wifi_link" and r._field == "uplink")
+  |> keep(columns: ["_time", "_value", "interface"])
+  |> group(columns: ["interface"])
+newest = samples |> last()
+n = samples |> count() |> map(fn: (r) => ({interface: r.interface, n: r._value}))
+join(tables: {newest: newest, n: n}, on: ["interface"]) |> group()
+"""
+
+
+def _deaf_flux(repo) -> str | None:
+    """microcuts.uplink_flux over the last day, from the repository's common/."""
+    root = pathlib.Path(getattr(repo, "root", ".")) / COMMON_PARENT
+    if not (root / "common" / "microcuts.py").is_file():
+        return None
+    saved_path, saved_bucket = list(sys.path), os.environ.get("INFLUX_BUCKET")
+    try:
+        sys.path.insert(0, str(root))
+        os.environ["INFLUX_BUCKET"] = "BUCKET"
+        microcuts = importlib.import_module("common.microcuts")
+        return microcuts.uplink_flux(DEAF_RANGE)
+    except (ImportError, AttributeError, SyntaxError):
+        return None
+    finally:
+        sys.path[:] = saved_path
+        if saved_bucket is None:
+            os.environ.pop("INFLUX_BUCKET", None)
+        else:
+            os.environ["INFLUX_BUCKET"] = saved_bucket
+
+
+def _deaf_spans(times: list[float], interval: float) -> list[tuple[float, float]]:
+    """(start, seconds) of each run of consecutive deaf samples, oldest first."""
+    spans: list[list[float]] = []
+    for t in sorted(times):
+        if spans and t - spans[-1][1] <= DEAF_GAP_FACTOR * interval:
+            spans[-1][1] = t
+        else:
+            spans.append([t, t])
+    return [(lo, hi - lo + interval) for lo, hi in spans]
+
+
+def _utc(epoch: float) -> str:
+    return datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).strftime(
+        "%Y-%m-%d %H:%M UTC")
+
+
+def check_monitor_radio(docker: Docker | None = None, repo=None, now=time.time,
+                        watchdog_timer: pathlib.Path = WATCHDOG_TIMER) -> CheckResult:
+    """The uplink radio heard throughout the last day.
+
+    A Wi-Fi radio can hang with the link "up" and associated: it hears
+    nothing, every probe times out, and the charts draw an outage of the
+    network that is this host's own (21 h, 3 h 20 min and 17 h on the
+    staging Pi; 5 of 6 confirmed microcuts on the reference Pi in
+    October 2026). Alerts and the digest set those minutes apart as
+    ``monitor_deaf``; this says, in the doctor, whether it happened in the
+    last day and whether it is happening now. Deaf is
+    ``common/microcuts.uplink_flux``: the received-packet counter did not
+    move between two samples, or the radio lost its association, while
+    its interface carried the default route.
+    """
+    name = "monitor-radio"
+    docker = docker or Docker()
+    if not docker.available():
+        return skipped(name, "docker is not available here")
+    influx = docker.container_for_service("influxdb")
+    if not influx:
+        return skipped(name, "no InfluxDB here (ClickHouse backend, or not running): "
+                             "the Wi-Fi samples are read from InfluxDB")
+    newest_rows = _influx_rows(docker, influx, _UPLINK_NEWEST_FLUX)
+    if newest_rows is None:
+        return result(name, [Finding("could not query InfluxDB for the Wi-Fi samples")], "",
+                      status=Status.WARN)
+    uplink = []
+    for r in newest_rows:
+        when = _epoch(r.get("_time", ""))
+        try:
+            count = int(float(r.get("n", "0")))
+        except ValueError:
+            count = 0
+        if r.get("_value") in ("1", "1.0") and when is not None and count > 0:
+            uplink.append((r.get("interface", "?"), when, count))
+    if not uplink:
+        return skipped(name, "the newest Wi-Fi sample does not carry the default route "
+                             "(a wired uplink, or the Wi-Fi collector is off)")
+    interface, newest, count = max(uplink, key=lambda item: item[1])
+    # The day's samples over the day: the collector's interval, a little
+    # long when it started within the day (which only merges more).
+    interval = min(max(86400 / count, 1.0), 120.0)
+    flux = _deaf_flux(repo)
+    if flux is None:
+        return result(name, [Finding(f"cannot load {COMMON_PARENT}/common/microcuts.py, "
+                                     "the deaf-radio definition")], "", status=Status.WARN)
+    deaf_rows = _influx_rows(docker, influx, flux)
+    if deaf_rows is None:
+        return result(name, [Finding("could not query InfluxDB for deaf Wi-Fi samples")], "",
+                      status=Status.WARN)
+    times = []
+    for r in deaf_rows:
+        when = _epoch(r.get("_time", ""))
+        if when is not None and r.get("interface", interface) == interface:
+            times.append(when)
+    spans = [s for s in _deaf_spans(times, interval) if s[1] >= DEAF_MIN_S]
+    moment = now()
+    findings = []
+    if moment - newest > 5 * 60:
+        findings.append(Finding(
+            f"the newest Wi-Fi sample of {interface} is {int((moment - newest) // 60)} min "
+            "old: the collector stopped, so a deaf radio would go unseen. Its log: "
+            "`sudo smoking-pi logs smokeping`"))
+    ongoing = bool(spans) and spans[-1][0] + spans[-1][1] >= newest - DEAF_GAP_FACTOR * interval
+    if spans:
+        total = sum(s[1] for s in spans)
+        start, longest = max(spans, key=lambda s: s[1])
+        watchdog = ("" if watchdog_timer.exists() else
+                    "; `sudo smoking-pi watchdog enable` reloads a hung radio and "
+                    "reboots if that fails")
+        findings.append(Finding(
+            f"{interface} heard nothing for {int(total // 60)} min in the last day "
+            f"({len(spans)} span(s), longest {int(longest // 60)} min from {_utc(start)}): "
+            "the measurements in those minutes describe this host, not the network"
+            + watchdog))
+    if ongoing:
+        findings.insert(0, Finding(
+            f"{interface} is deaf now (since {_utc(spans[-1][0])}): every measurement "
+            "this host takes describes its own radio"))
+        return CheckResult(name, Status.FAIL, "the uplink radio is deaf now", findings)
+    return result(name, findings,
+                  f"{interface} heard throughout the last day", status=Status.WARN)

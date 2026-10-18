@@ -340,6 +340,51 @@ images of other releases once the new ones run
 that fills anyway. It skips without Docker, without a daemon, or where the
 data root's filesystem cannot be read.
 
+### `targets-in-tsdb`
+
+Every target SmokePing measures has recent points in InfluxDB.
+`targets-measured` reads SmokePing's RRD files and `silent-series` reads
+InfluxDB, so a target whose RRDs are fresh but whose points never reach the
+TSDB (the exporter skipping a file, a write refused) passed both while
+every dashboard, alert and assistant answer saw nothing for it. This takes
+the targets `fresh` in the RRDs (the same `/measurements` classification
+as `targets-measured`) and fails when one has no point in InfluxDB, or a
+newest point older than three of its own steps plus ten minutes for the
+exporter's cycle:
+
+```text
+[FAIL] targets-in-tsdb                 1 problem
+          - 1 target(s) SmokePing measures have no point in InfluxDB in the last 25 min, so no dashboard, alert or answer sees them: Netflix_1
+```
+
+It skips without InfluxDB (Basic, Standard, and Pro on ClickHouse) and when
+no target has fresh RRDs (that is `targets-measured`'s finding).
+
+### `monitor-radio`
+
+Whether the radio carrying the default route heard throughout the last
+day. A Wi-Fi radio can hang with the link up and associated: it hears
+nothing, every probe times out, and the charts draw a network outage that
+is this host's own. The reference Pi did it twice in October 2026 (1 h
+44 min and 5 h 31 min), and five of six confirmed microcuts were its radio.
+Deaf is the definition the alerter and the assistant use,
+`common/microcuts.uplink_flux`: the received-packet counter did not move
+between two samples, or the radio lost its association, while its interface
+carried the default route. Runs of consecutive deaf samples (the sampling
+interval is measured from the day's samples) of at least one SmokePing step
+are reported; a lone quiet sample is not a hang.
+
+```text
+[warn] monitor-radio                   1 problem
+          - wlan0 heard nothing for 331 min in the last day (1 span(s), longest 331 min from 2026-10-12 15:15 UTC): the measurements in those minutes describe this host, not the network
+```
+
+It **fails** when the newest sample is inside a deaf run (the radio is deaf
+now), **warns** on deaf runs in the last day (naming
+`smoking-pi watchdog enable` when the watchdog is off) and when the Wi-Fi
+collector's newest sample is over five minutes old, and skips without
+InfluxDB or when Wi-Fi is not the uplink.
+
 ### `dashboard-queries-run`
 
 Opens every provisioned dashboard the way a browser would, through
@@ -382,6 +427,27 @@ needs the env file, so run it as `sudo smoking-pi doctor --live`; it
 skips without Docker, where no Grafana runs (Basic and Standard), when
 Grafana does not answer, and without an admin password.
 
+### What each live check covers, by edition and backend
+
+| Check | Basic | Standard | Pro, InfluxDB | Pro, ClickHouse |
+| --- | --- | --- | --- | --- |
+| `deployed-code-current` | yes | yes | yes | yes |
+| `container-dns-fresh` | yes | yes | yes | yes |
+| `config-manager-database` | skips (no config-manager) | yes | yes | yes |
+| `targets-measured` | yes (SmokePing's own files) | yes | yes | yes |
+| `silent-series` | skips (no TSDB) | skips (no TSDB) | yes | skips |
+| `targets-in-tsdb` | skips (no TSDB) | skips (no TSDB) | yes | skips |
+| `monitor-radio` | skips (no TSDB) | skips (no TSDB) | yes, on a Wi-Fi uplink | skips |
+| `uplink-interface` | yes | yes | yes | yes |
+| `avahi-host-name` | where Avahi runs | where Avahi runs | where Avahi runs | where Avahi runs |
+| `disk-free` | yes | yes | yes | yes |
+| `dashboard-queries-run` | skips (no Grafana) | skips (no Grafana) | yes | yes, the ClickHouse tree |
+
+The three checks that read the TSDB read InfluxDB only: on ClickHouse they
+skip and say so, rather than pass. The ClickHouse column of
+`dashboard-queries-run` is covered by its tests, not yet by a ClickHouse
+host.
+
 The Docker checks skip cleanly when Docker is absent, so `--live` is safe
 to run anywhere; `uplink-interface` asks the kernel rather than Docker and
 answers on any Linux host, skipping only where `/proc/net` is not there, and
@@ -392,9 +458,11 @@ Without the flag the behavior is exactly as before, and CI is unaffected.
 
 The remaining live checks are not built. They are the other half of the plan:
 
-- **Target added but not measured**: active DB rows vs `++` entries in the
-  generated `Targets` vs RRD files on disk vs distinct `target` tags in the
-  TSDB. Any target present at one stage and missing at the next is a finding.
+- **Active database rows against the generated `Targets`**: the generated
+  file against the RRDs (`targets-measured`) and the RRDs against InfluxDB
+  (`targets-in-tsdb`) are compared; whether every active row reached the
+  generated file is not, beyond `config-manager-database` proving the
+  database is the source.
 - **Tag *values* nothing writes**: the static checks verify InfluxDB
   measurement and tag *names* against the exporter source (and ClickHouse
   `category` / `measurement_type` values); whether `category == "topsites"`
@@ -405,9 +473,9 @@ The remaining live checks are not built. They are the other half of the plan:
   (ratio 0–1 for `latency`/`dns_latency`, percent 0–100 for `cpe_latency`),
   which is how both loss-denominator bugs would have announced themselves.
 
-These need the InfluxDB token, the config-manager API, the Grafana API, and the
-RRD directory — which lives in the `smokeping-data` named volume, so they will
-run from a container under a `doctor` compose profile rather than from the host.
+The TSDB checks above run their Flux inside the InfluxDB container
+(`docker exec`, the token never on the host's command line); the remaining
+ones can take the same path.
 
 Exposing the doctor as an MCP tool, so it can be asked for from chat, comes with
 that work.

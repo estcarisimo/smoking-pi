@@ -9,6 +9,31 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The doctor sees a deaf radio and a target that never reaches
+  InfluxDB.** Two failures sat outside every doctor check. A Wi-Fi radio
+  that hangs with the link up hears nothing, and every chart draws a
+  network outage that is the monitor's own: the reference Pi did it for
+  1 h 44 min and 5 h 31 min in October 2026, five of six confirmed
+  microcuts were its radio, and the doctor stayed green throughout. And a
+  target SmokePing measured whose points never reached InfluxDB passed
+  `targets-measured` (which reads the RRD files) and `silent-series`
+  (which reads only what InfluxDB holds), while no dashboard, alert or
+  answer showed it. `smoking-pi doctor --live` adds `monitor-radio`, which
+  reads the day's Wi-Fi samples with the alerter's own deaf definition
+  (`common/microcuts.py`), fails when the radio is deaf now and warns on
+  deaf runs of at least one SmokePing step (naming `smoking-pi watchdog
+  enable` when the watchdog is off), and `targets-in-tsdb`, which fails
+  when a target fresh in the RRDs has no InfluxDB point within three of
+  its steps. Both read InfluxDB and skip, saying so, on Basic, Standard and
+  ClickHouse; `docs/doctor.md` now has a table of what each live check
+  covers per edition and backend. Applied to the reference Pi's past week,
+  the deaf runs it reports are exactly the two October hangs, and both
+  checks are green there today; on the staging Pi,
+  which samples every 30 s and has single quiet samples every few minutes,
+  it does not mistake those for a hang.
+
 ### Fixed
 
 - **Dependabot proposed Python 3.14 for the inference image (#384).**

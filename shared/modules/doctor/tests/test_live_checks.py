@@ -316,6 +316,8 @@ def test_run_all_returns_every_check(repo, host_resolv):
         "config-manager-database",
         "targets-measured",
         "silent-series",
+        "targets-in-tsdb",
+        "monitor-radio",
         "uplink-interface",
         "avahi-host-name",
         "disk-free",
