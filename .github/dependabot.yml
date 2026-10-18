@@ -1,7 +1,7 @@
 # Dependabot version updates.
 #
 # This repo has three ecosystems and seventeen places they live: seven Python
-# modules, nine Dockerfiles, and the Actions workflow. One entry per directory
+# modules, thirteen Dockerfiles, and the Actions workflow. One entry per directory
 # would open seventeen PRs a week at a solo maintainer, which is how Dependabot
 # gets muted and then ignored. So: `directories` globs instead of one block
 # each, groups so a week's updates arrive as one PR per ecosystem, and a low
@@ -55,11 +55,22 @@ updates:
   # existing data volume. A stateful major cannot be validated by a green
   # build, so it must never travel with bumps that can.
   - package-ecosystem: docker
+    # Listed one by one, not globbed: inference has its own block below with
+    # Python held at 3.13, and a glob cannot leave one directory out. A new
+    # module with a Dockerfile must be added here by hand.
     directories:
-      - "/shared/modules/*"
-    # inference has its own block below, with Python held at 3.13.
-    exclude-paths:
-      - "/shared/modules/inference"
+      - "/shared/modules/ai-insights"
+      - "/shared/modules/alerter"
+      - "/shared/modules/config-manager"
+      - "/shared/modules/dns-observer"
+      - "/shared/modules/grafana"
+      - "/shared/modules/influxdb"
+      - "/shared/modules/mcp-server"
+      - "/shared/modules/mdns"
+      - "/shared/modules/netmeter"
+      - "/shared/modules/postgres"
+      - "/shared/modules/smokeping"
+      - "/shared/modules/web-admin"
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
@@ -90,10 +101,10 @@ updates:
       prefix: "chore(docker)"
 
   # The inference image, on its own so Python can be held at 3.13 without
-  # holding the other images (the block above excludes this directory).
+  # holding the other images (the block above does not list this directory).
   # ruptures, which Jitterbug requires, publishes no cp314 wheels (latest
-  # 1.1.10, 2026-10-18: cp39-cp313 only, aarch64 and x86_64), and building it
-  # from source would need a compiler in the image. Dependabot's #384
+  # 1.1.10 as of 2026-10-18: cp39-cp313 only, aarch64 and x86_64), and
+  # building it from source would need a compiler in the image. Dependabot's #384
   # (3.13-slim -> 3.14-slim) would have broken that build.
   # LIFT THIS when ruptures publishes cp314 manylinux wheels for both
   # architectures: check https://pypi.org/project/ruptures/#files, then bump
