@@ -30,14 +30,22 @@ class FakeGrafana:
         self.user_uids = set(user_uids)
         self.calls: list[tuple[str, str, dict | None]] = []
         self.queries: list[str] = []
+        self.sent: list[dict] = []
+        self.no_datasources = False
+        self.search_status = 200
 
     def request(self, method, path, body=None, timeout=10.0):
         self.calls.append((method, path, body))
         if path.startswith("/api/search"):
+            if self.search_status != 200:
+                return self.search_status, {"message": "nope"}
             return 200, [{"uid": uid, "title": d.get("title")}
                          for uid, d in self.dashboards.items()]
         if path == "/api/datasources":
-            return 200, [{"uid": "influxdb", "name": "InfluxDB", "type": "influxdb",
+            if self.no_datasources:
+                return 500, None
+            return 200, [{"uid": "clickhouse", "name": "ClickHouse",
+                          "type": "grafana-clickhouse-datasource"},{"uid": "influxdb", "name": "InfluxDB", "type": "influxdb",
                           "isDefault": True}]
         if path.startswith("/api/dashboards/uid/"):
             uid = path.rsplit("/", 1)[1]
@@ -45,6 +53,7 @@ class FakeGrafana:
                          "meta": {"provisioned": uid not in self.user_uids}}
         if path == "/api/ds/query":
             query = body["queries"][0]
+            self.sent.append(query)
             text = query.get("query") or query.get("rawSql") or ""
             self.queries.append(text)
             ref = query["refId"]
@@ -52,6 +61,10 @@ class FakeGrafana:
                 if needle in text:
                     if answer == "timeout":
                         raise dq.Timeout()
+                    if answer == "down":
+                        raise dq.Unreachable()
+                    if answer == "html":
+                        return 502, None
                     if isinstance(answer, str):
                         return 400, {"results": {ref: {"error": answer, "status": 400}}}
                     return 200, {"results": {ref: {"frames": [_frame(answer)]}}}
@@ -196,7 +209,7 @@ def _repo_with(tmp_path, tree, uids):
 def test_a_repo_dashboard_grafana_does_not_provision_fails(tmp_path):
     repo = _repo_with(tmp_path, "dashboards", ["a", "new-v1"])
     _repo_with(tmp_path, "dashboards-clickhouse", ["ch-only"])
-    g = FakeGrafana({"a": _dash("a")})
+    g = FakeGrafana({"a": _dash("a", [_panel("P", "q")])})
     res = _run(g, repo=repo)
     assert res.status is Status.FAIL
     assert [f.message.split(" is not")[0] for f in res.findings] == [
@@ -208,7 +221,7 @@ def test_clickhouse_mode_compares_the_clickhouse_tree(tmp_path):
     _repo_with(tmp_path, "dashboards-clickhouse", ["a"])
     env = tmp_path / "env"
     env.write_text("TSDB_TYPE=clickhouse\n")
-    res = _run(FakeGrafana({"a": _dash("a")}), repo=repo, env_file=env)
+    res = _run(FakeGrafana({"a": _dash("a", [_panel("P", "q")])}), repo=repo, env_file=env)
     assert res.status is Status.OK, res.findings
 
 
@@ -321,6 +334,182 @@ def test_the_interval_is_whole_seconds():
     g = FakeGrafana({"a": dict(_dash("a", [_panel("P", "q")]),
                                time={"from": "now-24h", "to": "now"})})
     _run(g)
-    sent = [b for m, p, b in g.calls if p == "/api/ds/query"][0]["queries"][0]
+    sent = next(b for m, p, b in g.calls if p == "/api/ds/query")["queries"][0]
     assert sent["intervalMs"] % 1000 == 0
     assert sent["intervalMs"] == 86_000
+
+
+def test_grafana_going_away_mid_run_is_a_warning_not_a_crash():
+    g = FakeGrafana({"a": _dash("a", [_panel("P1", "first"), _panel("P2", "dies")]),
+                     "b": _dash("b", [_panel("P3", "never")])},
+                    {"dies": "down"})
+    res = _run(g)
+    assert res.status is Status.WARN
+    assert any("Grafana stopped answering after 2 queries: 2 dashboard(s) not fully"
+               in f.message for f in res.findings)
+    assert "never" not in g.queries
+
+
+def test_a_non_json_5xx_is_a_failure_with_its_status():
+    g = FakeGrafana({"a": _dash("a", [_panel("P", "proxy")])}, {"proxy": "html"})
+    res = _run(g)
+    assert res.status is Status.FAIL
+    assert "query fails: HTTP 502" in res.findings[0].message
+
+
+def test_a_variable_that_times_out_warns_and_skips_its_panels():
+    var = {"type": "query", "name": "cpe", "datasource": {"uid": "influxdb"},
+           "query": "slow var"}
+    g = FakeGrafana({"c": _dash("c", [_panel("Uses", "x=${cpe}"),
+                                      _panel("Free", "no var")], [var])},
+                    {"slow var": "timeout"})
+    res = _run(g)
+    assert res.status is Status.WARN
+    assert [f.message for f in res.findings] == ["variable $cpe: no answer in 10 s"]
+    assert "no var" in g.queries
+    assert not any("${cpe}" in q for q in g.queries)
+
+
+def test_an_empty_variable_is_one_failure_not_one_per_panel():
+    var = {"type": "query", "name": "cpe", "datasource": {"uid": "influxdb"},
+           "query": "tagValues cpe"}
+    panels = [_panel(f"P{i}", "r.cpe == \"[[cpe]]\"") for i in range(5)]
+    g = FakeGrafana({"c": _dash("c", panels, [var])}, {"tagValues cpe": []})
+    res = _run(g)
+    assert len(res.findings) == 1
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_refused_credentials_warn(status):
+    g = FakeGrafana({})
+    g.search_status = status
+    res = _run(g)
+    assert res.status is Status.WARN
+    assert "refused the admin credentials" in res.summary
+
+
+def test_a_failing_search_skips():
+    g = FakeGrafana({})
+    g.search_status = 500
+    assert _run(g).status is Status.SKIP
+
+
+def test_no_provisioned_dashboard_warns():
+    res = _run(FakeGrafana({}))
+    assert res.status is Status.WARN
+    assert "provisions no dashboard" in res.findings[0].message
+
+
+def test_an_unreadable_datasource_list_is_said():
+    g = FakeGrafana({"a": _dash("a", [{"type": "stat", "title": "Default",
+                                       "targets": [{"refId": "A", "query": "q"}]}])})
+    g.no_datasources = True
+    res = _run(g)
+    assert res.status is Status.WARN
+    assert any("could not read Grafana's datasource list" in f.message for f in res.findings)
+
+
+def test_mixed_panels_use_each_targets_datasource():
+    panel = {"type": "timeseries", "title": "Mixed",
+             "datasource": {"uid": "-- Mixed --"},
+             "targets": [{"refId": "A", "query": "a", "datasource": {"uid": "influxdb"}},
+                         {"refId": "B", "rawSql": "b", "datasource": {"uid": "clickhouse"}}]}
+    g = FakeGrafana({"a": _dash("a", [panel])})
+    _run(g)
+    assert [q["datasource"]["uid"] for q in g.sent] == ["influxdb", "clickhouse"]
+
+
+def test_a_clickhouse_variable_is_sent_as_the_plugin_expects():
+    var = {"type": "query", "name": "t", "datasource": {"uid": "clickhouse"},
+           "query": "SELECT DISTINCT target"}
+    g = FakeGrafana({"a": _dash("a", [], [var])})
+    _run(g)
+    assert g.sent[0]["format"] == 1 and g.sent[0]["queryType"] == "sql"
+    assert g.sent[0]["rawSql"] == "SELECT DISTINCT target"
+
+
+def test_a_variable_whose_query_is_not_text_does_not_crash():
+    var = {"type": "query", "name": "t", "datasource": {"uid": "influxdb"},
+           "query": {"query": {"nested": True}}}
+    res = _run(FakeGrafana({"a": _dash("a", [_panel("P", "x")], [var])}))
+    assert res.status is Status.WARN
+    assert "not text" in res.findings[0].message
+
+
+def test_an_unexpected_exception_is_contained():
+    class Broken(FakeGrafana):
+        def request(self, method, path, body=None, timeout=10.0):
+            if path == "/api/ds/query":
+                raise RuntimeError("boom")
+            return super().request(method, path, body, timeout)
+
+    res = _run(Broken({"a": _dash("a", [_panel("P", "q")])}))
+    assert res.status is Status.WARN
+    assert "RuntimeError" in res.findings[0].message
+
+
+def test_prose_and_other_sites_are_not_dashboard_links():
+    panel = _panel("P", "q", description="see docs.google.com/d/abc or read/d/x",
+                   links=[{"url": "/d-solo/gone/x"}])
+    res = _run(FakeGrafana({"a": _dash("a", [panel])}))
+    assert [f.message for f in res.findings] == [
+        "links to /d/gone, which this Grafana does not have"]
+
+
+def test_multi_value_formats_keep_their_shape():
+    assert dq.substitute("${x:json}", {"x": "a"}, {"x"}) == '["a"]'
+    assert dq.substitute("${x:regex}", {"x": "a.b"}, {"x"}) == "(a\\.b)"
+    assert dq.substitute("${x:json}", {"x": "a"}) == '"a"'
+
+
+def test_rounded_ranges():
+    now = 2 * 86_400_000 + 3_600_000  # day 2, 01:00 UTC
+    assert dq._epoch_ms("now/d", now) == 2 * 86_400_000
+    assert dq._epoch_ms("now-1d/d", now) == 86_400_000
+
+
+class _Resp:
+    def __init__(self, status, body):
+        self.status, self._body = status, body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_the_real_http_layer_maps_errors(monkeypatch):
+    import io
+    import urllib.error
+
+    g = dq.Grafana("admin", "secret", "http://grafana.invalid:3000")
+    seen = {}
+
+    def ok(req, timeout):
+        seen["auth"] = req.get_header("Authorization")
+        return _Resp(200, b'{"x": 1}')
+
+    monkeypatch.setattr(dq.urllib.request, "urlopen", ok)
+    assert g.request("GET", "/api/search") == (200, {"x": 1})
+    assert seen["auth"] == "Basic YWRtaW46c2VjcmV0"
+
+    def http_error(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 400, "bad", {},
+                                     io.BytesIO(b'{"message": "m"}'))
+
+    monkeypatch.setattr(dq.urllib.request, "urlopen", http_error)
+    assert g.request("POST", "/api/ds/query", {}) == (400, {"message": "m"})
+
+    for exc, mapped in [(TimeoutError(), dq.Timeout),
+                        (urllib.error.URLError(TimeoutError()), dq.Timeout),
+                        (urllib.error.URLError(ConnectionRefusedError()), dq.Unreachable),
+                        (ConnectionResetError(), dq.Unreachable)]:
+        def boom(req, timeout, exc=exc):
+            raise exc
+        monkeypatch.setattr(dq.urllib.request, "urlopen", boom)
+        with pytest.raises(mapped):
+            g.request("GET", "/api/search")

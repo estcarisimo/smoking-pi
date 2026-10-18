@@ -32,6 +32,7 @@ from __future__ import annotations
 import base64
 import copy
 import datetime
+import http.client
 import json
 import os
 import pathlib
@@ -55,8 +56,11 @@ EMPTY_SHOWN = 12
 # Datasource uids that are Grafana itself, not a backend to query.
 _BUILTIN_DATASOURCES = {"-- Grafana --", "grafana", "-- Dashboard --", "-- Mixed --"}
 _MIXED = "-- Mixed --"
-_LINK = re.compile(r"/d/([A-Za-z0-9_-]+)")
-_RELATIVE = re.compile(r"^now(?:-(\d+)([smhdwMy]))?$")
+# A Grafana-relative link: "/d/<uid>" or "/d-solo/<uid>" right after a quote,
+# a parenthesis or a space, so prose and other sites' URLs
+# (docs.google.com/d/...) do not count.
+_LINK = re.compile(r"""(?:^|(?<=["'(\s]))/d(?:-solo)?/([A-Za-z0-9_-]+)""")
+_RELATIVE = re.compile(r"^now(?:-(\d+)([smhdwMy]))?(?:/([smhdwMy]))?$")
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800,
                  "M": 30 * 86400, "y": 365 * 86400}
 
@@ -73,7 +77,8 @@ class Grafana:
     """The HTTP layer, injectable so the tests never reach the network.
 
     ``request`` returns (status, parsed JSON or None); it raises only
-    ``Timeout`` and ``Unreachable``. The password stays in this process: it is
+    ``Timeout`` and ``Unreachable``. ``timeout`` bounds each socket
+    operation, as urllib does, not the whole transfer. The password stays in this process: it is
     put in a Basic header here, never on a command line.
     """
 
@@ -93,14 +98,20 @@ class Grafana:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.status, _parse(resp.read())
         except urllib.error.HTTPError as exc:
-            return exc.code, _parse(exc.read())
+            try:
+                body = exc.read()
+            except (OSError, http.client.HTTPException):
+                body = b""
+            return exc.code, _parse(body)
         except TimeoutError as exc:
             raise Timeout() from exc
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, TimeoutError):
                 raise Timeout() from exc
             raise Unreachable() from exc
-        except OSError as exc:
+        except (OSError, http.client.HTTPException) as exc:
+            # A reset, a refused connection, a truncated body: Grafana went
+            # away mid-answer.
             raise Unreachable() from exc
 
 
@@ -112,7 +123,10 @@ def _parse(raw: bytes):
 
 
 def read_env_file(path: pathlib.Path) -> dict[str, str]:
-    """KEY=value lines, quotes stripped as ``env_get`` does. Raises OSError."""
+    """KEY=value lines, quotes stripped as ``env_get`` does.
+
+    Raises OSError, or ValueError when the file is not text.
+    """
     values: dict[str, str] = {}
     for line in path.read_text().splitlines():
         if not line or line.lstrip().startswith("#") or "=" not in line:
@@ -147,8 +161,13 @@ def _epoch_ms(spec, now_ms: int) -> int:
         return int(text)
     match = _RELATIVE.match(text)
     if match:
-        amount, unit = match.groups()
-        return now_ms - (int(amount) * _UNIT_SECONDS[unit] * 1000 if amount else 0)
+        amount, unit, round_to = match.groups()
+        moment = now_ms - (int(amount) * _UNIT_SECONDS[unit] * 1000 if amount else 0)
+        if round_to:
+            # Start of the unit, in UTC; weeks, months and years to the day.
+            step = min(_UNIT_SECONDS[round_to], 86400) * 1000
+            moment -= moment % step
+        return moment
     try:
         moment = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
@@ -158,15 +177,18 @@ def _epoch_ms(spec, now_ms: int) -> int:
     return int(moment.timestamp() * 1000)
 
 
-def _format(name: str, value: str, fmt: str | None) -> str:
+def _format(name: str, value: str, fmt: str | None, is_multi: bool = False) -> str:
+    """One value in a Grafana format. A multi-value variable keeps its list
+    shape in ``json``, ``regex`` and ``pipe``/``csv`` though only one value
+    is ever sent: this check runs one value per variable."""
     if fmt == "sqlstring":
         return "'" + value.replace("'", "''") + "'"
     if fmt == "queryparam":
         return f"var-{name}={urllib.parse.quote(value, safe='')}"
     if fmt == "regex":
-        return re.escape(value)
+        return f"({re.escape(value)})" if is_multi else re.escape(value)
     if fmt == "json":
-        return json.dumps(value)
+        return json.dumps([value] if is_multi else value)
     if fmt == "singlequote":
         return "'" + value.replace("'", "\\'") + "'"
     if fmt == "doublequote":
@@ -176,14 +198,14 @@ def _format(name: str, value: str, fmt: str | None) -> str:
     return value
 
 
-def substitute(text: str, values: dict[str, str]) -> str:
+def substitute(text: str, values: dict[str, str], multi=frozenset()) -> str:
     """Grafana's ``${x}``, ``${x:fmt}``, ``[[x]]`` and ``$x``; unknowns kept."""
 
     def braced(match):
         name, fmt = match.group(1), match.group(2)
         if name not in values:
             return match.group(0)
-        return _format(name, values[name], fmt)
+        return _format(name, values[name], fmt, name in multi)
 
     def bare(match):
         name = match.group(1)
@@ -196,13 +218,13 @@ def substitute(text: str, values: dict[str, str]) -> str:
     return re.sub(r"\$([A-Za-z0-9_]+)", bare, text)
 
 
-def _substitute_all(node, values):
+def _substitute_all(node, values, multi=frozenset()):
     if isinstance(node, str):
-        return substitute(node, values)
+        return substitute(node, values, multi)
     if isinstance(node, list):
-        return [_substitute_all(n, values) for n in node]
+        return [_substitute_all(n, values, multi) for n in node]
     if isinstance(node, dict):
-        return {k: _substitute_all(v, values) for k, v in node.items()}
+        return {k: _substitute_all(v, values, multi) for k, v in node.items()}
     return node
 
 
@@ -278,7 +300,9 @@ def _apply_regex(options: list[str], pattern: str) -> list[str]:
     for option in options:
         found = compiled.search(option)
         if found:
-            kept.append(found.group(1) if compiled.groups else option)
+            value = found.group(1) if compiled.groups else option
+            if value is not None:
+                kept.append(value)
     return kept
 
 
@@ -320,7 +344,10 @@ class _Run:
         self.deadline = clock() + budget
         self.timeout = timeout
         self.queries = 0
+        self.checked = 0
         self.out_of_budget = False
+        self.stopped: str | None = None  # "budget" or "unreachable"
+        self.datasources_read = False
         self.default_ds: str | None = None
         self.ds_by_name: dict[str, str] = {}
         self.ds_type: dict[str, str] = {}
@@ -329,7 +356,11 @@ class _Run:
         return self.deadline - self.clock()
 
     def get(self, path: str):
-        return self.grafana.request("GET", path, timeout=self.timeout)
+        left = self.remaining()
+        if left <= 0:
+            self.out_of_budget = True
+            raise Timeout()
+        return self.grafana.request("GET", path, timeout=min(self.timeout, left))
 
     def load_datasources(self) -> None:
         try:
@@ -338,6 +369,7 @@ class _Run:
             return
         if status != 200 or not isinstance(data, list):
             return
+        self.datasources_read = True
         for ds in data:
             if not isinstance(ds, dict) or not ds.get("uid"):
                 continue
@@ -385,14 +417,17 @@ def _clip(text: str) -> str:
 
 
 def _variable_query(variable: dict, uid: str, ds_type: str,
-                    values: dict[str, str]) -> dict:
+                    values: dict[str, str], multi=frozenset()) -> dict | None:
+    """The /api/ds/query entry for a variable, or None when its query is not text."""
     raw = variable.get("query")
     if isinstance(raw, dict):
         query = copy.deepcopy(raw)
         text = raw.get("query") or raw.get("rawSql") or ""
     else:
         query, text = {}, raw or ""
-    text = substitute(text, values)
+    if not isinstance(text, str):
+        return None
+    text = substitute(text, values, multi)
     query.update({"refId": "variable", "datasource": {"uid": uid},
                   "query": text, "rawSql": text})
     if "clickhouse" in ds_type:
@@ -405,6 +440,39 @@ def _variable_query(variable: dict, uid: str, ds_type: str,
     return query
 
 
+def _uses(node, names: set[str]) -> bool:
+    """Whether a query refers to any of these variables, in any syntax."""
+    if not names:
+        return False
+    text = json.dumps(node)
+    return any(re.search(r"(\$\{|\[\[)" + re.escape(n) + r"\b|\$" + re.escape(n) + r"\b", text)
+               for n in names)
+
+
+def _attempt(run: _Run, query: dict, start_ms: int, end_ms: int):
+    """("ok", result) | ("error", text) | ("timeout", seconds) | ("stop", None).
+
+    "stop" ends the whole run: the budget is spent or Grafana went away.
+    Nothing here raises.
+    """
+    if run.stopped:
+        return "stop", None
+    allowed = min(run.timeout, max(run.remaining(), 0.0))
+    try:
+        error, answer = run.query(query, start_ms, end_ms)
+    except Timeout:
+        if run.out_of_budget:
+            run.stopped = "budget"
+            return "stop", None
+        return "timeout", allowed
+    except Unreachable:
+        run.stopped = "unreachable"
+        return "stop", None
+    if error:
+        return "error", error
+    return "ok", answer
+
+
 def _check_dashboard(run: _Run, dash: dict, now_ms: int, timezone: str,
                      fails: list, warns: list, empty: list) -> None:
     title = dash.get("title") or dash.get("uid") or "<untitled>"
@@ -414,11 +482,17 @@ def _check_dashboard(run: _Run, dash: dict, now_ms: int, timezone: str,
     end_ms = _epoch_ms(window.get("to", "now"), now_ms)
     label = f"{window.get('from', 'now-6h')} to {window.get('to', 'now')}"
     values = _builtins(start_ms, end_ms, timezone, uid)
+    multi: set[str] = set()
+    # Variables with no value: the panels that use them are not run, so one
+    # broken variable is one finding, not one per panel.
+    unresolved: set[str] = set()
 
     for variable in (dash.get("templating") or {}).get("list") or []:
         if not isinstance(variable, dict) or not variable.get("name"):
             continue
-        name = variable["name"]
+        name = str(variable["name"])
+        if variable.get("multi") or variable.get("includeAll"):
+            multi.add(name)
         kind = variable.get("type")
         current = (variable.get("current") or {}).get("value")
         if isinstance(current, list):
@@ -437,22 +511,30 @@ def _check_dashboard(run: _Run, dash: dict, now_ms: int, timezone: str,
             continue
         ds_uid = run.datasource_uid(variable.get("datasource"))
         if not ds_uid:
+            unresolved.add(name)
             fails.append(Finding(f"variable ${name}: no datasource to query", where=title))
             continue
-        try:
-            error, answer = run.query(_variable_query(variable, ds_uid, run.ds_type.get(ds_uid, ""), values),
-                                      start_ms, end_ms)
-        except Timeout:
-            if run.out_of_budget:
-                return
-            warns.append(Finding(f"variable ${name}: no answer in {run.timeout:.0f} s", where=title))
+        query = _variable_query(variable, ds_uid, run.ds_type.get(ds_uid, ""), values, multi)
+        if query is None:
+            unresolved.add(name)
+            warns.append(Finding(f"variable ${name}: its query is not text this check can run",
+                                 where=title))
             continue
-        if error:
-            fails.append(Finding(f"variable ${name}: query fails: {error}", where=title))
+        outcome, detail = _attempt(run, query, start_ms, end_ms)
+        if outcome == "stop":
+            return
+        if outcome != "ok":
+            unresolved.add(name)
+            if outcome == "timeout":
+                warns.append(Finding(f"variable ${name}: no answer in {detail:.0f} s",
+                                     where=title))
+            else:
+                fails.append(Finding(f"variable ${name}: query fails: {detail}", where=title))
             continue
-        options = _sort(_apply_regex(_first_column(answer), variable.get("regex") or ""),
+        options = _sort(_apply_regex(_first_column(detail), variable.get("regex") or ""),
                         variable.get("sort"))
         if not options:
+            unresolved.add(name)
             fails.append(Finding(
                 f"variable ${name} offers no value in {label}: every panel that uses it "
                 "opens empty", where=title))
@@ -463,9 +545,10 @@ def _check_dashboard(run: _Run, dash: dict, now_ms: int, timezone: str,
     for panel, collapsed in _iter_query_panels(dash.get("panels")):
         targets = [t for t in panel.get("targets") or []
                    if isinstance(t, dict) and not t.get("hide")]
-        if not targets or panel.get("libraryPanel"):
+        if not targets or panel.get("libraryPanel") or _uses(panel, unresolved):
             continue
-        panel_title = substitute(panel.get("title") or f"panel {panel.get('id')}", values)
+        panel_title = substitute(str(panel.get("title") or f"panel {panel.get('id')}"),
+                                 values, multi)
         panel_ds = panel.get("datasource")
         rows = 0
         ran = errored = False
@@ -474,32 +557,35 @@ def _check_dashboard(run: _Run, dash: dict, now_ms: int, timezone: str,
             if not (isinstance(panel_ds, dict) and panel_ds.get("uid") == _MIXED):
                 refs.append(panel_ds)
             ds_uid = run.datasource_uid(*refs)
-            if not ds_uid or ds_uid in _BUILTIN_DATASOURCES:
-                continue
-            query = _substitute_all(copy.deepcopy(target), values)
-            query["datasource"] = {"uid": ds_uid}
-            try:
-                error, answer = run.query(query, start_ms, end_ms)
-            except Timeout:
-                if run.out_of_budget:
-                    return
+            if not ds_uid:
                 warns.append(Finding(
-                    f"{panel_title!r} ({target.get('refId', '?')}): no answer in "
-                    f"{run.timeout:.0f} s", where=title))
+                    f"{panel_title!r} ({target.get('refId', '?')}): names no datasource "
+                    "and Grafana's default could not be read; not run", where=title))
+                continue
+            if ds_uid in _BUILTIN_DATASOURCES:
+                continue
+            query = _substitute_all(copy.deepcopy(target), values, multi)
+            query["datasource"] = {"uid": ds_uid}
+            outcome, detail = _attempt(run, query, start_ms, end_ms)
+            if outcome == "stop":
+                return
+            where = f"{panel_title!r} ({target.get('refId', '?')})"
+            if outcome == "timeout":
                 errored = True
+                warns.append(Finding(f"{where}: no answer in {detail:.0f} s", where=title))
                 continue
             ran = True
-            if error:
+            if outcome == "error":
                 errored = True
-                fails.append(Finding(
-                    f"{panel_title!r} ({target.get('refId', '?')}): query fails: {error}",
-                    where=title))
-            rows += _rows(answer)
+                fails.append(Finding(f"{where}: query fails: {detail}", where=title))
+                continue
+            rows += _rows(detail)
         if ran and not errored and rows == 0 and not collapsed \
                 and not _has_no_value_text(panel):
             empty_here.append(panel_title)
-    if empty_here:
-        empty.append((title, label, empty_here))
+        # Recorded as it grows, so a run cut short keeps what it saw.
+        if empty_here and (not empty or empty[-1][0] != title):
+            empty.append((title, label, empty_here))
 
     for annotation in (dash.get("annotations") or {}).get("list") or []:
         if not isinstance(annotation, dict) or annotation.get("builtIn"):
@@ -507,26 +593,24 @@ def _check_dashboard(run: _Run, dash: dict, now_ms: int, timezone: str,
         if annotation.get("enable") is False:
             continue
         target = annotation.get("target")
-        if not isinstance(target, dict):
+        if not isinstance(target, dict) or _uses(target, unresolved):
             continue
         ds_uid = run.datasource_uid(annotation.get("datasource"))
         if not ds_uid or ds_uid in _BUILTIN_DATASOURCES:
             continue
-        query = _substitute_all(copy.deepcopy(target), values)
+        query = _substitute_all(copy.deepcopy(target), values, multi)
         query["datasource"] = {"uid": ds_uid}
         query.setdefault("refId", "Anno")
-        try:
-            error, _ = run.query(query, start_ms, end_ms)
-        except Timeout:
-            if run.out_of_budget:
-                return
-            warns.append(Finding(
-                f"annotation {annotation.get('name')!r}: no answer in {run.timeout:.0f} s",
-                where=title))
-            continue
-        if error:
-            fails.append(Finding(
-                f"annotation {annotation.get('name')!r}: query fails: {error}", where=title))
+        outcome, detail = _attempt(run, query, start_ms, end_ms)
+        if outcome == "stop":
+            return
+        name = annotation.get("name")
+        if outcome == "timeout":
+            warns.append(Finding(f"annotation {name!r}: no answer in {detail:.0f} s",
+                                 where=title))
+        elif outcome == "error":
+            fails.append(Finding(f"annotation {name!r}: query fails: {detail}", where=title))
+    run.checked += 1
 
 
 def check_dashboard_queries_run(
@@ -551,7 +635,7 @@ def check_dashboard_queries_run(
         path = env_file or _env_path(repo)
         try:
             env = read_env_file(path)
-        except OSError:
+        except (OSError, ValueError):
             return skipped(NAME, f"cannot read {path} for Grafana's admin password "
                                  "(run with sudo)")
         password = env.get("GF_SECURITY_ADMIN_PASSWORD", "")
@@ -561,10 +645,20 @@ def check_dashboard_queries_run(
     elif env_file is not None:
         try:
             env = read_env_file(env_file)
-        except OSError:
+        except (OSError, ValueError):
             env = {}
 
     run = _Run(grafana, clock, budget, timeout)
+    try:
+        return _check_all(run, repo, env, started, now, timezone, budget)
+    except Exception as exc:  # noqa: BLE001 -- one check must not abort --live
+        return CheckResult(NAME, Status.WARN, "stopped on an unexpected error", [
+            Finding(f"{type(exc).__name__} after {run.queries} queries; the other "
+                    "checks are unaffected. Please report it with this line")])
+
+
+def _check_all(run: _Run, repo, env, started, now, timezone, budget) -> CheckResult:
+    clock = run.clock
     try:
         status, listing = run.get("/api/search?type=dash-db&limit=5000")
     except (Timeout, Unreachable):
@@ -588,19 +682,27 @@ def check_dashboard_queries_run(
     for item in listing:
         if not isinstance(item, dict) or not item.get("uid"):
             continue
+        uid = str(item["uid"])
         try:
-            status, data = run.get(f"/api/dashboards/uid/{urllib.parse.quote(item['uid'])}")
-        except (Timeout, Unreachable):
-            warns.append(Finding(f"could not fetch dashboard {item['uid']}"))
+            status, data = run.get(f"/api/dashboards/uid/{urllib.parse.quote(uid)}")
+        except Timeout:
+            if run.out_of_budget:
+                run.stopped = "budget"
+                break
+            warns.append(Finding(f"could not fetch dashboard {uid} (no answer)"))
             continue
+        except Unreachable:
+            run.stopped = "unreachable"
+            break
         if status != 200 or not isinstance(data, dict):
-            warns.append(Finding(f"could not fetch dashboard {item['uid']} (HTTP {status})"))
+            warns.append(Finding(f"could not fetch dashboard {uid} (HTTP {status})"))
             continue
         meta = data.get("meta") or {}
         if not meta.get("provisioned"):
             user_dashboards += 1
             continue
-        provisioned[item["uid"]] = data.get("dashboard") or {}
+        dash = data.get("dashboard")
+        provisioned[uid] = dash if isinstance(dash, dict) else {}
 
     for uid, dash in sorted(provisioned.items()):
         for link in sorted(set(_LINK.findall(json.dumps(dash)))):
@@ -609,7 +711,7 @@ def check_dashboard_queries_run(
                                      where=dash.get("title") or uid))
 
     tree = _repo_tree(repo, env)
-    if tree is not None:
+    if tree is not None and not run.stopped:
         for path, repo_uid in tree:
             if repo_uid not in provisioned:
                 fails.append(Finding(
@@ -617,14 +719,28 @@ def check_dashboard_queries_run(
                     "dashboard is missing or stale (`smoking-pi logs grafana`)"))
 
     for uid, dash in sorted(provisioned.items()):
-        if run.out_of_budget:
+        if run.stopped:
             break
         _check_dashboard(run, dash, now_ms, timezone, fails, warns, empty)
 
     elapsed = clock() - started
-    if run.out_of_budget:
-        warns.append(Finding(f"stopped at the {budget:.0f} s budget after {run.queries} "
-                             "queries: the dashboards after that point were not checked"))
+    unchecked = len(provisioned) - run.checked
+    if run.stopped == "budget":
+        warns.append(Finding(
+            f"stopped at the {budget:.0f} s budget after {run.queries} queries: "
+            f"{unchecked} dashboard(s) not fully checked"))
+    elif run.stopped == "unreachable":
+        warns.append(Finding(
+            f"Grafana stopped answering after {run.queries} queries: {unchecked} "
+            "dashboard(s) not fully checked (`smoking-pi logs grafana`)"))
+    if not run.datasources_read:
+        warns.append(Finding("could not read Grafana's datasource list: panels that "
+                             "name no datasource were not run"))
+    if not provisioned and not run.stopped:
+        warns.append(Finding("Grafana provisions no dashboard (still starting, or its "
+                             "provisioning failed: `smoking-pi logs grafana`)"))
+    elif provisioned and run.queries == 0 and not run.stopped:
+        warns.append(Finding("no query was run: nothing was checked"))
     empty_count = sum(len(panels) for _, _, panels in empty)
     for title, label, panels in empty:
         shown = ", ".join(repr(p) for p in panels[:EMPTY_SHOWN])

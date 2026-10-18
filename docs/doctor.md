@@ -366,7 +366,11 @@ ten seconds, on running out of the two-minute budget, and with the list of
 panels that returned no rows: many are empty by design, so they are listed,
 not failed; panels inside a collapsed row and panels that set their own
 "no value" text are left out of the list. Dashboards a person created are
-not run, and the summary counts them.
+not run, and the summary counts them. One value is checked per variable (the
+one the dashboard opens with), so a query that fails only for another
+value, or only under *All*, is not caught. A variable that cannot be
+resolved is one finding, and the panels that use it are not run. If
+Grafana stops answering mid-run, the check warns with how far it got.
 
 On 2026-10-15 a hand-run audit doing the same found the DNS Wizard's *Top
 services by presence* failing on production with `pivot: specified row key
