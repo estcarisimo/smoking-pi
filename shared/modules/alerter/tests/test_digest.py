@@ -495,10 +495,10 @@ def _incident(cls, minutes, summary):
 
 def test_a_deaf_radio_day_is_the_monitors_not_two_dozen_destinations(collected):
     """2026-10-13 on the reference Pi: the radio heard nothing for 5 h 40 min
-    and every target's mean loss was 20-70%. The digest said "problems worth
-    a look" with five destinations in red; the alert and the assistants said
-    this host's Wi-Fi."""
-    collected["value"]["targets"] = _targets(("Ocean_Reef", 70.4), ("GoogleDNS", 23.8))
+    and the steady targets' mean loss was ~24% (340 of 1440 minutes). The
+    digest said "problems worth a look" with five destinations in red; the
+    alert and the assistants said this host's Wi-Fi."""
+    collected["value"]["targets"] = _targets(("Google", 24.1), ("GoogleDNS", 23.8))
     collected["value"]["incidents"] = {
         "by_class": {"local_wifi": 1}, "monitor_minutes": 340, "truncated": False,
         "incidents": [_incident("local_wifi", 340, "This host's own Wi-Fi, not the line.")]}
@@ -534,3 +534,15 @@ def test_the_red_light_is_the_alerts_high_loss_pct(collected, monkeypatch):
     monkeypatch.setenv("HIGH_LOSS_PCT", "40")
     text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
     assert text.startswith("🟡") and "🟡 A — 30.0% loss" in text
+
+
+def test_a_short_deaf_spell_does_not_hide_a_dead_destination(collected):
+    """Review of #387: five deaf minutes explain 0.3% of a day's loss, not a
+    destination lost all day."""
+    collected["value"]["targets"] = _targets(("Dead", 100.0), ("B", 0.4))
+    collected["value"]["incidents"] = {
+        "by_class": {"local_wifi": 1}, "monitor_minutes": 5, "truncated": False,
+        "incidents": [_incident("local_wifi", 5, "This host's own Wi-Fi, not the line.")]}
+    text = digest.build({"incidents": {}, "history": []}, hours=24, now=1_700_000_000)["message"]
+    assert text.startswith("🔴 Last 24h: problems worth a look.")
+    assert "🔴 Dead — 100.0% loss" in text

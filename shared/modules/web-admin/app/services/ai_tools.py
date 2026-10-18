@@ -255,7 +255,9 @@ TOOLS = [
                     "type": "number",
                     "description": (
                         "Optional fixed loss percentage 0-100 for every target, "
-                        "instead of the default: two or more lost pings."
+                        "instead of the default: two or more lost pings. It "
+                        "moves the events and episodes; `widespread` keeps the "
+                        "alerts' own loss floor."
                     ),
                 },
             },

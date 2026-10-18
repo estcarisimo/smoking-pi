@@ -58,7 +58,6 @@ DEFAULT_MICROCUT_BURST_N = 3
 # (observed: p50 10%, p90 14-22% by day) with no outage at all -- counting
 # every window with any loss would flag that floor forever. A real microcut
 # drops most of a 10 s window.
-DEFAULT_MICROCUT_LOSS_PCT = microcuts.DEFAULT_LOSS_PCT  # MICROCUT_LOSS_PCT
 
 DOWN_MIN_POINTS = definitions.TOTAL_MIN_CYCLES
 DOWN_LOSS_RATIO = definitions.LOST_RATIO  # >= this ratio counts as "no responses"

@@ -205,6 +205,17 @@ def test_fetch_at_the_callers_bar_counts_lossy_but_never_changes_who_votes():
     assert breadth.fetch(fake, 24, 300, bar=0.25)[STEP0 + 300]["lossy"] == 1
 
 
+def test_fetch_floor_raises_the_lossy_bar_but_never_lowers_it():
+    """The widespread rule's WIDESPREAD_LOSS_PCT: a voter at 20% (an event on
+    ten pings) is not lossy under a 0.3 floor; a three-ping target keeps its
+    own higher bar (0.5) over a lower floor."""
+    fake = Fake({"a": [0.0, 0.2, 0.0, 0.0], "b": [0.0, 0.0, 0.0, 0.0]})
+    assert breadth.fetch(fake, 24, 300)[STEP0 + 300]["lossy"] == 1
+    assert breadth.fetch(fake, 24, 300, floor=0.3)[STEP0 + 300]["lossy"] == 0
+    head = Fake({"h": [0.0, 1 / 3, 0.0, 0.0], "b": [0.0] * 4}, pings={"h": 3})
+    assert breadth.fetch(head, 24, 300, floor=0.3)[STEP0 + 300]["lossy"] == 0
+
+
 def test_fetch_asks_nothing_more_without_a_voter():
     fake = Fake({"dead": [1.0] * 4})
     assert breadth.fetch(fake, 24, 300) == {}

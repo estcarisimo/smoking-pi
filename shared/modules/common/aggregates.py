@@ -17,9 +17,10 @@ the window's incidents from the shared diagnosis (common.diagnosis_query),
 the one the alerts, the MCP server and the web admin's chat answer from:
 before, a day the monitor's radio was deaf for five hours read as two dozen
 destinations at 20-70% loss, and a ten-minute cut of the line vanished into
-a mean of 0.2%. A second
-copy of these queries would drift against the exporters silently -- the
-loss-unit handling in particular, where latency loss is a 0-1 ratio and
+a mean of 0.2%.
+
+A second copy of these queries would drift against the exporters silently --
+the loss-unit handling in particular, where latency loss is a 0-1 ratio and
 cpe_latency loss is a percent.
 """
 

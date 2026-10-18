@@ -696,8 +696,10 @@ name them (the shared diagnosis, `common/diagnosis.py`, the one behind
 this host's own Wi-Fi. A day's mean loss alone hid a ten-minute cut of the
 line ("all clear") and blamed two dozen destinations for five hours the
 monitor's radio heard nothing. Minutes in which the monitor itself could not
-measure (its own Wi-Fi or DNS) are said as such: every target's loss in them
-is the monitor's, so they do not light the targets red. When the diagnosis
+measure (its own Wi-Fi or DNS) are said as such, and that share of the
+window is put down to the monitor before a target is lit red: 5 h 40 min of
+a deaf radio accounts for ~24 % of a day's loss everywhere, five minutes for
+0.3 %, never for a destination lost all day. When the diagnosis
 cannot be read, the digest says so rather than reporting no incidents. The
 targets listed are the pinged and DNS ones, without the ISP gateway (the
 first hop is evidence about the line, not a destination). The Wi-Fi line is

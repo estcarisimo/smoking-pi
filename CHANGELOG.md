@@ -35,9 +35,12 @@ version gets a matching GitHub release and git tag.
   house and the ISP (`local_link`). `common/aggregates.collect` now hands
   on the window's incidents from `common/diagnosis_query` (probe misses
   counted, not listed). The digest lists them, says when the monitor
-  itself could not measure — and then does not light the targets red for
-  that loss — and says when the incidents could not be read instead of
-  reporting none. The AI report gets the same list ahead of the per-target
+  itself could not measure — and puts that share of the window down to the
+  monitor, not to the targets, before lighting any of them red (five deaf
+  minutes do not excuse a destination lost all day) — and says when the
+  incidents could not be read instead of reporting none. A `min_loss_pct`
+  given to `get_loss_events` lowers the event bar, not the widespread one:
+  widespread is the alerter's rule whatever the caller asks. The AI report gets the same list ahead of the per-target
   numbers, with the instruction to cite those causes.
 - **"Widespread" means one thing.** The alerter's rule counts a cycle as
   widespread when `WIDESPREAD_PCT` of the targets lost at least

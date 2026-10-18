@@ -955,7 +955,9 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
         hours: Lookback window in hours (default 24).
         min_loss_pct: Optional. A fixed loss percentage (0-100) instead of
             the pings-lost rule, applied to every target alike. Lower it to
-            see the single-ping background; it is noise, not events.
+            see the single-ping background; it is noise, not events. It
+            moves the events and episodes, not `widespread`, which keeps the
+            alerts' WIDESPREAD_LOSS_PCT floor.
 
     Because the measurement is continuous, this answers questions about
     moments nobody was watching: "did we drop packets last night?", "when did

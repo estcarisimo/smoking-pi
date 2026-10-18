@@ -495,7 +495,9 @@ services:
       - REPORTS_DIR=/reports
       # The report reads CPE cuts against the same threshold as the alerter,
       # and its incidents come from the shared diagnosis, which judges
-      # "weak", "broad" and "widespread" with the alerter's thresholds.
+      # "weak", "broad" and "widespread" with the alerter's thresholds
+      # (WIDESPREAD_LOSS_PCT is get_loss_events', which the report does not
+      # call).
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
       - WIFI_WEAK_DBM=${WIFI_WEAK_DBM:--75}
       - WIFI_WEAK_SAMPLES=${WIFI_WEAK_SAMPLES:-6}

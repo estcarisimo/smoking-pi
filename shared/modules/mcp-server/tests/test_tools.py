@@ -1295,6 +1295,17 @@ def test_widespread_needs_the_alerters_loss_floor(monkeypatch):
         [ev("a", 20.0), ev("b", 20.0), ev("c", 20.0)], reporting)) == 1
 
 
+def test_a_callers_bar_moves_the_events_not_the_widespread_floor(monkeypatch, no_api):
+    """min_loss_pct=5 lists 20% points as events and episodes; widespread
+    stays the alerts' rule (WIDESPREAD_LOSS_PCT), as the docstring says."""
+    _patch_influx(monkeypatch, _loss_fake(
+        {t: [0.2] for t in _TEN[:9]}, targets=_TEN[:9], steps=1))
+    _with_breadth(monkeypatch, [])
+    result = server.get_loss_events(hours=24, min_loss_pct=5)
+    assert result["event_count"] == 9 and len(result["episodes"]) == 9
+    assert result["widespread"] == []
+
+
 def test_loss_events_count_pings_lost_per_target(monkeypatch, no_api):
     """20 pings: two lost is 7.5%+ ; 5 DNS queries: one lost (20%) is not an
     event. The per-target bar goes into the query as a Flux dict."""

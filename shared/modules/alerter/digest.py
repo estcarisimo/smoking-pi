@@ -244,7 +244,16 @@ def render(
     # or DNS, common.aggregates.MONITOR_CLASSES): every target's loss in
     # them is the monitor's, so a high mean is no destination's problem.
     monitor_minutes = int((incidents or {}).get("monitor_minutes") or 0)
-    if active or (worst_loss >= high and not monitor_minutes):
+    # The most of a target's mean loss those minutes can account for: every
+    # ping lost while the monitor could not hear. Only the rest is the
+    # target's -- a destination dead all day is still red after a five-
+    # minute deaf radio.
+    explained = min(100.0, 100.0 * monitor_minutes / max(1, hours * 60))
+
+    def own_loss(target: dict) -> float:
+        return float(target.get("avg_loss_pct", 0.0) or 0.0) - explained
+
+    if active or own_loss(worst) >= high:
         headline = f"{bad} Last {hours}h: problems worth a look."
     elif monitor_minutes:
         headline = (f"{watch} Last {hours}h: the monitor itself could not "
@@ -290,7 +299,7 @@ def render(
             lossy, key=lambda t: float(t.get("avg_loss_pct", 0.0) or 0.0), reverse=True
         )[:5]:
             loss = float(target.get("avg_loss_pct", 0.0) or 0.0)
-            light = bad if loss >= high and not monitor_minutes else watch
+            light = bad if own_loss(target) >= high else watch
             median = target.get("median_ms")
             detail = f"{loss:.1f}% loss"
             if median is not None:
