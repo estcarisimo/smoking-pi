@@ -201,3 +201,52 @@ def test_collect_reports_a_deaf_radio_apart_from_the_cuts(monkeypatch):
     assert data["cpe"]["deaf"][0]["seconds"] == 40
     assert data["cpe"]["deaf"][0]["deaf"] == "received nothing"
     assert "monitor was deaf" in data["cpe"]["deaf_note"]
+
+
+def test_the_first_hop_is_not_a_destination_in_the_target_stats(monkeypatch):
+    """CPE_IPv4 (category cpe) is evidence about the line, as everywhere
+    else; its rate-limit floor would sit in the digest as a lossy target."""
+    seen = []
+
+    def handler(flux):
+        seen.append(flux)
+        return _target_rows(flux)
+
+    _dispatch(monkeypatch, handler)
+    collector.collect(hours=24)
+    stats = [f for f in seen if "mean()" in f and "cpe_latency" not in f]
+    assert stats and all('r.category != "cpe"' in f for f in stats)
+
+
+def test_collect_hands_on_the_shared_diagnosis(monkeypatch):
+    """The incidents come from common.diagnosis_query, the diagnosis the
+    alerts and every assistant use; probe misses are counted, not listed."""
+    calls = []
+
+    def run(query, hours, cadences):
+        calls.append(hours)
+        return {"incidents": [
+            {"class": "local_wifi", "confidence": "high", "start_epoch": 1760281800,
+             "end_epoch": 1760302200, "minutes": 340, "targets": ["a", "b"],
+             "summary": "This host's own Wi-Fi."},
+            {"class": "probe_miss", "confidence": "high", "start_epoch": 1760281800,
+             "end_epoch": 1760282100, "minutes": 5, "targets": ["a"], "summary": "x"}],
+            "by_class": {"local_wifi": 1, "probe_miss": 1}, "rows_truncated": False}
+
+    _dispatch(monkeypatch, _target_rows)
+    monkeypatch.setattr(aggregates.diagnosis_query, "run", run)
+    out = collector.collect(hours=24)["incidents"]
+    assert calls == [24]
+    assert out["monitor_minutes"] == 340 and out["by_class"]["probe_miss"] == 1
+    assert [i["class"] for i in out["incidents"]] == ["local_wifi"]
+    assert out["incidents"][0]["targets"] == 2
+
+
+def test_a_failed_diagnosis_is_none_not_no_incidents(monkeypatch):
+    def run(query, hours, cadences):
+        raise RuntimeError("influx down")
+
+    _dispatch(monkeypatch, _target_rows)
+    monkeypatch.setattr(aggregates.diagnosis_query, "run", run)
+    assert collector.collect(hours=24)["incidents"] is None
+    assert collector.collect(hours=24 * 30)["incidents"] is None

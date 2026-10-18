@@ -56,7 +56,18 @@ Window: last {{ data.window_hours }}h (generated {{ data.generated_at }})
 Targets with data: {{ data.target_total }}\
 {% if data.targets_truncated %} (showing worst {{ data.targets|length }} by loss){% endif %}
 
-Per-target stats (latency in ms; loss in %; loss_events = samples that lost two or more pings (more than 1.5 pings' worth, of however many the probe sends)):
+{% set incidents = data.get('incidents') -%}
+{% if incidents is none -%}
+Incidents: could not be read for this window; do not infer that there were none.
+{% elif incidents.incidents -%}
+Incidents (classified by the same diagnosis as the alerts and the assistants; cite these causes, do not re-derive them from the per-target numbers below{% if incidents.monitor_minutes %}; for {{ incidents.monitor_minutes }} min the monitor itself could not measure, and every target's loss in that time is the monitor's, not the target's{% endif %}):
+{% for i in incidents.incidents -%}
+- {{ i.start }} to {{ i.end }} ({{ i.minutes }} min, {{ i.targets }} targets): {{ i.class }}, {{ i.confidence }} confidence. {{ i.summary }}
+{% endfor %}
+{%- else -%}
+Incidents: none in this window.
+{% endif %}
+Per-target stats (latency in ms; loss in %; loss_events = samples that lost 1.5 pings' worth or more (two lost pings, of however many the probe sends)):
 {% for t in data.targets -%}
 - {{ t.target }} [{{ t.measurement }}]: median={{ t.median_ms|default('n/a') }}ms \
 p95={{ t.p95_ms|default('n/a') }}ms avg_loss={{ t.avg_loss_pct }}% \
@@ -99,7 +110,8 @@ then, so do not count or describe these as cuts of the line):
 Wi-Fi uplink ({{ data.wifi.interface }}{% if data.wifi.ssid %}, {{ data.wifi.ssid }}{% endif %}\
 {% if data.wifi.channel %}, ch{{ data.wifi.channel }}{% endif %}; the hop every measurement above crossed):
 - signal: median={{ data.wifi.median_dbm|default('n/a') }}dBm min={{ data.wifi.min_dbm }}dBm \
-max={{ data.wifi.max_dbm }}dBm over {{ data.wifi.samples }} samples; \
+max={{ data.wifi.max_dbm }}dBm over {{ data.wifi.samples }} samples \
+({{ data.wifi.get('weak_samples', 0) }} under {{ data.wifi.get('weak_below_dbm', -75) }}dBm); \
 bitrate={{ data.wifi.tx_bitrate_mbps|default('n/a') }}Mbit/s; \
 disconnects={{ data.wifi.disconnects }}; roams={{ data.wifi.roams }}
 {% endif %}

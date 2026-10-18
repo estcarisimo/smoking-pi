@@ -1277,6 +1277,24 @@ def test_widespread_all_lost_needs_every_row_of_a_target_in_its_step():
     assert server._widespread_runs(events, reporting)[0]["all_lost"] is True
 
 
+def test_widespread_needs_the_alerters_loss_floor(monkeypatch):
+    """A cycle is widespread as the alerter's rule says: WIDESPREAD_PCT of
+    the targets with an event of at least WIDESPREAD_LOSS_PCT. Every target
+    losing two pings of ten (20%) is an event on each, never an alert; these
+    runs called it widespread before."""
+    def ev(target, pct):
+        return {"target": target, "loss_pct": pct, "_epoch": _T0.timestamp()}
+
+    reporting = {int(_T0.timestamp()) // 300 * 300: 3}
+    assert server._widespread_runs(
+        [ev("a", 20.0), ev("b", 20.0), ev("c", 20.0)], reporting) == []
+    assert len(server._widespread_runs(
+        [ev("a", 30.0), ev("b", 30.0), ev("c", 30.0)], reporting)) == 1
+    monkeypatch.setenv("WIDESPREAD_LOSS_PCT", "15")
+    assert len(server._widespread_runs(
+        [ev("a", 20.0), ev("b", 20.0), ev("c", 20.0)], reporting)) == 1
+
+
 def test_loss_events_count_pings_lost_per_target(monkeypatch, no_api):
     """20 pings: two lost is 7.5%+ ; 5 DNS queries: one lost (20%) is not an
     event. The per-target bar goes into the query as a Flux dict."""
@@ -1454,8 +1472,8 @@ def _with_breadth(monkeypatch, per_step):
     calls = []
     step0 = int(_T0.timestamp()) // 300 * 300
 
-    def fetch(query, hours, step_s, bar=None):
-        calls.append({"hours": hours, "bar": bar})
+    def fetch(query, hours, step_s, bar=None, floor=0.0):
+        calls.append({"hours": hours, "bar": bar, "floor": floor})
         return {step0 + 300 * i: {"reporting": n, "lossy": lossy, "lost": lost}
                 for i, (n, lossy, lost) in enumerate(per_step)}
 
@@ -1518,7 +1536,8 @@ def test_loss_events_count_the_breadth_at_the_callers_bar(monkeypatch, no_api):
     calls = _with_breadth(monkeypatch, [(2, 0, 0)])
     server.get_loss_events(hours=24, min_loss_pct=40)
     server.get_loss_events(hours=24)
-    assert calls == [{"hours": 24, "bar": 0.4}, {"hours": 24, "bar": None}]
+    assert calls == [{"hours": 24, "bar": 0.4, "floor": 0.3},
+                     {"hours": 24, "bar": None, "floor": 0.3}]
 
 
 def test_total_loss_of_the_breadth_alone_is_not_this_hosts_dns():

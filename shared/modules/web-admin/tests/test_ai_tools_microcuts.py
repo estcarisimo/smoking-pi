@@ -134,7 +134,43 @@ def test_loss_events_explicit_percent_is_kept(monkeypatch):
     monkeypatch.setattr(ai_tools, "query_influx", lambda flux: seen.append(flux) or [])
     out = ai_tools.execute_tool("get_loss_events", {"hours": 24, "min_loss_pct": 5})
     assert out["min_loss_pct"] == 5.0
-    assert seen == [seen[0]] and "r._value >= 0.05" in seen[0]
+    assert "r._value >= 0.05" in seen[1]
+
+
+def test_loss_events_answer_as_the_mcp_tool_does(monkeypatch):
+    """The chat's get_loss_events is the MCP server's (common.loss_events):
+    a cut of every target at once is one widespread run with its reading,
+    and each target's points fold into one episode. It returned the 200
+    newest raw points before: a week's question on the reference Pi
+    (2026-10-18) held no point of the four-hour outage of 2026-10-11."""
+    t0 = datetime(2026, 10, 11, 15, 30, tzinfo=timezone.utc)
+    names = ["Google", "Apple", "Amazon", "NYT"]
+    events = [{"_time": t0 + timedelta(seconds=300 * i), "target": n,
+               "_measurement": "latency", "_value": 1.0}
+              for i in range(4) for n in names]
+
+    def query(flux):
+        if '"step"' in flux and "last()" in flux:
+            return []
+        if 'r.category == "cpe"' in flux:
+            return []
+        if "distinct(" in flux:
+            return [{"_time": t0 + timedelta(seconds=300 * i), "_value": 4}
+                    for i in range(4)]
+        if "r._value > 0.0 and" in flux:
+            return [{"_value": 7}]
+        if "r._value >=" in flux and "sort(" in flux:
+            return list(reversed(events))
+        return []
+
+    monkeypatch.setattr(ai_tools, "query_influx", query)
+    out = ai_tools.execute_tool("get_loss_events", {"hours": 168})
+    assert out["background_points"] == 7 and out["targets_reporting"] == 4
+    run, = out["widespread"]
+    assert run["minutes"] == 20 and run["all_lost"] is True
+    assert run["reading"] == "uplink_down"
+    assert {e["target"] for e in out["episodes"]} == set(names)
+    assert all(e["points"] == 4 for e in out["episodes"])
 
 
 @pytest.mark.parametrize("name", ["get_loss_events", "get_microcut_stats"])

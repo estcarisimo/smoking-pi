@@ -243,6 +243,10 @@ def repo(tmp_path):
     alerter = tmp_path / "shared/modules/alerter"
     alerter.mkdir(parents=True)
     (alerter / "evaluator.py").write_text(ALERTER_SOURCE)
+    common = tmp_path / "shared/modules/common"
+    common.mkdir(parents=True)
+    for name, text in _SHARED.items():
+        (common / name).write_text(text)
     pro = tmp_path / "editions/pro"
     pro.mkdir(parents=True)
     (pro / "docker-compose.yml").write_text(yaml.safe_dump(ALERTER_COMPOSE))
@@ -1359,3 +1363,92 @@ def test_cli_dir_follows_the_command_when_the_root_has_no_cli(tmp_path, monkeypa
     (root / "cli/lib").mkdir(parents=True)
     (root / "cli/lib/watchdog.sh").write_text("#!/bin/sh\n")
     assert static_checks.Repo.cli_dir(root) == root / "cli"
+
+
+# ---------------------------------------------------------------------------
+# dashboard-definitions-match
+# ---------------------------------------------------------------------------
+
+_SHARED = {
+    "cadence.py": "EVENT_LOST_PINGS = 1.5\n",
+    "microcuts.py": "DEFAULT_LOSS_PCT = 50.0  # MICROCUT_LOSS_PCT\n",
+    "definitions.py": "DEFAULT_WIFI_WEAK_DBM = -75.0  # WIFI_WEAK_DBM\n",
+}
+
+
+def _definitions_repo(tmp_path):
+    common = tmp_path / "shared/modules/common"
+    common.mkdir(parents=True, exist_ok=True)
+    for name, text in _SHARED.items():
+        (common / name).write_text(text)
+    return static_checks.Repo(tmp_path)
+
+
+def _panel_dashboard(tmp_path, panel, tree="dashboards"):
+    data = {"uid": "x-v1", "title": "X", "panels": [panel]}
+    return sources.Dashboard(tmp_path / "x.json", tree, data)
+
+
+_EVENT_FLUX = ('from(bucket:"smokeping") |> filter(fn: (r) => r._field == "loss" '
+               'or r._field == "pings") |> map(fn:(r)=> ({ r with _value: if not '
+               'exists r._value then 0.0 else if r._value >= {bar} then 1.0 else 0.0 }))')
+_EVENT_SQL = ("SELECT if(sum(least(packet_loss, 100.0) / 100.0 * coalesce(packets_sent, "
+              "if(measurement_type = 'latency', 10, 5))) >= {bar}, 1.0, 0.0) as lossy")
+_CUT_FLUX = ('from(bucket:"smokeping") |> filter(fn:(r) => r._measurement == '
+             '"cpe_latency" and r._field == "loss" and r._value > {bar})')
+_CUT_LINE = ('import "array"\narray.from(rows: [{_time: v.timeRangeStart, _value: {bar}}, '
+             '{_time: v.timeRangeStop, _value: {bar}}]) |> set(key: "_field", '
+             'value: "cut window (> 50 %)")')
+
+
+@pytest.mark.parametrize("query, good, bad", [
+    (_EVENT_FLUX, "1.5", "2.0"),
+    (_EVENT_SQL, "1.5", "2"),
+    (_CUT_FLUX, "50.0", "40.0"),
+    (_CUT_LINE, "50.0", "60.0"),
+])
+def test_dashboard_literals_must_equal_the_shared_definitions(tmp_path, query, good, bad):
+    """A panel restating a loss event, a cut window or its line with another
+    number than common/ says is a panel every answer contradicts."""
+    repo = _definitions_repo(tmp_path)
+
+    def run(bar):
+        panel = {"title": "P", "targets": [{"refId": "A", "query": query.replace("{bar}", bar)}]}
+        return static_checks.check_dashboard_definitions_match(
+            repo, [_panel_dashboard(tmp_path, panel)])
+
+    assert run(good).status == Status.OK
+    failed = run(bad)
+    assert failed.status == Status.FAIL
+    assert "in common/" in failed.findings[0].message
+
+
+def test_a_watch_line_beside_the_cut_is_not_a_definition(tmp_path):
+    repo = _definitions_repo(tmp_path)
+    watch = _CUT_LINE.replace("{bar}", "30.0").replace("cut window (> 50 %)", "watch (≥ 30 %)")
+    panel = {"title": "P", "targets": [{"refId": "D", "query": watch}]}
+    out = static_checks.check_dashboard_definitions_match(
+        repo, [_panel_dashboard(tmp_path, panel)])
+    assert out.status == Status.OK
+
+
+def test_signal_thresholds_must_include_the_weak_wifi_bar(tmp_path):
+    repo = _definitions_repo(tmp_path)
+
+    def run(steps):
+        panel = {"title": "Signal",
+                 "targets": [{"refId": "A", "query": 'r._field == "signal_dbm"'}],
+                 "fieldConfig": {"defaults": {"thresholds": {"steps": [
+                     {"color": "red", "value": None},
+                     *({"color": "x", "value": v} for v in steps)]}}}}
+        return static_checks.check_dashboard_definitions_match(
+            repo, [_panel_dashboard(tmp_path, panel)])
+
+    assert run([-75, -67]).status == Status.OK
+    assert run([-80, -67]).status == Status.FAIL
+
+
+def test_dashboard_definitions_skip_without_common(tmp_path):
+    out = static_checks.check_dashboard_definitions_match(
+        static_checks.Repo(tmp_path), [])
+    assert out.status == Status.SKIP

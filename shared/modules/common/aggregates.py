@@ -12,7 +12,12 @@ Everything is aggregated server-side in Flux so the result stays small
 whether it is handed to a model or rendered into a digest.
 
 Shared because two images need it: ai-insights renders it into a prompt,
-and the alerter renders the same numbers into a scheduled digest. A second
+and the alerter renders the same numbers into a scheduled digest. Both get
+the window's incidents from the shared diagnosis (common.diagnosis_query),
+the one the alerts, the MCP server and the web admin's chat answer from:
+before, a day the monitor's radio was deaf for five hours read as two dozen
+destinations at 20-70% loss, and a ten-minute cut of the line vanished into
+a mean of 0.2%. A second
 copy of these queries would drift against the exporters silently -- the
 loss-unit handling in particular, where latency loss is a 0-1 ratio and
 cpe_latency loss is a percent.
@@ -27,7 +32,7 @@ from typing import Any
 
 log = logging.getLogger("aggregates")
 
-from . import cadence, microcuts
+from . import cadence, definitions, diagnosis_query, microcuts
 from .tsdb import (
     CLAMP_LOSS_RATIO as _CLAMP_LOSS_RATIO,
 )
@@ -50,6 +55,13 @@ EVENT_LOST_PINGS = cadence.EVENT_LOST_PINGS
 MAX_TARGETS = 30
 
 MAX_WORST_WINDOWS = 5
+
+# Incidents handed on, newest first, besides the per-class counts; a probe
+# that missed a few pings (probe_miss) is counted, never listed.
+MAX_INCIDENTS = 20
+# The classes that say the monitor could not measure, not that anything it
+# measures failed: its own Wi-Fi, its own name resolution.
+MONITOR_CLASSES = ("local_wifi", "monitor")
 
 __all__ = [
     "EVENT_LOST_PINGS",
@@ -88,7 +100,12 @@ def _collect_target_stats(hours: int) -> list[dict]:
     Latency fields are stored in seconds (converted here to ms); loss is a
     0-1 ratio (converted here to a 0-100 percentage).
     """
-    base = _base_flux(["latency", "dns_latency"], hours)
+    # Destinations only: the ISP first hop's ping target (category cpe) is
+    # evidence about the line, not a destination (common.definitions); its
+    # rate-limit floor would read as a lossy target every day.
+    base = (_base_flux(["latency", "dns_latency"], hours)
+            + '|> filter(fn: (r) => not exists r.category or r.category != '
+            + flux_str(definitions.FIRST_HOP_CATEGORY) + ") ")
     group = '|> group(columns: ["target", "_measurement"]) '
     median_filter = '|> filter(fn: (r) => r._field == "median") '
     loss_filter = '|> filter(fn: (r) => r._field == "loss") '
@@ -254,8 +271,12 @@ def _collect_wifi_stats(hours: int) -> dict:
         signal = '|> filter(fn: (r) => r._field == "signal_dbm") |> group() '
         summary_rows = query_influx(
             base + signal
-            + "|> reduce(identity: {n: 0, min: 0.0, max: -999.0}, "
+            + "|> reduce(identity: {n: 0, weak: 0, min: 0.0, max: -999.0}, "
             "fn: (r, accumulator) => ({n: accumulator.n + 1, "
+            # Readings under WIFI_WEAK_DBM: weak means WIFI_WEAK_SAMPLES of
+            # them (common.definitions), as the verdict and the diagnosis read it.
+            "weak: accumulator.weak + (if r._value < "
+            + cadence.flux_float(definitions.wifi_weak_dbm()) + " then 1 else 0), "
             "min: if accumulator.n == 0 or r._value < accumulator.min "
             "then r._value else accumulator.min, "
             "max: if accumulator.n == 0 or r._value > accumulator.max "
@@ -289,6 +310,8 @@ def _collect_wifi_stats(hours: int) -> dict:
         "tx_bitrate_mbps": (round(float(fields["tx_bitrate_mbps"]["_value"]), 1)
                             if fields.get("tx_bitrate_mbps") else None),
         "samples": int(summary_rows[0]["n"]),
+        "weak_samples": int(summary_rows[0].get("weak") or 0),
+        "weak_below_dbm": definitions.wifi_weak_dbm(),
         "min_dbm": float(summary_rows[0]["min"]),
         "max_dbm": float(summary_rows[0]["max"]),
         "median_dbm": (round(float(median_rows[0]["_value"]), 1)
@@ -469,6 +492,45 @@ def _collect_uplink(hours: int) -> dict:
     return {"current": current, "changes": changes}
 
 
+def _collect_incidents(hours: int) -> dict | None:
+    """The window's incidents, classified by the shared diagnosis: what the
+    alerts, ``diagnose_loss`` and the web admin's chat say about it. None
+    when they could not be read (a failed query, a window longer than the
+    diagnosis reads): a reader must not take that for "no incidents"."""
+    if hours > diagnosis_query.MAX_HOURS:
+        return None
+    try:
+        cadences = cadence.by_target(query_influx(cadence.cadence_flux()))
+    except Exception:  # a missing cadence means the default, not no answer
+        cadences = {}
+    try:
+        result = diagnosis_query.run(query_influx, hours, cadences)
+    except Exception:  # influx client raises many exception types
+        log.warning("incident diagnosis failed; leaving incidents out",
+                    exc_info=True)
+        return None
+    listed = [i for i in result["incidents"] if i["class"] != "probe_miss"]
+    monitor_minutes = sum(i.get("minutes") or 0 for i in listed
+                          if i["class"] in MONITOR_CLASSES)
+    return {
+        "by_class": result["by_class"],
+        "monitor_minutes": monitor_minutes,
+        "truncated": len(listed) > MAX_INCIDENTS or result["rows_truncated"],
+        "incidents": [
+            {
+                "class": i["class"],
+                "confidence": i.get("confidence"),
+                "start": _iso(datetime.fromtimestamp(i["start_epoch"]).astimezone()),
+                "end": _iso(datetime.fromtimestamp(i["end_epoch"]).astimezone()),
+                "minutes": i.get("minutes"),
+                "targets": len(i.get("targets") or ()),
+                "summary": i.get("summary"),
+            }
+            for i in listed[:MAX_INCIDENTS]
+        ],
+    }
+
+
 def collect(hours: int = 24) -> dict:
     """Return the compact aggregate dict handed to the reporter.
 
@@ -482,6 +544,7 @@ def collect(hours: int = 24) -> dict:
     wifi = _collect_wifi_stats(hours)
     uplink = _collect_uplink(hours)
     resolver = collect_resolver(hours)
+    incidents = _collect_incidents(hours)
     return {
         "window_hours": hours,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -492,4 +555,5 @@ def collect(hours: int = 24) -> dict:
         "wifi": wifi,
         "uplink": uplink,
         "resolver": resolver,
+        "incidents": incidents,
     }

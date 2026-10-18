@@ -19,7 +19,17 @@ import os
 from .cadence import Cadence, is_event, of
 
 DEFAULT_WIDESPREAD_PCT = 80.0  # WIDESPREAD_PCT
+# The loss a target must have in a cycle to count toward a widespread one,
+# besides a loss event (common.cadence.is_event). The alerter's rule always
+# had it; the MCP server's ``widespread`` runs did not, so an assistant could
+# call a cycle widespread that never could have been an alert.
+DEFAULT_WIDESPREAD_LOSS_PCT = 30.0  # WIDESPREAD_LOSS_PCT
 DEFAULT_VERDICT_BROAD_PCT = 60.0  # VERDICT_BROAD_PCT
+# The mean loss of a target at which it is in trouble: the alerter's
+# high_loss rule, the loss chart's line, and the digest's red light (which
+# kept a 20 of its own, so a tuned HIGH_LOSS_PCT moved the alert and its
+# chart and not the morning summary).
+DEFAULT_HIGH_LOSS_PCT = 20.0  # HIGH_LOSS_PCT
 DEFAULT_WIFI_WEAK_DBM = -75.0  # WIFI_WEAK_DBM
 DEFAULT_WIFI_WEAK_SAMPLES = 6  # WIFI_WEAK_SAMPLES
 
@@ -73,6 +83,13 @@ def breadth_voters(rows: list[dict], cadences: dict[str, Cadence]) -> set[str]:
 
 # Total loss, by what still answers: one incident at a time.
 TOTAL_RULES = ("uplink_down", "internet_down", "monitor_dns")
+# Below this many reporting targets in a cycle, breadth means nothing.
+MIN_BREADTH_TARGETS = 3
+# A point lost everything at or above this ratio.
+LOST_RATIO = 0.999
+# Cycles of total loss before it is this host's uplink (or the Internet, or
+# its DNS) rather than a brief cut: the alerter's DOWN_MIN_POINTS.
+TOTAL_MIN_CYCLES = 3
 
 
 def _env_float(name: str, default: float) -> float:
@@ -95,10 +112,21 @@ def widespread_pct() -> float:
     return _env_float("WIDESPREAD_PCT", DEFAULT_WIDESPREAD_PCT)
 
 
+def widespread_loss_pct() -> float:
+    """Loss, in percent, a target must have in one cycle to count toward a
+    widespread one (with a loss event)."""
+    return _env_float("WIDESPREAD_LOSS_PCT", DEFAULT_WIDESPREAD_LOSS_PCT)
+
+
 def broad_pct() -> float:
     """Share of destinations, in percent, at which damage is broad rather
     than one site's (the verdict and the diagnosis)."""
     return _env_float("VERDICT_BROAD_PCT", DEFAULT_VERDICT_BROAD_PCT)
+
+
+def high_loss_pct() -> float:
+    """Mean loss, in percent, at which a target is in trouble."""
+    return _env_float("HIGH_LOSS_PCT", DEFAULT_HIGH_LOSS_PCT)
 
 
 def wifi_weak_dbm() -> float:

@@ -690,6 +690,20 @@ telegram:<id> --digest 08:30`.
 | `DIGEST_SILENT` | `true` | Deliver without a notification sound |
 | `DIGEST_HISTORY_MAX` | `200` | Cap on the retained notification history |
 
+The digest names the window's incidents as the alerts and the assistants
+name them (the shared diagnosis, `common/diagnosis.py`, the one behind
+`diagnose_loss`): the line between the house and the ISP, one destination,
+this host's own Wi-Fi. A day's mean loss alone hid a ten-minute cut of the
+line ("all clear") and blamed two dozen destinations for five hours the
+monitor's radio heard nothing. Minutes in which the monitor itself could not
+measure (its own Wi-Fi or DNS) are said as such: every target's loss in them
+is the monitor's, so they do not light the targets red. When the diagnosis
+cannot be read, the digest says so rather than reporting no incidents. The
+targets listed are the pinged and DNS ones, without the ISP gateway (the
+first hop is evidence about the line, not a destination). The Wi-Fi line is
+weak by the same rule as the verdict: `WIFI_WEAK_SAMPLES` readings under
+`WIFI_WEAK_DBM`, not one dip of the minimum.
+
 When any target lost packets in the window, the digest carries a chart of
 the worst ones: mean loss as bars, one color for all of them, with the value
 and the p95 latency next to each. A target whose mean loss is over

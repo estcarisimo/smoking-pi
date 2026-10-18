@@ -8,11 +8,12 @@ against web-admin's own backends:
   system status)
 - InfluxDB 2.x via influxdb-client (latency / loss / microcut queries); the
   microcut definition and the loss-event threshold come from the shared
-  ``common`` package (common/microcuts.py, common/aggregates.py), the same
+  ``common`` package (common/microcuts.py, common/cadence.py), the same
   code the MCP server, the alerter and the reports read, so the two
-  assistants cannot drift apart on what a microcut is; ``diagnose_loss``
-  and ``get_incident_history`` answer through common/incident_answers.py,
-  the MCP server's own code path
+  assistants cannot drift apart on what a microcut is; ``get_loss_events``
+  answers through common/loss_events.py, ``diagnose_loss`` and
+  ``get_incident_history`` through common/incident_answers.py, the MCP
+  server's own code paths
 
 ``TOOLS`` is the Anthropic ``tools`` schema list; ``execute_tool`` is the
 dispatcher. Mutating tools are listed in ``MUTATING_TOOLS`` and are executed
@@ -32,7 +33,7 @@ from datetime import datetime
 from typing import Any
 
 from app.services.config_api import ConfigAPIGateway, over_budget_message
-from common import cadence, incident_answers, microcuts
+from common import cadence, incident_answers, loss_events, microcuts
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,6 @@ gateway = ConfigAPIGateway()
 _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 MAX_HOURS = 24 * 365
-MAX_EVENT_ROWS = 200
 
 _TARGET_FIELDS = ("id", "name", "host", "title", "category", "probe", "is_active")
 
@@ -239,10 +239,13 @@ TOOLS = [
     {
         "name": "get_loss_events",
         "description": (
-            "Find data points that lost two or more pings in a cycle (more "
-            "than 1.5 pings' worth, of however many the target's probe "
-            "sends), newest first. A single lost ping is background on a "
-            "healthy link, not an event."
+            "Find packet loss in the window and its shape: `widespread` "
+            "runs (most targets at once, the alerts' rule, with a `cause`; "
+            "read this first), per-target `episodes`, `by_target` counts and "
+            "the raw `events` (points that lost 1.5 pings' worth or more, "
+            "newest first). A single lost ping is background on a healthy "
+            "link (`background_points`), not an event. The same answer as "
+            "the MCP tool get_loss_events."
         ),
         "input_schema": {
             "type": "object",
@@ -568,44 +571,11 @@ def _get_loss_events(tool_input: dict) -> dict:
             return {"error": f"Invalid min_loss_pct value {raw!r}."}
         if not 0 <= threshold <= 100:
             return {"error": "min_loss_pct must be between 0 and 100."}
-
-    if threshold is None:
-        try:
-            cadences = cadence.by_target(query_influx(cadence.cadence_flux()))
-        except Exception:  # the cadence refines the answer; never refuse one
-            cadences = {}
-        prelude, bar = cadence.event_threshold_flux(cadences)
-    else:
-        prelude, bar = "", cadence.flux_float(threshold / 100.0)
-
-    flux = (
-        prelude
-        + _base_flux(["latency", "dns_latency"], hours)
-        + '|> filter(fn: (r) => r._field == "loss") '
-        + _CLAMP_LOSS_RATIO
-        + f"|> filter(fn: (r) => r._value >= {bar}) "
-        + "|> group() "
-        + '|> sort(columns: ["_time"], desc: true) '
-        + f"|> limit(n: {MAX_EVENT_ROWS})"
-    )
-    rows = query_influx(flux)
-    events = [
-        {
-            "time": _iso(row.get("_time")),
-            "target": row.get("target"),
-            "measurement": row.get("_measurement"),
-            "loss_pct": round(float(row.get("_value", 0.0)) * 100.0, 2),
-        }
-        for row in rows
-    ]
-    return {
-        "window_hours": hours,
-        "min_loss_pct": threshold,
-        "min_lost_pings": cadence.EVENT_LOST_PINGS if threshold is None else None,
-        "event_count": len(events),
-        "truncated": len(events) >= MAX_EVENT_ROWS,
-        "events": events,
-    }
+    # The MCP server's answer (common.loss_events): widespread runs with the
+    # reading of a total loss, per-target episodes and the counts. This tool
+    # returned the 200 newest raw points before, and the chat read a week's
+    # outage out of them on its own -- or never saw it.
+    return loss_events.answer(query_influx, hours, threshold, _cadences())
 
 
 def _cadences() -> dict:
