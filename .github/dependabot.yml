@@ -57,6 +57,9 @@ updates:
   - package-ecosystem: docker
     directories:
       - "/shared/modules/*"
+    # inference has its own block below, with Python held at 3.13.
+    exclude-paths:
+      - "/shared/modules/inference"
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
@@ -83,5 +86,30 @@ updates:
       # CI has no InfluxDB volume, so minors are done by hand as well.
       - dependency-name: "influxdb"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    commit-message:
+      prefix: "chore(docker)"
+
+  # The inference image, on its own so Python can be held at 3.13 without
+  # holding the other images (the block above excludes this directory).
+  # ruptures, which Jitterbug requires, publishes no cp314 wheels (latest
+  # 1.1.10, 2026-10-18: cp39-cp313 only, aarch64 and x86_64), and building it
+  # from source would need a compiler in the image. Dependabot's #384
+  # (3.13-slim -> 3.14-slim) would have broken that build.
+  # LIFT THIS when ruptures publishes cp314 manylinux wheels for both
+  # architectures: check https://pypi.org/project/ruptures/#files, then bump
+  # shared/modules/inference/Dockerfile and delete the ignore.
+  - package-ecosystem: docker
+    directory: "/shared/modules/inference"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    groups:
+      docker-minor-patch:
+        update-types: ["minor", "patch"]
+      docker-major:
+        update-types: ["major"]
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
     commit-message:
       prefix: "chore(docker)"
