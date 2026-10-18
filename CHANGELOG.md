@@ -9,6 +9,33 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`smoking-pi doctor --live` runs every dashboard's queries.** A panel
+  could fail on every load, and a dashboard could open blank, while every
+  doctor check stayed green: the static checks read the dashboards as
+  files and cannot see what only running a query shows. On 2026-10-15 a
+  hand-run audit found the DNS Wizard's *Top services by presence* failing
+  on production with a Flux runtime error (`pivot: specified row key
+  column does not exist in table: cdn`) and the CPE dashboard opening
+  empty because its variable picked an address no longer measured; both
+  had been that way for days, and nobody would have known without the
+  audit. The new live check `dashboard-queries-run` does what that audit
+  did, read-only, through Grafana's API on the host: it resolves each
+  provisioned dashboard's variables by running their queries, runs every
+  panel and annotation query with the dashboard's default range, and
+  **fails** on a query error, a variable that errors or offers no value, a
+  `/d/<uid>` link to a dashboard the installed Grafana does not have, and a
+  dashboard of the repository's tree that Grafana does not provision. It
+  **warns** on a query with no answer in ten seconds, on its two-minute
+  budget running out, and with the list of panels that returned no rows
+  (often by design, so listed, not failed; panels in a collapsed row or
+  with their own "no value" text are left out). Dashboards a person
+  created are skipped and counted. Sequential, with the elapsed time in
+  its summary: 254 queries over 11 dashboards in 17 s on the reference
+  Pi, 38 s on the staging Pi. Basic and Standard, which have no Grafana,
+  skip it; it needs the env file, so run it with `sudo`.
+
 ## [2.40.1] — 2026-10-17
 
 Four dashboards say what they show, after a review of production on

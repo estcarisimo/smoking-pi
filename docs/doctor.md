@@ -113,7 +113,7 @@ skipped. A valid value on the wrong dashboard is not caught.
 python -m doctor --live
 ```
 
-Three checks need the running host. Each exists because the failure happened
+These checks need the running host. Each exists because the failure happened
 here, and they share a shape worth naming: **the broken thing keeps looking
 healthy**, so nothing goes red and nobody looks.
 
@@ -339,6 +339,44 @@ images of other releases once the new ones run
 that fills anyway. It skips without Docker, without a daemon, or where the
 data root's filesystem cannot be read.
 
+### `dashboard-queries-run`
+
+Opens every provisioned dashboard the way a browser would, through
+Grafana's API on the host (`127.0.0.1:3000`, the admin user and password
+from the env file, read-only): each template variable is resolved by
+running its query (the saved value when the variable still offers it, as
+Grafana does on open, otherwise the first one), and every panel and
+annotation query is then run through `/api/ds/query` with the dashboard's
+default time range, against the datasource the panel names. Sequential,
+ten seconds per query and two minutes in all, with the elapsed time in the
+summary line:
+
+```text
+[warn] dashboard-queries-run  11 provisioned dashboards, 254 queries in 17 s; 2 empty panel(s)
+          - Target Detail – every layer for one target: 2 panel(s) returned no rows in now-24h to now (often by design: no IPv6, no change in range, a target without that layer): 'DNS – Google – latency (ms)', 'DNS – Google – loss (%)'
+```
+
+It **fails** on a query that errors (a Flux compile or runtime error, an
+SQL error, with Grafana's message), a variable whose query errors or offers
+no value at all (every panel using it opens empty), a `/d/<uid>` link to a
+dashboard this Grafana does not have, and a dashboard of the repository's
+tree (the InfluxDB one, or the ClickHouse one when `TSDB_TYPE=clickhouse`)
+that Grafana does not provision. It **warns** on a query with no answer in
+ten seconds, on running out of the two-minute budget, and with the list of
+panels that returned no rows: many are empty by design, so they are listed,
+not failed; panels inside a collapsed row and panels that set their own
+"no value" text are left out of the list. Dashboards a person created are
+not run, and the summary counts them.
+
+On 2026-10-15 a hand-run audit doing the same found the DNS Wizard's *Top
+services by presence* failing on production with `pivot: specified row key
+column does not exist in table: cdn`, and the CPE dashboard opening blank
+because its variable picked an address no longer measured, with every
+other doctor check green: a file cannot show a runtime error. The check
+needs the env file, so run it as `sudo smoking-pi doctor --live`; it
+skips without Docker, where no Grafana runs (Basic and Standard), when
+Grafana does not answer, and without an admin password.
+
 The Docker checks skip cleanly when Docker is absent, so `--live` is safe
 to run anywhere; `uplink-interface` asks the kernel rather than Docker and
 answers on any Linux host, skipping only where `/proc/net` is not there, and
@@ -352,10 +390,6 @@ The remaining live checks are not built. They are the other half of the plan:
 - **Target added but not measured**: active DB rows vs `++` entries in the
   generated `Targets` vs RRD files on disk vs distinct `target` tags in the
   TSDB. Any target present at one stage and missing at the next is a finding.
-- **Queries that error or always return empty**: execute each panel query over
-  a recent window and distinguish "query error", "ran but zero rows", and "ok".
-- **Dashboards not provisioned**: dashboard JSON on disk vs what Grafana's API
-  reports.
 - **Tag *values* nothing writes**: the static checks verify InfluxDB
   measurement and tag *names* against the exporter source (and ClickHouse
   `category` / `measurement_type` values); whether `category == "topsites"`
