@@ -129,7 +129,7 @@ def test_the_stream_grows_by_the_new_cycles_only():
     d_start = T0 + 2 * DAY
     stream, added = aggregate.extend(pd.DataFrame(columns=aggregate.COLUMNS), VOTERS,
                                      set(), d_start, now, fake)
-    stop = now // 900 * 900 - 900  # the last two bins wait for the next pass
+    stop = now // 900 * 900 - 1800  # the last two bins wait for the next pass
     assert stream["epoch"].min() == d_start and stream["epoch"].max() == stop - 300
     assert added == len(stream) == (stop - d_start) // 300
     raw = [q for q in fake.queries if "=~ /^ping" in q]
@@ -143,20 +143,40 @@ def test_the_stream_grows_by_the_new_cycles_only():
 
 def test_a_gap_longer_than_the_window_restarts_at_the_known_monitor_bins():
     fake = FakeInflux(steady)
-    old = pd.DataFrame([[T0, 10] + [0.0] * 10], columns=aggregate.COLUMNS)
+    old = pd.DataFrame([[T0, 10, 5.0] + [0.0] * 10], columns=aggregate.COLUMNS)
     d_start = T0 + 2 * DAY
     stream, _ = aggregate.extend(old, VOTERS, set(), d_start, d_start + 7200, fake)
     assert stream["epoch"].iloc[1] == d_start
 
 
-def test_jitterbug_reads_ten_positive_samples_per_cycle():
-    stream = pd.DataFrame([[T0, 9] + [float(k) for k in range(10)],
-                           [T0 + 300, 9] + [-200.0] + [1.0] * 9],
+def test_jitterbug_reads_ten_samples_per_cycle_at_a_typical_voters_distance():
+    stream = pd.DataFrame([[T0, 9, 8.0] + [float(k) for k in range(10)],
+                           [T0 + 300, 9, 12.0] + [-200.0] + [1.0] * 9,
+                           [T0 + 600, 9, 9.0] + [0.5] * 10],
                           columns=aggregate.COLUMNS)
-    s = aggregate.samples(stream)
+    s, base, dropped = aggregate.samples(stream)
     assert list(s.columns) == ["epoch", "values"]
+    assert base == 9.0  # the median base, one constant for the whole stream
     assert (s["epoch"] == T0).sum() == 10 and (s["epoch"] == T0 + 300).sum() == 9
-    assert s["values"].min() == aggregate.OFFSET_MS and (s["values"] > 0).all()
+    assert dropped == 1 and s["values"].min() == 9.0 and (s["values"] > 0).all()
+
+
+def test_the_base_is_the_median_of_the_answering_voters_floors():
+    fake = FakeInflux(steady)
+    floor = aggregate.floors(fake(aggregate.floor_flux(T0, T0 + 3 * DAY)), T0, T0 + 3 * DAY)
+    c = T0 + 2 * DAY
+    out = aggregate.cycles(fake(aggregate.pings_flux(c, c + 300)), floor, VOTERS, set())
+    assert out["base"].iloc[0] == np.median([BASE_MS[t] for t in VOTERS])
+
+
+def test_the_monitor_bins_handed_over_stay_out_of_a_growing_stream():
+    fake = FakeInflux(steady)
+    d_start = T0 + 2 * DAY
+    hole = {d_start + 3600, d_start + 4500}
+    stream, _ = aggregate.extend(pd.DataFrame(columns=aggregate.COLUMNS), VOTERS, hole,
+                                 d_start, d_start + 4 * 3600, fake)
+    assert not stream["epoch"].map(lambda e: e // 900 * 900 in hole).any()
+    assert len(stream) == (4 * 3600 - 1800) // 300 - 6
 
 
 def test_run_keeps_the_stream_between_passes_and_feeds_jitterbug(tmp_path):
@@ -175,6 +195,8 @@ def test_run_keeps_the_stream_between_passes_and_feeds_jitterbug(tmp_path):
     c_start, d_start, now = T0 + DAY, T0 + 2 * DAY, T0 + 3 * DAY
     r = aggregate.run(shared_result, c_start, d_start, now, fake, find, path)
     assert path.exists() and r["added"] == r["cycles"] > 0
+    assert r["since"] == d_start and r["dropped"] == 0
+    assert r["base_ms"] == float(np.median([BASE_MS[t] for t in VOTERS]))
     assert r["periods"][0]["coverage"] == 1.0
     assert len(seen[0]) == 10 * r["cycles"]
     again = aggregate.run(shared_result, c_start, d_start, now + 3600, fake, find, path)
@@ -182,6 +204,17 @@ def test_run_keeps_the_stream_between_passes_and_feeds_jitterbug(tmp_path):
     # Older than the congestion window: dropped from the file.
     moved = aggregate.run(shared_result, d_start + 3600, d_start, now + 3600, fake, find, path)
     assert moved["cycles"] == again["cycles"] - 12
+
+
+def test_an_unreadable_row_in_the_stream_file_is_dropped_not_fatal(tmp_path):
+    path = tmp_path / "aggregate.csv"
+    good = [T0, 9, 8.0] + [0.1] * 10
+    path.write_text(",".join(aggregate.COLUMNS) + "\n"
+                    + ",".join(map(str, good)) + "\n"
+                    + ",".join(["x"] + ["1"] * 12) + "\n")
+    df = aggregate.load(path)
+    assert len(df) == 1 and df["epoch"].dtype == "int64"
+    assert aggregate.samples(df)[0]["values"].iloc[0] == 8.1
 
 
 def test_a_stream_file_from_another_version_starts_over(tmp_path):

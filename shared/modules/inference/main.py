@@ -132,9 +132,9 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             row["error"] = True
             report["errors"] += 1
         report["targets"][target] = row
+    s = None
     if shared_pass is not None:
         shared_started = time.monotonic()
-        s = None
         try:
             s = shared_pass(d_start, deaf_bins)
             # Too few voters says more about the data than about the network:
@@ -154,9 +154,10 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             # An empty stream (the first pass found no cycle with a quorum)
             # says nothing: keep what earlier passes wrote.
             if a["cycles"]:
-                replace_shared_congestion(a["periods"], c_start, now)
+                replace_shared_congestion(a["periods"], max(c_start, a.get("since") or 0), now)
             report["shared_congestion"] = {
                 "periods": len(a["periods"]), "cycles": a["cycles"], "added": a["added"],
+                "base_ms": a.get("base_ms"), "dropped": a.get("dropped"),
                 "build_seconds": a.get("build_seconds"), "seconds": a.get("seconds")}
         except Exception:  # noqa: BLE001 -- the other results stand without it
             log.warning("shared congestion failed", exc_info=True)

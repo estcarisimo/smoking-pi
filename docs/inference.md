@@ -159,9 +159,17 @@ across destinations:
    170 ms away then share a scale, and a route change stays that route's.
 2. Per 5-minute probe cycle, the ten deciles (5th to 95th percentile) of
    those relative pings, when at least eight voters answered. Jitterbug
-   reads the ten values as the cycle's samples (shifted by a constant
-   100 ms, since it accepts only positive RTTs; a constant shift moves no
-   change point, no jump and no KS statistic).
+   reads the ten values as the cycle's samples, placed at the distance of a
+   typical voter: the median of the voters' floors, one constant per pass
+   (`base_ms` in the status; 6.95 ms on the staging Pi). Jitterbug accepts
+   only positive RTTs, and where a series sits is not neutral to its BCP:
+   the Student-t likelihood's prior is centered on 0, and the same 3 ms
+   step measured two change points at +10 ms and none at +100 ms. The base
+   is read off the data, not tuned, so the stream looks like what Jitterbug
+   would see on this connection's typical destination; the offline
+   evaluation below used +10 ms on a connection whose floors are mostly
+   under 15 ms. A sample still not positive (a route that got much
+   shorter) is dropped and counted in the status (`dropped`).
 3. The monitor's bins (the radio deaf, the gateway losing with the
    destinations) are left out, exactly as in the shared degradation pass.
 
@@ -175,11 +183,12 @@ shared degradation is the signal for that.
 The stream is built incrementally and kept in the state volume
 (`aggregate.csv`, about 4 000 rows): each pass adds the cycles since the
 last one, so it never re-reads two weeks of raw pings (see Cost). A cycle
-is written once its 15-minute bin and the next are complete, since the
-monitor rule looks one bin ahead, and it keeps the voters of the pass that
-wrote it. The first pass fills the loss window (7 days, the span whose
+is written once its 15-minute bin and the two after it are complete, since
+the monitor rule looks two bins ahead, and it keeps the voters of the pass
+that wrote it. A row of the file that does not read as numbers is dropped. The first pass fills the loss window (7 days, the span whose
 monitor bins are known); the stream reaches the congestion window's 14 days
-a week later. Deleting the volume starts it over.
+a week later. Deleting the volume starts it over; periods written before
+the restarted stream's first cycle are kept.
 
 Results go to `shared_congestion` (one point per period, no target tag;
 fields `end`, `duration_s`, `confidence`, `jump_ms`, `ks_p`, `coverage`).

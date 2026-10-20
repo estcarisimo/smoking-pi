@@ -12,9 +12,16 @@ queue stayed built up for the whole connection rather than on one route:
 2. **One sample set per cycle.** For each 5-minute probe cycle, the ten
    deciles (5th to 95th percentile) of every voter's relative pings, when at
    least MIN_REPORTING voters answered in it. Jitterbug reads those ten
-   values as the cycle's RTT samples. They are shifted by OFFSET_MS because
-   Jitterbug accepts only positive RTTs; a constant shift moves no change
-   point, no jump and no KS statistic.
+   values as the cycle's RTT samples, **at the distance of a typical
+   voter**: the median of the cycles' median voter floor over the window,
+   one constant per pass (``base``). Jitterbug accepts only positive RTTs,
+   and its BCP is not indifferent to where the series sits: its Student-t
+   likelihood's prior is centered on 0, so the same 3 ms step measured 2
+   change points at +10 ms and none at +100 ms or +1000 ms. Any offset is
+   then a scale choice; this one is read off the data, not tuned, and
+   makes the stream look like what Jitterbug would see on this connection's
+   typical destination. It is constant within a pass, so a voter joining
+   or leaving moves no step into the stream.
 3. **The same voters and the same monitor bins as shared.py.** The voters
    are the shared pass's (a member that loses nothing in at least half its
    bins); a cycle in a bin that was the monitor's -- the radio deaf, or the
@@ -30,7 +37,9 @@ recomputing; the cost is that a cycle keeps the voters of the pass that
 wrote it. The first pass fills the degradation window (the span whose
 monitor bins the shared pass knows); the stream reaches the congestion
 window's full 14 days a week later. Cycles are written once their 15-minute
-bin and the next are complete, since the monitor rule looks one bin ahead.
+bin and the two after it are complete: the monitor rule pads one bin on each
+side of a gateway rule that itself needs the next bin, so it looks two bins
+ahead.
 
 On 52 days of the reference Pi this found no shared congestion: the shared
 evening loss raised the median relative floor by 0.25-0.55 ms, below what
@@ -63,8 +72,9 @@ FLOOR_MIN_BINS = 96          # a voter needs a day of history for a floor
 FLOOR_QUANTILE = 0.05
 DECILES = np.linspace(0.05, 0.95, 10)
 MIN_REPORTING = 8
-OFFSET_MS = 100.0
-COLUMNS = ["epoch", "n"] + [f"d{i}" for i in range(1, 11)]
+LOOKAHEAD_BINS = 2           # shared.monitor_bins reads up to two bins ahead
+COLUMNS = ["epoch", "n", "base"] + [f"d{i}" for i in range(1, 11)]
+DECILE_COLUMNS = COLUMNS[3:]
 
 
 def _state_path() -> Path:
@@ -111,8 +121,9 @@ def floors(rows: list[dict], start: int, stop: int) -> pd.DataFrame:
 
 def cycles(rows: list[dict], floor: pd.DataFrame, voters: list[str],
            monitor: set[int]) -> pd.DataFrame:
-    """One row per probe cycle: ``epoch``, ``n`` (voters that answered) and
-    ``d1``..``d10``, the deciles of their pings over their own floors (ms)."""
+    """One row per probe cycle: ``epoch``, ``n`` (voters that answered),
+    ``base`` (the median of their floors, ms) and ``d1``..``d10``, the
+    deciles of their pings over their own floors (ms)."""
     want = set(voters)
     recs = [(int(pd.Timestamp(r["_time"]).timestamp()), r["target"], float(r["_value"]) * 1000.0)
             for r in rows if r.get("target") in want and r.get("_value") is not None
@@ -132,10 +143,13 @@ def cycles(rows: list[dict], floor: pd.DataFrame, voters: list[str],
     df["rel"] = df["ms"] - df["floor"]
     groups = df.groupby("epoch")
     n = groups["target"].nunique()
+    base = df.drop_duplicates(["epoch", "target"]).groupby("epoch")["floor"].median()
     q = groups["rel"].quantile(DECILES).unstack()
-    q.columns = [f"d{i}" for i in range(1, 11)]
-    out = q[n >= MIN_REPORTING].copy()
-    out.insert(0, "n", n[n >= MIN_REPORTING])
+    q.columns = DECILE_COLUMNS
+    keep = n >= MIN_REPORTING
+    out = q[keep].copy()
+    out.insert(0, "base", base[keep])
+    out.insert(0, "n", n[keep])
     out = out.reset_index()
     return out[COLUMNS]
 
@@ -148,7 +162,14 @@ def load(path: Path) -> pd.DataFrame:
     if list(df.columns) != COLUMNS:
         log.warning("%s has unexpected columns; starting the stream over", path)
         return pd.DataFrame(columns=COLUMNS)
-    return df
+    # A cell that does not read as a number (a hand edit, a bad sector)
+    # would fail every pass from now on: drop its row instead.
+    df = df.apply(pd.to_numeric, errors="coerce")
+    bad = df.isna().any(axis=1)
+    if bad.any():
+        log.warning("%s: dropped %d unreadable rows", path, int(bad.sum()))
+        df = df[~bad]
+    return df.astype({"epoch": "int64", "n": "int64"}).reset_index(drop=True)
 
 
 def save(df: pd.DataFrame, path: Path) -> None:
@@ -166,8 +187,8 @@ def extend(stream: pd.DataFrame, voters: list[str], monitor: set[int], begin_flo
     """Add the cycles since the stream's last one (or since ``begin_floor``,
     the start of the span whose monitor bins are known). Returns the stream
     and how many cycles were added."""
-    # The monitor rule looks one bin ahead: write a bin once the next is complete.
-    stop = _align(now, BIN_S) - BIN_S
+    # The monitor rule looks two bins ahead: write a bin once they are complete.
+    stop = _align(now, BIN_S) - LOOKAHEAD_BINS * BIN_S
     last = int(stream["epoch"].max()) if len(stream) else None
     begin = max(last + CYCLE_S if last is not None else 0, _align(begin_floor + BIN_S - 1, BIN_S))
     if begin >= stop:
@@ -188,16 +209,25 @@ def extend(stream: pd.DataFrame, voters: list[str], monitor: set[int], begin_flo
     return out, len(new)
 
 
-def samples(stream: pd.DataFrame) -> pd.DataFrame:
+def samples(stream: pd.DataFrame) -> tuple[pd.DataFrame, float, int]:
     """The stream as Jitterbug's input: ten rows per cycle, ``epoch`` and
-    ``values`` (ms, shifted by OFFSET_MS; a sample still not positive is
-    dropped, as Jitterbug would refuse it)."""
+    ``values`` (ms, at the typical voter's distance ``base``). Returns the
+    input, the base and how many samples were dropped for not being
+    positive (Jitterbug would refuse them): a decile more than ``base``
+    below the floors, which takes a route that got much shorter."""
     if not len(stream):
-        return pd.DataFrame(columns=["epoch", "values"])
-    long = stream.melt(id_vars=["epoch"], value_vars=COLUMNS[2:], value_name="values")
-    long["values"] = long["values"] + OFFSET_MS
-    long = long[long["values"] > 0].dropna(subset=["values"])
-    return long.sort_values("epoch", kind="stable")[["epoch", "values"]].reset_index(drop=True)
+        return pd.DataFrame(columns=["epoch", "values"]), 0.0, 0
+    base = float(stream["base"].median())
+    long = stream.melt(id_vars=["epoch"], value_vars=DECILE_COLUMNS, value_name="values")
+    long["values"] = long["values"] + base
+    ok = long["values"] > 0
+    dropped = int((~ok).sum())
+    if dropped:
+        log.warning("aggregate stream: %d samples below zero at a %.1f ms base were dropped",
+                    dropped, base)
+    long = long[ok]
+    out = long.sort_values("epoch", kind="stable")[["epoch", "values"]].reset_index(drop=True)
+    return out, base, dropped
 
 
 def run(shared_result: dict, c_start: int, d_start: int, now: int, query=query_influx,
@@ -212,9 +242,14 @@ def run(shared_result: dict, c_start: int, d_start: int, now: int, query=query_i
                            set(shared_result.get("monitor") or ()), d_start, now, query)
     save(stream, path)
     built = time.monotonic() - started
-    found = find(samples(stream))
+    inp, base, dropped = samples(stream)
+    found = find(inp)
     deaf.coverage(found["periods"], stream["epoch"] if len(stream) else pd.Series(dtype=int))
+    # Where the stream starts: the caller replaces periods from here on only,
+    # so a stream that restarted (a lost volume) keeps the older periods.
+    since = int(stream["epoch"].min()) if len(stream) else None
     return {"periods": found["periods"], "cycles": int(len(stream)), "added": added,
+            "since": since, "base_ms": round(base, 2), "dropped": dropped,
             "change_points": found["change_points"],
             "build_seconds": round(built, 1),
             "seconds": round(time.monotonic() - started, 1)}

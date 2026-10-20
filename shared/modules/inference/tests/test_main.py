@@ -190,7 +190,8 @@ def test_jitterbug_on_the_aggregate_runs_after_the_shared_pass_with_its_voters()
 
     def agg(s, c, d, now):
         seen.append((s["voter_targets"], c, d, now))
-        return {"periods": [{"start": c + 900, "end": c + 9000}], "cycles": 2000, "added": 12}
+        return {"periods": [{"start": c + 900, "end": c + 9000}], "cycles": 2000, "added": 12,
+                "since": c - 3600}
 
     report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None,
                     aggregate_pass=agg,
@@ -219,3 +220,19 @@ def test_a_failing_aggregate_pass_leaves_the_shared_result_standing():
     report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None, aggregate_pass=boom)
     assert report["shared_congestion"] == {"error": True}
     assert report["shared"]["voters"] == 40 and report["errors"] == 1
+
+
+def test_a_stream_that_starts_late_replaces_periods_from_its_start_only():
+    c_start, _ = main.windows(NOW)
+    written = []
+    _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None,
+           aggregate_pass=lambda *a: {"periods": [], "cycles": 5, "added": 5,
+                                      "since": c_start + 7 * 86400},
+           replace_shared_congestion=lambda p, s, e: written.append(s))
+    assert written == [c_start + 7 * 86400]
+
+
+def test_an_aggregate_pass_without_a_shared_pass_is_never_run():
+    calls = []
+    report = _quiet(aggregate_pass=lambda *a: calls.append(a))
+    assert calls == [] and "shared_congestion" not in report

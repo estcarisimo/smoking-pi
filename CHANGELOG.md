@@ -49,7 +49,10 @@ version gets a matching GitHub release and git tag.
   once, on one stream: per 5-minute cycle, the ten deciles of every
   voter's pings minus that voter's own floor (the 5th percentile of its
   15-minute minimum RTT over the trailing 7 days), when at least eight
-  voters answered, the monitor's bins left out as in shared degradation.
+  voters answered, the monitor's bins left out as in shared degradation,
+  placed at the median voter floor (Jitterbug needs positive RTTs, and its
+  BCP prior is centered on 0, so the same step reads differently at +10 ms
+  and +100 ms: the base comes from the data, not a tuned constant).
   Reading 14 days of every target's raw pings each hour measured 22 s and
   662 MB on a staging Pi with ~23 targets (about a minute and 2 GB with the
   reference Pi's ~65), so the stream is built incrementally in the state
@@ -58,8 +61,9 @@ version gets a matching GitHub release and git tag.
   30 s). Written as `shared_congestion`, drawn as an orange-dark *Whole
   connection* row in Connectivity & Quality's timeline, labeled
   experimental. Evaluated offline on 52 days of the reference Pi, the
-  method finds nothing, which is the expected answer: the shared evening loss raised the relative floor
-  by 0.25–0.55 ms, below a Jitterbug jump. Out of the alert path.
+  method finds nothing, which is the expected answer: the shared evening
+  loss raised the relative floor by 0.25–0.55 ms, below a Jitterbug jump.
+  Out of the alert path.
 - **Who lost in a shared loss period.** A *Whole connection* loss period
   said whether it was shared and named one dominant target, but not which
   operators carried it or which destinations stayed clean, so telling a
