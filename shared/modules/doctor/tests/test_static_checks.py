@@ -1024,6 +1024,9 @@ def test_columns_a_map_or_elapsed_computes_are_not_tag_filters():
     assert sources.tag_refs_in(early) == {"phase", "to_version", "s"}
     renamed = query.replace("elapsed(unit: 1s)", 'elapsed(unit: 1s, columnName: "gap")')
     assert sources.tag_refs_in(renamed) == {"phase", "to_version", "elapsed"}
+    # A key spelled inside a string is text, not a column the map made.
+    quoted = query.replace('"Upgrade, "', '"Upgrade, foo: "') + ' |> filter(fn: (r) => r.foo == "x")'
+    assert sources.tag_refs_in(quoted) == {"phase", "to_version", "foo"}
 
 
 def test_a_joined_query_answers_with_a_number():

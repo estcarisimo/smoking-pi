@@ -638,7 +638,10 @@ def _computed(query: str) -> list[tuple[int, set[str]]]:
             named = re.search(r'columnName:\s*"([A-Za-z_]\w*)"', call)
             names = {named.group(1) if named else "elapsed"}
         else:
-            names = set(re.findall(r"(?:[{,]|\bwith)\s*([A-Za-z_]\w*)\s*:", call))
+            # Text inside quotes is a value, never a column: ", foo: " in
+            # a label must not exempt r.foo.
+            names = set(re.findall(r"(?:[{,]|\bwith)\s*([A-Za-z_]\w*)\s*:",
+                                   _STRING_RE.sub('""', call)))
         made.append((end, names))
     return made
 

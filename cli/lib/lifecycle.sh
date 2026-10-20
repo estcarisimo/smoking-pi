@@ -204,21 +204,24 @@ human_bytes() {
 # edition's InfluxDB bucket, measurement `upgrade`: phase=start before the
 # first container is touched, phase=end (result=ok|failed) once InfluxDB
 # answers again -- or from the exit trap when the upgrade fails. Tags
-# from_version and to_version on both; field value=1. shared/modules/inference
-# reads them; Grafana draws them (docs/upgrades.md). Through the database
+# from_version and to_version on both; field value=1: written for the
+# detectors (shared/modules/inference) to set the window aside, and drawn
+# by Grafana (docs/upgrades.md). Through the database
 # container's own CLI, as the watchdog records its events (cli/lib/watchdog.sh):
 # no token on this side. Best effort: no InfluxDB (Basic, Standard,
 # ClickHouse), nothing written and nothing said; InfluxDB not answering,
 # one line and the upgrade goes on.
 UPGRADE_MARK=""         # "from to" once the start point is in; empty: no end to write
-UPGRADE_MARK_TRIES=20   # end point: tries, three seconds apart (InfluxDB restarts)
+UPGRADE_MARK_TRIES=20   # end point: tries, three seconds apart (InfluxDB restarts),
+UPGRADE_MARK_WAIT=60    # and no new try after this many seconds, however long each took
 
 upgrade_marks_wanted() {
     [ "$SMOKING_PI_EDITION" = pro ] && profile_on influxdb
 }
 
 bounded() {
-    # timeout(1) where there is one; macOS has none, and the call runs as is.
+    # timeout(1) where there is one. macOS has none: there the call runs
+    # unbounded, and only the end point's deadline below still holds.
     if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi
 }
 
@@ -258,7 +261,8 @@ upgrade_mark_start() {
     local c from to line
     c="$(influx_container)"
     from="${c#* }"; from="${from##*/}"
-    case "$from" in *:*) from="${from##*:}" ;; *) from="" ;; esac
+    # name:tag gives the tag; a name@sha256:... digest or a bare id, nothing.
+    case "$from" in *@*) from="" ;; *:*) from="${from##*:}" ;; *) from="" ;; esac
     from="$(mark_tag "$from")"; to="$(mark_tag "${SMOKING_PI_VERSION:-dev}")"
     line="$(printf 'upgrade,phase=start,from_version=%s,to_version=%s value=1 %s' "$from" "$to" "$(mark_now)")"
     # One try: InfluxDB is running before the upgrade or it is not, and the
@@ -276,15 +280,16 @@ upgrade_mark_start() {
 
 upgrade_mark_end() {
     # $1: ok | failed. Stamped now, written when InfluxDB answers again:
-    # a recreated InfluxDB takes tens of seconds, so up to a minute of
-    # retries, then one line and on.
+    # a recreated InfluxDB takes tens of seconds, so retries for up to a
+    # minute by the clock (a wedged Docker makes each try last up to 15 s,
+    # and twenty of those would be five), then one line and on.
     [ -n "$UPGRADE_MARK" ] || return 0
     trap - EXIT INT TERM
-    local from="${UPGRADE_MARK% *}" to="${UPGRADE_MARK#* }" line try=1
+    local from="${UPGRADE_MARK% *}" to="${UPGRADE_MARK#* }" line try=1 deadline=$((SECONDS + UPGRADE_MARK_WAIT))
     UPGRADE_MARK=""
     line="$(printf 'upgrade,phase=end,from_version=%s,to_version=%s,result=%s value=1 %s' "$from" "$to" "$1" "$(mark_now)")"
     until influx_write_line "$line"; do
-        if [ "$try" -ge "$UPGRADE_MARK_TRIES" ]; then
+        if [ "$try" -ge "$UPGRADE_MARK_TRIES" ] || [ "$SECONDS" -ge "$deadline" ]; then
             echo "InfluxDB did not take the upgrade's end point within a minute; its window shows no end (docs/upgrades.md)." >&2
             return 0
         fi

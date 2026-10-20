@@ -509,6 +509,32 @@ influx_exec_plan() {
     if grep -q 'result=ok' "$DOCKER_LOG.stdin"; then false; fi
 }
 
+@test "a failure after the stack is back (the doctor) keeps result=ok and writes no second end" {
+    export STUB_INFLUX_ID="$INFLUX_C"
+    # A doctor that finds a problem: run_doctor takes the module's venv python.
+    mkdir -p "$STUB_HOME/shared/modules/doctor/.venv/bin"
+    printf '#!/bin/sh\n[ "$1" = -c ] && exit 0\nexit 1\n' > "$STUB_HOME/shared/modules/doctor/.venv/bin/python"
+    chmod +x "$STUB_HOME/shared/modules/doctor/.venv/bin/python"
+    SMOKING_PI_VERSION=2.39.0 run "$CLI" upgrade
+    [ "$status" -ne 0 ]
+    [ "$(grep -c '^upgrade,phase=end' "$DOCKER_LOG.stdin")" -eq 1 ]
+    grep -q '^upgrade,phase=end,.*,result=ok ' "$DOCKER_LOG.stdin"
+}
+
+@test "an upgrade stopped with SIGTERM during up closes its window with result=failed" {
+    export STUB_INFLUX_ID="$INFLUX_C"
+    # `up` takes two real seconds, long enough to be signaled in the middle.
+    sed -i 's|^    \*" up -d"\*)$|    *" up -d"*) /bin/sleep 2 ;;\n    *" up -d-never"*)|' "$BATS_TEST_TMPDIR/bin/docker"
+    SMOKING_PI_VERSION=2.39.0 "$CLI" upgrade --skip-doctor > "$BATS_TEST_TMPDIR/out" 2>&1 &
+    pid=$!
+    for _ in $(seq 50); do grep -q ' up -d' "$DOCKER_LOG" && break; /bin/sleep 0.1; done
+    kill -TERM "$pid"
+    st=0; wait "$pid" || st=$?
+    [ "$st" -eq 143 ]
+    grep -q '^upgrade,phase=start,' "$DOCKER_LOG.stdin"
+    [ "$(grep -c '^upgrade,phase=end,.*,result=failed value=1 ' "$DOCKER_LOG.stdin")" -eq 1 ]
+}
+
 @test "a pull that fails touched no container and records no window" {
     export STUB_INFLUX_ID="$INFLUX_C"
     fail_docker_on " pull"

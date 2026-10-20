@@ -80,15 +80,20 @@ writes its own start and end into the edition's InfluxDB bucket
 `from_version` is the tag of the image InfluxDB ran before (`dev` for a
 clone's own build), `to_version` the release being brought up. A pull that
 fails touched no container and records nothing. The end point is stamped
-when the stack is back and retried for up to a minute while a recreated
-InfluxDB starts. Recording never stops an upgrade: when InfluxDB does not
+when the stack is back and retried for up to a minute (by the clock)
+while a recreated InfluxDB starts. Recording never stops an upgrade: when InfluxDB does not
 take a point, `upgrade` says so in one line and goes on, and that window
 has no start or no end.
 
 The *Upgrades* annotation on **Overview** and **Connectivity & Quality**
 shades each window, labeled `Upgrade 2.43.0 → 2.44.0 (95 s)` (`, failed`
-when it was). The same points are there for the detectors: the inference
-module reads them.
+when it was). The points are also written for the detectors
+(`shared/modules/inference`) to set the window aside.
+
+![The Upgrades region on Connectivity & Quality: a 7-second same-version upgrade on a staging Pi, between the two dotted lines](img/upgrade-window.png)
+
+Hover the region for its label. An in-progress upgrade (a start with no end
+yet) is not drawn until its end arrives.
 
 Only Pro with InfluxDB records them. Basic and Standard have no time-series
 database, and the ClickHouse backend has no table for events like this one
