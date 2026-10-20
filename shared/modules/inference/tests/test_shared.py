@@ -195,11 +195,15 @@ def test_untagged_targets_are_not_a_second_kind():
     assert p["scope"] == "dominated"
 
 
-def test_the_queries_are_storage_engine_shapes():
+def test_the_queries_are_storage_engine_shapes_on_aligned_bins():
     for fn in ("mean", "count"):
-        flux = shared.bins_flux(1_790_000_000, fn)
-        assert f"aggregateWindow(every: 15m, fn: {fn}" in flux
+        flux = shared.bins_flux(1_790_000_123, 1_790_600_456, fn)
+        # aggregateWindow straight after the filter: what InfluxDB pushes down
+        assert ('r._field == "loss") '
+                f'|> aggregateWindow(every: 15m, fn: {fn}, createEmpty: false)') in flux
         assert "map(" not in flux and "reduce(" not in flux and "pivot(" not in flux
+        # both ends on a bin boundary: the newest window is never a clipped one
+        assert "range(start: 1790000100, stop: 1790600400)" in flux
     assert "last()" in shared.hosts_flux()
 
 

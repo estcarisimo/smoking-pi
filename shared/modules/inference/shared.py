@@ -7,7 +7,10 @@ degradation detector (degradation.detect, its parameters untouched):
 
 1. **Bins.** Every ICMP target's loss and probe cycles per 15-minute bin
    over the degradation window, from storage-engine shapes only
-   (``aggregateWindow`` with ``mean`` and ``count``).
+   (``aggregateWindow`` with ``mean`` and ``count``). Every category takes
+   part, INFERENCE_CATEGORIES or not: that setting picks whom the per-target
+   detectors analyze, and the shared question is about all of them. The ISP
+   gateway is the exception: it tells the monitor's bins apart (step 2).
 2. **The monitor's bins are out.** A bin is the monitor's when its radio was
    deaf (deaf.py), or when the ISP gateway lost about as much as the
    destinations did in two bins running, or lost at least a fifth on its own:
@@ -40,6 +43,7 @@ evenings were found in 99-100 % of them and false periods in 0-2 %.
 from __future__ import annotations
 
 import logging
+import time
 
 import numpy as np
 import pandas as pd
@@ -64,16 +68,23 @@ SHARED_OPERATOR_SHARE = 1 / 3
 MIN_KINDS = 2
 
 
-def bins_flux(start: int, fn: str) -> str:
+def bins_flux(start: int, stop: int, fn: str) -> str:
     """Per target, per 15-minute bin: the mean loss or the cycle count. The
-    window is labeled by its end, as aggregateWindow does."""
+    window is labeled by its end, as aggregateWindow does. ``aggregateWindow``
+    comes straight after the filter so InfluxDB computes it in its storage
+    engine (a ``keep`` before it measured a third slower on the reference Pi);
+    both ends are aligned to the bin so the newest bin is never a clipped one."""
     if fn not in ("mean", "count"):
         raise ValueError("fn")
     return (f"from(bucket: {flux_str(influx_bucket())}) "
-            f"|> range(start: {int(start)}) "
+            f"|> range(start: {_align(start)}, stop: {_align(stop)}) "
             '|> filter(fn: (r) => r._measurement == "latency" and r._field == "loss") '
-            '|> keep(columns: ["_time", "_value", "target", "category"]) '
-            f"|> aggregateWindow(every: 15m, fn: {fn}, createEmpty: false)")
+            f"|> aggregateWindow(every: 15m, fn: {fn}, createEmpty: false) "
+            '|> keep(columns: ["_time", "_value", "target", "category"])')
+
+
+def _align(epoch: int) -> int:
+    return int(epoch) // BIN_S * BIN_S
 
 
 def hosts_flux() -> str:
@@ -153,12 +164,16 @@ def qualify(period: dict, lo: pd.DataFrame, of) -> dict:
     per_target = span.mean()
     ops: dict[str, list[str]] = {}
     for t in lo.columns:
-        ops.setdefault(of(t)[0], []).append(t)
+        operator = of(t)[0]
+        # An untagged target (its lookups have not succeeded yet) is no
+        # operator: lumping them into one would dilute the share.
+        if operator != tagging.UNKNOWN:
+            ops.setdefault(operator, []).append(t)
     op_loss = {op: float(per_target[ts].mean()) for op, ts in ops.items()
                if per_target[ts].notna().any()}
     lossy = [op for op, v in op_loss.items() if v >= LOSSY_PCT]
     # An untagged target is not evidence of a second kind of infrastructure.
-    kinds = sorted({of(ops[op][0])[1] for op in lossy} - {tagging.UNKNOWN})
+    kinds = sorted({of(ops[op][0])[1] for op in lossy})
     total = float(per_target.sum()) or 1.0
     top = per_target.idxmax() if per_target.notna().any() else ""
     share = len(lossy) / len(op_loss) if op_loss else 0.0
@@ -202,10 +217,11 @@ def detect(loss_rows: list[dict], count_rows: list[dict], deaf_bins: set[int], o
 
 
 def run(start: int, deaf_bins: set[int], query=query_influx, tag_store=None,
-        find=degradation.detect) -> dict:
+        find=degradation.detect, now: int | None = None) -> dict:
     """One shared pass from InfluxDB: the bins, the hosts, the tags, the periods."""
-    loss_rows = query(bins_flux(start, "mean"))
-    count_rows = query(bins_flux(start, "count"))
+    stop = int(time.time()) if now is None else now
+    loss_rows = query(bins_flux(start, stop, "mean"))
+    count_rows = query(bins_flux(start, stop, "count"))
     hosts = {r["target"]: str(r["_value"]) for r in query(hosts_flux())
              if r.get("target") and r.get("_value")}
     tag_store = tag_store or tagging.Tags()

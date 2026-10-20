@@ -55,14 +55,46 @@ def test_lookups_are_cached_and_survive_a_restart(tmp_path):
     assert calls[-1] == ("A", "nytimes.com")  # the address is asked again after a day
 
 
-def test_a_failed_lookup_is_not_cached_and_reads_unknown(tmp_path):
+def test_a_failed_lookup_reads_unknown_and_is_asked_again_after_an_hour(tmp_path):
+    now = [1.0]
     calls = []
     hosts = {"X": "x.example"}
-    t = make(tmp_path, lambda: 1.0, {}, {}, calls)
+    t = make(tmp_path, lambda: now[0], {}, {}, calls)
     t.refresh(hosts)
     assert t.of("X", hosts) == (tags.UNKNOWN, tags.UNKNOWN)
     t.refresh(hosts)
+    assert calls == [("A", "x.example")]
+    now[0] += tags.FAILED_TTL + 1
+    t.refresh(hosts)
     assert calls == [("A", "x.example"), ("A", "x.example")]
+
+
+def test_one_lookup_that_raises_loses_none_of_the_others(tmp_path):
+    def resolve_fn(host):
+        if host == "bad":
+            raise RuntimeError("resolver blew up")
+        return ("10.0.0.1", [])
+
+    t = tags.Tags(tmp_path / "tags.json", clock=lambda: 1.0, resolve_fn=resolve_fn,
+                  origin_fn=lambda ip: (13335, "CLOUDFLARENET"))
+    hosts = {"A": "good", "B": "bad"}
+    t.refresh(hosts)
+    assert t.of("A", hosts) == ("Cloudflare", tags.CDN)
+    assert (tmp_path / "tags.json").exists()
+
+
+def test_hosts_that_never_resolve_do_not_starve_the_rest(tmp_path, monkeypatch):
+    monkeypatch.setattr(tags, "BUDGET", 2)
+    now = [1.0]
+    calls = []
+    answers = {"z": ("10.0.0.1", [])}
+    owners = {"10.0.0.1": (13335, "CLOUDFLARENET")}
+    t = make(tmp_path, lambda: now[0], answers, owners, calls)
+    hosts = {"A": "a-dead", "B": "b-dead", "Z": "z"}
+    for _ in range(3):
+        t.refresh(hosts)
+        now[0] += tags.FAILED_TTL + 1
+    assert t.of("Z", hosts) == ("Cloudflare", tags.CDN)
 
 
 def test_one_owner_lookup_per_slash_24(tmp_path):

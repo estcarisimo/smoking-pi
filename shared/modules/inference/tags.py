@@ -2,8 +2,9 @@
 
 The shared detector (shared.py) asks whether loss reached *many kinds of
 infrastructure at once*, not many target names: three names on one CDN are
-one piece of infrastructure, not three. So each target is tagged from public
-data, never from a hand list:
+one piece of infrastructure, not three. So each target is tagged by what it
+reaches, not by a list of targets: its network from public data, and that
+network's kind from a short curated table of well-known networks:
 
 1. its host, from the ``target_host`` measurement the exporter writes;
 2. the host's address and CNAME chain, from DNS (the chain is what tells
@@ -20,8 +21,9 @@ an academic network. PeeringDB's network type was tried first and is too
 coarse: it calls nearly all of these "Content".
 
 Lookups are DNS queries only, a few per target and cached in the state
-volume (addresses for a day, owners for a week). A failed lookup is not
-cached, and the target is tagged ``unknown`` until one succeeds.
+volume (addresses for a day, owners for a week). A failed lookup is cached
+for an hour, so a host that never resolves cannot hold the budget forever;
+until a lookup succeeds the target is ``unknown`` and counts as no operator.
 """
 
 from __future__ import annotations
@@ -63,6 +65,7 @@ AMAZON = 16509  # CloudFront and EC2 share it: the CNAME chain decides
 CLOUDFRONT_HINTS = ("cloudfront", "frontier.amazon")
 
 ADDRESS_TTL = 86400
+FAILED_TTL = 3600
 OWNER_TTL = 7 * 86400
 BUDGET = 64  # new lookups per pass; the rest wait for the next one
 
@@ -167,25 +170,38 @@ class Tags:
         """Look up what is missing or stale, at most BUDGET of each kind."""
         now = self.clock()
         def old(entry: dict | None, ttl: int) -> bool:
-            return entry is None or now - entry.get("at", now) > ttl
+            if entry is None:
+                return True
+            return now - entry.get("at", now) > (FAILED_TTL if entry.get("failed") else ttl)
 
-        stale = [h for h in sorted(set(hosts.values()))
+        def safe(fn):
+            def call(arg):
+                try:
+                    return fn(arg)
+                except Exception:  # noqa: BLE001 -- one bad lookup must not lose the others
+                    log.debug("lookup failed for %s", arg, exc_info=True)
+                    return None
+            return call
+
+        wanted = set(hosts.values())
+        stale = [h for h in sorted(wanted, key=lambda h: self.addresses.get(h, {}).get("at", 0))
                  if old(self.addresses.get(h), ADDRESS_TTL)][:BUDGET]
         if stale:
             with ThreadPoolExecutor(8) as pool:
-                for host, found in zip(stale, pool.map(self._resolve, stale)):
-                    if found:
-                        self.addresses[host] = {"ip": found[0], "chain": found[1], "at": now}
+                for host, found in zip(stale, pool.map(safe(self._resolve), stale)):
+                    self.addresses[host] = ({"ip": found[0], "chain": found[1], "at": now}
+                                            if found else {"failed": True, "at": now})
         ips = {a["ip"] for h, a in self.addresses.items()
-               if h in set(hosts.values()) and ipaddress.ip_address(a["ip"]).version == 4}
+               if h in wanted and a.get("ip") and ipaddress.ip_address(a["ip"]).version == 4}
         todo = sorted({self._prefix(ip): ip for ip in ips
-                       if old(self.owners.get(self._prefix(ip)), OWNER_TTL)}
-                      .items())[:BUDGET]
+                       if old(self.owners.get(self._prefix(ip)), OWNER_TTL)}.items(),
+                      key=lambda kv: self.owners.get(kv[0], {}).get("at", 0))[:BUDGET]
         if todo:
             with ThreadPoolExecutor(8) as pool:
-                for (prefix, _ip), found in zip(todo, pool.map(self._origin, [ip for _, ip in todo])):
-                    if found:
-                        self.owners[prefix] = {"asn": found[0], "name": found[1], "at": now}
+                for (prefix, _ip), found in zip(todo, pool.map(safe(self._origin),
+                                                               [ip for _, ip in todo])):
+                    self.owners[prefix] = ({"asn": found[0], "name": found[1], "at": now}
+                                           if found else {"failed": True, "at": now})
         if stale or todo:
             self.save()
 
@@ -193,9 +209,9 @@ class Tags:
         """(operator, kind) of a target; ``unknown`` until its lookups succeed."""
         host = hosts.get(target)
         address = self.addresses.get(host or "")
-        if not address:
+        if not address or not address.get("ip"):
             return UNKNOWN, UNKNOWN
         owner = self.owners.get(self._prefix(address["ip"])) if "." in address["ip"] else None
-        if not owner:
+        if not owner or not owner.get("asn"):
             return UNKNOWN, UNKNOWN
         return classify(owner["asn"], owner.get("name", ""), host, address.get("chain", []))

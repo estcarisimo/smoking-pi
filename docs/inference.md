@@ -77,7 +77,9 @@ with a period each are not one shared period, so once per pass the module
 also asks the house-level question: did loss rise for the whole connection,
 not one service?
 
-1. Every ICMP target's loss is binned into 15 minutes over the loss window.
+1. Every ICMP target's loss is binned into 15 minutes over the loss window,
+   whatever `INFERENCE_CATEGORIES` selects: that setting picks whom the
+   per-target detectors analyze; the shared question is about all of them.
 2. The monitor's own bins are left out: the radio was deaf, or the ISP
    gateway lost about as much as the destinations did (two bins running, or
    a fifth on its own). That is the first hop or closer, which the alerter's
@@ -95,8 +97,8 @@ not one service?
 Each period is then qualified by **who runs the infrastructure** behind the
 targets that lost. The module looks up each target's host (as the exporter
 records it), its address and CNAME, and the origin AS from
-[Team Cymru](https://www.team-cymru.com/ip-asn-mapping)'s DNS service, and
-maps well-known networks to their operator and kind: a multi-tenant CDN
+[Team Cymru](https://www.team-cymru.com/ip-asn-mapping)'s DNS service; a
+short curated table maps well-known networks to their operator and kind: a multi-tenant CDN
 (Fastly, Cloudflare, Akamai, CloudFront, Imperva…), a content provider's own
 network (Google, Meta, Apple, Microsoft), a cache embedded near the access
 network (Netflix), cloud or origin servers, or an academic network. Any
@@ -121,14 +123,17 @@ of infrastructure the targets reach, not which targets they are.
 Results go to `shared_degradation` (one point per period, no target tag;
 fields `scope`, `mean_loss_pct`, `coverage`, `voters`, `operators`,
 `lossy_operator_share`, `kinds`, `dominant`, `dominant_share`).
-Connectivity & Quality draws them as the top rows of its episode timeline,
-*Whole connection*: dark red when shared, pale when one destination carried
+Connectivity & Quality draws them in its episode timeline as the *Whole
+connection* rows: dark red when shared, pale when one destination carried
 it. With fewer than eight steady targets the module says nothing and leaves
 earlier periods as they were.
 
 The lookups are DNS queries, a few per target, cached in the state volume
-(addresses for a day, owners for a week), the same service the DNS
-observer and the resolver probe use. No probe is added.
+(addresses for a day, owners for a week, a failure for an hour), the same
+service the DNS observer and the resolver probe use. No probe is added. A
+target whose lookups have not succeeded yet counts as no operator, so in
+the first passes after the module starts, before every target is tagged
+(64 lookups a pass), a period may read `dominated` and later `shared`.
 
 ## What a period carries besides its detection
 

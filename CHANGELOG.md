@@ -28,15 +28,17 @@ version gets a matching GitHub release and git tag.
   two kinds of infrastructure or more (multi-tenant CDN, a content
   provider's own network, an embedded cache, cloud or origin, academic),
   `dominated` otherwise, with the target that carried the loss. The
-  operators come from public data, not from a list of ours: the host the
-  exporter records, its address and CNAME, and the origin AS from Team
-  Cymru's DNS service, cached in the state volume; three names on one CDN
-  count as one operator. Replayed on 52 days of the reference Pi, it marks
+  operators come from what each target reaches, not from a list of targets:
+  the host the exporter records, its address and CNAME, and the origin AS
+  from Team Cymru's DNS service, cached in the state volume, with a short
+  curated table naming the kind of well-known networks; three names on one
+  CDN count as one operator. Every category takes part, whatever
+  `INFERENCE_CATEGORIES` selects for the per-target detectors. Replayed on 52 days of the reference Pi, it marks
   every evening of the August to October loss as shared, calls the three
   periods carried by one dead name `dominated`, and finds nothing on a CDN
   edge's route changes, the radio hangs or a quiet week. Written as
-  `shared_degradation`; Connectivity & Quality draws it as the top row of
-  its episode timeline, *Whole connection*. Experimental like the rest of
+  `shared_degradation`; Connectivity & Quality draws it in its episode
+  timeline as the *Whole connection* rows. Experimental like the rest of
   the module and out of the alert path. Costs one more change-point run
   and two storage-engine queries per pass, plus a few DNS lookups a day.
 
