@@ -35,5 +35,5 @@ re="$(docker run --rm --entrypoint /bin/sh "$image" -c "grep -i 'query time' $pm
     sed -n 's#.*qr/\(.*\)/i;.*#\1#p' | head -1)"
 echo "probe regex: $re"
 test -n "$re"
-printf '%s\n' "$line" | RE="$re" perl -ne 'exit(!(/$ENV{RE}/i && $1 =~ /\./ && $1 > 0))'
+printf '%s\n' "$line" | RE="$re" perl -ne 'exit(1) unless /$ENV{RE}/i; $v = $1; exit(!($v =~ /\./ && $v > 0))'
 echo "dig-usec image proof: ok"
