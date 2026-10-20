@@ -61,6 +61,13 @@ RUN set -eu; \
 # editing an exporter still needs no rebuild there.
 COPY modules/smokeping-exporters/*.py /exporters/
 
+# dig with a real clock for the DNS probe: dig's default timer is the
+# kernel's coarse clock (4 ms steps on a Pi); dig -u reads the fine one and
+# the wrapper rewrites its "usec" line to the "msec" line SmokePing parses.
+# Build context is `shared/`, as for the COPY above.
+COPY modules/smokeping/dig-usec /usr/local/bin/dig-usec
+RUN chmod 0755 /usr/local/bin/dig-usec
+
 # The edition-specific naming is handled by docker-compose.yml
 # No additional changes needed as all customization happens via:
 # - Volume mounts (config, scripts)

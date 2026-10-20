@@ -1,0 +1,24 @@
+#!/bin/sh
+# dig with a real clock, for SmokePing's DNS probe.
+#
+# SmokePing's DNS probe reads the time from dig's ";; Query time: N msec"
+# line. dig timestamps with CLOCK_REALTIME_COARSE unless given -u, and on a
+# Pi that clock ticks every 4 ms (CONFIG_HZ=250): every sample was a
+# multiple of 4 ms. With -u dig reads the fine clock and prints
+# ";; Query time: N usec", which the probe's regex does not match. This
+# wrapper runs dig -u and rewrites only that line to ";; Query time:
+# N.NNN msec", which the probe's regex and pingfactor=1000 take as is.
+# Everything else on stdout, all of stderr and the exit code pass through.
+#
+# Same query count and same RRD series: only the resolution of the sample
+# changes (docs/dns-probes.md).
+exec 4>&1
+rc=$({ { "${DIG_BIN:-/usr/bin/dig}" -u "$@"; echo $? >&3; } |
+    awk '/^;; Query time: [0-9]+ usec/ {
+             us = $4
+             sub(/^;; Query time: [0-9]+ usec/, "")
+             printf ";; Query time: %.3f msec%s\n", us / 1000, $0; next
+         }
+         { print }' >&4; } 3>&1)
+exec 4>&-
+exit "${rc:-1}"

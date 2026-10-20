@@ -20,16 +20,34 @@ The install seeds three resolvers, in the `dns_resolvers` category:
 
 The probe (`DNS` in `probes.yaml`, SmokePing's
 [DNS probe](https://oss.oetiker.ch/smokeping/probe/DNS.en.html)) runs
-`/usr/bin/dig` and sends **5 queries per target every 300 seconds**: each
+`/usr/local/bin/dig-usec` (a thin wrapper around `dig`, see below) and
+sends **5 queries per target every 300 seconds**: each
 query is one sample, and a query that gets no answer counts as lost. The
 name looked up is the target's `lookup`; it stays the same from cycle to
 cycle, so after the first query the resolver usually answers from its
 cache: the time is mostly the path to the resolver, not a full recursive
 resolution.
 
-On a Pi the probe's timer is the kernel tick (4 ms on a 250 Hz kernel), so
-resolution times sit on a few fixed steps; a change smaller than one tick
-does not show.
+The time is read at microsecond resolution. `dig` timestamps with the
+kernel's coarse clock unless given `-u`, and on a Pi that clock ticks every
+4 ms, so every sample used to be a multiple of 4 ms and a change smaller
+than a tick did not show. `dig-usec` runs `dig -u` and rewrites the one
+line `;; Query time: N usec` to `;; Query time: N.NNN msec`, which is the
+form SmokePing's DNS probe parses; everything else `dig` prints, and its
+exit code, pass through. It sends the same queries as before and the
+series keep their names.
+
+**One change in the history.** From the release that introduced the
+wrapper, the DNS series are no longer quantized: a resolver that answered
+in 4 ms, 8 ms or 12 ms now shows 3.6, 7.9, 11.2. Medians and minimums move
+by up to one tick (a few ms at most) at that point, with no change in the
+network. On upgrade, every installed probe whose binary is `/usr/bin/dig` is
+switched to `/usr/local/bin/dig-usec`, once; a binary you chose yourself
+is left alone. The Basic edition uses SmokePing's stock probe
+configuration, which still calls `dig`, so its DNS samples keep the 4 ms
+steps. The smokeping and config-manager images change together (an
+upgrade pulls both); rolling back to an earlier release needs the `DNS`
+probe's binary set back to `/usr/bin/dig`.
 
 To measure another resolver, add it in the web admin (*Targets → Add*) with
 the probe **DNS**, the category **DNS Resolvers** and a name to look up.

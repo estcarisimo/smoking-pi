@@ -73,6 +73,15 @@ PROBE_PINGS_FIXES = (
     ("seed_fix_http_pings3", _SHIPPED_CURL_ARGS, 5, 3),
 )
 
+# Binaries: (marker, shipped binary, corrected binary). A probe matches on
+# its binary exactly as the seed wrote it, so a path someone chose is kept.
+PROBE_BINARY_FIXES = (
+    # dig's default timer is the kernel's coarse clock, 4 ms steps on a Pi.
+    # dig-usec runs dig -u and prints the time in the "msec" form SmokePing
+    # parses. The series keep their names; their resolution changes once.
+    ("seed_fix_dns_usec", "/usr/bin/dig", "/usr/local/bin/dig-usec"),
+)
+
 _YAML_PROBE = re.compile(r"^  (\w+):\s*$")
 _YAML_ARGS = re.compile(r"^    extraargs: '(.*)'\s*$")
 
@@ -110,10 +119,11 @@ def fix_probes_yaml(config_dir: Path) -> int:
     """
     path = Path(config_dir) / "probes.yaml"
     changed = 0
-    fixes = [(key, rewrites, None) for key, rewrites in PROBE_SEED_FIXES]
-    fixes += [(key, None, (shipped, old, new))
+    fixes = [(key, rewrites, None, None) for key, rewrites in PROBE_SEED_FIXES]
+    fixes += [(key, None, (shipped, old, new), None)
               for key, shipped, old, new in PROBE_PINGS_FIXES]
-    for key, rewrites, pings in fixes:
+    fixes += [(key, None, None, (old, new)) for key, old, new in PROBE_BINARY_FIXES]
+    for key, rewrites, pings, binary in fixes:
         marker = path.with_name(f".{key}")
         try:
             if marker.exists() or not path.exists():
@@ -125,6 +135,14 @@ def fix_probes_yaml(config_dir: Path) -> int:
                 text = text.replace(old, new)
             if pings:
                 text, fixed = _fix_yaml_pings(text, *pings)
+            if binary:
+                old_line, new_line = (f"    binary: {b}" for b in binary)
+                lines = text.splitlines(keepends=True)
+                for i, line in enumerate(lines):
+                    if line.rstrip("\n") == old_line:
+                        lines[i] = new_line + "\n"
+                        fixed += 1
+                text = "".join(lines)
             if fixed:
                 atomic_write_text(path, text)
                 logger.info("Corrected a shipped default in %s: %d probe(s) (%s)",
@@ -407,6 +425,18 @@ class YAMLToDBMigrator:
                         logger.info("Corrected a shipped default: probe %s pings "
                                     "%d -> %d (%s)", probe.name, old, new, key)
                         fixed += 1
+                session.add(SystemMetadata(key=key, value=f"{fixed} probe(s)"))
+                changed += fixed
+            for key, old, new in PROBE_BINARY_FIXES:
+                if session.query(SystemMetadata).filter(
+                        SystemMetadata.key == key).first():
+                    continue
+                fixed = 0
+                for probe in session.query(Probe).filter_by(binary_path=old).all():
+                    probe.binary_path = new
+                    logger.info("Corrected a shipped default: probe %s binary "
+                                "(%s)", probe.name, key)
+                    fixed += 1
                 session.add(SystemMetadata(key=key, value=f"{fixed} probe(s)"))
                 changed += fixed
             session.commit()

@@ -15,7 +15,7 @@ probes:
     pings: 10
     
   DNS:
-    binary: /usr/bin/dig
+    binary: /usr/local/bin/dig-usec
     pings: 5
     step: 300
 

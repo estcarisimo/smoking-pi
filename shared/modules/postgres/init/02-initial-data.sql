@@ -12,7 +12,7 @@ INSERT INTO target_categories (name, display_name, description) VALUES
 INSERT INTO probes (name, binary_path, step_seconds, pings, forks, is_default) VALUES
 ('FPing', '/usr/sbin/fping', 300, 10, NULL, TRUE),
 ('FPing6', '/usr/sbin/fping', 300, 10, NULL, FALSE),
-('DNS', '/usr/bin/dig', 300, 5, 5, FALSE);
+('DNS', '/usr/local/bin/dig-usec', 300, 5, 5, FALSE);
 
 -- Insert sources (current categories only)
 INSERT INTO sources (name, display_name) VALUES 

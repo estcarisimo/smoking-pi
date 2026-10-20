@@ -217,6 +217,10 @@ jobs:
       # tag publishes images at once, so the shapes are proven here.
       - name: Run the release-version suite
         run: bats packaging/tests/release-version.bats
+      # dig-usec rewrites dig's microsecond line into the millisecond one
+      # SmokePing's DNS probe parses; against a fake dig, no network.
+      - name: Run the dig-usec suite
+        run: bats packaging/tests/dig-usec.bats
 
   homebrew:
     name: Homebrew formula (parses; sha256 is the tarball's)
@@ -349,6 +353,18 @@ jobs:
           # image rebuilds from cache in seconds rather than minutes.
           cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ matrix.arch }}
+
+  # dig-usec in the image it ships in: built and run (amd64) against a fake
+  # DNS server on loopback. No external traffic.
+  dig-usec-image:
+    name: dig-usec in the smokeping image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build -f shared/modules/smokeping/Dockerfile -t smokeping-test shared
+      - name: Run the wrapper against a fake resolver
+        run: sh packaging/tests/dig-usec-image.sh smokeping-test
 
   # The one name the branch ruleset requires, instead of eighteen: it
   # passes only when every image built. `if: always()` so a failed build

@@ -166,9 +166,12 @@ next pass. `status.py` reports the time of the last pass without errors
   says so in its status.
 - **ICMP only.** DNS response times are a different signal: a resolver under
   load answers more slowly without any queue on the path, and on a Pi the
-  DNS probe's timer resolution (the kernel tick, 4 ms on a 250 Hz kernel)
-  leaves the minimum on a few fixed steps that Jitterbug's minimum cannot
-  move between.
+  DNS probe's timer resolution used to be the kernel tick (4 ms on a
+  250 Hz kernel), which left the minimum on a few fixed steps that
+  Jitterbug's minimum cannot move between. The probe now reads dig at
+  microsecond resolution (`dig-usec`, see [DNS probes](dns-probes.md)), but
+  the history before that change is still quantized, so a window that
+  spans it mixes the two.
 - **Not in the alert path.** Alerts and other ways of passing these results
   on come later, once each detector has been validated on real connections.
 - The image is larger than the others: the detectors need PyTorch (the
