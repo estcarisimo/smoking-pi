@@ -41,6 +41,34 @@ version gets a matching GitHub release and git tag.
   timeline as the *Whole connection* rows. Experimental like the rest of
   the module and out of the alert path. Costs one more change-point run
   and two storage-engine queries per pass, plus a few DNS lookups a day.
+- **Shared persistent congestion: Jitterbug, unchanged, on an aggregate
+  input.** Shared degradation answered for loss only; whether a queue
+  stayed built up for the whole connection could be read only by comparing
+  the per-target congestion rows by eye. Each pass now also runs Jitterbug
+  as published (the same BCP + KS call as per target, no parameter changed)
+  once, on one stream: per 5-minute cycle, the ten deciles of every
+  voter's pings minus that voter's own floor (the 5th percentile of its
+  15-minute minimum RTT over the trailing 7 days), when at least eight
+  voters answered, the monitor's bins left out as in shared degradation.
+  Reading 14 days of every target's raw pings each hour measured 22 s and
+  662 MB on a staging Pi with ~23 targets (about a minute and 2 GB with the
+  reference Pi's ~65), so the stream is built incrementally in the state
+  volume: an hourly pass adds its 12 cycles in about 1 s and Jitterbug
+  takes about 6 s on the 14 days; the first pass fills 7 days once (about
+  30 s). Written as `shared_congestion`, drawn as an orange-dark *Whole
+  connection* row in Connectivity & Quality's timeline, labeled
+  experimental. Evaluated offline on 52 days of the reference Pi, the
+  method finds nothing, which is the expected answer: the shared evening loss raised the relative floor
+  by 0.25–0.55 ms, below a Jitterbug jump. Out of the alert path.
+- **Who lost in a shared loss period.** A *Whole connection* loss period
+  said whether it was shared and named one dominant target, but not which
+  operators carried it or which destinations stayed clean, so telling a
+  CDN's evening from the access network's meant opening every row. Each
+  `shared_degradation` period now carries `by_operator` (the three
+  operators that lost most), `by_kind` (every kind of infrastructure's
+  loss) and `diverged` (voters that lost at most a tenth of the pooled
+  loss), from the bins the pass already read; a table under the timeline
+  lists them. `inference_pass` gains `shared_congestion_periods`.
 
 ## [2.43.1] — 2026-10-20
 

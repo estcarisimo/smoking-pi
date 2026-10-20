@@ -9,7 +9,9 @@ Every ``INFERENCE_INTERVAL`` (3600 s), for each selected ICMP target:
 
 and their periods replace the window's earlier ones in InfluxDB (store.py).
 Then, once per pass, shared degradation over the same window as the loss
-(shared.py): one series across every destination, for the whole connection.
+(shared.py): one series across every destination, for the whole connection;
+and Jitterbug, unchanged, on an aggregate stream of every voter's pings
+over its own floor (aggregate.py), over the congestion window.
 ``INFERENCE_SINCE`` (a date) keeps both windows from reaching before it, for
 a host that moved or changed provider: history from another connection is
 not this one's baseline.
@@ -27,6 +29,7 @@ import os
 import time
 from datetime import datetime, timezone
 
+import aggregate
 import congestion
 import deaf
 import degradation
@@ -76,10 +79,18 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
              find_congestion=congestion.detect, find_degradation=degradation.detect,
              replace=store.replace, fetch_deaf=series.deaf_rows,
              record_pass=store.write_pass, shared_pass=None,
-             replace_shared=store.replace_shared) -> dict:
+             replace_shared=store.replace_shared, aggregate_pass=None,
+             replace_shared_congestion=None) -> dict:
     """One pass over every target. A target that fails is logged and skipped;
     the others still run. ``shared_pass(start, deaf_bins)`` runs the shared
-    detector once after them (main() passes shared.run)."""
+    detector once after them (main() passes shared.run), and
+    ``aggregate_pass(shared_result, c_start, d_start, now)`` Jitterbug on the
+    aggregate stream after that, with the shared pass's voters (main() passes
+    aggregate.run)."""
+    if replace_shared_congestion is None:
+        def replace_shared_congestion(periods, start, end):
+            return store.replace_shared(periods, start, end,
+                                        measurement=store.SHARED_CONGESTION)
     now = int(time.time()) if now is None else now
     c_start, d_start = windows(now)
     started = time.monotonic()
@@ -123,6 +134,7 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
         report["targets"][target] = row
     if shared_pass is not None:
         shared_started = time.monotonic()
+        s = None
         try:
             s = shared_pass(d_start, deaf_bins)
             # Too few voters says more about the data than about the network:
@@ -135,6 +147,20 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
         except Exception:  # noqa: BLE001 -- the per-target results stand without it
             log.warning("shared degradation failed", exc_info=True)
             report["shared"] = {"error": True}
+            report["errors"] += 1
+    if aggregate_pass is not None and s is not None and s["voters"] >= shared.MIN_VOTERS:
+        try:
+            a = aggregate_pass(s, c_start, d_start, now)
+            # An empty stream (the first pass found no cycle with a quorum)
+            # says nothing: keep what earlier passes wrote.
+            if a["cycles"]:
+                replace_shared_congestion(a["periods"], c_start, now)
+            report["shared_congestion"] = {
+                "periods": len(a["periods"]), "cycles": a["cycles"], "added": a["added"],
+                "build_seconds": a.get("build_seconds"), "seconds": a.get("seconds")}
+        except Exception:  # noqa: BLE001 -- the other results stand without it
+            log.warning("shared congestion failed", exc_info=True)
+            report["shared_congestion"] = {"error": True}
             report["errors"] += 1
     report["seconds"] = round(time.monotonic() - started, 1)
     if not report["errors"]:
@@ -168,7 +194,7 @@ def main() -> None:
     time.sleep(START_DELAY)
     while True:
         began = time.time()
-        report = run_once(shared_pass=shared.run)
+        report = run_once(shared_pass=shared.run, aggregate_pass=aggregate.run)
         report["interval"] = interval
         status.write(report)
         time.sleep(max(60.0, interval - (time.time() - began)))

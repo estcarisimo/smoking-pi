@@ -629,7 +629,7 @@
       "id": 13,
       "type": "state-timeline",
       "title": "Detected episodes, by target (experimental)",
-      "description": "What the inference module found, on the same time axis: red is loss degradation, orange is persistent congestion (Jitterbug). Every target the module analyzes, the ISP gateway included: its rows say whether the first hop moved too. Detected, not confirmed: compare with the loss and latency above. Empty when the inference profile is off. Gray: the monitor itself was deaf for most of the period (its radio heard nothing), so the loss is this Pi's, not the destination's. Click a bar for every layer of that target over the same range, with the period shaded. The Whole connection rows are one detector run on every destination's loss together (experimental): dark red when the loss was shared across operators and kinds of infrastructure (a third of the operators or more, two kinds or more), pale when one destination carried it. Detected on the aggregate series, not the sum of the rows below.",
+      "description": "What the inference module found, on the same time axis: red is loss degradation, orange is persistent congestion (Jitterbug). Every target the module analyzes, the ISP gateway included: its rows say whether the first hop moved too. Detected, not confirmed: compare with the loss and latency above. Empty when the inference profile is off. Gray: the monitor itself was deaf for most of the period (its radio heard nothing), so the loss is this Pi's, not the destination's. Click a bar for every layer of that target over the same range, with the period shaded. The Whole connection rows are one detector run on every destination's loss together (experimental): dark red when the loss was shared across operators and kinds of infrastructure (a third of the operators or more, two kinds or more), pale when one destination carried it. Detected on the aggregate series, not the sum of the rows below. The orange-dark Whole connection row is Jitterbug, unchanged (BCP + KS as published), run once on an aggregate input: per probe cycle, the deciles of every voting destination's pings over each one's own floor. Experimental, and expected to be empty most of the time: shared loss barely moves that floor. The table below says who lost in each Whole connection loss period.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -688,6 +688,10 @@
               {
                 "color": "#F4B6BE",
                 "value": 5
+              },
+              {
+                "color": "dark-orange",
+                "value": 6
               }
             ]
           },
@@ -718,6 +722,10 @@
                 "5": {
                   "text": "loss carried by one destination (not shared)",
                   "index": 5
+                },
+                "6": {
+                  "text": "persistent congestion, whole connection: Jitterbug (as published) on an aggregate input — experimental",
+                  "index": 6
                 }
               }
             }
@@ -753,7 +761,169 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"date\"\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\n// class is \"monitor_deaf\" when this Pi's radio heard nothing for most of the period (deaf.py); periods written before the class existed are loss.\ndegradations = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and (r._field == \"end\" or r._field == \"class\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\nloss_degradation = degradations |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"loss degradation\", end: time(v: r.end * 1000000000)}))\nmonitor_deaf = degradations |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"monitor deaf\", end: time(v: r.end * 1000000000)}))\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"persistent congestion\", end: time(v: r.end * 1000000000)}))\n// The whole connection (shared.py): one series across every destination. \"shared\" when a third of the operators behind the targets lost and they are of two kinds of infrastructure or more; otherwise one destination carried it.\nwhole = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_degradation\" and (r._field == \"end\" or r._field == \"scope\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: \"Whole connection\", kind: if exists r.scope and r.scope == \"shared\" then \"shared loss degradation\" else \"one destination dominated\", end: time(v: r.end * 1000000000)}))\nstarts = union(tables: [\n    loss_degradation |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 1})),\n    persistent_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 2})),\n    monitor_deaf |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 3})),\n    whole |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: if r.kind == \"shared loss degradation\" then 4 else 5})),\n])\nends = union(tables: [loss_degradation, persistent_congestion, monitor_deaf, whole]) |> map(fn: (r) => ({_time: r.end, target: r.target, kind: r.kind, _value: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\", \"kind\"]) |> sort(columns: [\"_time\", \"_value\"])"
+          "query": "import \"date\"\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\n// class is \"monitor_deaf\" when this Pi's radio heard nothing for most of the period (deaf.py); periods written before the class existed are loss.\ndegradations = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and (r._field == \"end\" or r._field == \"class\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\nloss_degradation = degradations |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"loss degradation\", end: time(v: r.end * 1000000000)}))\nmonitor_deaf = degradations |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"monitor deaf\", end: time(v: r.end * 1000000000)}))\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"persistent congestion\", end: time(v: r.end * 1000000000)}))\n// The whole connection (shared.py): one series across every destination. \"shared\" when a third of the operators behind the targets lost and they are of two kinds of infrastructure or more; otherwise one destination carried it.\nwhole = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_degradation\" and (r._field == \"end\" or r._field == \"scope\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: \"Whole connection\", kind: if exists r.scope and r.scope == \"shared\" then \"shared loss degradation\" else \"one destination dominated\", end: time(v: r.end * 1000000000)}))\n// Jitterbug, unchanged, on an aggregate input (aggregate.py): the deciles of every voter's pings over its own floor, per cycle. Experimental.\nwhole_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: \"Whole connection\", kind: \"Jitterbug (as published) on an aggregate input — experimental\", end: time(v: r.end * 1000000000)}))\nstarts = union(tables: [\n    loss_degradation |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 1})),\n    persistent_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 2})),\n    monitor_deaf |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 3})),\n    whole |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: if r.kind == \"shared loss degradation\" then 4 else 5})),\n    whole_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 6})),\n])\nends = union(tables: [loss_degradation, persistent_congestion, monitor_deaf, whole, whole_congestion]) |> map(fn: (r) => ({_time: r.end, target: r.target, kind: r.kind, _value: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\", \"kind\"]) |> sort(columns: [\"_time\", \"_value\"])"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Whole connection: who lost in each shared loss period (experimental)",
+      "description": "One row per Whole connection loss period of the timeline above (shared_degradation), newest first: the pooled loss, whether it was shared across operators and kinds of infrastructure, the operators that lost most and every kind's mean loss over the period, and the voting destinations that stayed out of it (lost at most a tenth of the pooled loss). Attribution from the same bins the detector read; untagged destinations are left out of operators and kinds. Experimental, never an alert.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Start",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "_time": 0,
+              "duration_s": 1,
+              "mean_loss_pct": 2,
+              "scope": 3,
+              "by_operator": 4,
+              "by_kind": 5,
+              "diverged": 6
+            },
+            "renameByName": {
+              "_time": "Start",
+              "duration_s": "Duration",
+              "mean_loss_pct": "Pooled loss",
+              "scope": "Scope",
+              "by_operator": "Operators that lost most",
+              "by_kind": "Loss by kind of infrastructure",
+              "diverged": "Stayed out of it"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pooled loss"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Start"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Scope"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "shared": {
+                        "text": "shared",
+                        "color": "#8F1B2A",
+                        "index": 0
+                      },
+                      "dominated": {
+                        "text": "one destination",
+                        "color": "#F4B6BE",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\n// Stamped at the period's start: reach back so one that began before the range but ends inside it is listed.\n// by_operator, by_kind and diverged are written since the aggregate-congestion release; older periods show them empty.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_degradation\" and (r._field == \"end\" or r._field == \"duration_s\" or r._field == \"mean_loss_pct\" or r._field == \"scope\" or r._field == \"by_operator\" or r._field == \"by_kind\" or r._field == \"diverged\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> group() |> keep(columns: [\"_time\", \"duration_s\", \"mean_loss_pct\", \"scope\", \"by_operator\", \"by_kind\", \"diverged\"]) |> sort(columns: [\"_time\"], desc: true)"
         }
       ]
     },
@@ -766,7 +936,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 39
       },
       "panels": []
     },
@@ -783,7 +953,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 40
       },
       "options": {
         "showHeader": true,
@@ -986,7 +1156,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 50
       },
       "collapsed": false,
       "panels": []
@@ -1006,7 +1176,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 44
+        "y": 51
       },
       "options": {
         "calculate": false,
@@ -1112,7 +1282,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 44
+        "y": 51
       },
       "options": {
         "calculate": false,
@@ -1218,7 +1388,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 55
+        "y": 62
       },
       "options": {
         "calculate": false,
@@ -1325,7 +1495,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 55
+        "y": 62
       },
       "options": {
         "calculate": false,

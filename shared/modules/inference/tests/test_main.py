@@ -178,3 +178,44 @@ def test_a_failing_shared_pass_is_an_error_not_a_crash():
 
 def test_without_a_shared_pass_nothing_shared_is_written():
     assert "shared" not in _quiet()
+
+
+def _shared_ok(start, deaf):
+    return {"periods": [], "voters": 40, "voter_targets": ["a"], "monitor": set()}
+
+
+def test_jitterbug_on_the_aggregate_runs_after_the_shared_pass_with_its_voters():
+    c_start, d_start = main.windows(NOW)
+    seen, written = [], []
+
+    def agg(s, c, d, now):
+        seen.append((s["voter_targets"], c, d, now))
+        return {"periods": [{"start": c + 900, "end": c + 9000}], "cycles": 2000, "added": 12}
+
+    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None,
+                    aggregate_pass=agg,
+                    replace_shared_congestion=lambda p, s, e: written.append((len(p), s, e)))
+    assert seen == [(["a"], c_start, d_start, NOW)]
+    assert written == [(1, c_start, NOW)]
+    assert report["shared_congestion"]["periods"] == 1
+    assert report["shared_congestion"]["added"] == 12 and report["errors"] == 0
+
+
+def test_no_aggregate_pass_without_enough_voters_or_an_empty_stream():
+    calls, written = [], []
+    _quiet(shared_pass=lambda s, d: {"periods": [], "voters": 3},
+           aggregate_pass=lambda *a: calls.append(a))
+    assert calls == []
+    _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None,
+           aggregate_pass=lambda *a: {"periods": [], "cycles": 0, "added": 0},
+           replace_shared_congestion=lambda *a: written.append(a))
+    assert written == []  # an empty stream keeps what earlier passes wrote
+
+
+def test_a_failing_aggregate_pass_leaves_the_shared_result_standing():
+    def boom(*a):
+        raise RuntimeError("no state volume")
+
+    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None, aggregate_pass=boom)
+    assert report["shared_congestion"] == {"error": True}
+    assert report["shared"]["voters"] == 40 and report["errors"] == 1
