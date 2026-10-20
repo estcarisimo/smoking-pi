@@ -9,6 +9,14 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.43.1] — 2026-10-20
+
+DNS response times are now measured at microsecond resolution. SmokePing's
+DNS probe had been reading dig's coarse kernel clock, so every sample was
+a multiple of 4 ms; a small wrapper around `dig -u` gives it the real
+time, with the same queries and the same series. The DNS series change
+resolution once, at the upgrade.
+
 ### Fixed
 
 - **DNS probe samples sat on 4 ms steps.** SmokePing's DNS probe parses
