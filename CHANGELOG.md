@@ -121,6 +121,35 @@ version gets a matching GitHub release and git tag.
   and none at +100 or +1000 ms; kept as decided on 2026-10-20,
   experimental.
 
+- **Target Detail's percentiles on long ranges are the window's own.**
+  Each latency chart took every 5-minute cycle's 10th and 90th percentile
+  (and SmokePing's median) and then averaged them over the point's window.
+  That is exact up to a day, where a window holds one cycle, but on a week
+  or a month a window holds two to nine cycles, and averaging percentiles
+  is not a percentile: on the staging Pi at 21 days the DNS band's floor
+  read 17 % high and its p90 6 % low, with points off by up to 86 ms
+  (and the investigation on the reference Pi found the same pattern over
+  30 days). A long range is opened to find the slow pings, and those are
+  what the mean hid. The
+  band and the line are now the percentiles of every ping in the window,
+  pooled, for ICMP, TCP, DNS and the HTTP per-version medians; on staging
+  they match a locally computed percentile to the microsecond at 1, 7 and
+  21 days, and the two band queries of a 21-day chart take about 1 s each
+  instead of 8–17 s (over the doctor's 10 s per query). Names and colors
+  are unchanged; the median line moves slightly even at short ranges,
+  since it is now the median of the stored pings rather than SmokePing's
+  own median.
+- **Target Detail's DNS charts said nothing for a target with no DNS
+  probe.** The dashboard opens on `Google`, which has no DNS layer
+  (Google's resolver is the target `GoogleDNS`), so its two DNS charts
+  were empty axes and the doctor's live `dashboard-queries-run` warned
+  about them on every Pi, a warning nobody could act on. The two DNS
+  charts now say "no DNS data for this target in this range" and name a
+  resolver target; the doctor skips panels that set their own empty text.
+  Only the DNS charts set it, so the doctor still warns if the ICMP, TCP
+  or HTTP charts of the default target come back empty, and a query that
+  fails still fails.
+
 ## [2.43.1] — 2026-10-20
 
 DNS response times are now measured at microsecond resolution. SmokePing's

@@ -404,8 +404,8 @@ ten seconds per query and two minutes in all, with the elapsed time in the
 summary line:
 
 ```text
-[warn] dashboard-queries-run  11 provisioned dashboards, 254 queries in 17 s; 2 empty panel(s)
-          - Target Detail – every layer for one target: 2 panel(s) returned no rows in now-24h to now (often by design: no IPv6, no change in range, a target without that layer): 'DNS – Google – latency (ms)', 'DNS – Google – loss (%)'
+[warn] dashboard-queries-run  11 provisioned dashboards, 254 queries in 39 s; 2 empty panel(s)
+          - DNS Wizard: 2 panel(s) returned no rows in now-7d to now (often by design: no IPv6, no change in range, a target without that layer): 'Top-10 churn', 'Top services by presence'
 ```
 
 It **fails** on a query that errors (a Flux compile or runtime error, an
