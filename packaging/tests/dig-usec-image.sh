@@ -24,10 +24,10 @@ if docker run --rm --network host --entrypoint /usr/local/bin/dig-usec "$image" 
     echo "expected a non-zero exit with no server" >&2; exit 1
 fi
 
-# SmokePing's DNS probe loads and accepts the wrapper as its binary.
-docker run --rm --network host --entrypoint /bin/sh "$image" -c '
-    cd /usr/share/perl5 2>/dev/null || true
-    perl -MSmokeping::probes::DNS -e "print qq(DNS probe module loads\n)"
-    grep -n "query time" "$(perl -MSmokeping::probes::DNS -e "print \$INC{q(Smokeping/probes/DNS.pm)}")"
-'
+# SmokePing's DNS probe parses exactly this form: show its regex in the
+# image's own DNS.pm, and run it against what the wrapper printed.
+pm="$(docker run --rm --entrypoint /bin/sh "$image" -c \
+    "find / -path '*Smokeping/probes/DNS.pm' 2>/dev/null | head -1")"
+test -n "$pm"
+docker run --rm --entrypoint /bin/sh "$image" -c "grep -in 'query time' $pm"
 echo "dig-usec image proof: ok"

@@ -1,11 +1,11 @@
 #!/usr/bin/env bats
 # dig-usec against a fake dig (DIG_BIN): no network, no real dig.
-#   bats shared/modules/smokeping/tests/dig-usec.bats
+#   bats packaging/tests/dig-usec.bats
 
 bats_require_minimum_version 1.5.0
 
 setup() {
-    WRAPPER="$BATS_TEST_DIRNAME/../dig-usec"
+    WRAPPER="$BATS_TEST_DIRNAME/../../shared/modules/smokeping/dig-usec"
     FAKE="$BATS_TEST_TMPDIR/dig"
     export DIG_BIN="$FAKE"
     # The probe's own regexes, from Smokeping::probes::DNS.

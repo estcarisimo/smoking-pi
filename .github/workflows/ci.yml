@@ -220,7 +220,7 @@ jobs:
       # dig-usec rewrites dig's microsecond line into the millisecond one
       # SmokePing's DNS probe parses; against a fake dig, no network.
       - name: Run the dig-usec suite
-        run: bats shared/modules/smokeping/tests/dig-usec.bats
+        run: bats packaging/tests/dig-usec.bats
 
   homebrew:
     name: Homebrew formula (parses; sha256 is the tarball's)
