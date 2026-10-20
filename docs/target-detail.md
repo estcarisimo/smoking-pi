@@ -14,11 +14,30 @@ Smoking Pi measures for it, layer by layer:
 The tiles at the top give the median and the loss for each layer over the
 selected range. A layer the target has no probe for, or whose probe wrote
 nothing in that range, says **not measured**,
-so you can see at a glance what exists and what does not. Below the tiles,
-each layer has its latency over time, where the line is the median of each
-measurement cycle and the shaded band is the 10th to 90th percentile of that
-cycle's individual pings, plus its loss. HTTP draws one line per version
-instead of a band.
+so you can see at a glance what exists and what does not; its charts say
+"no … probe for this target in this range" instead of drawing empty axes.
+Below the tiles, each layer has its latency over time, where the line is the
+median and the shaded band the 10th to 90th percentile of the individual
+pings in each point's window, plus its loss. HTTP draws one median line per
+version instead of a band.
+
+A point's window is one 5-minute measurement cycle on a short range (a day,
+or a week on a wide screen) and several cycles on a long one: Grafana draws
+about one point per pixel, so 30 days put roughly eight cycles behind each
+point. The percentiles are always those of every ping in the window, pooled,
+not an average of each cycle's own percentiles: averaging pulls the 10th
+percentile up and the 90th and 99th down, hiding exactly the slow pings a
+long range is opened to find. The values are still SmokePing's: each stored
+ping is the RRD's, which blends a little of the neighboring cycle when a
+measurement lands off the step.
+
+![Target Detail at 30 days on a staging Pi: the band before (an average of
+each cycle's percentiles) and after (the percentiles of every ping in the
+window)](img/target-detail-percentiles-30d.png)
+
+Resolvers are targets of their own. `Google` has ICMP, TCP and HTTP but no
+DNS layer; Google's resolver is **GoogleDNS**, whose DNS charts are the ones
+that fill.
 
 Open it from the dashboard list (*SmokePing dashboards*), or with the
 **Target detail** link at the top of the Overview, the latency, resolver,
