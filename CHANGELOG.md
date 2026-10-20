@@ -9,6 +9,24 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.44.0] — 2026-10-20
+
+The experimental inference module now answers for the whole connection, not
+only per destination: once a pass, it runs its loss detector and Jitterbug,
+both unchanged, on series built across every steady destination, and says
+whether a period was shared across operators and kinds of infrastructure or
+carried by one target, and who lost in it. Connectivity & Quality draws the
+results as *Whole connection* rows and a who-lost table. It changes nothing
+unless the `inference` profile is on, stays out of the alert path, adds no
+probe, and adds a few cached DNS lookups per target (Team Cymru's origin-AS
+service) plus a few files in the inference state volume; the first pass after
+the upgrade takes about 30 s longer while it fills the aggregate stream.
+On Pro with InfluxDB, `smoking-pi upgrade` now records its own window,
+which Grafana shades and the inference module leaves out, so an upgrade no
+longer reads as the network losing. Target Detail's percentiles on long ranges are
+now each window's own instead of an average of five-minute percentiles, and
+its DNS charts say when a target has no DNS probe.
+
 ### Added
 
 - **`smoking-pi upgrade` records its own window.** An upgrade recreates
