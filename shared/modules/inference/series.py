@@ -9,13 +9,14 @@ as input (one row per RTT sample, lost ones absent).
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 
 import pandas as pd
 
-import logging
-
+import bins
+import deaf
 from common import microcuts
 from common.microcuts import uplink_flux
 from common.tsdb import flux_str, influx_bucket, query_influx
@@ -23,6 +24,7 @@ from common.tsdb import flux_str, influx_bucket, query_influx
 # Influx tag vocabulary (not the database's: top_sites is topsites here).
 DEFAULT_CATEGORIES = "topsites,custom,cpe"
 PING_FIELD = re.compile(r"^ping\d+$")
+DEAF_LOOKBACK_S = 3600
 log = logging.getLogger("inference.series")
 
 
@@ -96,9 +98,13 @@ def deaf_rows(start: int, query=query_influx) -> list[dict]:
     database cannot be read -- a period is then never labeled deaf, which
     is the old behavior, not a guess."""
     try:
-        rows = list(query(uplink_flux(str(int(start)))))
+        return _deaf_rows(start, query)
     except Exception:  # noqa: BLE001 -- a label is optional; the detectors are not
         return []
+
+
+def _deaf_rows(start: int, query) -> list[dict]:
+    rows = list(query(uplink_flux(str(int(start)))))
     # The shared query stops at MAX_ROWS * 4 samples, oldest first: about
     # 55 h of deaf time at a 10 s cadence. Past that the newest hangs would
     # read as loss again, so say so rather than let it pass in silence.
@@ -107,3 +113,21 @@ def deaf_rows(start: int, query=query_influx) -> list[dict]:
                     "be labeled loss; a %d-row week means the radio was deaf most of it",
                     len(rows), len(rows))
     return rows
+
+
+def deaf_bins(start: int, now: int, query=query_influx, directory=None) -> set[int]:
+    """The deaf bins since ``start``, closed ones from the state volume
+    (bins.py): the full query measured 4.5 s a pass on the staging Pi. Each
+    read starts DEAF_LOOKBACK_S early, because uplink_flux's ``difference``
+    and ``fill`` need the samples before a bin to judge its first ones. An
+    unreadable database labels nothing deaf and caches nothing."""
+    def fetch(since: int, stop: int) -> pd.DataFrame:
+        table = deaf.counts(_deaf_rows(since - DEAF_LOOKBACK_S, query))
+        return table[(table["bin"] >= since) & (table["bin"] < stop)]
+
+    try:
+        return deaf.bins_of(bins.read("deaf", start, now, fetch, deaf.COUNT_COLUMNS,
+                                      directory))
+    except Exception:  # noqa: BLE001 -- a label is optional; the detectors are not
+        log.warning("could not read the deaf samples", exc_info=True)
+        return set()

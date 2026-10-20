@@ -50,3 +50,28 @@ def test_an_explicit_target_list_wins(monkeypatch):
             {"target": "OCA_1", "category": "netflix"}]
     assert series.targets(0, query=lambda q: rows) == [("Google", "topsites"),
                                                         ("OCA_1", "netflix")]
+
+
+def test_deaf_bins_are_cached_and_each_read_starts_an_hour_early(tmp_path):
+    import bins as cache
+    start, now = 1_790_000_100 - 1_790_000_100 % 900, 1_790_000_100 + 7 * 86400
+    deaf_bin = start + 900 * 10
+    seen = []
+
+    def query(flux):
+        seen.append(int(flux.split("range(start: ")[1].split(")")[0]))
+        return [{"_time": float(t)} for t in range(deaf_bin, deaf_bin + 900, 10)]
+
+    assert series.deaf_bins(start, now, query, tmp_path) == {deaf_bin}
+    assert seen == [start - series.DEAF_LOOKBACK_S]
+    assert series.deaf_bins(start, now + 3600, query, tmp_path) == {deaf_bin}
+    tail = (now - cache.TAIL_S) // 900 * 900
+    assert seen[1] == tail - series.DEAF_LOOKBACK_S
+
+
+def test_an_unreadable_database_labels_nothing_deaf_and_caches_nothing(tmp_path):
+    def query(flux):
+        raise RuntimeError("influx away")
+
+    assert series.deaf_bins(0, 86400, query, tmp_path) == set()
+    assert not list(tmp_path.iterdir())

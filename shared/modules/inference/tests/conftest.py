@@ -21,6 +21,9 @@ SCRUB_ENV_VARS = [
 
 
 @pytest.fixture(autouse=True)
-def _scrub_env(monkeypatch):
+def _scrub_env(monkeypatch, tmp_path):
     for name in SCRUB_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+    # The bin caches (bins.py) and the aggregate stream write here, never
+    # to the host's /var/lib/inference.
+    monkeypatch.setenv("INFERENCE_STATE_DIR", str(tmp_path / "state"))

@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+import deaf
 import main
 import status
 import store
@@ -113,7 +114,7 @@ def test_a_pass_labels_deaf_periods_and_records_itself():
         find_congestion=lambda p: {"periods": [], "change_points": 0},
         find_degradation=degradation,
         replace=lambda m, t, c, periods, start, now: written.setdefault(m, periods),
-        fetch_deaf=lambda start: deaf_rows,
+        read_deaf=lambda start, now: deaf.deaf_bins(deaf_rows),
         record_pass=lambda r, now: passes.append((r["seconds"], now)))
     (period,) = written[store.DEGRADATION]
     assert period["class"] == "monitor_deaf" and period["deaf_share"] == 1.0
@@ -133,7 +134,7 @@ def test_a_history_write_that_fails_does_not_fail_the_pass():
         list_targets=lambda s: [("Google", "topsites")],
         find_congestion=lambda p: {"periods": [], "change_points": 0},
         find_degradation=lambda lo: {"periods": [], "change_points": 0},
-        replace=lambda *a: None, fetch_deaf=lambda start: [], record_pass=boom)
+        replace=lambda *a: None, read_deaf=lambda start, now: set(), record_pass=boom)
     assert report["errors"] == 0 and "last_ok" in report
 
 
@@ -144,7 +145,7 @@ def _quiet(**kw):
         list_targets=lambda s: [("Google", "topsites")],
         find_congestion=lambda p: {"periods": [], "change_points": 0},
         find_degradation=lambda lo: {"periods": [], "change_points": 0},
-        replace=lambda *a: None, fetch_deaf=lambda s: [], record_pass=lambda r, n: None, **kw)
+        replace=lambda *a: None, read_deaf=lambda s, n: set(), record_pass=lambda r, n: None, **kw)
 
 
 def test_the_shared_detector_runs_once_on_the_loss_window():

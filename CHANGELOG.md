@@ -74,6 +74,33 @@ version gets a matching GitHub release and git tag.
   loss), from the bins the pass already read; a table under the timeline
   lists them. `inference_pass` gains `shared_congestion_periods`.
 
+### Fixed
+
+- **Upgrades no longer read as the whole connection losing, and the
+  shared pass costs 4 s instead of 10.** The shared passes of the
+  inference module (shared degradation and Jitterbug on the aggregate
+  stream) left out the bins where the radio was deaf or the gateway lost
+  with the destinations, but not an upgrade restarting the stack: on the
+  reference Pi the 2026-10-15 upgrade read as 4–6 % loss on every
+  destination and the gateway, the 2026-10-18 one as 66 %, cuts in the
+  series that a detector could take for the network's. The shared pass
+  now reads the `upgrade` markers `smoking-pi upgrade` writes (`phase`
+  `start`/`end`) and leaves those bins out, with one bin of margin on each
+  side as for a deaf radio; a start with no end closes after 30 minutes,
+  and with no markers nothing changes. Separately, every hourly pass
+  re-read 7 days of deaf samples (4.5 s on the staging Pi: the alerter's
+  query, a pivot InfluxDB cannot push down) and of loss bins (1 s) to
+  learn about one new hour. Closed bins are now kept in the state volume
+  (`loss.csv`, `deaf.csv`) and a pass reads only the last hour, plus the
+  whole window once a day for points that arrived late: replayed on
+  staging, ≈ 10 s → ≈ 4 s a pass, of which 3.2 s is the change-point run
+  itself, with the same voters, monitor bins, periods and deaf bins as the
+  full read. The docs now also say plainly why the aggregate stream sits
+  at the median voter floor (≈ 7 ms): Jitterbug's BCP is not
+  shift-invariant, and the same 3 ms step gave 2 change points at +10 ms
+  and none at +100 or +1000 ms; kept as decided on 2026-10-20,
+  experimental.
+
 ## [2.43.1] — 2026-10-20
 
 DNS response times are now measured at microsecond resolution. SmokePing's
