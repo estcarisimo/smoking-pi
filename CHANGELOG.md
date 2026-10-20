@@ -25,8 +25,11 @@ version gets a matching GitHub release and git tag.
   PostgreSQL and in the config dir's `probes.yaml`. A binary you chose is
   left alone. No additional queries and no series renamed; **the DNS series
   change resolution at the upgrade**, so medians and minimums shift by up to
-  one tick with no change in the network. `docs/dns-probes.md` and the
-  limits in `docs/inference.md` say so.
+  one tick with no change in the network. Standard and Pro only: Basic keeps
+  SmokePing's stock probe configuration. The smokeping and config-manager
+  images must be deployed together, and a rollback to an earlier release
+  needs the `DNS` binary set back to `/usr/bin/dig`. `docs/dns-probes.md`
+  and the limits in `docs/inference.md` say so.
 
 ## [2.43.0] — 2026-10-18
 

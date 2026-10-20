@@ -20,7 +20,8 @@ The install seeds three resolvers, in the `dns_resolvers` category:
 
 The probe (`DNS` in `probes.yaml`, SmokePing's
 [DNS probe](https://oss.oetiker.ch/smokeping/probe/DNS.en.html)) runs
-`/usr/local/bin/dig-usec` (a thin wrapper around `dig`, see below) and sends **5 queries per target every 300 seconds**: each
+`/usr/local/bin/dig-usec` (a thin wrapper around `dig`, see below) and
+sends **5 queries per target every 300 seconds**: each
 query is one sample, and a query that gets no answer counts as lost. The
 name looked up is the target's `lookup`; it stays the same from cycle to
 cycle, so after the first query the resolver usually answers from its
@@ -42,7 +43,11 @@ in 4 ms, 8 ms or 12 ms now shows 3.6, 7.9, 11.2. Medians and minimums move
 by up to one tick (a few ms at most) at that point, with no change in the
 network. On upgrade, every installed probe whose binary is `/usr/bin/dig` is
 switched to `/usr/local/bin/dig-usec`, once; a binary you chose yourself
-is left alone.
+is left alone. The Basic edition uses SmokePing's stock probe
+configuration, which still calls `dig`, so its DNS samples keep the 4 ms
+steps. The smokeping and config-manager images change together (an
+upgrade pulls both); rolling back to an earlier release needs the `DNS`
+probe's binary set back to `/usr/bin/dig`.
 
 To measure another resolver, add it in the web admin (*Targets → Add*) with
 the probe **DNS**, the category **DNS Resolvers** and a name to look up.

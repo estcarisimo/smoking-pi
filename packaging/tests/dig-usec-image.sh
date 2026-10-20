@@ -24,10 +24,16 @@ if docker run --rm --network host --entrypoint /usr/local/bin/dig-usec "$image" 
     echo "expected a non-zero exit with no server" >&2; exit 1
 fi
 
-# SmokePing's DNS probe parses exactly this form: show its regex in the
-# image's own DNS.pm, and run it against what the wrapper printed.
+# SmokePing's DNS probe parses exactly this form: take the probe's own
+# regex and pingfactor from the image's DNS.pm and apply them to what the
+# wrapper printed. A sample of 0.144 msec must come out as 0.000144 s.
 pm="$(docker run --rm --entrypoint /bin/sh "$image" -c \
     "find / -path '*Smokeping/probes/DNS.pm' 2>/dev/null | head -1")"
 test -n "$pm"
-docker run --rm --entrypoint /bin/sh "$image" -c "grep -in 'query time' $pm"
+docker run --rm --entrypoint /bin/sh "$image" -c "grep -inE 'query time|pingfactor' $pm"
+re="$(docker run --rm --entrypoint /bin/sh "$image" -c "grep -i 'query time' $pm" |
+    sed -n 's#.*=~ *m\{0,1\}/\(.*\)/i.*#\1#p' | head -1)"
+echo "probe regex: $re"
+test -n "$re"
+printf '%s\n' "$line" | RE="$re" perl -ne 'exit(!(/$ENV{RE}/i && $1 =~ /\./ && $1 > 0))'
 echo "dig-usec image proof: ok"
