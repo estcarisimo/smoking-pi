@@ -204,9 +204,9 @@ human_bytes() {
 # edition's InfluxDB bucket, measurement `upgrade`: phase=start before the
 # first container is touched, phase=end (result=ok|failed) once InfluxDB
 # answers again -- or from the exit trap when the upgrade fails. Tags
-# from_version and to_version on both; field value=1: written for the
-# detectors (shared/modules/inference) to set the window aside, and drawn
-# by Grafana (docs/upgrades.md). Through the database
+# from_version and to_version on both; field value=1. shared/modules/inference
+# leaves the windows out of its shared passes; Grafana draws them
+# (docs/upgrades.md). Through the database
 # container's own CLI, as the watchdog records its events (cli/lib/watchdog.sh):
 # no token on this side. Best effort: no InfluxDB (Basic, Standard,
 # ClickHouse), nothing written and nothing said; InfluxDB not answering,

@@ -87,8 +87,8 @@ has no start or no end.
 
 The *Upgrades* annotation on **Overview** and **Connectivity & Quality**
 shades each window, labeled `Upgrade 2.43.0 → 2.44.0 (95 s)` (`, failed`
-when it was). The points are also written for the detectors
-(`shared/modules/inference`) to set the window aside.
+when it was). The inference module reads the same points
+and leaves each window out of its shared passes.
 
 ![The Upgrades region on Connectivity & Quality: a 7-second same-version upgrade on a staging Pi, between the two dotted lines](img/upgrade-window.png)
 
