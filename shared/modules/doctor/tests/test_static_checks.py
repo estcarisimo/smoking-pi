@@ -1005,6 +1005,30 @@ def test_every_pivot_exempts_the_columns_it_makes():
     assert sources.tag_refs_in(early) == {"interface", "cut"}
 
 
+def test_columns_a_map_or_elapsed_computes_are_not_tag_filters():
+    """The Upgrades annotation pairs each end with the start before it:
+    map() makes s, difference() keeps it, elapsed() makes elapsed. Read
+    after those calls they are columns; read before, still tag filters."""
+    from doctor import sources
+
+    query = (
+        'from(bucket:"s") |> filter(fn:(r) => r._measurement == "upgrade") |> group() '
+        '|> map(fn: (r) => ({_time: r._time, to_version: r.to_version, '
+        's: if r.phase == "start" then 1 else 0})) '
+        '|> difference(columns: ["s"], keepFirst: true) |> elapsed(unit: 1s) '
+        '|> filter(fn: (r) => r.s == -1) '
+        '|> map(fn: (r) => ({r with text: "Upgrade, " + r.to_version + string(v: r.elapsed)}))'
+    )
+    assert sources.tag_refs_in(query) == {"phase", "to_version"}
+    early = query.replace('|> group()', '|> filter(fn:(r) => r.s == 1) |> group()', 1)
+    assert sources.tag_refs_in(early) == {"phase", "to_version", "s"}
+    renamed = query.replace("elapsed(unit: 1s)", 'elapsed(unit: 1s, columnName: "gap")')
+    assert sources.tag_refs_in(renamed) == {"phase", "to_version", "elapsed"}
+    # A key spelled inside a string is text, not a column the map made.
+    quoted = query.replace('"Upgrade, "', '"Upgrade, foo: "') + ' |> filter(fn: (r) => r.foo == "x")'
+    assert sources.tag_refs_in(quoted) == {"phase", "to_version", "foo"}
+
+
 def test_a_joined_query_answers_with_a_number():
     """The deaf stream's keep() names a tag, but it shapes a join, not the
     answer; and _value: r.cut reads a pivoted field."""
@@ -1351,7 +1375,8 @@ def test_cli_dir_follows_the_command_when_the_root_has_no_cli(tmp_path, monkeypa
     assert static_checks.Repo.cli_dir(root) == root / "cli"  # nothing found: the clone layout
     monkeypatch.setenv("SMOKING_PI_CLI_DIR", str(elsewhere))
     assert static_checks.Repo.cli_dir(root) == elsewhere
-    assert static_checks.Repo(root).writers[-1] == elsewhere / "lib/watchdog.sh"
+    assert static_checks.Repo(root).writers[-2:] == (
+        elsewhere / "lib/watchdog.sh", elsewhere / "lib/lifecycle.sh")
     # The variable names a directory without the writer: fall through to the
     # packaged path when it has one, else to the clone layout.
     monkeypatch.setenv("SMOKING_PI_CLI_DIR", str(tmp_path / "wrong"))

@@ -61,6 +61,45 @@ to go back to. The doctor's `disk-free` check (`smoking-pi doctor --live`)
 warns when the filesystem under Docker's data root is under 10 % or 5 GB
 free (fails under 2 % or 1 GB), and names old image tags when it sees them.
 
+### The upgrade's window in the measurements
+
+Recreating the containers takes the Pi's own measurements down with it for
+a minute or two, and that showed up in the data as a cut on every
+destination at once, the ISP gateway included: 4–6 % loss everywhere on
+the reference Pi's 2026-10-15 upgrade, 66 % on 2026-10-18. Nothing said
+an upgrade had happened, so it read as network trouble. `upgrade` now
+writes its own start and end into the edition's InfluxDB bucket
+(`smokeping`), measurement `upgrade`:
+
+| | When | Tags | Field |
+| --- | --- | --- | --- |
+| start | after the pull (or build), before the first container changes | `phase=start`, `from_version`, `to_version` | `value=1` (float) |
+| end | once InfluxDB takes writes again after `up` | `phase=end`, `from_version`, `to_version`, `result=ok` | `value=1` |
+| end | when the upgrade fails or is interrupted after the start | `phase=end`, …, `result=failed` | `value=1` |
+
+`from_version` is the tag of the image InfluxDB ran before (`dev` for a
+clone's own build), `to_version` the release being brought up. A pull that
+fails touched no container and records nothing. The end point is stamped
+when the stack is back and retried for up to a minute (by the clock)
+while a recreated InfluxDB starts. Recording never stops an upgrade: when InfluxDB does not
+take a point, `upgrade` says so in one line and goes on, and that window
+has no start or no end.
+
+The *Upgrades* annotation on **Overview** and **Connectivity & Quality**
+shades each window, labeled `Upgrade 2.43.0 → 2.44.0 (95 s)` (`, failed`
+when it was). The inference module reads the same points
+and leaves each window out of its shared passes.
+
+![The Upgrades region on Connectivity & Quality: a 7-second same-version upgrade on a staging Pi, between the two dotted lines](img/upgrade-window.png)
+
+Hover the region for its label. An in-progress upgrade (a start with no end
+yet) is not drawn until its end arrives.
+
+Only Pro with InfluxDB records them. Basic and Standard have no time-series
+database, and the ClickHouse backend has no table for events like this one
+(the exporter writes only `latency`), so there `upgrade` records nothing and
+says nothing about it.
+
 One command changes the containers at a time. A second `upgrade`, `up` or
 `config set` started meanwhile says *Another smoking-pi command is changing
 this stack; waiting for it to finish* and runs after it. Two Compose runs

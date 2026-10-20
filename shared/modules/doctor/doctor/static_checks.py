@@ -44,7 +44,9 @@ class Repo:
                         # loss_incident (incident_history.py)
                         root / "shared/modules/alerter",
                         # watchdog_event, as line protocol from the host
-                        self.cli_dir(root) / "lib/watchdog.sh")
+                        self.cli_dir(root) / "lib/watchdog.sh",
+                        # upgrade (the upgrade's start and end), the same way
+                        self.cli_dir(root) / "lib/lifecycle.sh")
         self.alerter = root / "shared/modules/alerter"
         # Shared code copied into the alerter image; it reads env too.
         self.common = root / "shared/modules/common"
