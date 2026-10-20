@@ -40,20 +40,28 @@ def _align(epoch: int) -> int:
     return int(epoch) // BIN_S * BIN_S
 
 
-def _load(name: str, columns: list[str], directory: Path) -> tuple[pd.DataFrame, dict] | None:
+def _load(name: str, columns: list[str], directory: Path,
+          text: tuple[str, ...] = ()) -> tuple[pd.DataFrame, dict] | None:
     try:
         meta = json.loads((directory / f"{name}.json").read_text())
-        df = pd.read_csv(directory / f"{name}.csv")
+        df = pd.read_csv(directory / f"{name}.csv", dtype={c: str for c in text})
         if list(df.columns) != columns or not {"from", "through", "full_at"} <= set(meta):
             return None
         meta = {k: int(meta[k]) for k in ("from", "through", "full_at")}
         df = df.astype({"bin": "int64"})
+        # Text as text: a target named "8888" is not a number, and a blank
+        # category, saved as an empty cell, is not NaN.
+        for col in text:
+            df[col] = df[col].fillna("")
     except (OSError, ValueError, TypeError, KeyError):
         return None
     return df, meta
 
 
 def _save(name: str, df: pd.DataFrame, meta: dict, directory: Path) -> None:
+    # Each file is replaced atomically, the CSV first: a crash between the
+    # two leaves the old meta, whose ``through`` is older, so the next pass
+    # only re-reads more of the tail.
     try:
         directory.mkdir(parents=True, exist_ok=True)
         for suffix, write in ((".csv", lambda p: df.to_csv(p, index=False)),
@@ -67,15 +75,18 @@ def _save(name: str, df: pd.DataFrame, meta: dict, directory: Path) -> None:
 
 
 def read(name: str, start: int, now: int, fetch: Callable[[int, int], pd.DataFrame],
-         columns: list[str], directory: Path | None = None) -> pd.DataFrame:
+         columns: list[str], directory: Path | None = None,
+         text: tuple[str, ...] = ()) -> pd.DataFrame:
     """The bins of [start, now), ``columns`` with ``bin`` (the bin's start
     epoch) first. ``fetch(since, stop)`` reads the bins of [since, stop) from
     InfluxDB, ``since`` on a bin boundary; this calls it for the whole window
-    or only for its tail, and keeps what it returns."""
+    or only for its tail, and keeps what it returns. ``text`` names the
+    columns that are strings."""
     directory = directory or state_dir()
     first, stop = _align(start), int(now)
-    cached = _load(name, columns, directory)
-    full = (cached is None or cached[1]["from"] > first
+    cached = _load(name, columns, directory, text)
+    # A clock that stepped back (stop before the last pass) reads it all too.
+    full = (cached is None or cached[1]["from"] > first or stop < cached[1]["through"]
             or cached[1]["through"] - TAIL_S < first
             or stop - cached[1]["full_at"] >= REFRESH_S)
     since = first if full else _align(cached[1]["through"] - TAIL_S)

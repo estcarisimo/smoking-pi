@@ -337,7 +337,7 @@ def run(start: int, deaf_bins: set[int], query=query_influx, tag_store=None,
     volume, bins.py), the upgrades, the hosts, the tags, the periods."""
     stop = int(time.time()) if now is None else now
     table = bins.read("loss", start, stop, lambda a, b: fetch_bins(a, b, query),
-                      BIN_COLUMNS, directory)
+                      BIN_COLUMNS, directory, text=("target", "category"))
     upgrades = upgrade_bins(query(upgrade_flux(start, stop)))
     hosts = {r["target"]: str(r["_value"]) for r in query(hosts_flux())
              if r.get("target") and r.get("_value")}

@@ -94,16 +94,8 @@ def fetch(target: str, start: int, query=query_influx) -> tuple[pd.DataFrame, pd
 def deaf_rows(start: int, query=query_influx) -> list[dict]:
     """The host's deaf Wi-Fi samples since ``start``: the same query the
     alerter and the MCP server use to tell a radio hang from a cut
-    (``common.microcuts.uplink_flux``). Empty on a wired host, or when the
-    database cannot be read -- a period is then never labeled deaf, which
-    is the old behavior, not a guess."""
-    try:
-        return _deaf_rows(start, query)
-    except Exception:  # noqa: BLE001 -- a label is optional; the detectors are not
-        return []
-
-
-def _deaf_rows(start: int, query) -> list[dict]:
+    (``common.microcuts.uplink_flux``). Empty on a wired host; raises when
+    the database cannot be read (deaf_bins then labels nothing deaf)."""
     rows = list(query(uplink_flux(str(int(start)))))
     # The shared query stops at MAX_ROWS * 4 samples, oldest first: about
     # 55 h of deaf time at a 10 s cadence. Past that the newest hangs would
@@ -122,7 +114,7 @@ def deaf_bins(start: int, now: int, query=query_influx, directory=None) -> set[i
     and ``fill`` need the samples before a bin to judge its first ones. An
     unreadable database labels nothing deaf and caches nothing."""
     def fetch(since: int, stop: int) -> pd.DataFrame:
-        table = deaf.counts(_deaf_rows(since - DEAF_LOOKBACK_S, query))
+        table = deaf.counts(deaf_rows(since - DEAF_LOOKBACK_S, query))
         return table[(table["bin"] >= since) & (table["bin"] < stop)]
 
     try:

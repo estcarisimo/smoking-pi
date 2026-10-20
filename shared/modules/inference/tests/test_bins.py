@@ -87,3 +87,28 @@ def test_a_failed_read_writes_no_cache(tmp_path):
     except RuntimeError:
         pass
     assert not (tmp_path / "x.json").exists()
+
+
+def test_text_columns_come_back_as_saved(tmp_path):
+    def fetch(since, stop):
+        return pd.DataFrame({"bin": [since], "target": ["8888"], "category": [""],
+                             "v": [0.5]})
+    cols = ["bin", "target", "category", "v"]
+    bins.read("t", T0, T0 + DAY, fetch, cols, tmp_path, text=("target", "category"))
+    out = bins.read("t", T0, T0 + DAY + 900, lambda a, b: pd.DataFrame(columns=cols), cols,
+                    tmp_path, text=("target", "category"))
+    assert out["target"].tolist() == ["8888"] and out["category"].tolist() == [""]
+
+
+def test_a_clock_that_stepped_back_reads_it_all(tmp_path):
+    calls = []
+    bins.read("x", T0, T0 + DAY, fetcher(calls), COLUMNS, tmp_path)
+    bins.read("x", T0, T0 + DAY - 7200, fetcher(calls), COLUMNS, tmp_path)
+    assert calls[1] == (T0, T0 + DAY - 7200)
+
+
+def test_an_empty_tail_keeps_the_closed_bins(tmp_path):
+    bins.read("x", T0, T0 + DAY, fetcher([]), COLUMNS, tmp_path)
+    out = bins.read("x", T0, T0 + DAY + 900, lambda a, b: pd.DataFrame(columns=COLUMNS),
+                    COLUMNS, tmp_path)
+    assert len(out) == 96 - bins.TAIL_S // 900

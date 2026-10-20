@@ -289,6 +289,12 @@ def test_an_upgrade_without_an_end_closes_after_thirty_minutes():
     assert late == {T0 + 300 * 900, T0 + 301 * 900, T0 + 302 * 900, T0 + 308 * 900}
 
 
+def test_a_second_start_closes_the_first_and_opens_its_own():
+    s = T0 + 300 * 900
+    assert shared.upgrade_bins(_marks((s, "start"), (s + 900, "start"), (s + 1000, "end"))) == {
+        T0 + 300 * 900, T0 + 301 * 900}
+
+
 def test_an_end_alone_is_its_own_bin_and_no_markers_are_no_bins():
     assert shared.upgrade_bins(_marks((T0 + 50, "end"))) == {T0}
     assert shared.upgrade_bins([]) == set()
@@ -303,11 +309,17 @@ def test_the_upgrade_query_reads_the_marker_from_before_the_window():
 def _query(data, marks=()):
     loss, counts = rows(data, categories=CATS)
 
+    def ranged(rs, flux):
+        # what InfluxDB returns: windows labeled by their end, inside the range
+        a, b = (int(x) for x in flux.split("range(start: ")[1].split(")")[0]
+                .replace(" stop: ", "").split(","))
+        return [r for r in rs if a < r["_time"].timestamp() <= b]
+
     def query(flux):
         if "fn: mean" in flux:
-            return loss
+            return ranged(loss, flux)
         if "fn: count" in flux:
-            return counts
+            return ranged(counts, flux)
         if '"upgrade"' in flux:
             return list(marks)
         return [{"target": t, "_value": f"{t}.example"} for t in data]
@@ -358,3 +370,20 @@ def test_a_second_pass_reads_only_the_tail_of_the_loss_bins(tmp_path):
                        now=now + 900, directory=tmp_path)
     assert seen == [T0, now - 3600]
     assert first["voters"] == again["voters"] == 12 and first["bins"] == again["bins"]
+
+
+def test_a_cached_pass_finds_what_a_full_read_finds(tmp_path):
+    data = base()
+    for t in data:
+        if t != "CPE_IPv4":
+            data[t] = with_window(data[t], 600, 12, 0.05)
+    query = _query(data)
+    now = T0 + BINS * 900
+    shared.run(T0, set(), query=query, tag_store=_Tags(), find=fake_find,
+               now=now - 3600, directory=tmp_path)
+    cached = shared.run(T0, set(), query=query, tag_store=_Tags(), find=fake_find,
+                        now=now, directory=tmp_path)
+    loss, counts = rows(data, categories=CATS)
+    full = shared.detect(loss, counts, set(), of, find=fake_find)
+    assert cached["periods"] == full["periods"] and cached["monitor"] == full["monitor"]
+    assert len(cached["periods"]) == 1
