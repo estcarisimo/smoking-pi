@@ -11,6 +11,26 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **`smoking-pi upgrade` records its own window.** An upgrade recreates
+  the containers and showed up in the measurements as a cut on every
+  destination at once, the ISP gateway included (reference Pi, 2026-10-15
+  17:30Z: 4–6 % loss everywhere; 2026-10-18 18:30Z: 66 %), and nothing
+  recorded that an upgrade had happened, so the detectors and whoever read
+  the charts took it for the network. `upgrade` now writes a
+  `phase=start` point (measurement `upgrade`, tags `from_version` and
+  `to_version`, field `value=1`) before the first container changes, and a
+  `phase=end` point with `result=ok` once InfluxDB takes writes again, or
+  `result=failed` from an exit trap when the upgrade fails or is
+  interrupted. Through InfluxDB's own CLI in its container, as the watchdog
+  records its events, so no token is handled on the host; never a reason
+  to stop the upgrade (one line when InfluxDB does not take a point; the
+  end is retried for up to a minute while InfluxDB restarts). Overview and
+  Connectivity & Quality draw each window as an *Upgrades* region labeled
+  `from → to`. Pro with InfluxDB only: Basic and Standard have no
+  time-series database, and the ClickHouse exporter has no table for
+  events. The doctor's tag check now knows that a column a `map()` or
+  `elapsed()` computes is not a tag. `docs/upgrades.md`, *The upgrade's
+  window in the measurements*.
 - **Shared degradation: is the whole connection losing, not one service?**
   The inference module found loss per destination only, and five
   destinations with a period each are not one shared period: the evenings

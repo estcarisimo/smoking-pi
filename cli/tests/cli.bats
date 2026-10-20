@@ -430,6 +430,106 @@ STUB_RELEASE_IMAGES="$REG/alerter:2.12.0 aaa111 300MB\n$REG/alerter:2.11.0 bbb22
     [[ "$output" == *"Removed 3 image(s) of other releases"* ]]
 }
 
+# The upgrade's window in InfluxDB (measurement `upgrade`): a start point
+# before the first container changes, an end point once InfluxDB takes
+# writes again, also when the upgrade fails. Never a reason to stop it.
+INFLUX_C="infx1 ghcr.io/estcarisimo/smoking-pi/influxdb:2.38.2"
+
+influx_exec_plan() {
+    # The stub's `docker exec -i` answers in turn from $1 ("ok fail fail"),
+    # then ok: InfluxDB refusing writes while it is recreated.
+    printf '%s\n' $1 > "$DOCKER_LOG.plan"
+    sed -i 's|^    "exec -i "\*) cat >> "\$DOCKER_LOG.stdin" ;;|    "exec -i "*) cat >> "$DOCKER_LOG.stdin"; n=$(cat "$DOCKER_LOG.n" 2>/dev/null \|\| echo 0); echo $((n + 1)) > "$DOCKER_LOG.n"; [ "$(sed -n "$((n + 1))p" "$DOCKER_LOG.plan")" != fail ] \|\| { echo FAILED >> "$DOCKER_LOG.stdin"; exit 1; } ;;|' "$BATS_TEST_TMPDIR/bin/docker"
+    grep -q 'DOCKER_LOG.plan' "$BATS_TEST_TMPDIR/bin/docker"
+}
+
+@test "upgrade records its window in InfluxDB: start before up, end after, with both versions, and no token in argv" {
+    printf 'INFLUX_TOKEN=t0ken-s3cret\n' >> "$SMOKING_PI_ENV_FILE"
+    export STUB_INFLUX_ID="$INFLUX_C"
+    SMOKING_PI_VERSION=2.39.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [ "$(grep -c . "$DOCKER_LOG.stdin")" -eq 2 ]
+    grep -Eqx 'upgrade,phase=start,from_version=2\.38\.2,to_version=2\.39\.0 value=1 [0-9]{19}' "$DOCKER_LOG.stdin"
+    grep -Eqx 'upgrade,phase=end,from_version=2\.38\.2,to_version=2\.39\.0,result=ok value=1 [0-9]{19}' "$DOCKER_LOG.stdin"
+    # start, then up, then end.
+    start=$(grep -n '^docker exec -i infx1 ' "$DOCKER_LOG" | head -1 | cut -d: -f1)
+    up=$(grep -n ' up -d --remove-orphans' "$DOCKER_LOG" | cut -d: -f1)
+    end=$(grep -n '^docker exec -i infx1 ' "$DOCKER_LOG" | sed -n 2p | cut -d: -f1)
+    [ "$start" -lt "$up" ] && [ "$up" -lt "$end" ]
+    # The container's own CLI reads its own token; this side never has it.
+    grep -q 'influx write .*-t "\$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN"' "$DOCKER_LOG"
+    if grep -q t0ken-s3cret "$DOCKER_LOG"; then false; fi
+    [[ "$output" != *"not recorded"* ]]
+}
+
+@test "upgrade from a clone records dev as the version it goes to" {
+    export STUB_INFLUX_ID="infx1 ghcr.io/estcarisimo/smoking-pi/influxdb:dev"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    grep -Eq '^upgrade,phase=start,from_version=dev,to_version=dev value=1 ' "$DOCKER_LOG.stdin"
+}
+
+@test "upgrade: InfluxDB not running, one line, no end point, no waiting, and the upgrade goes on" {
+    SMOKING_PI_VERSION=2.39.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "upgrade's start point" <<< "$output")" -eq 1 ]
+    if grep -q '^docker exec -i' "$DOCKER_LOG"; then false; fi
+    if grep -q '^sleep 3' "$DOCKER_LOG"; then false; fi
+    grep -q ' up -d --remove-orphans' "$DOCKER_LOG"
+}
+
+@test "upgrade: InfluxDB refusing writes while it restarts, the end point waits for it" {
+    export STUB_INFLUX_ID="$INFLUX_C"
+    influx_exec_plan "ok fail fail fail"
+    SMOKING_PI_VERSION=2.39.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^sleep 3$' "$DOCKER_LOG")" -eq 3 ]
+    grep -Eq '^upgrade,phase=end,.*,result=ok value=1 ' "$DOCKER_LOG.stdin"
+    [[ "$output" != *"end point"* ]]
+    # Stamped once, when the stack was back: every retry sends the same line.
+    [ "$(grep '^upgrade,phase=end' "$DOCKER_LOG.stdin" | sort -u | wc -l)" -eq 1 ]
+}
+
+@test "upgrade: InfluxDB never taking the end point gives up after a minute and still succeeds" {
+    export STUB_INFLUX_ID="$INFLUX_C"
+    influx_exec_plan "ok $(printf 'fail %.0s' $(seq 30))"
+    SMOKING_PI_VERSION=2.39.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^upgrade,phase=end' "$DOCKER_LOG.stdin")" -eq 20 ]
+    [ "$(grep -c '^sleep 3$' "$DOCKER_LOG")" -eq 19 ]
+    [ "$(grep -c "upgrade's end point" <<< "$output")" -eq 1 ]
+}
+
+@test "a failed upgrade still closes its window, with result=failed, and still fails" {
+    export STUB_INFLUX_ID="$INFLUX_C" STUB_UP_FAILS=1 STUB_STATES='pro-influxdb-1 running\n'
+    SMOKING_PI_VERSION=2.39.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -ne 0 ]
+    grep -q '^upgrade,phase=start,' "$DOCKER_LOG.stdin"
+    [ "$(grep -c '^upgrade,phase=end,from_version=2.38.2,to_version=2.39.0,result=failed value=1 ' "$DOCKER_LOG.stdin")" -eq 1 ]
+    if grep -q 'result=ok' "$DOCKER_LOG.stdin"; then false; fi
+}
+
+@test "a pull that fails touched no container and records no window" {
+    export STUB_INFLUX_ID="$INFLUX_C"
+    fail_docker_on " pull"
+    SMOKING_PI_VERSION=2.39.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -ne 0 ]
+    if grep -q '^docker exec -i' "$DOCKER_LOG"; then false; fi
+}
+
+@test "upgrade without InfluxDB (ClickHouse, Basic) records nothing and says nothing about it" {
+    export STUB_INFLUX_ID="$INFLUX_C"
+    printf 'COMPOSE_PROFILES=clickhouse,mcp\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"point"* ]]
+    printf 'COMPOSE_PROFILES=\n' > "$SMOKING_PI_ENV_FILE"
+    SMOKING_PI_EDITION=basic run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"point"* ]]
+    if grep -q '^docker exec -i' "$DOCKER_LOG"; then false; fi
+}
+
 @test "upgrade refuses without an env file" {
     rm -f "$SMOKING_PI_ENV_FILE"
     run "$CLI" upgrade

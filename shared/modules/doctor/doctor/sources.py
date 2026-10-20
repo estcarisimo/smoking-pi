@@ -600,6 +600,49 @@ def _pivoted_after(query: str, set_only: bool = False) -> list[tuple[str, set[st
     return pieces
 
 
+_MADE_BY_RE = re.compile(r"\|>\s*(map|elapsed)\(")
+
+
+def _call_end(query: str, open_paren: int) -> int:
+    """Where the call whose ``(`` is at ``open_paren`` closes; strings skipped."""
+    depth, i, quoted = 0, open_paren, False
+    while i < len(query):
+        c = query[i]
+        if quoted:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                quoted = False
+        elif c == '"':
+            quoted = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return len(query)
+
+
+def _computed(query: str) -> list[tuple[int, set[str]]]:
+    """Each ``map()``/``elapsed()`` that adds columns: where it ends and the
+    columns it makes. ``map(fn: (r) => ({_time: r._time, s: ...}))`` makes
+    ``s``; ``{r with s: ...}`` too; ``elapsed()`` makes ``elapsed`` (or its
+    ``columnName``). Read after the call, ``r.s`` is that column, not a tag."""
+    made = []
+    for m in _MADE_BY_RE.finditer(query):
+        end = _call_end(query, m.end() - 1)
+        call = query[m.end():end]
+        if m.group(1) == "elapsed":
+            named = re.search(r'columnName:\s*"([A-Za-z_]\w*)"', call)
+            names = {named.group(1) if named else "elapsed"}
+        else:
+            names = set(re.findall(r"(?:[{,]|\bwith)\s*([A-Za-z_]\w*)\s*:", call))
+        made.append((end, names))
+    return made
+
+
 def tag_refs_in(query: str) -> set[str]:
     """``r.<name>`` references that must be tags.
 
@@ -612,11 +655,15 @@ def tag_refs_in(query: str) -> set[str]:
     Only references AFTER the pivot are exempt, and only for values selected
     before it: ``r.loss`` ahead of the pivot is still a tag filter. A query
     joining streams can pivot more than once; each pivot exempts what it
-    made from there on.
+    made from there on. Columns a ``map()`` or ``elapsed()`` computed
+    (:func:`_computed`) are exempt the same way, after the call.
     """
-    refs = set()
-    for text, exempt in _pivoted_after(query):
-        refs |= set(_TAG_REF_RE.findall(text)) - exempt
+    events = sorted(_pivots(query) + _computed(query), key=lambda e: e[0])
+    refs, exempt, start = set(), set(), 0
+    for pos, made in events + [(len(query), set())]:
+        refs |= set(_TAG_REF_RE.findall(query[start:pos])) - exempt
+        exempt |= made
+        start = pos
     return {name for name in refs if name not in FLUX_BUILTIN_COLUMNS}
 
 

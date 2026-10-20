@@ -195,6 +195,104 @@ human_bytes() {
         else printf "%d kB", b / 1e3 }'
 }
 
+# The upgrade's own window, in the measurements. An upgrade recreates the
+# containers, the Wi-Fi radio and the first hop with them, and showed up in
+# the data as a cut on every destination at once, the CPE gateway included
+# (reference Pi, 2026-10-15 17:30Z: 4-6 % loss everywhere; 2026-10-18
+# 18:30Z: 66 %). Nothing said an upgrade had happened, so the detectors and
+# whoever read the charts took it for the network. Two points in the
+# edition's InfluxDB bucket, measurement `upgrade`: phase=start before the
+# first container is touched, phase=end (result=ok|failed) once InfluxDB
+# answers again -- or from the exit trap when the upgrade fails. Tags
+# from_version and to_version on both; field value=1. shared/modules/inference
+# reads them; Grafana draws them (docs/upgrades.md). Through the database
+# container's own CLI, as the watchdog records its events (cli/lib/watchdog.sh):
+# no token on this side. Best effort: no InfluxDB (Basic, Standard,
+# ClickHouse), nothing written and nothing said; InfluxDB not answering,
+# one line and the upgrade goes on.
+UPGRADE_MARK=""         # "from to" once the start point is in; empty: no end to write
+UPGRADE_MARK_TRIES=20   # end point: tries, three seconds apart (InfluxDB restarts)
+
+upgrade_marks_wanted() {
+    [ "$SMOKING_PI_EDITION" = pro ] && profile_on influxdb
+}
+
+bounded() {
+    # timeout(1) where there is one; macOS has none, and the call runs as is.
+    if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi
+}
+
+influx_container() {
+    # "id image" of this stack's InfluxDB container, running; empty when none.
+    bounded 5 docker ps --filter "label=com.docker.compose.project.working_dir=$EDITION_DIR" \
+        --filter label=com.docker.compose.service=influxdb --format '{{.ID}} {{.Image}}' 2>/dev/null | head -1 || true
+}
+
+mark_tag() {
+    # A line-protocol tag value: anything but a version's characters becomes
+    # `_`, so a space or a comma cannot split the line. Empty: "unknown".
+    local v; v="$(printf '%s' "$1" | tr -c 'A-Za-z0-9._+-' '_')"
+    printf '%s' "${v:-unknown}"
+}
+
+mark_now() {
+    # Nanoseconds; date without %N (macOS) gives whole seconds.
+    local n; n="$(date +%s%N)"
+    case "$n" in *[!0-9]*) n="$(date +%s)000000000" ;; esac
+    printf '%s' "$n"
+}
+
+influx_write_line() {
+    # $1: one line of line protocol. Status: whether InfluxDB took it.
+    local c; c="$(influx_container)"
+    [ -n "$c" ] || return 1
+    printf '%s\n' "$1" | bounded 10 docker exec -i "${c%% *}" sh -c \
+        'influx write --org "$DOCKER_INFLUXDB_INIT_ORG" --bucket "$DOCKER_INFLUXDB_INIT_BUCKET" -t "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" --precision ns' \
+        >/dev/null 2>&1
+}
+
+upgrade_mark_start() {
+    upgrade_marks_wanted || return 0
+    # The version running now: the tag of InfluxDB's image (every image of
+    # a release carries the release's tag; a clone's own build is "dev").
+    local c from to line
+    c="$(influx_container)"
+    from="${c#* }"; from="${from##*/}"
+    case "$from" in *:*) from="${from##*:}" ;; *) from="" ;; esac
+    from="$(mark_tag "$from")"; to="$(mark_tag "${SMOKING_PI_VERSION:-dev}")"
+    line="$(printf 'upgrade,phase=start,from_version=%s,to_version=%s value=1 %s' "$from" "$to" "$(mark_now)")"
+    # One try: InfluxDB is running before the upgrade or it is not, and the
+    # upgrade does not wait for it.
+    if influx_write_line "$line"; then
+        UPGRADE_MARK="$from $to"
+        trap 'upgrade_mark_end failed' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+    else
+        echo "InfluxDB did not take the upgrade's start point; this upgrade's window is not recorded (docs/upgrades.md)." >&2
+    fi
+    return 0
+}
+
+upgrade_mark_end() {
+    # $1: ok | failed. Stamped now, written when InfluxDB answers again:
+    # a recreated InfluxDB takes tens of seconds, so up to a minute of
+    # retries, then one line and on.
+    [ -n "$UPGRADE_MARK" ] || return 0
+    trap - EXIT INT TERM
+    local from="${UPGRADE_MARK% *}" to="${UPGRADE_MARK#* }" line try=1
+    UPGRADE_MARK=""
+    line="$(printf 'upgrade,phase=end,from_version=%s,to_version=%s,result=%s value=1 %s' "$from" "$to" "$1" "$(mark_now)")"
+    until influx_write_line "$line"; do
+        if [ "$try" -ge "$UPGRADE_MARK_TRIES" ]; then
+            echo "InfluxDB did not take the upgrade's end point within a minute; its window shows no end (docs/upgrades.md)." >&2
+            return 0
+        fi
+        try=$((try + 1)); sleep 3
+    done
+    return 0
+}
+
 cmd_upgrade() {
     local doctor=1
     while [ $# -gt 0 ]; do
@@ -227,9 +325,12 @@ cmd_upgrade() {
         # images so a Dependabot bump in a Dockerfile actually lands.
         compose build --pull
     fi
+    # The images are here; from now on the containers change.
+    upgrade_mark_start
     # Only the services whose image or config changed are recreated.
     compose up -d --remove-orphans
     remove_disabled
+    upgrade_mark_end ok
     retire_dashboards
     retire_folders
     publish_avahi

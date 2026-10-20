@@ -90,6 +90,19 @@
           "refId": "Window",
           "query": "import \"date\"\nimport \"strings\"\nimport \"generate\"\nimport \"regexp\"\nimport \"timezone\"\n// The window typed in the \"Selected window\" box (\"HH:MM-HH:MM\", dashboard time zone), shaded on every day of the range.\n// This is the viewer's choice, not a detected pattern: empty, or anything but two clock times, shades nothing.\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nwin = strings.trimSpace(v: \"${window}\")\nok = regexp.matchRegexpString(r: /^([01]?[0-9]|2[0-3])(:[0-5][0-9])?-([01]?[0-9]|2[0-3])(:[0-5][0-9])?$/, v: win)\nparts = if ok then strings.split(v: win, t: \"-\") else [\"0\", \"0\"]\na = strings.split(v: parts[0], t: \":\")\nb = strings.split(v: parts[1], t: \":\")\nsm = int(v: a[0]) * 60 + (if length(arr: a) > 1 then int(v: a[1]) else 0)\nem0 = int(v: b[0]) * 60 + (if length(arr: b) > 1 then int(v: b[1]) else 0)\nem = if em0 <= sm then em0 + 1440 else em0\n// Two rows per day, 12 h apart, then one per local day: a day is never skipped or doubled across a DST change.\nfirst = date.sub(d: 1d, from: v.timeRangeStart)\nhalves = int(v: (int(v: v.timeRangeStop) - int(v: first)) / 43200000000000) + 2\ngenerate.from(count: halves, fn: (n) => n, start: first, stop: date.add(d: duration(v: halves * 43200000000000), to: first))\n  |> map(fn: (r) => ({_start: date.truncate(t: r._time, unit: 1d, location: loc)}))\n  |> unique(column: \"_start\")\n  |> map(fn: (r) => ({_start: r._start, _time: date.add(d: duration(v: sm * 60000000000), to: r._start, location: loc), _stop: date.add(d: duration(v: em * 60000000000), to: r._start, location: loc)}))\n  |> filter(fn: (r) => ok and r._time < v.timeRangeStop and r._start >= first)\n  |> map(fn: (r) => ({_time: r._time, timeEnd: r._stop, text: \"Your selected window, \" + win + \" (set by the window variable, not a detected pattern)\", tags: \"selected-window\"}))"
         }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#B877D9",
+        "name": "Upgrades",
+        "target": {
+          "refId": "Upgrade",
+          "query": "import \"date\"\n// Windows `smoking-pi upgrade` recorded (measurement upgrade): each end point paired with the start right before it.\n// The containers were being recreated: a cut on every destination inside one is the upgrade, not the network.\n// Reach back a day so a window that began before the range is still drawn.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 1d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"upgrade\" and r._field == \"value\")\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> map(fn: (r) => ({_time: r._time, from_version: r.from_version, to_version: r.to_version, result: if exists r.result then r.result else \"\", s: if r.phase == \"start\" then 1 else 0}))\n  |> difference(columns: [\"s\"], keepFirst: true)\n  |> elapsed(unit: 1s)\n  |> filter(fn: (r) => r.s == -1 and r._time >= v.timeRangeStart)\n  |> map(fn: (r) => ({_time: date.sub(d: duration(v: r.elapsed * 1000000000), from: r._time), timeEnd: r._time, text: \"Upgrade \" + r.from_version + \" → \" + r.to_version + (if r.result == \"failed\" then \", failed\" else \"\") + \" (\" + string(v: r.elapsed) + \" s)\", tags: \"upgrade\"}))"
+        }
       }
     ]
   },
