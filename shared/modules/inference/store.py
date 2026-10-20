@@ -26,6 +26,9 @@ DEGRADATION = "loss_degradation"
 # One point per period of loss the whole connection shared (shared.py): no
 # target tag, the period is the house's.
 SHARED = "shared_degradation"
+# Jitterbug on the aggregate stream (aggregate.py): one point per period the
+# whole connection stayed congested; no target tag either.
+SHARED_CONGESTION = "shared_congestion"
 # One point per pass: how long, how many targets, how many failed.
 PASS = "inference_pass"
 
@@ -67,6 +70,8 @@ def measurement_name(measurement: str) -> str:
         return "loss_degradation"
     if measurement == SHARED:
         return "shared_degradation"
+    if measurement == SHARED_CONGESTION:
+        return "shared_congestion"
     raise ValueError("unknown measurement")
 
 
@@ -109,7 +114,9 @@ def pass_point(report: dict, now: int):
             .field("errors", int(report.get("errors") or 0))
             .field("congestion_periods", int(congested))
             .field("degradation_periods", int(degraded))
-            .field("shared_periods", int((report.get("shared") or {}).get("periods", 0))))
+            .field("shared_periods", int((report.get("shared") or {}).get("periods", 0)))
+            .field("shared_congestion_periods",
+                   int((report.get("shared_congestion") or {}).get("periods", 0))))
 
 
 def write_pass(report: dict, now: int, client=None) -> None:
@@ -152,21 +159,24 @@ def replace(measurement: str, target: str, category: str, periods: list[dict],
 
 SHARED_NUMBERS = ("mean_loss_pct", "coverage", "lossy_operator_share", "dominant_share")
 SHARED_COUNTS = ("voters", "operators")
-SHARED_TEXT = ("scope", "kinds", "dominant")
+SHARED_TEXT = ("scope", "kinds", "dominant", "by_operator", "by_kind", "diverged")
+CONGESTION_NUMBERS = ("confidence", "jump_ms", "ks_p", "coverage")
 
 
-def shared_points(periods: list[dict], window_start: int) -> list:
-    """``shared_degradation`` points; a period cut by the window is skipped,
-    as in :func:`points`."""
+def shared_points(periods: list[dict], window_start: int,
+                  measurement: str = SHARED) -> list:
+    """``shared_degradation`` (or ``shared_congestion``) points; a period cut
+    by the window is skipped, as in :func:`points`."""
     from influxdb_client import Point, WritePrecision
 
+    numbers = CONGESTION_NUMBERS if measurement == SHARED_CONGESTION else SHARED_NUMBERS
     out = []
     for p in periods:
         if p.get("truncated") or p["start"] <= window_start:
             continue
-        pt = (Point(measurement_name(SHARED)).time(int(p["start"]), WritePrecision.S)
+        pt = (Point(measurement_name(measurement)).time(int(p["start"]), WritePrecision.S)
               .field("end", int(p["end"])).field("duration_s", int(p["end"] - p["start"])))
-        for key in SHARED_NUMBERS:
+        for key in numbers:
             if p.get(key) is not None:
                 pt = pt.field(key, float(p[key]))
         for key in SHARED_COUNTS:
@@ -179,16 +189,18 @@ def shared_points(periods: list[dict], window_start: int) -> list:
     return out
 
 
-def replace_shared(periods: list[dict], window_start: int, now: int, client=None) -> int:
-    """Delete the window's ``shared_degradation`` points and write ``periods``."""
+def replace_shared(periods: list[dict], window_start: int, now: int, client=None,
+                   measurement: str = SHARED) -> int:
+    """Delete the window's ``shared_degradation`` (or ``shared_congestion``)
+    points and write ``periods``."""
     own = client is None
     client = client or _client()
     try:
         client.delete_api().delete(
-            _iso(window_start), _iso(now), f"_measurement={_quoted(SHARED)}",
+            _iso(window_start), _iso(now), f"_measurement={_quoted(measurement_name(measurement))}",
             bucket=_bucket(), org=os.environ.get("INFLUX_ORG", "smokeping"),
         )
-        batch = shared_points(periods, window_start)
+        batch = shared_points(periods, window_start, measurement)
         if batch:
             from influxdb_client.client.write_api import SYNCHRONOUS
 

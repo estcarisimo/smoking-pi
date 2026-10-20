@@ -33,6 +33,9 @@ degradation detector (degradation.detect, its parameters untouched):
    names the target that carried most of the loss. Tags qualify a period,
    they do not weight the series: weighting each operator equally lets an
    operator with one target swing the result.
+7. **Attribution.** Each period also says who lost: the top operators' and
+   every kind's mean loss over its span, and the voters that diverged (lost
+   at most a tenth of the pooled loss), as short strings for a tooltip.
 
 On 52 days of the reference Pi this found every evening of the August to
 October loss and nothing on a single CDN edge's route changes, the radio
@@ -66,6 +69,12 @@ GATEWAY_FLOOR = 0.03        # ...or this much and half the destinations' loss, t
 LOSSY_PCT = 1.0
 SHARED_OPERATOR_SHARE = 1 / 3
 MIN_KINDS = 2
+# Attribution (one string field each): the operators that lost most, every
+# kind's loss, and the voters that stayed out of it (lost at most a tenth of
+# the pooled loss).
+TOP_OPERATORS = 3
+DIVERGED_SHARE = 0.1
+MAX_LISTED = 5
 
 
 def bins_flux(start: int, stop: int, fn: str) -> str:
@@ -177,7 +186,20 @@ def qualify(period: dict, lo: pd.DataFrame, of) -> dict:
     total = float(per_target.sum()) or 1.0
     top = per_target.idxmax() if per_target.notna().any() else ""
     share = len(lossy) / len(op_loss) if op_loss else 0.0
+    by_kind: dict[str, list[float]] = {}
+    for op, ts in ops.items():
+        for t in ts:
+            if pd.notna(per_target.get(t)):
+                by_kind.setdefault(of(t)[1], []).append(float(per_target[t]))
+    pooled = float(period.get("mean_loss_pct") or 0.0)
+    diverged = sorted((float(v), t) for t, v in per_target.items()
+                      if pd.notna(v) and v <= DIVERGED_SHARE * pooled)
     period.update({
+        "by_operator": _listing(sorted(op_loss.items(), key=lambda kv: -kv[1])[:TOP_OPERATORS]),
+        "by_kind": _listing(sorted(((k, float(np.mean(v))) for k, v in by_kind.items()),
+                                   key=lambda kv: -kv[1])),
+        "diverged": _listing([(t, v) for v, t in diverged[:MAX_LISTED]],
+                             more=len(diverged) - MAX_LISTED),
         "voters": int(len(lo.columns)),
         "operators": int(len(op_loss)),
         "lossy_operator_share": share,
@@ -188,6 +210,13 @@ def qualify(period: dict, lo: pd.DataFrame, of) -> dict:
         else "dominated",
     })
     return period
+
+
+def _listing(pairs, more: int = 0) -> str:
+    """``name 12.3 %, name 0.4 %`` (and ``+N more``): compact enough for a
+    tooltip, and a string field, so a period's attribution is one point."""
+    text = ", ".join(f"{name} {value:.1f} %" for name, value in pairs)
+    return f"{text}, +{more} more" if more > 0 and text else text
 
 
 def detect(loss_rows: list[dict], count_rows: list[dict], deaf_bins: set[int], of,
@@ -212,8 +241,10 @@ def detect(loss_rows: list[dict], count_rows: list[dict], deaf_bins: set[int], o
         span = pooled[(pooled.index >= p["start"]) & (pooled.index < p["end"])]
         p["coverage"] = float(span.notna().mean()) if len(span) else 0.0
         qualify(p, lo, of)
+    # The voters and the monitor's bins, for the aggregate stream (aggregate.py).
     return {"periods": found["periods"], "voters": len(voters), "bins": int(len(loss)),
-            "monitor_bins": int(monitor.sum())}
+            "monitor_bins": int(monitor.sum()), "voter_targets": list(voters),
+            "monitor": {int(b) for b in monitor.index[monitor.values]}}
 
 
 def run(start: int, deaf_bins: set[int], query=query_influx, tag_store=None,

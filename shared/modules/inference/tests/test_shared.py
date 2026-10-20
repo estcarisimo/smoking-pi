@@ -232,3 +232,38 @@ def test_run_reads_bins_hosts_and_tags():
     out = shared.run(T0, set(), query=query, tag_store=store, find=fake_find)
     assert store.hosts["a1"] == "a1.example"
     assert out["voters"] == 12
+
+
+def test_a_period_says_who_lost_and_who_stayed_out_of_it():
+    data = base()
+    for t, v in (("a1", 0.10), ("a2", 0.08), ("c1", 0.06), ("c2", 0.06), ("d1", 0.04),
+                 ("d2", 0.04), ("e1", 0.03), ("e2", 0.03), ("f1", 0.03)):
+        data[t] = with_window(data[t], 300, 12, v)   # b1, b2 and f2 lost nothing
+
+    def find(df):
+        out = fake_find(df)
+        for p in out["periods"]:
+            span = df[(df["epoch"] >= p["start"]) & (df["epoch"] < p["end"])]
+            p["mean_loss_pct"] = float(span["loss_pct"].mean())
+        return out
+
+    loss, counts = rows(data, categories=CATS)
+    [p] = shared.detect(loss, counts, set(), of, find=find)["periods"]
+    assert p["by_operator"] == "Fastly 9.0 %, Google 6.0 %, Meta 4.0 %"
+    kinds = dict(part.rsplit(" ", 2)[0:2] for part in p["by_kind"].split(", "))
+    assert kinds == {tags.CONTENT: "5.0", tags.CDN: "4.5", tags.CACHE: "3.0", tags.CLOUD: "1.5"}
+    assert p["diverged"] == "b1 0.0 %, b2 0.0 %, f2 0.0 %"
+
+
+def test_a_long_list_of_diverged_voters_is_cut_short():
+    assert shared._listing([("a", 0.0), ("b", 0.1)], more=4) == "a 0.0 %, b 0.1 %, +4 more"
+    assert shared._listing([]) == ""
+
+
+def test_the_pass_hands_its_voters_and_monitor_bins_to_the_aggregate_stream():
+    data = base()
+    for t in data:
+        data[t] = with_window(data[t], 300, 2, 0.05)  # the first hop's, as above
+    out = run(data)
+    assert sorted(out["voter_targets"]) == sorted(OPERATORS)
+    assert {T0 + 300 * 900, T0 + 301 * 900} <= out["monitor"]

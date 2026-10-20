@@ -110,3 +110,34 @@ def test_the_pass_point_counts_shared_periods():
     line = store.pass_point({"targets": {}, "shared": {"periods": 3}}, 1000).to_line_protocol()
     assert "shared_periods=3i" in line
     assert "shared_periods=0i" in store.pass_point({"targets": {}}, 1000).to_line_protocol()
+
+
+def test_shared_congestion_points_carry_jitterbug_s_numbers():
+    periods = [{"start": 1000, "end": 8200, "confidence": 0.8, "jump_ms": 1.2, "ks_p": 0.01,
+                "coverage": 0.9, "mean_loss_pct": 3.0}]
+    [pt] = store.shared_points(periods, 500, store.SHARED_CONGESTION)
+    line = pt.to_line_protocol()
+    assert line.startswith("shared_congestion ")
+    for part in ("confidence=0.8", "jump_ms=1.2", "ks_p=0.01", "coverage=0.9", "end=8200i"):
+        assert part in line
+    assert "mean_loss_pct" not in line and "target=" not in line
+
+
+def test_shared_degradation_points_carry_the_attribution():
+    p = {"start": 1000, "end": 4600, "by_operator": "Fastly 9.0 %", "by_kind": "cdn 4.5 %",
+         "diverged": "b1 0.0 %"}
+    line = store.shared_points([p], 500)[0].to_line_protocol()
+    for part in ('by_operator="Fastly 9.0 %"', 'by_kind="cdn 4.5 %"', 'diverged="b1 0.0 %"'):
+        assert part in line
+
+
+def test_replacing_shared_congestion_deletes_only_its_own_measurement():
+    client = FakeClient()
+    store.replace_shared([], 500, 9000, client=client, measurement=store.SHARED_CONGESTION)
+    assert '_measurement="shared_congestion"' in client.deleted[0][2]
+
+
+def test_the_pass_point_counts_shared_congestion_periods():
+    line = store.pass_point({"targets": {}, "shared_congestion": {"periods": 2}},
+                            1000).to_line_protocol()
+    assert "shared_congestion_periods=2i" in line

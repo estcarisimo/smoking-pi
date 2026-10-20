@@ -122,7 +122,8 @@ of infrastructure the targets reach, not which targets they are.
 
 Results go to `shared_degradation` (one point per period, no target tag;
 fields `scope`, `mean_loss_pct`, `coverage`, `voters`, `operators`,
-`lossy_operator_share`, `kinds`, `dominant`, `dominant_share`).
+`lossy_operator_share`, `kinds`, `dominant`, `dominant_share`, and the
+attribution below).
 Connectivity & Quality draws them in its episode timeline as the *Whole
 connection* rows: dark red when shared, pale when one destination carried
 it. With fewer than eight steady targets the module says nothing and leaves
@@ -134,6 +135,65 @@ service the DNS observer and the resolver probe use. No probe is added. A
 target whose lookups have not succeeded yet counts as no operator, so in
 the first passes after the module starts, before every target is tagged
 (64 lookups a pass), a period may read `dominated` and later `shared`.
+
+**Who lost.** Each period also carries its attribution, read off the same
+bins the detector used, as three short strings: `by_operator`, the three
+operators that lost most (mean loss over the period, e.g.
+`Fastly 9.0 %, Google 6.0 %, Meta 4.0 %`); `by_kind`, every kind of
+infrastructure's mean loss; and `diverged`, the voting targets that stayed
+out of it (lost at most a tenth of the pooled loss; five at most, then
+`+N more`). Connectivity & Quality lists them under the timeline, in
+*Whole connection: who lost in each shared loss period*. Untagged targets
+are left out of the operators and kinds, as in the qualification.
+
+## Shared persistent congestion: Jitterbug on an aggregate input
+
+The same question for queues: did a floor rise and stay up for the whole
+connection, not one route? Jitterbug runs **as published and unchanged**
+(the same call as per target: BCP + KS), once per pass, on one stream built
+across destinations:
+
+1. Each steady target's pings (the voters of the shared degradation pass)
+   minus that target's own floor: the 5th percentile of its 15-minute
+   minimum RTT over the trailing 7 days. A destination 2 ms away and one
+   170 ms away then share a scale, and a route change stays that route's.
+2. Per 5-minute probe cycle, the ten deciles (5th to 95th percentile) of
+   those relative pings, when at least eight voters answered. Jitterbug
+   reads the ten values as the cycle's samples, placed at the distance of a
+   typical voter: the median of the voters' floors, one constant per pass
+   (`base_ms` in the status; 6.95 ms on the staging Pi). Jitterbug accepts
+   only positive RTTs, and where a series sits is not neutral to its BCP:
+   the Student-t likelihood's prior is centered on 0, and the same 3 ms
+   step measured two change points at +10 ms and none at +100 ms. The base
+   is read off the data, not tuned, so the stream looks like what Jitterbug
+   would see on this connection's typical destination; the offline
+   evaluation below used +10 ms on a connection whose floors are mostly
+   under 15 ms. A sample still not positive (a route that got much
+   shorter) is dropped and counted in the status (`dropped`).
+3. The monitor's bins (the radio deaf, the gateway losing with the
+   destinations) are left out, exactly as in the shared degradation pass.
+
+The input is new; the method is not. No parameter is tuned, and loss does
+not feed it: evaluated offline on 52 days of the reference Pi, it found **no** shared
+persistent congestion. The evenings of shared loss raised the median
+relative floor by 0.25–0.55 ms, less than what Jitterbug calls a jump, so an
+empty row is the expected answer on a connection whose trouble is loss, and
+shared degradation is the signal for that.
+
+The stream is built incrementally and kept in the state volume
+(`aggregate.csv`, about 4 000 rows): each pass adds the cycles since the
+last one, so it never re-reads two weeks of raw pings (see Cost). A cycle
+is written once its 15-minute bin and the two after it are complete, since
+the monitor rule looks two bins ahead, and it keeps the voters of the pass
+that wrote it. A row of the file that does not read as numbers is dropped. The first pass fills the loss window (7 days, the span whose
+monitor bins are known); the stream reaches the congestion window's 14 days
+a week later. Deleting the volume starts it over; periods written before
+the restarted stream's first cycle are kept.
+
+Results go to `shared_congestion` (one point per period, no target tag;
+fields `end`, `duration_s`, `confidence`, `jump_ms`, `ks_p`, `coverage`).
+Connectivity & Quality draws it as the orange-dark *Whole connection* row,
+labeled "Jitterbug (as published) on an aggregate input — experimental".
 
 ## What a period carries besides its detection
 
@@ -167,7 +227,8 @@ other evidence and written beside each period, never fed back into it:
 ## Pass history
 
 Every pass writes one `inference_pass` point: `seconds`, `targets`,
-`errors`, `congestion_periods`, `degradation_periods`, `shared_periods`. The
+`errors`, `congestion_periods`, `degradation_periods`, `shared_periods`,
+`shared_congestion_periods`. The
 [Diagnostics dashboard](diagnostics.md) (Advanced folder) charts the seconds
 and failures per pass; `status.json` keeps only the last pass, and the
 container's log does not survive an upgrade, so this is the record of what a
@@ -227,8 +288,18 @@ next pass. `status.py` reports the time of the last pass without errors
 
 
 The shared detector adds one change-point run on one series and two
-storage-engine queries per pass (a second or two on a Pi), plus the DNS
-lookups above, which are cached.
+storage-engine queries per pass, plus the DNS lookups above, which are
+cached.
+
+Jitterbug on the aggregate input was measured on a staging Pi (Pi 4, 4 GB,
+~23 ICMP targets). Re-reading 14 days of every target's raw pings each pass
+would cost 22 s and 662 MB (831 000 rows), so about a minute and 2 GB with
+the ~65 targets of the reference Pi: hence the incremental stream. Each
+hourly pass reads one hour of raw pings and 7 days of 15-minute minimums
+(one storage-engine query; 0.8 s in InfluxDB for 66 targets on the
+reference Pi) and adds 12 cycles in about 1 s; Jitterbug on the 14-day
+stream takes about 6 s, 7.3 s in all. The first pass after an upgrade
+fills 7 days a day at a time: about 30 s once, at most ~390 MB.
 
 ## Limits
 
@@ -242,10 +313,11 @@ lookups above, which are cached.
   microsecond resolution (`dig-usec`, see [DNS probes](dns-probes.md)), but
   the history before that change is still quantized, so a window that
   spans it mixes the two.
-- **Shared degradation is about loss only.** Running Jitterbug on a series
-  built across destinations is being evaluated separately; on the reference
-  Pi it found no shared persistent congestion, which matches the per-target
-  results.
+- **Shared persistent congestion reads the aggregate input only.** It
+  says whether the voters' floors rose together; a queue on one route is
+  the per-target detector's. Its stream keeps the voters each cycle was
+  written with, so a target that starts or stops voting changes the stream
+  from then on, not backwards.
 - **Not in the alert path.** Alerts and other ways of passing these results
   on come later, once each detector has been validated on real connections.
 - The image is larger than the others: the detectors need PyTorch (the
