@@ -355,7 +355,8 @@ def test_the_caller_learns_a_target_was_corrected(config_dir, db_url):
 
     _seeded_with_bare_amazon(config_dir)
     assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
-    assert migration.corrected_on_start == 1
+    # The target, and the fixture's DNS probe (seeded with the old dig path).
+    assert migration.corrected_on_start == 2
     assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
     assert migration.corrected_on_start == 0
 
@@ -596,3 +597,68 @@ def test_a_yaml_seeded_before_both_fixes_ends_up_as_the_template(config_dir):
     assert fix_probes_yaml(config_dir) == 6
     assert path.read_text() == TEMPLATE_PROBES.read_text()
     assert fix_probes_yaml(config_dir) == 0
+
+
+# --- DNS probe: dig -> dig-usec (seed_fix_dns_usec) ---
+
+def test_the_seed_runs_dns_through_the_usec_wrapper():
+    probes = yaml.safe_load(TEMPLATE_PROBES.read_text())["probes"]
+    assert probes["DNS"]["binary"] == "/usr/local/bin/dig-usec"
+    assert probes["FPing"]["binary"] == "/usr/sbin/fping"
+
+
+def _dns_binaries(db_url):
+    session = _session(db_url)
+    try:
+        return {p.name: p.binary_path for p in session.query(Probe).all()
+                if p.name.endswith("DNS")}
+    finally:
+        session.close()
+
+
+def test_dns_binary_moves_to_the_wrapper_once_in_the_database(config_dir, db_url):
+    import scripts.migrate_yaml_to_db as migration
+
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    session = _session(db_url)
+    try:
+        session.query(Probe).filter_by(name="DNS").one().binary_path = "/usr/bin/dig"
+        # A wizard copy and a path someone chose.
+        session.add(Probe(name="WizardDNS", binary_path="/usr/bin/dig",
+                          step_seconds=300, pings=5, forks=5))
+        session.add(Probe(name="MyDNS", binary_path="/opt/dig", step_seconds=300,
+                          pings=5, forks=5))
+        session.query(SystemMetadata).filter(
+            SystemMetadata.key == "seed_fix_dns_usec").delete()
+        session.commit()
+    finally:
+        session.close()
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert _dns_binaries(db_url) == {
+        "DNS": "/usr/local/bin/dig-usec",
+        "WizardDNS": "/usr/local/bin/dig-usec",
+        "MyDNS": "/opt/dig",
+    }
+    # Applied once: set back by hand, it stays.
+    session = _session(db_url)
+    try:
+        session.query(Probe).filter_by(name="DNS").one().binary_path = "/usr/bin/dig"
+        session.commit()
+    finally:
+        session.close()
+    assert migration.run_migration(config_dir=config_dir, database_url=db_url) is True
+    assert _dns_binaries(db_url)["DNS"] == "/usr/bin/dig"
+
+
+def test_yaml_dns_binary_moves_to_the_wrapper_once(config_dir):
+    from scripts.migrate_yaml_to_db import fix_probes_yaml
+
+    path = config_dir / "probes.yaml"
+    path.write_text(TEMPLATE_PROBES.read_text().replace(
+        "/usr/local/bin/dig-usec", "/usr/bin/dig"))
+    assert fix_probes_yaml(config_dir) == 1
+    assert path.read_text() == TEMPLATE_PROBES.read_text()
+    # Once: a deliberate change back stays.
+    path.write_text(path.read_text().replace("/usr/local/bin/dig-usec", "/usr/bin/dig"))
+    assert fix_probes_yaml(config_dir) == 0
+    assert "binary: /usr/bin/dig\n" in path.read_text()

@@ -9,6 +9,25 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **DNS probe samples sat on 4 ms steps.** SmokePing's DNS probe parses
+  dig's `;; Query time: N msec`, and dig timestamps with the kernel's
+  coarse clock (`CLOCK_REALTIME_COARSE`, a 4 ms tick at `CONFIG_HZ=250`)
+  unless given `-u`. Every DNS sample on a Pi was a multiple of 4 ms: a
+  resolver getting 1 ms slower was invisible, the minimum Jitterbug needs
+  could not move between steps, and the DNS percentiles were coarse. The
+  smokeping image now ships `/usr/local/bin/dig-usec`, which runs `dig -u`
+  and rewrites only the `Query time: N usec` line to `N.NNN msec` (the form
+  the probe's regex and its `pingfactor` take as is); other output and the
+  exit code pass through. The probe points at it: in the seed, and on
+  upgrade once for installed probes on the stock dig path, in
+  PostgreSQL and in the config dir's `probes.yaml`. A binary you chose is
+  left alone. No additional queries and no series renamed; **the DNS series
+  change resolution at the upgrade**, so medians and minimums shift by up to
+  one tick with no change in the network. `docs/dns-probes.md` and the
+  limits in `docs/inference.md` say so.
+
 ## [2.43.0] — 2026-10-18
 
 The doctor now sees two failures that used to leave it green: a Wi-Fi
