@@ -8,6 +8,8 @@ Every ``INFERENCE_INTERVAL`` (3600 s), for each selected ICMP target:
   (degradation.py);
 
 and their periods replace the window's earlier ones in InfluxDB (store.py).
+Then, once per pass, shared degradation over the same window as the loss
+(shared.py): one series across every destination, for the whole connection.
 ``INFERENCE_SINCE`` (a date) keeps both windows from reaching before it, for
 a host that moved or changed provider: history from another connection is
 not this one's baseline.
@@ -29,6 +31,7 @@ import congestion
 import deaf
 import degradation
 import series
+import shared
 import status
 import store
 
@@ -72,9 +75,11 @@ def windows(now: int) -> tuple[int, int]:
 def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.targets,
              find_congestion=congestion.detect, find_degradation=degradation.detect,
              replace=store.replace, fetch_deaf=series.deaf_rows,
-             record_pass=store.write_pass) -> dict:
+             record_pass=store.write_pass, shared_pass=None,
+             replace_shared=store.replace_shared) -> dict:
     """One pass over every target. A target that fails is logged and skipped;
-    the others still run."""
+    the others still run. ``shared_pass(start, deaf_bins)`` runs the shared
+    detector once after them (main() passes shared.run)."""
     now = int(time.time()) if now is None else now
     c_start, d_start = windows(now)
     started = time.monotonic()
@@ -90,7 +95,7 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
     if not selected and "failed" not in report:
         log.warning("no target matched INFERENCE_CATEGORIES / INFERENCE_TARGETS")
     # The host's deaf samples, once per pass: every target shares the radio.
-    deaf_bins = deaf.deaf_bins(fetch_deaf(d_start)) if selected else set()
+    deaf_bins = deaf.deaf_bins(fetch_deaf(d_start)) if (selected or shared_pass) else set()
     report["deaf_bins"] = len(deaf_bins)
     for target, category in selected:
         row = {}
@@ -116,6 +121,21 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             row["error"] = True
             report["errors"] += 1
         report["targets"][target] = row
+    if shared_pass is not None:
+        shared_started = time.monotonic()
+        try:
+            s = shared_pass(d_start, deaf_bins)
+            # Too few voters says more about the data than about the network:
+            # keep what earlier passes wrote rather than clear the window.
+            if s["voters"] >= shared.MIN_VOTERS:
+                replace_shared(s["periods"], d_start, now)
+            report["shared"] = {"periods": len(s["periods"]), "voters": s["voters"],
+                                "shared": sum(1 for p in s["periods"] if p.get("scope") == "shared"),
+                                "seconds": round(time.monotonic() - shared_started, 1)}
+        except Exception:  # noqa: BLE001 -- the per-target results stand without it
+            log.warning("shared degradation failed", exc_info=True)
+            report["shared"] = {"error": True}
+            report["errors"] += 1
     report["seconds"] = round(time.monotonic() - started, 1)
     if not report["errors"]:
         report["last_ok"] = now
@@ -148,7 +168,7 @@ def main() -> None:
     time.sleep(START_DELAY)
     while True:
         began = time.time()
-        report = run_once()
+        report = run_once(shared_pass=shared.run)
         report["interval"] = interval
         status.write(report)
         time.sleep(max(60.0, interval - (time.time() - began)))

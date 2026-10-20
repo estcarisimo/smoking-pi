@@ -70,6 +70,71 @@ on every destination and on the CPE target is the local link or the Pi;
 on every destination but not on the CPE, it is beyond the first hop; on one
 destination only, it is that destination.
 
+## Shared degradation: the whole connection
+
+The two detectors above answer for one destination each. Five destinations
+with a period each are not one shared period, so once per pass the module
+also asks the house-level question: did loss rise for the whole connection,
+not one service?
+
+1. Every ICMP target's loss is binned into 15 minutes over the loss window,
+   whatever `INFERENCE_CATEGORIES` selects: that setting picks whom the
+   per-target detectors analyze; the shared question is about all of them.
+2. The monitor's own bins are left out: the radio was deaf, or the ISP
+   gateway lost about as much as the destinations did (two bins running, or
+   a fifth on its own). That is the first hop or closer, which the alerter's
+   verdict already reports as such. One bin of margin on each side.
+3. Only steady targets take part: one that reported in at least half the
+   window's bins (a slot that comes and goes never weighs) and lost nothing
+   in at least half of them (a host that rate-limits ICMP and always loses a
+   third is not the network). A target that lost everything for six hours
+   running is out while it stays dead.
+4. Lost over sent across those targets gives one series, per bin, when at
+   least 60 % of them (and at least eight) reported.
+5. The degradation detector runs on that series, unchanged: 30 minutes or
+   more averaging 2 % or more.
+
+Each period is then qualified by **who runs the infrastructure** behind the
+targets that lost. The module looks up each target's host (as the exporter
+records it), its address and CNAME, and the origin AS from
+[Team Cymru](https://www.team-cymru.com/ip-asn-mapping)'s DNS service; a
+short curated table maps well-known networks to their operator and kind: a multi-tenant CDN
+(Fastly, Cloudflare, Akamai, CloudFront, Imperva…), a content provider's own
+network (Google, Meta, Apple, Microsoft), a cache embedded near the access
+network (Netflix), cloud or origin servers, or an academic network. Any
+other network is its own operator. Three names on one CDN are one operator.
+
+- **shared**: at least a third of the voting operators lost 1 % or more in
+  the period, and they are of at least two kinds.
+- **dominated**: otherwise; `dominant` names the target that carried most of
+  the loss (a destination going dead, one CDN having a bad evening).
+
+The kinds qualify a period; they do not weight the series. Weighting each
+operator equally lets an operator with a single target swing the result.
+
+On the reference Pi, replayed over 52 days, this marked every evening of the
+August to October loss as shared (four to six kinds of infrastructure each
+time), called the periods one dead name carried `dominated`, and found
+nothing on a CDN edge's route changes, the radio hangs or a quiet week.
+Across 100 random sets of ten targets, the strong evenings were found by
+99–100 % of them and a false period by 0–2 %: what matters is how many kinds
+of infrastructure the targets reach, not which targets they are.
+
+Results go to `shared_degradation` (one point per period, no target tag;
+fields `scope`, `mean_loss_pct`, `coverage`, `voters`, `operators`,
+`lossy_operator_share`, `kinds`, `dominant`, `dominant_share`).
+Connectivity & Quality draws them in its episode timeline as the *Whole
+connection* rows: dark red when shared, pale when one destination carried
+it. With fewer than eight steady targets the module says nothing and leaves
+earlier periods as they were.
+
+The lookups are DNS queries, a few per target, cached in the state volume
+(addresses for a day, owners for a week, a failure for an hour), the same
+service the DNS observer and the resolver probe use. No probe is added. A
+target whose lookups have not succeeded yet counts as no operator, so in
+the first passes after the module starts, before every target is tagged
+(64 lookups a pass), a period may read `dominated` and later `shared`.
+
 ## What a period carries besides its detection
 
 The detectors run on the raw series, as published. Two things are read off
@@ -102,7 +167,7 @@ other evidence and written beside each period, never fed back into it:
 ## Pass history
 
 Every pass writes one `inference_pass` point: `seconds`, `targets`,
-`errors`, `congestion_periods`, `degradation_periods`. The
+`errors`, `congestion_periods`, `degradation_periods`, `shared_periods`. The
 [Diagnostics dashboard](diagnostics.md) (Advanced folder) charts the seconds
 and failures per pass; `status.json` keeps only the last pass, and the
 container's log does not survive an upgrade, so this is the record of what a
@@ -160,6 +225,11 @@ pass fails after clearing its window, the window shows nothing until the
 next pass. `status.py` reports the time of the last pass without errors
 (`last_ok`).
 
+
+The shared detector adds one change-point run on one series and two
+storage-engine queries per pass (a second or two on a Pi), plus the DNS
+lookups above, which are cached.
+
 ## Limits
 
 - **InfluxDB only.** With `TSDB_TYPE=clickhouse` the service stays idle and
@@ -172,6 +242,10 @@ next pass. `status.py` reports the time of the last pass without errors
   microsecond resolution (`dig-usec`, see [DNS probes](dns-probes.md)), but
   the history before that change is still quantized, so a window that
   spans it mixes the two.
+- **Shared degradation is about loss only.** Running Jitterbug on a series
+  built across destinations is being evaluated separately; on the reference
+  Pi it found no shared persistent congestion, which matches the per-target
+  results.
 - **Not in the alert path.** Alerts and other ways of passing these results
   on come later, once each detector has been validated on real connections.
 - The image is larger than the others: the detectors need PyTorch (the
