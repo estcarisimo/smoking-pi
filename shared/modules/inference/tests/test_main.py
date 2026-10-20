@@ -135,3 +135,46 @@ def test_a_history_write_that_fails_does_not_fail_the_pass():
         find_degradation=lambda lo: {"periods": [], "change_points": 0},
         replace=lambda *a: None, fetch_deaf=lambda start: [], record_pass=boom)
     assert report["errors"] == 0 and "last_ok" in report
+
+
+def _quiet(**kw):
+    return main.run_once(
+        now=NOW, fetch=lambda t, s: (pd.DataFrame({"epoch": [], "values": []}),
+                                     pd.DataFrame({"epoch": [], "loss_pct": []})),
+        list_targets=lambda s: [("Google", "topsites")],
+        find_congestion=lambda p: {"periods": [], "change_points": 0},
+        find_degradation=lambda lo: {"periods": [], "change_points": 0},
+        replace=lambda *a: None, fetch_deaf=lambda s: [], record_pass=lambda r, n: None, **kw)
+
+
+def test_the_shared_detector_runs_once_on_the_loss_window():
+    _, d_start = main.windows(NOW)
+    seen, written = [], []
+    periods = [{"start": d_start + 900, "end": d_start + 9000, "scope": "shared"}]
+    report = _quiet(shared_pass=lambda start, deaf: seen.append(start) or
+                    {"periods": periods, "voters": 40},
+                    replace_shared=lambda p, start, now: written.append((len(p), start)))
+    assert seen == [d_start]
+    assert written == [(1, d_start)]
+    assert report["shared"]["periods"] == 1 and report["shared"]["shared"] == 1
+    assert report["errors"] == 0
+
+
+def test_too_few_voters_keep_the_earlier_shared_periods():
+    written = []
+    report = _quiet(shared_pass=lambda start, deaf: {"periods": [], "voters": 3},
+                    replace_shared=lambda *a: written.append(a))
+    assert written == []
+    assert report["shared"]["voters"] == 3
+
+
+def test_a_failing_shared_pass_is_an_error_not_a_crash():
+    def boom(start, deaf):
+        raise RuntimeError("influx down")
+    report = _quiet(shared_pass=boom)
+    assert report["shared"] == {"error": True}
+    assert report["errors"] == 1
+
+
+def test_without_a_shared_pass_nothing_shared_is_written():
+    assert "shared" not in _quiet()

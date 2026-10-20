@@ -9,6 +9,37 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Shared degradation: is the whole connection losing, not one service?**
+  The inference module found loss per destination only, and five
+  destinations with a period each are not one shared period: the evenings
+  of loss on the reference Pi (August to October, every destination a
+  little at once) could only be read off the rows by eye. Each pass now
+  also builds one series across every ICMP destination (lost over sent,
+  per 15-minute bin) and runs the same degradation detector on it,
+  unchanged. Before it: the monitor's own bins are left out (the radio
+  deaf, or the ISP gateway losing as much as the destinations), a target
+  that lost everything for six hours is out while it stays dead, and only
+  targets that lost nothing in at least half their bins vote, so a host
+  that rate-limits ICMP is never "the network". Each period is then
+  qualified by who runs the infrastructure behind the targets: `shared`
+  when a third of the voting operators lost at least 1 % and they are of
+  two kinds of infrastructure or more (multi-tenant CDN, a content
+  provider's own network, an embedded cache, cloud or origin, academic),
+  `dominated` otherwise, with the target that carried the loss. The
+  operators come from public data, not from a list of ours: the host the
+  exporter records, its address and CNAME, and the origin AS from Team
+  Cymru's DNS service, cached in the state volume; three names on one CDN
+  count as one operator. Replayed on 52 days of the reference Pi, it marks
+  every evening of the August to October loss as shared, calls the three
+  periods carried by one dead name `dominated`, and finds nothing on a CDN
+  edge's route changes, the radio hangs or a quiet week. Written as
+  `shared_degradation`; Connectivity & Quality draws it as the top row of
+  its episode timeline, *Whole connection*. Experimental like the rest of
+  the module and out of the alert path. Costs one more change-point run
+  and two storage-engine queries per pass, plus a few DNS lookups a day.
+
 ## [2.43.1] — 2026-10-20
 
 DNS response times are now measured at microsecond resolution. SmokePing's

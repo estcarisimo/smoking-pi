@@ -23,6 +23,9 @@ from datetime import datetime, timezone
 
 CONGESTION = "persistent_congestion"
 DEGRADATION = "loss_degradation"
+# One point per period of loss the whole connection shared (shared.py): no
+# target tag, the period is the house's.
+SHARED = "shared_degradation"
 # One point per pass: how long, how many targets, how many failed.
 PASS = "inference_pass"
 
@@ -62,6 +65,8 @@ def measurement_name(measurement: str) -> str:
         return "persistent_congestion"
     if measurement == DEGRADATION:
         return "loss_degradation"
+    if measurement == SHARED:
+        return "shared_degradation"
     raise ValueError("unknown measurement")
 
 
@@ -103,7 +108,8 @@ def pass_point(report: dict, now: int):
             .field("targets", int(len(targets)))
             .field("errors", int(report.get("errors") or 0))
             .field("congestion_periods", int(congested))
-            .field("degradation_periods", int(degraded)))
+            .field("degradation_periods", int(degraded))
+            .field("shared_periods", int((report.get("shared") or {}).get("periods", 0))))
 
 
 def write_pass(report: dict, now: int, client=None) -> None:
@@ -134,6 +140,55 @@ def replace(measurement: str, target: str, category: str, periods: list[dict],
             bucket=_bucket(), org=os.environ.get("INFLUX_ORG", "smokeping"),
         )
         batch = points(measurement, target, category, periods, window_start)
+        if batch:
+            from influxdb_client.client.write_api import SYNCHRONOUS
+
+            client.write_api(write_options=SYNCHRONOUS).write(bucket=_bucket(), record=batch)
+        return len(batch)
+    finally:
+        if own:
+            client.close()
+
+
+SHARED_NUMBERS = ("mean_loss_pct", "coverage", "lossy_operator_share", "dominant_share")
+SHARED_COUNTS = ("voters", "operators")
+SHARED_TEXT = ("scope", "kinds", "dominant")
+
+
+def shared_points(periods: list[dict], window_start: int) -> list:
+    """``shared_degradation`` points; a period cut by the window is skipped,
+    as in :func:`points`."""
+    from influxdb_client import Point, WritePrecision
+
+    out = []
+    for p in periods:
+        if p.get("truncated") or p["start"] <= window_start:
+            continue
+        pt = (Point(measurement_name(SHARED)).time(int(p["start"]), WritePrecision.S)
+              .field("end", int(p["end"])).field("duration_s", int(p["end"] - p["start"])))
+        for key in SHARED_NUMBERS:
+            if p.get(key) is not None:
+                pt = pt.field(key, float(p[key]))
+        for key in SHARED_COUNTS:
+            if p.get(key) is not None:
+                pt = pt.field(key, int(p[key]))
+        for key in SHARED_TEXT:
+            if p.get(key) is not None:
+                pt = pt.field(key, str(p[key]))
+        out.append(pt)
+    return out
+
+
+def replace_shared(periods: list[dict], window_start: int, now: int, client=None) -> int:
+    """Delete the window's ``shared_degradation`` points and write ``periods``."""
+    own = client is None
+    client = client or _client()
+    try:
+        client.delete_api().delete(
+            _iso(window_start), _iso(now), f"_measurement={_quoted(SHARED)}",
+            bucket=_bucket(), org=os.environ.get("INFLUX_ORG", "smokeping"),
+        )
+        batch = shared_points(periods, window_start)
         if batch:
             from influxdb_client.client.write_api import SYNCHRONOUS
 

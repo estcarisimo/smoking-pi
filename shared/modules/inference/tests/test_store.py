@@ -90,3 +90,23 @@ def test_a_pass_becomes_one_point_with_its_cost_and_counts():
     assert "seconds=63.8" in line and "targets=2i" in line and "errors=1i" in line
     assert "congestion_periods=1i" in line and "degradation_periods=2i" in line
     assert line.endswith(str(W0))
+
+
+def test_shared_points_carry_the_qualification_and_skip_a_cut_period():
+    periods = [
+        {"start": 100, "end": 200, "truncated": True},
+        {"start": 1000, "end": 4600, "mean_loss_pct": 4.2, "coverage": 1.0, "voters": 40,
+         "operators": 15, "lossy_operator_share": 0.6, "kinds": "cdn,content_network",
+         "dominant": "NYT", "dominant_share": 0.1, "scope": "shared"},
+    ]
+    [pt] = store.shared_points(periods, window_start=500)
+    line = pt.to_line_protocol()
+    assert line.startswith("shared_degradation ")
+    for part in ('scope="shared"', "voters=40i", 'kinds="cdn,content_network"', "end=4600i"):
+        assert part in line
+
+
+def test_the_pass_point_counts_shared_periods():
+    line = store.pass_point({"targets": {}, "shared": {"periods": 3}}, 1000).to_line_protocol()
+    assert "shared_periods=3i" in line
+    assert "shared_periods=0i" in store.pass_point({"targets": {}}, 1000).to_line_protocol()
