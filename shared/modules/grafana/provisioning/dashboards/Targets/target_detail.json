@@ -869,8 +869,7 @@
             "lineWidth": 1,
             "fillOpacity": 0,
             "spanNulls": false
-          },
-          "noValue": "no ICMP probe for this target in this range"
+          }
         },
         "overrides": [
           {
@@ -1003,8 +1002,7 @@
             "mode": "fixed",
             "fixedColor": "red"
           },
-          "displayName": "loss",
-          "noValue": "no ICMP probe for this target in this range"
+          "displayName": "loss"
         },
         "overrides": []
       },
@@ -1089,8 +1087,7 @@
             "lineWidth": 1,
             "fillOpacity": 0,
             "spanNulls": false
-          },
-          "noValue": "no TCP probe for this target in this range"
+          }
         },
         "overrides": [
           {
@@ -1223,8 +1220,7 @@
             "mode": "fixed",
             "fixedColor": "red"
           },
-          "displayName": "loss",
-          "noValue": "no TCP probe for this target in this range"
+          "displayName": "loss"
         },
         "overrides": []
       },
@@ -1290,8 +1286,7 @@
           "custom": {
             "lineWidth": 2,
             "fillOpacity": 0
-          },
-          "noValue": "no HTTP probe for this target in this range"
+          }
         },
         "overrides": [
           {
@@ -1378,8 +1373,7 @@
             "lineWidth": 1,
             "fillOpacity": 20,
             "drawStyle": "bars"
-          },
-          "noValue": "no HTTP probe for this target in this range"
+          }
         },
         "overrides": [
           {
@@ -1501,7 +1495,7 @@
             "fillOpacity": 0,
             "spanNulls": false
           },
-          "noValue": "no DNS probe for this target in this range: resolvers are targets of their own (GoogleDNS, CloudflareDNS)"
+          "noValue": "no DNS data for this target in this range: resolvers are targets of their own (for example GoogleDNS)"
         },
         "overrides": [
           {
@@ -1635,7 +1629,7 @@
             "fixedColor": "red"
           },
           "displayName": "loss",
-          "noValue": "no DNS probe for this target in this range: resolvers are targets of their own (GoogleDNS, CloudflareDNS)"
+          "noValue": "no DNS data for this target in this range: resolvers are targets of their own (for example GoogleDNS)"
         },
         "overrides": []
       },

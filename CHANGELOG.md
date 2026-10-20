@@ -107,9 +107,10 @@ version gets a matching GitHub release and git tag.
   That is exact up to a day, where a window holds one cycle, but on a week
   or a month a window holds two to nine cycles, and averaging percentiles
   is not a percentile: on the staging Pi at 21 days the DNS band's floor
-  read 17 % high, its p90 6 % low with points off by up to 86 ms, and
-  the earlier read of the reference Pi put a p99 12–27 % low. A long range
-  is opened to find the slow pings, and those are what the mean hid. The
+  read 17 % high and its p90 6 % low, with points off by up to 86 ms
+  (and the investigation on the reference Pi found the same pattern over
+  30 days). A long range is opened to find the slow pings, and those are
+  what the mean hid. The
   band and the line are now the percentiles of every ping in the window,
   pooled, for ICMP, TCP, DNS and the HTTP per-version medians; on staging
   they match a locally computed percentile to the microsecond at 1, 7 and
@@ -122,10 +123,12 @@ version gets a matching GitHub release and git tag.
   probe.** The dashboard opens on `Google`, which has no DNS layer
   (Google's resolver is the target `GoogleDNS`), so its two DNS charts
   were empty axes and the doctor's live `dashboard-queries-run` warned
-  about them on every Pi. Every per-layer chart now says "no … probe for
-  this target in this range" when the target has none; the doctor skips
-  panels that name their own empty text, so a really empty panel
-  elsewhere still warns.
+  about them on every Pi, a warning nobody could act on. The two DNS
+  charts now say "no DNS data for this target in this range" and name a
+  resolver target; the doctor skips panels that set their own empty text.
+  Only the DNS charts set it, so the doctor still warns if the ICMP, TCP
+  or HTTP charts of the default target come back empty, and a query that
+  fails still fails.
 
 ## [2.43.1] — 2026-10-20
 

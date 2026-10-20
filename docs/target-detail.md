@@ -14,8 +14,12 @@ Smoking Pi measures for it, layer by layer:
 The tiles at the top give the median and the loss for each layer over the
 selected range. A layer the target has no probe for, or whose probe wrote
 nothing in that range, says **not measured**,
-so you can see at a glance what exists and what does not; its charts say
-"no … probe for this target in this range" instead of drawing empty axes.
+so you can see at a glance what exists and what does not. The DNS charts
+of a target with no DNS layer say so ("no DNS data for this target in this
+range") instead of drawing empty axes; the dashboard opens on `Google`, and
+Google's resolver is its own target (see below). The tiles' medians are the
+median of SmokePing's per-cycle medians over the range, so a tile can differ
+slightly from the median line below it, which pools the individual pings.
 Below the tiles, each layer has its latency over time, where the line is the
 median and the shaded band the 10th to 90th percentile of the individual
 pings in each point's window, plus its loss. HTTP draws one median line per
