@@ -77,7 +77,7 @@ def windows(now: int) -> tuple[int, int]:
 
 def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.targets,
              find_congestion=congestion.detect, find_degradation=degradation.detect,
-             replace=store.replace, fetch_deaf=series.deaf_rows,
+             replace=store.replace, read_deaf=series.deaf_bins,
              record_pass=store.write_pass, shared_pass=None,
              replace_shared=store.replace_shared, aggregate_pass=None,
              replace_shared_congestion=None) -> dict:
@@ -105,9 +105,11 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
         selected = []
     if not selected and "failed" not in report:
         log.warning("no target matched INFERENCE_CATEGORIES / INFERENCE_TARGETS")
-    # The host's deaf samples, once per pass: every target shares the radio.
-    deaf_bins = deaf.deaf_bins(fetch_deaf(d_start)) if (selected or shared_pass) else set()
+    # The host's deaf bins, once per pass: every target shares the radio.
+    deaf_started = time.monotonic()
+    deaf_bins = read_deaf(d_start, now) if (selected or shared_pass) else set()
     report["deaf_bins"] = len(deaf_bins)
+    report["deaf_seconds"] = round(time.monotonic() - deaf_started, 1)
     for target, category in selected:
         row = {}
         try:
@@ -143,6 +145,7 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
                 replace_shared(s["periods"], d_start, now)
             report["shared"] = {"periods": len(s["periods"]), "voters": s["voters"],
                                 "shared": sum(1 for p in s["periods"] if p.get("scope") == "shared"),
+                                "upgrade_bins": s.get("upgrade_bins", 0),
                                 "seconds": round(time.monotonic() - shared_started, 1)}
         except Exception:  # noqa: BLE001 -- the per-target results stand without it
             log.warning("shared degradation failed", exc_info=True)

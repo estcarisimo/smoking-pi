@@ -267,3 +267,123 @@ def test_the_pass_hands_its_voters_and_monitor_bins_to_the_aggregate_stream():
     out = run(data)
     assert sorted(out["voter_targets"]) == sorted(OPERATORS)
     assert {T0 + 300 * 900, T0 + 301 * 900} <= out["monitor"]
+
+
+def _marks(*events):
+    return [{"_time": pd.Timestamp(e, unit="s", tz="UTC"), "phase": p} for e, p in events]
+
+
+def test_an_upgrade_spans_its_bins_from_start_to_end():
+    s = T0 + 300 * 900 + 100
+    assert shared.upgrade_bins(_marks((s, "start"), (s + 1000, "end"))) == {
+        T0 + 300 * 900, T0 + 301 * 900}
+
+
+def test_an_upgrade_without_an_end_closes_after_thirty_minutes():
+    s = T0 + 300 * 900
+    assert shared.upgrade_bins(_marks((s, "start"))) == {
+        T0 + 300 * 900, T0 + 301 * 900, T0 + 302 * 900}
+    # an end that comes too late is not this start's: the start times out,
+    # the end is its own bin
+    late = shared.upgrade_bins(_marks((s, "start"), (s + 7200, "end")))
+    assert late == {T0 + 300 * 900, T0 + 301 * 900, T0 + 302 * 900, T0 + 308 * 900}
+
+
+def test_a_second_start_closes_the_first_and_opens_its_own():
+    s = T0 + 300 * 900
+    assert shared.upgrade_bins(_marks((s, "start"), (s + 900, "start"), (s + 1000, "end"))) == {
+        T0 + 300 * 900, T0 + 301 * 900}
+
+
+def test_an_end_alone_is_its_own_bin_and_no_markers_are_no_bins():
+    assert shared.upgrade_bins(_marks((T0 + 50, "end"))) == {T0}
+    assert shared.upgrade_bins([]) == set()
+
+
+def test_the_upgrade_query_reads_the_marker_from_before_the_window():
+    flux = shared.upgrade_flux(T0, T0 + 900)
+    assert f"range(start: {T0 - shared.UPGRADE_MAX_S}, stop: {T0 + 900})" in flux
+    assert 'r._measurement == "upgrade" and r._field == "value"' in flux
+
+
+def _query(data, marks=()):
+    loss, counts = rows(data, categories=CATS)
+
+    def ranged(rs, flux):
+        # what InfluxDB returns: windows labeled by their end, inside the range
+        a, b = (int(x) for x in flux.split("range(start: ")[1].split(")")[0]
+                .replace(" stop: ", "").split(","))
+        return [r for r in rs if a < r["_time"].timestamp() <= b]
+
+    def query(flux):
+        if "fn: mean" in flux:
+            return ranged(loss, flux)
+        if "fn: count" in flux:
+            return ranged(counts, flux)
+        if '"upgrade"' in flux:
+            return list(marks)
+        return [{"target": t, "_value": f"{t}.example"} for t in data]
+    return query
+
+
+class _Tags:
+    def refresh(self, hosts):
+        pass
+
+    def of(self, target, hosts):
+        return of(target)
+
+
+def test_an_upgrade_is_the_monitor_s_time_not_the_network_s(tmp_path):
+    # every destination and the gateway lose a little for half an hour: an
+    # upgrade restarting the stack, which the gateway rule alone would miss
+    data = base()
+    for t in data:
+        data[t] = with_window(data[t], 300, 2, 0.02)
+    start = T0 + 300 * 900 + 60
+    marks = _marks((start, "start"), (start + 1500, "end"))
+    now = T0 + BINS * 900
+    out = shared.run(T0, set(), query=_query(data, marks), tag_store=_Tags(),
+                     find=fake_find, now=now, directory=tmp_path)
+    assert out["periods"] == [] and out["upgrade_bins"] == 2
+    # one bin of margin on each side, as the deaf bins
+    assert {T0 + b * 900 for b in (299, 300, 301, 302)} <= out["monitor"]
+    without = shared.run(T0, set(), query=_query(data), tag_store=_Tags(),
+                         find=fake_find, now=now, directory=tmp_path / "b")
+    assert len(without["periods"]) == 1 and without["upgrade_bins"] == 0
+
+
+def test_a_second_pass_reads_only_the_tail_of_the_loss_bins(tmp_path):
+    data = base()
+    seen = []
+    inner = _query(data)
+
+    def query(flux):
+        if "fn: mean" in flux:
+            seen.append(int(flux.split("range(start: ")[1].split(",")[0]))
+        return inner(flux)
+
+    now = T0 + BINS * 900
+    first = shared.run(T0, set(), query=query, tag_store=_Tags(), find=fake_find,
+                       now=now, directory=tmp_path)
+    again = shared.run(T0, set(), query=query, tag_store=_Tags(), find=fake_find,
+                       now=now + 900, directory=tmp_path)
+    assert seen == [T0, now - 3600]
+    assert first["voters"] == again["voters"] == 12 and first["bins"] == again["bins"]
+
+
+def test_a_cached_pass_finds_what_a_full_read_finds(tmp_path):
+    data = base()
+    for t in data:
+        if t != "CPE_IPv4":
+            data[t] = with_window(data[t], 600, 12, 0.05)
+    query = _query(data)
+    now = T0 + BINS * 900
+    shared.run(T0, set(), query=query, tag_store=_Tags(), find=fake_find,
+               now=now - 3600, directory=tmp_path)
+    cached = shared.run(T0, set(), query=query, tag_store=_Tags(), find=fake_find,
+                        now=now, directory=tmp_path)
+    loss, counts = rows(data, categories=CATS)
+    full = shared.detect(loss, counts, set(), of, find=fake_find)
+    assert cached["periods"] == full["periods"] and cached["monitor"] == full["monitor"]
+    assert len(cached["periods"]) == 1

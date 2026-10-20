@@ -31,6 +31,8 @@ DEFAULT_SAMPLE_S = 10
 DEAF_BIN_SHARE = 0.5
 DEAF_PERIOD_SHARE = 0.5
 
+COUNT_COLUMNS = ["bin", "samples"]
+
 MONITOR_DEAF = "monitor_deaf"
 LOSS = "loss"
 
@@ -54,10 +56,9 @@ def sample_s() -> int:
     return value if value > 0 else DEFAULT_SAMPLE_S
 
 
-def deaf_bins(rows: list[dict]) -> set[int]:
-    """The 15-minute bins (by start epoch) in which the radio was deaf for
-    at least half the time, from :func:`common.microcuts.uplink_flux` rows
-    (deaf samples only)."""
+def counts(rows: list[dict]) -> pd.DataFrame:
+    """Deaf samples per 15-minute bin (``bin``, its start epoch, and
+    ``samples``) from :func:`common.microcuts.uplink_flux` rows."""
     count: dict[int, int] = {}
     for row in rows:
         epoch = _epoch(row.get("_time"))
@@ -65,8 +66,22 @@ def deaf_bins(rows: list[dict]) -> set[int]:
             continue
         b = int(epoch // BIN_S) * BIN_S
         count[b] = count.get(b, 0) + 1
+    return pd.DataFrame({"bin": list(count), "samples": list(count.values())},
+                        columns=COUNT_COLUMNS).astype("int64")
+
+
+def deaf_bins(rows: list[dict]) -> set[int]:
+    """The 15-minute bins (by start epoch) in which the radio was deaf for
+    at least half the time, from :func:`common.microcuts.uplink_flux` rows
+    (deaf samples only)."""
+    return bins_of(counts(rows))
+
+
+def bins_of(table: pd.DataFrame) -> set[int]:
+    """The deaf bins of a :func:`counts` table."""
     cadence = sample_s()
-    return {b for b, n in count.items() if n * cadence >= DEAF_BIN_SHARE * BIN_S}
+    return {int(b) for b, n in zip(table["bin"], table["samples"])
+            if n * cadence >= DEAF_BIN_SHARE * BIN_S}
 
 
 def _span_bins(start: int, end: int) -> list[int]:

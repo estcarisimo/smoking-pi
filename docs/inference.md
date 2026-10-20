@@ -80,10 +80,16 @@ not one service?
 1. Every ICMP target's loss is binned into 15 minutes over the loss window,
    whatever `INFERENCE_CATEGORIES` selects: that setting picks whom the
    per-target detectors analyze; the shared question is about all of them.
-2. The monitor's own bins are left out: the radio was deaf, or the ISP
-   gateway lost about as much as the destinations did (two bins running, or
-   a fifth on its own). That is the first hop or closer, which the alerter's
-   verdict already reports as such. One bin of margin on each side.
+2. The monitor's own bins are left out: the radio was deaf, `smoking-pi
+   upgrade` was restarting the stack, or the ISP gateway lost about as much
+   as the destinations did (two bins running, or a fifth on its own). That
+   is the first hop or closer, which the alerter's verdict already reports
+   as such. One bin of margin on each side. An upgrade is read from the
+   `upgrade` markers the command writes (`phase` = `start` and `end`); a
+   start with no end within 30 minutes closes 30 minutes after it, and with
+   no markers there are no upgrade bins. Upgrades used to read as first-hop
+   cuts: 4–6 % on every destination and the gateway for the 2026-10-15
+   upgrade on the reference Pi, 66 % for the 2026-10-18 one.
 3. Only steady targets take part: one that reported in at least half the
    window's bins (a slot that comes and goes never weighs) and lost nothing
    in at least half of them (a host that rate-limits ICMP and always loses a
@@ -170,8 +176,31 @@ across destinations:
    evaluation below used +10 ms on a connection whose floors are mostly
    under 15 ms. A sample still not positive (a route that got much
    shorter) is dropped and counted in the status (`dropped`).
-3. The monitor's bins (the radio deaf, the gateway losing with the
-   destinations) are left out, exactly as in the shared degradation pass.
+3. The monitor's bins (the radio deaf, an upgrade, the gateway losing with
+   the destinations) are left out, exactly as in the shared degradation
+   pass.
+
+### Where the stream sits (experimental; decided 2026-10-20)
+
+The stream stays at the **median voter floor**, about 7 ms on the staging
+Pi, and this is a deliberate choice, not an oversight. Jitterbug's BCP is
+not shift-invariant: its Student-t likelihood has its prior centered on 0,
+so where a series sits changes what it finds. Measured on one
+synthetic series with a 3 ms step, shifted by a constant:
+
+| Series offset | Change points found |
+| --- | --- |
+| +10 ms | 2 |
+| +100 ms | 0 |
+| +1000 ms | 0 |
+
+Any offset is therefore a scale choice. Feeding Jitterbug the relative
+values alone is not possible (it refuses RTTs that are not positive), and a
+large constant would hide steps of a few milliseconds. The median voter
+floor is read off the data, constant within a pass, and makes the stream
+look like what Jitterbug would see on this connection's typical
+destination. Both detectors stay as published; it is the input that is new, and the
+whole row is experimental.
 
 The input is new; the method is not. No parameter is tuned, and loss does
 not feed it: evaluated offline on 52 days of the reference Pi, it found **no** shared
@@ -287,9 +316,28 @@ next pass. `status.py` reports the time of the last pass without errors
 (`last_ok`).
 
 
-The shared detector adds one change-point run on one series and two
-storage-engine queries per pass, plus the DNS lookups above, which are
-cached.
+The shared detector adds one change-point run on one series per pass, plus
+the DNS lookups above, which are cached. Its inputs are closed 15-minute
+bins, and a bin that closed does not change, so they are kept in the state
+volume too (`loss.csv` and `deaf.csv`, each with a `.json` beside it): a
+pass reads only the last hour of loss bins and deaf samples and keeps the
+rest, and reads the whole 7-day window again once a day (and on the first
+pass, or when the window grew) to pick up points that arrived late.
+Measured on the staging Pi (~23 ICMP targets, 672 bins, the pass replayed
+in the running container):
+
+| Per pass | Before | After |
+| --- | --- | --- |
+| Deaf samples (the alerter's query: a pivot InfluxDB cannot push down) | 4.5 s | 0.15 s |
+| Loss and probe-cycle bins, hosts | 1.0 s | 0.15 s |
+| Building the series | 0.8 s | 0.45 s |
+| The change-point run itself | 3.5 s | 3.2 s |
+| **In all** | **≈ 10 s** | **≈ 4 s** |
+
+The first pass after a start still reads the whole window (and loads
+PyTorch): about 20 s once. The cached and the full reads gave the same
+voters, bins, monitor bins and periods, and the same 72 deaf bins over 30
+and 60 days.
 
 Jitterbug on the aggregate input was measured on a staging Pi (Pi 4, 4 GB,
 ~23 ICMP targets). Re-reading 14 days of every target's raw pings each pass
@@ -318,6 +366,9 @@ fills 7 days a day at a time: about 30 s once, at most ~390 MB.
   the per-target detector's. Its stream keeps the voters each cycle was
   written with, so a target that starts or stops voting changes the stream
   from then on, not backwards.
+- **Upgrades are left out of the shared passes only.** A per-target
+  degradation period that covers an upgrade still reads `loss`: its
+  `class` names the radio (`monitor_deaf`), and an upgrade is not that.
 - **Not in the alert path.** Alerts and other ways of passing these results
   on come later, once each detector has been validated on real connections.
 - The image is larger than the others: the detectors need PyTorch (the

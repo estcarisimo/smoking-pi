@@ -12,10 +12,13 @@ degradation detector (degradation.detect, its parameters untouched):
    detectors analyze, and the shared question is about all of them. The ISP
    gateway is the exception: it tells the monitor's bins apart (step 2).
 2. **The monitor's bins are out.** A bin is the monitor's when its radio was
-   deaf (deaf.py), or when the ISP gateway lost about as much as the
-   destinations did in two bins running, or lost at least a fifth on its own:
-   that is the first hop or closer, a different question (the alerter's
-   verdict says so as ``local_link``). One bin of margin on each side.
+   deaf (deaf.py), when ``smoking-pi upgrade`` was restarting the stack (its
+   ``upgrade`` markers, upgrade_bins), or when the ISP gateway lost about as
+   much as the destinations did in two bins running, or lost at least a
+   fifth on its own: that is the first hop or closer, a different question
+   (the alerter's verdict says so as ``local_link``). One bin of margin on
+   each side. Upgrades used to read as first-hop cuts (4-6 % everywhere on
+   the reference Pi for one, 66 % for another).
 3. **Members and voters.** A member reported in at least half the window's
    bins, so a slot that rotates in and out of the target list (the Netflix
    OCA appliances) never weighs. A member votes when at least half of its
@@ -41,6 +44,9 @@ On 52 days of the reference Pi this found every evening of the August to
 October loss and nothing on a single CDN edge's route changes, the radio
 hangs or a quiet week; across 100 random sets of ten targets the strong
 evenings were found in 99-100 % of them and false periods in 0-2 %.
+
+The bins are read through bins.py: closed ones come from the state volume,
+so a pass reads one hour of InfluxDB, not seven days.
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ import time
 import numpy as np
 import pandas as pd
 
+import bins
 import degradation
 import tags as tagging
 from common.tsdb import flux_str, influx_bucket, query_influx
@@ -75,6 +82,8 @@ MIN_KINDS = 2
 TOP_OPERATORS = 3
 DIVERGED_SHARE = 0.1
 MAX_LISTED = 5
+UPGRADE_MAX_S = 1800      # an upgrade with no end marker closes after this
+BIN_COLUMNS = ["bin", "target", "category", "loss", "count"]
 
 
 def bins_flux(start: int, stop: int, fn: str) -> str:
@@ -103,26 +112,88 @@ def hosts_flux() -> str:
             '|> last() |> keep(columns: ["target", "_value"])')
 
 
+def records(rows: list[dict]) -> pd.DataFrame:
+    """aggregateWindow rows -> ``bin`` (the window's START), ``target``,
+    ``category`` and ``v``; rows missing a time, a value or a target dropped."""
+    cols = ["_time", "_value", "target", "category"]
+    df = pd.DataFrame.from_records(rows, columns=cols) if rows else pd.DataFrame(columns=cols)
+    df = df.dropna(subset=["_time", "_value", "target"])
+    when = pd.to_datetime(df["_time"], utc=True)
+    epoch = (when - pd.Timestamp(0, tz="UTC")) // pd.Timedelta(seconds=1)
+    return pd.DataFrame({"bin": epoch.astype("int64") - BIN_S, "target": df["target"],
+                         "category": df["category"].fillna("").astype(str),
+                         "v": df["_value"].astype(float)}).reset_index(drop=True)
+
+
 def frame(rows: list[dict]) -> tuple[pd.DataFrame, dict[str, str]]:
     """Rows -> (bins x targets, indexed by bin START), and target -> category."""
-    recs, cats = [], {}
-    for r in rows:
-        t, v, when = r.get("target"), r.get("_value"), r.get("_time")
-        if t is None or v is None or when is None:
-            continue
-        cats.setdefault(t, r.get("category") or "")
-        recs.append((int(pd.Timestamp(when).timestamp()) - BIN_S, t, float(v)))
-    if not recs:
-        return pd.DataFrame(), cats
-    df = pd.DataFrame(recs, columns=["bin", "target", "v"])
-    return df.pivot_table(index="bin", columns="target", values="v", aggfunc="last"), cats
+    rec = records(rows)
+    if rec.empty:
+        return pd.DataFrame(), {}
+    return _pivot(rec, "v"), _categories(rec)
+
+
+def _pivot(table: pd.DataFrame, value: str) -> pd.DataFrame:
+    return table.pivot_table(index="bin", columns="target", values=value, aggfunc="last")
+
+
+def _categories(table: pd.DataFrame) -> dict[str, str]:
+    return table.groupby("target", sort=False)["category"].first().to_dict()
+
+
+def fetch_bins(since: int, stop: int, query=query_influx) -> pd.DataFrame:
+    """The bins of [since, stop), one row per target and bin: ``loss`` (the
+    mean) and ``count`` (the probe cycles), as bins.read keeps them."""
+    loss = records(query(bins_flux(since, stop, "mean"))).rename(columns={"v": "loss"})
+    count = records(query(bins_flux(since, stop, "count"))).rename(columns={"v": "count"})
+    out = loss.merge(count, on=["bin", "target"], how="outer", suffixes=("", "_c"))
+    out["category"] = out["category"].fillna(out.pop("category_c")).fillna("")
+    return out[BIN_COLUMNS]
+
+
+def upgrade_flux(start: int, stop: int) -> str:
+    """The ``upgrade`` markers ``smoking-pi upgrade`` writes, one point at each
+    end, from UPGRADE_MAX_S before the window so an upgrade that began just
+    before it is seen."""
+    return (f"from(bucket: {flux_str(influx_bucket())}) "
+            f"|> range(start: {int(start) - UPGRADE_MAX_S}, stop: {int(stop)}) "
+            '|> filter(fn: (r) => r._measurement == "upgrade" and r._field == "value") '
+            '|> keep(columns: ["_time", "phase"])')
+
+
+def upgrade_bins(rows: list[dict]) -> set[int]:
+    """The 15-minute bins (by start epoch) an upgrade spanned. A ``start``
+    closes at the first ``end`` within UPGRADE_MAX_S, or at UPGRADE_MAX_S
+    after it; an ``end`` with no ``start`` before it (its write failed, or
+    it is before the window) is its own bin. No markers, no bins:
+    monitor_bins pads them by one bin on each side, as the deaf ones."""
+    events = sorted((int(pd.Timestamp(r["_time"]).timestamp()), str(r.get("phase")))
+                    for r in rows if r.get("_time") is not None)
+    spans, opened = [], None
+    for when, phase in events:
+        if phase == "start":
+            if opened is not None:
+                spans.append((opened, min(when, opened + UPGRADE_MAX_S)))
+            opened = when
+        elif phase == "end":
+            if opened is not None and when - opened <= UPGRADE_MAX_S:
+                spans.append((opened, when))
+            else:
+                if opened is not None:
+                    spans.append((opened, opened + UPGRADE_MAX_S))
+                spans.append((when, when))
+            opened = None
+    if opened is not None:
+        spans.append((opened, opened + UPGRADE_MAX_S))
+    return {b for s, e in spans for b in range(_align(s), _align(e) + BIN_S, BIN_S)}
 
 
 def monitor_bins(loss: pd.DataFrame, count: pd.DataFrame, cpe: list[str],
-                 deaf_bins: set[int]) -> pd.Series:
-    """True for the bins that are the monitor's or the first hop's."""
+                 known: set[int]) -> pd.Series:
+    """True for the bins that are the monitor's or the first hop's.
+    ``known``: the bins already known to be the monitor's (deaf, upgrade)."""
     idx = loss.index
-    out = pd.Series(idx.isin(list(deaf_bins)), index=idx)
+    out = pd.Series(idx.isin(list(known)), index=idx)
     if cpe:
         dests = [c for c in loss.columns if c not in cpe]
         pooled = (loss[dests] * count[dests]).sum(axis=1) / count[dests].sum(axis=1)
@@ -221,17 +292,30 @@ def _listing(pairs, more: int = 0) -> str:
 
 def detect(loss_rows: list[dict], count_rows: list[dict], deaf_bins: set[int], of,
            find=degradation.detect) -> dict:
-    """Shared-degradation periods over the window the rows cover.
+    """Shared-degradation periods over the window the rows cover (see
+    detect_bins)."""
+    loss = records(loss_rows).rename(columns={"v": "loss"})
+    count = records(count_rows).rename(columns={"v": "count"})[["bin", "target", "count"]]
+    return detect_bins(loss.merge(count, on=["bin", "target"], how="left"), deaf_bins, of, find)
+
+
+def detect_bins(table: pd.DataFrame, monitor_set: set[int], of,
+                find=degradation.detect) -> dict:
+    """Shared-degradation periods over the bins of ``table`` (BIN_COLUMNS).
+    ``monitor_set`` is the bins known to be the monitor's before looking at
+    the loss: the radio deaf, an upgrade.
 
     Returns ``{"periods": [...], "voters": n, "bins": n}``; with fewer than
     MIN_VOTERS voters there is nothing to say and ``periods`` is empty."""
-    loss, cats = frame(loss_rows)
-    count, _ = frame(count_rows)
-    if loss.empty:
+    table = table.dropna(subset=["loss"])
+    if table.empty:
         return {"periods": [], "voters": 0, "bins": 0}
+    loss, cats = _pivot(table, "loss"), _categories(table)
+    count = _pivot(table.dropna(subset=["count"]), "count") if table["count"].notna().any() \
+        else pd.DataFrame()
     count = count.reindex(index=loss.index, columns=loss.columns)
     cpe = [t for t in loss.columns if cats.get(t) == CPE_CATEGORY]
-    monitor = monitor_bins(loss, count, cpe, deaf_bins)
+    monitor = monitor_bins(loss, count, cpe, monitor_set)
     pooled, voters, lo = series(loss, count, cats, monitor)
     if len(voters) < MIN_VOTERS:
         return {"periods": [], "voters": len(voters), "bins": int(len(loss))}
@@ -248,11 +332,13 @@ def detect(loss_rows: list[dict], count_rows: list[dict], deaf_bins: set[int], o
 
 
 def run(start: int, deaf_bins: set[int], query=query_influx, tag_store=None,
-        find=degradation.detect, now: int | None = None) -> dict:
-    """One shared pass from InfluxDB: the bins, the hosts, the tags, the periods."""
+        find=degradation.detect, now: int | None = None, directory=None) -> dict:
+    """One shared pass from InfluxDB: the bins (closed ones from the state
+    volume, bins.py), the upgrades, the hosts, the tags, the periods."""
     stop = int(time.time()) if now is None else now
-    loss_rows = query(bins_flux(start, stop, "mean"))
-    count_rows = query(bins_flux(start, stop, "count"))
+    table = bins.read("loss", start, stop, lambda a, b: fetch_bins(a, b, query),
+                      BIN_COLUMNS, directory, text=("target", "category"))
+    upgrades = upgrade_bins(query(upgrade_flux(start, stop)))
     hosts = {r["target"]: str(r["_value"]) for r in query(hosts_flux())
              if r.get("target") and r.get("_value")}
     tag_store = tag_store or tagging.Tags()
@@ -260,4 +346,7 @@ def run(start: int, deaf_bins: set[int], query=query_influx, tag_store=None,
         tag_store.refresh(hosts)
     except Exception:  # noqa: BLE001 -- untagged targets read "unknown"; the series stands
         log.warning("could not refresh the target tags", exc_info=True)
-    return detect(loss_rows, count_rows, deaf_bins, lambda t: tag_store.of(t, hosts), find=find)
+    out = detect_bins(table, set(deaf_bins) | upgrades, lambda t: tag_store.of(t, hosts),
+                      find=find)
+    out["upgrade_bins"] = len(upgrades)
+    return out

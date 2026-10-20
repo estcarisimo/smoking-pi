@@ -21,11 +21,13 @@ queue stayed built up for the whole connection rather than on one route:
    then a scale choice; this one is read off the data, not tuned, and
    makes the stream look like what Jitterbug would see on this connection's
    typical destination. It is constant within a pass, so a voter joining
-   or leaving moves no step into the stream.
+   or leaving moves no step into the stream. Kept on purpose (decided
+   2026-10-20, docs/inference.md): experimental, like the whole stream.
 3. **The same voters and the same monitor bins as shared.py.** The voters
    are the shared pass's (a member that loses nothing in at least half its
-   bins); a cycle in a bin that was the monitor's -- the radio deaf, or the
-   gateway losing with the destinations -- is not part of the stream.
+   bins); a cycle in a bin that was the monitor's -- the radio deaf, an
+   upgrade, or the gateway losing with the destinations -- is not part of
+   the stream.
 
 The stream is built **incrementally** and kept in the inference state
 volume (``aggregate.csv``): each pass adds only the cycles since the last
