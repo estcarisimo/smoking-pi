@@ -32,7 +32,7 @@ pm="$(docker run --rm --entrypoint /bin/sh "$image" -c \
 test -n "$pm"
 docker run --rm --entrypoint /bin/sh "$image" -c "grep -inE 'query time|pingfactor' $pm"
 re="$(docker run --rm --entrypoint /bin/sh "$image" -c "grep -i 'query time' $pm" |
-    sed -n 's#.*=~ *m\{0,1\}/\(.*\)/i.*#\1#p' | head -1)"
+    sed -n 's#.*qr/\(.*\)/i;.*#\1#p' | head -1)"
 echo "probe regex: $re"
 test -n "$re"
 printf '%s\n' "$line" | RE="$re" perl -ne 'exit(!(/$ENV{RE}/i && $1 =~ /\./ && $1 > 0))'
