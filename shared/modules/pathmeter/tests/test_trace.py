@@ -48,7 +48,30 @@ def test_run_hands_the_list_to_scamper_and_raises_on_failure():
     assert trace.run([], 20, runner=runner) == []
 
     def failing(cmd, **kw):
-        raise subprocess.CalledProcessError(1, cmd)
+        return subprocess.CompletedProcess(cmd, 1, stdout="")
 
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(RuntimeError):
         trace.run(["34.0.0.9"], 20, runner=failing)
+
+
+def test_traces_finished_before_a_failure_or_timeout_are_kept():
+    out = trace_json("34.0.0.9", ["34.0.0.9"])
+
+    def exits_badly(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1, stdout=out)
+    assert [t.dst for t in trace.run(["34.0.0.9", "34.0.0.8"], 20, runner=exits_badly)] == \
+        ["34.0.0.9"]
+
+    def times_out(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, 1, output=out.encode())
+    assert [t.dst for t in trace.run(["34.0.0.9"], 20, runner=times_out)] == ["34.0.0.9"]
+
+    def silent_timeout(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, 1, output=b"")
+    with pytest.raises(subprocess.TimeoutExpired):
+        trace.run(["34.0.0.9"], 20, runner=silent_timeout)
+
+    def nothing(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 2, stdout="")
+    with pytest.raises(RuntimeError):
+        trace.run(["34.0.0.9"], 20, runner=nothing)

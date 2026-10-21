@@ -29,7 +29,7 @@ version gets a matching GitHub release and git tag.
   data, is flagged on its own. Target Detail shows the last path in the
   selected range, the changes and the distance per trace in a collapsed
   *Path (experimental)* row, and marks confirmed changes with an
-  annotation. `smoking-pi budget` counts what its last cycle actually sent
+  annotation. `smoking-pi budget` counts what its cycles actually sent (the day's mean)
   as a `Traceroute` row (about 600 probes an hour at the defaults, 3 % of
   the default samples ceiling). Paced at `PATHMETER_PPS` (20 per second);
   `PATHMETER_INTERVAL` sets the cycle. Host network, every capability

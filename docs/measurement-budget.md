@@ -98,8 +98,8 @@ counted in samples and listed as unpriced, so the MB/day figure is not
 read as complete.
 
 The [path meter](path.md), when it is on, adds a `Traceroute` row of class
-`Path`. Its rate is not configured but measured: the probes its last cycle
-sent, per hour, 110 bytes each (a 44-byte ICMP probe and a reply of about
+`Path`. Its rate is not configured but measured: the probes its cycles of
+the last day sent, on average per hour, 110 bytes each (a 44-byte ICMP probe and a reply of about
 the same size). Its `targets` are the distinct addresses it traced, and
 they are not added to the targets total. A path meter that has not
 finished a cycle in three intervals has no row.

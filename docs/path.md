@@ -51,8 +51,11 @@ Every `PATHMETER_INTERVAL` seconds (default 3600):
    answering once from another of its addresses is not a change. The AS
    path (the networks along the hops, from Team Cymru's origin data, cached
    a week per /24) changing is flagged on its own, because it is usually the
-   change that matters. A name that resolved to a new address starts a new
-   path; that is not a path change.
+   change that matters, and only once every hop's network is known, so a
+   lookup still pending is not a change of network. A name with several
+   addresses keeps the one it was traced at while DNS still returns it; one
+   that resolved to a new address starts a new path, and that is not a path
+   change.
 
 ### Why ICMP, and why Paris
 
@@ -78,7 +81,9 @@ On **Target Detail**, the collapsed **Path (experimental)** row:
 
 - **Last trace in range**: hop, address, AS and reply time of the last
   trace in the selected time range. Pick an earlier range to see the path
-  as it was then.
+  as it was then. Hops that did not answer are left out. The shared first
+  hops of a destination traced past them show their addresses but no reply
+  time: only one destination probed them that cycle.
 - **Path changes**: when the AS path, the hops or the address changed in
   the range.
 - **Hops to the destination**: how far the destination answered, per trace.
@@ -97,7 +102,8 @@ the first hop on only two traces in three.
 At the defaults, about 600 probes an hour for the reference house's 76
 destinations (about 3 % of the default samples ceiling) and a few MB a day.
 `smoking-pi budget` shows the path meter as a `Traceroute` row with what
-its last cycle actually sent, not an estimate, and counts it in the totals
+its cycles of the last day actually sent, on average (the hourly cycles
+are cheaper than the daily full one), not an estimate, and counts it in the totals
 that [admission](measurement-budget.md#admission) checks a change against.
 
 Enabling it is not refused by admission: check `smoking-pi budget` first

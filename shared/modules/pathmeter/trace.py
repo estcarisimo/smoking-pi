@@ -100,13 +100,24 @@ def parse(text: str) -> list[Trace]:
 
 def run(addresses: list[str], pps: int, first_hop: int = 1, timeout: int = 1800,
         runner=subprocess.run) -> list[Trace]:
-    """Trace every address, starting at ``first_hop``. Raises when scamper
-    fails or times out; the caller counts it as a failed pass."""
+    """Trace every address, starting at ``first_hop``. The traces scamper
+    finished are kept when it then fails or times out; raises only when it
+    produced none, which the caller counts as a failed cycle."""
     if not addresses:
         return []
     with tempfile.NamedTemporaryFile("w", suffix=".txt") as listing:
         listing.write("\n".join(addresses) + "\n")
         listing.flush()
-        done = runner(command(pps, first_hop, listing.name), capture_output=True,
-                      text=True, timeout=timeout, check=True)
-    return parse(done.stdout)
+        try:
+            done = runner(command(pps, first_hop, listing.name), capture_output=True,
+                          text=True, timeout=timeout, check=False)
+        except subprocess.TimeoutExpired as late:
+            out = late.stdout or ""
+            traces = parse(out.decode(errors="replace") if isinstance(out, bytes) else out)
+            if not traces:
+                raise
+            return traces
+    traces = parse(done.stdout or "")
+    if not traces and done.returncode != 0:
+        raise RuntimeError(f"scamper exited {done.returncode} with no trace")
+    return traces

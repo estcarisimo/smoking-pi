@@ -70,6 +70,21 @@ def resolve(host: str, resolver=None) -> tuple[str, list[str]] | None:
     return (str(answer[0]), chain) if len(answer) else None
 
 
+def addresses(host: str, resolver=None) -> list[str]:
+    """Every IPv4 address ``host`` resolves to, in the answer's order; an
+    address is its own answer. Empty when it does not resolve."""
+    try:
+        ipaddress.ip_address(host)
+        return [host]
+    except ValueError:
+        pass
+    try:
+        answer = (resolver or _resolver()).resolve(host, "A")
+    except Exception:  # noqa: BLE001 -- dnspython raises many kinds; all mean "no answer"
+        return []
+    return [str(item) for item in answer]
+
+
 def _txt(qname: str, resolver=None) -> str | None:
     try:
         answer = (resolver or _resolver()).resolve(qname, "TXT")

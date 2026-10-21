@@ -22,7 +22,7 @@ def routes():
 
 def run_cycle(net, now, written):
     return main.cycle(now, query=query_for(TARGETS), run=net,
-                      resolve=lambda host: (IPS[host], []), write=written.extend,
+                      resolve=lambda host: [IPS[host]], write=written.extend,
                       owners=owners.Owners(clock=lambda: now, origin_fn=lambda ip: (64500, "X")),
                       rate=20, every=3600)
 
@@ -92,7 +92,7 @@ def test_scamper_failing_costs_the_cycle_not_the_process():
         raise RuntimeError("scamper died")
     written = []
     report = main.cycle(1000, query=query_for(TARGETS), run=broken,
-                        resolve=lambda host: (IPS[host], []), write=written.extend,
+                        resolve=lambda host: [IPS[host]], write=written.extend,
                         owners=owners.Owners(origin_fn=lambda ip: None), rate=20, every=3600)
     assert report["failed"] == 1 and report["traces"] == 0
     assert [line for line in lines(written) if line.startswith("pathmeter_pass")]
@@ -100,8 +100,8 @@ def test_scamper_failing_costs_the_cycle_not_the_process():
 
 def test_names_that_do_not_resolve_or_are_v6_are_skipped():
     got = main.addresses({"A": ("c", "a"), "B": ("c", "b"), "C": ("c", "c"), "D": ("c", "a")},
-                         resolve=lambda h: {"a": ("34.0.0.9", []), "b": None,
-                                            "c": ("2001:db8::1", [])}[h])
+                         resolve=lambda h: {"a": ["34.0.0.9"], "b": [],
+                                            "c": ["2001:db8::1"]}[h])
     assert got == {"34.0.0.9": ["A", "D"]}
 
 
@@ -118,3 +118,90 @@ def test_state_is_json_on_disk():
     run_cycle(net, 1000, written)
     raw = json.loads((store.state_dir() / main.STATE).read_text())
     assert set(raw["paths"]) == {"A", "B", "C", "CPE"}
+
+
+def test_a_round_robin_name_keeps_the_address_it_was_traced_at():
+    rr = {"a": ["34.0.0.9", "34.0.0.8"]}
+    assert main.addresses({"A": ("c", "a")}, {"A": "34.0.0.8"}, lambda h: rr[h]) == \
+        {"34.0.0.8": ["A"]}
+    assert main.addresses({"A": ("c", "a")}, {"A": "34.0.0.1"}, lambda h: rr[h]) == \
+        {"34.0.0.9": ["A"]}
+
+
+def test_a_rotating_answer_is_not_a_new_path_every_hour():
+    net, written = Network({**routes(), "34.0.0.8": [*PREFIX, "34.0.0.1", "34.0.0.8"]}), []
+    answers = iter([["34.0.0.9", "34.0.0.8"], ["34.0.0.8", "34.0.0.9"]] * 3)
+    ips = dict(IPS)
+
+    def resolve(host):
+        return next(answers) if host == "a.example" else [ips[host]]
+
+    for now in (1000, 4600, 8200):
+        report = main.cycle(now, query=query_for(TARGETS), run=net, resolve=resolve,
+                            write=written.extend,
+                            owners=owners.Owners(clock=lambda: now, origin_fn=lambda ip: (1, "X")),
+                            rate=20, every=3600)
+    a = [line for line in lines(written) if line.startswith("path_trace") and "target=A " in line]
+    assert all('dst="34.0.0.9"' in line and "dst_changed=false" in line for line in a)
+
+
+def test_a_failed_write_keeps_the_change_for_the_next_cycle():
+    net, written = Network(routes()), []
+    run_cycle(net, 1000, written)
+    net.routes["34.0.0.9"] = [*PREFIX, "34.0.0.7", "34.0.0.9"]
+    run_cycle(net, 4600, written)                     # the candidate
+
+    def broken(points):
+        raise RuntimeError("influx down")
+    report = main.cycle(8200, query=query_for(TARGETS), run=net,
+                        resolve=lambda host: [IPS[host]], write=broken,
+                        owners=owners.Owners(clock=lambda: 8200, origin_fn=lambda ip: (1, "X")),
+                        rate=20, every=3600)
+    assert report["failed"] == 1 and report["failed_cycles"] == 1
+    # The confirmation was not written: the next cycle confirms it again.
+    assert run_cycle(net, 11800, written)["changed"] == 1
+
+
+def test_a_failed_cycle_invents_no_path_inside_the_prefix():
+    net, written = Network(routes()), []
+    run_cycle(net, 1000, written)
+    written.clear()
+
+    def broken(*a, **k):
+        raise RuntimeError("scamper died")
+    main.cycle(4600, query=query_for(TARGETS), run=broken, resolve=lambda host: [IPS[host]],
+               write=written.extend, owners=owners.Owners(origin_fn=lambda ip: None),
+               rate=20, every=3600)
+    assert not [line for line in lines(written) if line.startswith("path_trace")]
+
+
+def test_three_failed_cycles_in_a_row_are_unhealthy():
+    def broken(*a, **k):
+        raise RuntimeError("scamper died")
+    for now in (1000, 4600, 8200):
+        main.cycle(now, query=query_for(TARGETS), run=broken, resolve=lambda host: [IPS[host]],
+                   write=lambda points: None, owners=owners.Owners(origin_fn=lambda ip: None),
+                   rate=20, every=3600)
+    assert status.read()["failed_cycles"] == 3
+    assert not status.healthy(status.read(), now=8300)
+
+
+def test_prefix_hops_carry_no_reply_time_for_destinations_traced_past_them():
+    net, written = Network(routes()), []
+    run_cycle(net, 1000, written)
+    reference = store.load(main.STATE)["reference"]
+    written.clear()
+    run_cycle(net, 4600, written)
+    hop_lines = [line for line in lines(written) if line.startswith("path_hop")]
+    other = next(ip for ip in ("34.0.0.9", "35.0.0.9", "36.0.0.9") if ip != reference)
+    base = {"34.0.0.9": "A", "35.0.0.9": "B", "36.0.0.9": "C"}[other]
+    first = next(line for line in hop_lines if f"target={base}," in line and "ttl=02" in line)
+    assert "rtt_ms" not in first
+
+
+def test_the_budget_figure_is_the_days_mean():
+    net, written = Network(routes()), []
+    full = run_cycle(net, 1000, written)["probes"]
+    prefix = run_cycle(net, 4600, written)
+    assert prefix["probes"] < full
+    assert prefix["probes_per_hour"] == round((full + prefix["probes"]) / 2, 1)

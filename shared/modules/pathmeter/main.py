@@ -18,6 +18,7 @@ What it costs is in ``status.json`` (``probes_per_hour``), which
 
 from __future__ import annotations
 
+import copy
 import ipaddress
 import logging
 import os
@@ -56,23 +57,39 @@ def pps() -> int:
     return _env_int("PATHMETER_PPS", DEFAULT_PPS, 1, 100)
 
 
-def addresses(wanted: dict, resolve=lookup.resolve) -> dict[str, list[str]]:
-    """IPv4 address -> the base names behind it."""
-    by_host: dict[str, str | None] = {}
-    out: dict[str, list[str]] = {}
-    for base, (_category, host) in sorted(wanted.items()):
-        if host not in by_host:
-            try:
-                found = resolve(host)
-            except Exception:  # noqa: BLE001 -- a name that does not resolve is skipped
-                found = None
-            by_host[host] = found[0] if found else None
-        ip = by_host[host]
+def _ipv4(values) -> list[str]:
+    out = []
+    for value in values or []:
         try:
-            if ip is None or ipaddress.ip_address(ip).version != 4:
-                continue
+            if ipaddress.ip_address(value).version == 4:
+                out.append(value)
         except ValueError:
             continue
+    return out
+
+
+def addresses(wanted: dict, previous: dict | None = None,
+              resolve=lookup.addresses) -> dict[str, list[str]]:
+    """IPv4 address -> the base names behind it.
+
+    A name with several addresses (round-robin, CDN names) keeps the one it
+    was traced at last time while the answer still includes it: picking
+    whichever came first would trace another address most hours, and every
+    one would start a new path. A new address only when the old one left.
+    """
+    previous = previous or {}
+    answers: dict[str, list[str]] = {}
+    out: dict[str, list[str]] = {}
+    for base, (_category, host) in sorted(wanted.items()):
+        if host not in answers:
+            try:
+                answers[host] = _ipv4(resolve(host))
+            except Exception:  # noqa: BLE001 -- a name that does not resolve is skipped
+                answers[host] = []
+        found = answers[host]
+        if not found:
+            continue
+        ip = previous.get(base) if previous.get(base) in found else found[0]
         out.setdefault(ip, []).append(base)
     return out
 
@@ -81,7 +98,7 @@ def _trace_all(dsts: list[str], rate: int, first_hop: int, run) -> dict[str, tra
     return {t.dst: t for t in run(dsts, rate, first_hop)}
 
 
-def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.resolve,
+def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
           write=write_points, owners=None, rate: int | None = None,
           every: int | None = None) -> dict:
     """One cycle; returns its report (also written to status.json)."""
@@ -91,7 +108,9 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.resolve,
     state = store.load(STATE)
     prefix: list[str] = state.get("prefix") or []
     wanted = targets.wanted(query)
-    by_ip = addresses(wanted, resolve)
+    last_dst = {base: (mem.get("stable") or {}).get("dst")
+                for base, mem in (state.get("paths") or {}).items()}
+    by_ip = addresses(wanted, last_dst, resolve)
     inside = {ip for ip in by_ip if ip in prefix}
     rest = sorted(ip for ip in by_ip if ip not in inside)
     report = {"at": now, "interval": every, "destinations": len(by_ip), "targets": len(wanted),
@@ -104,7 +123,7 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.resolve,
         if not full and rest:
             reference = state.get("reference") if state.get("reference") in rest else rest[0]
             ref = _trace_all([reference], rate, 1, run).get(reference)
-            if ref is None or not paths.agrees(ref.hops, prefix) or len(ref.hops) < len(prefix):
+            if ref is None or not paths.confirms(ref.hops, prefix):
                 full, report["prefix_moved"] = True, True
             else:
                 traced[reference] = ref
@@ -116,8 +135,10 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.resolve,
                 traced.update(others)
                 for ip, t in others.items():
                     if t.first_hop > 1:
+                        # The prefix's addresses are the reference's; its
+                        # reply times are not this destination's to claim.
                         joined_hops[ip] = (paths.joined(prefix, t.hops, t.first_hop),
-                                           paths.joined(ref.rtts, t.rtts, t.first_hop))
+                                           paths.joined([], t.rtts, t.first_hop))
                 state["reference"] = reference
         if full:
             # Everything, the destinations inside the old prefix too: the
@@ -146,18 +167,27 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.resolve,
     for ip, t in traced.items():
         hops, rtts = joined_hops.get(ip, (t.hops, t.rtts))
         hop_sets[ip] = (hops, rtts, t.reached, t.distance, t.first_hop)
-    for ip in inside:
+    # Destinations inside the prefix were not traced: their path is the
+    # prefix's, which only a cycle whose traces ran has just confirmed.
+    for ip in (inside if not report["failed"] else ()):
         at = prefix.index(ip)
         hop_sets[ip] = (prefix[: at + 1], [None] * (at + 1), True, at + 1, 0)
     owners.refresh({a for hops, *_ in hop_sets.values() for a in hops if a})
 
     memory = state.setdefault("paths", {})
+    # If the points do not reach InfluxDB, the changes this cycle confirmed
+    # must not be forgotten: the tracking goes back to where it was.
+    before = copy.deepcopy(memory)
     points, changes = [], 0
     for ip, (hops, rtts, reached, distance, first_hop) in sorted(hop_sets.items()):
         asns = paths.as_path(hops, owners.of)
+        # An AS path with a hop whose owner is not known yet is incomplete:
+        # compared, it would read as a change of AS. Tracked as unknown.
+        complete = all(owners.of(a) for a in hops if paths.is_public(a))
         for base in by_ip.get(ip, []):
             category = wanted[base][0]
-            flags = paths.track(memory.setdefault(base, {}), ip, hops, distance, asns)
+            flags = paths.track(memory.setdefault(base, {}), ip, hops, distance,
+                                asns if complete else [])
             changes += bool(flags["changed"])
             points += store.trace_points(base, category, now, ip, hops, rtts, reached, distance,
                                          first_hop, paths.text(hops), paths.digest(hops), asns,
@@ -166,12 +196,22 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.resolve,
         del memory[gone]
     report["changed"] = changes
     report["seconds"] = round(time.monotonic() - started, 1)
-    report["probes_per_hour"] = round(report["probes"] * 3600 / every, 1)
+    # What it costs, for the budget: the mean over the last day's cycles, not
+    # the last one, which is a cheap prefix cycle or the daily full one.
+    recent = [r for r in state.get("recent") or [] if now - r[0] < paths.FULL_EVERY]
+    if traced:
+        recent.append([now, report["probes"]])
+    state["recent"] = recent
+    per_cycle = sum(r[1] for r in recent) / len(recent) if recent else report["probes"]
+    report["probes_per_hour"] = round(per_cycle * 3600 / every, 1)
     try:
         write(points + [store.pass_point(now, report)])
     except Exception:  # noqa: BLE001 -- the next cycle writes again
         log.exception("writing %d points failed", len(points))
         report["failed"] = 1
+        state["paths"] = before
+    report["failed_cycles"] = (int(status.read().get("failed_cycles") or 0) + 1
+                               if report["failed"] else 0)
     store.save(STATE, state)
     status.write(report)
     log.info("path cycle: %d destinations, %d traces, %d probes in %.0f s, %d changed%s%s",

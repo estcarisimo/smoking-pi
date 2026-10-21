@@ -56,6 +56,16 @@ def agrees(path: list, prefix: list) -> bool:
                for i in range(min(len(path), len(prefix))))
 
 
+def confirms(path: list, prefix: list) -> bool:
+    """Whether a reference trace confirms the prefix: it agrees on every
+    hop that answered, and at least half of the prefix's hops answered (a
+    reference whose early hops were all silent confirms nothing)."""
+    if len(path) < len(prefix):
+        return False
+    answered = sum(1 for i in range(len(prefix)) if path[i])
+    return agrees(path, prefix) and answered >= max(1, len(prefix) / 2)
+
+
 def joined(prefix: list, own: list, first_hop: int) -> list:
     """A trace started past the prefix, completed with it."""
     head = list(prefix[: first_hop - 1])
@@ -134,7 +144,9 @@ def track(state: dict, dst: str, hops: list, distance: int | None,
     candidate = state.get("candidate")
     if candidate and not differs(hops, candidate["hops"], distance, candidate.get("distance")):
         result["changed"] = True
-        result["as_changed"] = bool(asns) and asns != stable.get("as_path")
+        # Compared only when both are complete (an empty AS path is unknown).
+        result["as_changed"] = bool(asns) and bool(stable.get("as_path")) \
+            and asns != stable.get("as_path")
         state["stable"], state["candidate"] = {**now, "hops": merged(candidate["hops"], hops)}, None
         return result
     state["candidate"] = now

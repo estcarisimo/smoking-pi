@@ -59,7 +59,8 @@ HTTP3_BYTES_PER_SAMPLE = 18_000
 
 # The path meter (shared/modules/pathmeter): one ICMP probe of 44 bytes and,
 # when a hop answers, a reply of about the same size (trace.py). Its rate is
-# not configured but measured: it reports the probes its last cycle sent.
+# not configured but measured: it reports the probes its cycles of the last
+# day sent, on average per hour.
 TRACEROUTE_BYTES_PER_PROBE = 110
 # A cycle older than this many intervals is a meter that stopped: its row
 # goes, rather than a cost that is no longer paid.
@@ -312,8 +313,9 @@ def by_service(state_text: str, now: float) -> Optional[dict]:
 
 
 def path_row(status_text: str, now: float) -> Optional[dict]:
-    """The path meter's row, from its status.json: the probes its last cycle
-    sent, per hour. None when it is not running, idle or stopped."""
+    """The path meter's row, from its status.json: the probes its cycles of
+    the last day sent, on average per hour. None when it is not running,
+    idle or stopped."""
     try:
         status = json.loads(status_text) if status_text.strip() else {}
     except ValueError:

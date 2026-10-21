@@ -1,8 +1,9 @@
 """The last cycle, as a file: what the healthcheck, a person and the budget read.
 
 ``python status.py`` prints it; ``python status.py --check`` exits 1 when no
-cycle finished within two intervals and a half (the first included), which
-is what the Docker healthcheck runs. config-manager reads ``probes_per_hour``
+cycle finished within two intervals and a half (the first included), or the
+last three failed (scamper refused, InfluxDB not taking points), which is
+what the Docker healthcheck runs. config-manager reads ``probes_per_hour``
 and ``destinations`` from it for ``smoking-pi budget``.
 """
 
@@ -38,6 +39,8 @@ def healthy(report: dict, now: float | None = None) -> bool:
     now = time.time() if now is None else now
     if "idle" in report:
         return True
+    if int(report.get("failed_cycles") or 0) >= 3:
+        return False
     interval = float(report.get("interval") or 3600)
     last = report.get("at") or report.get("starting")
     return bool(last) and now - float(last) <= 2.5 * interval

@@ -77,3 +77,22 @@ def test_a_new_address_starts_a_new_path():
 def test_digest_and_text():
     assert paths.text([ROUTER, None]) == "192.168.1.1|*"
     assert paths.digest([ROUTER]) == paths.digest([ROUTER]) != paths.digest([None])
+
+
+def test_a_reference_with_silent_early_hops_confirms_nothing():
+    assert paths.confirms([ROUTER, *ACCESS, "x"], PREFIX)
+    assert not paths.confirms([None, ACCESS[0], None, ACCESS[2], None, "x"], PREFIX)  # 2 of 5
+    assert paths.confirms([None, ACCESS[0], ACCESS[1], ACCESS[2], None, "x"], PREFIX)  # 3 of 5
+    assert not paths.confirms([None] * 5 + ["x"], PREFIX)
+    assert not paths.confirms([ROUTER, *ACCESS[:2]], PREFIX)     # shorter than the prefix
+    assert not paths.confirms([ROUTER, "23.9.9.9", *ACCESS[1:]], PREFIX)
+
+
+def test_an_unknown_as_path_is_not_an_as_change():
+    state = {}
+    old = [*PREFIX, "34.0.0.1", "34.0.0.9"]
+    new = [*PREFIX, "35.0.0.1", "34.0.0.9"]
+    _trace(state, old, asns=(1, 2))
+    _trace(state, new, asns=())                       # a lookup still pending
+    flags = _trace(state, new, asns=())
+    assert flags["changed"] and not flags["as_changed"]
