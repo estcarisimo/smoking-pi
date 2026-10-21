@@ -471,3 +471,30 @@ def test_main_when_the_api_is_down_or_has_no_budget_yet(monkeypatch, capsys):
     _urlopen(monkeypatch, b'{"available": false, "reason": "no generated Targets file yet"}')
     assert budget.main([]) == 1
     assert "No budget yet: no generated Targets file yet" in capsys.readouterr().err
+
+
+# --- the path meter: measured, not configured ---------------------------------
+
+def _path_status(at, probes_h=600.0, destinations=76, interval=3600):
+    return json.dumps({"at": at, "interval": interval, "destinations": destinations,
+                       "probes_per_hour": probes_h})
+
+
+def test_the_path_meter_counts_what_its_last_cycle_sent():
+    plain = budget.report(TARGETS, CPE, PROBES, env=NO_ENV, now=10_000)
+    body = budget.report(TARGETS, CPE, PROBES, env=NO_ENV, now=10_000,
+                         path_text=_path_status(9_000))
+    row = next(r for r in body["by_probe"] if r["probe"] == "Traceroute")
+    assert row["class"] == "Path" and row["targets"] == 76 and row["step"] == 3600
+    assert row["samples_per_hour"] == 600.0 and row["pings"] == round(600 / 76, 1)
+    assert row["mb_per_day"] == round(600 * 24 * budget.TRACEROUTE_BYTES_PER_PROBE / 1e6, 2)
+    assert body["samples_per_hour"] == round(plain["samples_per_hour"] + 600, 1)
+    assert body["targets"] == plain["targets"]     # SmokePing's targets, not destinations
+    assert "Traceroute" in budget.render(body)
+
+
+def test_a_stopped_idle_or_absent_path_meter_costs_nothing():
+    for text in ("", "not json", json.dumps({"idle": "clickhouse"}), json.dumps([1]),
+                 _path_status(10_000 - 4 * 3600)):
+        body = budget.report(TARGETS, CPE, PROBES, env=NO_ENV, now=10_000, path_text=text)
+        assert not any(r["probe"] == "Traceroute" for r in body["by_probe"])

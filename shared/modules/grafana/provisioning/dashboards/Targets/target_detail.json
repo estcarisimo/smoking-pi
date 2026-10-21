@@ -96,6 +96,20 @@
           "queryType": "flux",
           "query": "import \"date\"\nimport \"regexp\"\n// This target's incidents (any probe of its base name), and the ones about\n// everything: this host's Wi-Fi, the line, upstream.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"(^|,)(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?(,|$)\")\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 7d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"loss_incident\" and (r._field == \"class\" or r._field == \"confidence\" or r._field == \"summary\" or r._field == \"end_epoch\" or r._field == \"targets\" or r._field == \"minutes\"))\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.class == \"local_wifi\" or r.class == \"local_link\" or r.class == \"upstream\" or regexp.matchRegexpString(r: re, v: r.targets))\n  |> filter(fn: (r) => r.class != \"probe_miss\" and r.end_epoch * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end_epoch * 1000000000), text: \"Loss incident, \" + r.class + \" (\" + r.confidence + \" confidence, \" + string(v: r.minutes) + \" min): \" + r.summary, tags: \"incident,\" + r.class}))"
         }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#8F3BB8",
+        "name": "Path changed (experimental)",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// pathmeter stores one path per base name (docs/path.md): match that name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"$\")\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and r.target =~ re and\n      (r._field == \"changed\" or r._field == \"as_changed\" or r._field == \"as_path\"))\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.changed or r.as_changed)\n  |> map(fn: (r) => ({_time: r._time, text: (if r.as_changed then \"AS path changed (experimental): now \" + r.as_path else \"Path changed (experimental), same AS path \" + r.as_path), tags: \"experimental\"}))"
+        }
       }
     ]
   },
@@ -1649,6 +1663,288 @@
         "type": "influxdb",
         "uid": "influxdb"
       }
+    },
+    {
+      "type": "row",
+      "id": 21,
+      "title": "Path (experimental)",
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "panels": [
+        {
+          "type": "table",
+          "id": 22,
+          "title": "Path – ${target} – last trace in range (experimental)",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "description": "EXPERIMENTAL. A Paris traceroute (ICMP) once an hour from the path meter. A router's reply time is its slow path's and rate-limited: read it as a description, not as that hop's latency. A change is counted after two traces in a row show it. See docs/path.md. Hops that did not answer are left out of the table; a private hop has no AS.",
+          "gridPos": {
+            "h": 10,
+            "w": 12,
+            "x": 0,
+            "y": 47
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "influxdb",
+                "uid": "influxdb"
+              },
+              "queryType": "flux",
+              "query": "import \"regexp\"\n// pathmeter stores one path per base name (docs/path.md): match that name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"$\")\n// The last trace in the selected range, and its hops (one timestamp per cycle).\nlatest = from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and r._field == \"hops\" and r.target =~ re)\n  |> last() |> group() |> sort(columns: [\"_time\"], desc: true) |> findRecord(fn: (key) => true, idx: 0)\nat = if exists latest._time then latest._time else time(v: 0)\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and r.target =~ re and r._time == at)\n  |> pivot(rowKey: [\"_time\", \"ttl\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group() |> keep(columns: [\"ttl\", \"addr\", \"asn\", \"rtt_ms\"]) |> sort(columns: [\"ttl\"])"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "No path: the path meter is off (smoking-pi enable pathmeter), or it has not traced this target in the selected range."
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "ttl"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "hop"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "addr"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "address"
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "asn"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "AS"
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "rtt_ms"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "reply (ms)"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm"
+          },
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "indexByName": {
+                  "ttl": 0,
+                  "addr": 1,
+                  "asn": 2,
+                  "rtt_ms": 3
+                },
+                "excludeByName": {},
+                "renameByName": {}
+              }
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "id": 23,
+          "title": "Path changes – ${target} (experimental)",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "description": "Times in the selected range when the path changed: its AS path, its hops, or the address the name resolved to. EXPERIMENTAL. A Paris traceroute (ICMP) once an hour from the path meter. A router's reply time is its slow path's and rate-limited: read it as a description, not as that hop's latency. A change is counted after two traces in a row show it. See docs/path.md.",
+          "gridPos": {
+            "h": 10,
+            "w": 12,
+            "x": 12,
+            "y": 47
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "influxdb",
+                "uid": "influxdb"
+              },
+              "queryType": "flux",
+              "query": "import \"regexp\"\n// pathmeter stores one path per base name (docs/path.md): match that name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"$\")\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and r.target =~ re and\n      (r._field == \"changed\" or r._field == \"as_changed\" or r._field == \"dst_changed\" or\n       r._field == \"as_path\" or r._field == \"dst\" or r._field == \"hops\"))\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.changed or r.as_changed or r.dst_changed)\n  |> map(fn: (r) => ({_time: r._time, what: if r.as_changed then \"AS path\" else if r.changed then \"hops\" else \"address\",\n      as_path: r.as_path, dst: r.dst, hops: r.hops}))\n  |> group() |> sort(columns: [\"_time\"], desc: true)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "No path change in the selected range, or no path measured (smoking-pi enable pathmeter)."
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "as_path"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "AS path"
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "dst"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "address"
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "hops"
+                },
+                "properties": [
+                  {
+                    "id": "noValue",
+                    "value": "–"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "what"
+                },
+                "properties": [
+                  {
+                    "id": "noValue",
+                    "value": "–"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "_time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "type": "timeseries",
+          "id": 24,
+          "title": "Path – ${target} – hops to the destination (experimental)",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "description": "How many hops away the destination answered, per trace; the last hop probed when it did not answer. A step is a path that got longer or shorter. EXPERIMENTAL. A Paris traceroute (ICMP) once an hour from the path meter. A router's reply time is its slow path's and rate-limited: read it as a description, not as that hop's latency. A change is counted after two traces in a row show it. See docs/path.md.",
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 57
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "influxdb",
+                "uid": "influxdb"
+              },
+              "queryType": "flux",
+              "query": "import \"regexp\"\n// pathmeter stores one path per base name (docs/path.md): match that name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"$\")\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and r._field == \"hops\" and r.target =~ re)\n  |> keep(columns: [\"_time\", \"_value\"]) |> map(fn: (r) => ({r with _field: \"hops to the destination\"}))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "No path: the path meter is off (smoking-pi enable pathmeter), or it has not traced this target in the selected range.",
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "stepAfter",
+                "showPoints": "always",
+                "spanNulls": false,
+                "pointSize": 6
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "single"
+            }
+          }
+        }
+      ]
     }
   ]
 }

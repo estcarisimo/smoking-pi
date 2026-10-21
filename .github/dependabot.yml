@@ -1,8 +1,8 @@
 # Dependabot version updates.
 #
-# This repo has three ecosystems and seventeen places they live: seven Python
-# modules, thirteen Dockerfiles, and the Actions workflow. One entry per directory
-# would open seventeen PRs a week at a solo maintainer, which is how Dependabot
+# This repo has three ecosystems and many places they live: the Python
+# modules, fourteen Dockerfiles, and the Actions workflow. One entry per directory
+# would open a PR per directory a week at a solo maintainer, which is how Dependabot
 # gets muted and then ignored. So: `directories` globs instead of one block
 # each, groups so a week's updates arrive as one PR per ecosystem, and a low
 # open-PR ceiling.
@@ -68,6 +68,7 @@ updates:
       - "/shared/modules/mcp-server"
       - "/shared/modules/mdns"
       - "/shared/modules/netmeter"
+      - "/shared/modules/pathmeter"
       - "/shared/modules/postgres"
       - "/shared/modules/smokeping"
       - "/shared/modules/web-admin"

@@ -1,7 +1,7 @@
 name: CI
 
 # The cheap checks, on every PR and push to main: minutes, no Docker builds.
-# Image builds (all thirteen, arm64+amd64), the docs deploy and, later, the
+# Image builds (all fourteen, arm64+amd64), the docs deploy and, later, the
 # package are release work and run from release.yml / docs.yml on a
 # `vX.Y.Z` tag. Every change is built and deployed on the reference Pi
 # before merge (AGENTS.md, Process), which is where a broken Dockerfile
@@ -126,7 +126,7 @@ jobs:
           # docs/packaging.md "Packaged mode": docker-compose.packaged.yml must
           # remove every bind mount of shared/modules and keep every other
           # volume -- with every profile on, so the gated services count too.
-          COMPOSE_PROFILES=influxdb,mcp,alerts,ai,dns,inference,clickhouse python3 ../../packaging/check-packaged-override.py .
+          COMPOSE_PROFILES=influxdb,mcp,alerts,ai,dns,inference,pathmeter,clickhouse python3 ../../packaging/check-packaged-override.py .
           if [ "${{ matrix.edition }}" = pro ]; then
             # The ClickHouse overlay re-adds its init mount; packaged last wins.
             COMPOSE_PROFILES=clickhouse docker compose -f docker-compose.yml -f docker-compose.clickhouse.yml -f docker-compose.packaged.yml config \
@@ -298,7 +298,7 @@ jobs:
   # because what is deferred to the tag becomes a pile of release blockers.
   # Until then no PR built an image, so a broken Dockerfile (a module added
   # without its COPY line, a base image that stopped resolving) surfaced
-  # only when tagging. All thirteen, not only the changed ones: five images
+  # only when tagging. All fourteen, not only the changed ones: five images
   # build from `shared/` and copy `common/`, so "which images did this
   # change" is not a question a path filter answers, and a required check
   # that a path filter skipped stays pending forever.
@@ -323,6 +323,7 @@ jobs:
           - mcp-server
           - mdns
           - netmeter
+          - pathmeter
           - postgres
           - smokeping
           - web-admin

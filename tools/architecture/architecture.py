@@ -170,9 +170,13 @@ NODES: tuple[Node, ...] = (
          ("uplink bytes", "per service (nft)"),
          430, 680, 185, 92, "core", icon="pulse", services=("netmeter",)),
     Node("dns-observer", "DNS observer",
-         ("AdGuard Home on :53, and the wizard", "what the house resolves, by service"),
-         430, 790, 480, 120, "optional", icon="search", services=("dns-observer",),
+         ("AdGuard Home on :53, and the", "wizard: what the house resolves"),
+         430, 790, 290, 120, "optional", icon="search", services=("dns-observer",),
          profile="dns"),
+    Node("pathmeter", "pathmeter",
+         ("experimental: hourly", "path to each destination"),
+         735, 790, 175, 120, "optional", icon="search", services=("pathmeter",),
+         profile="pathmeter"),
     # Store
     Node("influxdb", "InfluxDB",
          ("time series", "the default backend"),
@@ -221,6 +225,8 @@ EDGES: tuple[Edge, ...] = (
          label_at=(1238, 778)),
     Edge("inference", "influxdb", "reads, writes", "t", "b", src_at=1080, dst_at=1080,
          both=True),
+    Edge("pathmeter", "influxdb", "paths", "r", "l", src_at=880, dst_at=645, bend=948,
+         label_at=(938, 781)),
     Edge("alerter", "chat", "sends", "r", "l", src_at=530, dst_at=530),
     Edge("ai-insights", "anthropic", "asks", "r", "l", src_at=685, dst_at=685),
     Edge("assistants", "mcp-server", "MCP", "l", "r", src_at=850, dst_at=850, both=True),
@@ -231,8 +237,8 @@ EDGES: tuple[Edge, ...] = (
          src_at=850, dst_at=620, bend=380, both=True, label_at=(380, 690)),
     Edge("router", "dns-observer", "the house's DNS", "t", "b", src_at=200, dst_at=550,
          bend=975),
-    Edge("dns-observer", "doh", "encrypted upstreams", "b", "l", src_at=790, dst_at=1045,
-         label_at=(875, 1030)),
+    Edge("dns-observer", "doh", "encrypted upstreams", "b", "l", src_at=640, dst_at=1045,
+         label_at=(800, 1030)),
 )
 
 LEGEND_X, LEGEND_Y = 1010, 44

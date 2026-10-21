@@ -59,7 +59,10 @@ nftables table, and asks config-manager which container is which.
 **Experimental detectors.** The [inference](inference.md) container,
 behind its own profile, reads the ICMP targets' pings and loss from InfluxDB
 and writes back persistent congestion (Jitterbug) and loss degradation
-periods, which shade the Target Detail dashboard.
+periods, which shade the Target Detail dashboard. The [pathmeter](path.md)
+container, behind its own profile too, traces the path to every measured
+destination once an hour and writes the paths and their changes to
+InfluxDB, for Target Detail's Path row.
 
 **The Pi's name.** The [mdns](mdns.md) container answers for
 `smoking-pi.local` on the LAN, so the two `you` badges are reachable by

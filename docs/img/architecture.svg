@@ -42,6 +42,7 @@
 <path d="M1257,685 L1225.0,685.0 Q1215,685 1215.0,675.0 L1215.0,621.0 Q1215,615 1209.0,615.0 L1203,615" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1257,850 L1247.5,850.0 Q1238,850 1238.0,840.5 L1238.0,650.0 Q1238,640 1228.0,640.0 L1203,640" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1080,672 L1080,663" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M913,880 L938.0,880.0 Q948,880 948.0,870.0 L948.0,649.5 Q948,645 952.5,645.0 L957,645" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1563,530 L1647,530" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1563,685 L1647,685" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1647,850 L1563,850" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
@@ -49,7 +50,7 @@
 <path d="M670,787 L670,663" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M427,850 L390.0,850.0 Q380,850 380.0,840.0 L380.0,630.0 Q380,620 370.0,620.0 L333,620" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
 <path d="M200,997 L200.0,985.0 Q200,975 210.0,975.0 L540.0,975.0 Q550,975 550.0,965.0 L550,913" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
-<path d="M790,913 L790.0,1035.0 Q790,1045 800.0,1045.0 L957,1045" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M640,913 L640.0,1035.0 Q640,1045 650.0,1045.0 L957,1045" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <rect x="430" y="120" width="480" height="76" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
 <g transform="translate(448,135) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></g>
 <text x="478" y="151" font-size="17" font-weight="700" fill="#334155">The Internet: what is measured</text>
@@ -126,12 +127,18 @@
 <text x="478" y="711" font-size="17" font-weight="700" fill="#1e40af">netmeter</text>
 <text x="448" y="737" font-size="14" fill="#1f2937">uplink bytes</text>
 <text x="448" y="758" font-size="14" fill="#1f2937">per service (nft)</text>
-<rect x="430" y="790" width="480" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<rect x="430" y="790" width="290" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
 <g transform="translate(448,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l5 5M4.5 10.5a6 6 0 1 0 12 0 6 6 0 1 0-12 0"/></g>
 <text x="478" y="821" font-size="17" font-weight="700" fill="#c2410c">DNS observer</text>
-<rect x="854" y="804" width="38" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="873" y="820" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">dns</text>
-<text x="448" y="847" font-size="14" fill="#1f2937">AdGuard Home on :53, and the wizard</text>
-<text x="448" y="868" font-size="14" fill="#1f2937">what the house resolves, by service</text>
+<rect x="664" y="804" width="38" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="683" y="820" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">dns</text>
+<text x="448" y="847" font-size="14" fill="#1f2937">AdGuard Home on :53, and the</text>
+<text x="448" y="868" font-size="14" fill="#1f2937">wizard: what the house resolves</text>
+<rect x="735" y="790" width="175" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<g transform="translate(753,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l5 5M4.5 10.5a6 6 0 1 0 12 0 6 6 0 1 0-12 0"/></g>
+<text x="783" y="821" font-size="17" font-weight="700" fill="#c2410c">pathmeter</text>
+<rect x="811" y="877" width="81" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="852" y="892" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">pathmeter</text>
+<text x="753" y="847" font-size="14" fill="#1f2937">experimental: hourly</text>
+<text x="753" y="868" font-size="14" fill="#1f2937">path to each destination</text>
 <path d="M960,341 v308 a120.0,11 0 0 0 240,0 v-308" fill="#ecfdf5" stroke="#047857" stroke-width="2.25" filter="url(#shadow)"/><ellipse cx="1080.0" cy="341" rx="120.0" ry="11" fill="#ecfdf5" stroke="#047857" stroke-width="2.25"/>
 <g transform="translate(978,359) scale(0.833)" fill="none" stroke="#047857" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3zM5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></g>
 <text x="1008" y="375" font-size="17" font-weight="700" fill="#047857">InfluxDB</text>
@@ -186,6 +193,7 @@
 <rect x="1189" y="639" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1215" y="654" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
 <rect x="1212" y="767" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1238" y="782" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
 <rect x="1090" y="656" width="110" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1145" y="672" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads, writes</text>
+<rect x="912" y="770" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="938" y="786" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">paths</text>
 <rect x="1579" y="504" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="520" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">sends</text>
 <rect x="1583" y="659" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="674" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">asks</text>
 <rect x="1586" y="824" width="38" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="840" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">MCP</text>
@@ -193,5 +201,5 @@
 <rect x="622" y="715" width="95" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="670" y="730" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json</text>
 <rect x="296" y="679" width="167" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="380" y="694" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json / Targets</text>
 <rect x="313" y="949" width="124" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="375" y="964" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">the house&#x27;s DNS</text>
-<rect x="799" y="1019" width="153" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="875" y="1034" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">encrypted upstreams</text>
+<rect x="724" y="1019" width="153" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="800" y="1034" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">encrypted upstreams</text>
 </svg>

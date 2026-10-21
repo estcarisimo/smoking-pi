@@ -57,6 +57,15 @@ BYTES_PER_SAMPLE: Dict[str, int] = {
 }
 HTTP3_BYTES_PER_SAMPLE = 18_000
 
+# The path meter (shared/modules/pathmeter): one ICMP probe of 44 bytes and,
+# when a hop answers, a reply of about the same size (trace.py). Its rate is
+# not configured but measured: it reports the probes its cycles of the last
+# day sent, on average per hour.
+TRACEROUTE_BYTES_PER_PROBE = 110
+# A cycle older than this many intervals is a meter that stopped: its row
+# goes, rather than a cost that is no longer paid.
+PATH_STALE_INTERVALS = 3
+
 # Default ceilings, about 30 GB a month. The shipped seed uses 12% of the
 # bandwidth (~117 MB/day, nearly all of it TLS handshakes) and 7% of the
 # samples; a DNS wizard adoption of 60 services over HTTP/1.1, 2 and 3
@@ -303,6 +312,35 @@ def by_service(state_text: str, now: float) -> Optional[dict]:
     }
 
 
+def path_row(status_text: str, now: float) -> Optional[dict]:
+    """The path meter's row, from its status.json: the probes its cycles of
+    the last day sent, on average per hour. None when it is not running,
+    idle or stopped."""
+    try:
+        status = json.loads(status_text) if status_text.strip() else {}
+    except ValueError:
+        return None
+    if not isinstance(status, dict):
+        return None
+    probes_h = status.get("probes_per_hour")
+    every = float(status.get("interval") or 3600)
+    at = float(status.get("at") or 0)
+    if not isinstance(probes_h, (int, float)) or not at or now - at > PATH_STALE_INTERVALS * every:
+        return None
+    destinations = int(status.get("destinations") or 0)
+    per_cycle = probes_h * every / 3600
+    return {
+        "probe": "Traceroute",
+        "class": "Path",
+        "targets": destinations,
+        "step": int(every),
+        "pings": round(per_cycle / destinations, 1) if destinations else 0,
+        "samples_per_hour": round(float(probes_h), 1),
+        "bytes_per_sample": TRACEROUTE_BYTES_PER_PROBE,
+        "mb_per_day": round(probes_h * 24 * TRACEROUTE_BYTES_PER_PROBE / 1e6, 2),
+    }
+
+
 def report(
     targets_text: str,
     cpe_text: str,
@@ -312,6 +350,7 @@ def report(
     traffic_text: str = "",
     now: Optional[float] = None,
     services_text: str = "",
+    path_text: str = "",
 ) -> dict:
     """The JSON body of GET /budget."""
     step, pings = freshness.parse_database_defaults(database_text)
@@ -340,6 +379,9 @@ def report(
             "mb_per_day": (None if per_sample is None
                            else round(samples_h * 24 * per_sample / 1e6, 2)),
         })
+    traceroute = path_row(path_text, time.time() if now is None else now)
+    if traceroute:
+        rows.append(traceroute)
     # Most expensive first: what to cut is at the top.
     rows.sort(key=lambda r: (-(r["mb_per_day"] or 0), -r["samples_per_hour"], r["probe"]))
 

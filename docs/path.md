@@ -1,0 +1,152 @@
+# The path to each destination (experimental)
+
+!!! warning "Experimental"
+    The path meter is off by default, is not in the alert path, and may
+    change or go away without a deprecation period. Its results show on the
+    Target Detail dashboard; nothing pages anyone.
+
+The measurements say how long a destination takes to answer and whether it
+answers. They do not say which way the packets went. The `pathmeter`
+service traces the path to every measured destination once an hour, so a
+latency step can be read next to the path it happened on, and a change of
+route shows up as a change, not as a guess.
+
+```bash
+smoking-pi enable pathmeter
+```
+
+Pro with InfluxDB only. IPv4 only, like the rest of the Pi's measurements
+when it has no global IPv6 ([IPv6 gating](ipv6-gating.md)).
+
+## What it does
+
+Every `PATHMETER_INTERVAL` seconds (default 3600):
+
+1. **What to trace.** Every target measured in the last two hours, by its
+   base name (`Google`, `Google_tcp443` and `Google_h2` are one destination,
+   as on [Target Detail](target-detail.md)), from the host behind it. Names
+   are resolved every cycle, since CDN names move, and names that resolve
+   to the same address are traced once.
+2. **How.** A Paris traceroute with [scamper](https://www.caida.org/catalog/software/scamper/),
+   over ICMP: every probe to one destination keeps the same flow
+   identifier, so a load balancer on the way keeps them on one path and the
+   hops read as one path, not a mix of several. The identifier is the same
+   every cycle too, so a destination stays on its path from one hour to the
+   next unless the network moves it. One probe per hop, a second
+   to wait for each, and the trace gives up after five silent hops in a row.
+   Every probe of a cycle is paced together at `PATHMETER_PPS` per second
+   (default 20).
+3. **The shared hops once.** The first hops are the same for every
+   destination: the home router, then the access network. The first cycle
+   traces everything from hop 1 and learns them; the cycles after it trace
+   one destination in full and the others from the first hop past them,
+   which saves about 40 % of the probes. If that one destination's first
+   hops disagree with what was learned, the access path moved, and that
+   cycle traces everything in full again. A full cycle also runs once a
+   day.
+4. **What changed.** A path counts as changed when a hop that answered
+   both times answered from another address (or the destination got nearer
+   or further), in **two traces in a row**: one trace that differs is a
+   candidate the next confirms or drops, so a load balancer or a router
+   answering once from another of its addresses is not a change. The AS
+   path (the networks along the hops, from Team Cymru's origin data, cached
+   a week per /24) changing is flagged on its own, because it is usually the
+   change that matters, and only once every hop's network is known, so a
+   lookup still pending is not a change of network. A name with several
+   addresses keeps the one it was traced at while DNS still returns it; one
+   that resolved to a new address starts a new path, and that is not a path
+   change.
+
+### Why ICMP, and why Paris
+
+Measured from the reference house on 2026-10-21, over its 76 destinations:
+
+| Method | Reached the destination | Probes per trace (median) |
+|---|---|---|
+| ICMP Paris | 60 of 76 | 13 |
+| UDP Paris | 34 of 76 | 14 |
+| TCP to port 443 | 7 of 76 | 15 |
+
+Plain `traceroute` and `mtr` change the flow identifier on every probe, so
+behind a load balancer they draw a path that does not exist. Tracing every
+equal-cost path (scamper's MDA) costs many times more probes and is not
+done.
+
+## Where it shows
+
+On **Target Detail**, the collapsed **Path (experimental)** row:
+
+![Target Detail's Path row: the last trace to uba_ar, hop by hop with each hop's AS, no change in the range, and the destination ten hops away](img/path-row.png)
+
+
+- **Last trace in range**: hop, address, AS and reply time of the last
+  trace in the selected time range. Pick an earlier range to see the path
+  as it was then. Hops that did not answer are left out. The shared first
+  hops of a destination traced past them show their addresses but no reply
+  time: only one destination probed them that cycle.
+- **Path changes**: when the AS path, the hops or the address changed in
+  the range.
+- **Hops to the destination**: how far the destination answered, per trace.
+
+The **Path changed (experimental)** annotation marks confirmed changes on
+every panel of the dashboard.
+
+A router's reply time is how fast its own slow path answers a probe that
+expired there, and routers rate-limit those replies. It describes the hop;
+it is not that hop's latency, and a slow or silent hop says nothing about
+the traffic going through it. The reference house's own router answered
+the first hop on only two traces in three.
+
+## What it costs
+
+At the defaults, about 600 probes an hour for the reference house's 76
+destinations (about 3 % of the default samples ceiling) and a few MB a day.
+`smoking-pi budget` shows the path meter as a `Traceroute` row with what
+its cycles of the last day actually sent, on average (the hourly cycles
+are cheaper than the daily full one), not an estimate, and counts it in the totals
+that [admission](measurement-budget.md#admission) checks a change against.
+
+Enabling it is not refused by admission: check `smoking-pi budget` first
+on a connection that is close to a ceiling.
+
+## Settings
+
+| Setting | Default | |
+|---|---|---|
+| `PATHMETER_INTERVAL` | 3600 | Seconds between cycles; at least 600 |
+| `PATHMETER_PPS` | 20 | Probes per second, every probe of a cycle together; at most 100 |
+
+`smoking-pi config set PATHMETER_INTERVAL 7200` changes one.
+
+## In InfluxDB
+
+Tagged `target` (the base name) and `category`, stamped at the cycle's
+start:
+
+- `path_trace`, one point per destination and cycle: `dst`, `hops`,
+  `reached`, `path` (`addr|addr|*|…`, `*` a silent hop), `path_hash`,
+  `as_path` (`64500 64501 15169`), `changed`, `as_changed`, `dst_changed`,
+  `first_hop`.
+- `path_hop`, one point per hop that answered, also tagged `ttl` (`01`,
+  `02`…): `addr`, `asn` when known, `rtt_ms`.
+- `pathmeter_pass`, one point per cycle: `traces`, `probes`, `seconds`,
+  `failed`, `prefix_hops`, `full`.
+
+Addresses are fields, not tags, so routers do not multiply series.
+
+## Privileges
+
+The container runs on the host network (the hops are the house's, not a
+Docker bridge's plus one) with every capability dropped but four:
+`NET_RAW` for the probes, and `SYS_CHROOT`, `SETUID` and `SETGID` for
+scamper's own privilege separation, which runs the part that parses what
+the network sends back as `nobody`, chrooted in an empty directory.
+
+## Not yet
+
+- Traces triggered by an episode (shared loss, an alert), every few
+  minutes while it lasts: the next step, after this one has run for a
+  while.
+- A limit per network, so a large set of discovered targets does not
+  concentrate probes on one operator ([measurement budget](measurement-budget.md),
+  *What comes next*).
