@@ -9,6 +9,34 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The path to each destination (experimental).** The measurements said
+  how long a destination took to answer, never which way the packets went:
+  a latency step could not be read next to the route it happened on, and
+  whether an evening of loss sat in the access network or beyond could
+  only be guessed from how many destinations lost at once. A new
+  `pathmeter` service (Pro with InfluxDB, its own profile, off by default:
+  `smoking-pi enable pathmeter`) traces every measured destination once an
+  hour with a Paris traceroute over ICMP (scamper), so a load balancer on
+  the way does not draw a path that does not exist. ICMP because it is the
+  method that gets there: from the reference house it reached 60 of 76
+  destinations, against 34 over UDP and 7 over TCP. The hops every path
+  shares (the home router and the access network, five on the reference
+  house) are traced once per cycle and reused, about 40 % fewer probes,
+  and relearned when they move and once a day. A change counts after two
+  traces in a row show it, and an AS-path change, from Team Cymru's origin
+  data, is flagged on its own. Target Detail shows the last path in the
+  selected range, the changes and the distance per trace in a collapsed
+  *Path (experimental)* row, and marks confirmed changes with an
+  annotation. `smoking-pi budget` counts what its last cycle actually sent
+  as a `Traceroute` row (about 600 probes an hour at the defaults, 3 % of
+  the default samples ceiling). Paced at `PATHMETER_PPS` (20 per second);
+  `PATHMETER_INTERVAL` sets the cycle. Host network, every capability
+  dropped but `NET_RAW` and the three scamper's own privilege separation
+  needs. The AS lookup moved from the inference module to
+  `common/asn.py`, shared by both. `docs/path.md`.
+
 ## [2.44.0] — 2026-10-20
 
 The experimental inference module now answers for the whole connection, not

@@ -84,6 +84,7 @@ DEPLOYED_MODULES = {
     "inference": ("inference", "/app", True),
     "mdns": ("mdns", "/app", False),
     "netmeter": ("netmeter", "/app", False),
+    "pathmeter": ("pathmeter", "/app", True),
     "mcp-server": ("mcp-server", "/app", True),
     "smokeping-exporters": ("smokeping", "/exporters", False),
 }

@@ -40,7 +40,7 @@ sudo smoking-pi openclaw
 ```
 
 `upgrade` also removes the images of the releases this host no longer
-runs. Every upgrade pulls (or builds) a new set of thirteen images, and
+runs. Every upgrade pulls (or builds) a new set of fourteen images, and
 until this change every previous set stayed on disk: on 2026-10-16 the
 reference Pi's upgrade pulled onto a card that already held every release's
 images since 2.13.8 (513 images, 92 GB of 117), and the card filled.

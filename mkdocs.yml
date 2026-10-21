@@ -27,6 +27,7 @@ nav:
       - Which resolver answers: public-resolver.md
       - Overview and public address: public-address.md
       - One target, every layer: target-detail.md
+      - The path to each destination (experimental): path.md
       - Connectivity and quality: connectivity-quality.md
   - Alerts and the assistant:
       - Alerting: alerting.md

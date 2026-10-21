@@ -176,6 +176,7 @@ Everything is Compose, run by `smoking-pi`. Optional services are behind profile
 | `mcp` | MCP server on `127.0.0.1:8090` | `smoking-pi enable mcp`, then `connect` or `openclaw` |
 | `ai` | AI health reports | `smoking-pi config set ANTHROPIC_API_KEY`, `smoking-pi enable ai` |
 | `inference` | Experimental congestion and degradation detectors | `smoking-pi enable inference`; see [docs/inference.md](docs/inference.md) |
+| `pathmeter` | Experimental hourly traceroute to every destination, on Target Detail | `smoking-pi enable pathmeter`; see [docs/path.md](docs/path.md) |
 | `dns` | DNS observer (AdGuard Home) on port 53, for the router to forward the house's DNS to | `smoking-pi dns enable`; see [docs/dns-observer.md](docs/dns-observer.md) |
 
 ```bash
@@ -240,8 +241,9 @@ smoking-pi/
 │   │   ├── mdns/              # answers for smoking-pi.local on the LAN (multicast DNS)
 │   │   ├── netmeter/          # uplink traffic per service: counter-only nftables table (Pro)
 │   │   ├── inference/         # experimental: persistent congestion (Jitterbug) and loss degradation (Pro)
+│   │   ├── pathmeter/         # experimental: Paris traceroute to every destination, hourly (Pro)
 │   │   ├── doctor/            # Static + live instrumentation checks
-│   │   └── common/            # Flux helpers, chart renderer, deep links, mutes, OpenClaw client
+│   │   └── common/            # Flux helpers, chart renderer, deep links, mutes, OpenClaw client, AS lookup
 │   ├── scripts/               # helpers the command and setup.sh run; skill build/install (maintainers)
 │   └── cloudflare-tunnel/     # permanent tunnel Compose
 ├── packaging/                 # .deb, apt repository, Homebrew, systemd unit, release checks
@@ -269,7 +271,7 @@ uv sync            # or: python -m venv .venv && pip install -e ".[dev]"
 Every module with a `tests/` directory is discovered by CI. Tests mock the network, the database and Docker; none needs a running stack.
 
 ```bash
-for m in alerter mcp-server web-admin config-manager doctor smokeping-exporters dns-observer mdns netmeter inference; do
+for m in alerter mcp-server web-admin config-manager doctor smokeping-exporters dns-observer mdns netmeter inference pathmeter; do
   (cd shared/modules/$m && pytest tests/ -q)
 done
 ```

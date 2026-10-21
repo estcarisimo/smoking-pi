@@ -97,6 +97,13 @@ A probe of a class with no measured cost (a probe you added yourself) is
 counted in samples and listed as unpriced, so the MB/day figure is not
 read as complete.
 
+The [path meter](path.md), when it is on, adds a `Traceroute` row of class
+`Path`. Its rate is not configured but measured: the probes its last cycle
+sent, per hour, 110 bytes each (a 44-byte ICMP probe and a reply of about
+the same size). Its `targets` are the distinct addresses it traced, and
+they are not added to the targets total. A path meter that has not
+finished a cycle in three intervals has no row.
+
 Nearly all of the seed's bandwidth is TLS handshakes: an HTTP sample costs
 70 to 110 times an ICMP one. That is why the HTTP probes send `HEAD`. Before
 they did, each sample downloaded the whole home page, and the same seed
@@ -474,5 +481,6 @@ From the roadmap, in order:
    deferred. Today admission refuses at the door instead.
 2. Per-destination limits (service, prefix, ASN) so a large discovered
    target set does not turn into concentrated probing of one operator.
-3. The DNS wizard and future traceroute measurements asking this budget
-   instead of keeping limits of their own.
+3. The DNS wizard asking this budget instead of keeping limits of its
+   own. The path meter is counted, but enabling it is not admitted
+   against the ceilings yet.

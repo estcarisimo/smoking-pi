@@ -1,0 +1,113 @@
+"""Paths into InfluxDB, and what the module keeps between cycles.
+
+Per destination (tag ``target``, its base name; tag ``category``), all
+stamped at the cycle's start:
+
+- ``path_trace``, one point per trace: ``dst`` (the address traced),
+  ``hops`` (the destination's distance, or the last TTL probed when it did
+  not answer), ``reached``, ``path`` (``addr|addr|*|...``, ``*`` a silent
+  hop), ``path_hash``, ``as_path`` (``19165 16591 15169``), ``changed`` /
+  ``as_changed`` / ``dst_changed`` (paths.py), ``first_hop`` (where this
+  trace started; earlier hops are the shared prefix);
+- ``path_hop``, one point per hop that answered, tagged ``ttl`` (two digits,
+  so it sorts): ``addr``, ``asn`` when known, ``rtt_ms``. A router's reply
+  time is its slow path's, rate-limited: descriptive, never a series to
+  alert on.
+
+And ``pathmeter_pass`` once per cycle (no target): ``traces``, ``probes``,
+``seconds``, ``failed``, ``prefix_hops``, ``full``.
+
+Addresses are fields, never tags: a tag per router would multiply series.
+
+State (``PATHMETER_STATE_DIR``, default ``/var/lib/pathmeter``):
+``state.json`` holds the prefix, when it was learned, and each
+destination's stable and candidate path; ``asn.json`` caches origin ASes
+per /24.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+TRACE = "path_trace"
+HOP = "path_hop"
+PASS = "pathmeter_pass"
+
+
+def state_dir() -> Path:
+    return Path(os.environ.get("PATHMETER_STATE_DIR", "/var/lib/pathmeter"))
+
+
+def load(name: str) -> dict:
+    try:
+        data = json.loads((state_dir() / name).read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save(name: str, data: dict) -> None:
+    directory = state_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    tmp = directory / (name + ".tmp")
+    tmp.write_text(json.dumps(data, sort_keys=True))
+    os.replace(tmp, directory / name)
+
+
+def measurement_name(measurement: str) -> str:
+    """The measurements, as literals: the doctor reads them from here to
+    know what the dashboards may ask this module for."""
+    if measurement == TRACE:
+        return "path_trace"
+    if measurement == HOP:
+        return "path_hop"
+    if measurement == PASS:
+        return "pathmeter_pass"
+    raise ValueError("unknown measurement")
+
+
+def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: list,
+                 reached: bool, distance: int | None, first_hop: int, path_text: str,
+                 path_hash: str, asns: list[int], flags: dict, asn_of) -> list:
+    from influxdb_client import Point, WritePrecision
+
+    points = [Point(measurement_name(TRACE)).tag("target", base).tag("category", category)
+              .field("dst", dst)
+              .field("hops", int(distance or len(hops)))
+              .field("reached", bool(reached))
+              .field("path", path_text)
+              .field("path_hash", path_hash)
+              .field("as_path", " ".join(str(a) for a in asns))
+              .field("changed", bool(flags.get("changed")))
+              .field("as_changed", bool(flags.get("as_changed")))
+              .field("dst_changed", bool(flags.get("dst_changed")))
+              .field("first_hop", int(first_hop))
+              .time(at, WritePrecision.S)]
+    for ttl, addr in enumerate(hops, start=1):
+        if not addr:
+            continue
+        point = (Point(measurement_name(HOP)).tag("target", base).tag("category", category)
+                 .tag("ttl", f"{ttl:02d}").field("addr", addr))
+        asn = asn_of(addr)
+        if asn:
+            point = point.field("asn", int(asn))
+        rtt = rtts[ttl - 1] if ttl - 1 < len(rtts) else None
+        if isinstance(rtt, (int, float)):
+            point = point.field("rtt_ms", float(rtt))
+        points.append(point.time(at, WritePrecision.S))
+    return points
+
+
+def pass_point(at: int, report: dict):
+    from influxdb_client import Point, WritePrecision
+
+    return (Point(measurement_name(PASS))
+            .field("traces", int(report.get("traces", 0)))
+            .field("probes", int(report.get("probes", 0)))
+            .field("seconds", float(report.get("seconds", 0.0)))
+            .field("failed", int(report.get("failed", 0)))
+            .field("prefix_hops", int(report.get("prefix_hops", 0)))
+            .field("full", bool(report.get("full")))
+            .time(at, WritePrecision.S))

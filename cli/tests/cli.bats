@@ -2585,7 +2585,15 @@ stub_clone() {
     [[ "$output" == *"mcp        on "* ]]
     [[ "$output" == *"alerts     off "* ]]
     [[ "$output" == *"inference  off "* ]]
+    [[ "$output" == *"pathmeter  off "* ]]
     if compose_calls | grep -q ' up '; then false; fi
+}
+
+@test "enable pathmeter says when the first paths come and where their cost shows" {
+    run "$CLI" enable pathmeter
+    [ "$status" -eq 0 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,pathmeter' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"smoking-pi budget"* ]]
 }
 
 @test "enable records the profile once and applies the whole stack" {

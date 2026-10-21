@@ -119,7 +119,7 @@ for f in json.load(sys.stdin):
 }
 
 # The images of releases this host no longer runs. Every `upgrade` pulls a
-# new set of thirteen images and left every previous set on disk: by
+# new set of fourteen images and left every previous set on disk: by
 # v2.38.2 the reference Pi carried 513 Smoking Pi images, 92 GB of a
 # 117 GB card, and the pull that filled it took PostgreSQL (crash loop on
 # postmaster.pid), Grafana (SQLite "database or disk is full") and

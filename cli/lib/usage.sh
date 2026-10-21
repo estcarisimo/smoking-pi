@@ -23,7 +23,7 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      go to docker compose (its own help: docker compose up --help).
   enable | disable [NAME...]
                      The optional services (Pro): mcp, alerts, ai, inference,
-                     dns. No NAME: which are on. Records them in
+                     pathmeter, dns. No NAME: which are on. Records them in
                      COMPOSE_PROFILES and starts or removes them -- the one
                      way to change that list, so a later 'up' or 'down'
                      keeps what you chose. dns hands over to 'dns enable'.

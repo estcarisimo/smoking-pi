@@ -41,6 +41,7 @@ class Repo:
         # Other modules that write InfluxDB points of their own.
         self.writers = (self.exporters, root / "shared/modules/netmeter",
                         root / "shared/modules/inference",
+                        root / "shared/modules/pathmeter",
                         # loss_incident (incident_history.py)
                         root / "shared/modules/alerter",
                         # watchdog_event, as line protocol from the host

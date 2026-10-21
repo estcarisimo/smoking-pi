@@ -1,0 +1,4 @@
+# Dependencies needed to run the pathmeter tests in CI. scamper is never
+# run: the tests pass its output in.
+pytest
+influxdb-client

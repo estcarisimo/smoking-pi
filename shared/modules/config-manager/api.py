@@ -599,6 +599,9 @@ class ConfigManagerAPI:
                 services_text = found.output.decode(errors='replace')
         except Exception as e:
             logger.debug("Budget without the per-service meter: %s", type(e).__name__)
+        # The path meter's last cycle (pathmeter/); absent unless its
+        # profile is on.
+        path_text = self._container_file('pathmeter', '/var/lib/pathmeter/status.json') or ''
         body = budget.report(
             targets_text=targets_file.read_text(),
             cpe_text=cpe_text,
@@ -606,6 +609,7 @@ class ConfigManagerAPI:
             database_text=database_text,
             traffic_text=traffic_text,
             services_text=services_text,
+            path_text=path_text,
         )
         return {'available': True, 'complete': complete,
                 'checked_at': datetime.now().isoformat(), **body}
