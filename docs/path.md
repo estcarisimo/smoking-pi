@@ -30,7 +30,9 @@ Every `PATHMETER_INTERVAL` seconds (default 3600):
 2. **How.** A Paris traceroute with [scamper](https://www.caida.org/catalog/software/scamper/),
    over ICMP: every probe to one destination keeps the same flow
    identifier, so a load balancer on the way keeps them on one path and the
-   hops read as one path, not a mix of several. One probe per hop, a second
+   hops read as one path, not a mix of several. The identifier is the same
+   every cycle too, so a destination stays on its path from one hour to the
+   next unless the network moves it. One probe per hop, a second
    to wait for each, and the trace gives up after five silent hops in a row.
    Every probe of a cycle is paced together at `PATHMETER_PPS` per second
    (default 20).
@@ -70,6 +72,9 @@ done.
 ## Where it shows
 
 On **Target Detail**, the collapsed **Path (experimental)** row:
+
+![Target Detail's Path row: the last trace to uba_ar, hop by hop with each hop's AS, no change in the range, and the destination ten hops away](img/path-row.png)
+
 
 - **Last trace in range**: hop, address, AS and reply time of the last
   trace in the selected time range. Pick an earlier range to see the path
@@ -114,7 +119,7 @@ start:
 
 - `path_trace`, one point per destination and cycle: `dst`, `hops`,
   `reached`, `path` (`addr|addr|*|…`, `*` a silent hop), `path_hash`,
-  `as_path` (`19165 16591 15169`), `changed`, `as_changed`, `dst_changed`,
+  `as_path` (`64500 64501 15169`), `changed`, `as_changed`, `dst_changed`,
   `first_hop`.
 - `path_hop`, one point per hop that answered, also tagged `ttl` (`01`,
   `02`…): `addr`, `asn` when known, `rtt_ms`.

@@ -9,7 +9,7 @@ from fakes import trace_json
 def test_command_is_paris_icmp_paced_and_skips_the_prefix():
     cmd = trace.command(20, 6, "/tmp/list")
     assert cmd[:5] == ["scamper", "-p", "20", "-O", "json"]
-    assert cmd[cmd.index("-c") + 1] == "trace -P icmp-paris -q 1 -w 1 -g 5 -f 6"
+    assert cmd[cmd.index("-c") + 1] == "trace -P icmp-paris -q 1 -w 1 -g 5 -d 32768 -f 6"
     assert cmd[-2:] == ["-f", "/tmp/list"]
     assert "-f" not in trace.command(20, 1, "/x")[trace.command(20, 1, "/x").index("-c") + 1]
 

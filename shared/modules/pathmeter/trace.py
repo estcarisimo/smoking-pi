@@ -6,6 +6,12 @@ one path and the hops read as one path, not a mix of several. Measured from
 the reference house on 2026-10-21 over 76 destinations, it reached 60; UDP
 Paris reached 34 and TCP to port 443 reached 7 (docs/path.md).
 
+The flow identifier (the ICMP checksum, ``-d``) is fixed, not scamper's
+default, which changes from one run to the next: with a new one every hour,
+a load balancer would send consecutive cycles down different paths and each
+would read as a change. Fixed, a destination keeps its path between cycles
+unless the network moves it.
+
 One probe per hop (``-q 1``), one second to wait for each (``-w 1``), and
 the trace gives up after five silent hops in a row (``-g 5``). scamper
 paces every probe of a run together at ``PATHMETER_PPS`` packets per second,
@@ -22,6 +28,9 @@ from dataclasses import dataclass, field
 SCAMPER = "scamper"
 METHOD = "icmp-paris"
 GAP_LIMIT = 5
+# The ICMP checksum every Paris probe carries, so every cycle uses the same
+# flow. Any fixed value works.
+FLOW_CHECKSUM = 32768
 # Bytes on the wire per probe, both directions: scamper's 44-byte ICMP echo
 # and a reply of about the same size (an echo reply is 44, a TTL-exceeded
 # quotes the probe and is 56-72). An unanswered probe costs only its half.
@@ -54,7 +63,7 @@ class Trace:
 
 def command(pps: int, first_hop: int, list_path: str) -> list[str]:
     """scamper over the addresses in ``list_path`` (one per line)."""
-    trace = f"trace -P {METHOD} -q 1 -w 1 -g {GAP_LIMIT}"
+    trace = f"trace -P {METHOD} -q 1 -w 1 -g {GAP_LIMIT} -d {FLOW_CHECKSUM}"
     if first_hop > 1:
         trace += f" -f {int(first_hop)}"
     return [SCAMPER, "-p", str(int(pps)), "-O", "json", "-c", trace, "-f", list_path]

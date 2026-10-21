@@ -6,7 +6,7 @@ stamped at the cycle's start:
 - ``path_trace``, one point per trace: ``dst`` (the address traced),
   ``hops`` (the destination's distance, or the last TTL probed when it did
   not answer), ``reached``, ``path`` (``addr|addr|*|...``, ``*`` a silent
-  hop), ``path_hash``, ``as_path`` (``19165 16591 15169``), ``changed`` /
+  hop), ``path_hash``, ``as_path`` (``64500 64501 15169``), ``changed`` /
   ``as_changed`` / ``dst_changed`` (paths.py), ``first_hop`` (where this
   trace started; earlier hops are the shared prefix);
 - ``path_hop``, one point per hop that answered, tagged ``ttl`` (two digits,

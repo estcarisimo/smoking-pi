@@ -1684,7 +1684,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "description": "EXPERIMENTAL. A Paris traceroute (ICMP) once an hour from the path meter. A router's reply time is its slow path's and rate-limited: read it as a description, not as that hop's latency. A change is counted after two traces in a row show it. See docs/path.md.",
+          "description": "EXPERIMENTAL. A Paris traceroute (ICMP) once an hour from the path meter. A router's reply time is its slow path's and rate-limited: read it as a description, not as that hop's latency. A change is counted after two traces in a row show it. See docs/path.md. Hops that did not answer are left out of the table; a private hop has no AS.",
           "gridPos": {
             "h": 10,
             "w": 12,
@@ -1728,6 +1728,10 @@
                   {
                     "id": "displayName",
                     "value": "address"
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
                   }
                 ]
               },
@@ -1740,6 +1744,10 @@
                   {
                     "id": "displayName",
                     "value": "AS"
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
                   }
                 ]
               },
@@ -1756,6 +1764,10 @@
                   {
                     "id": "decimals",
                     "value": 1
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
                   }
                 ]
               }
@@ -1764,7 +1776,22 @@
           "options": {
             "showHeader": true,
             "cellHeight": "sm"
-          }
+          },
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "indexByName": {
+                  "ttl": 0,
+                  "addr": 1,
+                  "asn": 2,
+                  "rtt_ms": 3
+                },
+                "excludeByName": {},
+                "renameByName": {}
+              }
+            }
+          ]
         },
         {
           "type": "table",
@@ -1806,6 +1833,10 @@
                   {
                     "id": "displayName",
                     "value": "AS path"
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
                   }
                 ]
               },
@@ -1818,6 +1849,34 @@
                   {
                     "id": "displayName",
                     "value": "address"
+                  },
+                  {
+                    "id": "noValue",
+                    "value": "–"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "hops"
+                },
+                "properties": [
+                  {
+                    "id": "noValue",
+                    "value": "–"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "what"
+                },
+                "properties": [
+                  {
+                    "id": "noValue",
+                    "value": "–"
                   }
                 ]
               }
@@ -1869,8 +1928,9 @@
               "custom": {
                 "drawStyle": "line",
                 "lineInterpolation": "stepAfter",
-                "showPoints": "auto",
-                "spanNulls": false
+                "showPoints": "always",
+                "spanNulls": false,
+                "pointSize": 6
               }
             },
             "overrides": []
