@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.46.0] — 2026-10-22
+
+The service labels v2.45.0 gave every target now reach the time series,
+the dashboards and the assistants, and they say who delivers each service:
+the InfluxDB exporter writes a `target_labels` point per target (service,
+categories, and the operator, kind and AS of the network that answers),
+only when a label changes and without adding a tag to any latency series,
+so no history splits. Connectivity & Quality and Side by Side filter by
+**Service category**, Target Detail shows a **Service** tile, and
+`list_targets` names targets by service. It adds no probe; the exporter
+makes a few cached Team Cymru lookups (a week per /24). A maintainer tool
+checks the shipped rules against their sources. Also fixed: the doctor no
+longer reports a stopped Wi-Fi collector after the radio reconnects.
+
 ### Fixed
 
 - **The doctor no longer says the Wi-Fi collector stopped after a reconnect.**
