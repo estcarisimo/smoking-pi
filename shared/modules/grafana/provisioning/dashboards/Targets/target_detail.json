@@ -414,7 +414,7 @@
     {
       "type": "stat",
       "title": "Service",
-      "description": "What this target measures, and who delivers it. Service and categories (docs/taxonomy.md): the label config-manager resolves from the rules, or the override set for this install. Not the probe bucket (topsites, netflix...). \"unknown\": no rule says yet, not a broken target. Delivery: the network the host answers from (its origin AS, from Team Cymru) and that network's kind (cdn, content network, embedded cache, cloud origin, access, transit, dns infrastructure, academic, local, other). \"network not identified\": no IPv4 answer or no AS lookup yet. Both as the exporter last recorded them; \"no label yet\": it has not written one (ClickHouse mode, or the first minutes after an upgrade).",
+      "description": "What this target measures, and who delivers it. Service and categories (docs/taxonomy.md): the label config-manager resolves from the rules, or the override set for this install. Not the probe bucket (topsites, netflix...). \"unknown\": no rule says yet, not a broken target. Delivery: the network the host answers from (its origin AS, from Team Cymru) and that network's kind (cdn, content network, embedded cache, cloud origin, access, transit, dns infrastructure, academic, local, other). \"network not identified\": no IPv4 answer or no AS lookup yet. Both as the exporter last recorded them; \"no label yet\": it has not written one (ClickHouse mode, or the first minutes after an upgrade). The stat reduces over every field (/.*/) on purpose: the two string frames are named by their _field label, so a pattern on _value or Value matches nothing and the tile shows its noValue text.",
       "gridPos": {
         "h": 4,
         "w": 5,
