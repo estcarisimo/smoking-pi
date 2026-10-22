@@ -11,6 +11,34 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **What kind of service each target is.** A target's `category`
+  (`top_sites`, `netflix_oca`, `dns_resolvers`, `dns_wizard`...) says which
+  SmokePing section and InfluxDB tag it gets, never what the service is:
+  the Quality dashboard, the DNS wizard and the assistant could only call
+  Netflix, Claude or a game store "topsites" or "dns_wizard", and nothing
+  could ask how video, calls or AI assistants were doing as a group. Every
+  target now carries a service label beside its category, which is
+  unchanged: a `service` name and one or more `categories` from a
+  vocabulary of the project's own (15 categories and `unknown`: video,
+  audio, gaming, calls, messaging, social, search, AI assistant, cloud,
+  software updates, CDN, DNS, connectivity, ads, academic), with the rule
+  that produced it, its evidence and a confidence. The rules
+  (`config-manager/templates/taxonomy.yaml`, versioned, 78 rules) match a
+  target's name, then the longest suffix of its host, then its technical
+  bucket; every seed target and the services the DNS wizard usually adopts
+  resolve. No external hostname-to-category list can be shipped under its
+  license (AdGuard's registry is GPL, nDPI's LGPL, Cloudflare Radar's
+  categories non-commercial), so they are only evidence a maintainer
+  consults, recorded as `source` on each rule. A wrong label is corrected
+  per install with an override in PostgreSQL (`target_labels`), from the
+  web admin's target dialog or `smoking-pi taxonomy set|reset`;
+  `smoking-pi taxonomy list|unknown` shows them. `GET /targets` carries the
+  label; `GET /taxonomy`, `/taxonomy/targets` and `/taxonomy/unknown` are
+  new. The doctor validates the file and the seed's labels
+  (`service-taxonomy`) and warns about unlabeled targets on a running stack
+  (`targets-labeled`). The labels are not in InfluxDB, Grafana or the MCP
+  tools yet. `docs/taxonomy.md`.
+
 - **The path to each destination (experimental).** The measurements said how
   long a destination took to answer, never which way the packets went: a
   latency step could not be read next to the route it happened on, and
