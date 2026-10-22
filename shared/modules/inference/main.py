@@ -205,7 +205,10 @@ def main() -> None:
                           / "routing")
     while True:
         began = time.time()
-        table.refresh()
+        try:
+            table.refresh()
+        except Exception:  # noqa: BLE001 -- the table is an aid; the pass goes on without it
+            log.exception("routing table refresh failed")
         report = run_once(shared_pass=shared.run, aggregate_pass=aggregate.run)
         report["interval"] = interval
         status.write(report)

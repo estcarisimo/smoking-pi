@@ -281,7 +281,10 @@ def main() -> None:
     table = lookup.use_table(store.state_dir() / "routing")
     while True:
         begun = time.time()
-        table.refresh()
+        try:
+            table.refresh()
+        except Exception:  # noqa: BLE001 -- the table is an aid; the paths go on without it
+            log.exception("routing table refresh failed")
         try:
             cycle(int(begun))
         except Exception:  # noqa: BLE001 -- one bad cycle must not stop the next

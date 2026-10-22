@@ -95,9 +95,10 @@ def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: 
         asn = asn_of(addr)
         if asn:
             point = point.field("asn", int(asn))
-        elif ixp_of and (exchange := ixp_of(addr)):
-            # An exchange-point LAN is not announced: the router answered
-            # from its port on the exchange, which is named instead.
+        # A router answering from its port on an exchange point: named by
+        # the exchange (most exchange LANs are not announced, so the AS is
+        # then missing; when one is, both are kept).
+        if ixp_of and (exchange := ixp_of(addr)):
             point = point.field("ixp", exchange)
         rtt = rtts[ttl - 1] if ttl - 1 < len(rtts) else None
         if isinstance(rtt, (int, float)):

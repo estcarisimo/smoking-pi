@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import csv
 import ipaddress
+import zlib
 from functools import cache
 from pathlib import Path
 
@@ -187,6 +188,8 @@ PFX2AS_LOG = PFX2AS_ROOT + "pfx2as-creation.log"
 PEERINGDB = "https://www.peeringdb.com/api/"
 TABLE_REFRESH = 86400       # seconds between downloads
 TABLE_MIN_PREFIXES = 500_000  # a snapshot with fewer is broken, not the Internet
+TABLE_MIN_RANGES = 100_000     # flattened: ~400 000 from today's snapshot
+RANGES_MAGIC = 0x53505231      # "SPR1": the built ranges' format, version 1
 FETCH_TIMEOUT = 60
 
 _TABLE = None
@@ -213,26 +216,30 @@ def _last_as(field: str) -> int:
     return int(field.replace(",", "_").split("_")[-1])
 
 
-def flatten(lines) -> tuple:
-    """(starts, ends, asns) arrays of non-overlapping ranges from prefix2as
-    lines sorted by address, then by length (as CAIDA's are): inside a
-    prefix, a more specific one wins for its own addresses."""
-    from array import array
-
-    starts, ends, asns = array("I"), array("I"), array("I")
-
-    def emit(start: int, end: int, asn: int) -> None:
-        if start > end:
-            return
-        if asns and asns[-1] == asn and ends[-1] + 1 == start:
-            ends[-1] = end
-        else:
-            starts.append(start)
-            ends.append(end)
-            asns.append(asn)
-
-    stack: list[tuple[int, int, int]] = []
+def _nested(items, emit) -> None:
+    """Non-overlapping ranges from (start, end, value) items sorted by start,
+    then widest first: inside a range, a narrower one wins for its own
+    addresses. ``emit(start, end, value)`` receives them in order."""
+    stack: list[tuple[int, int, object]] = []
     cursor = 0
+    for start, end, value in items:
+        while stack and stack[-1][1] < start:
+            s, e, v = stack.pop()
+            if max(cursor, s) <= e:
+                emit(max(cursor, s), e, v)
+            cursor = max(cursor, e + 1)
+        if stack and max(cursor, stack[-1][0]) <= start - 1:
+            emit(max(cursor, stack[-1][0]), start - 1, stack[-1][2])
+        cursor = max(cursor, start)
+        stack.append((start, end, value))
+    while stack:
+        s, e, v = stack.pop()
+        if max(cursor, s) <= e:
+            emit(max(cursor, s), e, v)
+        cursor = max(cursor, e + 1)
+
+
+def _prefix2as_items(lines):
     for line in lines:
         parts = line.split()
         if len(parts) != 3 or ":" in parts[0]:
@@ -244,22 +251,28 @@ def flatten(lines) -> tuple:
             if not (0 <= length <= 32 and max(a, b, c, d) <= 255):
                 continue
             start = (a << 24) | (b << 16) | (c << 8) | d
-            end = start + (1 << (32 - length)) - 1
-            asn = _last_as(parts[2])
+            yield start, start + (1 << (32 - length)) - 1, _last_as(parts[2])
         except ValueError:
             continue
-        while stack and stack[-1][1] < start:
-            s, e, a = stack.pop()
-            emit(max(cursor, s), e, a)
-            cursor = max(cursor, e + 1)
-        if stack:
-            emit(max(cursor, stack[-1][0]), start - 1, stack[-1][2])
-        cursor = max(cursor, start)
-        stack.append((start, end, asn))
-    while stack:
-        s, e, a = stack.pop()
-        emit(max(cursor, s), e, a)
-        cursor = max(cursor, e + 1)
+
+
+def flatten(lines) -> tuple:
+    """(starts, ends, asns) arrays of non-overlapping ranges from prefix2as
+    lines sorted by address, then by length (as CAIDA's are): inside a
+    prefix, a more specific one wins for its own addresses."""
+    from array import array
+
+    starts, ends, asns = array("I"), array("I"), array("I")
+
+    def emit(start: int, end: int, asn: int) -> None:
+        if asns and asns[-1] == asn and ends[-1] + 1 == start:
+            ends[-1] = end
+        else:
+            starts.append(start)
+            ends.append(end)
+            asns.append(asn)
+
+    _nested(_prefix2as_items(lines), emit)
     return starts, ends, asns
 
 
@@ -275,8 +288,13 @@ def ixp_ranges(ixpfx: list[dict], ixlan: list[dict], ix: list[dict]) -> list[lis
             continue
         name = names.get(lan_ix.get(pfx.get("ixlan_id")))
         if net.version == 4 and name:
-            out.append([int(net.network_address), int(net.broadcast_address), str(name)])
-    return sorted(out)
+            out.append((int(net.network_address), int(net.broadcast_address), str(name)))
+    # Flattened like the routing table: PeeringDB does not promise that two
+    # exchanges' prefixes never nest, and a bisection needs disjoint ranges.
+    flat: list[list] = []
+    _nested(sorted(out, key=lambda r: (r[0], -r[1])),
+            lambda s, e, v: flat.append([s, e, v]))
+    return flat
 
 
 class RoutingTable:
@@ -312,16 +330,20 @@ class RoutingTable:
         name = log[-1].split()[-1]
         if not name.endswith(".pfx2as.gz") or ".." in name or name.startswith("/"):
             raise ValueError("unexpected snapshot name")
+        recorded = self.directory / "pfx2as.name"
+        if path.exists() and recorded.exists() and recorded.read_text().strip() == name:
+            recorded.touch()  # CAIDA has nothing newer: checked, nothing to rebuild
+            return
         data = self._fetch(PFX2AS_ROOT + name)
         import io
 
         with gzip.GzipFile(fileobj=io.BytesIO(data)) as lines:  # counted, never held
             if sum(1 for _ in lines) < TABLE_MIN_PREFIXES:
                 raise ValueError("snapshot too small")
-        tmp = path.with_suffix(".tmp")
+        tmp = self.directory / "pfx2as.gz.tmp"
         tmp.write_bytes(data)
         tmp.replace(path)
-        (self.directory / "pfx2as.name").write_text(name)
+        recorded.write_text(name)
 
     def _download_ixp(self, path: Path) -> None:
         import json
@@ -333,7 +355,7 @@ class RoutingTable:
                             get("ix", "id,name"))
         if not ranges:
             raise ValueError("no IXP prefix")
-        tmp = path.with_suffix(".tmp")
+        tmp = self.directory / "ixp.json.tmp"
         tmp.write_text(json.dumps(ranges))
         tmp.replace(path)
 
@@ -347,8 +369,12 @@ class RoutingTable:
         log = logging.getLogger("common.asn")
         self.directory.mkdir(parents=True, exist_ok=True)
         pfx2as, ixp = self.directory / "pfx2as.gz", self.directory / "ixp.json"
-        for path, download in ((pfx2as, self._download_pfx2as), (ixp, self._download_ixp)):
-            if self._stale(path):
+        # pfx2as.name is touched at every check, the snapshot only when a new
+        # one arrives: a day without a new snapshot rebuilds nothing.
+        checks = ((self.directory / "pfx2as.name", pfx2as, self._download_pfx2as),
+                  (ixp, ixp, self._download_ixp))
+        for marker, path, download in checks:
+            if not path.exists() or self._stale(marker):
                 try:
                     download(path)
                 except Exception:  # noqa: BLE001 -- the previous file stays
@@ -360,12 +386,17 @@ class RoutingTable:
                 self._ranges = self._load_built(pfx2as)
                 if self._ranges is None:
                     with gzip.open(pfx2as, "rt") as lines:
-                        self._ranges = flatten(lines)
+                        ranges = flatten(lines)
+                    # An empty or cut file (a power loss before the write
+                    # reached the card) is not a routing table.
+                    if len(ranges[0]) < TABLE_MIN_RANGES:
+                        raise ValueError("routing table too small")
+                    self._ranges = ranges
                     self._save_built(pfx2as, self._ranges)
                 self.loaded_at = mtime
                 name = self.directory / "pfx2as.name"
                 self.snapshot = name.read_text().strip() if name.exists() else ""
-        except (OSError, EOFError, ValueError):
+        except (OSError, EOFError, ValueError, zlib.error):
             log.warning("no routing table loaded; AS lookups go to Team Cymru", exc_info=True)
         try:
             self._ixp = json.loads(ixp.read_text())
@@ -387,11 +418,13 @@ class RoutingTable:
             if built.stat().st_mtime < source.stat().st_mtime:
                 return None
             with built.open("rb") as f:
-                count = array("I")
-                count.fromfile(f, 1)
+                head = array("I")
+                head.fromfile(f, 2)
+                if head[0] != RANGES_MAGIC or head[1] < TABLE_MIN_RANGES:
+                    return None
                 out = tuple(array("I") for _ in range(3))
                 for arr in out:
-                    arr.fromfile(f, count[0])
+                    arr.fromfile(f, head[1])
             return out
         except (OSError, EOFError, ValueError):
             return None
@@ -400,9 +433,9 @@ class RoutingTable:
         from array import array
 
         try:
-            tmp = self._built().with_suffix(".tmp")
+            tmp = self.directory / "pfx2as.ranges.tmp"
             with tmp.open("wb") as f:
-                array("I", [len(ranges[0])]).tofile(f)
+                array("I", [RANGES_MAGIC, len(ranges[0])]).tofile(f)
                 for arr in ranges:
                     arr.tofile(f)
             tmp.replace(self._built())

@@ -135,7 +135,14 @@ service, as before; a private hop (the home router, the access network's
 
 A download that fails, or a snapshot that looks broken (fewer than half a
 million prefixes), keeps the previous one; with none at all, every lookup
-goes to Team Cymru.
+goes to Team Cymru. A day when CAIDA has published nothing new costs one
+small request and no rebuild. PeeringDB limits how often anyone may ask: a
+refused download is tried again an hour later.
+
+Because the table answers by the exact announced prefix and takes the last
+origin of a prefix several networks announce, a hop's network can, rarely,
+differ from the one the service labels show for the same address (the
+exporter still asks Team Cymru, per /24).
 
 Both sources are downloaded by the Pi itself, for its own measurements, and
 never shipped in an image or this repository: the RouteViews data is
