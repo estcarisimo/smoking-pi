@@ -3,9 +3,9 @@
 Every ``PATHMETER_INTERVAL`` (3600 s), a Paris traceroute (trace.py) to
 each distinct address the measured targets resolve to (targets.py), paced
 at ``PATHMETER_PPS`` probes per second. The hops every path shares (the
-home router and the access network) are traced in full for one destination
-only and reused for the others (paths.py), relearned when that destination
-disagrees and once a day. Each path is written to InfluxDB with its AS path
+home router and the access network) are probed by ``FULL_PER_CYCLE``
+destinations a cycle only, in turn, and reused for the others (paths.py):
+the router never sees a burst, however many destinations there are. Each path is written to InfluxDB with its AS path
 and whether it changed (store.py); Target Detail shows the latest one.
 
 IPv4 only: the reference Pi has no global IPv6, and the targets gate it out
@@ -19,6 +19,7 @@ What it costs is in ``status.json`` (``probes_per_hour``), which
 from __future__ import annotations
 
 import copy
+import hashlib
 import ipaddress
 import logging
 import os
@@ -38,6 +39,15 @@ log = logging.getLogger("pathmeter")
 DEFAULT_INTERVAL = 3600
 DEFAULT_PPS = 20
 START_DELAY = 120  # seconds: let InfluxDB and the first measurements come up
+# Destinations traced from hop 1 per cycle, the ones whose last full trace
+# is the oldest. What the shared hops (the home router, the access network)
+# receive per cycle, whatever the number of destinations; a full sweep of
+# every destination takes destinations / FULL_PER_CYCLE cycles.
+FULL_PER_CYCLE = 4
+# Destinations traced from hop 1 per cycle until that many have been: the
+# prefix is learned from them, and four alike could share more than the rest.
+WARMUP_PATHS = 8
+DAY = 86400
 STATE = "state.json"
 
 
@@ -111,49 +121,66 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
     last_dst = {base: (mem.get("stable") or {}).get("dst")
                 for base, mem in (state.get("paths") or {}).items()}
     by_ip = addresses(wanted, last_dst, resolve)
-    inside = {ip for ip in by_ip if ip in prefix}
-    rest = sorted(ip for ip in by_ip if ip not in inside)
     report = {"at": now, "interval": every, "destinations": len(by_ip), "targets": len(wanted),
-              "traces": 0, "probes": 0, "failed": 0, "full": False, "prefix_moved": False}
+              "traces": 0, "probes": 0, "failed": 0, "full_traces": 0, "waiting": 0,
+              "prefix_moved": False}
 
     traced: dict[str, trace.Trace] = {}
     joined_hops: dict[str, tuple[list, list]] = {}
+    inside: set[str] = set()
     try:
-        full = not prefix or now - int(state.get("learned_at") or 0) >= paths.FULL_EVERY
-        if not full and rest:
-            reference = state.get("reference") if state.get("reference") in rest else rest[0]
-            ref = _trace_all([reference], rate, 1, run).get(reference)
-            if ref is None or not paths.confirms(ref.hops, prefix):
-                full, report["prefix_moved"] = True, True
-            else:
-                traced[reference] = ref
-                skip = len(prefix) + 1
-                # A destination added since the prefix was learned, and
-                # nearer than its end, reads as one hop past it until the
-                # next full cycle (a day at most).
-                others = _trace_all([ip for ip in rest if ip != reference], rate, skip, run)
-                traced.update(others)
-                for ip, t in others.items():
-                    if t.first_hop > 1:
-                        # The prefix's addresses are the reference's; its
-                        # reply times are not this destination's to claim.
-                        joined_hops[ip] = (paths.joined(prefix, t.hops, t.first_hop),
-                                           paths.joined([], t.rtts, t.first_hop))
-                state["reference"] = reference
-        if full:
-            # Everything, the destinations inside the old prefix too: the
-            # prefix is what this cycle learns.
-            inside = set()
-            traced = _trace_all(sorted(by_ip), rate, 1, run)
-            learned = paths.learn_prefix([t.hops for t in traced.values()])
-            if learned:
-                prefix = learned
-                state["prefix"], state["learned_at"] = prefix, now
-            report["full"] = True
-            # The reference for the cycles to come: the destination that
-            # went furthest in the prefix-sharing set.
-            if traced:
-                state["reference"] = max(sorted(traced), key=lambda ip: len(traced[ip].hops))
+        # From hop 1, only the FULL_PER_CYCLE destinations whose last full
+        # trace is the oldest: the shared hops never see more than that many
+        # probes a cycle, however many destinations there are.
+        full_at = state.get("full_at") or {}
+        # Ties (never traced from hop 1) broken by a hash, not the address:
+        # neighboring addresses share long paths, and learning the prefix
+        # from a few of them would stretch it past where the others part.
+        candidates = sorted((ip for ip in by_ip if ip not in prefix),
+                            key=lambda ip: (full_at.get(ip, 0),
+                                            hashlib.sha256(ip.encode()).hexdigest()))
+        known = len([ip for ip in state.get("full_paths") or {} if ip in by_ip])
+        # Until a few destinations have been traced from hop 1, a cycle
+        # traces WARMUP_PATHS of them: still a handful of probes at the
+        # router, once, and a prefix that rests on more than four paths.
+        count = FULL_PER_CYCLE if known >= WARMUP_PATHS else max(FULL_PER_CYCLE, WARMUP_PATHS)
+        fulls = _trace_all(candidates[:count], rate, 1, run)
+        traced.update(fulls)
+        for ip in fulls:
+            full_at[ip] = now
+        state["full_at"] = {ip: t for ip, t in full_at.items() if ip in by_ip}
+        report["full_traces"] = len(fulls)
+        # The prefix is what the latest trace from hop 1 of every destination
+        # shares, kept between cycles and refreshed a few at a time: it moves
+        # as soon as one of them shows the access path moved, and it rests
+        # on every destination, not on this cycle's few.
+        kept = state.get("full_paths") or {}
+        kept.update({ip: t.hops for ip, t in fulls.items()})
+        kept = {ip: hops for ip, hops in kept.items() if ip in by_ip}
+        state["full_paths"] = kept
+        learned = paths.learn_prefix(list(kept.values()))
+        report["prefix_moved"] = bool(prefix) and learned != prefix
+        prefix = learned
+        state["prefix"] = prefix
+        inside = {ip for ip in by_ip if ip in prefix and ip not in traced}
+        others = [ip for ip in sorted(by_ip) if ip not in traced and ip not in inside]
+        if prefix:
+            # A destination whose path left the shared hops before their end
+            # reads as sharing them until its own turn from hop 1 comes.
+            skip = len(prefix) + 1
+            past = _trace_all(others, rate, skip, run)
+            traced.update(past)
+            for ip, t in past.items():
+                if t.first_hop > 1:
+                    # The prefix's addresses are those the full traces
+                    # learned; reply times are not this destination's.
+                    joined_hops[ip] = (paths.joined(prefix, t.hops, t.first_hop),
+                                       paths.joined([], t.rtts, t.first_hop))
+        else:
+            # No prefix to skip (not learned yet, or it could not be): the
+            # rest wait for their turn from hop 1 rather than all of them
+            # crossing the shared hops at once.
+            report["waiting"] = len(others)
     except Exception:  # noqa: BLE001 -- scamper failing costs this cycle, never the process
         log.exception("trace run failed")
         report["failed"] = 1
@@ -181,13 +208,14 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
     points, changes = [], 0
     for ip, (hops, rtts, reached, distance, first_hop) in sorted(hop_sets.items()):
         asns = paths.as_path(hops, owners.of)
-        # An AS path with a hop whose owner is not known yet is incomplete:
-        # compared, it would read as a change of AS. Tracked as unknown.
-        complete = all(owners.of(a) for a in hops if paths.is_public(a))
         for base in by_ip.get(ip, []):
             category = wanted[base][0]
-            flags = paths.track(memory.setdefault(base, {}), ip, hops, distance,
-                                asns if complete else [])
+            # A destination inside the prefix (first_hop 0) measured nothing
+            # itself this cycle: its path is the prefix's, never a change.
+            measured = first_hop >= 1
+            flags = paths.track(memory.setdefault(base, {}), ip, hops,
+                                distance if measured else None, owners.of,
+                                own_from=first_hop if measured else len(hops) + 1)
             changes += bool(flags["changed"])
             points += store.trace_points(base, category, now, ip, hops, rtts, reached, distance,
                                          first_hop, paths.text(hops), paths.digest(hops), asns,
@@ -198,7 +226,7 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
     report["seconds"] = round(time.monotonic() - started, 1)
     # What it costs, for the budget: the mean over the last day's cycles, not
     # the last one, which is a cheap prefix cycle or the daily full one.
-    recent = [r for r in state.get("recent") or [] if now - r[0] < paths.FULL_EVERY]
+    recent = [r for r in state.get("recent") or [] if now - r[0] < DAY]
     if traced:
         recent.append([now, report["probes"]])
     state["recent"] = recent
@@ -216,7 +244,7 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
     status.write(report)
     log.info("path cycle: %d destinations, %d traces, %d probes in %.0f s, %d changed%s%s",
              report["destinations"], report["traces"], report["probes"], report["seconds"],
-             changes, ", full" if report["full"] else "",
+             changes, f", {report['full_traces']} from hop 1",
              ", prefix moved" if report["prefix_moved"] else "")
     return report
 

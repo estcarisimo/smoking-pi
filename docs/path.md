@@ -36,14 +36,20 @@ Every `PATHMETER_INTERVAL` seconds (default 3600):
    to wait for each, and the trace gives up after five silent hops in a row.
    Every probe of a cycle is paced together at `PATHMETER_PPS` per second
    (default 20).
-3. **The shared hops once.** The first hops are the same for every
-   destination: the home router, then the access network. The first cycle
-   traces everything from hop 1 and learns them; the cycles after it trace
-   one destination in full and the others from the first hop past them,
-   which saves about 40 % of the probes. If that one destination's first
-   hops disagree with what was learned, the access path moved, and that
-   cycle traces everything in full again. A full cycle also runs once a
-   day.
+3. **Never a burst at the router.** The first hops are the same for
+   every destination: the home router, then the access network. A hundred
+   traceroutes that each start at hop 1 would send a hundred probes at the
+   router at once, and the same at every shared hop after it. So each cycle
+   traces only **four destinations from hop 1**, in turn (the ones whose
+   last full trace is the oldest), and every other destination from the
+   first hop past the shared ones. The shared hops are learned from the
+   latest full trace of every destination, so they move as soon as one of
+   them shows the access path moved. The router and each shared hop
+   receive at most four probes a cycle, whatever the number of
+   destinations; every destination is traced from hop 1 once every
+   *destinations ÷ 4* cycles (19 hours for 76). Until the shared hops are
+   known, the destinations not yet traced from hop 1 wait for their turn
+   rather than all crossing them at once.
 4. **What changed.** A path counts as changed when a hop that answered
    both times answered from another address (or the destination got nearer
    or further), in **two traces in a row**: one trace that differs is a
@@ -101,9 +107,12 @@ the first hop on only two traces in three.
 
 At the defaults, about 600 probes an hour for the reference house's 76
 destinations (about 3 % of the default samples ceiling) and a few MB a day.
+Of those, the home router receives four an hour. For comparison, the CPE
+microcut detector already sends the ISP's first hop 50 pings every 30
+seconds.
 `smoking-pi budget` shows the path meter as a `Traceroute` row with what
-its cycles of the last day actually sent, on average (the hourly cycles
-are cheaper than the daily full one), not an estimate, and counts it in the totals
+its cycles of the last day actually sent, on average, not an estimate,
+and counts it in the totals
 that [admission](measurement-budget.md#admission) checks a change against.
 
 Enabling it is not refused by admission: check `smoking-pi budget` first
@@ -130,7 +139,7 @@ start:
 - `path_hop`, one point per hop that answered, also tagged `ttl` (`01`,
   `02`…): `addr`, `asn` when known, `rtt_ms`.
 - `pathmeter_pass`, one point per cycle: `traces`, `probes`, `seconds`,
-  `failed`, `prefix_hops`, `full`.
+  `failed`, `prefix_hops`, `full_traces`.
 
 Addresses are fields, not tags, so routers do not multiply series.
 

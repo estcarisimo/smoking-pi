@@ -23,8 +23,11 @@ version gets a matching GitHub release and git tag.
   method that gets there: from the reference house it reached 60 of 76
   destinations, against 34 over UDP and 7 over TCP. The hops every path
   shares (the home router and the access network, five on the reference
-  house) are traced once per cycle and reused, about 40 % fewer probes,
-  and relearned when they move and once a day. A change counts after two
+  house) are never crossed by a burst: each cycle traces only four
+  destinations from hop 1, in turn, and the rest from the first hop past
+  the shared ones, learned from every destination's latest full trace. The
+  home router receives four probes an hour however many destinations there
+  are, and a cycle sends about a third fewer probes. A change counts after two
   traces in a row show it, and an AS-path change, from Team Cymru's origin
   data, is flagged on its own. Target Detail shows the last path in the
   selected range, the changes and the distance per trace in a collapsed
