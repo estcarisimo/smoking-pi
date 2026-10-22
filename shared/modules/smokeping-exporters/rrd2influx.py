@@ -38,9 +38,20 @@ a target is first seen by this process and whenever its host or title
 changes, never per cycle. It exists so a target's name can stay put while
 what it points at moves (the Netflix OCA slots, #275): a tag on the latency
 points would have split the series again at every change.
+
+TARGET LABELS (added 2026-10): measurement **target_labels** says what
+service each target measures (docs/taxonomy.md), for the same reason and in
+the same way: tag ``target``, string fields ``service``, ``categories``
+(the vocabulary ids, sorted and comma-joined), ``label_source``, and
+integer ``taxonomy_version``, written when a target is first seen by this
+process and whenever any of those changes. The labels are config-manager's
+(``GET /taxonomy/targets``, which resolves them in either mode); this
+process never resolves one. When config-manager cannot be asked, nothing is
+written and the next round tries again.
 """
 
 import glob
+import http.client
 import json
 import logging
 import math
@@ -49,6 +60,8 @@ import pathlib
 import re
 import subprocess
 import time
+import urllib.error
+import urllib.request
 
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -375,6 +388,92 @@ def record_hosts(write_api, bucket: str, known: dict, now: int,
     return len(points)
 
 
+# ───────────────────────── target labels ─────────────────────────
+DEFAULT_CONFIG_API_URL = "http://127.0.0.1:5000"
+# config-manager resolves every target on each request; labels change when
+# someone edits a target, an override or the shipped rules, never per cycle.
+LABELS_INTERVAL = 300
+
+
+def fetch_labels(base_url: str, token: str = "",
+                 opener=urllib.request.urlopen) -> dict | None:
+    """config-manager's ``GET /taxonomy/targets`` body, or None when it
+    cannot be had. Only the status or the exception's type is logged: a
+    URL error can carry the address, and nothing here echoes the token."""
+    req = urllib.request.Request(base_url.rstrip("/") + "/taxonomy/targets")
+    if token:
+        req.add_header("X-API-Token", token)
+    try:
+        with opener(req, timeout=30) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        logging.warning("target_labels: not read this round: HTTP %s", exc.code)
+        return None
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
+        logging.warning("target_labels: not read this round: %s", type(exc).__name__)
+        return None
+    if not isinstance(body, dict) or not isinstance(body.get("targets"), list):
+        logging.warning("target_labels: not read this round: unexpected answer")
+        return None
+    return body
+
+
+def label_points(body: dict, known: dict, now: int):
+    """target_labels points for the active targets new to ``known`` or
+    relabeled since, and ``known`` updated to match. Targets that
+    disappeared (or were deactivated) are forgotten, so one that comes
+    back is written again."""
+    try:
+        version = int(body.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    points = []
+    seen = set()
+    for entry in sorted((t for t in body.get("targets") or [] if isinstance(t, dict)),
+                        key=lambda t: str(t.get("name") or "")):
+        name = entry.get("name")
+        if not name or entry.get("is_active") is False or name in seen:
+            continue
+        seen.add(name)
+        categories = ",".join(sorted(str(c) for c in entry.get("categories") or []))
+        current = (str(entry.get("service") or ""), categories,
+                   str(entry.get("label_source") or ""), version)
+        if known.get(name) == current:
+            continue
+        known[name] = current
+        points.append(Point("target_labels")
+                      .tag("target", name)
+                      .field("service", current[0])
+                      .field("categories", current[1])
+                      .field("label_source", current[2])
+                      .field("taxonomy_version", version)
+                      .time(now, WritePrecision.S))
+    for gone in [n for n in known if n not in seen]:
+        del known[gone]
+    return points
+
+
+def record_labels(write_api, bucket: str, known: dict, now: int,
+                  fetch=None) -> int:
+    """Write target_labels points for what changed; returns how many. When
+    config-manager cannot be asked, nothing changes; on a failed write
+    ``known`` is put back, so the next round tries again."""
+    if fetch is None:
+        def fetch():
+            return fetch_labels(os.getenv("CONFIG_API_URL") or DEFAULT_CONFIG_API_URL,
+                                os.getenv("CONFIG_API_TOKEN", ""))
+    body = fetch()
+    if body is None:
+        return 0
+    before = dict(known)
+    points = label_points(body, known, now)
+    if points and not write_with_retry(write_api, bucket, points):
+        known.clear()
+        known.update(before)
+        return 0
+    return len(points)
+
+
 # ───────────────────────── export ─────────────────────────
 def build_points(rrd_file: str, rows, rrd_dir: str, pings: int, step=None):
     """Turn fetch rows into Influx points, timestamped from the RRD rows.
@@ -495,6 +594,8 @@ def main() -> int:
     # In memory on purpose: a restart writes every target's host once more,
     # which is a few hundred points and no harm.
     hosts = {}
+    labels = {}
+    labels_due = 0.0
 
     logging.info("RRD exporter started → %s (bucket: %s, pings/cycle: per-RRD "
                  "(fallback %d), state: %s)",
@@ -507,6 +608,13 @@ def main() -> int:
                 changed = record_hosts(write_api, influx_bucket, hosts, int(time.time()))
                 if changed:
                     logging.info("target_host: %d target(s) new or moved", changed)
+                if time.time() >= labels_due:
+                    labels_due = time.time() + LABELS_INTERVAL
+                    changed = record_labels(write_api, influx_bucket, labels,
+                                            int(time.time()))
+                    if changed:
+                        logging.info("target_labels: %d target(s) new or relabeled",
+                                     changed)
             except Exception as exc:
                 logging.error("Main loop error: %s", exc)
             time.sleep(interval)

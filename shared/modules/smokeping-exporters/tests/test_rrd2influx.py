@@ -434,3 +434,145 @@ class TestTargetHosts:
         monkeypatch.setattr(rrd2influx, "write_with_retry", lambda *a, **k: True)
         assert rrd2influx.record_hosts(object(), "b", known, 1060, str(tmp_path)) == 3
         assert rrd2influx.record_hosts(object(), "b", known, 1120, str(tmp_path)) == 0
+
+
+# ───────────────────────── target labels ─────────────────────────
+LABELS = {
+    "version": 1,
+    "targets": [
+        {"name": "Netflix_1_DFW", "is_active": True, "service": "Netflix",
+         "categories": ["video"], "label_source": "manual"},
+        {"name": "YouTube", "is_active": True, "service": "YouTube",
+         "categories": ["video", "social"], "label_source": "manual"},
+        {"name": "home_nas", "is_active": True, "service": "home_nas",
+         "categories": ["unknown"], "label_source": None},
+        # Inactive: SmokePing does not measure it, so no label either.
+        {"name": "Old", "is_active": False, "service": "Old",
+         "categories": ["web_search"], "label_source": "manual"},
+    ],
+}
+
+
+def _relabel(body, name, **changes):
+    out = json.loads(json.dumps(body))
+    for t in out["targets"]:
+        if t["name"] == name:
+            t.update(changes)
+    return out
+
+
+class TestTargetLabels:
+    def test_first_round_writes_every_active_target(self):
+        known = {}
+        points = rrd2influx.label_points(LABELS, known, 1000)
+        lines = sorted(p.to_line_protocol() for p in points)
+        assert len(lines) == 3
+        youtube = [line for line in lines if line.startswith("target_labels,target=YouTube ")]
+        assert len(youtube) == 1
+        assert 'categories="social,video"' in youtube[0]
+        assert 'service="YouTube"' in youtube[0]
+        assert 'label_source="manual"' in youtube[0]
+        assert "taxonomy_version=1i" in youtube[0]
+        assert youtube[0].endswith(" 1000")
+        assert "Old" not in known
+        nas = [line for line in lines if line.startswith("target_labels,target=home_nas ")][0]
+        assert 'label_source=""' in nas and 'categories="unknown"' in nas
+
+    def test_only_target_is_a_tag(self):
+        point = rrd2influx.label_points(LABELS, {}, 1000)[0]
+        series = point.to_line_protocol().split(" ")[0]
+        assert series.count(",") == 1 and series.startswith("target_labels,target=")
+
+    def test_unchanged_round_writes_nothing(self):
+        known = {}
+        rrd2influx.label_points(LABELS, known, 1000)
+        assert rrd2influx.label_points(LABELS, known, 1300) == []
+
+    def test_a_changed_label_writes_one_point(self):
+        known = {}
+        rrd2influx.label_points(LABELS, known, 1000)
+        changed = _relabel(LABELS, "home_nas", service="Home NAS",
+                           categories=["cloud_saas"], label_source="manual")
+        points = rrd2influx.label_points(changed, known, 1300)
+        assert [p.to_line_protocol().split(" ")[0] for p in points] == [
+            "target_labels,target=home_nas"]
+        assert 'service="Home NAS"' in points[0].to_line_protocol()
+
+    def test_category_order_alone_is_not_a_change(self):
+        known = {}
+        rrd2influx.label_points(LABELS, known, 1000)
+        swapped = _relabel(LABELS, "YouTube", categories=["social", "video"])
+        assert rrd2influx.label_points(swapped, known, 1300) == []
+
+    def test_a_new_taxonomy_version_rewrites_the_labels(self):
+        known = {}
+        rrd2influx.label_points(LABELS, known, 1000)
+        bumped = dict(LABELS, version=2)
+        assert len(rrd2influx.label_points(bumped, known, 1300)) == 3
+
+    def test_a_removed_target_is_forgotten_and_written_again_when_back(self):
+        known = {}
+        rrd2influx.label_points(LABELS, known, 1000)
+        without = dict(LABELS, targets=[t for t in LABELS["targets"] if t["name"] != "YouTube"])
+        rrd2influx.label_points(without, known, 1300)
+        assert "YouTube" not in known
+        assert len(rrd2influx.label_points(LABELS, known, 1600)) == 1
+
+    def test_config_manager_unreachable_writes_nothing_and_logs(self, caplog):
+        import urllib.error
+
+        def refuse(req, timeout):
+            raise urllib.error.URLError("connection refused")
+
+        with caplog.at_level("WARNING"):
+            body = rrd2influx.fetch_labels("http://127.0.0.1:5000", "t0ken", opener=refuse)
+        assert body is None
+        assert "target_labels: not read this round: URLError" in caplog.text
+        assert "t0ken" not in caplog.text
+
+        def no_write(*a, **k):
+            raise AssertionError("nothing should be written")
+
+        known = {"YouTube": ("YouTube", "social,video", "manual", 1)}
+        assert rrd2influx.record_labels(object(), "b", known, 1000, fetch=lambda: None) == 0
+        assert known == {"YouTube": ("YouTube", "social,video", "manual", 1)}
+
+    def test_http_error_logs_the_status(self, caplog):
+        import urllib.error
+
+        def deny(req, timeout):
+            raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, None)
+
+        with caplog.at_level("WARNING"):
+            assert rrd2influx.fetch_labels("http://127.0.0.1:5000", opener=deny) is None
+        assert "HTTP 401" in caplog.text
+
+    def test_fetch_sends_the_token_and_reads_the_body(self):
+        seen = {}
+
+        class Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return json.dumps(LABELS).encode()
+
+        def opener(req, timeout):
+            seen["url"] = req.full_url
+            seen["token"] = req.get_header("X-api-token")
+            return Resp()
+
+        assert rrd2influx.fetch_labels("http://127.0.0.1:5000/", "abc", opener=opener) == LABELS
+        assert seen == {"url": "http://127.0.0.1:5000/taxonomy/targets", "token": "abc"}
+
+    def test_record_labels_retries_next_round_after_a_failed_write(self, monkeypatch):
+        monkeypatch.setattr(rrd2influx, "write_with_retry", lambda *a, **k: False)
+        known = {}
+        assert rrd2influx.record_labels(object(), "b", known, 1000, fetch=lambda: LABELS) == 0
+        assert known == {}
+        monkeypatch.setattr(rrd2influx, "write_with_retry", lambda *a, **k: True)
+        assert rrd2influx.record_labels(object(), "b", known, 1300, fetch=lambda: LABELS) == 3
+        assert rrd2influx.record_labels(object(), "b", known, 1600, fetch=lambda: LABELS) == 0
