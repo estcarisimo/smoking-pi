@@ -145,13 +145,19 @@ def test_an_unexpected_snapshot_name_is_refused(tmp_path, monkeypatch):
 
 def test_origin_uses_the_table_then_cymru(monkeypatch):
     asked = []
+
+    def is_origin_query(q):
+        # The label, not the host as text (CodeQL reads a host substring as
+        # an incomplete URL check, even in a fake).
+        return q.split(".")[-4] == "origin"
+
     monkeypatch.setattr(table_mod, "_txt", lambda q, r=None: asked.append(q) or (
-        "64500 | 64.0.0.0/8 | US | arin | 2000-01-01" if q.endswith("origin.asn.cymru.com")
+        "64500 | 64.0.0.0/8 | US | arin | 2000-01-01" if is_origin_query(q)
         else "300 | US | arin | 2000-01-01 | EXAMPLE-NET - Example, US"))
     monkeypatch.setattr(table_mod, "_TABLE", _table())
     monkeypatch.setattr(table_mod, "_NAMES", {})
     assert table_mod.origin("10.1.2.3") == (300, "EXAMPLE-NET - Example, US")
-    assert not [q for q in asked if q.endswith("origin.asn.cymru.com")]       # local
+    assert not [q for q in asked if is_origin_query(q)]                       # local
     assert table_mod.origin("64.1.1.1")[0] == 64500                            # not in it
     monkeypatch.setattr(table_mod, "_TABLE", None)
     assert table_mod.origin("10.1.2.3")[0] == 64500                            # no table
