@@ -315,6 +315,7 @@ def test_run_all_returns_every_check(repo, host_resolv):
         "container-dns-fresh",
         "config-manager-database",
         "targets-measured",
+        "targets-labeled",
         "silent-series",
         "targets-in-tsdb",
         "monitor-radio",
@@ -1163,3 +1164,36 @@ def test_no_docker_or_no_daemon_or_unreadable_filesystem_skips():
     res = live_checks.check_disk_free(
         FakeDocker({INFO_ROOT: (0, "/var/lib/docker\n")}), statvfs=boom, registry=REG)
     assert res.status is Status.SKIP and "/var/lib/docker" in res.summary
+
+
+# -- targets-labeled ------------------------------------------------------------
+
+EXEC_TAXONOMY = "exec pro-config-manager-1 python taxonomy.py unknown --json"
+
+
+def _unknown(body, rc: int = 0) -> FakeDocker:
+    out = body if isinstance(body, str) else json.dumps(body)
+    return FakeDocker({PS_CM: (0, "pro-config-manager-1\n"), EXEC_TAXONOMY: (rc, out)})
+
+
+def test_every_target_labeled_is_ok():
+    res = live_checks.check_targets_labeled(_unknown({"version": 1, "targets": []}))
+    assert res.status == Status.OK
+
+
+def test_unknown_targets_warn_and_are_named():
+    targets = [{"name": f"T{i}"} for i in range(14)]
+    res = live_checks.check_targets_labeled(_unknown({"version": 1, "targets": targets}))
+    assert res.status == Status.WARN  # unknown is allowed: never a failure
+    assert res.summary.startswith("14 active target(s)")
+    assert "T0, T1" in res.findings[0].message
+    assert "and 2 more" in res.findings[0].message
+
+
+def test_an_old_image_or_no_config_manager_skips():
+    assert live_checks.check_targets_labeled(_unknown("", rc=2)).status == Status.SKIP
+    assert live_checks.check_targets_labeled(_unknown("not json")).status == Status.SKIP
+    assert live_checks.check_targets_labeled(
+        FakeDocker({PS_CM: (0, "")})).status == Status.SKIP
+    assert live_checks.check_targets_labeled(
+        FakeDocker({}, present=False)).status == Status.SKIP
