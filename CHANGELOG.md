@@ -9,6 +9,30 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The service labels reach the time series, the dashboards and the
+  assistants.** v2.45.0 gave every target a service and service categories,
+  but only config-manager's API, the web admin and `smoking-pi taxonomy`
+  knew them: the dashboards still filtered by probe bucket, and the
+  assistants listed "topsites" and "dns_wizard" targets, so nobody could
+  look at how video or AI assistants were doing as a group, or hear
+  "Netflix, video streaming" instead of a bucket name. The InfluxDB
+  exporter now writes a `target_labels` measurement (tag `target`; fields
+  `service`, `categories`, `label_source`, `taxonomy_version`), read from
+  config-manager's `GET /taxonomy/targets` and written only when a label
+  changes. No tag was added to any latency series, which would have split
+  every target's history. Connectivity & Quality and Side by Side have a
+  **Service category** variable (All by default, which leaves the queries
+  as they were but for one index-answered predicate); Target Detail has a
+  **Service** tile. The MCP server's `list_targets` and the web chat's
+  return `service` and `categories` and filter by `service_category`;
+  `get_latency_stats` and `get_loss_events` carry them when they read the
+  target list for links; the shared answering guide says to name targets
+  by service. The live doctor's dashboard check now sends a variable's
+  custom all value when it is saved on All, as Grafana does. ClickHouse
+  mode has no `target_labels` yet. `docs/taxonomy.md`.
+
 ## [2.45.0] — 2026-10-22
 
 The paths, not only the times: an experimental `pathmeter` service traces

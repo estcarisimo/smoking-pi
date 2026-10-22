@@ -94,6 +94,14 @@ measurement, which records the host behind each target over time (the
 Netflix slots change appliance every night). In ClickHouse mode only the
 current host is known, from the target's row in the config.
 
+Nor is `target_labels`, the service label of each target over time
+([Service taxonomy](taxonomy.md)): ClickHouse mode has no labels in the
+time-series database, and its dashboards have no **Service category**
+variable. The labels themselves are config-manager's and are the same in
+either mode (the web admin, `smoking-pi taxonomy` and the assistants show
+them). TODO: a `target_labels` table written on change, if a ClickHouse
+install asks for it.
+
 ## Verifying a deployment
 
 ```bash
