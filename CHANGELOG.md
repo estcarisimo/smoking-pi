@@ -23,8 +23,8 @@ version gets a matching GitHub release and git tag.
   config-manager's `GET /taxonomy/targets` and written only when a label
   changes. No tag was added to any latency series, which would have split
   every target's history. Connectivity & Quality and Side by Side have a
-  **Service category** variable (All by default, which leaves the queries
-  as they were but for one index-answered predicate); Target Detail has a
+  **Service category** variable (All by default, which adds one
+  `target =~ /^(.*)$/` predicate the storage engine evaluates on the tag); Target Detail has a
   **Service** tile. The MCP server's `list_targets` and the web chat's
   return `service` and `categories` and filter by `service_category`;
   `get_latency_stats` and `get_loss_events` carry them when they read the

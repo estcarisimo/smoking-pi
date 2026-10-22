@@ -281,6 +281,20 @@ class TestDashboardsAreValidJson:
                 dashboard = json.load(fh)
             assert dashboard.get("uid"), f"{path.name} has no uid"
 
+    def test_panel_ids_are_unique_per_dashboard(self):
+        """Collapsed rows nest their panels: a duplicate id hides there, and
+        viewPanel/editPanel links then open the wrong panel."""
+        def walk(panels):
+            for panel in panels:
+                yield panel
+                yield from walk(panel.get("panels") or [])
+
+        for path in sorted(GRAFANA_DASHBOARDS.glob("dashboards*/**/*.json")):
+            with open(path) as fh:
+                ids = [p["id"] for p in walk(json.load(fh).get("panels") or [])
+                       if isinstance(p.get("id"), int)]
+            assert len(ids) == len(set(ids)), f"{path.name}: duplicate panel ids"
+
     def test_all_influx_dashboards_carry_smokeping_tag_and_links(self):
         files = sorted(GRAFANA_DASHBOARDS.glob("dashboards/**/*.json"))
         for path in files:
@@ -517,6 +531,12 @@ class TestTargetLabels:
         rrd2influx.label_points(without, known, 1300)
         assert "YouTube" not in known
         assert len(rrd2influx.label_points(LABELS, known, 1600)) == 1
+
+    def test_an_empty_list_forgets_nothing(self):
+        known = {}
+        rrd2influx.label_points(LABELS, known, 1000)
+        assert rrd2influx.label_points(dict(LABELS, targets=[]), known, 1300) == []
+        assert rrd2influx.label_points(LABELS, known, 1600) == []
 
     def test_config_manager_unreachable_writes_nothing_and_logs(self, caplog):
         import urllib.error

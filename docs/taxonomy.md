@@ -174,7 +174,10 @@ one more per change. The exporter asks config-manager's
 itself; when config-manager does not answer, it logs one line and tries
 again on the next round. Inactive targets get none. The last point per
 target is its current label, and the points before it say what it was
-called when.
+called when. The dashboards read the last point over all time, which
+holds because the bucket keeps everything (no retention period is set);
+a bucket given one would need the exporter to rewrite the labels before
+they expire.
 
 **Grafana.** Connectivity & Quality and Side by Side have a **Service
 category** variable (several at once; All by default), listing the
@@ -184,9 +187,9 @@ targets table, the heatmaps and the per-target episodes) to the targets in
 the chosen categories; the whole-connection rows stay whole. On Side by
 Side it narrows the Target list within the probe bucket (the variable
 **Category (one at a time)**, unchanged). With All, every target counts,
-labeled or not, and the panels' queries are the ones they were (one more
-`target =~ /^(.*)$/` predicate, which the storage engine answers from its
-index). Target Detail shows the service and its categories in a **Service**
+labeled or not; the panels' queries gain one predicate, `target =~
+/^(.*)$/`, which the storage engine evaluates on the tag (no
+`contains(set:)`, which it would not push down). Target Detail shows the service and its categories in a **Service**
 tile on the first row.
 
 **The assistants.** The MCP server's `list_targets` returns each target's

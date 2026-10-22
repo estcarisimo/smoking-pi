@@ -404,7 +404,8 @@ def fetch_labels(base_url: str, token: str = "",
     if token:
         req.add_header("X-API-Token", token)
     try:
-        with opener(req, timeout=30) as resp:
+        # Short: this runs inside the export loop, which waits for it.
+        with opener(req, timeout=10) as resp:
             body = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         logging.warning("target_labels: not read this round: HTTP %s", exc.code)
@@ -448,8 +449,12 @@ def label_points(body: dict, known: dict, now: int):
                       .field("label_source", current[2])
                       .field("taxonomy_version", version)
                       .time(now, WritePrecision.S))
-    for gone in [n for n in known if n not in seen]:
-        del known[gone]
+    # An empty list is a config-manager without targets for a moment (a
+    # restore, a migration), not every target gone: forgetting them all
+    # would rewrite every label on the next round.
+    if seen:
+        for gone in [n for n in known if n not in seen]:
+            del known[gone]
     return points
 
 

@@ -472,7 +472,7 @@
         },
         "overrides": []
       },
-      "id": 22,
+      "id": 25,
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
