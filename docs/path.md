@@ -64,10 +64,8 @@ Every `PATHMETER_INTERVAL` seconds (default 3600):
    or further), in **two traces in a row**: one trace that differs is a
    candidate the next confirms or drops, so a load balancer or a router
    answering once from another of its addresses is not a change. The AS
-   path (the networks along the hops, from Team Cymru's origin data, cached
-   a week per /24; the same lookup, `common/asn.py`, that names each
-   target's operator and kind, see [Service taxonomy](taxonomy.md#two-axes))
-   changing is flagged on its own, because it is usually the
+   path (the networks along the hops, see [Where the networks come
+   from](#where-the-networks-come-from)) changing is flagged on its own, because it is usually the
    change that matters, and only once every hop's network is known, so a
    lookup still pending is not a change of network. A name with several
    addresses keeps the one it was traced at while DNS still returns it; one
@@ -114,7 +112,36 @@ it is not that hop's latency, and a slow or silent hop says nothing about
 the traffic going through it. The reference house's own router answered
 the first hop on only two traces in three.
 
+## Where the networks come from
+
+Each hop's network (its origin AS) is looked up locally, in the routing
+table the [map-ip-to-asn](https://github.com/estcarisimo/map-ip-to-asn)
+tool reads: CAIDA's daily
+[RouteViews prefix-to-AS](https://publicdata.caida.org/datasets/routing/routeviews-prefix2as/)
+snapshot, about 4 MB compressed and 1.1 million prefixes. The service
+downloads it once a day into its state volume, builds a table of a few MB
+from it, and answers every hop at once by its longest announced prefix: no
+query per address, nothing rate-limited, and the first cycle already
+complete. A prefix announced by several networks takes the last one, as
+that tool does.
+
+A router can answer from an address nobody announces. When it is on an
+exchange point's LAN, the hop is named by the exchange (the **exchange
+(IXP)** column), from [PeeringDB](https://www.peeringdb.com/)'s IXP
+prefixes, also downloaded once a day. Anything the table does not cover is
+asked of [Team Cymru](https://www.team-cymru.com/ip-asn-mapping)'s DNS
+service, as before; a private hop (the home router, the access network's
+10.x routers) has no network, by design.
+
+A download that fails, or a snapshot that looks broken (fewer than half a
+million prefixes), keeps the previous one; with none at all, every lookup
+goes to Team Cymru.
+
 ## What it costs
+
+The routing table is about 4 MB a day of download, plus a few hundred KB
+from PeeringDB, not counted by `smoking-pi budget` (the netmeter counts it
+under `pathmeter`).
 
 At the defaults, about 600 probes an hour for the reference house's 76
 destinations (about 3 % of the default samples ceiling) and a few MB a day.
@@ -148,7 +175,8 @@ start:
   `as_path` (`64500 64501 15169`), `changed`, `as_changed`, `dst_changed`,
   `first_hop`.
 - `path_hop`, one point per hop that answered, also tagged `ttl` (`01`,
-  `02`…): `addr`, `asn` when known, `rtt_ms`.
+  `02`…): `addr`, `asn` when known, `ixp` (the exchange point's name) when
+  the address is on an exchange LAN instead, `rtt_ms`.
 - `pathmeter_pass`, one point per cycle: `traces`, `probes`, `seconds`,
   `failed`, `prefix_hops`, `full_traces`.
 

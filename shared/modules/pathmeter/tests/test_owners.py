@@ -22,3 +22,18 @@ def test_a_lookup_that_raises_counts_as_failed():
         raise RuntimeError("boom")
     o = owners.Owners(clock=lambda: 0, origin_fn=origin)
     assert o.refresh({"23.0.0.1"}) == 1 and o.of("23.0.0.1") is None
+
+
+def test_the_routing_table_answers_first_and_cymru_only_what_it_lacks():
+    class Table:
+        ready = True
+
+        def lookup(self, ip):
+            return 16591 if ip.startswith("23.") else None
+
+    asked = []
+    o = owners.Owners(clock=lambda: 0, origin_fn=lambda ip: asked.append(ip) or (64500, "X"),
+                      table=Table())
+    assert o.refresh({"23.0.0.1", "23.0.1.1", "34.0.0.1"}) == 1    # only the one it lacks
+    assert asked == ["34.0.0.1"]
+    assert o.of("23.9.9.9") == 16591 and o.of("34.0.0.1") == 64500

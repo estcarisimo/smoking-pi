@@ -28,6 +28,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import aggregate
 import congestion
@@ -37,6 +38,7 @@ import series
 import shared
 import status
 import store
+from common import asn
 
 log = logging.getLogger("inference")
 
@@ -196,8 +198,14 @@ def main() -> None:
         pass
     status.write({"starting": int(time.time()), "interval": interval})
     time.sleep(START_DELAY)
+    # Operators come from the routing table (CAIDA RouteViews prefix-to-AS),
+    # downloaded once a day into the state volume and looked up locally;
+    # Team Cymru only for the AS names and what the table has no route for.
+    table = asn.use_table(Path(os.environ.get("INFERENCE_STATE_DIR", "/var/lib/inference"))
+                          / "routing")
     while True:
         began = time.time()
+        table.refresh()
         report = run_once(shared_pass=shared.run, aggregate_pass=aggregate.run)
         report["interval"] = interval
         status.write(report)
