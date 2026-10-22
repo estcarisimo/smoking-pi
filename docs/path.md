@@ -137,6 +137,12 @@ A download that fails, or a snapshot that looks broken (fewer than half a
 million prefixes), keeps the previous one; with none at all, every lookup
 goes to Team Cymru.
 
+Both sources are downloaded by the Pi itself, for its own measurements, and
+never shipped in an image or this repository: the RouteViews data is
+CAIDA's ([RouteViews prefix-to-AS mappings dataset](https://www.caida.org/catalog/datasets/routeviews-prefix2as/),
+cite it if you publish results from it), and PeeringDB's terms allow its
+data for Internet operations, which is what this is, not redistribution.
+
 ## What it costs
 
 The routing table is about 4 MB a day of download, plus a few hundred KB

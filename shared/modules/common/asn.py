@@ -178,6 +178,9 @@ def as_name(asn: int, resolver=None) -> str:
 # (the longest prefix wins) kept in three arrays, a few MB, searched by
 # bisection. Exchange-point LANs are not announced, so the routers' replies
 # from them have no origin: PeeringDB's IXP prefixes name them instead.
+# Both are downloaded by the Pi for its own use and never shipped in an
+# image or the repository (CAIDA asks for a citation of the dataset;
+# PeeringDB's terms allow operational use, not redistribution).
 
 PFX2AS_ROOT = "https://publicdata.caida.org/datasets/routing/routeviews-prefix2as/"
 PFX2AS_LOG = PFX2AS_ROOT + "pfx2as-creation.log"
