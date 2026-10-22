@@ -50,6 +50,18 @@ CREATE TABLE targets (
     metadata_type VARCHAR(50) NULL
 );
 
+-- Create target_labels table: per-install service label overrides
+-- (docs/taxonomy.md). Keyed by target name, no foreign key: the label
+-- outlives an OCA refresh that re-creates the target row. Existing
+-- installs get it from config-manager's create_all() on start.
+CREATE TABLE target_labels (
+    target_name VARCHAR(100) PRIMARY KEY,
+    service VARCHAR(100) NOT NULL,
+    categories JSON NOT NULL,
+    note TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create sources table (current categories only)
 CREATE TABLE sources (
     id SERIAL PRIMARY KEY,
@@ -91,3 +103,4 @@ CREATE TRIGGER update_probes_updated_at BEFORE UPDATE ON probes FOR EACH ROW EXE
 CREATE TRIGGER update_targets_updated_at BEFORE UPDATE ON targets FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 CREATE TRIGGER update_sources_updated_at BEFORE UPDATE ON sources FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 CREATE TRIGGER update_system_metadata_updated_at BEFORE UPDATE ON system_metadata FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+CREATE TRIGGER update_target_labels_updated_at BEFORE UPDATE ON target_labels FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();

@@ -1,0 +1,590 @@
+# Service taxonomy: what kind of service a measured target is.
+#
+# A target's `category` (top_sites, netflix_oca, dns_resolvers, ...) is a
+# technical probe bucket: it picks the SmokePing section and the InfluxDB
+# tag, and it says nothing about the service. The labels here live beside
+# it. See docs/taxonomy.md.
+#
+# This is the one copy. It ships in the config-manager image, is never
+# copied into the per-install config directory and is not edited per
+# install: a per-target correction is an override (`smoking-pi taxonomy
+# set`), stored in PostgreSQL.
+#
+# The vocabulary and the rules are the project's own. External lists were
+# consulted as evidence for which hostnames belong to which service, and
+# `source` on each rule says which one; none of their files is copied here
+# (AdGuard HostlistsRegistry is GPL-3.0, nDPI is LGPL, Cloudflare Radar's
+# categories are CC BY-NC).
+#
+# Resolution, most specific first: `name` (the target's name, or its base
+# name without the _h1/_h2/_h3/_tcp443/_icmp probe suffix) > `host_suffix`
+# (the longest suffix that matches the host; an IP address matches only
+# itself) > `category` (the technical bucket). Nothing matched: unknown.
+#
+# A rule: match (exactly one of name / host_suffix / category; a string or
+# a list of strings), service (optional: absent means the target's title),
+# categories (one or more ids from `categories`), source (manual | adguard
+# | ndpi | radar: the evidence used), confidence (high | medium | low),
+# since (the date the rule was written or last checked), note (optional).
+
+version: 1
+
+categories:
+  video:
+    label: Video streaming
+    description: Can the line hold a video stream without rebuffering?
+  audio:
+    label: Audio streaming
+    description: Does music or podcast playback start and keep playing?
+  gaming:
+    label: Gaming
+    description: Is latency low and steady enough for online play and game stores?
+  realtime_comms:
+    label: Calls and conferencing
+    description: Are voice and video calls free of loss and jitter?
+  messaging:
+    label: Messaging
+    description: Do messages and their notifications get through promptly?
+  social:
+    label: Social media
+    description: Do feeds, images and short videos load quickly?
+  web_search:
+    label: Web search
+    description: Does search answer fast, the first step of most browsing?
+  ai_assistant:
+    label: AI assistant
+    description: Can an AI assistant (chat, code, voice) be reached and answer?
+  cloud_saas:
+    label: Cloud and SaaS
+    description: Are cloud storage, office suites and work tools reachable?
+  software_update:
+    label: Software updates
+    description: Can operating system, app and game updates download?
+  cdn:
+    label: Content delivery network
+    description: How close and how steady is the nearest CDN edge?
+  dns:
+    label: DNS
+    description: Do name lookups answer, and how fast?
+  connectivity:
+    label: Connectivity
+    description: Is the local network and the way out to the Internet up?
+  ads_analytics:
+    label: Ads and analytics
+    description: Are ad and analytics endpoints slowing pages down?
+  academic:
+    label: Academic and research
+    description: Are universities and research networks reachable?
+  unknown:
+    label: Unknown
+    description: No rule says what this service is yet.
+
+rules:
+  # --- The shipped targets (templates/targets.yaml), by name ----------------
+  # The HTTP (_h1/_h2/_h3) and TCP (_tcp443) variants resolve through their
+  # base name, so one rule covers every probe of a service.
+  - match: {name: Google}
+    service: Google
+    categories: [web_search]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {name: Facebook}
+    service: Facebook
+    categories: [social]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {name: Amazon}
+    service: Amazon
+    categories: [cdn]
+    source: manual
+    confidence: medium
+    since: 2026-10-22
+    note: The retail site, served from CloudFront; it measures a CloudFront edge.
+  - match: {name: NYT}
+    service: The New York Times
+    categories: [cdn]
+    source: manual
+    confidence: medium
+    since: 2026-10-22
+    note: A news site served from Fastly; it measures a Fastly edge.
+  - match: {name: Apple}
+    service: Apple
+    categories: [cdn]
+    source: manual
+    confidence: medium
+    since: 2026-10-22
+    note: apple.com is served from Apple's and Akamai's edges.
+  - match: {name: Cloudflare}
+    service: Cloudflare
+    categories: [cdn]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {name: GoogleDNS}
+    service: Google Public DNS
+    categories: [dns]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {name: CloudflareDNS}
+    service: Cloudflare DNS
+    categories: [dns]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {name: Quad9DNS}
+    service: Quad9
+    categories: [dns]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {name: uba_ar}
+    service: Universidad de Buenos Aires
+    categories: [academic]
+    source: manual
+    confidence: medium
+    since: 2026-10-22
+    note: uba.ar is fronted by Imperva's CDN, so the path measured is Imperva's edge.
+
+  # --- Video and audio streaming --------------------------------------------
+  - match: {host_suffix: [netflix.com, netflix.net, nflxvideo.net, nflximg.net, nflxso.net, nflxext.com, fast.com]}
+    service: Netflix
+    categories: [video]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [youtube.com, youtu.be, googlevideo.com, ytimg.com, youtube-nocookie.com]}
+    service: YouTube
+    categories: [video, social]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [disneyplus.com, disney-plus.net, bamgrid.com, dssott.com]}
+    service: Disney+
+    categories: [video]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [primevideo.com, amazonvideo.com, aiv-cdn.net, aiv-delivery.net]}
+    service: Prime Video
+    categories: [video]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [hbomax.com, max.com]}
+    service: Max
+    categories: [video]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+  - match: {host_suffix: [hulu.com, hulustream.com]}
+    service: Hulu
+    categories: [video]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+  - match: {host_suffix: [twitch.tv, ttvnw.net, jtvnw.net, twitchcdn.net]}
+    service: Twitch
+    categories: [video, social]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [spotify.com, scdn.co, spotifycdn.com]}
+    service: Spotify
+    categories: [audio]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [music.apple.com]}
+    service: Apple Music
+    categories: [audio]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+  - match: {host_suffix: [music.amazon.com]}
+    service: Amazon Music
+    categories: [audio]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+
+  # --- Gaming ---------------------------------------------------------------
+  - match: {host_suffix: [steampowered.com, steamcommunity.com, steamstatic.com, steamserver.net]}
+    service: Steam
+    categories: [gaming]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [steamcontent.com]}
+    service: Steam
+    categories: [gaming, software_update]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-22
+    note: Steam's game download depots.
+  - match: {host_suffix: [xboxlive.com, xbox.com, xboxservices.com, gamepass.com]}
+    service: Xbox
+    categories: [gaming]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [playstation.com, playstation.net, sonyentertainmentnetwork.com]}
+    service: PlayStation
+    categories: [gaming]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [nintendo.com, nintendo.net]}
+    service: Nintendo
+    categories: [gaming]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [epicgames.com, epicgames.dev]}
+    service: Epic Games
+    categories: [gaming]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+  - match: {host_suffix: [roblox.com, rbxcdn.com]}
+    service: Roblox
+    categories: [gaming]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+
+  # --- Calls and messaging --------------------------------------------------
+  - match: {host_suffix: [zoom.us, zoom.com]}
+    service: Zoom
+    categories: [realtime_comms]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [teams.microsoft.com, teams.live.com]}
+    service: Microsoft Teams
+    categories: [realtime_comms, messaging]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [meet.google.com]}
+    service: Google Meet
+    categories: [realtime_comms]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [webex.com]}
+    service: Webex
+    categories: [realtime_comms]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-22
+  - match: {host_suffix: [discord.com, discord.gg, discordapp.com, discordapp.net]}
+    service: Discord
+    categories: [messaging, realtime_comms, gaming]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+  - match: {host_suffix: [whatsapp.com, whatsapp.net, wa.me]}
+    service: WhatsApp
+    categories: [messaging, realtime_comms]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [telegram.org, t.me, telegram.me]}
+    service: Telegram
+    categories: [messaging]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [signal.org]}
+    service: Signal
+    categories: [messaging, realtime_comms]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [push.apple.com]}
+    service: Apple Push (iMessage, FaceTime)
+    categories: [messaging]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-22
+    note: The push service iMessage and FaceTime ring through, not the messages themselves.
+  - match: {host_suffix: [messenger.com]}
+    service: Messenger
+    categories: [messaging, realtime_comms]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+
+  # --- Social ---------------------------------------------------------------
+  - match: {host_suffix: [facebook.com, fbcdn.net, fb.com]}
+    service: Facebook
+    categories: [social]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [instagram.com, cdninstagram.com]}
+    service: Instagram
+    categories: [social]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [tiktok.com, tiktokcdn.com, tiktokv.com, byteoversea.com]}
+    service: TikTok
+    categories: [social, video]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [x.com, twitter.com, twimg.com, t.co]}
+    service: X
+    categories: [social]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [reddit.com, redd.it, redditmedia.com]}
+    service: Reddit
+    categories: [social]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [linkedin.com, licdn.com]}
+    service: LinkedIn
+    categories: [social]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+
+  # --- Search ---------------------------------------------------------------
+  - match: {host_suffix: [google.com]}
+    service: Google
+    categories: [web_search]
+    source: manual
+    confidence: medium
+    since: 2026-10-22
+    note: The catch-all for google.com; longer suffixes (meet, gemini, ...) win over it.
+  - match: {host_suffix: [bing.com]}
+    service: Bing
+    categories: [web_search]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [duckduckgo.com]}
+    service: DuckDuckGo
+    categories: [web_search]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+
+  # --- AI assistants --------------------------------------------------------
+  - match: {host_suffix: [openai.com, chatgpt.com, oaiusercontent.com, oaistatic.com]}
+    service: ChatGPT
+    categories: [ai_assistant]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [claude.ai, anthropic.com]}
+    service: Claude
+    categories: [ai_assistant]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [gemini.google.com]}
+    service: Gemini
+    categories: [ai_assistant]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [copilot.microsoft.com, copilot.com]}
+    service: Microsoft Copilot
+    categories: [ai_assistant]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [perplexity.ai]}
+    service: Perplexity
+    categories: [ai_assistant, web_search]
+    source: adguard
+    confidence: medium
+    since: 2026-10-22
+  - match: {host_suffix: [grok.com, x.ai]}
+    service: Grok
+    categories: [ai_assistant]
+    source: manual
+    confidence: medium
+    since: 2026-10-22
+
+  # --- Cloud and SaaS -------------------------------------------------------
+  - match: {host_suffix: [office.com, office365.com, outlook.com, microsoftonline.com, sharepoint.com, onedrive.com]}
+    service: Microsoft 365
+    categories: [cloud_saas]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [icloud.com, icloud-content.com]}
+    service: iCloud
+    categories: [cloud_saas]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [drive.google.com, docs.google.com, mail.google.com, googleusercontent.com]}
+    service: Google Workspace
+    categories: [cloud_saas]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-22
+  - match: {host_suffix: [dropbox.com, dropboxapi.com]}
+    service: Dropbox
+    categories: [cloud_saas]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [github.com, githubusercontent.com]}
+    service: GitHub
+    categories: [cloud_saas]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [slack.com, slack-edge.com]}
+    service: Slack
+    categories: [messaging, cloud_saas]
+    source: adguard
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [amazonaws.com]}
+    service: Amazon Web Services
+    categories: [cloud_saas]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-22
+    note: Many services run on AWS; a more specific rule should win where one exists.
+
+  # --- Software updates -----------------------------------------------------
+  - match: {host_suffix: [windowsupdate.com, update.microsoft.com, delivery.mp.microsoft.com]}
+    service: Windows Update
+    categories: [software_update]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [swcdn.apple.com, swdist.apple.com, mesu.apple.com, updates.cdn-apple.com]}
+    service: Apple Software Update
+    categories: [software_update]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [dl.google.com, gvt1.com]}
+    service: Google Updates
+    categories: [software_update]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-22
+  - match: {host_suffix: [deb.debian.org, archive.ubuntu.com, raspberrypi.com]}
+    service: Linux packages
+    categories: [software_update]
+    source: manual
+    confidence: medium
+    since: 2026-10-22
+
+  # --- CDNs (what is left of a hostname once no service claims it) ---------
+  - match: {host_suffix: [akamai.net, akamaiedge.net, akamaized.net, akamaihd.net, edgekey.net, edgesuite.net]}
+    service: Akamai
+    categories: [cdn]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [cloudflare.com, cloudflare.net]}
+    service: Cloudflare
+    categories: [cdn]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [fastly.net, fastlylb.net, fastly.com]}
+    service: Fastly
+    categories: [cdn]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [cloudfront.net]}
+    service: Amazon CloudFront
+    categories: [cdn]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+
+  # --- DNS ------------------------------------------------------------------
+  - match: {host_suffix: [dns.google, 8.8.8.8, 8.8.4.4, "2001:4860:4860::8888", "2001:4860:4860::8844"]}
+    service: Google Public DNS
+    categories: [dns]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [cloudflare-dns.com, one.one.one.one, 1.1.1.1, 1.0.0.1, "2606:4700:4700::1111", "2606:4700:4700::1001"]}
+    service: Cloudflare DNS
+    categories: [dns]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [quad9.net, 9.9.9.9, 149.112.112.112, "2620:fe::fe", "2620:fe::9"]}
+    service: Quad9
+    categories: [dns]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [208.67.222.222, 208.67.220.220, opendns.com]}
+    service: OpenDNS
+    categories: [dns]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+
+  # --- Connectivity checks --------------------------------------------------
+  - match: {host_suffix: [connectivitycheck.gstatic.com, clients3.google.com, captive.apple.com, msftconnecttest.com, msftncsi.com, detectportal.firefox.com]}
+    service: Connectivity check
+    categories: [connectivity]
+    source: ndpi
+    confidence: high
+    since: 2026-10-22
+
+  # --- Ads and analytics ----------------------------------------------------
+  - match: {host_suffix: [doubleclick.net, googlesyndication.com, googleadservices.com, google-analytics.com, googletagmanager.com, app-measurement.com]}
+    service: Google Ads and Analytics
+    categories: [ads_analytics]
+    source: radar
+    confidence: high
+    since: 2026-10-22
+  - match: {host_suffix: [scorecardresearch.com, adnxs.com, criteo.com, taboola.com, outbrain.com]}
+    service: Ad network
+    categories: [ads_analytics]
+    source: radar
+    confidence: medium
+    since: 2026-10-22
+
+  # --- Academic -------------------------------------------------------------
+  - match: {host_suffix: [edu, edu.ar, ac.uk, edu.au]}
+    categories: [academic]
+    source: manual
+    confidence: medium
+    since: 2026-10-22
+    note: Academic registries; the service is the target's title.
+
+  # --- Technical buckets: the fallback when name and host say nothing -------
+  - match: {category: netflix_oca}
+    service: Netflix
+    categories: [video]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+    note: Netflix Open Connect appliances found by the OCA locator.
+  - match: {category: dns_resolvers}
+    categories: [dns]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+  - match: {category: cpe}
+    service: Gateway
+    categories: [connectivity]
+    source: manual
+    confidence: high
+    since: 2026-10-22
+    note: The home router, measured by the CPE exporter.

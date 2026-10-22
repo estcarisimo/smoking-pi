@@ -38,11 +38,12 @@ import assistant
 import recommendations
 import wizard_adopt
 import dns_observer_status
+import taxonomy
 
 # Import database models and repositories
 from models import (
     get_db_session, Target, TargetCategory, Probe, Source, SystemMetadata,
-    TargetRepository, CategoryRepository, ProbeRepository,
+    TargetRepository, CategoryRepository, ProbeRepository, LabelRepository,
     database_mode_active,
 )
 
@@ -2196,6 +2197,121 @@ def get_container_status(service_name):
                               success=False, service=service_name)
 
 
+# --- Service taxonomy (docs/taxonomy.md) --------------------------------
+
+def _labeled_targets() -> list:
+    """Every target with its label: the database's rows, else the YAML's."""
+    if api.use_database:
+        session = get_db_session()
+        try:
+            return [{'id': t.id, 'name': t.name, 'host': t.host, 'title': t.title,
+                     'category': t.category.name if t.category else None,
+                     'is_active': t.is_active, **t.label_fields()}
+                    for t in TargetRepository(session).get_all()]
+        finally:
+            session.close()
+    tx = taxonomy.shipped()
+    data = api.get_config('targets').get('targets') or {}
+    out = []
+    for bucket, entries in (data.get('active_targets') or {}).items():
+        for t in entries or []:
+            if not isinstance(t, dict) or not t.get('name'):
+                continue
+            category = t.get('category') or bucket
+            out.append({'id': None, 'name': t['name'], 'host': t.get('host'),
+                        'title': t.get('title'), 'category': category,
+                        'is_active': True,
+                        **taxonomy.label_fields(tx.resolve(
+                            t['name'], t.get('host'), category, t.get('title')))})
+    return out
+
+
+@app.route('/taxonomy', methods=['GET'])
+@require_api_token
+def get_taxonomy():
+    """The service vocabulary: version, categories (id, label, description)."""
+    try:
+        return jsonify(taxonomy.shipped().describe())
+    except Exception as e:
+        return error_response(500, "Failed to load the taxonomy", e)
+
+
+@app.route('/taxonomy/targets', methods=['GET'])
+@require_api_token
+def get_taxonomy_targets():
+    """Every target's label (override, else resolution), in either mode."""
+    try:
+        targets = _labeled_targets()
+        return jsonify({'version': taxonomy.shipped().version,
+                        'targets': targets, 'total': len(targets)})
+    except Exception as e:
+        return error_response(500, "Failed to label targets", e)
+
+
+@app.route('/taxonomy/unknown', methods=['GET'])
+@require_api_token
+def get_taxonomy_unknown():
+    """Active targets no rule and no override labels."""
+    try:
+        targets = [t for t in _labeled_targets()
+                   if t['is_active'] and taxonomy.is_unknown(t)]
+        return jsonify({'version': taxonomy.shipped().version,
+                        'targets': targets, 'total': len(targets)})
+    except Exception as e:
+        return error_response(500, "Failed to label targets", e)
+
+
+LABELS_NEED_DATABASE = ('Label overrides are stored in PostgreSQL; this '
+                        'config-manager is in YAML mode')
+
+
+@app.route('/targets/<int:target_id>/labels', methods=['PUT'])
+@require_api_token
+def set_target_labels(target_id):
+    """Override one target's service label (service, categories, note)."""
+    if not api.use_database:
+        return error_response(501, LABELS_NEED_DATABASE)
+    try:
+        override, reasons = taxonomy.shipped().validate_override(
+            request.get_json(silent=True))
+        if reasons:
+            return error_response(400, "Invalid labels", reasons=reasons)
+        session = get_db_session()
+        try:
+            target = TargetRepository(session).get_by_id(target_id)
+            if target is None:
+                return error_response(404, "Target not found")
+            LabelRepository(session).set(target.name, override)
+            session.expire(target)
+            return jsonify({'success': True, 'target': target.to_dict()})
+        finally:
+            session.close()
+    except Exception as e:
+        return error_response(500, "Failed to set labels", e)
+
+
+@app.route('/targets/<int:target_id>/labels', methods=['DELETE'])
+@require_api_token
+def reset_target_labels(target_id):
+    """Drop a target's override: back to what the taxonomy resolves."""
+    if not api.use_database:
+        return error_response(501, LABELS_NEED_DATABASE)
+    try:
+        session = get_db_session()
+        try:
+            target = TargetRepository(session).get_by_id(target_id)
+            if target is None:
+                return error_response(404, "Target not found")
+            removed = LabelRepository(session).delete(target.name)
+            session.expire(target)
+            return jsonify({'success': True, 'removed': removed,
+                            'target': target.to_dict()})
+        finally:
+            session.close()
+    except Exception as e:
+        return error_response(500, "Failed to reset labels", e)
+
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Endpoint not found'}), 404
@@ -2232,6 +2348,14 @@ def api_documentation():
         <li><strong>DELETE /targets/{id}</strong> - Delete target by ID</li>
         <li><strong>POST /targets/{id}/toggle</strong> - Toggle target active status</li>
         <li><strong>GET /categories</strong> - Get all target categories</li>
+        <li><strong>PUT /targets/{id}/labels</strong> - Override a target's service label</li>
+        <li><strong>DELETE /targets/{id}/labels</strong> - Back to the taxonomy's label</li>
+    </ul>
+    <h2>Service taxonomy (both modes):</h2>
+    <ul>
+        <li><strong>GET /taxonomy</strong> - The service vocabulary</li>
+        <li><strong>GET /taxonomy/targets</strong> - Every target's service label</li>
+        <li><strong>GET /taxonomy/unknown</strong> - Active targets no rule labels</li>
         <li><strong>GET /probes</strong> - Get all probe configurations</li>
     </ul>
     <h2>Container Management Endpoints:</h2>
