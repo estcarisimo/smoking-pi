@@ -9,6 +9,25 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The doctor no longer says the Wi-Fi collector stopped after a reconnect.**
+  When the radio reconnects (after a reboot, or a lost association), the
+  samples written while it was disconnected carry no network tags and form
+  a series of their own. The `monitor-radio` check grouped the series and
+  took the last row, which is the end of whichever series came last, not
+  the newest sample: on the reference Pi, after a reboot on 2026-10-22, it
+  warned for hours that "the newest Wi-Fi sample is 154 min old: the
+  collector stopped" while the collector wrote every 10 s. A warning that
+  is wrong teaches people to ignore the one that is right. The check now
+  sorts by time before taking the newest sample and before measuring the
+  spacing; replayed on that Pi's data it reads the sample from the same
+  minute. The same shape read which interface carries the route in the
+  alerter (its Wi-Fi verdict, for ten minutes after a reconnect), in the
+  digest and AI report's Wi-Fi line, and in the assistant's Wi-Fi answers:
+  sorted too. The alerter's deaf-radio detection already sorted and was
+  right.
+
 ### Added
 
 - **The service labels reach the time series, the dashboards and the

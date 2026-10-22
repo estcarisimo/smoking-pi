@@ -349,3 +349,19 @@ def test_csv_with_several_tables_is_parsed():
 
     rows = live_checks._influx_rows(D(), "c", "q")
     assert [r["target"] for r in rows] == ["A", "B"]
+
+
+def test_monitor_radio_sorts_by_time_before_taking_the_newest():
+    """group() concatenates series (a disconnected sample writes without
+    ssid/bssid, a series of its own) and last()/elapsed() follow row order:
+    without a sort, the newest sample was the end of whichever series came
+    last -- on the reference Pi after a reboot, a 17:19 sample two hours
+    stale while the radio reported every 10 s."""
+    code = "\n".join(line.split("//")[0] for line in live_checks._UPLINK_FLUX.splitlines())
+    for name, until in (("samples = ", "\nup = "), ("spacing = ", "|> elapsed(")):
+        part = code[code.index(name):]
+        part = part[: part.index(until)]
+        after_group = part.split('|> group(columns: ["interface"])', 1)[1]
+        assert '|> sort(columns: ["_time"])' in after_group
+    # newest and up are built from the sorted samples.
+    assert "newest = samples |> last()" in code and "up = samples |> filter(" in code

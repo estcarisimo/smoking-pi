@@ -219,7 +219,9 @@ def _wifi_uplink_flux() -> str:
     return (
         flux.base_flux(["wifi_link"], "-10m")
         + '|> filter(fn: (r) => r._field == "uplink") '
-        + '|> group(columns: ["interface"]) |> last()'
+        # Sorted: a disconnected sample is a series of its own (no ssid/bssid),
+        # and after group() last() takes the last row, not the newest.
+        + '|> group(columns: ["interface"]) |> sort(columns: ["_time"]) |> last()'
     )
 
 
