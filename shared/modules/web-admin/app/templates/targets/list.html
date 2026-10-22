@@ -18,6 +18,8 @@
 </div>
 {% endif %}
 
+{% set vocab_labels = {} %}
+{% for cid, label, _ in vocabulary %}{% set _ = vocab_labels.update({cid: label}) %}{% endfor %}
 {% if targets %}
 <div class="card">
     <div class="card-header">
@@ -33,6 +35,13 @@
                         <option value="">All categories</option>
                         {% for category in categories %}
                         <option value="{{ category }}">{{ category|format_category_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <select class="form-select form-select-sm" style="max-width: 180px;" id="service-category-filter"
+                            aria-label="Filter by service category">
+                        <option value="">All services</option>
+                        {% for cid in service_categories %}
+                        <option value="{{ cid }}">{{ vocab_labels.get(cid, cid) }}</option>
                         {% endfor %}
                     </select>
                     <select class="form-select form-select-sm" style="max-width: 130px;" id="status-filter">
@@ -66,6 +75,8 @@
                         <th>Host/IP</th>
                         <th>Title</th>
                         <th>Category</th>
+                        <th>Service</th>
+                        <th>Service categories</th>
                         <th>Probe</th>
                         <th>Active</th>
                         <th>Actions</th>
@@ -79,6 +90,11 @@
                         data-title="{{ target.title or '' }}"
                         data-category="{{ target.get('category', '') }}"
                         data-probe="{{ target.probe or '' }}"
+                        data-service="{{ target.get('service') or '' }}"
+                        data-service-categories="{{ (target.get('categories') or [])|join(' ') }}"
+                        data-label-source="{{ target.get('label_source') or '' }}"
+                        data-label-rule="{{ target.get('label_rule') or '' }}"
+                        data-label-note="{{ target.get('label_note') or '' }}"
                         data-active="{{ 'true' if is_active else 'false' }}"
                         {% if using_database %}data-id="{{ target.id }}"{% endif %}
                         class="{% if not is_active %}table-secondary{% endif %}">
@@ -100,6 +116,18 @@
                         <td>{{ target.title }}</td>
                         <td>
                             <span class="badge bg-light text-dark border">{{ target.get('category', '')|format_category_name }}</span>
+                        </td>
+                        <td>
+                            {{ target.get('service') or '' }}
+                            {% if target.get('label_rule') == 'override' %}
+                            <i class="bi bi-pencil-square text-muted" title="Set by hand (override)"></i>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% for cid in target.get('categories') or [] %}
+                            <span class="badge {% if cid == 'unknown' %}bg-warning text-dark{% else %}bg-primary-subtle text-primary-emphasis border{% endif %}"
+                                  title="{{ target.get('label_source') or 'no rule' }}{% if target.get('label_confidence') %}, {{ target.label_confidence }} confidence{% endif %}">{{ vocab_labels.get(cid, cid) }}</span>
+                            {% endfor %}
                         </td>
                         <td>
                             <span class="badge bg-{% if target.probe == 'FPing6' %}info{% elif target.probe == 'DNS' %}success{% else %}secondary{% endif %}">
@@ -187,12 +215,52 @@
                         {% endfor %}
                     </select>
                 </div>
+                <div class="d-flex justify-content-end">
+                    <button type="button" class="btn btn-primary" id="edit-save-btn">
+                        <i class="bi bi-check-circle"></i> Save Changes
+                    </button>
+                </div>
+                {% if vocabulary %}
+                <hr>
+                <h6>Service label</h6>
+                <p class="small text-muted mb-2" id="labels-source"></p>
+                <div class="mb-3">
+                    <label for="labels-service" class="form-label">Service</label>
+                    <input type="text" class="form-control" id="labels-service" maxlength="100">
+                </div>
+                <fieldset class="mb-3">
+                    <legend class="form-label fs-6">Categories</legend>
+                    <div class="row row-cols-2 g-1" id="labels-categories">
+                        {% for cid, label, description in vocabulary if cid != 'unknown' %}
+                        <div class="col">
+                            <div class="form-check">
+                                <input class="form-check-input label-category" type="checkbox"
+                                       value="{{ cid }}" id="labels-cat-{{ cid }}">
+                                <label class="form-check-label small" for="labels-cat-{{ cid }}"
+                                       title="{{ description }}">{{ label }}</label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </fieldset>
+                <div class="mb-3">
+                    <label for="labels-note" class="form-label">Note</label>
+                    <input type="text" class="form-control" id="labels-note" maxlength="500"
+                           placeholder="Why this label (optional)">
+                </div>
+                <div class="validation-feedback" id="labels-feedback"></div>
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-outline-secondary" id="labels-reset-btn">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset to default
+                    </button>
+                    <button type="button" class="btn btn-primary" id="labels-save-btn">
+                        <i class="bi bi-tag"></i> Save label
+                    </button>
+                </div>
+                {% endif %}
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="edit-save-btn">
-                    <i class="bi bi-check-circle"></i> Save Changes
-                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -217,6 +285,7 @@
     const searchInput = document.getElementById('target-search');
     const categoryFilter = document.getElementById('category-filter');
     const statusFilter = document.getElementById('status-filter');
+    const serviceCategoryFilter = document.getElementById('service-category-filter');
     const visibleCount = document.getElementById('visible-count');
     const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
 
@@ -238,18 +307,23 @@
         const query = searchInput.value.trim().toLowerCase();
         const category = categoryFilter.value;
         const status = statusFilter.value;
+        const serviceCategory = serviceCategoryFilter.value;
 
         rows().forEach(row => {
             const haystack = [
                 row.dataset.name, row.dataset.host, row.dataset.title,
+                row.dataset.service,
             ].join(' ').toLowerCase();
             const matchesQuery = !query || haystack.includes(query);
             const matchesCategory = !category || row.dataset.category === category;
+            const matchesService = !serviceCategory
+                || row.dataset.serviceCategories.split(' ').includes(serviceCategory);
             const matchesStatus = !status
                 || (status === 'active' && row.dataset.active === 'true')
                 || (status === 'inactive' && row.dataset.active === 'false');
             row.style.display =
-                (matchesQuery && matchesCategory && matchesStatus) ? '' : 'none';
+                (matchesQuery && matchesCategory && matchesService && matchesStatus)
+                    ? '' : 'none';
         });
         visibleCount.textContent = visibleRows().length;
         updateSelectionCount();
@@ -258,6 +332,7 @@
     searchInput.addEventListener('input', applyFilters);
     categoryFilter.addEventListener('change', applyFilters);
     statusFilter.addEventListener('change', applyFilters);
+    serviceCategoryFilter.addEventListener('change', applyFilters);
 
     /* Deep links from the MCP tools / AI chat arrive as /targets/?q=<name>, so
        the page opens on the target being discussed rather than on all 18.
@@ -273,11 +348,14 @@
 
     document.getElementById('export-csv-btn').addEventListener('click', () => {
         const esc = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-        const lines = [['name', 'host', 'title', 'category', 'probe', 'active'].join(',')];
+        const lines = [['name', 'host', 'title', 'category', 'service',
+            'service_categories', 'label_source', 'probe', 'active'].join(',')];
         visibleRows().forEach(row => {
             lines.push([
                 row.dataset.name, row.dataset.host, row.dataset.title,
-                row.dataset.category, row.dataset.probe, row.dataset.active,
+                row.dataset.category, row.dataset.service,
+                row.dataset.serviceCategories.split(' ').filter(Boolean).join(';'),
+                row.dataset.labelSource, row.dataset.probe, row.dataset.active,
             ].map(esc).join(','));
         });
         const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
@@ -379,7 +457,64 @@
         const feedback = document.getElementById('edit-host-feedback');
         feedback.classList.remove('show');
         document.getElementById('edit-host').classList.remove('is-invalid');
+        fillLabels(row);
         editModal.show();
+    }
+
+    /* ---------- Service label (override / reset) ---------- */
+
+    const labelsService = document.getElementById('labels-service');
+
+    function fillLabels(row) {
+        if (!labelsService) return;
+        const cats = row.dataset.serviceCategories.split(' ').filter(Boolean);
+        labelsService.value = row.dataset.service;
+        document.getElementById('labels-note').value =
+            row.dataset.labelRule === 'override' ? row.dataset.labelNote : '';
+        document.querySelectorAll('.label-category').forEach(cb => {
+            cb.checked = cats.includes(cb.value);
+        });
+        const rule = row.dataset.labelRule;
+        document.getElementById('labels-source').textContent =
+            rule === 'override' ? 'Set by hand (override). Reset to go back to the default rule.'
+            : rule ? `Default rule: ${rule} (evidence: ${row.dataset.labelSource}).`
+            : 'No rule matches this target yet: it is unknown.';
+        document.getElementById('labels-reset-btn').disabled = rule !== 'override';
+        document.getElementById('labels-feedback').classList.remove('show');
+    }
+
+    async function sendLabels(method, body) {
+        const feedback = document.getElementById('labels-feedback');
+        feedback.classList.remove('show');
+        try {
+            await fetchJSON(`/targets/${editingRow.dataset.id}/labels`, { method, body });
+            showToast('Success', method === 'DELETE'
+                ? `Label of "${editingRow.dataset.name}" reset to the default`
+                : `Label of "${editingRow.dataset.name}" saved`, 'success');
+            editModal.hide();
+            setTimeout(() => location.reload(), 800);
+        } catch (error) {
+            const reasons = (error.data && error.data.reasons) || [];
+            feedback.textContent = reasons.length ? reasons.join('; ') : error.message;
+            feedback.classList.add('show');
+        }
+    }
+
+    if (labelsService) {
+        document.getElementById('labels-save-btn').addEventListener('click', () => {
+            if (!editingRow) return;
+            const body = {
+                service: labelsService.value.trim(),
+                categories: Array.from(document.querySelectorAll('.label-category:checked'))
+                    .map(cb => cb.value),
+            };
+            const note = document.getElementById('labels-note').value.trim();
+            if (note) body.note = note;
+            sendLabels('PUT', body);
+        });
+        document.getElementById('labels-reset-btn').addEventListener('click', () => {
+            if (editingRow) sendLabels('DELETE');
+        });
     }
 
     document.getElementById('edit-save-btn').addEventListener('click', async () => {

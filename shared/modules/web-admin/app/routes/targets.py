@@ -192,13 +192,48 @@ def list_targets():
     categories = sorted({
         t.get('category') for t in all_custom_targets if t.get('category')
     })
+    vocabulary, service_categories = _service_labels(all_custom_targets, using_database)
 
     return render_template('targets/list.html',
                          targets=all_custom_targets,
                          categories=categories,
+                         vocabulary=vocabulary,
+                         service_categories=service_categories,
                          probes=probes,
                          using_database=using_database,
                          service_status=service_status)
+
+
+def _service_labels(targets, using_database):
+    """The taxonomy's vocabulary, with every target's label filled in.
+
+    In database mode GET /targets already carries ``service`` and
+    ``categories``; in YAML mode they come from GET /taxonomy/targets and
+    are merged by name. An older or unreachable config-manager leaves the
+    columns empty rather than failing the page. Returns the vocabulary as
+    ``[(id, label, description)]`` and the categories in use, in its order.
+    """
+    try:
+        vocabulary = [(c['id'], c['label'], c.get('description', ''))
+                      for c in config_api.get_taxonomy().get('categories', [])]
+    except Exception:
+        current_app.logger.warning("Taxonomy unavailable", exc_info=True)
+        return [], []
+    if not using_database:
+        try:
+            labels = {t['name']: t for t in
+                      config_api.get_taxonomy_targets().get('targets', [])}
+        except Exception:
+            current_app.logger.warning("Target labels unavailable", exc_info=True)
+            labels = {}
+        for t in targets:
+            found = labels.get(t.get('name'))
+            if found:
+                for key in ('service', 'categories', 'label_source',
+                            'label_confidence', 'label_rule', 'label_note'):
+                    t.setdefault(key, found.get(key))
+    used = {c for t in targets for c in (t.get('categories') or [])}
+    return vocabulary, [cid for cid, _, _ in vocabulary if cid in used]
 
 def _wants_json():
     """AJAX requests get JSON responses with per-field errors."""
@@ -693,6 +728,53 @@ def edit_target(target_id):
     except Exception as e:
         return error_response(500, f'Error updating target {target_id}', e,
                               success=False)
+
+
+@targets_bp.route('/<int:target_id>/labels', methods=['PUT'])
+def set_target_labels(target_id):
+    """Override a target's service label (database mode only)."""
+    if not config_api.is_database_available():
+        return error_response(400, 'Label overrides require database mode',
+                              success=False)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response(400, 'Send service, categories and note as JSON',
+                              success=False)
+    labels = {'service': data.get('service'), 'categories': data.get('categories')}
+    if data.get('note') is not None:
+        labels['note'] = data.get('note')
+    try:
+        result = config_api.set_target_labels(target_id, labels)
+    except ValueError:
+        return error_response(404, 'Target not found', success=False)
+    except Exception as e:
+        return error_response(500, f'Error setting labels on target {target_id}', e,
+                              success=False)
+    if result.get('refused'):
+        return error_response(400, 'Invalid labels', success=False,
+                              reasons=result.get('reasons') or [])
+    return jsonify({'success': True, 'target': result.get('target', {}),
+                    'message': 'Labels saved'})
+
+
+@targets_bp.route('/<int:target_id>/labels', methods=['DELETE'])
+def reset_target_labels(target_id):
+    """Drop a target's override: back to the taxonomy's label."""
+    if not config_api.is_database_available():
+        return error_response(400, 'Label overrides require database mode',
+                              success=False)
+    try:
+        result = config_api.reset_target_labels(target_id)
+    except ValueError:
+        return error_response(404, 'Target not found', success=False)
+    except Exception as e:
+        return error_response(500, f'Error resetting labels on target {target_id}', e,
+                              success=False)
+    if result.get('refused'):
+        return error_response(400, 'Label overrides require database mode',
+                              success=False)
+    return jsonify({'success': True, 'target': result.get('target', {}),
+                    'message': 'Labels reset to the default'})
 
 
 @targets_bp.route('/bulk-delete', methods=['POST'])
