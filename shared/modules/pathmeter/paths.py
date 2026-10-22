@@ -2,14 +2,13 @@
 
 **The shared prefix.** From the reference house every destination's first
 five hops are the same (the home router, then the access network). Tracing
-them for every destination every hour says the same thing seventy times, so
-a full cycle learns the prefix (:func:`learn_prefix`) and the cycles after
-it trace one destination in full (the reference) and every other one from
-the first hop past the prefix. A reference that disagrees with the prefix
-on a hop that answered means the access path moved: that cycle traces
-everything in full again and learns it anew. A full cycle also runs once a
-day whatever happens, so a destination whose path left the prefix earlier
-than the others is noticed.
+them for every destination every hour says the same thing seventy times,
+and every hour a burst of probes would reach the router at once. So each
+cycle traces a few destinations from hop 1, in turn (main.FULL_PER_CYCLE),
+learns the prefix from them (:func:`learn_prefix`), and traces every other
+destination from the first hop past it. A trace from hop 1 that disagrees
+with the prefix on a hop that answered, or ends inside it, means the access
+path moved: the prefix is learned again from that cycle's traces.
 
 **A change** is a destination whose path differs from the one it had on a
 hop that answered both times (or whose distance changed while it answered
@@ -29,41 +28,58 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 
-# A TTL is part of the shared prefix when every trace that got an answer
-# there got the same address, and at least this share of traces got one.
-# The home router answers about two traces in three (it rate-limits ICMP).
+# A TTL is shared when at least this share of the paths reaching it got an
+# answer there, all the same address.
 PREFIX_MIN_ANSWERED = 0.5
-FULL_EVERY = 86400
+# Silent TTLs in a row a prefix may span (the home router rate-limits).
+MAX_SILENT_GAP = 1
 
+def learn_prefix(paths: list[list]) -> list:
+    """The hops the paths share from TTL 1.
 
-def learn_prefix(paths: list[list]) -> list[str]:
-    """The hops every path shares from TTL 1, ignoring silent hops; empty
-    when there are too few paths to tell."""
-    if len(paths) < 2:
-        return []
-    prefix = []
-    for ttl in range(max(len(p) for p in paths)):
-        answers = [p[ttl] for p in paths if ttl < len(p) and p[ttl]]
-        if len(answers) < PREFIX_MIN_ANSWERED * len(paths) or len(set(answers)) != 1:
+    A TTL is shared when at least half of the paths that reach it got an
+    answer there, and every answer is the same address. Silent hops make
+    agreement cheap: one router that answered among twenty silent ones is
+    not evidence that the twenty pass through it. A TTL answered by fewer
+    than half may still sit inside the prefix as unknown (None), once in a
+    row and only before a shared TTL: the home router rate-limits its
+    replies, and a quiet first hop says nothing about the paths parting. A
+    path that ends earlier (a destination inside the prefix, like the
+    ISP's first hop) stops counting there. Empty when too few paths."""
+    prefix: list = []
+    gap = 0
+    for ttl in range(max((len(p) for p in paths), default=0)):
+        reaching = [p for p in paths if ttl < len(p)]
+        answered = [p[ttl] for p in reaching if p[ttl]]
+        if len(reaching) < 2 or len(set(answered)) > 1:
             break
-        prefix.append(answers[0])
+        if answered and len(answered) >= PREFIX_MIN_ANSWERED * len(reaching):
+            prefix += [None] * gap + [answered[0]]
+            gap = 0
+        elif gap < MAX_SILENT_GAP:
+            gap += 1
+        else:
+            break
     return prefix
 
 
-def agrees(path: list, prefix: list) -> bool:
-    """Whether ``path`` matches ``prefix`` on every hop that answered."""
-    return all(not path[i] or path[i] == prefix[i]
-               for i in range(min(len(path), len(prefix))))
+def parted(a: list, b: list) -> bool:
+    """Whether two prefixes name different addresses at a TTL both know."""
+    return any(a[i] and b[i] and a[i] != b[i] for i in range(min(len(a), len(b))))
 
 
-def confirms(path: list, prefix: list) -> bool:
-    """Whether a reference trace confirms the prefix: it agrees on every
-    hop that answered, and at least half of the prefix's hops answered (a
-    reference whose early hops were all silent confirms nothing)."""
-    if len(path) < len(prefix):
-        return False
-    answered = sum(1 for i in range(len(prefix)) if path[i])
-    return agrees(path, prefix) and answered >= max(1, len(prefix) / 2)
+def cut(prefix: list, traces: list[list]) -> list:
+    """``prefix`` up to the first TTL where more of ``traces`` answered
+    another address than answered its own: one odd reply (a router
+    answering from another of its addresses) does not cut it."""
+    for i, hop in enumerate(prefix):
+        answers = [t[i] for t in traces if i < len(t) and t[i]]
+        if hop and sum(a != hop for a in answers) > sum(a == hop for a in answers):
+            prefix = prefix[:i]
+            break
+    while prefix and prefix[-1] is None:
+        prefix = prefix[:-1]
+    return list(prefix)
 
 
 def joined(prefix: list, own: list, first_hop: int) -> list:
@@ -102,52 +118,83 @@ def digest(hops: list) -> str:
     return hashlib.sha256(text(hops).encode()).hexdigest()[:12]
 
 
-def differs(a: list, b: list, distance_a: int | None, distance_b: int | None) -> bool:
-    if distance_a and distance_b and distance_a != distance_b:
-        return True
-    return any(a[i] and b[i] and a[i] != b[i] for i in range(min(len(a), len(b))))
+def differs(a: dict, b: dict) -> bool:
+    """Whether two traces of one destination disagree, judged only on the
+    hops both measured themselves (from the later of their first hops): the
+    shared prefix a trace borrowed is not its own measurement, and a prefix
+    that moved must not read as this destination's path changing."""
+    return _differs_at(a, b) is not None
 
 
-def merged(old: list, new: list) -> list:
+def merged(old: list, new: list, own_from: int = 1) -> list:
     """``new`` with its silent hops filled from ``old``: a hop that did not
-    answer this time keeps the address it answered with before."""
+    answer this time keeps the address it answered with before. Below
+    ``own_from`` ``new`` only borrowed the prefix, so ``old`` is kept there."""
     out = list(new)
     for i in range(min(len(old), len(new))):
-        if out[i] is None:
+        if out[i] is None or (i < own_from - 1 and old[i] is not None):
             out[i] = old[i]
     return out
 
 
-def track(state: dict, dst: str, hops: list, distance: int | None,
-          asns: list[int]) -> dict:
+def _differs_at(a: dict, b: dict) -> int | None:
+    """Where two traces first disagree: -1 for the destination's distance
+    (which every trace measures), a TTL index, or None."""
+    if a.get("distance") and b.get("distance") and a["distance"] != b["distance"]:
+        return -1
+    start = max(a.get("own_from", 1), b.get("own_from", 1)) - 1
+    ha, hb = a["hops"], b["hops"]
+    for i in range(start, min(len(ha), len(hb))):
+        if ha[i] and hb[i] and ha[i] != hb[i]:
+            return i
+    return None
+
+
+def _as_changed(old: dict, new: dict, asn_of) -> bool:
+    """Whether the AS path changed, over the hops both measured; never when
+    a public hop's owner is not known yet (a pending lookup is not a change
+    of network)."""
+    start = max(old.get("own_from", 1), new.get("own_from", 1)) - 1
+    a, b = old["hops"][start:], new["hops"][start:]
+    if not all(asn_of(h) for h in a + b if is_public(h)):
+        return False
+    return as_path(a, asn_of) != as_path(b, asn_of)
+
+
+def track(state: dict, dst: str, hops: list, distance: int | None, asn_of,
+          own_from: int = 1) -> dict:
     """Update one destination's ``state`` with a new trace; returns
     ``{"changed", "as_changed", "dst_changed"}``.
 
     ``state`` holds ``stable`` (the path in use) and ``candidate`` (a path
     seen once that differs from it), each ``{"dst", "hops", "distance",
-    "as_path"}``.
+    "own_from"}``; ``own_from`` is the first hop the trace measured itself.
     """
-    now = {"dst": dst, "hops": hops, "distance": distance, "as_path": asns}
+    now = {"dst": dst, "hops": hops, "distance": distance, "own_from": own_from}
     stable = state.get("stable")
     result = {"changed": False, "as_changed": False, "dst_changed": False}
     if stable is None or stable.get("dst") != dst:
         result["dst_changed"] = stable is not None
         state["stable"], state["candidate"] = now, None
         return result
-    if not differs(hops, stable["hops"], distance, stable.get("distance")):
-        state["candidate"] = None
-        stable["hops"] = merged(stable["hops"], hops)
+    if not differs(now, stable):
+        # A trace that borrowed the prefix cannot judge a candidate that
+        # differs inside it: that one waits for the next full trace.
+        candidate = state.get("candidate")
+        at = _differs_at(candidate, stable) if candidate else None
+        if not (at is not None and 0 <= at < own_from - 1):
+            state["candidate"] = None
+        stable["hops"] = merged(stable["hops"], hops, own_from)
         stable["distance"] = distance or stable.get("distance")
-        if asns:
-            stable["as_path"] = asns
+        stable["own_from"] = min(stable.get("own_from", 1), own_from)
         return result
     candidate = state.get("candidate")
-    if candidate and not differs(hops, candidate["hops"], distance, candidate.get("distance")):
+    if candidate and not differs(now, candidate):
         result["changed"] = True
-        # Compared only when both are complete (an empty AS path is unknown).
-        result["as_changed"] = bool(asns) and bool(stable.get("as_path")) \
-            and asns != stable.get("as_path")
-        state["stable"], state["candidate"] = {**now, "hops": merged(candidate["hops"], hops)}, None
+        result["as_changed"] = _as_changed(stable, now, asn_of)
+        state["stable"] = {**now, "hops": merged(candidate["hops"], hops, own_from),
+                           "own_from": min(candidate.get("own_from", 1), own_from)}
+        state["candidate"] = None
         return result
     state["candidate"] = now
     return result

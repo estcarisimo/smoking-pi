@@ -35,15 +35,30 @@ Every `PATHMETER_INTERVAL` seconds (default 3600):
    next unless the network moves it. One probe per hop, a second
    to wait for each, and the trace gives up after five silent hops in a row.
    Every probe of a cycle is paced together at `PATHMETER_PPS` per second
-   (default 20).
-3. **The shared hops once.** The first hops are the same for every
-   destination: the home router, then the access network. The first cycle
-   traces everything from hop 1 and learns them; the cycles after it trace
-   one destination in full and the others from the first hop past them,
-   which saves about 40 % of the probes. If that one destination's first
-   hops disagree with what was learned, the access path moved, and that
-   cycle traces everything in full again. A full cycle also runs once a
-   day.
+   (default 5), so no router on the way, shared or not, ever gets more
+   than that from the Pi: about two minutes a cycle for 76 destinations.
+3. **Never a burst at the router.** The first hops are the same for
+   every destination: the home router, then the access network. A hundred
+   traceroutes that each start at hop 1 would send a hundred probes at the
+   router at once, and the same at every shared hop after it. So each cycle
+   traces only **four destinations from hop 1**, in turn (the ones whose
+   last full trace is the oldest), and every other destination from the
+   first hop past the shared ones. The shared hops are learned from the
+   latest full trace of every destination, so they move as soon as one of
+   them shows the access path moved: a new gateway or a failover is
+   followed in the cycle that sees it, and the destinations traced before
+   it go first next. The router and each shared hop receive at most four
+   probes a cycle (eight in the first cycles after the service starts or
+   the access path moves),
+   whatever the number of destinations; every destination is traced from
+   hop 1 once every *destinations ÷ 4* cycles (19 hours for 76). Routers
+   past the shared hops that many paths cross (a provider's edge) get one
+   probe per destination crossing them, never faster than `PATHMETER_PPS`.
+   Until the shared hops are known, the destinations not yet traced from
+   hop 1 wait for their turn rather than all crossing them at once.
+
+   One limit follows: a destination's own change inside the shared hops
+   (it alone left them) is confirmed only by its next trace from hop 1.
 4. **What changed.** A path counts as changed when a hop that answered
    both times answered from another address (or the destination got nearer
    or further), in **two traces in a row**: one trace that differs is a
@@ -101,9 +116,12 @@ the first hop on only two traces in three.
 
 At the defaults, about 600 probes an hour for the reference house's 76
 destinations (about 3 % of the default samples ceiling) and a few MB a day.
+Of those, the home router receives four an hour. For comparison, the CPE
+microcut detector already sends the ISP's first hop 50 pings every 30
+seconds.
 `smoking-pi budget` shows the path meter as a `Traceroute` row with what
-its cycles of the last day actually sent, on average (the hourly cycles
-are cheaper than the daily full one), not an estimate, and counts it in the totals
+its cycles of the last day actually sent, on average, not an estimate,
+and counts it in the totals
 that [admission](measurement-budget.md#admission) checks a change against.
 
 Enabling it is not refused by admission: check `smoking-pi budget` first
@@ -114,7 +132,7 @@ on a connection that is close to a ceiling.
 | Setting | Default | |
 |---|---|---|
 | `PATHMETER_INTERVAL` | 3600 | Seconds between cycles; at least 600 |
-| `PATHMETER_PPS` | 20 | Probes per second, every probe of a cycle together; at most 100 |
+| `PATHMETER_PPS` | 5 | Probes per second, every probe of a cycle together; at most 100 |
 
 `smoking-pi config set PATHMETER_INTERVAL 7200` changes one.
 
@@ -130,7 +148,7 @@ start:
 - `path_hop`, one point per hop that answered, also tagged `ttl` (`01`,
   `02`…): `addr`, `asn` when known, `rtt_ms`.
 - `pathmeter_pass`, one point per cycle: `traces`, `probes`, `seconds`,
-  `failed`, `prefix_hops`, `full`.
+  `failed`, `prefix_hops`, `full_traces`.
 
 Addresses are fields, not tags, so routers do not multiply series.
 

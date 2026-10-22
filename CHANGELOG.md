@@ -11,31 +11,38 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
-- **The path to each destination (experimental).** The measurements said
-  how long a destination took to answer, never which way the packets went:
-  a latency step could not be read next to the route it happened on, and
-  whether an evening of loss sat in the access network or beyond could
-  only be guessed from how many destinations lost at once. A new
-  `pathmeter` service (Pro with InfluxDB, its own profile, off by default:
-  `smoking-pi enable pathmeter`) traces every measured destination once an
-  hour with a Paris traceroute over ICMP (scamper), so a load balancer on
-  the way does not draw a path that does not exist. ICMP because it is the
-  method that gets there: from the reference house it reached 60 of 76
-  destinations, against 34 over UDP and 7 over TCP. The hops every path
-  shares (the home router and the access network, five on the reference
-  house) are traced once per cycle and reused, about 40 % fewer probes,
-  and relearned when they move and once a day. A change counts after two
-  traces in a row show it, and an AS-path change, from Team Cymru's origin
-  data, is flagged on its own. Target Detail shows the last path in the
-  selected range, the changes and the distance per trace in a collapsed
-  *Path (experimental)* row, and marks confirmed changes with an
-  annotation. `smoking-pi budget` counts what its cycles actually sent (the day's mean)
-  as a `Traceroute` row (about 600 probes an hour at the defaults, 3 % of
-  the default samples ceiling). Paced at `PATHMETER_PPS` (20 per second);
+- **The path to each destination (experimental).** The measurements said how
+  long a destination took to answer, never which way the packets went: a
+  latency step could not be read next to the route it happened on, and
+  whether an evening of loss sat in the access network or beyond could only
+  be guessed from how many destinations lost at once. A new `pathmeter`
+  service (Pro with InfluxDB, its own profile, off by default: `smoking-pi
+  enable pathmeter`) traces every measured destination once an hour with a
+  Paris traceroute over ICMP (scamper), so a load balancer on the way does
+  not draw a path that does not exist. ICMP because it is the method that
+  gets there: from the reference house it reached 60 of 76 destinations,
+  against 34 over UDP and 7 over TCP. The hops every path shares (the home
+  router and the access network, five on the reference house) are never
+  crossed by a burst. Traced from hop 1, every destination would send its
+  probe at the home router within seconds of the others (76 here, more as
+  the list grows), and the router, which rate-limits, dropped a third of
+  them in the test. Each cycle traces only four destinations from hop 1, in
+  turn, and the rest from the first hop past the shared ones, learned from
+  every destination's latest full trace; a new gateway is followed in the
+  cycle that sees it. The router gets four probes an hour however many
+  destinations there are, and a cycle on the staging Pi sent 193 probes
+  instead of 299. A change counts after two traces in a row show it, and an
+  AS-path change, from Team Cymru's origin data, is flagged on its own.
+  Target Detail shows the last path in the selected range, the changes and
+  the distance per trace in a collapsed *Path (experimental)* row, and marks
+  confirmed changes with an annotation. `smoking-pi budget` counts what its
+  cycles actually sent (the day's mean) as a `Traceroute` row (about 600
+  probes an hour at the defaults, 3 % of the default samples ceiling). Paced
+  at `PATHMETER_PPS` (5 per second, so no router on the way gets more);
   `PATHMETER_INTERVAL` sets the cycle. Host network, every capability
   dropped but `NET_RAW` and the three scamper's own privilege separation
-  needs. The AS lookup moved from the inference module to
-  `common/asn.py`, shared by both. `docs/path.md`.
+  needs. The AS lookup moved from the inference module to `common/asn.py`,
+  shared by both. `docs/path.md`.
 
 ## [2.44.0] — 2026-10-20
 
