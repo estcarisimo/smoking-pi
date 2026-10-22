@@ -1281,6 +1281,11 @@ samples = from(bucket: "BUCKET")
   |> filter(fn: (r) => r._measurement == "wifi_link" and r._field == "uplink")
   |> keep(columns: ["_time", "_value", "interface"])
   |> group(columns: ["interface"])
+  // group() concatenates the series (a disconnected sample writes without
+  // ssid/bssid, so it is a series of its own) and last() takes the last ROW,
+  // not the newest: unsorted, the newest sample read as the end of whichever
+  // series came last.
+  |> sort(columns: ["_time"])
 up = samples |> filter(fn: (r) => r._value == 1) |> last()
   |> map(fn: (r) => ({interface: r.interface, kind: "uplink", at: string(v: r._time), value: 1.0}))
 newest = samples |> last()
@@ -1291,6 +1296,7 @@ spacing = from(bucket: "BUCKET")
   |> filter(fn: (r) => r._measurement == "wifi_link" and r._field == "rx_packets")
   |> keep(columns: ["_time", "_value", "interface"])
   |> group(columns: ["interface"])
+  |> sort(columns: ["_time"])
   |> elapsed(unit: 1s)
   |> median(column: "elapsed")
   |> map(fn: (r) => ({interface: r.interface, kind: "interval", at: "",
