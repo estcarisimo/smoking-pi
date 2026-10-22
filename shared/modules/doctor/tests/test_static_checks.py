@@ -19,6 +19,9 @@ import yaml
 from doctor import sources, static_checks
 from doctor.report import Report, Status
 
+# config-manager's real taxonomy, copied into the synthetic repo.
+_REAL_CM = pathlib.Path(__file__).resolve().parents[2] / "config-manager"
+
 # ---------------------------------------------------------------------------
 # A minimal but faithful synthetic repository
 # ---------------------------------------------------------------------------
@@ -257,6 +260,13 @@ def repo(tmp_path):
     mcp.mkdir(parents=True)
     (mcp / "server.py").write_text(MCP_SERVER_SOURCE)
     (tmp_path / "docs/mcp-server.md").write_text(MCP_DOC)
+    # config-manager's real taxonomy and seed targets (service-taxonomy).
+    cm = tmp_path / "shared/modules/config-manager"
+    (cm / "templates").mkdir(parents=True)
+    (cm / "taxonomy.py").write_text((_REAL_CM / "taxonomy.py").read_text())
+    for name in ("taxonomy.yaml", "targets.yaml"):
+        (cm / "templates" / name).write_text(
+            (_REAL_CM / "templates" / name).read_text())
 
     (provisioning / "dashboards/overview/latency.json").write_text(
         json.dumps(_dashboard("lat-v1", "Latency", GOOD_QUERY))
@@ -1477,3 +1487,47 @@ def test_dashboard_definitions_skip_without_common(tmp_path):
     out = static_checks.check_dashboard_definitions_match(
         static_checks.Repo(tmp_path), [])
     assert out.status == Status.SKIP
+
+
+# ---------------------------------------------------------------------------
+# The service taxonomy
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def taxonomy_repo(repo):
+    """The synthetic repo, which carries config-manager's real taxonomy."""
+    return repo
+
+
+def _taxonomy(repo):
+    path = repo.config_manager / "templates/taxonomy.yaml"
+    return path, yaml.safe_load(path.read_text())
+
+
+def test_service_taxonomy_skips_without_config_manager(repo):
+    (repo.config_manager / "taxonomy.py").unlink()
+    assert run(repo)["service-taxonomy"].status is Status.SKIP
+
+
+def test_service_taxonomy_passes_on_the_shipped_files(taxonomy_repo):
+    check = run(taxonomy_repo)["service-taxonomy"]
+    assert check.status is Status.OK, check.findings
+    assert "seed targets labeled" in check.summary
+
+
+def test_a_rule_category_outside_the_vocabulary_fails(taxonomy_repo):
+    path, data = _taxonomy(taxonomy_repo)
+    data["rules"][0]["categories"] = ["news"]
+    path.write_text(yaml.safe_dump(data))
+    check = run(taxonomy_repo)["service-taxonomy"]
+    assert check.status is Status.FAIL
+    assert any("news is not in the vocabulary" in f.message for f in check.findings)
+
+
+def test_a_seed_target_without_a_rule_fails(taxonomy_repo):
+    path, data = _taxonomy(taxonomy_repo)
+    data["rules"] = [r for r in data["rules"] if r["match"] != {"name": "NYT"}]
+    path.write_text(yaml.safe_dump(data))
+    check = run(taxonomy_repo)["service-taxonomy"]
+    assert check.status is Status.FAIL
+    assert any("seed target NYT" in f.message for f in check.findings)

@@ -66,6 +66,7 @@ Each one exists because the corresponding failure actually happened here.
 | `overrides-match-a-series` | A field override matched `byName` on a `yield(name:)` value the query does not otherwise produce: Grafana names a Flux series by its field and tags, so the override never applies and the panel draws with the wrong unit, axis or scale. Panels that set `displayName` are skipped | The CPE microcuts' TX failures drawn in dBm on the signal's axis, and six Wi-Fi Link overrides (noise/SNR units, channel busy's 0–100 % scale, link quality's axis) |
 | `links-name-provisioned-dashboards` | A dashboard uid named in `common/links.py` (the deep links in every alert and assistant answer) or the web admin's category map that no dashboard in the InfluxDB tree carries: the link opens Grafana's "not found" page | The alerts' `graph` still pointed at the SmokePing Latency twins retired after the 2026-10-15 audit, and the Overview's index linked one of them |
 | `dashboard-definitions-match` | A dashboard literal that restates a shared definition with another number than `common/`: the loss-event bar (1.5 pings' worth, `EVENT_LOST_PINGS`), the cut-window bar and its drawn line (`MICROCUT_LOSS_PCT`), the weak Wi-Fi step of a signal panel (`WIFI_WEAK_DBM`). A dashboard cannot import Python, so a value retuned in `common/` would leave the panel saying the old thing while every alert and answer says the new one | — (added with the evidence-consistency audit, 2026-10-18: every literal matched, nothing checked it) |
+| `service-taxonomy` | `templates/taxonomy.yaml` that does not validate (a rule category outside the vocabulary, a match with two keys, a missing `source`), or a seed target in `templates/targets.yaml` no rule labels ([Service taxonomy](taxonomy.md)) | — (added with the taxonomy, 2026-10-22) |
 
 ### Where the vocabulary comes from
 
@@ -209,6 +210,19 @@ missing rather than pending.
   same applies when SmokePing's files cannot be read;
 - **fail** too when SmokePing's container exists but is not running;
 - **skip** without Docker, or without any SmokePing container.
+
+### `targets-labeled`
+
+How many active targets resolve to `unknown` in the
+[service taxonomy](taxonomy.md): no rule and no override says what
+service they are. Unknown is allowed (a target you added may name a
+service the vocabulary has no rule for), so this only warns.
+
+- **warn** listing them (the first 12), each a `smoking-pi taxonomy set`
+  away from a label;
+- **ok** when every active target has one;
+- **skip** without Docker, without config-manager (Basic), or when its
+  image predates the taxonomy.
 
 ### `silent-series`
 
@@ -441,6 +455,7 @@ Grafana does not answer, and without an admin password.
 | `container-dns-fresh` | yes | yes | yes | yes |
 | `config-manager-database` | skips (no config-manager) | yes | yes | yes |
 | `targets-measured` | yes (SmokePing's own files) | yes | yes | yes |
+| `targets-labeled` | skips (no config-manager) | yes | yes | yes |
 | `silent-series` | skips (no TSDB) | skips (no TSDB) | yes | skips |
 | `targets-in-tsdb` | skips (no TSDB) | skips (no TSDB) | yes | skips |
 | `monitor-radio` | skips (no TSDB) | skips (no TSDB) | yes, on a Wi-Fi uplink | skips |

@@ -435,6 +435,50 @@ class ConfigManagerClient:
             return response.json()
         raise RuntimeError(f"Failed to get assistant state: {response.status_code}")
 
+    def get_taxonomy(self) -> Dict[str, Any]:
+        """The service vocabulary (config-manager GET /taxonomy)."""
+        response = self._make_request('GET', '/taxonomy')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get the taxonomy: {response.status_code}")
+
+    def get_taxonomy_targets(self) -> Dict[str, Any]:
+        """Every target's service label, in either mode (GET /taxonomy/targets)."""
+        response = self._make_request('GET', '/taxonomy/targets')
+        if response.status_code == 200:
+            return response.json()
+        raise RuntimeError(f"Failed to get target labels: {response.status_code}")
+
+    def _labels_result(self, response) -> Dict[str, Any]:
+        """A label write's answer: the body, or a ``refused`` dict, or raise.
+
+        A 400 carries config-manager's reasons (a list of literal strings,
+        never exception text); 404 is ValueError like the other target calls.
+        """
+        if response.status_code == 200:
+            return response.json()
+        if response.status_code == 404:
+            raise ValueError('Target not found')
+        if response.status_code in (400, 501):
+            try:
+                body = response.json()
+            except ValueError:
+                body = {}
+            reasons = body.get('reasons') if isinstance(body, dict) else None
+            return {'refused': 'invalid' if response.status_code == 400 else 'yaml_mode',
+                    'reasons': [r for r in (reasons or []) if isinstance(r, str)]}
+        raise RuntimeError(f"Label change failed: {response.status_code}")
+
+    def set_target_labels(self, target_id: int, labels: Dict[str, Any]) -> Dict[str, Any]:
+        """Override a target's service label (PUT /targets/<id>/labels)."""
+        return self._labels_result(
+            self._make_request('PUT', f'/targets/{target_id}/labels', json=labels))
+
+    def reset_target_labels(self, target_id: int) -> Dict[str, Any]:
+        """Drop a target's override (DELETE /targets/<id>/labels)."""
+        return self._labels_result(
+            self._make_request('DELETE', f'/targets/{target_id}/labels'))
+
     def get_categories(self) -> Dict[str, Any]:
         """Get all target categories"""
         try:
@@ -743,6 +787,22 @@ class ConfigAPIGateway:
             logger.error(f"Failed to get categories from database: {e}")
             raise
     
+    def get_taxonomy(self) -> Dict[str, Any]:
+        """The service vocabulary; see ConfigManagerClient.get_taxonomy."""
+        return self.client.get_taxonomy()
+
+    def get_taxonomy_targets(self) -> Dict[str, Any]:
+        """Every target's service label; see ConfigManagerClient."""
+        return self.client.get_taxonomy_targets()
+
+    def set_target_labels(self, target_id: int, labels: Dict[str, Any]) -> Dict[str, Any]:
+        """Override a target's service label; see ConfigManagerClient."""
+        return self.client.set_target_labels(target_id, labels)
+
+    def reset_target_labels(self, target_id: int) -> Dict[str, Any]:
+        """Drop a target's override; see ConfigManagerClient."""
+        return self.client.reset_target_labels(target_id)
+
     def update_probe(self, name: str, changes: Dict[str, Any]) -> Dict[str, Any]:
         """Change a probe's cycle; see ConfigManagerClient.update_probe."""
         return self.client.update_probe(name, changes)

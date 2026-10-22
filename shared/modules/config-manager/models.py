@@ -9,11 +9,13 @@ from sqlalchemy import (
     DECIMAL, ForeignKey, create_engine, inspect, text
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker, Session
+from sqlalchemy.orm import foreign, relationship, sessionmaker, Session
 from sqlalchemy.sql import func
 import os
 import time
 import logging
+
+import taxonomy
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +98,35 @@ class Target(Base):
     # Relationships
     category = relationship("TargetCategory", back_populates="targets")
     probe = relationship("Probe", back_populates="targets")
+    # The per-install label override, joined by name (target_labels has no
+    # foreign key: a label outlives an OCA refresh that re-creates the row).
+    label_override = relationship(
+        "TargetLabel",
+        primaryjoin="Target.name == foreign(TargetLabel.target_name)",
+        uselist=False, viewonly=True, lazy="selectin",
+    )
     
     def __repr__(self):
         return f"<Target(name='{self.name}', host='{self.host}', active={self.is_active})>"
+
+    def label_fields(self) -> dict:
+        """service/categories/label_*: the override, else the taxonomy's rule.
+
+        Never raises: a label is a description, and describing a target
+        must not stop it from being listed or measured.
+        """
+        override = self.label_override
+        try:
+            resolved = taxonomy.shipped().resolve(
+                self.name, self.host,
+                self.category.name if self.category else None, self.title)
+        except Exception as e:
+            logger.error(f"Taxonomy resolution failed for {self.name}: {e}")
+            resolved = {"service": self.title, "categories": [taxonomy.UNKNOWN],
+                        "source": None, "confidence": None, "rule": None,
+                        "note": None}
+        return taxonomy.label_fields(
+            resolved, override.to_override() if override is not None else None)
     
     def to_dict(self):
         """Convert target to dictionary for API responses"""
@@ -113,6 +141,7 @@ class Target(Base):
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            **self.label_fields(),
         }
         
         # Add Netflix OCA metadata if present
@@ -131,6 +160,27 @@ class Target(Base):
             }
         
         return result
+
+class TargetLabel(Base):
+    """A per-install service label that replaces the taxonomy's resolution.
+
+    Keyed by target name, the identity everything downstream uses (RRD
+    path, Influx tag). ``categories`` is a JSON list of taxonomy ids.
+    """
+    __tablename__ = 'target_labels'
+
+    target_name = Column(String(100), primary_key=True)
+    service = Column(String(100), nullable=False)
+    categories = Column(JSON, nullable=False)
+    note = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=func.current_timestamp(), onupdate=func.current_timestamp())
+
+    def to_override(self) -> dict:
+        return {'service': self.service, 'categories': list(self.categories or []),
+                'note': self.note}
+
+    def __repr__(self):
+        return f"<TargetLabel(target_name='{self.target_name}', service='{self.service}')>"
 
 class Source(Base):
     """Website source categories (topsites, netflix, custom, dns)"""
@@ -369,7 +419,20 @@ class TargetRepository:
         """Update existing target (only allowlisted fields are applied)"""
         target = self.get_by_id(target_id)
         if target:
-            for key, value in _filter_target_fields(target_data).items():
+            fields = _filter_target_fields(target_data)
+            new_name = fields.get('name')
+            if new_name and new_name != target.name:
+                # The override follows the target to its new name.
+                # A label already under the new name (left by a deleted
+                # target of that name) is that name's; the old one goes, so
+                # it cannot resurface on a later target with the old name.
+                label = self.session.get(TargetLabel, target.name)
+                if label is not None:
+                    if self.session.get(TargetLabel, new_name) is None:
+                        label.target_name = new_name
+                    else:
+                        self.session.delete(label)
+            for key, value in fields.items():
                 setattr(target, key, value)
             self.session.commit()
             self.session.refresh(target)
@@ -379,6 +442,9 @@ class TargetRepository:
         """Delete target"""
         target = self.get_by_id(target_id)
         if target:
+            label = self.session.get(TargetLabel, target.name)
+            if label is not None:
+                self.session.delete(label)
             self.session.delete(target)
             self.session.commit()
             return True
@@ -392,6 +458,31 @@ class TargetRepository:
             self.session.commit()
             self.session.refresh(target)
         return target
+
+class LabelRepository:
+    """Per-install label overrides (target_labels)."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def set(self, target_name: str, override: dict) -> TargetLabel:
+        label = self.session.get(TargetLabel, target_name)
+        if label is None:
+            label = TargetLabel(target_name=target_name)
+            self.session.add(label)
+        label.service = override['service']
+        label.categories = list(override['categories'])
+        label.note = override.get('note')
+        self.session.commit()
+        return label
+
+    def delete(self, target_name: str) -> bool:
+        label = self.session.get(TargetLabel, target_name)
+        if label is None:
+            return False
+        self.session.delete(label)
+        self.session.commit()
+        return True
 
 class CategoryRepository:
     """Repository for category operations"""

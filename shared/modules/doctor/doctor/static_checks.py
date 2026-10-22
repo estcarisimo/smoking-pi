@@ -14,10 +14,12 @@ run on the Pi.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import os
 import pathlib
 import re
+import sys
 
 from . import sources
 from .report import CheckResult, Finding, Status, result, skipped
@@ -58,6 +60,7 @@ class Repo:
         self.mcp_server = root / "shared/modules/mcp-server/server.py"
         self.mcp_doc = root / "docs/mcp-server.md"
         self.env_templates = sorted(root.glob("editions/*/.env.template"))
+        self.config_manager = root / "shared/modules/config-manager"
 
     @staticmethod
     def cli_dir(root: pathlib.Path) -> pathlib.Path:
@@ -116,6 +119,7 @@ def run_all(repo: Repo) -> list[CheckResult]:
         check_alerter_env_declared(repo),
         check_mcp_tools_documented(repo),
         check_settings_schema(repo),
+        check_service_taxonomy(repo),
     ]
 
 
@@ -924,4 +928,70 @@ def check_settings_schema(repo: Repo) -> CheckResult:
         "settings-schema",
         findings,
         f"{total} settings in {len(repo.env_templates)} templates, all in a section and well-typed",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Service taxonomy (docs/taxonomy.md)
+# ---------------------------------------------------------------------------
+
+
+def _load_taxonomy_module(path: pathlib.Path):
+    """config-manager's taxonomy.py, by path: the one validator and resolver."""
+    spec = importlib.util.spec_from_file_location("_cm_taxonomy", path)
+    if spec is None or spec.loader is None or not path.is_file():
+        return None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except (SyntaxError, ImportError, OSError, NameError, AttributeError, ValueError):
+        sys.modules.pop(spec.name, None)
+        return None
+    return module
+
+
+def check_service_taxonomy(repo: Repo) -> CheckResult:
+    """templates/taxonomy.yaml validates, and every shipped target has a label.
+
+    The taxonomy says what kind of service a target is beside its technical
+    category. A rule naming a category the vocabulary lacks, or a match with
+    two keys, would make config-manager answer "unknown" for every target
+    the file covers; a seed target without a label is the first thing a new
+    install shows as unknown. Both are a file edit away from shipping, and
+    nothing else reads the file before a Pi does.
+    """
+    name = "service-taxonomy"
+    module = _load_taxonomy_module(repo.config_manager / "taxonomy.py")
+    tax_file = repo.config_manager / "templates/taxonomy.yaml"
+    if module is None or not tax_file.is_file():
+        return skipped(name, f"no taxonomy under {repo.config_manager}")
+    where = "shared/modules/config-manager/templates/taxonomy.yaml"
+    try:
+        tax = module.load(tax_file)
+    except module.TaxonomyError as exc:
+        return result(name, [Finding(p, where=where) for p in exc.problems], "")
+    findings: list[Finding] = []
+    targets_file = repo.config_manager / "templates/targets.yaml"
+    try:
+        import yaml
+
+        seed = yaml.safe_load(targets_file.read_text()) or {}
+    except (OSError, ImportError, ValueError) as exc:
+        return result(name, [Finding(f"cannot read the seed targets: {exc}",
+                                     where="templates/targets.yaml")], "")
+    count = 0
+    for bucket, entries in (seed.get("active_targets") or {}).items():
+        for t in entries or []:
+            count += 1
+            label = tax.resolve(t.get("name"), t.get("host"),
+                                t.get("category") or bucket, t.get("title"))
+            if label["categories"] == [module.UNKNOWN]:
+                findings.append(Finding(
+                    f"seed target {t.get('name')} ({t.get('host')}) resolves to "
+                    "unknown: add a rule for it", where=where))
+    return result(
+        name, findings,
+        f"taxonomy v{tax.version}: {len(tax.categories)} categories, "
+        f"{len(tax.rules)} rules; all {count} seed targets labeled",
     )

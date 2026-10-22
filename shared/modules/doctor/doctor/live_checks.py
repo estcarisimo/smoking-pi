@@ -797,6 +797,46 @@ def check_targets_measured(docker: Docker | None = None, repo=None) -> CheckResu
     return result(name, findings, ok)
 
 
+LABELS_SHOWN = 12
+
+
+def check_targets_labeled(docker: Docker | None = None) -> CheckResult:
+    """How many active targets no taxonomy rule (or override) labels.
+
+    Unknown is allowed -- a target someone added by hand may name a
+    service the vocabulary has no rule for -- so this only warns, and
+    names them: each is a ``smoking-pi taxonomy set`` away from a label,
+    or a rule to propose upstream. Asked of the running API from inside
+    config-manager, like ``smoking-pi taxonomy unknown``.
+    """
+    name = "targets-labeled"
+    docker = docker or Docker()
+    if not docker.available():
+        return skipped(name, "docker is not available here")
+    container = docker.container_for_service("config-manager")
+    if not container:
+        return skipped(name, "config-manager is not running")
+    code, out = docker.run(["exec", container, "python", "taxonomy.py",
+                            "unknown", "--json"])
+    try:
+        body = json.loads(out) if code == 0 else None
+    except ValueError:
+        body = None
+    if not isinstance(body, dict) or not isinstance(body.get("targets"), list):
+        # An image older than the taxonomy has no taxonomy.py to run.
+        return skipped(name, "config-manager did not answer GET /taxonomy/unknown")
+    names = sorted(str(t.get("name")) for t in body["targets"] if isinstance(t, dict))
+    if not names:
+        return result(name, [], "every active target has a service label")
+    shown = ", ".join(names[:LABELS_SHOWN])
+    if len(names) > LABELS_SHOWN:
+        shown += f" and {len(names) - LABELS_SHOWN} more"
+    return CheckResult(name, Status.WARN,
+                       f"{len(names)} active target(s) have no service label", [Finding(
+        f"{shown}: smoking-pi taxonomy set TARGET SERVICE CATEGORY, or a rule "
+        "in templates/taxonomy.yaml (docs/taxonomy.md)")])
+
+
 def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
     docker = docker or Docker()
     return [
@@ -804,6 +844,7 @@ def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
         check_container_dns_fresh(repo, docker),
         check_config_manager_database(docker),
         check_targets_measured(docker, repo),
+        check_targets_labeled(docker),
         check_silent_series(docker),
         check_targets_in_tsdb(docker, repo),
         check_monitor_radio(docker, repo),
