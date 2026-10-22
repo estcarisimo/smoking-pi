@@ -193,7 +193,7 @@
       "description": "How long ago any probe of this target (ICMP, TCP, HTTP or DNS) last wrote a point inside the selected range, and when that point is. Relative to now: green within 11 minutes (two steps at the default 5-minute step), orange within a day, red beyond. Red means the tiles beside it describe the past, not the present; a range that ends in the past is always red. \"no data in this range\": nothing from this target in the range at all.",
       "gridPos": {
         "h": 4,
-        "w": 6,
+        "w": 5,
         "x": 0,
         "y": 1
       },
@@ -263,8 +263,8 @@
       "description": "Whether this target wrote a point in the last 24 hours, whatever the selected range. When it did not: when it stopped, and, for a retired Netflix appliance name, which slot (Netflix_<slot>_<site>) measures the appliances now: the slots keep their names while the appliance behind each changes daily (target_host records which). The newest point is looked for in the range and the 30 days before it. Click the text to open the slot, or the Netflix side-by-side.",
       "gridPos": {
         "h": 4,
-        "w": 13,
-        "x": 6,
+        "w": 10,
+        "x": 5,
         "y": 1
       },
       "targets": [
@@ -351,8 +351,8 @@
       "description": "Time inside the range in which this Pi's own radio heard nothing: the alerter's incidents diagnosed local_wifi, and the inference module's periods labeled monitor_deaf (of periods starting at the same time, the shortest: the span every target labeled then shares; a span that began more than 7 days (incidents) or 14 days (periods) before the range is not seen). Loss in those minutes is the monitor's, not any destination's: subtract it before reading the loss tiles. \"none\": no such span in the range. The \"Monitor deaf\" and \"Loss incidents\" annotations mark the spans on the charts.",
       "gridPos": {
         "h": 4,
-        "w": 5,
-        "x": 19,
+        "w": 4,
+        "x": 20,
         "y": 1
       },
       "targets": [
@@ -406,6 +406,73 @@
         "overrides": []
       },
       "id": 20,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Service",
+      "description": "What this target measures, and its service categories (docs/taxonomy.md): the label config-manager resolves from the rules, or the override set for this install, as the exporter last recorded it. Not the probe bucket (topsites, netflix...). \"unknown\": no rule says yet, not a broken target. \"no label yet\": the exporter has not written one (ClickHouse mode, or the first minutes after an upgrade).",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 15,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"regexp\"\nimport \"strings\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// The service label config-manager resolved for this target, as the exporter last wrote it\n// (target_labels, written on change; docs/taxonomy.md). The bare name's label first.\nfrom(bucket:\"smokeping\") |> range(start: 0)\n  |> filter(fn:(r)=> r._measurement == \"target_labels\" and r.target =~ re and (r._field == \"service\" or r._field == \"categories\"))\n  |> last()\n  |> pivot(rowKey:[\"_time\",\"target\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> group()\n  |> map(fn:(r)=> ({r with rank: if strings.toLower(v: r.target) == strings.toLower(v: base) then 0 else 1}))\n  |> sort(columns:[\"rank\",\"target\"]) |> limit(n:1)\n  |> map(fn:(r)=> ({_field: if exists r.service then r.service else r.target, _value: if exists r.categories then strings.replaceAll(v: r.categories, t: \",\", u: \", \") else \"unknown\"}))\n  |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^(_value|Value)$/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "text": {
+          "valueSize": 16
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "no label yet",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "unknown": {
+                  "text": "unknown (no rule yet)",
+                  "color": "orange",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "displayName": "${__field.labels._field}"
+        },
+        "overrides": []
+      },
+      "id": 22,
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"

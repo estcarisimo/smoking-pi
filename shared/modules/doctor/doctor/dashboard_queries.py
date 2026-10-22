@@ -533,6 +533,11 @@ def _check_dashboard(run: _Run, dash: dict, now_ms: int, timezone: str,
             continue
         options = _sort(_apply_regex(_first_column(detail), variable.get("regex") or ""),
                         variable.get("sort"))
+        # Saved on "All" with a custom all value: Grafana sends that value,
+        # whatever the query offers (none, on a fresh install, is fine).
+        if current == "$__all" and variable.get("includeAll") and variable.get("allValue"):
+            values[name] = str(variable["allValue"])
+            continue
         if not options:
             unresolved.add(name)
             fails.append(Finding(
