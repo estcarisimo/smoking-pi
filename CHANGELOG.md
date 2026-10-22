@@ -9,6 +9,105 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.46.0] — 2026-10-22
+
+The release that gives every target a service label, carries it to the
+time series, the dashboards and the assistants, and says who delivers each
+service. Every target now has a `service` and `categories` from a
+vocabulary of 15 categories, resolved by 78 shipped rules and correctable
+per install (web admin or `smoking-pi taxonomy`). The InfluxDB exporter
+writes a `target_labels` point per target (service, categories, and the
+operator, kind and AS of the network that answers), only when a label
+changes and without adding a tag to any latency series, so no history
+splits. Connectivity & Quality and Side by Side filter by **Service
+category**, Target Detail shows a **Service** tile, and `list_targets`
+names targets by service. The path meter and inference name every hop's
+network from the first cycle with a local prefix-to-AS table the Pi
+downloads once a day (about 4 MB; not shipped in the package). It adds no
+probe; the exporter makes a few cached Team Cymru lookups (a week per
+/24). A maintainer tool checks the shipped rules against their sources.
+Also fixed: the doctor no longer reports a stopped Wi-Fi collector after
+the radio reconnects.
+
+### Added
+
+- **What kind of service each target is.** A target's `category`
+  (`top_sites`, `netflix_oca`, `dns_resolvers`, `dns_wizard`...) says which
+  SmokePing section and InfluxDB tag it gets, never what the service is:
+  the Quality dashboard, the DNS wizard and the assistant could only call
+  Netflix, Claude or a game store "topsites" or "dns_wizard", and nothing
+  could ask how video, calls or AI assistants were doing as a group. Every
+  target now carries a service label beside its category, which is
+  unchanged: a `service` name and one or more `categories` from a
+  vocabulary of the project's own (15 categories and `unknown`: video,
+  audio, gaming, calls, messaging, social, search, AI assistant, cloud,
+  software updates, CDN, DNS, connectivity, ads, academic), with the rule
+  that produced it, its evidence and a confidence. The rules
+  (`config-manager/templates/taxonomy.yaml`, versioned, 78 rules) match a
+  target's name, then the longest suffix of its host, then its technical
+  bucket; every seed target and the services the DNS wizard usually adopts
+  resolve. No external hostname-to-category list can be shipped under its
+  license (AdGuard's registry is GPL, nDPI's LGPL, Cloudflare Radar's
+  categories non-commercial), so they are only evidence a maintainer
+  consults, recorded as `source` on each rule. A wrong label is corrected
+  per install with an override in PostgreSQL (`target_labels`), from the
+  web admin's target dialog or `smoking-pi taxonomy set|reset`;
+  `smoking-pi taxonomy list|unknown` shows them. `GET /targets` carries the
+  label; `GET /taxonomy`, `/taxonomy/targets` and `/taxonomy/unknown` are
+  new. The doctor validates the file and the seed's labels
+  (`service-taxonomy`) and warns about unlabeled targets on a running stack
+  (`targets-labeled`). `docs/taxonomy.md`.
+
+- **The service labels reach the time series, the dashboards and the
+  assistants.** On their own, the labels above would be known only to
+  config-manager's API, the web admin and `smoking-pi taxonomy`: the
+  dashboards filtered by probe bucket, and the
+  assistants listed "topsites" and "dns_wizard" targets, so nobody could
+  look at how video or AI assistants were doing as a group, or hear
+  "Netflix, video streaming" instead of a bucket name. The InfluxDB
+  exporter now writes a `target_labels` measurement (tag `target`; fields
+  `service`, `categories`, `label_source`, `taxonomy_version`), read from
+  config-manager's `GET /taxonomy/targets` and written only when a label
+  changes. No tag was added to any latency series, which would have split
+  every target's history. Connectivity & Quality and Side by Side have a
+  **Service category** variable (All by default, which adds one
+  `target =~ /^(.*)$/` predicate the storage engine evaluates on the tag); Target Detail has a
+  **Service** tile. The MCP server's `list_targets` and the web chat's
+  return `service` and `categories` and filter by `service_category`;
+  `get_latency_stats` and `get_loss_events` carry them when they read the
+  target list for links; the shared answering guide says to name targets
+  by service. The live doctor's dashboard check now sends a variable's
+  custom all value when it is saved on All, as Grafana does. ClickHouse
+  mode has no `target_labels` yet. `docs/taxonomy.md`.
+
+- **Every target says who delivers it, and the rules can be checked
+  against their sources.** A target's label said what the service is for
+  (`video`, `ai_assistant`), never whose network answers: Netflix from an
+  Open Connect box inside the ISP and a news site from a Fastly edge looked
+  alike, though trouble on a shared CDN edge or inside the carrier means
+  something else than trouble at one origin. And the rules could only be
+  checked by hand, with nothing to say a source had
+  moved a hostname or recategorized a service. The InfluxDB exporter now
+  adds `operator`, `kind` and `asn` to each target's `target_labels` point
+  (written on change, as before): the host's origin AS from Team Cymru,
+  cached a week per /24, classified by `common/asn.py`. Its hand table of
+  well-known networks still decides first; behind it, a vendored
+  `common/data/asn_roles.csv` gives a kind to about 880 more ASes, derived
+  from Linnaeus's hand-labeled ASes (MIT), which adds the kinds `access`,
+  `transit` and `dns_infrastructure`, and `local` for a LAN address. The
+  per-target cache moved from the inference module to
+  `common/operators.py`; the experimental shared-congestion detector reads
+  the same kinds, so an AS it called `other` may now count as one of
+  these. Target Detail's Service tile shows the operator and kind; the
+  doctor's `targets-labeled` check warns about targets whose network is not
+  identified. The smokeping image now carries `shared/modules/common` and
+  dnspython for this. A maintainer tool, `shared/scripts/build-taxonomy.py`,
+  reads AdGuard's and nDPI's host lists and Cloudflare Radar at run time
+  (never vendored), proposes rules for an install's unlabeled targets, and
+  reports shipped rules their source no longer supports and rules older
+  than 180 days; `--check` exits 1 on those, and it never edits the rules
+  ([Service taxonomy](taxonomy.md#refreshing-the-rules)).
+
 ### Changed
 
 - **The path meter and inference know every hop's network from the first
@@ -49,58 +148,6 @@ version gets a matching GitHub release and git tag.
   sorted too. The alerter's deaf-radio detection already sorted and was
   right.
 
-### Added
-
-- **Every target says who delivers it, and the rules can be checked
-  against their sources.** A target's label said what the service is for
-  (`video`, `ai_assistant`), never whose network answers: Netflix from an
-  Open Connect box inside the ISP and a news site from a Fastly edge looked
-  alike, though trouble on a shared CDN edge or inside the carrier means
-  something else than trouble at one origin. And the rules shipped in
-  v2.45.0 could only be checked by hand, with nothing to say a source had
-  moved a hostname or recategorized a service. The InfluxDB exporter now
-  adds `operator`, `kind` and `asn` to each target's `target_labels` point
-  (written on change, as before): the host's origin AS from Team Cymru,
-  cached a week per /24, classified by `common/asn.py`. Its hand table of
-  well-known networks still decides first; behind it, a vendored
-  `common/data/asn_roles.csv` gives a kind to about 880 more ASes, derived
-  from Linnaeus's hand-labeled ASes (MIT), which adds the kinds `access`,
-  `transit` and `dns_infrastructure`, and `local` for a LAN address. The
-  per-target cache moved from the inference module to
-  `common/operators.py`; the experimental shared-congestion detector reads
-  the same kinds, so an AS it called `other` may now count as one of
-  these. Target Detail's Service tile shows the operator and kind; the
-  doctor's `targets-labeled` check warns about targets whose network is not
-  identified. The smokeping image now carries `shared/modules/common` and
-  dnspython for this. A maintainer tool, `shared/scripts/build-taxonomy.py`,
-  reads AdGuard's and nDPI's host lists and Cloudflare Radar at run time
-  (never vendored), proposes rules for an install's unlabeled targets, and
-  reports shipped rules their source no longer supports and rules older
-  than 180 days; `--check` exits 1 on those, and it never edits the rules
-  ([Service taxonomy](taxonomy.md#refreshing-the-rules)).
-
-- **The service labels reach the time series, the dashboards and the
-  assistants.** v2.45.0 gave every target a service and service categories,
-  but only config-manager's API, the web admin and `smoking-pi taxonomy`
-  knew them: the dashboards still filtered by probe bucket, and the
-  assistants listed "topsites" and "dns_wizard" targets, so nobody could
-  look at how video or AI assistants were doing as a group, or hear
-  "Netflix, video streaming" instead of a bucket name. The InfluxDB
-  exporter now writes a `target_labels` measurement (tag `target`; fields
-  `service`, `categories`, `label_source`, `taxonomy_version`), read from
-  config-manager's `GET /taxonomy/targets` and written only when a label
-  changes. No tag was added to any latency series, which would have split
-  every target's history. Connectivity & Quality and Side by Side have a
-  **Service category** variable (All by default, which adds one
-  `target =~ /^(.*)$/` predicate the storage engine evaluates on the tag); Target Detail has a
-  **Service** tile. The MCP server's `list_targets` and the web chat's
-  return `service` and `categories` and filter by `service_category`;
-  `get_latency_stats` and `get_loss_events` carry them when they read the
-  target list for links; the shared answering guide says to name targets
-  by service. The live doctor's dashboard check now sends a variable's
-  custom all value when it is saved on All, as Grafana does. ClickHouse
-  mode has no `target_labels` yet. `docs/taxonomy.md`.
-
 ## [2.45.0] — 2026-10-22
 
 The paths, not only the times: an experimental `pathmeter` service traces
@@ -114,34 +161,6 @@ shares, however many destinations there are, and no router on the way gets
 more than five probes a second.
 
 ### Added
-
-- **What kind of service each target is.** A target's `category`
-  (`top_sites`, `netflix_oca`, `dns_resolvers`, `dns_wizard`...) says which
-  SmokePing section and InfluxDB tag it gets, never what the service is:
-  the Quality dashboard, the DNS wizard and the assistant could only call
-  Netflix, Claude or a game store "topsites" or "dns_wizard", and nothing
-  could ask how video, calls or AI assistants were doing as a group. Every
-  target now carries a service label beside its category, which is
-  unchanged: a `service` name and one or more `categories` from a
-  vocabulary of the project's own (15 categories and `unknown`: video,
-  audio, gaming, calls, messaging, social, search, AI assistant, cloud,
-  software updates, CDN, DNS, connectivity, ads, academic), with the rule
-  that produced it, its evidence and a confidence. The rules
-  (`config-manager/templates/taxonomy.yaml`, versioned, 78 rules) match a
-  target's name, then the longest suffix of its host, then its technical
-  bucket; every seed target and the services the DNS wizard usually adopts
-  resolve. No external hostname-to-category list can be shipped under its
-  license (AdGuard's registry is GPL, nDPI's LGPL, Cloudflare Radar's
-  categories non-commercial), so they are only evidence a maintainer
-  consults, recorded as `source` on each rule. A wrong label is corrected
-  per install with an override in PostgreSQL (`target_labels`), from the
-  web admin's target dialog or `smoking-pi taxonomy set|reset`;
-  `smoking-pi taxonomy list|unknown` shows them. `GET /targets` carries the
-  label; `GET /taxonomy`, `/taxonomy/targets` and `/taxonomy/unknown` are
-  new. The doctor validates the file and the seed's labels
-  (`service-taxonomy`) and warns about unlabeled targets on a running stack
-  (`targets-labeled`). The labels are not in InfluxDB, Grafana or the MCP
-  tools yet. `docs/taxonomy.md`.
 
 - **The path to each destination (experimental).** The measurements said how
   long a destination took to answer, never which way the packets went: a
