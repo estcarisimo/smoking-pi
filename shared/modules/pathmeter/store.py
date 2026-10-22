@@ -15,7 +15,7 @@ stamped at the cycle's start:
   alert on.
 
 And ``pathmeter_pass`` once per cycle (no target): ``traces``, ``probes``,
-``seconds``, ``failed``, ``prefix_hops``, ``full_traces``.
+``seconds``, ``failed``, ``prefix_hops``, ``full_traces``, ``waiting``.
 
 Addresses are fields, never tags: a tag per router would multiply series.
 
@@ -110,4 +110,5 @@ def pass_point(at: int, report: dict):
             .field("failed", int(report.get("failed", 0)))
             .field("prefix_hops", int(report.get("prefix_hops", 0)))
             .field("full_traces", int(report.get("full_traces", 0)))
+            .field("waiting", int(report.get("waiting", 0)))
             .time(at, WritePrecision.S))

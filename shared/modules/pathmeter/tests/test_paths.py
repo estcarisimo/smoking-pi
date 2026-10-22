@@ -30,7 +30,6 @@ def test_one_answer_among_silent_hops_is_not_a_shared_hop():
     many[0][5] = "184.0.0.1"                       # one destination's router answered
     many.append([ROUTER, *ACCESS, "184.0.0.1", "38.0.0.9"])
     assert paths.learn_prefix(many) == PREFIX
-    assert paths.agrees([ROUTER, "23.0.0.1"], [None, "23.0.0.1"])
 
 
 def test_a_destination_inside_the_prefix_does_not_cut_it_short():
@@ -39,11 +38,16 @@ def test_a_destination_inside_the_prefix_does_not_cut_it_short():
     assert paths.learn_prefix([cpe, *far]) == PREFIX
 
 
-def test_joined_and_agrees():
+def test_joined_parted_and_cut():
     own = [None] * 5 + ["34.0.0.1", "34.0.0.9"]
     assert paths.joined(PREFIX, own, 6) == [*PREFIX, "34.0.0.1", "34.0.0.9"]
-    assert paths.agrees([None, *ACCESS, "x"], PREFIX)
-    assert not paths.agrees([ROUTER, "23.0.0.9"], PREFIX)
+    assert not paths.parted(PREFIX, [None, *ACCESS])
+    assert paths.parted(PREFIX, ["192.168.9.1", *ACCESS])
+    assert paths.cut(PREFIX, [[ROUTER, ACCESS[0], "23.9.9.9"]]) == PREFIX[:2]
+    odd = [[ROUTER, *ACCESS], [ROUTER, *ACCESS], ["192.168.1.254", *ACCESS]]
+    assert paths.cut(PREFIX, odd) == PREFIX               # one odd reply: kept
+    assert paths.cut(PREFIX, [[None, *ACCESS]]) == PREFIX
+    assert paths.cut([ROUTER, None, "x"], [["192.168.9.1"]]) == []
 
 
 def test_as_path_skips_private_and_unknown_and_collapses_repeats():
@@ -121,3 +125,23 @@ def test_an_unknown_as_is_not_an_as_change():
 def test_digest_and_text():
     assert paths.text([ROUTER, None]) == "192.168.1.1|*"
     assert paths.digest([ROUTER]) == paths.digest([ROUTER]) != paths.digest([None])
+
+
+def test_a_borrowed_trace_does_not_overwrite_hops_the_destination_measured():
+    state = {}
+    mine = [ROUTER, "23.0.0.7", *ACCESS[1:], "34.0.0.1", "34.0.0.9"]
+    _trace(state, mine)                                          # a full trace
+    _trace(state, [*PREFIX, "34.0.0.1", "34.0.0.9"], own_from=6)  # borrowed 1-5
+    assert state["stable"]["hops"][1] == "23.0.0.7"
+
+
+def test_a_candidate_inside_the_prefix_waits_for_the_next_full_trace():
+    state = {}
+    old = [*PREFIX, "34.0.0.1", "34.0.0.9"]
+    new = [ROUTER, "23.0.0.7", *ACCESS[1:], "34.0.0.1", "34.0.0.9"]
+    _trace(state, old)
+    _trace(state, new)                                           # a candidate at hop 2
+    assert state["candidate"]
+    _trace(state, old, own_from=6)                               # cannot judge hop 2
+    assert state["candidate"]
+    assert _trace(state, new)["changed"]                         # the next full trace

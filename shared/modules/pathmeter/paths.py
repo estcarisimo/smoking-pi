@@ -63,10 +63,23 @@ def learn_prefix(paths: list[list]) -> list:
     return prefix
 
 
-def agrees(path: list, prefix: list) -> bool:
-    """Whether ``path`` matches ``prefix`` on every hop that answered."""
-    return all(not path[i] or not prefix[i] or path[i] == prefix[i]
-               for i in range(min(len(path), len(prefix))))
+def parted(a: list, b: list) -> bool:
+    """Whether two prefixes name different addresses at a TTL both know."""
+    return any(a[i] and b[i] and a[i] != b[i] for i in range(min(len(a), len(b))))
+
+
+def cut(prefix: list, traces: list[list]) -> list:
+    """``prefix`` up to the first TTL where more of ``traces`` answered
+    another address than answered its own: one odd reply (a router
+    answering from another of its addresses) does not cut it."""
+    for i, hop in enumerate(prefix):
+        answers = [t[i] for t in traces if i < len(t) and t[i]]
+        if hop and sum(a != hop for a in answers) > sum(a == hop for a in answers):
+            prefix = prefix[:i]
+            break
+    while prefix and prefix[-1] is None:
+        prefix = prefix[:-1]
+    return list(prefix)
 
 
 def joined(prefix: list, own: list, first_hop: int) -> list:
@@ -110,21 +123,31 @@ def differs(a: dict, b: dict) -> bool:
     hops both measured themselves (from the later of their first hops): the
     shared prefix a trace borrowed is not its own measurement, and a prefix
     that moved must not read as this destination's path changing."""
-    if a.get("distance") and b.get("distance") and a["distance"] != b["distance"]:
-        return True
-    start = max(a.get("own_from", 1), b.get("own_from", 1)) - 1
-    ha, hb = a["hops"], b["hops"]
-    return any(ha[i] and hb[i] and ha[i] != hb[i] for i in range(start, min(len(ha), len(hb))))
+    return _differs_at(a, b) is not None
 
 
-def merged(old: list, new: list) -> list:
+def merged(old: list, new: list, own_from: int = 1) -> list:
     """``new`` with its silent hops filled from ``old``: a hop that did not
-    answer this time keeps the address it answered with before."""
+    answer this time keeps the address it answered with before. Below
+    ``own_from`` ``new`` only borrowed the prefix, so ``old`` is kept there."""
     out = list(new)
     for i in range(min(len(old), len(new))):
-        if out[i] is None:
+        if out[i] is None or (i < own_from - 1 and old[i] is not None):
             out[i] = old[i]
     return out
+
+
+def _differs_at(a: dict, b: dict) -> int | None:
+    """Where two traces first disagree: -1 for the destination's distance
+    (which every trace measures), a TTL index, or None."""
+    if a.get("distance") and b.get("distance") and a["distance"] != b["distance"]:
+        return -1
+    start = max(a.get("own_from", 1), b.get("own_from", 1)) - 1
+    ha, hb = a["hops"], b["hops"]
+    for i in range(start, min(len(ha), len(hb))):
+        if ha[i] and hb[i] and ha[i] != hb[i]:
+            return i
+    return None
 
 
 def _as_changed(old: dict, new: dict, asn_of) -> bool:
@@ -155,8 +178,13 @@ def track(state: dict, dst: str, hops: list, distance: int | None, asn_of,
         state["stable"], state["candidate"] = now, None
         return result
     if not differs(now, stable):
-        state["candidate"] = None
-        stable["hops"] = merged(stable["hops"], hops)
+        # A trace that borrowed the prefix cannot judge a candidate that
+        # differs inside it: that one waits for the next full trace.
+        candidate = state.get("candidate")
+        at = _differs_at(candidate, stable) if candidate else None
+        if not (at is not None and 0 <= at < own_from - 1):
+            state["candidate"] = None
+        stable["hops"] = merged(stable["hops"], hops, own_from)
         stable["distance"] = distance or stable.get("distance")
         stable["own_from"] = min(stable.get("own_from", 1), own_from)
         return result
@@ -164,7 +192,7 @@ def track(state: dict, dst: str, hops: list, distance: int | None, asn_of,
     if candidate and not differs(now, candidate):
         result["changed"] = True
         result["as_changed"] = _as_changed(stable, now, asn_of)
-        state["stable"] = {**now, "hops": merged(candidate["hops"], hops),
+        state["stable"] = {**now, "hops": merged(candidate["hops"], hops, own_from),
                            "own_from": min(candidate.get("own_from", 1), own_from)}
         state["candidate"] = None
         return result

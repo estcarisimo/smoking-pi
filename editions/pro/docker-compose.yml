@@ -767,7 +767,7 @@ services:
     security_opt: [no-new-privileges:true]
     environment:
       - PATHMETER_INTERVAL=${PATHMETER_INTERVAL:-3600}
-      - PATHMETER_PPS=${PATHMETER_PPS:-20}
+      - PATHMETER_PPS=${PATHMETER_PPS:-5}
       - TSDB_TYPE=${TSDB_TYPE:-influxdb}
       - INFLUX_URL=http://localhost:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}

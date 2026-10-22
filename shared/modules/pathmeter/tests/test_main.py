@@ -94,14 +94,15 @@ def test_the_prefix_grows_to_what_every_destination_shares():
     assert store.load(main.STATE)["prefix"] == PREFIX and report["prefix_hops"] == 5
 
 
-def test_an_access_path_that_moves_shrinks_the_prefix_at_once():
+def test_an_access_path_that_moves_moves_the_prefix_at_once():
     net, written = Network(routes()), []
     for n in range(4):
         run_cycle(net, 1000 + 3600 * n, written)
     for ip in FAR.values():
         net.routes[ip][3] = "23.9.9.9"
     report = run_cycle(net, 1000 + 3600 * 4, written)
-    assert report["prefix_moved"] and report["prefix_hops"] == 3
+    assert report["prefix_moved"] and report["access_moved"]
+    assert store.load(main.STATE)["prefix"][3] == "23.9.9.9"
 
 
 def test_joined_paths_carry_the_prefix_and_no_reply_time_for_it():
@@ -219,3 +220,57 @@ def test_state_is_json_on_disk():
     run_cycle(net, 1000, written)
     raw = json.loads((store.state_dir() / main.STATE).read_text())
     assert set(raw["paths"]) == set(TARGETS)
+
+
+def test_a_new_gateway_at_hop_1_does_not_blind_the_meter():
+    net, written = Network(routes()), []
+    for n in range(4):
+        run_cycle(net, 1000 + 3600 * n, written)
+    for ip, route in net.routes.items():
+        route[0] = "192.168.9.1"                       # a failover, a new router
+    report = run_cycle(net, 1000 + 3600 * 4, written)
+    assert report["access_moved"] and report["waiting"] == 0
+    assert report["traces"] >= len(FAR) - 1           # everyone still traced
+    assert store.load(main.STATE)["prefix"][0] == "192.168.9.1"
+
+
+def test_mixed_answers_fall_back_to_the_previous_prefix_cut_where_contradicted():
+    net, written = Network(routes()), []
+    for n in range(4):
+        run_cycle(net, 1000 + 3600 * n, written)
+    # One full trace this cycle answers hop 3 from elsewhere; the others agree.
+    state = store.load(main.STATE)
+    far = [ip for ip in state["full_at"] if ip in FAR.values()]
+    target = sorted(far, key=lambda ip: state["full_at"][ip])[0]
+    net.routes[target][2] = "23.9.9.9"
+    report = run_cycle(net, 1000 + 3600 * 4, written)
+    assert report["waiting"] == 0 and 2 <= report["prefix_hops"] <= 5
+
+
+def test_a_destination_list_that_halves_in_one_cycle_keeps_what_was_learned():
+    net, written = Network(routes()), []
+    for n in range(4):
+        run_cycle(net, 1000 + 3600 * n, written)
+    learned = store.load(main.STATE)["full_paths"]
+    main.cycle(1000 + 3600 * 4, query=query_for({"D0": "d0.example"}), run=net,
+               resolve=lambda host: [IPS[host]], write=written.extend,
+               owners=owners.Owners(origin_fn=lambda ip: None), rate=20, every=3600)
+    assert set(store.load(main.STATE)["full_paths"]) >= set(learned)
+
+
+def test_waiting_is_recorded():
+    line = store.pass_point(1000, {"waiting": 3}).to_line_protocol()
+    assert "waiting=3i" in line
+
+
+def test_one_odd_reply_at_hop_1_does_not_blind_the_meter():
+    net, written = Network(routes()), []
+    for n in range(4):
+        run_cycle(net, 1000 + 3600 * n, written)
+    state = store.load(main.STATE)
+    far = [ip for ip in state["full_at"] if ip in FAR.values()]
+    odd = sorted(far, key=lambda ip: state["full_at"][ip])[0]   # traced from hop 1 next
+    net.routes[odd][0] = "192.168.1.254"                          # the router's other address
+    for n in range(4, 7):
+        report = run_cycle(net, 1000 + 3600 * n, written)
+        assert report["waiting"] == 0 and report["prefix_hops"] == 5

@@ -35,7 +35,8 @@ Every `PATHMETER_INTERVAL` seconds (default 3600):
    next unless the network moves it. One probe per hop, a second
    to wait for each, and the trace gives up after five silent hops in a row.
    Every probe of a cycle is paced together at `PATHMETER_PPS` per second
-   (default 20).
+   (default 5), so no router on the way, shared or not, ever gets more
+   than that from the Pi: about two minutes a cycle for 76 destinations.
 3. **Never a burst at the router.** The first hops are the same for
    every destination: the home router, then the access network. A hundred
    traceroutes that each start at hop 1 would send a hundred probes at the
@@ -44,12 +45,20 @@ Every `PATHMETER_INTERVAL` seconds (default 3600):
    last full trace is the oldest), and every other destination from the
    first hop past the shared ones. The shared hops are learned from the
    latest full trace of every destination, so they move as soon as one of
-   them shows the access path moved. The router and each shared hop
-   receive at most four probes a cycle, whatever the number of
-   destinations; every destination is traced from hop 1 once every
-   *destinations ÷ 4* cycles (19 hours for 76). Until the shared hops are
-   known, the destinations not yet traced from hop 1 wait for their turn
-   rather than all crossing them at once.
+   them shows the access path moved: a new gateway or a failover is
+   followed in the cycle that sees it, and the destinations traced before
+   it go first next. The router and each shared hop receive at most four
+   probes a cycle (eight in the first cycles after the service starts or
+   the access path moves),
+   whatever the number of destinations; every destination is traced from
+   hop 1 once every *destinations ÷ 4* cycles (19 hours for 76). Routers
+   past the shared hops that many paths cross (a provider's edge) get one
+   probe per destination crossing them, never faster than `PATHMETER_PPS`.
+   Until the shared hops are known, the destinations not yet traced from
+   hop 1 wait for their turn rather than all crossing them at once.
+
+   One limit follows: a destination's own change inside the shared hops
+   (it alone left them) is confirmed only by its next trace from hop 1.
 4. **What changed.** A path counts as changed when a hop that answered
    both times answered from another address (or the destination got nearer
    or further), in **two traces in a row**: one trace that differs is a
@@ -123,7 +132,7 @@ on a connection that is close to a ceiling.
 | Setting | Default | |
 |---|---|---|
 | `PATHMETER_INTERVAL` | 3600 | Seconds between cycles; at least 600 |
-| `PATHMETER_PPS` | 20 | Probes per second, every probe of a cycle together; at most 100 |
+| `PATHMETER_PPS` | 5 | Probes per second, every probe of a cycle together; at most 100 |
 
 `smoking-pi config set PATHMETER_INTERVAL 7200` changes one.
 
