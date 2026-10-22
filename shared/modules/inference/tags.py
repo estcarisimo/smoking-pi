@@ -25,8 +25,9 @@ in the inference state volume.
 Kinds: a multi-tenant CDN (many sites on one edge), a content provider's own
 network, a cache embedded near the access network, a cloud or origin server,
 an academic network, an access ISP, a transit carrier, DNS infrastructure.
-A target on the local network counts as no operator here, as before. PeeringDB's network type was tried first and is too
-coarse: it calls nearly all of these "Content".
+A target on the local network counts as no operator here, as before.
+PeeringDB's network type was tried first and is too coarse: it calls nearly
+all of these "Content".
 
 Lookups are DNS queries only, a few per target and cached in the state
 volume (addresses for a day, owners for a week). A failed lookup is cached

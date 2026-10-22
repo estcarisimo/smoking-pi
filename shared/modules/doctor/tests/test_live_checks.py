@@ -1194,11 +1194,21 @@ KIND_HEAD = ("#group,false,false,false,false\n#datatype,string,long,string,strin
              "#default,_result,,,\n,result,table,_value,target\n")
 
 
-def _with_kinds(docker: FakeDocker, kinds: dict[str, str] | None, rc: int = 0) -> FakeDocker:
+EXEC_LIST = "exec pro-config-manager-1 python taxonomy.py list --json"
+
+
+def _with_kinds(docker: FakeDocker, kinds: dict[str, str] | None, rc: int = 0,
+                active: list[dict] | None = None) -> FakeDocker:
+    """``active``: the targets config-manager lists (default: every one in
+    ``kinds``, active, with a name for a host)."""
     if kinds is not None:
         body = KIND_HEAD + "".join(f",,0,{k},{t}\n" for t, k in kinds.items())
         docker.responses[PS_INFLUX] = (0, "pro-influxdb-1\n")
         docker.responses[EXEC_INFLUX] = (rc, body)
+        if active is None:
+            active = [{"name": t, "host": f"{t.lower()}.example", "is_active": True}
+                      for t in kinds]
+        docker.responses[EXEC_LIST] = (0, json.dumps({"version": 1, "targets": active}))
     return docker
 
 
@@ -1220,6 +1230,18 @@ def test_both_unlabeled_and_unidentified_are_reported():
     res = live_checks.check_targets_labeled(docker)
     assert res.status == Status.WARN and res.summary.startswith("1 active target(s)")
     assert len(res.findings) == 2
+
+
+def test_only_active_targets_with_an_ipv4_path_count():
+    kinds = {"Renamed": "unknown", "Off": "unknown", "V6": "unknown", "YouTube": "cdn"}
+    active = [{"name": "YouTube", "host": "www.youtube.com", "is_active": True},
+              {"name": "Off", "host": "off.example", "is_active": False},
+              {"name": "V6", "host": "2001:db8::1", "is_active": True}]
+    docker = _with_kinds(_unknown({"version": 1, "targets": []}), kinds, active=active)
+    assert live_checks.check_targets_labeled(docker).status == Status.OK
+    # Without the target list there is nothing to compare with: no warning.
+    del docker.responses[EXEC_LIST]
+    assert live_checks.check_targets_labeled(docker).status == Status.OK
 
 
 def test_every_network_identified_or_none_written_yet_is_ok():

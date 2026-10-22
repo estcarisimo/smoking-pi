@@ -647,6 +647,10 @@ def main() -> int:
     labels_due = 0.0
     operators = (Operators(pathlib.Path(state_file).with_name("rrd2influx_operators.json"))
                  if Operators is not None else None)
+    if operators is None:
+        logging.warning("target_labels: common/ is not in this image (built before the "
+                        "delivery axis): every target's operator and kind stay unknown "
+                        "until the smokeping image is rebuilt")
 
     logging.info("RRD exporter started → %s (bucket: %s, pings/cycle: per-RRD "
                  "(fallback %d), state: %s)",

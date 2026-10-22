@@ -49,6 +49,7 @@ import csv
 import datetime
 import hashlib
 import importlib.util
+import ipaddress
 import json
 import os
 import pathlib
@@ -832,7 +833,7 @@ def check_targets_labeled(docker: Docker | None = None) -> CheckResult:
         findings.append(Finding(
             f"{_labels_shown(names)}: smoking-pi taxonomy set TARGET SERVICE CATEGORY, or a rule "
             "in templates/taxonomy.yaml (docs/taxonomy.md)"))
-    delivery = _unidentified_delivery(docker)
+    delivery = _unidentified_delivery(docker, container)
     if delivery:
         unknown, total = delivery
         findings.append(Finding(
@@ -866,18 +867,44 @@ from(bucket: "BUCKET")
 """
 
 
-def _unidentified_delivery(docker: Docker) -> tuple[list[str], int] | None:
-    """(targets whose kind is unknown, targets with a kind) from InfluxDB, or
-    None when there is nothing to say: no InfluxDB, a failed query, no
-    delivery axis written yet, or every target identified."""
+def _unidentified_delivery(docker: Docker, config_manager: str
+                           ) -> tuple[list[str], int] | None:
+    """(active targets whose kind is unknown, active targets with a kind)
+    from InfluxDB, or None when there is nothing to say: no InfluxDB, a
+    failed query or target list, no delivery axis written yet, or every
+    target identified.
+
+    Only the targets active now count: a removed or renamed target keeps its
+    last point in InfluxDB forever. A host that is an IPv6 address is left
+    out: the lookup is IPv4 only, so it can never have a kind, and a warning
+    that can never clear teaches people to ignore the check."""
     influx = docker.container_for_service("influxdb")
     if not influx:
         return None
-    rows = _influx_rows(docker, influx, _KIND_FLUX)
+    code, out = docker.run(["exec", config_manager, "python", "taxonomy.py",
+                            "list", "--json"])
+    try:
+        body = json.loads(out) if code == 0 else None
+    except ValueError:
+        body = None
+    if not isinstance(body, dict) or not isinstance(body.get("targets"), list):
+        return None
+    active = {str(t.get("name")) for t in body["targets"]
+              if isinstance(t, dict) and t.get("is_active") is not False
+              and not _is_ipv6(str(t.get("host") or ""))}
+    rows = [r for r in _influx_rows(docker, influx, _KIND_FLUX) or []
+            if str(r.get("target")) in active]
     if not rows:
         return None
     unknown = sorted(str(r.get("target")) for r in rows if r.get("_value") == "unknown")
     return (unknown, len(rows)) if unknown else None
+
+
+def _is_ipv6(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host.strip("[]")).version == 6
+    except ValueError:
+        return False
 
 
 def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:

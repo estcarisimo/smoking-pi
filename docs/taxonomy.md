@@ -264,10 +264,12 @@ broken target.
 
 ClickHouse mode has no `target_labels` yet ([ClickHouse](clickhouse.md)).
 
-The doctor's `targets-labeled` check also counts the labeled targets whose
-kind is `unknown` and names them, as a warning (never a failure): an
-IPv6-only host never has one, and for the rest the lookups have not
-answered.
+The doctor's `targets-labeled` check also counts the active targets whose
+kind is `unknown` and names them, as a warning (never a failure): the
+lookups have not answered, or the host has no IPv4 address. A target whose
+host is an IPv6 address is not counted, since the IPv4-only lookup can
+never give it a kind; a hostname with only IPv6 addresses is, and stays
+named.
 
 ## Refreshing the rules
 
