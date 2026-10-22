@@ -10,7 +10,9 @@ stamped at the cycle's start:
   ``as_changed`` / ``dst_changed`` (paths.py), ``first_hop`` (where this
   trace started; earlier hops are the shared prefix);
 - ``path_hop``, one point per hop that answered, tagged ``ttl`` (two digits,
-  so it sorts): ``addr``, ``asn`` when known, ``rtt_ms``. A router's reply
+  so it sorts): ``addr``, ``asn`` when known, ``ixp`` (the exchange point's
+  name, from PeeringDB) when the address is on an exchange LAN instead,
+  ``rtt_ms``. A router's reply
   time is its slow path's, rate-limited: descriptive, never a series to
   alert on.
 
@@ -70,7 +72,7 @@ def measurement_name(measurement: str) -> str:
 
 def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: list,
                  reached: bool, distance: int | None, first_hop: int, path_text: str,
-                 path_hash: str, asns: list[int], flags: dict, asn_of) -> list:
+                 path_hash: str, asns: list[int], flags: dict, asn_of, ixp_of=None) -> list:
     from influxdb_client import Point, WritePrecision
 
     points = [Point(measurement_name(TRACE)).tag("target", base).tag("category", category)
@@ -93,6 +95,11 @@ def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: 
         asn = asn_of(addr)
         if asn:
             point = point.field("asn", int(asn))
+        # A router answering from its port on an exchange point: named by
+        # the exchange (most exchange LANs are not announced, so the AS is
+        # then missing; when one is, both are kept).
+        if ixp_of and (exchange := ixp_of(addr)):
+            point = point.field("ixp", exchange)
         rtt = rtts[ttl - 1] if ttl - 1 < len(rtts) else None
         if isinstance(rtt, (int, float)):
             point = point.field("rtt_ms", float(rtt))

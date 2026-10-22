@@ -9,6 +9,27 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **The path meter and inference know every hop's network from the first
+  cycle.** The origin AS came from Team Cymru's DNS service, one query per
+  /24, at most 64 new ones a cycle so as not to send a burst of DNS: on the
+  reference Pi the first cycle named 61 of the /24s on its paths and left
+  the rest, the ISP's own first hop among them, as "–" for hours. The
+  service now uses the data behind
+  [map-ip-to-asn](https://github.com/estcarisimo/map-ip-to-asn): CAIDA's
+  daily RouteViews prefix-to-AS snapshot, downloaded once a day into its
+  state volume and looked up locally, by the longest announced prefix and
+  for every hop at once. Routers answering from an exchange point's LAN,
+  which nobody announces, are named by the exchange (PeeringDB), in a new
+  **exchange (IXP)** column of Target Detail's path table. Team Cymru
+  stays for AS names and for what neither covers. On the staging Pi, 30 of
+  the 32 public hops got their network in the first cycle; the other two
+  are in nobody's table. About 4 MB a day of download per service; a
+  table of a few MB built from it (43 s on the staging Pi's half core once
+  a day, a restart reads it in 0.06 s). A failed download keeps the
+  previous table. The exporter's service labels keep Team Cymru for now.
+
 ### Fixed
 
 - **The doctor no longer says the Wi-Fi collector stopped after a reconnect.**
