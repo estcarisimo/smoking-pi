@@ -8,9 +8,8 @@ from sqlalchemy import (
     Column, Integer, String, Boolean, Text, DateTime, JSON,
     DECIMAL, ForeignKey, create_engine, inspect, text
 )
-from sqlalchemy.orm import foreign
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker, Session
+from sqlalchemy.orm import foreign, relationship, sessionmaker, Session
 from sqlalchemy.sql import func
 import os
 import time
@@ -424,9 +423,15 @@ class TargetRepository:
             new_name = fields.get('name')
             if new_name and new_name != target.name:
                 # The override follows the target to its new name.
+                # A label already under the new name (left by a deleted
+                # target of that name) is that name's; the old one goes, so
+                # it cannot resurface on a later target with the old name.
                 label = self.session.get(TargetLabel, target.name)
-                if label is not None and self.session.get(TargetLabel, new_name) is None:
-                    label.target_name = new_name
+                if label is not None:
+                    if self.session.get(TargetLabel, new_name) is None:
+                        label.target_name = new_name
+                    else:
+                        self.session.delete(label)
             for key, value in fields.items():
                 setattr(target, key, value)
             self.session.commit()

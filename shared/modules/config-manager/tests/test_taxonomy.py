@@ -261,3 +261,9 @@ def test_cli_a_refusal_prints_its_reasons(monkeypatch, capsys):
     assert taxonomy.main(["set", "Mystery", "x", "news"]) == 1
     err = capsys.readouterr().err
     assert "refused (400): Invalid labels" in err and "service is required" in err
+
+
+def test_an_address_matches_in_any_spelling(tx):
+    assert tx.resolve("W_x", "2001:4860:4860:0:0:0:0:8888", "custom")["service"] == (
+        "Google Public DNS")
+    assert tx.resolve("W_x", "2606:4700:4700:0000::1111", "custom")["categories"] == ["dns"]

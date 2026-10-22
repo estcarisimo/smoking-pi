@@ -149,7 +149,8 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      target's label and the rule behind it; 'unknown' the
                      active targets no rule labels yet. 'set' overrides one
                      target's label, 'reset' goes back to the default
-                     (both need database mode). docs/taxonomy.md.
+                     (both need database mode; a note that starts with '-'
+                     is --note=TEXT). docs/taxonomy.md.
   dns [status [--json] | test [--via ROUTER] [--json] | adopt [--dry-run] [--force] | enable [--yes] | disable [--yes]]
                      The DNS observer (Pro): AdGuard Home on port 53, for the
                      router to forward the house's DNS to. 'enable' turns on

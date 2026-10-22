@@ -7,6 +7,8 @@ cmd_taxonomy() {
     # API from inside its container like budget: the API token stays in
     # the container's environment.
     local sub="${1:-list}" a n=0
+    # `taxonomy --json` is `taxonomy list --json`: list is the default.
+    case "$sub" in -h|--help) ;; -*) sub=list; set -- list "$@" ;; esac
     [ $# -eq 0 ] || shift
     case "$sub" in
         list|unknown)
@@ -21,6 +23,7 @@ cmd_taxonomy() {
                 if [ "$note_next" = 1 ]; then note_next=0; continue; fi
                 case "$a" in
                     --note) note_next=1 ;;
+                    --note=*) ;;
                     -h|--help) usage; return 0 ;;
                     -*) echo "unknown option $a (--note)" >&2; return 2 ;;
                     *) n=$((n + 1)) ;;

@@ -3265,6 +3265,13 @@ STUB
     run "$CLI" taxonomy reset Mystery
     [ "$status" -eq 0 ]
     grep -q 'exec -T config-manager python taxonomy.py reset Mystery$' "$DOCKER_LOG"
+    run "$CLI" taxonomy set Mystery Plex video --note=-dash
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python taxonomy.py set Mystery Plex video --note=-dash$' "$DOCKER_LOG"
+    # list is the default, options included
+    run "$CLI" taxonomy --json
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python taxonomy.py list --json$' "$DOCKER_LOG"
 }
 
 @test "taxonomy: an unknown option or a wrong argument count is exit 2, before docker" {

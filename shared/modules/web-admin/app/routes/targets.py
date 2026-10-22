@@ -750,6 +750,9 @@ def set_target_labels(target_id):
     except Exception as e:
         return error_response(500, f'Error setting labels on target {target_id}', e,
                               success=False)
+    if result.get('refused') == 'yaml_mode':
+        return error_response(400, 'Label overrides require database mode',
+                              success=False)
     if result.get('refused'):
         return error_response(400, 'Invalid labels', success=False,
                               reasons=result.get('reasons') or [])

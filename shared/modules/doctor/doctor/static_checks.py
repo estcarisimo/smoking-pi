@@ -995,4 +995,3 @@ def check_service_taxonomy(repo: Repo) -> CheckResult:
         f"taxonomy v{tax.version}: {len(tax.categories)} categories, "
         f"{len(tax.rules)} rules; all {count} seed targets labeled",
     )
-

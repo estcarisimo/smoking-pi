@@ -162,3 +162,17 @@ def test_yaml_mode_reads_work_and_writes_are_501(yaml_client):
               yaml_client.delete("/targets/1/labels")):
         assert r.status_code == 501
         assert r.get_json()["error"] == api_module.LABELS_NEED_DATABASE
+
+
+def test_a_rename_onto_a_labeled_name_drops_the_old_label(client):
+    session = client.session()
+    session.add(TargetLabel(target_name="Plex", service="Old Plex", categories=["video"]))
+    session.commit()
+    session.close()
+    tid = _target(client, "Mystery")["id"]
+    client.put(f"/targets/{tid}/labels", json={"service": "Mine", "categories": ["audio"]})
+    assert client.put(f"/targets/{tid}", json={"name": "Plex"}).status_code == 200
+    assert _target(client, "Plex")["service"] == "Old Plex"
+    session = client.session()
+    assert [r.target_name for r in session.query(TargetLabel)] == ["Plex"]
+    session.close()

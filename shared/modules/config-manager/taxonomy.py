@@ -115,7 +115,7 @@ def validate(data: Any) -> list[str]:
             else:
                 where = f"rule {i} ({key}: {values[0]})"
                 for v in values:
-                    k = (key, v.lower() if key == "host_suffix" else v)
+                    k = (key, _suffix_key(v) if key == "host_suffix" else v)
                     if k in seen:
                         problems.append(f"{where}: {key} {v} is already "
                                         f"matched by rule {seen[k]}")
@@ -176,12 +176,19 @@ def shipped() -> "Taxonomy":
     return load(TAXONOMY_FILE)
 
 
-def _is_ip(host: str) -> bool:
+def _ip_key(value: str) -> str | None:
+    """An address in its one canonical spelling (compressed), else None."""
     try:
-        ipaddress.ip_address(host)
+        return ipaddress.ip_address(value).compressed
     except ValueError:
-        return False
-    return True
+        return None
+
+
+def _suffix_key(value: str) -> str:
+    """How a host_suffix value is indexed: lowercase; an address compressed,
+    so 2001:4860:4860:0:0:0:0:8888 and 2001:4860:4860::8888 are one key."""
+    value = value.strip().lower().rstrip(".")
+    return _ip_key(value) or value
 
 
 class Taxonomy:
@@ -199,7 +206,7 @@ class Taxonomy:
         for rule in self.rules:
             (key, value), = rule["match"].items()
             for v in _strings(value):
-                index[key][v.lower() if key == "host_suffix" else v] = rule
+                index[key][_suffix_key(v) if key == "host_suffix" else v] = rule
 
     def category_ids(self) -> list[str]:
         """Every assignable category (the vocabulary without unknown)."""
@@ -223,10 +230,11 @@ class Taxonomy:
             host = host[1:-1]
         if not host:
             return None
-        if _is_ip(host):
+        address = _ip_key(host)
+        if address:
             # An address is only ever itself: 1.1.1.1 must not claim 11.1.1.1.
-            rule = self.by_suffix.get(host)
-            return (host, rule) if rule else None
+            rule = self.by_suffix.get(address)
+            return (address, rule) if rule else None
         labels = host.split(".")
         for i in range(len(labels)):  # longest suffix first
             suffix = ".".join(labels[i:])
