@@ -437,7 +437,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^(_value|Value)$/",
+          "fields": "/.*/",
           "values": false
         },
         "colorMode": "value",
