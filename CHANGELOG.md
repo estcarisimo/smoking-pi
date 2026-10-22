@@ -30,6 +30,34 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **Every target says who delivers it, and the rules can be checked
+  against their sources.** A target's label said what the service is for
+  (`video`, `ai_assistant`), never whose network answers: Netflix from an
+  Open Connect box inside the ISP and a news site from a Fastly edge looked
+  alike, though trouble on a shared CDN edge or inside the carrier means
+  something else than trouble at one origin. And the rules shipped in
+  v2.45.0 could only be checked by hand, with nothing to say a source had
+  moved a hostname or recategorized a service. The InfluxDB exporter now
+  adds `operator`, `kind` and `asn` to each target's `target_labels` point
+  (written on change, as before): the host's origin AS from Team Cymru,
+  cached a week per /24, classified by `common/asn.py`. Its hand table of
+  well-known networks still decides first; behind it, a vendored
+  `common/data/asn_roles.csv` gives a kind to about 880 more ASes, derived
+  from Linnaeus's hand-labeled ASes (MIT), which adds the kinds `access`,
+  `transit` and `dns_infrastructure`, and `local` for a LAN address. The
+  per-target cache moved from the inference module to
+  `common/operators.py`; the experimental shared-congestion detector reads
+  the same kinds, so an AS it called `other` may now count as one of
+  these. Target Detail's Service tile shows the operator and kind; the
+  doctor's `targets-labeled` check warns about targets whose network is not
+  identified. The smokeping image now carries `shared/modules/common` and
+  dnspython for this. A maintainer tool, `shared/scripts/build-taxonomy.py`,
+  reads AdGuard's and nDPI's host lists and Cloudflare Radar at run time
+  (never vendored), proposes rules for an install's unlabeled targets, and
+  reports shipped rules their source no longer supports and rules older
+  than 180 days; `--check` exits 1 on those, and it never edits the rules
+  ([Service taxonomy](taxonomy.md#refreshing-the-rules)).
+
 - **The service labels reach the time series, the dashboards and the
   assistants.** v2.45.0 gave every target a service and service categories,
   but only config-manager's API, the web admin and `smoking-pi taxonomy`
