@@ -414,7 +414,7 @@
     {
       "type": "stat",
       "title": "Service",
-      "description": "What this target measures, and its service categories (docs/taxonomy.md): the label config-manager resolves from the rules, or the override set for this install, as the exporter last recorded it. Not the probe bucket (topsites, netflix...). \"unknown\": no rule says yet, not a broken target. \"no label yet\": the exporter has not written one (ClickHouse mode, or the first minutes after an upgrade).",
+      "description": "What this target measures, and who delivers it. Service and categories (docs/taxonomy.md): the label config-manager resolves from the rules, or the override set for this install. Not the probe bucket (topsites, netflix...). \"unknown\": no rule says yet, not a broken target. Delivery: the network the host answers from (its origin AS, from Team Cymru) and that network's kind (cdn, content network, embedded cache, cloud origin, access, transit, dns infrastructure, academic, local, other). \"network not identified\": no IPv4 answer or no AS lookup yet. Both as the exporter last recorded them; \"no label yet\": it has not written one (ClickHouse mode, or the first minutes after an upgrade).",
       "gridPos": {
         "h": 4,
         "w": 5,
@@ -429,7 +429,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "import \"regexp\"\nimport \"strings\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// The service label config-manager resolved for this target, as the exporter last wrote it\n// (target_labels, written on change; docs/taxonomy.md). The bare name's label first.\nfrom(bucket:\"smokeping\") |> range(start: 0)\n  |> filter(fn:(r)=> r._measurement == \"target_labels\" and r.target =~ re and (r._field == \"service\" or r._field == \"categories\"))\n  |> last()\n  |> pivot(rowKey:[\"_time\",\"target\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> group()\n  |> map(fn:(r)=> ({r with rank: if strings.toLower(v: r.target) == strings.toLower(v: base) then 0 else 1}))\n  |> sort(columns:[\"rank\",\"target\"]) |> limit(n:1)\n  |> map(fn:(r)=> ({_field: if exists r.service then r.service else r.target, _value: if exists r.categories then strings.replaceAll(v: r.categories, t: \",\", u: \", \") else \"unknown\"}))\n  |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\nimport \"strings\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// The service label config-manager resolved for this target, and who delivers it (the\n// exporter's AS lookup), as the exporter last wrote them (target_labels, written on change;\n// docs/taxonomy.md). The bare name's label first.\nrow = from(bucket:\"smokeping\") |> range(start: 0)\n  |> filter(fn:(r)=> r._measurement == \"target_labels\" and r.target =~ re and (r._field == \"service\" or r._field == \"categories\" or r._field == \"operator\" or r._field == \"kind\"))\n  |> last()\n  |> pivot(rowKey:[\"_time\",\"target\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> group()\n  |> map(fn:(r)=> ({r with rank: if strings.toLower(v: r.target) == strings.toLower(v: base) then 0 else 1}))\n  |> sort(columns:[\"rank\",\"target\"]) |> limit(n:1)\nservice = row\n  |> map(fn:(r)=> ({_field: if exists r.service then r.service else r.target, _value: if exists r.categories then strings.replaceAll(v: r.categories, t: \",\", u: \", \") else \"unknown\"}))\n// Delivery: the operator's name, and its kind in words. A label written before the delivery\n// axis existed has neither yet.\ndelivery = row\n  |> map(fn:(r)=> ({_field: if not exists r.operator then \"delivered by\" else if r.operator == \"unknown\" then \"delivered by\" else \"via \" + r.operator, _value: if not exists r.kind then \"not looked up yet\" else if r.kind == \"unknown\" then \"network not identified\" else strings.replaceAll(v: r.kind, t: \"_\", u: \" \")}))\nunion(tables: [service, delivery])\n  |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "options": {
@@ -464,6 +464,11 @@
                   "text": "unknown (no rule yet)",
                   "color": "orange",
                   "index": 0
+                },
+                "network not identified": {
+                  "text": "network not identified",
+                  "color": "text",
+                  "index": 1
                 }
               }
             }

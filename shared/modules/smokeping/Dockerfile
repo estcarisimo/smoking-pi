@@ -61,6 +61,18 @@ RUN set -eu; \
 # editing an exporter still needs no rebuild there.
 COPY modules/smokeping-exporters/*.py /exporters/
 
+# shared/modules/common, for the AS lookup behind target_labels' operator
+# and kind (common/asn.py, common/operators.py), as the pathmeter and
+# inference images copy it. Not under /exporters: the development compose
+# files bind-mount the checkout's exporters over that directory, which
+# would hide it. Like the other images, it is not bind-mounted: a change to
+# shared/modules/common needs a rebuild. dnspython is what the lookup asks
+# DNS with.
+RUN pip3 install --no-cache-dir --break-system-packages "dnspython>=2.6"
+COPY modules/common/*.py /opt/smoking-pi/common/
+COPY modules/common/data/ /opt/smoking-pi/common/data/
+ENV PYTHONPATH=/opt/smoking-pi
+
 # dig with a real clock for the DNS probe: dig's default timer is the
 # kernel's coarse clock (4 ms steps on a Pi); dig -u reads the fine one and
 # the wrapper rewrites its "usec" line to the "msec" line SmokePing parses.

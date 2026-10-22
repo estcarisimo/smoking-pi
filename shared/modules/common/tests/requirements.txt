@@ -1,0 +1,3 @@
+# The shared package's own tests: stdlib only (dnspython is imported on
+# first lookup, and no test looks anything up).
+pytest

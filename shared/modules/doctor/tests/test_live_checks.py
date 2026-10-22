@@ -1190,6 +1190,46 @@ def test_unknown_targets_warn_and_are_named():
     assert "and 2 more" in res.findings[0].message
 
 
+KIND_HEAD = ("#group,false,false,false,false\n#datatype,string,long,string,string\n"
+             "#default,_result,,,\n,result,table,_value,target\n")
+
+
+def _with_kinds(docker: FakeDocker, kinds: dict[str, str] | None, rc: int = 0) -> FakeDocker:
+    if kinds is not None:
+        body = KIND_HEAD + "".join(f",,0,{k},{t}\n" for t, k in kinds.items())
+        docker.responses[PS_INFLUX] = (0, "pro-influxdb-1\n")
+        docker.responses[EXEC_INFLUX] = (rc, body)
+    return docker
+
+
+def test_unidentified_delivery_warns_never_fails():
+    docker = _with_kinds(_unknown({"version": 1, "targets": []}),
+                         {"YouTube": "content_network", "V6only": "unknown",
+                          "Gateway": "local"})
+    res = live_checks.check_targets_labeled(docker)
+    assert res.status == Status.WARN
+    assert "some have no delivery network" in res.summary
+    assert res.findings[0].message.startswith("1 of 3 labeled target(s)")
+    assert "V6only" in res.findings[0].message
+    assert any("target_labels" in c and '"kind"' in c for c in docker.calls)
+
+
+def test_both_unlabeled_and_unidentified_are_reported():
+    docker = _with_kinds(_unknown({"version": 1, "targets": [{"name": "home_nas"}]}),
+                         {"home_nas": "unknown"})
+    res = live_checks.check_targets_labeled(docker)
+    assert res.status == Status.WARN and res.summary.startswith("1 active target(s)")
+    assert len(res.findings) == 2
+
+
+def test_every_network_identified_or_none_written_yet_is_ok():
+    for kinds in ({"YouTube": "cdn", "Gateway": "local"}, {}):
+        docker = _with_kinds(_unknown({"version": 1, "targets": []}), kinds)
+        assert live_checks.check_targets_labeled(docker).status == Status.OK
+    failed = _with_kinds(_unknown({"version": 1, "targets": []}), {"X": "unknown"}, rc=1)
+    assert live_checks.check_targets_labeled(failed).status == Status.OK
+
+
 def test_an_old_image_or_no_config_manager_skips():
     assert live_checks.check_targets_labeled(_unknown("", rc=2)).status == Status.SKIP
     assert live_checks.check_targets_labeled(_unknown("not json")).status == Status.SKIP

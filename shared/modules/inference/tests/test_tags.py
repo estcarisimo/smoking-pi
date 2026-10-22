@@ -1,6 +1,8 @@
 """Operator and kind per target: classification and the lookup cache.
 No test resolves anything: the DNS lookups are fakes."""
 
+from common import operators
+
 import tags
 
 
@@ -14,8 +16,11 @@ def test_cloudfront_and_ec2_share_an_as_and_the_cname_tells_them_apart():
 def test_known_networks_and_the_rest():
     assert tags.classify(54113, "FASTLY - Fastly, Inc., US", "nytimes.com", []) == ("Fastly", tags.CDN)
     assert tags.classify(2906, "AS-SSI", "1.2.3.4", []) == ("Netflix", tags.CACHE)
+    # Linnaeus's roles (common/data/asn_roles.csv) name it before the AS name does.
     assert tags.classify(3449, "AS3449 - Universidad Nacional de Buenos Aires, AR", "ns1.uba.ar",
-                         []) == ("Universidad Nacional de Buenos Aires", tags.ACADEMIC)
+                         []) == ("University of Buenos Aires", tags.ACADEMIC)
+    assert tags.classify(64501, "AS64501 - Universidad de Ejemplo, AR", "x",
+                         []) == ("Universidad de Ejemplo", tags.ACADEMIC)
     assert tags.classify(64500, "EXAMPLE-NET - Example Hosting, US", "x", []) == ("EXAMPLE-NET", tags.OTHER)
     assert tags.classify(None, "", "x", []) == (tags.UNKNOWN, tags.UNKNOWN)
 
@@ -73,7 +78,7 @@ def test_one_lookup_that_raises_loses_none_of_the_others(tmp_path):
     def resolve_fn(host):
         if host == "bad":
             raise RuntimeError("resolver blew up")
-        return ("10.0.0.1", [])
+        return ("104.16.0.1", [])
 
     t = tags.Tags(tmp_path / "tags.json", clock=lambda: 1.0, resolve_fn=resolve_fn,
                   origin_fn=lambda ip: (13335, "CLOUDFLARENET"))
@@ -84,11 +89,11 @@ def test_one_lookup_that_raises_loses_none_of_the_others(tmp_path):
 
 
 def test_hosts_that_never_resolve_do_not_starve_the_rest(tmp_path, monkeypatch):
-    monkeypatch.setattr(tags, "BUDGET", 2)
+    monkeypatch.setattr(operators, "BUDGET", 2)
     now = [1.0]
     calls = []
-    answers = {"z": ("10.0.0.1", [])}
-    owners = {"10.0.0.1": (13335, "CLOUDFLARENET")}
+    answers = {"z": ("104.16.0.1", [])}
+    owners = {"104.16.0.1": (13335, "CLOUDFLARENET")}
     t = make(tmp_path, lambda: now[0], answers, owners, calls)
     hosts = {"A": "a-dead", "B": "b-dead", "Z": "z"}
     for _ in range(3):
@@ -99,8 +104,8 @@ def test_hosts_that_never_resolve_do_not_starve_the_rest(tmp_path, monkeypatch):
 
 def test_one_owner_lookup_per_slash_24(tmp_path):
     calls = []
-    answers = {"a": ("10.0.0.1", []), "b": ("10.0.0.2", [])}
-    owners = {"10.0.0.1": (13335, "CLOUDFLARENET"), "10.0.0.2": (13335, "CLOUDFLARENET")}
+    answers = {"a": ("104.16.0.1", []), "b": ("104.16.0.2", [])}
+    owners = {"104.16.0.1": (13335, "CLOUDFLARENET"), "104.16.0.2": (13335, "CLOUDFLARENET")}
     t = make(tmp_path, lambda: 1.0, answers, owners, calls)
     hosts = {"A": "a", "B": "b"}
     t.refresh(hosts)

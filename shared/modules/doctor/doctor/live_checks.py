@@ -801,7 +801,8 @@ LABELS_SHOWN = 12
 
 
 def check_targets_labeled(docker: Docker | None = None) -> CheckResult:
-    """How many active targets no taxonomy rule (or override) labels.
+    """How many active targets no taxonomy rule (or override) labels, and
+    (Pro, InfluxDB) how many have no delivery network.
 
     Unknown is allowed -- a target someone added by hand may name a
     service the vocabulary has no rule for -- so this only warns, and
@@ -826,15 +827,57 @@ def check_targets_labeled(docker: Docker | None = None) -> CheckResult:
         # An image older than the taxonomy has no taxonomy.py to run.
         return skipped(name, "config-manager did not answer GET /taxonomy/unknown")
     names = sorted(str(t.get("name")) for t in body["targets"] if isinstance(t, dict))
-    if not names:
+    findings = []
+    if names:
+        findings.append(Finding(
+            f"{_labels_shown(names)}: smoking-pi taxonomy set TARGET SERVICE CATEGORY, or a rule "
+            "in templates/taxonomy.yaml (docs/taxonomy.md)"))
+    delivery = _unidentified_delivery(docker)
+    if delivery:
+        unknown, total = delivery
+        findings.append(Finding(
+            f"{len(unknown)} of {total} labeled target(s) have no delivery network "
+            f"(kind unknown): {_labels_shown(unknown)}. A host with no IPv4 address has none; "
+            "for the rest the exporter's AS lookups (DNS to Team Cymru) have not "
+            "answered yet (docs/taxonomy.md)"))
+    if not findings:
         return result(name, [], "every active target has a service label")
+    summary = (f"{len(names)} active target(s) have no service label" if names
+               else "every active target has a service label; some have no delivery network")
+    return CheckResult(name, Status.WARN, summary, findings)
+
+
+def _labels_shown(names: list[str]) -> str:
     shown = ", ".join(names[:LABELS_SHOWN])
     if len(names) > LABELS_SHOWN:
         shown += f" and {len(names) - LABELS_SHOWN} more"
-    return CheckResult(name, Status.WARN,
-                       f"{len(names)} active target(s) have no service label", [Finding(
-        f"{shown}: smoking-pi taxonomy set TARGET SERVICE CATEGORY, or a rule "
-        "in templates/taxonomy.yaml (docs/taxonomy.md)")])
+    return shown
+
+
+# Each target's newest delivery kind, as the exporter wrote it on its
+# target_labels points (field `kind`; docs/taxonomy.md).
+_KIND_FLUX = """
+from(bucket: "BUCKET")
+  |> range(start: 0)
+  |> filter(fn: (r) => r._measurement == "target_labels" and r._field == "kind")
+  |> last()
+  |> group()
+  |> keep(columns: ["_value", "target"])
+"""
+
+
+def _unidentified_delivery(docker: Docker) -> tuple[list[str], int] | None:
+    """(targets whose kind is unknown, targets with a kind) from InfluxDB, or
+    None when there is nothing to say: no InfluxDB, a failed query, no
+    delivery axis written yet, or every target identified."""
+    influx = docker.container_for_service("influxdb")
+    if not influx:
+        return None
+    rows = _influx_rows(docker, influx, _KIND_FLUX)
+    if not rows:
+        return None
+    unknown = sorted(str(r.get("target")) for r in rows if r.get("_value") == "unknown")
+    return (unknown, len(rows)) if unknown else None
 
 
 def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:
