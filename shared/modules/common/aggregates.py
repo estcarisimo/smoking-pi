@@ -352,7 +352,9 @@ def _collect_wifi_stats(hours: int) -> dict:
         uplink_rows = query_influx(
             _base_flux(["wifi_link"], hours)
             + '|> filter(fn: (r) => r._field == "uplink") '
-            '|> group(columns: ["interface"]) |> last()'
+            # Sorted: a disconnected sample is a series of its own (no
+            # ssid/bssid), and after group() last() takes the last row.
+            '|> group(columns: ["interface"]) |> sort(columns: ["_time"]) |> last()'
         )
         by_iface = {r.get("interface"): r.get("_value") for r in uplink_rows if r.get("interface")}
         if not by_iface:
@@ -380,7 +382,8 @@ def _collect_wifi_stats(hours: int) -> dict:
         if not summary_rows or not int(summary_rows[0].get("n") or 0):
             return {}
         median_rows = query_influx(base + signal + "|> median()")
-        last_rows = query_influx(base + '|> group(columns: ["_field"]) |> last()')
+        last_rows = query_influx(
+            base + '|> group(columns: ["_field"]) |> sort(columns: ["_time"]) |> last()')
         drop_rows = query_influx(
             base + '|> filter(fn: (r) => r._field == "carrier_down_count") '
             '|> group() |> sort(columns: ["_time"]) |> increase() |> last()'

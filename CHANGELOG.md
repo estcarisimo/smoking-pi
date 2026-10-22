@@ -22,7 +22,11 @@ version gets a matching GitHub release and git tag.
   is wrong teaches people to ignore the one that is right. The check now
   sorts by time before taking the newest sample and before measuring the
   spacing; replayed on that Pi's data it reads the sample from the same
-  minute. The alerter's deaf-radio detection already sorted and was right.
+  minute. The same shape read which interface carries the route in the
+  alerter (its Wi-Fi verdict, for ten minutes after a reconnect), in the
+  digest and AI report's Wi-Fi line, and in the assistant's Wi-Fi answers:
+  sorted too. The alerter's deaf-radio detection already sorted and was
+  right.
 
 ### Added
 
