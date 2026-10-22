@@ -109,6 +109,60 @@
   "templating": {
     "list": [
       {
+        "type": "query",
+        "name": "service_category",
+        "label": "Service category",
+        "description": "What the targets are for, from their service labels (docs/taxonomy.md): video, gaming, ai_assistant, dns... One target can be in several (YouTube is video and social); unknown is a target no rule labels yet. All: every target, labeled or not. Not the probe bucket (topsites, netflix, custom), which is a different thing.",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "query": "import \"strings\"\n// The service categories of the targets, from the labels the exporter writes on change\n// (target_labels; docs/taxonomy.md). A target's categories are one comma-joined field:\n// read the first eight positions (no rule has more than three) and keep the distinct ids.\nlabels = from(bucket: \"smokeping\") |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and r._field == \"categories\")\n  |> last() |> group() |> keep(columns: [\"_value\"])\npart = (i) => labels |> map(fn: (r) => ({category: if length(arr: strings.split(v: r._value, t: \",\")) > i then strings.split(v: r._value, t: \",\")[i] else \"\"}))\nunion(tables: [part(i: 0), part(i: 1), part(i: 2), part(i: 3), part(i: 4), part(i: 5), part(i: 6), part(i: 7)])\n  |> filter(fn: (r) => r.category != \"\") |> distinct(column: \"category\") |> sort()",
+        "hide": 0,
+        "multi": true,
+        "includeAll": true,
+        "allValue": "__all",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 1,
+        "sort": 0
+      },
+      {
+        "type": "query",
+        "name": "service_targets",
+        "label": "Targets in the selected service categories",
+        "description": "Hidden: the target names the Service category selects, as a regular expression the panels filter on. Always All.",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "query": "import \"array\"\n// The targets whose service label (target_labels, its last point) carries a selected\n// service category, for the panels' target filter. \"All\" is \".*\": every target,\n// labeled or not (no label point passes the filter then).\nsel = \"${service_category:pipe}\"\nall = sel == \"__all\"\nlabeled = from(bucket: \"smokeping\") |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and r._field == \"categories\")\n  |> last()\n  |> filter(fn: (r) => not all and r._value =~ /(^|,)(${service_category:pipe})(,|$)/)\n  |> group() |> keep(columns: [\"target\"])\nevery = array.from(rows: [{target: \".*\"}]) |> filter(fn: (r) => all)\nunion(tables: [labeled, every]) |> distinct(column: \"target\") |> sort()",
+        "hide": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 1,
+        "sort": 0,
+        "skipUrlSync": true
+      },
+      {
         "name": "window",
         "label": "Selected window (HH:MM-HH:MM, dashboard time zone)",
         "type": "textbox",
@@ -208,7 +262,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group() |> mean()"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group() |> mean()"
         }
       ]
     },
@@ -275,7 +329,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> aggregateWindow(every: 5m, fn: max, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _value: if r._value > 0.0 then 1 else 0})) |> group() |> aggregateWindow(every: 5m, fn: sum, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({r with _value: if r._value >= 2 then 1.0 else 0.0})) |> mean()"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> aggregateWindow(every: 5m, fn: max, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _value: if r._value > 0.0 then 1 else 0})) |> group() |> aggregateWindow(every: 5m, fn: sum, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({r with _value: if r._value >= 2 then 1.0 else 0.0})) |> mean()"
         }
       ]
     },
@@ -335,7 +389,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"date\"\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"loss_degradation\" and (r._field == \"end\" or r._field == \"class\") and r.category != \"cpe\" and r.category != \"dns_wizard\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> group() |> count(column: \"end\")"
+          "query": "import \"date\"\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"loss_degradation\" and r.target =~ /^(${service_targets:pipe})$/ and (r._field == \"end\" or r._field == \"class\") and r.category != \"cpe\" and r.category != \"dns_wizard\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> group() |> count(column: \"end\")"
         }
       ]
     },
@@ -395,7 +449,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"date\"\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"persistent_congestion\" and r._field == \"end\" and r.category != \"cpe\" and r.category != \"dns_wizard\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> group() |> count(column: \"end\")"
+          "query": "import \"date\"\nfrom(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"persistent_congestion\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"end\" and r.category != \"cpe\" and r.category != \"dns_wizard\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> group() |> count(column: \"end\")"
         }
       ]
     },
@@ -548,7 +602,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> map(fn:(r) => ({r with name: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> drop(columns:[\"_start\",\"_stop\"]) |> group(columns:[\"category\",\"name\"]) |> sort(columns:[\"_time\"])"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"loss\" and r.category != \"dns_wizard\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> map(fn:(r) => ({r with name: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> drop(columns:[\"_start\",\"_stop\"]) |> group(columns:[\"category\",\"name\"]) |> sort(columns:[\"_time\"])"
         },
         {
           "refId": "B",
@@ -556,7 +610,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> filter(fn:(r) => r._value > 0.1) |> keep(columns:[\"_time\",\"_value\"]) |> group() |> unique(column:\"_time\") |> map(fn:(r) => ({r with _value: 0.1})) |> set(key:\"_field\", value:\"above\") |> sort(columns:[\"_time\"])"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"loss\" and r.category != \"dns_wizard\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> filter(fn:(r) => r._value > 0.1) |> keep(columns:[\"_time\",\"_value\"]) |> group() |> unique(column:\"_time\") |> map(fn:(r) => ({r with _value: 0.1})) |> set(key:\"_field\", value:\"above\") |> sort(columns:[\"_time\"])"
         }
       ]
     },
@@ -634,7 +688,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"median\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false) |> map(fn:(r) => ({r with name: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> drop(columns:[\"_start\",\"_stop\"]) |> group(columns:[\"category\",\"name\"]) |> sort(columns:[\"_time\"])"
+          "query": "from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"median\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group(columns:[\"category\"]) |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false) |> map(fn:(r) => ({r with name: if r.category == \"topsites\" then \"Top sites\" else if r.category == \"netflix\" then \"Netflix OCA\" else if r.category == \"dns\" then \"DNS resolvers\" else if r.category == \"custom\" then \"Custom\" else if r.category == \"cpe\" then \"ISP gateway\" else if r.category == \"unknown\" then \"Uncategorized\" else r.category})) |> drop(columns:[\"_start\",\"_stop\"]) |> group(columns:[\"category\",\"name\"]) |> sort(columns:[\"_time\"])"
         }
       ]
     },
@@ -774,7 +828,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"date\"\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\n// class is \"monitor_deaf\" when this Pi's radio heard nothing for most of the period (deaf.py); periods written before the class existed are loss.\ndegradations = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and (r._field == \"end\" or r._field == \"class\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\nloss_degradation = degradations |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"loss degradation\", end: time(v: r.end * 1000000000)}))\nmonitor_deaf = degradations |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"monitor deaf\", end: time(v: r.end * 1000000000)}))\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"persistent congestion\", end: time(v: r.end * 1000000000)}))\n// The whole connection (shared.py): one series across every destination. \"shared\" when a third of the operators behind the targets lost and they are of two kinds of infrastructure or more; otherwise one destination carried it.\nwhole = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_degradation\" and (r._field == \"end\" or r._field == \"scope\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: \"Whole connection\", kind: if exists r.scope and r.scope == \"shared\" then \"shared loss degradation\" else \"one destination dominated\", end: time(v: r.end * 1000000000)}))\n// Jitterbug, unchanged, on an aggregate input (aggregate.py): the deciles of every voter's pings over its own floor, per cycle. Experimental.\nwhole_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: \"Whole connection\", kind: \"Jitterbug (as published) on an aggregate input — experimental\", end: time(v: r.end * 1000000000)}))\nstarts = union(tables: [\n    loss_degradation |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 1})),\n    persistent_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 2})),\n    monitor_deaf |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 3})),\n    whole |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: if r.kind == \"shared loss degradation\" then 4 else 5})),\n    whole_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 6})),\n])\nends = union(tables: [loss_degradation, persistent_congestion, monitor_deaf, whole, whole_congestion]) |> map(fn: (r) => ({_time: r.end, target: r.target, kind: r.kind, _value: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\", \"kind\"]) |> sort(columns: [\"_time\", \"_value\"])"
+          "query": "import \"date\"\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\n// class is \"monitor_deaf\" when this Pi's radio heard nothing for most of the period (deaf.py); periods written before the class existed are loss.\ndegradations = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r.target =~ /^(${service_targets:pipe})$/ and (r._field == \"end\" or r._field == \"class\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\nloss_degradation = degradations |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"loss degradation\", end: time(v: r.end * 1000000000)}))\nmonitor_deaf = degradations |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"monitor deaf\", end: time(v: r.end * 1000000000)}))\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"end\") |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"persistent congestion\", end: time(v: r.end * 1000000000)}))\n// The whole connection (shared.py): one series across every destination. \"shared\" when a third of the operators behind the targets lost and they are of two kinds of infrastructure or more; otherwise one destination carried it.\nwhole = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_degradation\" and (r._field == \"end\" or r._field == \"scope\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: \"Whole connection\", kind: if exists r.scope and r.scope == \"shared\" then \"shared loss degradation\" else \"one destination dominated\", end: time(v: r.end * 1000000000)}))\n// Jitterbug, unchanged, on an aggregate input (aggregate.py): the deciles of every voter's pings over its own floor, per cycle. Experimental.\nwhole_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_congestion\" and r._field == \"end\") |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: \"Whole connection\", kind: \"Jitterbug (as published) on an aggregate input — experimental\", end: time(v: r.end * 1000000000)}))\nstarts = union(tables: [\n    loss_degradation |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 1})),\n    persistent_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 2})),\n    monitor_deaf |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 3})),\n    whole |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: if r.kind == \"shared loss degradation\" then 4 else 5})),\n    whole_congestion |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: 6})),\n])\nends = union(tables: [loss_degradation, persistent_congestion, monitor_deaf, whole, whole_congestion]) |> map(fn: (r) => ({_time: r.end, target: r.target, kind: r.kind, _value: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\", \"kind\"]) |> sort(columns: [\"_time\", \"_value\"])"
         }
       ]
     },
@@ -1157,7 +1211,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "base = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\")\n// Three bare aggregates per target, each answered in the storage engine; the join is a pivot over a few hundred rows.\nmean = base |> mean() |> set(key:\"_field\", value:\"mean\") |> keep(columns:[\"target\",\"category\",\"_field\",\"_value\"])\nworst = base |> max() |> set(key:\"_field\", value:\"worst\") |> keep(columns:[\"target\",\"category\",\"_field\",\"_value\"])\nlossy = base |> filter(fn:(r) => r._value > 0.0) |> count() |> toFloat() |> set(key:\"_field\", value:\"lossy\") |> keep(columns:[\"target\",\"category\",\"_field\",\"_value\"])\nunion(tables:[mean, worst, lossy]) |> group() |> pivot(rowKey:[\"target\",\"category\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> filter(fn:(r) => r.mean > 0.0) |> sort(columns:[\"mean\"], desc:true)"
+          "query": "base = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\")\n// Three bare aggregates per target, each answered in the storage engine; the join is a pivot over a few hundred rows.\nmean = base |> mean() |> set(key:\"_field\", value:\"mean\") |> keep(columns:[\"target\",\"category\",\"_field\",\"_value\"])\nworst = base |> max() |> set(key:\"_field\", value:\"worst\") |> keep(columns:[\"target\",\"category\",\"_field\",\"_value\"])\nlossy = base |> filter(fn:(r) => r._value > 0.0) |> count() |> toFloat() |> set(key:\"_field\", value:\"lossy\") |> keep(columns:[\"target\",\"category\",\"_field\",\"_value\"])\nunion(tables:[mean, worst, lossy]) |> group() |> pivot(rowKey:[\"target\",\"category\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> filter(fn:(r) => r.mean > 0.0) |> sort(columns:[\"mean\"], desc:true)"
         }
       ]
     },
@@ -1276,7 +1330,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
         }
       ]
     },
@@ -1382,7 +1436,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> aggregateWindow(every: 5m, fn: max, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _value: if r._value > 0.0 then 1 else 0})) |> group() |> aggregateWindow(every: 5m, fn: sum, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({r with _value: if r._value >= 2 then 1.0 else 0.0})) |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
+          "query": "import \"timezone\"\nimport \"date\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nfrom(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"loss\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> aggregateWindow(every: 5m, fn: max, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _value: if r._value > 0.0 then 1 else 0})) |> group() |> aggregateWindow(every: 5m, fn: sum, createEmpty: false, timeSrc: \"_start\") |> map(fn:(r) => ({r with _value: if r._value >= 2 then 1.0 else 0.0})) |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
         }
       ]
     },
@@ -1489,7 +1543,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"timezone\"\nimport \"date\"\nimport \"join\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nhourly = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r._field == \"median\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _start: date.truncate(t: r._time, unit: 1d, location: loc), _value: r._value})) |> group(columns: [\"_start\"])\nfloor = hourly |> min()\njoin.inner(left: hourly, right: floor, on: (l, r) => l._start == r._start, as: (l, r) => ({_start: l._start, _time: l._time, _value: if r._value > 0.0 then l._value / r._value - 1.0 else 0.0})) |> group() |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
+          "query": "import \"timezone\"\nimport \"date\"\nimport \"join\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nhourly = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"median\" and r.category != \"dns_wizard\" and r.category != \"cpe\") |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _start: date.truncate(t: r._time, unit: 1d, location: loc), _value: r._value})) |> group(columns: [\"_start\"])\nfloor = hourly |> min()\njoin.inner(left: hourly, right: floor, on: (l, r) => l._start == r._start, as: (l, r) => ({_start: l._start, _time: l._time, _value: if r._value > 0.0 then l._value / r._value - 1.0 else 0.0})) |> group() |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
         }
       ]
     },
@@ -1596,7 +1650,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"timezone\"\nimport \"date\"\nimport \"join\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nhourly = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"http_latency\" and r._field == \"median\" and r.category != \"dns_wizard\") |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _start: date.truncate(t: r._time, unit: 1d, location: loc), _value: r._value})) |> group(columns: [\"_start\"])\nfloor = hourly |> min()\njoin.inner(left: hourly, right: floor, on: (l, r) => l._start == r._start, as: (l, r) => ({_start: l._start, _time: l._time, _value: if r._value > 0.0 then l._value / r._value - 1.0 else 0.0})) |> group() |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
+          "query": "import \"timezone\"\nimport \"date\"\nimport \"join\"\ntz = \"${__timezone}\"\nloc = timezone.location(name: if tz == \"utc\" or tz == \"\" or tz == \"browser\" then \"UTC\" else tz)\nhourly = from(bucket:\"smokeping\") |> range(start:v.timeRangeStart, stop:v.timeRangeStop) |> filter(fn:(r) => r._measurement == \"http_latency\" and r.target =~ /^(${service_targets:pipe})$/ and r._field == \"median\" and r.category != \"dns_wizard\") |> group() |> aggregateWindow(every: 1h, fn: mean, createEmpty: false, location: loc, timeSrc: \"_start\") |> map(fn:(r) => ({_time: r._time, _start: date.truncate(t: r._time, unit: 1d, location: loc), _value: r._value})) |> group(columns: [\"_start\"])\nfloor = hourly |> min()\njoin.inner(left: hourly, right: floor, on: (l, r) => l._start == r._start, as: (l, r) => ({_start: l._start, _time: l._time, _value: if r._value > 0.0 then l._value / r._value - 1.0 else 0.0})) |> group() |> map(fn:(r) => ({_time: date.truncate(t: r._time, unit: 1d, location: loc), hour: (if date.hour(t: r._time, location: loc) < 10 then \"0\" else \"\") + string(v: date.hour(t: r._time, location: loc)), _value: r._value})) |> pivot(rowKey: [\"_time\"], columnKey: [\"hour\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"])"
         }
       ]
     }

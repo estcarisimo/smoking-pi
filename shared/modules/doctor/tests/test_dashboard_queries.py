@@ -513,3 +513,21 @@ def test_the_real_http_layer_maps_errors(monkeypatch):
         monkeypatch.setattr(dq.urllib.request, "urlopen", boom)
         with pytest.raises(mapped):
             g.request("GET", "/api/search")
+
+
+def test_a_custom_all_value_is_sent_when_saved_on_all():
+    # Service category (docs/taxonomy.md): "All" is the sentinel __all, and
+    # an install with no label point yet offers no category but still opens.
+    cats = {"type": "query", "name": "service_category", "datasource": {"uid": "influxdb"},
+            "query": "list categories", "multi": True, "includeAll": True,
+            "allValue": "__all", "current": {"value": ["$__all"]}}
+    names = {"type": "query", "name": "service_targets", "datasource": {"uid": "influxdb"},
+             "query": 'names for "${service_category:pipe}"', "multi": True,
+             "includeAll": True, "current": {"value": ["$__all"]}}
+    g = FakeGrafana({"a": _dash("a", [_panel("P", "r.target =~ /^(${service_targets:pipe})$/")],
+                                [cats, names])},
+                    {"list categories": [], "names for": [".*"]})
+    res = _run(g)
+    assert res.status is Status.OK, res.findings
+    assert 'names for "__all"' in g.queries
+    assert g.queries[-1] == "r.target =~ /^(.*)$/"

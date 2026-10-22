@@ -13,6 +13,12 @@ Open it from the dashboard list (*SmokePing dashboards*) or from the
 Overview's *Where to look next* list. It is part of the InfluxDB dashboard
 set: Pro with ClickHouse does not have it.
 
+The **Service category** variable at the top narrows the destinations to
+the targets in one or more service categories (video, gaming,
+ai_assistant...; see [Service taxonomy](taxonomy.md)). All, the default,
+counts every destination, labeled or not. The lines stay grouped by probe
+bucket; the whole-connection rows are not narrowed.
+
 ## At a glance
 
 | Tile | What it counts |

@@ -11,7 +11,13 @@ Smoking Pi measures for it, layer by layer:
 | HTTP/1.1, HTTP/2, HTTP/3 | `http_latency` | A HEAD request over each version, and how often one failed |
 | DNS | `dns_latency` | A query answered by this target, when the target is a resolver |
 
-The tiles at the top give the median and the loss for each layer over the
+The first row says when the target was last measured, whether it is
+measured now, how long this Pi's radio was deaf in the range, and what the
+target is: the **Service** tile shows its service and its service
+categories ([Service taxonomy](taxonomy.md)), from the last label the
+exporter recorded ("unknown (no rule yet)" when no rule labels it).
+
+The tiles below give the median and the loss for each layer over the
 selected range. A layer the target has no probe for, or whose probe wrote
 nothing in that range, says **not measured**,
 so you can see at a glance what exists and what does not. The DNS charts

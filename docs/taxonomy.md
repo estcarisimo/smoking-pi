@@ -150,11 +150,61 @@ writing or checking a rule (which hostnames belong to which service), and
 `source` on each rule records which one. None of their files is copied
 into the repository.
 
+## In InfluxDB, Grafana and the assistants
+
+The labels never become tags on `latency`, `dns_latency`, `http_latency`,
+`tcp_latency` or `cpe_latency`: a new tag splits a series, so retagging
+would cut every target's history in two, and again at every relabel.
+Instead the InfluxDB exporter (`rrd2influx.py`, Pro) writes them to a
+measurement of their own, the way it writes `target_host`:
+
+| Measurement `target_labels` | |
+| --- | --- |
+| tag `target` | The target's name, the same tag the latency series carry |
+| field `service` | The service name |
+| field `categories` | The vocabulary ids, sorted and comma-joined (`social,video`) |
+| field `label_source` | `manual` (an override, or a rule from the maintainer's own check), `adguard`, `ndpi` or `radar`; empty for `unknown` |
+| field `taxonomy_version` | The rules' `version` the label came from |
+
+A point is written when the exporter first sees a target and whenever any
+of those changes (an override, a renamed or retitled target, a new
+taxonomy version), never per cycle: a few hundred points per install, and
+one more per change. The exporter asks config-manager's
+`GET /taxonomy/targets` every five minutes and never resolves a label
+itself; when config-manager does not answer, it logs one line and tries
+again on the next round. Inactive targets get none. The last point per
+target is its current label, and the points before it say what it was
+called when. The dashboards read the last point over all time, which
+holds because the bucket keeps everything (no retention period is set);
+a bucket given one would need the exporter to rewrite the labels before
+they expire.
+
+**Grafana.** Connectivity & Quality and Side by Side have a **Service
+category** variable (several at once; All by default), listing the
+categories the targets have. On Connectivity & Quality it narrows every
+panel that reads targets' measurements (the tiles, the category lines, the
+targets table, the heatmaps and the per-target episodes) to the targets in
+the chosen categories; the whole-connection rows stay whole. On Side by
+Side it narrows the Target list within the probe bucket (the variable
+**Category (one at a time)**, unchanged). With All, every target counts,
+labeled or not; the panels' queries gain one predicate, `target =~
+/^(.*)$/`, which the storage engine evaluates on the tag (no
+`contains(set:)`, which it would not push down). Target Detail shows the service and its categories in a **Service**
+tile on the first row.
+
+**The assistants.** The MCP server's `list_targets` returns each target's
+`service` and `categories` and takes a `service_category` filter;
+`get_latency_stats` and `get_loss_events` carry the two fields on each
+target they report when they have read the target list for the links. The
+web admin's chat does the same in its `list_targets`. The answering guide
+(`common/guide.py`, the one every assistant gets) tells them to speak of a
+target by its service, not its probe bucket, and that `unknown` is not a
+broken target.
+
+ClickHouse mode has no `target_labels` yet ([ClickHouse](clickhouse.md)).
+
 ## Not yet
 
-- TODO (PR 2): the labels in InfluxDB (a `target_labels` measurement),
-  Grafana variables to filter dashboards by service category, and the MCP
-  server's tools saying what a target is.
 - TODO (PR 3): the maintainer's refresh tooling (checking rules against the
   sources and proposing new ones), and the delivery axis from
   `common/asn.py` next to the service.

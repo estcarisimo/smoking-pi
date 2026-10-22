@@ -45,6 +45,9 @@ _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 MAX_HOURS = 24 * 365
 
 _TARGET_FIELDS = ("id", "name", "host", "title", "category", "probe", "is_active")
+# What the target measures (docs/taxonomy.md), as config-manager resolved it;
+# left out of a row that has none (an older config-manager).
+_LABEL_FIELDS = ("service", "categories")
 
 MUTATING_TOOLS = {"add_target", "remove_target", "toggle_target"}
 
@@ -137,9 +140,25 @@ TOOLS = [
         "description": (
             "List all SmokePing monitoring targets with id, name, host, "
             "title, category, probe, and active flag. Use this to see what "
-            "is monitored or to find a target's exact name."
+            "is monitored or to find a target's exact name. `category` is "
+            "the probe bucket; `service` and `categories` say what the "
+            "target is, from the service vocabulary: video, audio, gaming, "
+            "realtime_comms, messaging, social, web_search, ai_assistant, "
+            "cloud_saas, software_update, cdn, dns, connectivity, "
+            "ads_analytics, academic, or unknown (no rule labels it yet)."
         ),
-        "input_schema": {"type": "object", "properties": {}},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "service_category": {
+                    "type": "string",
+                    "description": (
+                        "Only the targets whose categories include this "
+                        "vocabulary id (e.g. 'video'). Omit for all."
+                    ),
+                },
+            },
+        },
     },
     {
         "name": "add_target",
@@ -357,7 +376,9 @@ def _validate_hours(hours: Any) -> tuple:
 
 
 def _slim_target(target: dict) -> dict:
-    return {k: target.get(k) for k in _TARGET_FIELDS}
+    slim = {k: target.get(k) for k in _TARGET_FIELDS}
+    slim.update({k: target[k] for k in _LABEL_FIELDS if target.get(k) is not None})
+    return slim
 
 
 def _fetch_targets() -> list:
@@ -386,9 +407,16 @@ def _iso(value: Any) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _list_targets(_input: dict) -> dict:
-    targets = [_slim_target(t) for t in _fetch_targets()]
-    return {"total": len(targets), "targets": targets}
+def _list_targets(tool_input: dict) -> dict:
+    rows = _fetch_targets()
+    wanted = str((tool_input or {}).get("service_category") or "").strip().lower()
+    if wanted:
+        rows = [t for t in rows if wanted in (t.get("categories") or [])]
+    targets = [_slim_target(t) for t in rows]
+    result = {"total": len(targets), "targets": targets}
+    if wanted:
+        result["service_category"] = wanted
+    return result
 
 
 def _add_target(tool_input: dict) -> dict:

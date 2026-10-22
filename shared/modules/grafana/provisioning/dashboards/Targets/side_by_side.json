@@ -94,12 +94,66 @@
       },
       {
         "type": "query",
+        "name": "service_category",
+        "label": "Service category",
+        "description": "What the targets are for, from their service labels (docs/taxonomy.md): video, gaming, ai_assistant, dns... One target can be in several (YouTube is video and social); unknown is a target no rule labels yet. All: every target, labeled or not. Not the probe bucket (topsites, netflix, custom), which is a different thing.",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "query": "import \"strings\"\n// The service categories of the targets, from the labels the exporter writes on change\n// (target_labels; docs/taxonomy.md). A target's categories are one comma-joined field:\n// read the first eight positions (no rule has more than three) and keep the distinct ids.\nlabels = from(bucket: \"smokeping\") |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and r._field == \"categories\")\n  |> last() |> group() |> keep(columns: [\"_value\"])\npart = (i) => labels |> map(fn: (r) => ({category: if length(arr: strings.split(v: r._value, t: \",\")) > i then strings.split(v: r._value, t: \",\")[i] else \"\"}))\nunion(tables: [part(i: 0), part(i: 1), part(i: 2), part(i: 3), part(i: 4), part(i: 5), part(i: 6), part(i: 7)])\n  |> filter(fn: (r) => r.category != \"\") |> distinct(column: \"category\") |> sort()",
+        "hide": 0,
+        "multi": true,
+        "includeAll": true,
+        "allValue": "__all",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 1,
+        "sort": 0
+      },
+      {
+        "type": "query",
+        "name": "service_targets",
+        "label": "Targets in the selected service categories",
+        "description": "Hidden: the target names the Service category selects, as a regular expression the panels filter on. Always All.",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "query": "import \"array\"\n// The targets whose service label (target_labels, its last point) carries a selected\n// service category, for the panels' target filter. \"All\" is \".*\": every target,\n// labeled or not (no label point passes the filter then).\nsel = \"${service_category:pipe}\"\nall = sel == \"__all\"\nlabeled = from(bucket: \"smokeping\") |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and r._field == \"categories\")\n  |> last()\n  |> filter(fn: (r) => not all and r._value =~ /(^|,)(${service_category:pipe})(,|$)/)\n  |> group() |> keep(columns: [\"target\"])\nevery = array.from(rows: [{target: \".*\"}]) |> filter(fn: (r) => all)\nunion(tables: [labeled, every]) |> distinct(column: \"target\") |> sort()",
+        "hide": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 1,
+        "sort": 0,
+        "skipUrlSync": true
+      },
+      {
+        "type": "query",
         "name": "target",
         "label": "Target",
         "datasource": {
           "uid": "influxdb"
         },
-        "query": "from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"latency\" and r.category == \"${category}\") |> keep(columns: [\"target\"]) |> distinct(column: \"target\") |> sort(columns: [\"target\"])",
+        "query": "from(bucket: \"smokeping\") |> range(start: -24h) |> filter(fn: (r) => r._measurement == \"latency\" and r.category == \"${category}\" and r.target =~ /^(${service_targets:pipe})$/) |> keep(columns: [\"target\"]) |> distinct(column: \"target\") |> sort(columns: [\"target\"])",
         "hide": 0,
         "multi": true,
         "includeAll": true,
@@ -109,7 +163,8 @@
           "text": "",
           "value": ""
         },
-        "refresh": 1
+        "refresh": 1,
+        "description": "The targets of the selected category that are also in the selected service categories (Service category; All: every one)."
       }
     ]
   },

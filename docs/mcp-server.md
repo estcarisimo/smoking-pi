@@ -22,7 +22,7 @@ signed in with a pairing code and limited to the read tools
 
 | Tool | What it does |
 |---|---|
-| `list_targets()` | All monitoring targets with category, host, active state |
+| `list_targets(service_category)` | All monitoring targets with category, host, active state, and what each one is: its `service` and service `categories` ([taxonomy.md](taxonomy.md)); `service_category` keeps only the targets in that category |
 | `add_target(name, host, category, title, probe)` | Add a host to monitoring (validates name/category, resolves probe) |
 | `remove_target(name)` | Delete a target by name |
 | `toggle_target(name)` | Pause/resume monitoring for a target |
