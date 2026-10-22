@@ -27,6 +27,8 @@ RUN pip install --no-cache-dir \
 
 COPY modules/inference/*.py ./
 COPY modules/common/*.py ./common/
+# The AS roles classify() reads (asn_roles.csv) and their license.
+COPY modules/common/data/ ./common/data/
 
 VOLUME ["/var/lib/inference"]
 

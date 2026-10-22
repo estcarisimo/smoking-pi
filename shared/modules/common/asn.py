@@ -6,24 +6,37 @@ that ask (inference's operator tags, pathmeter's hops).
   Cymru's DNS service (``<reversed /24>.origin.asn.cymru.com``), as the DNS
   observer and the resolver probe already do;
 - :func:`classify`: the operator and its kind from :data:`KNOWN`, a table of
-  well-known networks. An AS not in it is its own operator, of kind
-  ``other``.
+  well-known networks, then from :func:`roles`, the AS roles derived from
+  Linnaeus's hand-labeled ASes (``data/asn_roles.csv``). An AS in neither
+  is its own operator, of kind ``other``.
 
-DNS queries only; the callers cache what they learn. Needs dnspython,
-imported on first use, so importing this module needs nothing.
+DNS queries only; the callers cache what they learn (``operators.py`` per
+target, pathmeter's ``owners.py`` per hop). Needs dnspython, imported on
+first use, so importing this module needs nothing.
 """
 
 from __future__ import annotations
 
+import csv
 import ipaddress
+from functools import cache
+from pathlib import Path
 
 CDN = "cdn"                  # multi-tenant CDN
 CONTENT = "content_network"  # a content provider's own network
 CACHE = "embedded_cache"     # caches placed near the access network (Netflix OCA)
 CLOUD = "cloud_origin"       # cloud, hosting, or the service's own servers
 ACADEMIC = "academic"
+ACCESS = "access"            # an access network: home, mobile or satellite ISP
+TRANSIT = "transit"          # a transit carrier
+DNS_INFRA = "dns_infrastructure"  # root, TLD or authoritative DNS operator
+LOCAL = "local"              # an address on the local network (the gateway)
 OTHER = "other"
 UNKNOWN = "unknown"
+KINDS = (CDN, CONTENT, CACHE, CLOUD, ACADEMIC, ACCESS, TRANSIT, DNS_INFRA, LOCAL,
+         OTHER, UNKNOWN)
+
+ROLES_FILE = Path(__file__).resolve().parent / "data" / "asn_roles.csv"
 
 # ASN -> (operator, kind). Only networks whose kind is not in doubt; the
 # rest are their own operator, of kind "other".
@@ -43,6 +56,26 @@ KNOWN: dict[int, tuple[str, str]] = {
 AMAZON = 16509  # CloudFront and EC2 share it: the CNAME chain decides
 CLOUDFRONT_HINTS = ("cloudfront", "frontier.amazon")
 
+
+@cache
+def roles(path: Path = ROLES_FILE) -> dict[int, tuple[str, str]]:
+    """ASN -> (operator, kind) from the vendored roles file; empty when the
+    file is missing (an image that did not copy ``data/``) or unreadable.
+    Lines starting with ``#`` are the file's provenance header."""
+    table: dict[int, tuple[str, str]] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as fh:
+            rows = csv.DictReader(line for line in fh if not line.startswith("#"))
+            for row in rows:
+                try:
+                    asn = int(row["asn"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if row.get("kind") in KINDS:
+                    table[asn] = (row.get("operator") or f"AS{asn}", row["kind"])
+    except OSError:
+        return {}
+    return table
 
 
 def _resolver():
@@ -109,7 +142,9 @@ def origin(ip: str, resolver=None) -> tuple[int, str] | None:
 
 
 def classify(asn: int | None, as_name: str, host: str, chain: list[str]) -> tuple[str, str]:
-    """(operator, kind) from the origin AS, with the CNAME chain for Amazon."""
+    """(operator, kind) from the origin AS, with the CNAME chain for Amazon.
+    :data:`KNOWN` wins over :func:`roles`; the AS name's words are the last
+    resort for universities."""
     if not asn:
         return UNKNOWN, UNKNOWN
     if asn == AMAZON:
@@ -119,6 +154,8 @@ def classify(asn: int | None, as_name: str, host: str, chain: list[str]) -> tupl
         return "AWS", CLOUD
     if asn in KNOWN:
         return KNOWN[asn]
+    if asn in (table := roles()):
+        return table[asn]
     if any(w in as_name.lower() for w in ("univers", "college", "school", "research", "academ")):
         return as_name.split(" - ")[-1].split(",")[0].strip() or f"AS{asn}", ACADEMIC
     return (as_name.split(" - ")[0].strip() or f"AS{asn}"), OTHER

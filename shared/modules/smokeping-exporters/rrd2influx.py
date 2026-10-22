@@ -48,6 +48,15 @@ process and whenever any of those changes. The labels are config-manager's
 (``GET /taxonomy/targets``, which resolves them in either mode); this
 process never resolves one. When config-manager cannot be asked, nothing is
 written and the next round tries again.
+
+The same points carry the delivery axis: string fields ``operator`` and
+``kind`` and integer ``asn`` (0 when unknown), who runs the network the
+target's host answers from. These this process does compute, from the
+host config-manager reports, with ``common/operators.py`` (DNS, then Team
+Cymru's origin AS per /24, then ``common/asn.py``'s classification),
+cached next to the state file and bounded per round. A host with no IPv4
+answer is ``unknown``, an address on the LAN ``local``; neither is an
+error, and a later answer is a change like any other.
 """
 
 import glob
@@ -65,6 +74,13 @@ import urllib.request
 
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
+
+try:
+    # Baked into the image at /opt/smoking-pi (shared/modules/smokeping/
+    # Dockerfile). An image built before that has no delivery axis.
+    from common.operators import Operators
+except ImportError:  # pragma: no cover -- an older image under a newer checkout
+    Operators = None
 
 REQUIRED_ENV = ("INFLUX_URL", "INFLUX_TOKEN", "INFLUX_ORG", "INFLUX_BUCKET")
 DEFAULT_STATE_FILE = "/tmp/rrd2influx_state.json"
@@ -419,11 +435,15 @@ def fetch_labels(base_url: str, token: str = "",
     return body
 
 
-def label_points(body: dict, known: dict, now: int):
+UNKNOWN_DELIVERY = ("unknown", "unknown", 0)
+
+
+def label_points(body: dict, known: dict, now: int, delivery=None):
     """target_labels points for the active targets new to ``known`` or
-    relabeled since, and ``known`` updated to match. Targets that
-    disappeared (or were deactivated) are forgotten, so one that comes
-    back is written again."""
+    relabeled since, and ``known`` updated to match. ``delivery(name)`` is
+    the target's (operator, kind, asn); without it every target is
+    unknown. Targets that disappeared (or were deactivated) are
+    forgotten, so one that comes back is written again."""
     try:
         version = int(body.get("version") or 0)
     except (TypeError, ValueError):
@@ -437,8 +457,10 @@ def label_points(body: dict, known: dict, now: int):
             continue
         seen.add(name)
         categories = ",".join(sorted(str(c) for c in entry.get("categories") or []))
+        operator, kind, asn = delivery(name) if delivery else UNKNOWN_DELIVERY
         current = (str(entry.get("service") or ""), categories,
-                   str(entry.get("label_source") or ""), version)
+                   str(entry.get("label_source") or ""), version,
+                   str(operator), str(kind), int(asn or 0))
         if known.get(name) == current:
             continue
         known[name] = current
@@ -448,6 +470,9 @@ def label_points(body: dict, known: dict, now: int):
                       .field("categories", current[1])
                       .field("label_source", current[2])
                       .field("taxonomy_version", version)
+                      .field("operator", current[4])
+                      .field("kind", current[5])
+                      .field("asn", current[6])
                       .time(now, WritePrecision.S))
     # An empty list is a config-manager without targets for a moment (a
     # restore, a migration), not every target gone: forgetting them all
@@ -458,11 +483,20 @@ def label_points(body: dict, known: dict, now: int):
     return points
 
 
+def active_hosts(body: dict) -> dict:
+    """target -> host for the active targets in a ``/taxonomy/targets`` body."""
+    return {str(t["name"]): str(t.get("host") or "")
+            for t in body.get("targets") or []
+            if isinstance(t, dict) and t.get("name") and t.get("is_active") is not False}
+
+
 def record_labels(write_api, bucket: str, known: dict, now: int,
-                  fetch=None) -> int:
+                  fetch=None, operators=None) -> int:
     """Write target_labels points for what changed; returns how many. When
     config-manager cannot be asked, nothing changes; on a failed write
-    ``known`` is put back, so the next round tries again."""
+    ``known`` is put back, so the next round tries again. ``operators``
+    (a ``common.operators.Operators``) looks up who delivers each target;
+    its lookups failing leaves those targets ``unknown``, never the round."""
     if fetch is None:
         def fetch():
             return fetch_labels(os.getenv("CONFIG_API_URL") or DEFAULT_CONFIG_API_URL,
@@ -470,8 +504,18 @@ def record_labels(write_api, bucket: str, known: dict, now: int,
     body = fetch()
     if body is None:
         return 0
+    delivery = None
+    if operators is not None:
+        hosts = active_hosts(body)
+        try:
+            operators.refresh(hosts)
+        except Exception as exc:  # noqa: BLE001 -- the labels must not wait on the lookups
+            logging.warning("target_labels: delivery lookups failed: %s", type(exc).__name__)
+
+        def delivery(name):
+            return operators.owner(name, hosts)
     before = dict(known)
-    points = label_points(body, known, now)
+    points = label_points(body, known, now, delivery)
     if points and not write_with_retry(write_api, bucket, points):
         known.clear()
         known.update(before)
@@ -601,6 +645,12 @@ def main() -> int:
     hosts = {}
     labels = {}
     labels_due = 0.0
+    operators = (Operators(pathlib.Path(state_file).with_name("rrd2influx_operators.json"))
+                 if Operators is not None else None)
+    if operators is None:
+        logging.warning("target_labels: common/ is not in this image (built before the "
+                        "delivery axis): every target's operator and kind stay unknown "
+                        "until the smokeping image is rebuilt")
 
     logging.info("RRD exporter started → %s (bucket: %s, pings/cycle: per-RRD "
                  "(fallback %d), state: %s)",
@@ -616,7 +666,7 @@ def main() -> int:
                 if time.time() >= labels_due:
                     labels_due = time.time() + LABELS_INTERVAL
                     changed = record_labels(write_api, influx_bucket, labels,
-                                            int(time.time()))
+                                            int(time.time()), operators=operators)
                     if changed:
                         logging.info("target_labels: %d target(s) new or relabeled",
                                      changed)

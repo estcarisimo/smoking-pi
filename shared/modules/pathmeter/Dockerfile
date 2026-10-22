@@ -24,6 +24,8 @@ RUN pip install --no-cache-dir "influxdb-client>=1.40" "dnspython>=2.6" \
 
 COPY modules/pathmeter/*.py ./
 COPY modules/common/*.py ./common/
+# The AS roles classify() reads (asn_roles.csv) and their license.
+COPY modules/common/data/ ./common/data/
 
 VOLUME ["/var/lib/pathmeter"]
 

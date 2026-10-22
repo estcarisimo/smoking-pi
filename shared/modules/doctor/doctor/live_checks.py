@@ -49,6 +49,7 @@ import csv
 import datetime
 import hashlib
 import importlib.util
+import ipaddress
 import json
 import os
 import pathlib
@@ -801,7 +802,8 @@ LABELS_SHOWN = 12
 
 
 def check_targets_labeled(docker: Docker | None = None) -> CheckResult:
-    """How many active targets no taxonomy rule (or override) labels.
+    """How many active targets no taxonomy rule (or override) labels, and
+    (Pro, InfluxDB) how many have no delivery network.
 
     Unknown is allowed -- a target someone added by hand may name a
     service the vocabulary has no rule for -- so this only warns, and
@@ -826,15 +828,83 @@ def check_targets_labeled(docker: Docker | None = None) -> CheckResult:
         # An image older than the taxonomy has no taxonomy.py to run.
         return skipped(name, "config-manager did not answer GET /taxonomy/unknown")
     names = sorted(str(t.get("name")) for t in body["targets"] if isinstance(t, dict))
-    if not names:
+    findings = []
+    if names:
+        findings.append(Finding(
+            f"{_labels_shown(names)}: smoking-pi taxonomy set TARGET SERVICE CATEGORY, or a rule "
+            "in templates/taxonomy.yaml (docs/taxonomy.md)"))
+    delivery = _unidentified_delivery(docker, container)
+    if delivery:
+        unknown, total = delivery
+        findings.append(Finding(
+            f"{len(unknown)} of {total} labeled target(s) have no delivery network "
+            f"(kind unknown): {_labels_shown(unknown)}. A host with no IPv4 address has none; "
+            "for the rest the exporter's AS lookups (DNS to Team Cymru) have not "
+            "answered yet (docs/taxonomy.md)"))
+    if not findings:
         return result(name, [], "every active target has a service label")
+    summary = (f"{len(names)} active target(s) have no service label" if names
+               else "every active target has a service label; some have no delivery network")
+    return CheckResult(name, Status.WARN, summary, findings)
+
+
+def _labels_shown(names: list[str]) -> str:
     shown = ", ".join(names[:LABELS_SHOWN])
     if len(names) > LABELS_SHOWN:
         shown += f" and {len(names) - LABELS_SHOWN} more"
-    return CheckResult(name, Status.WARN,
-                       f"{len(names)} active target(s) have no service label", [Finding(
-        f"{shown}: smoking-pi taxonomy set TARGET SERVICE CATEGORY, or a rule "
-        "in templates/taxonomy.yaml (docs/taxonomy.md)")])
+    return shown
+
+
+# Each target's newest delivery kind, as the exporter wrote it on its
+# target_labels points (field `kind`; docs/taxonomy.md).
+_KIND_FLUX = """
+from(bucket: "BUCKET")
+  |> range(start: 0)
+  |> filter(fn: (r) => r._measurement == "target_labels" and r._field == "kind")
+  |> last()
+  |> group()
+  |> keep(columns: ["_value", "target"])
+"""
+
+
+def _unidentified_delivery(docker: Docker, config_manager: str
+                           ) -> tuple[list[str], int] | None:
+    """(active targets whose kind is unknown, active targets with a kind)
+    from InfluxDB, or None when there is nothing to say: no InfluxDB, a
+    failed query or target list, no delivery axis written yet, or every
+    target identified.
+
+    Only the targets active now count: a removed or renamed target keeps its
+    last point in InfluxDB forever. A host that is an IPv6 address is left
+    out: the lookup is IPv4 only, so it can never have a kind, and a warning
+    that can never clear teaches people to ignore the check."""
+    influx = docker.container_for_service("influxdb")
+    if not influx:
+        return None
+    code, out = docker.run(["exec", config_manager, "python", "taxonomy.py",
+                            "list", "--json"])
+    try:
+        body = json.loads(out) if code == 0 else None
+    except ValueError:
+        body = None
+    if not isinstance(body, dict) or not isinstance(body.get("targets"), list):
+        return None
+    active = {str(t.get("name")) for t in body["targets"]
+              if isinstance(t, dict) and t.get("is_active") is not False
+              and not _is_ipv6(str(t.get("host") or ""))}
+    rows = [r for r in _influx_rows(docker, influx, _KIND_FLUX) or []
+            if str(r.get("target")) in active]
+    if not rows:
+        return None
+    unknown = sorted(str(r.get("target")) for r in rows if r.get("_value") == "unknown")
+    return (unknown, len(rows)) if unknown else None
+
+
+def _is_ipv6(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host.strip("[]")).version == 6
+    except ValueError:
+        return False
 
 
 def run_all(repo, docker: Docker | None = None) -> list[CheckResult]:

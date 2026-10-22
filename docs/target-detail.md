@@ -15,7 +15,10 @@ The first row says when the target was last measured, whether it is
 measured now, how long this Pi's radio was deaf in the range, and what the
 target is: the **Service** tile shows its service and its service
 categories ([Service taxonomy](taxonomy.md)), from the last label the
-exporter recorded ("unknown (no rule yet)" when no rule labels it).
+exporter recorded ("unknown (no rule yet)" when no rule labels it), and
+who delivers it: the network its host answers from and that network's kind
+("via Fastly: cdn"; "network not identified" for a host with no IPv4
+answer yet).
 
 The tiles below give the median and the loss for each layer over the
 selected range. A layer the target has no probe for, or whose probe wrote

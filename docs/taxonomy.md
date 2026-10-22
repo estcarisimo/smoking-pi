@@ -23,9 +23,8 @@ A measured target answers two different questions:
 1. **What service is it?** The service axis, this page: a vocabulary of our
    own and rules that map targets onto it.
 2. **Who delivers it?** The delivery axis: the network that actually
-   answers (Netflix's own Open Connect, Akamai, Cloudflare, an ISP cache).
-   `common/asn.py` already computes this from the answering address's AS.
-   It is not part of the labels yet.
+   answers (Netflix's own Open Connect, Akamai, Cloudflare, an ISP), its
+   **operator** and its **kind**, see [Delivery](#delivery).
 
 The two are independent. `www.nytimes.com` is a news site (service)
 delivered by Fastly (delivery); `uba.ar` is a university delivered by
@@ -90,6 +89,62 @@ Each rule records:
 | `confidence` | `high`, `medium` or `low`. |
 | `since` | The date the rule was written or last checked. |
 | `note` | Optional: why, when it is not obvious (`uba.ar` measures Imperva's edge). |
+
+## Delivery
+
+The service axis is what someone wrote down; the delivery axis is looked
+up. For each active target, the InfluxDB exporter resolves the host (an IP
+address is its own answer; a URL's hostname for HTTP targets), asks Team
+Cymru's DNS service for the address's origin AS (cached a week per /24, a
+failed lookup an hour, at most 64 new lookups per round), and classifies
+that AS (`shared/modules/common/asn.py`):
+
+1. **`KNOWN`**, a short hand table of well-known networks in `asn.py`. It
+   always wins: it is where a kind that matters for measurement is decided
+   on purpose (Netflix's AS is an `embedded_cache`, whatever else it is).
+   Amazon's AS is split by the CNAME chain: CloudFront is a `cdn`, the rest
+   `cloud_origin`.
+2. **`common/data/asn_roles.csv`**, one kind for each of about 880 ASes,
+   derived from [Linnaeus](https://github.com/NU-AquaLab/linnaeus)'s
+   hand-labeled ASes (Piotto et al., arXiv 2603.13649; MIT, its license
+   next to the file). Linnaeus gives an AS several roles; the derivation
+   keeps the first that says who delivers, in this order: Access, Mobile
+   and Satellite → `access`; Content Provider CDN → `cdn`, Cloud and
+   Hosting → `cloud_origin`, other content → `content_network`; Transit →
+   `transit`; DNS → `dns_infrastructure`; Educational & Research →
+   `academic`. Roles that say who owns an AS rather than what it delivers
+   (government, finance, enterprise, ...) are left out.
+3. The AS name: a university's is `academic`; anything else is its own
+   operator, of kind `other`.
+
+| Kind | What it means for a measurement |
+| --- | --- |
+| `cdn` | A multi-tenant CDN edge: many sites share it, so its trouble shows on all of them at once. |
+| `content_network` | A content provider's own network (Google, Meta, Apple, Microsoft). |
+| `embedded_cache` | A cache inside or next to your ISP (Netflix Open Connect): close, and not on the general Internet path. |
+| `cloud_origin` | A cloud region, a hosting provider or the service's own servers: often far, one location. |
+| `access` | An access (home, mobile or satellite) ISP: the target answers from inside a carrier, often its own cache or service. |
+| `transit` | A transit carrier's network. |
+| `dns_infrastructure` | A root, TLD or authoritative DNS operator. |
+| `academic` | A university or research network. |
+| `local` | An address on your own network (the gateway); not looked up. |
+| `other` | An AS neither table classifies: its operator is the AS name. |
+| `unknown` | No IPv4 answer (an IPv6-only host, one that does not resolve) or the lookup has not answered yet. Not an error. |
+
+The same lookups and kinds feed the experimental shared-congestion
+detector (`inference/tags.py`), which asks whether loss reached several
+kinds of infrastructure at once, and the path meter records the same
+origin AS for each hop ([Path](path.md)). The per-target cache is
+`common/operators.py`, shared by the exporter and the detector; four older
+Team Cymru readers (the resolver probe, the public-IP check, the DNS
+wizard, `tools/dns-explore`) predate it and are left as they are.
+
+Refreshing the roles file is a maintainer step:
+`python3 shared/scripts/build-asn-roles.py hierarchical.csv --release <release>`
+on a downloaded Linnaeus `labels/hierarchical.csv`; `--check` says whether
+the committed file is current. ASdb (no license) and PeeringDB (its terms
+forbid storing its data) are not used, and nothing is asked of a
+commercial geolocation or BGP service.
 
 ## Overrides
 
@@ -165,10 +220,14 @@ measurement of their own, the way it writes `target_host`:
 | field `categories` | The vocabulary ids, sorted and comma-joined (`social,video`) |
 | field `label_source` | `manual` (an override, or a rule from the maintainer's own check), `adguard`, `ndpi` or `radar`; empty for `unknown` |
 | field `taxonomy_version` | The rules' `version` the label came from |
+| field `operator` | Who runs the network the host answers from ([Delivery](#delivery)), or `unknown` |
+| field `kind` | That network's kind (`cdn`, `access`, ...), or `unknown` |
+| field `asn` | Its origin AS number; 0 when unknown or local |
 
 A point is written when the exporter first sees a target and whenever any
 of those changes (an override, a renamed or retitled target, a new
-taxonomy version), never per cycle: a few hundred points per install, and
+taxonomy version, a host that moved to another network or whose lookup
+first answered), never per cycle: a few hundred points per install, and
 one more per change. The exporter asks config-manager's
 `GET /taxonomy/targets` every five minutes and never resolves a label
 itself; when config-manager does not answer, it logs one line and tries
@@ -190,12 +249,14 @@ Side it narrows the Target list within the probe bucket (the variable
 labeled or not; the panels' queries gain one predicate, `target =~
 /^(.*)$/`, which the storage engine evaluates on the tag (no
 `contains(set:)`, which it would not push down). Target Detail shows the service and its categories in a **Service**
-tile on the first row.
+tile on the first row, with the operator and kind next to it.
 
 **The assistants.** The MCP server's `list_targets` returns each target's
 `service` and `categories` and takes a `service_category` filter;
 `get_latency_stats` and `get_loss_events` carry the two fields on each
-target they report when they have read the target list for the links. The
+target they report when they have read the target list for the links.
+The delivery axis is not in the MCP tools yet: it lives in InfluxDB, and
+no tool reads `target_labels` there; `list_targets` reads config-manager. The
 web admin's chat does the same in its `list_targets`. The answering guide
 (`common/guide.py`, the one every assistant gets) tells them to speak of a
 target by its service, not its probe bucket, and that `unknown` is not a
@@ -203,8 +264,63 @@ broken target.
 
 ClickHouse mode has no `target_labels` yet ([ClickHouse](clickhouse.md)).
 
-## Not yet
+The doctor's `targets-labeled` check also counts the active targets whose
+kind is `unknown` and names them, as a warning (never a failure): the
+lookups have not answered, or the host has no IPv4 address. A target whose
+host is an IPv6 address is not counted, since the IPv4-only lookup can
+never give it a kind; a hostname with only IPv6 addresses is, and stays
+named.
 
-- TODO (PR 3): the maintainer's refresh tooling (checking rules against the
-  sources and proposing new ones), and the delivery axis from
-  `common/asn.py` next to the service.
+## Refreshing the rules
+
+Rules go stale: a service moves to new hostnames, a source recategorizes
+one, an install adds targets no rule knows. `shared/scripts/build-taxonomy.py`
+checks the shipped rules against the sources and proposes rules for
+unlabeled targets. It is a maintainer tool, not a `smoking-pi` command: it
+needs the network and third-party sources that never reach a Pi, and what
+it produces is a report a person turns into a pull request. It never edits
+`taxonomy.yaml`, because a relabel renames a target's service on every
+dashboard and splits what Grafana shows by service; that is a decision for
+a reviewer, not a script.
+
+```bash
+smoking-pi taxonomy list --json > targets.json          # on an install
+python3 shared/scripts/build-taxonomy.py --adguard --ndpi --targets targets.json --out report.md
+python3 shared/scripts/build-taxonomy.py --adguard --ndpi --check   # before a release
+```
+
+Run it before a release, and after adopting new services from the DNS
+wizard (their targets arrive unlabeled). Each source is off unless its flag
+is given, is fetched over HTTPS at run time into `--cache-dir` (a temporary
+directory by default), and is never written to the repository:
+
+| Flag | Source | License | Use |
+| --- | --- | --- | --- |
+| `--adguard [FILE]` | AdGuard HostlistsRegistry `assets/services.json` | GPL-3.0 | Hostnames per service and the service's group |
+| `--ndpi [FILE]` | nDPI `src/lib/ndpi_content_match.c.inc` (`host_match`) | LGPL-3.0 | Hostnames per protocol and its category |
+| `--radar` | Cloudflare Radar `ranking/domain/{domain}` (`CLOUDFLARE_API_TOKEN`) | CC BY-NC 4.0 | A domain's content categories, one request per second |
+
+Each source's categories map onto the vocabulary through a small table in
+the script (AdGuard `messenger` → `messaging`, nDPI `VOIP` →
+`realtime_comms`, Radar 164 → `video`, ...); AdGuard's `streaming` covers
+both `video` and `audio`. What a source says is evidence for a fact we
+write ourselves, so no license follows it into the repository.
+
+The report has three sections:
+
+1. **Unlabeled targets** from `--targets`, each with every source's
+   proposal as a rule to paste (`source` set, `confidence: low`, `since`
+   today, a note saying where it came from).
+2. **Disagreements**: a shipped rule whose own source lists none of its
+   hosts any more, or puts one in a category the rule does not have. What
+   the other sources say, and names that differ, are listed after it for
+   information.
+3. **Stale rules**: `since` older than `--max-age` days (180).
+
+`--check` exits 1 when section 2 or 3 is not empty. A proposal becomes a
+rule when a maintainer checks it (does the service use those hosts? is the
+category the question it answers?), raises `confidence` to what the check
+supports, keeps `source`, sets `since` to the day of the check, and opens a
+pull request. A disagreement is resolved the same way: correct the rule,
+or confirm it and move its `since`, or change its `source` to `manual`
+when the maintainer's own check is the evidence.

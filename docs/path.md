@@ -65,7 +65,9 @@ Every `PATHMETER_INTERVAL` seconds (default 3600):
    candidate the next confirms or drops, so a load balancer or a router
    answering once from another of its addresses is not a change. The AS
    path (the networks along the hops, from Team Cymru's origin data, cached
-   a week per /24) changing is flagged on its own, because it is usually the
+   a week per /24; the same lookup, `common/asn.py`, that names each
+   target's operator and kind, see [Service taxonomy](taxonomy.md#two-axes))
+   changing is flagged on its own, because it is usually the
    change that matters, and only once every hop's network is known, so a
    lookup still pending is not a change of network. A name with several
    addresses keeps the one it was traced at while DNS still returns it; one

@@ -13,15 +13,21 @@ network's kind from a short curated table of well-known networks:
    (``<reversed /24>.origin.asn.cymru.com``), as the DNS observer and the
    resolver probe already do;
 4. the operator and its kind from :data:`KNOWN`, a table of well-known
-   networks. An AS not in it is its own operator, of kind ``other``.
+   networks, then the AS roles derived from Linnaeus
+   (``common/data/asn_roles.csv``). An AS in neither is its own operator,
+   of kind ``other``.
 
 The lookups themselves (steps 2 to 4) are ``common/asn.py``, shared with
-the pathmeter's hops; this module caches them per target.
+the pathmeter's hops, and the per-target cache is ``common/operators.py``,
+shared with the exporter's ``target_labels``; this module keeps that cache
+in the inference state volume.
 
 Kinds: a multi-tenant CDN (many sites on one edge), a content provider's own
 network, a cache embedded near the access network, a cloud or origin server,
-an academic network. PeeringDB's network type was tried first and is too
-coarse: it calls nearly all of these "Content".
+an academic network, an access ISP, a transit carrier, DNS infrastructure.
+A target on the local network counts as no operator here, as before.
+PeeringDB's network type was tried first and is too coarse: it calls nearly
+all of these "Content".
 
 Lookups are DNS queries only, a few per target and cached in the state
 volume (addresses for a day, owners for a week). A failed lookup is cached
@@ -31,105 +37,33 @@ until a lookup succeeds the target is ``unknown`` and counts as no operator.
 
 from __future__ import annotations
 
-import ipaddress
-import json
-import logging
 import os
-import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from common.asn import (  # noqa: F401 -- re-exported: tags.CDN, tags.classify...
-    ACADEMIC, AMAZON, CACHE, CDN, CLOUD, CLOUDFRONT_HINTS, CONTENT, KNOWN, OTHER, UNKNOWN,
-    _resolver, _txt, classify, origin, resolve,
+    ACADEMIC, ACCESS, AMAZON, CACHE, CDN, CLOUD, CLOUDFRONT_HINTS, CONTENT, DNS_INFRA,
+    KNOWN, LOCAL, OTHER, TRANSIT, UNKNOWN, _resolver, _txt, classify, origin, resolve,
 )
-
-log = logging.getLogger("inference.tags")
-
-ADDRESS_TTL = 86400
-FAILED_TTL = 3600
-OWNER_TTL = 7 * 86400
-BUDGET = 64  # new lookups per pass; the rest wait for the next one
+from common.operators import (  # noqa: F401 -- re-exported: tags.ADDRESS_TTL...
+    ADDRESS_TTL, BUDGET, FAILED_TTL, OWNER_TTL, Operators,
+)
 
 
 def _state_path() -> Path:
     return Path(os.environ.get("INFERENCE_STATE_DIR", "/var/lib/inference")) / "tags.json"
 
 
-class Tags:
+class Tags(Operators):
     """Operator and kind per target, cached in ``tags.json``."""
 
-    def __init__(self, path: Path | None = None, clock=time.time,
+    def __init__(self, path: Path | None = None, clock=None,
                  resolve_fn=resolve, origin_fn=origin) -> None:
-        self.path = path or _state_path()
-        self.clock = clock
-        self._resolve, self._origin = resolve_fn, origin_fn
-        try:
-            raw = json.loads(self.path.read_text())
-        except (OSError, ValueError):
-            raw = {}
-        self.addresses: dict[str, dict] = raw.get("addresses", {})
-        self.owners: dict[str, dict] = raw.get("owners", {})
-
-    def save(self) -> None:
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"addresses": self.addresses, "owners": self.owners}))
-            os.replace(tmp, self.path)
-        except OSError:
-            log.warning("could not save %s", self.path, exc_info=True)
-
-    @staticmethod
-    def _prefix(ip: str) -> str:
-        return ".".join(ip.split(".")[:3])
-
-    def refresh(self, hosts: dict[str, str]) -> None:
-        """Look up what is missing or stale, at most BUDGET of each kind."""
-        now = self.clock()
-        def old(entry: dict | None, ttl: int) -> bool:
-            if entry is None:
-                return True
-            return now - entry.get("at", now) > (FAILED_TTL if entry.get("failed") else ttl)
-
-        def safe(fn):
-            def call(arg):
-                try:
-                    return fn(arg)
-                except Exception:  # noqa: BLE001 -- one bad lookup must not lose the others
-                    log.debug("lookup failed for %s", arg, exc_info=True)
-                    return None
-            return call
-
-        wanted = set(hosts.values())
-        stale = [h for h in sorted(wanted, key=lambda h: self.addresses.get(h, {}).get("at", 0))
-                 if old(self.addresses.get(h), ADDRESS_TTL)][:BUDGET]
-        if stale:
-            with ThreadPoolExecutor(8) as pool:
-                for host, found in zip(stale, pool.map(safe(self._resolve), stale)):
-                    self.addresses[host] = ({"ip": found[0], "chain": found[1], "at": now}
-                                            if found else {"failed": True, "at": now})
-        ips = {a["ip"] for h, a in self.addresses.items()
-               if h in wanted and a.get("ip") and ipaddress.ip_address(a["ip"]).version == 4}
-        todo = sorted({self._prefix(ip): ip for ip in ips
-                       if old(self.owners.get(self._prefix(ip)), OWNER_TTL)}.items(),
-                      key=lambda kv: self.owners.get(kv[0], {}).get("at", 0))[:BUDGET]
-        if todo:
-            with ThreadPoolExecutor(8) as pool:
-                for (prefix, _ip), found in zip(todo, pool.map(safe(self._origin),
-                                                               [ip for _, ip in todo])):
-                    self.owners[prefix] = ({"asn": found[0], "name": found[1], "at": now}
-                                           if found else {"failed": True, "at": now})
-        if stale or todo:
-            self.save()
+        kwargs = {"clock": clock} if clock is not None else {}
+        super().__init__(path or _state_path(), resolve_fn=resolve_fn,
+                         origin_fn=origin_fn, **kwargs)
 
     def of(self, target: str, hosts: dict[str, str]) -> tuple[str, str]:
-        """(operator, kind) of a target; ``unknown`` until its lookups succeed."""
-        host = hosts.get(target)
-        address = self.addresses.get(host or "")
-        if not address or not address.get("ip"):
-            return UNKNOWN, UNKNOWN
-        owner = self.owners.get(self._prefix(address["ip"])) if "." in address["ip"] else None
-        if not owner or not owner.get("asn"):
-            return UNKNOWN, UNKNOWN
-        return classify(owner["asn"], owner.get("name", ""), host, address.get("chain", []))
+        """(operator, kind) of a target; ``unknown`` until its lookups succeed.
+        A target on the local network is no kind of infrastructure here."""
+        operator, kind = super().of(target, hosts)
+        return (UNKNOWN, UNKNOWN) if kind == LOCAL else (operator, kind)

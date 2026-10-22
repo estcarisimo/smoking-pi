@@ -10,6 +10,7 @@ import pytest
 
 MODULE_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MODULE_DIR))
+sys.path.insert(0, str(MODULE_DIR.parent))  # shared/modules: `common`, as in the image
 
 import rrd2influx  # noqa: E402
 
@@ -455,14 +456,15 @@ LABELS = {
     "version": 1,
     "targets": [
         {"name": "Netflix_1_DFW", "is_active": True, "service": "Netflix",
-         "categories": ["video"], "label_source": "manual"},
+         "categories": ["video"], "label_source": "manual", "host": "45.57.0.1"},
         {"name": "YouTube", "is_active": True, "service": "YouTube",
-         "categories": ["video", "social"], "label_source": "manual"},
+         "categories": ["video", "social"], "label_source": "manual",
+         "host": "www.youtube.com"},
         {"name": "home_nas", "is_active": True, "service": "home_nas",
-         "categories": ["unknown"], "label_source": None},
+         "categories": ["unknown"], "label_source": None, "host": "192.168.1.10"},
         # Inactive: SmokePing does not measure it, so no label either.
         {"name": "Old", "is_active": False, "service": "Old",
-         "categories": ["web_search"], "label_source": "manual"},
+         "categories": ["web_search"], "label_source": "manual", "host": "old.example"},
     ],
 }
 
@@ -553,9 +555,11 @@ class TestTargetLabels:
         def no_write(*a, **k):
             raise AssertionError("nothing should be written")
 
-        known = {"YouTube": ("YouTube", "social,video", "manual", 1)}
+        known = {"YouTube": ("YouTube", "social,video", "manual", 1, "Google", "content_network",
+                             15169)}
+        before = dict(known)
         assert rrd2influx.record_labels(object(), "b", known, 1000, fetch=lambda: None) == 0
-        assert known == {"YouTube": ("YouTube", "social,video", "manual", 1)}
+        assert known == before
 
     def test_http_error_logs_the_status(self, caplog):
         import urllib.error
@@ -596,3 +600,81 @@ class TestTargetLabels:
         monkeypatch.setattr(rrd2influx, "write_with_retry", lambda *a, **k: True)
         assert rrd2influx.record_labels(object(), "b", known, 1300, fetch=lambda: LABELS) == 3
         assert rrd2influx.record_labels(object(), "b", known, 1600, fetch=lambda: LABELS) == 0
+
+
+class FakeOperators:
+    """Stands in for common.operators.Operators: no DNS, no Team Cymru."""
+
+    def __init__(self, table, fail=False):
+        self.table, self.fail, self.asked = table, fail, []
+
+    def refresh(self, hosts):
+        self.asked.append(dict(hosts))
+        if self.fail:
+            raise TimeoutError("resolver down")
+
+    def owner(self, name, hosts):
+        return self.table.get(name, ("unknown", "unknown", 0))
+
+
+class TestDeliveryAxis:
+    def test_without_lookups_every_target_is_unknown(self):
+        line = [p.to_line_protocol() for p in rrd2influx.label_points(LABELS, {}, 1000)
+                if p.to_line_protocol().startswith("target_labels,target=YouTube ")][0]
+        assert 'operator="unknown"' in line and 'kind="unknown"' in line and "asn=0i" in line
+
+    def test_operator_kind_and_asn_are_fields_not_tags(self):
+        delivery = {"YouTube": ("Google", "content_network", 15169)}.get
+        points = rrd2influx.label_points(LABELS, {}, 1000,
+                                         lambda n: delivery(n, ("unknown", "unknown", 0)))
+        line = [p.to_line_protocol() for p in points
+                if p.to_line_protocol().startswith("target_labels,target=YouTube ")][0]
+        assert line.split(" ")[0] == "target_labels,target=YouTube"
+        assert 'operator="Google"' in line and 'kind="content_network"' in line
+        assert "asn=15169i" in line
+
+    def test_a_new_delivery_answer_is_a_change_and_the_same_one_is_not(self):
+        known = {}
+        rrd2influx.label_points(LABELS, known, 1000)
+        found = {"YouTube": ("Google", "content_network", 15169)}
+
+        def delivery(name):
+            return found.get(name, ("unknown", "unknown", 0))
+        points = rrd2influx.label_points(LABELS, known, 1300, delivery)
+        assert [p.to_line_protocol().split(" ")[0] for p in points] == [
+            "target_labels,target=YouTube"]
+        assert rrd2influx.label_points(LABELS, known, 1600, delivery) == []
+
+    def test_record_labels_asks_for_the_active_hosts_only(self, monkeypatch):
+        monkeypatch.setattr(rrd2influx, "write_with_retry", lambda *a, **k: True)
+        ops = FakeOperators({"Netflix_1_DFW": ("Netflix", "embedded_cache", 2906)})
+        known = {}
+        assert rrd2influx.record_labels(object(), "b", known, 1000, fetch=lambda: LABELS,
+                                        operators=ops) == 3
+        assert ops.asked == [{"Netflix_1_DFW": "45.57.0.1", "YouTube": "www.youtube.com",
+                              "home_nas": "192.168.1.10"}]
+        assert known["Netflix_1_DFW"][4:] == ("Netflix", "embedded_cache", 2906)
+
+    def test_failed_lookups_still_write_the_labels(self, monkeypatch, caplog):
+        monkeypatch.setattr(rrd2influx, "write_with_retry", lambda *a, **k: True)
+        known = {}
+        with caplog.at_level("WARNING"):
+            assert rrd2influx.record_labels(object(), "b", known, 1000, fetch=lambda: LABELS,
+                                            operators=FakeOperators({}, fail=True)) == 3
+        assert "delivery lookups failed: TimeoutError" in caplog.text
+        assert all(v[4:] == ("unknown", "unknown", 0) for v in known.values())
+
+    def test_the_shared_cache_labels_a_lan_host_local(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(rrd2influx, "write_with_retry", lambda *a, **k: True)
+        assert rrd2influx.Operators is not None  # common/ is importable, as in the image
+        answers = {"www.youtube.com": ("142.250.0.1", []), "45.57.0.1": ("45.57.0.1", []),
+                   "192.168.1.10": ("192.168.1.10", [])}
+        owners = {"142.250.0.1": (15169, "GOOGLE"), "45.57.0.1": (2906, "AS-SSI")}
+        ops = rrd2influx.Operators(tmp_path / "ops.json", clock=lambda: 1.0,
+                                   resolve_fn=answers.get, origin_fn=owners.get)
+        known = {}
+        rrd2influx.record_labels(object(), "b", known, 1000, fetch=lambda: LABELS,
+                                 operators=ops)
+        assert known["YouTube"][4:] == ("Google", "content_network", 15169)
+        assert known["Netflix_1_DFW"][4:] == ("Netflix", "embedded_cache", 2906)
+        assert known["home_nas"][4:] == ("local network", "local", 0)
