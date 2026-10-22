@@ -3220,6 +3220,93 @@ STUB
     [ "$status" -ne 0 ]
 }
 
+# --- taxonomy: what kind of service each target is ----------------------------
+
+taxonomy_setup() {
+    mkdir -p "$BATS_TEST_TMPDIR/bin4"
+    cat > "$BATS_TEST_TMPDIR/bin4/docker" <<STUB
+#!/bin/sh
+case "\$*" in
+    *"ps -q --status running config-manager"*) echo "docker \$*" >> "\$DOCKER_LOG"; [ -z "\${STUB_CM_RUNNING:-}" ] || echo cm123; exit 0 ;;
+    *"exec -T config-manager python taxonomy.py"*) echo "docker \$*" >> "\$DOCKER_LOG"; echo "Google  Google  web_search  manual  name:Google"; exit 0 ;;
+esac
+exec "$BATS_TEST_TMPDIR/bin/docker" "\$@"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin4/docker"
+    export PATH="$BATS_TEST_TMPDIR/bin4:$PATH"
+}
+
+@test "taxonomy: refuses a stopped API, then runs list in config-manager" {
+    taxonomy_setup
+    run "$CLI" taxonomy list
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"config-manager is not running"* ]]
+    run grep -q 'taxonomy.py' "$DOCKER_LOG"
+    [ "$status" -ne 0 ]
+    export STUB_CM_RUNNING=1
+    run "$CLI" taxonomy
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python taxonomy.py list$' "$DOCKER_LOG"
+    [[ "$output" == *"name:Google"* ]]
+    run "$CLI" taxonomy list --json
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python taxonomy.py list --json$' "$DOCKER_LOG"
+    run "$CLI" taxonomy unknown --json
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python taxonomy.py unknown --json$' "$DOCKER_LOG"
+}
+
+@test "taxonomy: set and reset pass their arguments through exactly" {
+    taxonomy_setup
+    export STUB_CM_RUNNING=1
+    run "$CLI" taxonomy set Mystery Plex video,cloud_saas --note "home server"
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python taxonomy.py set Mystery Plex video,cloud_saas --note home server$' "$DOCKER_LOG"
+    run "$CLI" taxonomy reset Mystery
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T config-manager python taxonomy.py reset Mystery$' "$DOCKER_LOG"
+}
+
+@test "taxonomy: an unknown option or a wrong argument count is exit 2, before docker" {
+    taxonomy_setup
+    export STUB_CM_RUNNING=1
+    run "$CLI" taxonomy list --all
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown option --all"* ]]
+    run "$CLI" taxonomy describe
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown taxonomy command describe"* ]]
+    run "$CLI" taxonomy set Mystery Plex
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"taxonomy set TARGET SERVICE"* ]]
+    run "$CLI" taxonomy set Mystery Plex video --note
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"--note needs a text"* ]]
+    run "$CLI" taxonomy set Mystery Plex video --force
+    [ "$status" -eq 2 ]
+    run "$CLI" taxonomy reset
+    [ "$status" -eq 2 ]
+    run grep -q 'taxonomy.py' "$DOCKER_LOG"
+    [ "$status" -ne 0 ]
+}
+
+@test "taxonomy: Basic has no config-manager, and says so instead of trying" {
+    taxonomy_setup
+    cp "$REPO/editions/basic/docker-compose.yml" "$STUB_HOME/editions/basic/"
+    export STUB_CM_RUNNING=1
+    SMOKING_PI_EDITION=basic run "$CLI" taxonomy list
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"the basic edition does not ship it"* ]]
+}
+
+@test "taxonomy: --help is its entry in the reference" {
+    run "$CLI" taxonomy --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"taxonomy [list [--json] | unknown"* ]]
+    [[ "$output" == *"docs/taxonomy.md"* ]]
+    [[ "$output" != *"budget [--json]"* ]]
+}
+
 # --- traffic: what the Pi sent and received --------------------------------------
 
 traffic_setup() {

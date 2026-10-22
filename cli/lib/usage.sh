@@ -141,6 +141,15 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      on the uplink interface and to the Internet only, with
                      how much of each period was measured and this month's
                      traffic by service. See docs/measurement-budget.md.
+  taxonomy [list [--json] | unknown [--json] | set TARGET SERVICE CAT[,CAT...] [--note TEXT] | reset TARGET]
+                     What kind of service each target is (Standard, Pro):
+                     a service name and categories (video, gaming,
+                     ai_assistant, dns...) from the project's vocabulary,
+                     beside the technical category. 'list' shows every
+                     target's label and the rule behind it; 'unknown' the
+                     active targets no rule labels yet. 'set' overrides one
+                     target's label, 'reset' goes back to the default
+                     (both need database mode). docs/taxonomy.md.
   dns [status [--json] | test [--via ROUTER] [--json] | adopt [--dry-run] [--force] | enable [--yes] | disable [--yes]]
                      The DNS observer (Pro): AdGuard Home on port 53, for the
                      router to forward the house's DNS to. 'enable' turns on
