@@ -234,7 +234,7 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
             changes += bool(flags["changed"])
             points += store.trace_points(base, category, now, ip, hops, rtts, reached, distance,
                                          first_hop, paths.text(hops), paths.digest(hops), asns,
-                                         flags, owners.of)
+                                         flags, owners.of, lookup.ixp)
     for gone in [b for b in memory if b not in wanted]:
         del memory[gone]
     report["changed"] = changes
@@ -276,8 +276,15 @@ def main() -> None:
             time.sleep(86400)
     status.write({"starting": int(time.time()), "interval": every})
     time.sleep(START_DELAY)
+    # The routing table (CAIDA RouteViews prefix-to-AS, PeeringDB IXPs):
+    # downloaded once a day into the state volume, looked up locally.
+    table = lookup.use_table(store.state_dir() / "routing")
     while True:
         begun = time.time()
+        try:
+            table.refresh()
+        except Exception:  # noqa: BLE001 -- the table is an aid; the paths go on without it
+            log.exception("routing table refresh failed")
         try:
             cycle(int(begun))
         except Exception:  # noqa: BLE001 -- one bad cycle must not stop the next

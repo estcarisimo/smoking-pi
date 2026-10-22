@@ -44,3 +44,179 @@ def test_a_missing_or_broken_roles_file_is_an_empty_table(tmp_path):
     bad.write_text("# header\nasn,operator,kind\nnot-a-number,X,cdn\n64500,Y,made_up\n"
                    "64501,,transit\n")
     assert asn.roles(bad) == {64501: ("AS64501", asn.TRANSIT)}
+
+
+# --- the routing table (RouteViews prefix-to-AS, PeeringDB IXPs) -------------
+
+import gzip
+import json
+
+import pytest
+
+from common import asn as table_mod
+
+SNAPSHOT = [
+    "10.0.0.0\t8\t100",
+    "10.1.0.0\t16\t200",        # inside 10/8: wins for its own addresses
+    "10.1.2.0\t24\t300",        # inside 10.1/16
+    "10.2.0.0\t16\t100",        # same AS as its parent: one range
+    "11.0.0.0\t24\t400_401",    # multi-origin: the last, as map-ip-to-asn takes it
+    "12.0.0.0\t24\t500,501",    # AS set: the last
+    "2001:db8::\t32\t600",      # IPv6: skipped
+    "junk line",
+]
+
+
+def _table(lines=SNAPSHOT):
+    t = table_mod.RoutingTable.__new__(table_mod.RoutingTable)
+    t._ranges, t._ixp = table_mod.flatten(lines), []
+    return t
+
+
+@pytest.mark.parametrize("ip,want", [
+    ("10.0.0.1", 100), ("10.1.0.1", 200), ("10.1.2.3", 300), ("10.1.3.0", 200),
+    ("10.2.5.5", 100), ("10.255.255.255", 100), ("11.0.0.9", 401), ("12.0.0.1", 501),
+    ("9.255.255.255", None), ("13.0.0.0", None),
+])
+def test_longest_prefix_wins(ip, want):
+    assert _table().lookup(ip) == want
+
+
+def test_ixp_ranges_name_the_exchange():
+    ranges = table_mod.ixp_ranges(
+        [{"prefix": "206.223.115.0/24", "ixlan_id": 1}, {"prefix": "2001:db8::/64", "ixlan_id": 1},
+         {"prefix": "bad", "ixlan_id": 1}, {"prefix": "198.32.0.0/24", "ixlan_id": 9}],
+        [{"id": 1, "ix_id": 7}], [{"id": 7, "name": "Example IX"}])
+    assert ranges == [[3470750464, 3470750719, "Example IX"]]
+    t = _table()
+    t._ixp = ranges
+    assert t.ixp("206.223.115.40") == "Example IX" and t.ixp("206.223.116.1") is None
+
+
+class _Net:
+    def __init__(self, lines=SNAPSHOT * 1, fail=False):
+        self.lines, self.fail, self.asked = lines, fail, []
+
+    def __call__(self, url):
+        self.asked.append(url)
+        if self.fail:
+            raise OSError("offline")
+        if url.endswith("pfx2as-creation.log"):
+            return b"1\t1\t2026/10/routeviews-rv2-20261021-0800.pfx2as.gz\n"
+        if url.endswith(".pfx2as.gz"):
+            return gzip.compress("\n".join(self.lines).encode())
+        what = url.split("/api/")[1].split("?")[0]
+        data = {"ixpfx": [{"prefix": "206.223.115.0/24", "ixlan_id": 1}],
+                "ixlan": [{"id": 1, "ix_id": 7}], "ix": [{"id": 7, "name": "Example IX"}]}
+        return json.dumps({"data": data[what]}).encode()
+
+
+def test_refresh_downloads_loads_and_keeps_the_last_good(tmp_path, monkeypatch):
+    monkeypatch.setattr(table_mod, "TABLE_MIN_PREFIXES", 3)
+    monkeypatch.setattr(table_mod, "TABLE_MIN_RANGES", 3)
+    clock = [1_000_000.0]
+    t = table_mod.RoutingTable(tmp_path, fetch=_Net(), clock=lambda: clock[0])
+    assert t.refresh() and t.lookup("10.1.2.3") == 300 and t.ixp("206.223.115.1") == "Example IX"
+    assert t.snapshot.endswith("20261021-0800.pfx2as.gz")
+    # A day later the network is down: the files there stay, loaded.
+    clock[0] += 2 * table_mod.TABLE_REFRESH
+    t2 = table_mod.RoutingTable(tmp_path, fetch=_Net(fail=True), clock=lambda: clock[0])
+    assert t2.refresh() and t2.lookup("10.1.2.3") == 300
+
+
+def test_a_snapshot_too_small_is_refused(tmp_path):
+    t = table_mod.RoutingTable(tmp_path, fetch=_Net(lines=SNAPSHOT[:2]), clock=lambda: 0)
+    assert not t.refresh() and not (tmp_path / "pfx2as.gz").exists()
+
+
+def test_an_unexpected_snapshot_name_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(table_mod, "TABLE_MIN_PREFIXES", 3)
+    monkeypatch.setattr(table_mod, "TABLE_MIN_RANGES", 3)
+    net = _Net()
+    real = net.__call__
+
+    def evil(url):
+        if url.endswith("pfx2as-creation.log"):
+            return b"1\t1\t../../etc/passwd\n"
+        return real(url)
+    t = table_mod.RoutingTable(tmp_path, fetch=evil, clock=lambda: 0)
+    assert not t.refresh()
+
+
+def test_origin_uses_the_table_then_cymru(monkeypatch):
+    asked = []
+
+    def is_origin_query(q):
+        # The label, not the host as text (CodeQL reads a host substring as
+        # an incomplete URL check, even in a fake).
+        return q.split(".")[-4] == "origin"
+
+    monkeypatch.setattr(table_mod, "_txt", lambda q, r=None: asked.append(q) or (
+        "64500 | 64.0.0.0/8 | US | arin | 2000-01-01" if is_origin_query(q)
+        else "300 | US | arin | 2000-01-01 | EXAMPLE-NET - Example, US"))
+    monkeypatch.setattr(table_mod, "_TABLE", _table())
+    monkeypatch.setattr(table_mod, "_NAMES", {})
+    assert table_mod.origin("10.1.2.3") == (300, "EXAMPLE-NET - Example, US")
+    assert not [q for q in asked if is_origin_query(q)]                       # local
+    assert table_mod.origin("64.1.1.1")[0] == 64500                            # not in it
+    monkeypatch.setattr(table_mod, "_TABLE", None)
+    assert table_mod.origin("10.1.2.3")[0] == 64500                            # no table
+
+
+def test_a_restart_reads_the_built_ranges_instead_of_flattening_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(table_mod, "TABLE_MIN_PREFIXES", 3)
+    monkeypatch.setattr(table_mod, "TABLE_MIN_RANGES", 3)
+    t = table_mod.RoutingTable(tmp_path, fetch=_Net(), clock=lambda: 0)
+    assert t.refresh() and (tmp_path / "pfx2as.ranges").exists()
+    monkeypatch.setattr(table_mod, "flatten", lambda lines: pytest.fail("flattened again"))
+    t2 = table_mod.RoutingTable(tmp_path, fetch=_Net(fail=True), clock=lambda: 0)
+    assert t2.refresh() and t2.lookup("10.1.2.3") == 300 and t2.lookup("13.0.0.0") is None
+
+
+def test_nested_ixp_prefixes_are_found():
+    ranges = table_mod.ixp_ranges(
+        [{"prefix": "198.32.0.0/16", "ixlan_id": 1}, {"prefix": "198.32.10.0/24", "ixlan_id": 2}],
+        [{"id": 1, "ix_id": 1}, {"id": 2, "ix_id": 2}],
+        [{"id": 1, "name": "Wide IX"}, {"id": 2, "name": "Inner IX"}])
+    t = _table()
+    t._ixp = ranges
+    assert t.ixp("198.32.200.1") == "Wide IX" and t.ixp("198.32.10.5") == "Inner IX"
+    assert t.ixp("198.32.11.0") == "Wide IX"
+
+
+def test_an_empty_or_corrupt_snapshot_is_not_a_table(tmp_path, monkeypatch):
+    monkeypatch.setattr(table_mod, "TABLE_MIN_RANGES", 3)
+    (tmp_path / "pfx2as.gz").write_bytes(gzip.compress(b""))
+    (tmp_path / "pfx2as.name").write_text("x.pfx2as.gz")
+    (tmp_path / "ixp.json").write_text("[]")
+    t = table_mod.RoutingTable(tmp_path, fetch=_Net(fail=True), clock=lambda: 0)
+    assert not t.refresh() and not (tmp_path / "pfx2as.ranges").exists()
+    (tmp_path / "pfx2as.gz").write_bytes(gzip.compress(b"x" * 100)[:-12] + b"garbage!garb")
+    assert not table_mod.RoutingTable(tmp_path, fetch=_Net(fail=True), clock=lambda: 0).refresh()
+
+
+def test_the_same_snapshot_is_neither_fetched_nor_rebuilt_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(table_mod, "TABLE_MIN_PREFIXES", 3)
+    monkeypatch.setattr(table_mod, "TABLE_MIN_RANGES", 3)
+    clock = [time_now := 2_000_000_000.0]
+    net = _Net()
+    t = table_mod.RoutingTable(tmp_path, fetch=net, clock=lambda: clock[0])
+    assert t.refresh()
+    clock[0] = time_now + 2 * table_mod.TABLE_REFRESH
+    net.asked.clear()
+    monkeypatch.setattr(table_mod, "flatten", lambda lines: pytest.fail("rebuilt"))
+    assert t.refresh() and t.lookup("10.1.2.3") == 300
+    assert not [u for u in net.asked if u.endswith(".pfx2as.gz")]     # only the log
+
+
+def test_a_built_ranges_file_from_another_format_is_rebuilt(tmp_path, monkeypatch):
+    monkeypatch.setattr(table_mod, "TABLE_MIN_PREFIXES", 3)
+    monkeypatch.setattr(table_mod, "TABLE_MIN_RANGES", 3)
+    t = table_mod.RoutingTable(tmp_path, fetch=_Net(), clock=lambda: 0)
+    assert t.refresh()
+    built = tmp_path / "pfx2as.ranges"
+    built.write_bytes(b"\x00" * 64)                                   # no magic
+    import os
+    os.utime(built, None)
+    t2 = table_mod.RoutingTable(tmp_path, fetch=_Net(fail=True), clock=lambda: 0)
+    assert t2.refresh() and t2.lookup("10.1.2.3") == 300

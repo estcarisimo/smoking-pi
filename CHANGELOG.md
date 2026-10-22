@@ -11,100 +11,23 @@ version gets a matching GitHub release and git tag.
 
 ## [2.46.0] — 2026-10-22
 
-The service labels v2.45.0 gave every target now reach the time series,
-the dashboards and the assistants, and they say who delivers each service:
-the InfluxDB exporter writes a `target_labels` point per target (service,
-categories, and the operator, kind and AS of the network that answers),
-only when a label changes and without adding a tag to any latency series,
-so no history splits. Connectivity & Quality and Side by Side filter by
-**Service category**, Target Detail shows a **Service** tile, and
-`list_targets` names targets by service. It adds no probe; the exporter
-makes a few cached Team Cymru lookups (a week per /24). A maintainer tool
-checks the shipped rules against their sources. Also fixed: the doctor no
-longer reports a stopped Wi-Fi collector after the radio reconnects.
-
-### Fixed
-
-- **The doctor no longer says the Wi-Fi collector stopped after a reconnect.**
-  When the radio reconnects (after a reboot, or a lost association), the
-  samples written while it was disconnected carry no network tags and form
-  a series of their own. The `monitor-radio` check grouped the series and
-  took the last row, which is the end of whichever series came last, not
-  the newest sample: on the reference Pi, after a reboot on 2026-10-22, it
-  warned for hours that "the newest Wi-Fi sample is 154 min old: the
-  collector stopped" while the collector wrote every 10 s. A warning that
-  is wrong teaches people to ignore the one that is right. The check now
-  sorts by time before taking the newest sample and before measuring the
-  spacing; replayed on that Pi's data it reads the sample from the same
-  minute. The same shape read which interface carries the route in the
-  alerter (its Wi-Fi verdict, for ten minutes after a reconnect), in the
-  digest and AI report's Wi-Fi line, and in the assistant's Wi-Fi answers:
-  sorted too. The alerter's deaf-radio detection already sorted and was
-  right.
-
-### Added
-
-- **Every target says who delivers it, and the rules can be checked
-  against their sources.** A target's label said what the service is for
-  (`video`, `ai_assistant`), never whose network answers: Netflix from an
-  Open Connect box inside the ISP and a news site from a Fastly edge looked
-  alike, though trouble on a shared CDN edge or inside the carrier means
-  something else than trouble at one origin. And the rules shipped in
-  v2.45.0 could only be checked by hand, with nothing to say a source had
-  moved a hostname or recategorized a service. The InfluxDB exporter now
-  adds `operator`, `kind` and `asn` to each target's `target_labels` point
-  (written on change, as before): the host's origin AS from Team Cymru,
-  cached a week per /24, classified by `common/asn.py`. Its hand table of
-  well-known networks still decides first; behind it, a vendored
-  `common/data/asn_roles.csv` gives a kind to about 880 more ASes, derived
-  from Linnaeus's hand-labeled ASes (MIT), which adds the kinds `access`,
-  `transit` and `dns_infrastructure`, and `local` for a LAN address. The
-  per-target cache moved from the inference module to
-  `common/operators.py`; the experimental shared-congestion detector reads
-  the same kinds, so an AS it called `other` may now count as one of
-  these. Target Detail's Service tile shows the operator and kind; the
-  doctor's `targets-labeled` check warns about targets whose network is not
-  identified. The smokeping image now carries `shared/modules/common` and
-  dnspython for this. A maintainer tool, `shared/scripts/build-taxonomy.py`,
-  reads AdGuard's and nDPI's host lists and Cloudflare Radar at run time
-  (never vendored), proposes rules for an install's unlabeled targets, and
-  reports shipped rules their source no longer supports and rules older
-  than 180 days; `--check` exits 1 on those, and it never edits the rules
-  ([Service taxonomy](taxonomy.md#refreshing-the-rules)).
-
-- **The service labels reach the time series, the dashboards and the
-  assistants.** v2.45.0 gave every target a service and service categories,
-  but only config-manager's API, the web admin and `smoking-pi taxonomy`
-  knew them: the dashboards still filtered by probe bucket, and the
-  assistants listed "topsites" and "dns_wizard" targets, so nobody could
-  look at how video or AI assistants were doing as a group, or hear
-  "Netflix, video streaming" instead of a bucket name. The InfluxDB
-  exporter now writes a `target_labels` measurement (tag `target`; fields
-  `service`, `categories`, `label_source`, `taxonomy_version`), read from
-  config-manager's `GET /taxonomy/targets` and written only when a label
-  changes. No tag was added to any latency series, which would have split
-  every target's history. Connectivity & Quality and Side by Side have a
-  **Service category** variable (All by default, which adds one
-  `target =~ /^(.*)$/` predicate the storage engine evaluates on the tag); Target Detail has a
-  **Service** tile. The MCP server's `list_targets` and the web chat's
-  return `service` and `categories` and filter by `service_category`;
-  `get_latency_stats` and `get_loss_events` carry them when they read the
-  target list for links; the shared answering guide says to name targets
-  by service. The live doctor's dashboard check now sends a variable's
-  custom all value when it is saved on All, as Grafana does. ClickHouse
-  mode has no `target_labels` yet. `docs/taxonomy.md`.
-
-## [2.45.0] — 2026-10-22
-
-The paths, not only the times: an experimental `pathmeter` service traces
-the route to every measured destination once an hour with a Paris
-traceroute, shows the last path, its networks and its changes on Target
-Detail, and counts what it sends in `smoking-pi budget`. It is off unless
-you run `smoking-pi enable pathmeter` (Pro with InfluxDB), stays out of the
-alert path, and is built not to load the home router or the provider's
-first routers: at most four probes an hour reach the hops every path
-shares, however many destinations there are, and no router on the way gets
-more than five probes a second.
+The release that gives every target a service label, carries it to the
+time series, the dashboards and the assistants, and says who delivers each
+service. Every target now has a `service` and `categories` from a
+vocabulary of 15 categories, resolved by 78 shipped rules and correctable
+per install (web admin or `smoking-pi taxonomy`). The InfluxDB exporter
+writes a `target_labels` point per target (service, categories, and the
+operator, kind and AS of the network that answers), only when a label
+changes and without adding a tag to any latency series, so no history
+splits. Connectivity & Quality and Side by Side filter by **Service
+category**, Target Detail shows a **Service** tile, and `list_targets`
+names targets by service. The path meter and inference name every hop's
+network from the first cycle with a local prefix-to-AS table the Pi
+downloads once a day (about 4 MB; not shipped in the package). It adds no
+probe; the exporter makes a few cached Team Cymru lookups (a week per
+/24). A maintainer tool checks the shipped rules against their sources.
+Also fixed: the doctor no longer reports a stopped Wi-Fi collector after
+the radio reconnects.
 
 ### Added
 
@@ -133,8 +56,111 @@ more than five probes a second.
   label; `GET /taxonomy`, `/taxonomy/targets` and `/taxonomy/unknown` are
   new. The doctor validates the file and the seed's labels
   (`service-taxonomy`) and warns about unlabeled targets on a running stack
-  (`targets-labeled`). The labels are not in InfluxDB, Grafana or the MCP
-  tools yet. `docs/taxonomy.md`.
+  (`targets-labeled`). `docs/taxonomy.md`.
+
+- **The service labels reach the time series, the dashboards and the
+  assistants.** On their own, the labels above would be known only to
+  config-manager's API, the web admin and `smoking-pi taxonomy`: the
+  dashboards filtered by probe bucket, and the
+  assistants listed "topsites" and "dns_wizard" targets, so nobody could
+  look at how video or AI assistants were doing as a group, or hear
+  "Netflix, video streaming" instead of a bucket name. The InfluxDB
+  exporter now writes a `target_labels` measurement (tag `target`; fields
+  `service`, `categories`, `label_source`, `taxonomy_version`), read from
+  config-manager's `GET /taxonomy/targets` and written only when a label
+  changes. No tag was added to any latency series, which would have split
+  every target's history. Connectivity & Quality and Side by Side have a
+  **Service category** variable (All by default, which adds one
+  `target =~ /^(.*)$/` predicate the storage engine evaluates on the tag); Target Detail has a
+  **Service** tile. The MCP server's `list_targets` and the web chat's
+  return `service` and `categories` and filter by `service_category`;
+  `get_latency_stats` and `get_loss_events` carry them when they read the
+  target list for links; the shared answering guide says to name targets
+  by service. The live doctor's dashboard check now sends a variable's
+  custom all value when it is saved on All, as Grafana does. ClickHouse
+  mode has no `target_labels` yet. `docs/taxonomy.md`.
+
+- **Every target says who delivers it, and the rules can be checked
+  against their sources.** A target's label said what the service is for
+  (`video`, `ai_assistant`), never whose network answers: Netflix from an
+  Open Connect box inside the ISP and a news site from a Fastly edge looked
+  alike, though trouble on a shared CDN edge or inside the carrier means
+  something else than trouble at one origin. And the rules could only be
+  checked by hand, with nothing to say a source had
+  moved a hostname or recategorized a service. The InfluxDB exporter now
+  adds `operator`, `kind` and `asn` to each target's `target_labels` point
+  (written on change, as before): the host's origin AS from Team Cymru,
+  cached a week per /24, classified by `common/asn.py`. Its hand table of
+  well-known networks still decides first; behind it, a vendored
+  `common/data/asn_roles.csv` gives a kind to about 880 more ASes, derived
+  from Linnaeus's hand-labeled ASes (MIT), which adds the kinds `access`,
+  `transit` and `dns_infrastructure`, and `local` for a LAN address. The
+  per-target cache moved from the inference module to
+  `common/operators.py`; the experimental shared-congestion detector reads
+  the same kinds, so an AS it called `other` may now count as one of
+  these. Target Detail's Service tile shows the operator and kind; the
+  doctor's `targets-labeled` check warns about targets whose network is not
+  identified. The smokeping image now carries `shared/modules/common` and
+  dnspython for this. A maintainer tool, `shared/scripts/build-taxonomy.py`,
+  reads AdGuard's and nDPI's host lists and Cloudflare Radar at run time
+  (never vendored), proposes rules for an install's unlabeled targets, and
+  reports shipped rules their source no longer supports and rules older
+  than 180 days; `--check` exits 1 on those, and it never edits the rules
+  ([Service taxonomy](taxonomy.md#refreshing-the-rules)).
+
+### Changed
+
+- **The path meter and inference know every hop's network from the first
+  cycle.** The origin AS came from Team Cymru's DNS service, one query per
+  /24, at most 64 new ones a cycle so as not to send a burst of DNS: on the
+  reference Pi the first cycle named 61 of the /24s on its paths and left
+  the rest, the ISP's own first hop among them, as "–" for hours. The
+  service now uses the data behind
+  [map-ip-to-asn](https://github.com/estcarisimo/map-ip-to-asn): CAIDA's
+  daily RouteViews prefix-to-AS snapshot, downloaded once a day into its
+  state volume and looked up locally, by the longest announced prefix and
+  for every hop at once. Routers answering from an exchange point's LAN,
+  which nobody announces, are named by the exchange (PeeringDB), in a new
+  **exchange (IXP)** column of Target Detail's path table. Team Cymru
+  stays for AS names and for what neither covers. On the staging Pi, 30 of
+  the 32 public hops got their network in the first cycle; the other two
+  are in nobody's table. About 4 MB a day of download per service; a
+  table of a few MB built from it (43 s on the staging Pi's half core once
+  a day, a restart reads it in 0.06 s). A failed download keeps the
+  previous table. The exporter's service labels keep Team Cymru for now.
+
+### Fixed
+
+- **The doctor no longer says the Wi-Fi collector stopped after a reconnect.**
+  When the radio reconnects (after a reboot, or a lost association), the
+  samples written while it was disconnected carry no network tags and form
+  a series of their own. The `monitor-radio` check grouped the series and
+  took the last row, which is the end of whichever series came last, not
+  the newest sample: on the reference Pi, after a reboot on 2026-10-22, it
+  warned for hours that "the newest Wi-Fi sample is 154 min old: the
+  collector stopped" while the collector wrote every 10 s. A warning that
+  is wrong teaches people to ignore the one that is right. The check now
+  sorts by time before taking the newest sample and before measuring the
+  spacing; replayed on that Pi's data it reads the sample from the same
+  minute. The same shape read which interface carries the route in the
+  alerter (its Wi-Fi verdict, for ten minutes after a reconnect), in the
+  digest and AI report's Wi-Fi line, and in the assistant's Wi-Fi answers:
+  sorted too. The alerter's deaf-radio detection already sorted and was
+  right.
+
+## [2.45.0] — 2026-10-22
+
+The paths, not only the times: an experimental `pathmeter` service traces
+the route to every measured destination once an hour with a Paris
+traceroute, shows the last path, its networks and its changes on Target
+Detail, and counts what it sends in `smoking-pi budget`. It is off unless
+you run `smoking-pi enable pathmeter` (Pro with InfluxDB), stays out of the
+alert path, and is built not to load the home router or the provider's
+first routers: at most four probes an hour reach the hops every path
+shares, however many destinations there are, and no router on the way gets
+more than five probes a second.
+
+### Added
 
 - **The path to each destination (experimental).** The measurements said how
   long a destination took to answer, never which way the packets went: a
