@@ -234,6 +234,10 @@ STEP_S = cadence.DEFAULT_STEP
 UPLINK_MIN_STEPS = definitions.TOTAL_MIN_CYCLES
 
 _TARGET_FIELDS = ("id", "name", "host", "title", "category", "probe", "is_active")
+# What the target measures (docs/taxonomy.md), resolved by config-manager and
+# passed through as it says: never resolved here. Absent from an older
+# config-manager's rows, and then left out rather than shown as null.
+_LABEL_FIELDS = ("service", "categories")
 
 
 def _validate_name(name: str) -> str | None:
@@ -272,7 +276,12 @@ def _validate_hours(hours: Any) -> tuple[int | None, str | None]:
 
 
 def _slim_target(target: dict) -> dict:
-    return {k: target.get(k) for k in _TARGET_FIELDS}
+    return {**{k: target.get(k) for k in _TARGET_FIELDS}, **_labels_of(target)}
+
+
+def _labels_of(row: dict | None) -> dict:
+    """The service label fields a config-manager row carries, as they are."""
+    return {k: row[k] for k in _LABEL_FIELDS if row and row.get(k) is not None}
 
 
 def _fetch_targets(api: backends.ConfigAPI) -> list[dict]:
@@ -352,13 +361,25 @@ def _links_for(
 
 @mcp.tool()
 @logged_tool
-def list_targets() -> dict:
+def list_targets(service_category: str | None = None) -> dict:
     """List all SmokePing monitoring targets.
 
     Returns every configured target with its database id, name, host
     (IP or hostname being pinged), title, category (e.g. dns, web, custom,
     cpe), probe type, and whether it is currently active (inactive targets
     exist in the database but are not monitored).
+
+    `category` is the technical probe bucket. What the target *is* comes in
+    `service` (e.g. "Netflix", "Claude") and `categories`, one or more ids
+    from the service vocabulary: video, audio, gaming, realtime_comms,
+    messaging, social, web_search, ai_assistant, cloud_saas,
+    software_update, cdn, dns, connectivity, ads_analytics, academic, or
+    unknown (no rule labels it yet; not a broken target). Speak of targets
+    by those, not by the bucket.
+
+    Args:
+        service_category: Only the targets whose `categories` include this
+            vocabulary id (e.g. "video" or "ai_assistant"). Omit for all.
 
     Use this to see what is being monitored, or to find a target's exact
     name before calling remove_target / toggle_target.
@@ -372,6 +393,9 @@ def list_targets() -> dict:
     except ConfigAPIError as exc:
         return {"error": str(exc)}
 
+    wanted = (service_category or "").strip().lower()
+    if wanted:
+        rows = [r for r in rows if wanted in (r.get("categories") or [])]
     targets = []
     for row in rows:
         slim = _slim_target(row)
@@ -383,7 +407,10 @@ def list_targets() -> dict:
         if target_links:
             slim["links"] = target_links
         targets.append(slim)
-    return {"total": len(targets), "targets": targets}
+    result = {"total": len(targets), "targets": targets}
+    if wanted:
+        result["service_category"] = wanted
+    return result
 
 
 @mcp.tool()
@@ -807,6 +834,10 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
     and the response headers; DNS excluded), so it is not comparable with
     an ICMP round trip.
 
+    Each entry carries the target's `service` and `categories` (what it
+    measures; see list_targets) when the target catalog could be read with
+    the links.
+
     Args:
         target: Optional exact target name to filter to a single target
             (see list_targets). Omit for all targets. A name that is not a
@@ -873,6 +904,7 @@ def get_latency_stats(target: str | None = None, hours: int = 24) -> dict:
     )
     catalog = _target_catalog()
     for entry in results:
+        entry.update(_labels_of(catalog.get(entry.get("target") or "")))
         entry_links = _links_for(
             catalog, entry.get("target"), entry.get("measurement"), hours=hours
         )
@@ -937,6 +969,9 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
         events.
       - `by_target` and `events`: the counts and the raw points (newest
         first, `events` capped at 500 with `truncated` set when it was).
+        A `by_target` entry carries the target's `service` and
+        `categories` (see list_targets) when the target catalog could be
+        read with the links.
 
     `uplink_changes`, only when this host's uplink changed in the window
     (Wi-Fi to Ethernet, a lost route): points on either side of a change
@@ -990,6 +1025,7 @@ def get_loss_events(hours: int = 24, min_loss_pct: float | None = None) -> dict:
     # individual event would bury the numbers under boilerplate.
     catalog = _target_catalog()
     for entry in result["by_target"]:
+        entry.update(_labels_of(catalog.get(entry["target"])))
         entry_links = _links_for(
             catalog, entry["target"], entry["measurement"], hours=hours
         )

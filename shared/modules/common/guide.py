@@ -131,6 +131,13 @@ Pi, and `weak_below_dbm` is the line the alerts use. When the Pi is on
 Wi-Fi, every other number crossed that link first -- say so when it was
 weak at the time.
 
+**What a target is.** A target has a `category`, the probe bucket it is
+measured in (`dns`, `custom`, `topsites`...), and a `service` with
+`categories` from the service vocabulary (`video`, `ai_assistant`,
+`gaming`...). Speak to people in the second: "Netflix, video streaming",
+never "a topsites target". `unknown` means no rule labels that target yet,
+not that it is broken. `list_targets` filters by `service_category`.
+
 ## Things that look broken but are not
 
 - **Hosts that never answer ping** chart a flat 100% forever (bare

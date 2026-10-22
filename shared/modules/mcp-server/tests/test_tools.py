@@ -26,6 +26,9 @@ TARGETS = [
         "category": "dns",
         "probe": "FPing",
         "is_active": True,
+        "service": "Google Public DNS",
+        "categories": ["dns"],
+        "label_source": "manual",
     },
     {
         "id": 2,
@@ -241,7 +244,20 @@ def test_list_targets_shape(api):
         "category": "dns",
         "probe": "FPing",
         "is_active": True,
+        "service": "Google Public DNS",
+        "categories": ["dns"],
     }
+    # A row without labels (an older config-manager) has no label keys,
+    # rather than nulls.
+    assert "service" not in result["targets"][1]
+
+
+def test_list_targets_filters_by_service_category(api):
+    result = server.list_targets(service_category="DNS ")
+    assert result["service_category"] == "dns"
+    assert [t["name"] for t in result["targets"]] == ["google_dns"]
+    assert server.list_targets(service_category="video")["total"] == 0
+    assert server.list_targets()["total"] == 2
 
 
 def test_apply_config_combines_generate_and_restart(api):
@@ -784,6 +800,10 @@ def test_latency_stats_links_use_the_requested_window(monkeypatch, api, linked):
     # google_dns is filed under the `dns` category in the fake DB, which has no
     # side-by-side dashboard, so no peer comparison is offered.
     assert "compare_with_peers" not in result["stats"][0]["links"]
+    # The label comes from the catalog read for the links, not a new call.
+    assert result["stats"][0]["service"] == "Google Public DNS"
+    assert result["stats"][0]["categories"] == ["dns"]
+    assert [c[:2] for c in api.calls].count(("GET", "/targets")) == 1
 
 
 def test_measurement_tools_do_not_call_the_api_when_links_are_off(
@@ -1565,3 +1585,11 @@ def test_total_loss_of_the_breadth_alone_is_not_this_hosts_dns():
     [run] = runs
     assert (run["targets_affected"], run["targets_total"]) == (36, 40)
     assert run["reading"] == "internet_down"
+
+
+def test_loss_events_by_target_carries_the_service_label(monkeypatch, api, linked):
+    events = _spaced_rows("google_dns", [1.0, 1.0], 300)
+    _patch_influx(monkeypatch, _with_cadence(lambda flux: events))
+    entry = server.get_loss_events(hours=24)["by_target"][0]
+    assert entry["target"] == "google_dns"
+    assert (entry["service"], entry["categories"]) == ("Google Public DNS", ["dns"])
