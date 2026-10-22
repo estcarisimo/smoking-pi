@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.45.0] — 2026-10-22
+
+The paths, not only the times: an experimental `pathmeter` service traces
+the route to every measured destination once an hour with a Paris
+traceroute, shows the last path, its networks and its changes on Target
+Detail, and counts what it sends in `smoking-pi budget`. It is off unless
+you run `smoking-pi enable pathmeter` (Pro with InfluxDB), stays out of the
+alert path, and is built not to load the home router or the provider's
+first routers: at most four probes an hour reach the hops every path
+shares, however many destinations there are, and no router on the way gets
+more than five probes a second.
+
 ### Added
 
 - **The path to each destination (experimental).** The measurements said how
