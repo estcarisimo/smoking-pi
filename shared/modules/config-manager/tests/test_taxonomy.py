@@ -364,6 +364,17 @@ PRODUCTION_HOSTS = {
     "www.piwheels.org": ("piwheels", ["software_update"]),
 }
 
+# The hosts the staging wizard had adopted and the v2.47.0-rc.1 acceptance
+# found unlabeled (the seed above was fed production's list only).
+STAGING_HOSTS = {
+    "www.microsoft.com": ("Microsoft", ["web"]),
+    "www.mozilla.org": ("Mozilla", ["web"]),
+    "www.python.org": ("Python Software Foundation", ["web"]),
+    "www.wikipedia.org": ("Wikipedia", ["web"]),
+    "www.bbc.co.uk": ("BBC", ["web"]),
+    "acm.org": ("ACM", ["academic", "web"]),
+}
+
 # Left unknown on purpose, with the reason.
 STILL_UNKNOWN = {
     # No source lists it and its owner could not be confirmed (it may be a
@@ -381,6 +392,19 @@ def test_production_hosts_have_a_label(tx, host):
     label = tx.resolve(_wizard_name(host), host, "dns_wizard")
     assert (label["service"], label["categories"]) == PRODUCTION_HOSTS[host]
     assert label["rule"].startswith("host_suffix:")
+
+
+@pytest.mark.parametrize("host", sorted(STAGING_HOSTS))
+def test_staging_hosts_have_a_label(tx, host):
+    label = tx.resolve(_wizard_name(host), host, "dns_wizard")
+    assert (label["service"], label["categories"]) == STAGING_HOSTS[host]
+    assert label["rule"].startswith("host_suffix:")
+
+
+def test_microsoft_catch_all_yields_to_its_services(tx):
+    assert tx.resolve("W_x", "teams.microsoft.com", "dns_wizard")["service"] == "Microsoft Teams"
+    assert tx.resolve("W_x", "mobile.events.data.microsoft.com", "dns_wizard")["categories"] == [
+        "ads_analytics"]
 
 
 @pytest.mark.parametrize("host", sorted(STILL_UNKNOWN))

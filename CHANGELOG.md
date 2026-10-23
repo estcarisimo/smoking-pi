@@ -81,7 +81,9 @@ except the labels, which are rewritten once.
   category `web` ("Websites": does ordinary browsing work?) makes Amazon,
   The New York Times and Apple `[web, cdn]`, and rules cover the 37 hosts
   that were unlabeled there (Alexa, Cursor, Grammarly, Notion, Samsung TV,
-  iCloud Private Relay, NTP, telemetry endpoints, ...). One,
+  iCloud Private Relay, NTP, telemetry endpoints, ...) and the six plain
+  websites the staging Pi's wizard had adopted (Microsoft, Mozilla,
+  Python, Wikipedia, BBC, ACM). One,
   `tzm.protechts.net`, stays unknown: no source names its owner. The
   taxonomy `version` is now 2, so the exporter rewrites every target's
   labels once (108 rules). A target someone created with a seed name

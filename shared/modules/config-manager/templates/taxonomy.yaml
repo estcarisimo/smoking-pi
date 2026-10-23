@@ -120,6 +120,47 @@ rules:
     confidence: medium
     since: 2026-10-23
     note: acrobat.adobe.com is Acrobat's web app and document cloud as much as a website.
+  # The sites the staging wizard adopted (v2.47.0-rc.1 acceptance): plain
+  # websites, labeled by host so any probe of them resolves.
+  - match: {host_suffix: [microsoft.com]}
+    service: Microsoft
+    categories: [web]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: The catch-all for microsoft.com; longer suffixes (teams, copilot, update, events.data) win over it.
+  - match: {host_suffix: [mozilla.org, mozilla.net]}
+    service: Mozilla
+    categories: [web]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+  - match: {host_suffix: [python.org]}
+    service: Python Software Foundation
+    categories: [web]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: www.python.org serves the site and the downloads alike.
+  - match: {host_suffix: [wikipedia.org, wikimedia.org]}
+    service: Wikipedia
+    categories: [web]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+  - match: {host_suffix: [bbc.co.uk, bbc.com, bbci.co.uk]}
+    service: BBC
+    categories: [web]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+  - match: {host_suffix: [acm.org]}
+    service: ACM
+    categories: [academic, web]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: A professional society's site, as much reference as academic.
 
   # --- Video and audio streaming --------------------------------------------
   - match: {host_suffix: [netflix.com, netflix.net, nflxvideo.net, nflximg.net, nflxso.net, nflxext.com, fast.com]}
