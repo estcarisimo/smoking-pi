@@ -10,11 +10,11 @@
     "id": "1016303873",
     "subfolder": "shared/modules/mcp-server"
   },
-  "version": "2.46.0",
+  "version": "2.47.0",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/estcarisimo/smoking-pi/mcp-server:2.46.0",
+      "identifier": "ghcr.io/estcarisimo/smoking-pi/mcp-server:2.47.0",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
