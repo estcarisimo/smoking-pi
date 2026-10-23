@@ -193,7 +193,7 @@
       "description": "How long ago any probe of this target (ICMP, TCP, HTTP or DNS) last wrote a point inside the selected range, and when that point is. Relative to now: green within 11 minutes (two steps at the default 5-minute step), orange within a day, red beyond. Red means the tiles beside it describe the past, not the present; a range that ends in the past is always red. \"no data in this range\": nothing from this target in the range at all.",
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 5,
         "x": 0,
         "y": 1
       },
@@ -263,8 +263,8 @@
       "description": "Whether this target wrote a point in the last 24 hours, whatever the selected range. When it did not: when it stopped, and, for a retired Netflix appliance name, which slot (Netflix_<slot>_<site>) measures the appliances now: the slots keep their names while the appliance behind each changes daily (target_host records which). The newest point is looked for in the range and the 30 days before it. Click the text to open the slot, or the Netflix side-by-side.",
       "gridPos": {
         "h": 4,
-        "w": 5,
-        "x": 4,
+        "w": 10,
+        "x": 5,
         "y": 1
       },
       "targets": [
@@ -414,81 +414,7 @@
     {
       "type": "stat",
       "title": "Service",
-      "description": "What this target measures. Value: its service name (docs/taxonomy.md), the label config-manager resolves from the rules, or the override set for this install; the small text over it: its service categories. Not the probe bucket (topsites, netflix...). \"unknown (no rule yet)\": no rule says yet, not a broken target; the name is then the target's title. As the exporter last recorded it; \"no label yet\": it has not written one (ClickHouse mode, or the first minutes after an upgrade). Who delivers it is the next tile. The stat reduces over every field (/.*/) on purpose: the string frame is named by its _field label, so a pattern on _value or Value matches nothing and the tile shows its noValue text.",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 9,
-        "y": 1
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "influxdb",
-            "uid": "influxdb"
-          },
-          "queryType": "flux",
-          "query": "import \"regexp\"\nimport \"strings\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// The service label config-manager resolved for this target, and who delivers it (the\n// exporter's AS lookup), as the exporter last wrote them (target_labels, written on change;\n// docs/taxonomy.md). The bare name's label first.\nrow = from(bucket:\"smokeping\") |> range(start: 0)\n  |> filter(fn:(r)=> r._measurement == \"target_labels\" and r.target =~ re and (r._field == \"service\" or r._field == \"categories\" or r._field == \"operator\" or r._field == \"kind\"))\n  |> last()\n  |> pivot(rowKey:[\"_time\",\"target\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> group()\n  |> map(fn:(r)=> ({r with rank: if strings.toLower(v: r.target) == strings.toLower(v: base) then 0 else 1}))\n  |> sort(columns:[\"rank\",\"target\"]) |> limit(n:1)\n// The service's name is what a person reads: it is the value; its categories (or\n// \"unknown (no rule yet)\") travel as the field name, the small text over it.\nrow\n  |> map(fn:(r)=> ({_field: if not exists r.categories then \"unknown (no rule yet)\" else if r.categories == \"unknown\" or r.categories == \"\" then \"unknown (no rule yet)\" else strings.replaceAll(v: r.categories, t: \",\", u: \", \"), _value: if exists r.service and r.service != \"\" then r.service else r.target}))\n  |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "/.*/",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value_and_name",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "text": {
-          "titleSize": 12,
-          "valueSize": 18
-        },
-        "wideLayout": false
-      },
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "no label yet",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "text"
-          },
-          "mappings": [],
-          "displayName": "${__field.labels._field}"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "unknown (no rule yet)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "orange"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "id": 25,
-      "datasource": {
-        "type": "influxdb",
-        "uid": "influxdb"
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Delivered by",
-      "description": "Who delivers this target: the network its host answers from (its origin AS, from Team Cymru; docs/taxonomy.md, Delivery). Value: that network's operator; the small text over it: its kind (CDN, content network, embedded cache, cloud origin, access network, transit, DNS infrastructure, academic network, local network, other network). \"network not identified\": no IPv4 answer or no AS lookup yet, not an error; \"not looked up yet\": a label written before the delivery axis existed. As the exporter last recorded it; \"no label yet\": it has not written one. Reduces over every field (/.*/), as the Service tile.",
+      "description": "What this target measures, and who delivers it. Service and categories (docs/taxonomy.md): the label config-manager resolves from the rules, or the override set for this install. Not the probe bucket (topsites, netflix...). \"unknown\": no rule says yet, not a broken target. Delivery: the network the host answers from (its origin AS, from Team Cymru) and that network's kind (cdn, content network, embedded cache, cloud origin, access, transit, dns infrastructure, academic, local, other). \"network not identified\": no IPv4 answer or no AS lookup yet. Both as the exporter last recorded them; \"no label yet\": it has not written one (ClickHouse mode, or the first minutes after an upgrade). The stat reduces over every field (/.*/) on purpose: the two string frames are named by their _field label, so a pattern on _value or Value matches nothing and the tile shows its noValue text.",
       "gridPos": {
         "h": 4,
         "w": 5,
@@ -503,7 +429,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "import \"regexp\"\nimport \"strings\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// The service label config-manager resolved for this target, and who delivers it (the\n// exporter's AS lookup), as the exporter last wrote them (target_labels, written on change;\n// docs/taxonomy.md). The bare name's label first.\nrow = from(bucket:\"smokeping\") |> range(start: 0)\n  |> filter(fn:(r)=> r._measurement == \"target_labels\" and r.target =~ re and (r._field == \"service\" or r._field == \"categories\" or r._field == \"operator\" or r._field == \"kind\"))\n  |> last()\n  |> pivot(rowKey:[\"_time\",\"target\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> group()\n  |> map(fn:(r)=> ({r with rank: if strings.toLower(v: r.target) == strings.toLower(v: base) then 0 else 1}))\n  |> sort(columns:[\"rank\",\"target\"]) |> limit(n:1)\n// Who delivers it: the operator is the value, its kind in words the field name. A label\n// written before the delivery axis existed has neither yet.\nkindName = (k) => if k == \"cdn\" then \"CDN\" else if k == \"content_network\" then \"content network\" else if k == \"embedded_cache\" then \"embedded cache\" else if k == \"cloud_origin\" then \"cloud origin\" else if k == \"academic\" then \"academic network\" else if k == \"access\" then \"access network\" else if k == \"transit\" then \"transit\" else if k == \"dns_infrastructure\" then \"DNS infrastructure\" else if k == \"local\" then \"local network\" else if k == \"other\" then \"other network\" else if k == \"unknown\" then \"unknown\" else strings.replaceAll(v: k, t: \"_\", u: \" \")\nrow\n  |> map(fn:(r)=> ({_value: if not exists r.operator or not exists r.kind then \"not looked up yet\" else if r.kind == \"unknown\" or r.operator == \"unknown\" or r.operator == \"\" then \"network not identified\" else r.operator, _field: if not exists r.kind then \"unknown\" else kindName(k: r.kind)}))\n  |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"regexp\"\nimport \"strings\"\n// Any name a link brings (Google, Google_h2, cloudflare) selects the whole target:\n// drop the probe suffix, then match every probe of that base name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// The service label config-manager resolved for this target, and who delivers it (the\n// exporter's AS lookup), as the exporter last wrote them (target_labels, written on change;\n// docs/taxonomy.md). The bare name's label first.\nrow = from(bucket:\"smokeping\") |> range(start: 0)\n  |> filter(fn:(r)=> r._measurement == \"target_labels\" and r.target =~ re and (r._field == \"service\" or r._field == \"categories\" or r._field == \"operator\" or r._field == \"kind\"))\n  |> last()\n  |> pivot(rowKey:[\"_time\",\"target\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> group()\n  |> map(fn:(r)=> ({r with rank: if strings.toLower(v: r.target) == strings.toLower(v: base) then 0 else 1}))\n  |> sort(columns:[\"rank\",\"target\"]) |> limit(n:1)\nservice = row\n  |> map(fn:(r)=> ({_field: if exists r.service then r.service else r.target, _value: if exists r.categories then strings.replaceAll(v: r.categories, t: \",\", u: \", \") else \"unknown\"}))\n// Delivery: the operator's name, and its kind in words. A label written before the delivery\n// axis existed has neither yet.\ndelivery = row\n  |> map(fn:(r)=> ({_field: if not exists r.operator then \"delivered by\" else if r.operator == \"unknown\" then \"delivered by\" else \"via \" + r.operator, _value: if not exists r.kind then \"not looked up yet\" else if r.kind == \"unknown\" then \"network not identified\" else strings.replaceAll(v: r.kind, t: \"_\", u: \" \")}))\nunion(tables: [service, delivery])\n  |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
         }
       ],
       "options": {
@@ -517,13 +443,11 @@
         "colorMode": "value",
         "graphMode": "none",
         "textMode": "value_and_name",
-        "justifyMode": "center",
+        "justifyMode": "auto",
         "orientation": "auto",
         "text": {
-          "titleSize": 12,
-          "valueSize": 18
-        },
-        "wideLayout": false
+          "valueSize": 16
+        }
       },
       "fieldConfig": {
         "defaults": {
@@ -536,12 +460,14 @@
             {
               "type": "value",
               "options": {
-                "network not identified": {
+                "unknown": {
+                  "text": "unknown (no rule yet)",
                   "color": "orange",
                   "index": 0
                 },
-                "not looked up yet": {
-                  "color": "orange",
+                "network not identified": {
+                  "text": "network not identified",
+                  "color": "text",
                   "index": 1
                 }
               }
@@ -551,7 +477,7 @@
         },
         "overrides": []
       },
-      "id": 26,
+      "id": 25,
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"

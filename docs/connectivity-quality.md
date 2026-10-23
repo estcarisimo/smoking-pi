@@ -59,7 +59,8 @@ kind. Expand it for three panels:
 They read the last label of each active target (one a probe wrote for in
 the last 24 hours), whatever the Service category variable or the time
 range say, and each probe counts as a target: a website the DNS wizard
-probes by ICMP, TCP and three HTTP versions counts five times. The queries
+probes by ICMP, TCP and three HTTP versions counts five times. An active
+target the exporter has not labeled yet is not counted. The queries
 read one point per target, so expanding the row costs little.
 
 ## On one time axis
