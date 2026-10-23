@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.47.0] — 2026-10-23
+
+The paths say where they go: each router on Target Detail's path table now
+has its reverse DNS name next to its address and network, and the networks
+come from [originet](https://github.com/estcarisimo/originet), the Rust
+rewrite of map-ip-to-asn, which loads CAIDA's daily routing snapshot in
+seconds instead of the minute the previous table took on a Pi. The service
+labels reach the targets the DNS wizard adopted, which were half of a real
+install, and an assistant can find the MCP server without being pointed at
+this repository. Nothing changes unless the path meter or inference is on,
+except the labels, which are rewritten once.
+
 ### Added
 
 - **Each router on a path has its name.** The path table showed a hop's
