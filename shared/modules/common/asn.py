@@ -295,6 +295,7 @@ class RoutingTable:
         self.checked_at = 0.0
         self.snapshot = ""
         self._cleaned = False
+        self._reached = False
 
     @property
     def ready(self) -> bool:
@@ -368,8 +369,12 @@ class RoutingTable:
                 for name in _LEGACY:
                     (self.directory / name).unlink(missing_ok=True)
                 self._cleaned = True
-            if self._table is None or self._clock() - self.checked_at >= TABLE_REFRESH:
-                if self._load_table():
+            # Once a day once CAIDA was reached; every cycle while the table
+            # in use is only the cached one (or none).
+            if (self._table is None or not self._reached
+                    or self._clock() - self.checked_at >= TABLE_REFRESH):
+                self._reached = self._load_table()
+                if self._reached:
                     self.checked_at = self._clock()
             ixp = self.directory / "ixp.json"
             if not ixp.exists() or self._stale(ixp):
