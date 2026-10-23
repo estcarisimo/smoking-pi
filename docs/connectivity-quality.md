@@ -17,7 +17,9 @@ The **Service category** variable at the top narrows the destinations to
 the targets in one or more service categories (video, gaming,
 ai_assistant...; see [Service taxonomy](taxonomy.md)). All, the default,
 counts every destination, labeled or not. The lines stay grouped by probe
-bucket; the whole-connection rows are not narrowed.
+bucket; the whole-connection rows are not narrowed. How many targets of
+each category the Pi measures is on [Targets by service](targets-by-service.md),
+linked from this dashboard's header.
 
 ## At a glance
 
@@ -40,28 +42,6 @@ point at something they share: the house, the line or the ISP. A cycle here
 is a 5-minute window, the default probe step. With a different
 [frequency](measurement-frequency.md), the share is still comparable from
 one day to the next, but it is not a count of probe rounds.
-
-## What is measured
-
-The row **What is measured (service labels)**, collapsed under the tiles,
-answers "what does this Pi measure?": how many targets it measures of each
-kind. Expand it for three panels:
-
-- **Targets per service category**: one bar per category of the
-  [vocabulary](taxonomy.md#the-vocabulary), zero included, in its order.
-  A target with two categories (YouTube is video and social) counts in
-  both, so the bars add up to more than the targets.
-- **Targets per delivery kind**: one bar per kind of network the targets
-  answer from (CDN, content network, embedded cache...); one kind each.
-- **Services**: one row per service, with its categories, its operator,
-  its kind and how many targets measure it, most first.
-
-They read the last label of each active target (one a probe wrote for in
-the last 24 hours), whatever the Service category variable or the time
-range say, and each probe counts as a target: a website the DNS wizard
-probes by ICMP, TCP and three HTTP versions counts five times. An active
-target the exporter has not labeled yet is not counted. The queries
-read one point per target, so expanding the row costs little.
 
 ## On one time axis
 

@@ -1,0 +1,357 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "How many targets of each service category and delivery kind the Pi measures, and the services behind them (docs/taxonomy.md).",
+  "editable": false,
+  "links": [
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/d/smoking-pi-overview-v1",
+      "icon": "dashboard",
+      "tooltip": "The landing page",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": [
+        "smokeping"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**What the Pi measures, by service.** Every target carries a service label: what it measures (its **service categories**: video, social, DNS...) and who delivers it (the **kind** of network its host answers from: CDN, content network, embedded cache...). These panels count the active targets, those a probe wrote for in the last 24 hours, from the last label the exporter recorded for each; the time range does not change them. Each probe is a target. See [Service taxonomy](https://estcarisimo.github.io/smoking-pi/taxonomy/) for the vocabulary and the rules."
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Targets per service category",
+      "description": "How many targets the Pi measures in each service category: what the line is tested for. A target with several categories (YouTube is video and social) counts in each, so the bars add up to more than the targets. Unknown: no rule labels the target yet. Fed by each active target's last service label (measurement target_labels; docs/taxonomy.md); active means a probe wrote for it in the last 24 hours. Each probe is a target: a website the DNS wizard probes by ICMP, TCP and three HTTP versions counts five times. An active target the exporter has not labeled yet is not counted. The whole set, whatever the time range says. \"no labels yet\": the exporter has written none (ClickHouse mode, or the first minutes after an upgrade).",
+      "gridPos": {
+        "h": 13,
+        "w": 12,
+        "x": 0,
+        "y": 3
+      },
+      "id": 2,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"array\"\nimport \"join\"\nimport \"strings\"\nimport \"influxdata/influxdb/schema\"\n// The active targets: those a probe wrote for in the last 24 h. A removed or renamed\n// target keeps its last label forever, so the labels alone would count it.\nactive = schema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -24h, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\")\n  |> map(fn: (r) => ({target: r._value})) |> group()\n// Each active target's last label (target_labels, written on change; docs/taxonomy.md).\nlabels = from(bucket: \"smokeping\") |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and r._field == \"categories\")\n  |> group(columns: [\"target\", \"_field\"]) |> last() |> group() |> keep(columns: [\"target\", \"_value\"])\ncurrent = join.inner(left: labels, right: active, on: (l, r) => l.target == r.target, as: (l, r) => ({target: l.target, _value: if l._value == \"\" then \"unknown\" else l._value}))\n// A target's categories are one comma-joined field: read the first eight positions (no\n// rule has more than three), as the Service category variable does. A target with two\n// categories counts in both.\npart = (i) => current |> map(fn: (r) => ({target: r.target, category: if length(arr: strings.split(v: r._value, t: \",\")) > i then strings.split(v: r._value, t: \",\")[i] else \"\"}))\ncounted = union(tables: [part(i: 0), part(i: 1), part(i: 2), part(i: 3), part(i: 4), part(i: 5), part(i: 6), part(i: 7)])\n  |> filter(fn: (r) => r.category != \"\")\n  |> group(columns: [\"category\"]) |> count(column: \"target\") |> group()\n  |> map(fn: (r) => ({category: r.category, targets: r.target}))\nvocab = array.from(rows: [{category: \"video\", rank: 0, name: \"Video streaming\"}, {category: \"audio\", rank: 1, name: \"Audio streaming\"}, {category: \"gaming\", rank: 2, name: \"Gaming\"}, {category: \"realtime_comms\", rank: 3, name: \"Calls and conferencing\"}, {category: \"messaging\", rank: 4, name: \"Messaging\"}, {category: \"social\", rank: 5, name: \"Social media\"}, {category: \"web_search\", rank: 6, name: \"Web search\"}, {category: \"web\", rank: 7, name: \"Websites\"}, {category: \"ai_assistant\", rank: 8, name: \"AI assistant\"}, {category: \"cloud_saas\", rank: 9, name: \"Cloud and SaaS\"}, {category: \"software_update\", rank: 10, name: \"Software updates\"}, {category: \"cdn\", rank: 11, name: \"CDN\"}, {category: \"dns\", rank: 12, name: \"DNS\"}, {category: \"connectivity\", rank: 13, name: \"Connectivity\"}, {category: \"ads_analytics\", rank: 14, name: \"Ads and analytics\"}, {category: \"academic\", rank: 15, name: \"Academic\"}, {category: \"unknown\", rank: 16, name: \"Unknown\"}])\n// Every id of the vocabulary gets a bar, zero included, in the vocabulary's order; an id\n// the vocabulary does not know yet comes last under its own name.\njoin.full(left: vocab, right: counted, on: (l, r) => l.category == r.category, as: (l, r) => ({rank: if exists l.rank then l.rank else 99, name: if exists l.name then l.name else r.category, targets: if exists r.targets then r.targets else 0}))\n  |> sort(columns: [\"rank\", \"name\"]) |> keep(columns: [\"name\", \"targets\"])\n  |> rename(columns: {name: \"Category\", targets: \"Targets\"})"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "xField": "Category",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.8,
+        "barWidth": 0.8,
+        "barRadius": 0,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "fullHighlight": false,
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "text": {
+          "valueSize": 14
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "no labels yet",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "gradientMode": "none",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Targets per delivery kind",
+      "description": "How many targets the Pi measures on each kind of network: whose infrastructure the measurements reach (CDN edge, a content provider's own network, an ISP's embedded cache, a cloud origin...). One kind per target. Unknown: no IPv4 answer, or the AS lookup has not answered yet. Fed by each active target's last service label (measurement target_labels; docs/taxonomy.md); active means a probe wrote for it in the last 24 hours. Each probe is a target: a website the DNS wizard probes by ICMP, TCP and three HTTP versions counts five times. An active target the exporter has not labeled yet is not counted. The whole set, whatever the time range says. \"no labels yet\": the exporter has written none (ClickHouse mode, or the first minutes after an upgrade).",
+      "gridPos": {
+        "h": 13,
+        "w": 12,
+        "x": 12,
+        "y": 3
+      },
+      "id": 3,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"array\"\nimport \"join\"\nimport \"influxdata/influxdb/schema\"\n// The active targets: those a probe wrote for in the last 24 h. A removed or renamed\n// target keeps its last label forever, so the labels alone would count it.\nactive = schema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -24h, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\")\n  |> map(fn: (r) => ({target: r._value})) |> group()\n// Each active target's last delivery kind (target_labels; docs/taxonomy.md, Delivery).\nlabels = from(bucket: \"smokeping\") |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and r._field == \"kind\")\n  |> group(columns: [\"target\", \"_field\"]) |> last() |> group() |> keep(columns: [\"target\", \"_value\"])\ncounted = join.inner(left: labels, right: active, on: (l, r) => l.target == r.target, as: (l, r) => ({target: l.target, kind: l._value}))\n  |> group(columns: [\"kind\"]) |> count(column: \"target\") |> group()\n  |> map(fn: (r) => ({kind: r.kind, targets: r.target}))\nvocab = array.from(rows: [{kind: \"cdn\", rank: 0, name: \"CDN\"}, {kind: \"content_network\", rank: 1, name: \"Content network\"}, {kind: \"embedded_cache\", rank: 2, name: \"Embedded cache\"}, {kind: \"cloud_origin\", rank: 3, name: \"Cloud origin\"}, {kind: \"academic\", rank: 4, name: \"Academic network\"}, {kind: \"access\", rank: 5, name: \"Access network\"}, {kind: \"transit\", rank: 6, name: \"Transit\"}, {kind: \"dns_infrastructure\", rank: 7, name: \"DNS infrastructure\"}, {kind: \"local\", rank: 8, name: \"Local network\"}, {kind: \"other\", rank: 9, name: \"Other network\"}, {kind: \"unknown\", rank: 10, name: \"Unknown\"}])\n// Every id of the vocabulary gets a bar, zero included, in the vocabulary's order; an id\n// the vocabulary does not know yet comes last under its own name.\njoin.full(left: vocab, right: counted, on: (l, r) => l.kind == r.kind, as: (l, r) => ({rank: if exists l.rank then l.rank else 99, name: if exists l.name then l.name else r.kind, targets: if exists r.targets then r.targets else 0}))\n  |> sort(columns: [\"rank\", \"name\"]) |> keep(columns: [\"name\", \"targets\"])\n  |> rename(columns: {name: \"Kind\", targets: \"Targets\"})"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "xField": "Kind",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.8,
+        "barWidth": 0.8,
+        "barRadius": 0,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "fullHighlight": false,
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "text": {
+          "valueSize": 14
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "no labels yet",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "gradientMode": "none",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "table",
+      "title": "Services",
+      "description": "Every service the Pi measures, as labeled and delivered, and how many of its targets measure it, most targets first. A service delivered by two networks (a target on each) has a row for each. Categories are vocabulary ids; Kind is its network's kind. Fed by each active target's last service label (measurement target_labels; docs/taxonomy.md); active means a probe wrote for it in the last 24 hours. Each probe is a target: a website the DNS wizard probes by ICMP, TCP and three HTTP versions counts five times. An active target the exporter has not labeled yet is not counted. The whole set, whatever the time range says. \"no labels yet\": the exporter has written none (ClickHouse mode, or the first minutes after an upgrade).",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 4,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "queryType": "flux",
+          "query": "import \"join\"\nimport \"strings\"\nimport \"influxdata/influxdb/schema\"\n// The active targets: those a probe wrote for in the last 24 h. A removed or renamed\n// target keeps its last label forever, so the labels alone would count it.\nactive = schema.tagValues(bucket: \"smokeping\", tag: \"target\", start: -24h, predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\")\n  |> map(fn: (r) => ({target: r._value})) |> group()\nkindName = (k) => if k == \"cdn\" then \"CDN\" else if k == \"content_network\" then \"content network\" else if k == \"embedded_cache\" then \"embedded cache\" else if k == \"cloud_origin\" then \"cloud origin\" else if k == \"academic\" then \"academic network\" else if k == \"access\" then \"access network\" else if k == \"transit\" then \"transit\" else if k == \"dns_infrastructure\" then \"DNS infrastructure\" else if k == \"local\" then \"local network\" else if k == \"other\" then \"other network\" else if k == \"unknown\" then \"unknown\" else strings.replaceAll(v: k, t: \"_\", u: \" \")\n// Each active target's last label, one row per target with its four fields.\nlabels = from(bucket: \"smokeping\") |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and (r._field == \"service\" or r._field == \"categories\" or r._field == \"operator\" or r._field == \"kind\"))\n  |> group(columns: [\"target\", \"_field\"]) |> last()\n  |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\ncurrent = join.inner(left: labels, right: active, on: (l, r) => l.target == r.target, as: (l, r) => l)\n// One row per service as labeled and delivered, and how many targets measure it.\ncurrent\n  |> map(fn: (r) => ({target: r.target, service: if exists r.service and r.service != \"\" then r.service else r.target, categories: if not exists r.categories then \"unknown\" else if r.categories == \"\" then \"unknown\" else strings.replaceAll(v: r.categories, t: \",\", u: \", \"), operator: if exists r.operator then r.operator else \"not looked up yet\", kind: if exists r.kind then kindName(k: r.kind) else \"not looked up yet\"}))\n  |> group(columns: [\"service\", \"categories\", \"operator\", \"kind\"])\n  |> count(column: \"target\") |> group()\n  // Most targets first, then by name: sort() takes one direction for every column.\n  |> map(fn: (r) => ({r with order: 0 - r.target}))\n  |> sort(columns: [\"order\", \"service\", \"operator\"])\n  |> rename(columns: {service: \"Service\", categories: \"Categories\", operator: \"Delivered by\", kind: \"Kind\", target: \"Targets\"})\n  |> keep(columns: [\"Service\", \"Categories\", \"Delivered by\", \"Kind\", \"Targets\"])"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "Service": 0,
+              "Categories": 1,
+              "Delivered by": 2,
+              "Kind": 3,
+              "Targets": 4
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Targets",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "no labels yet",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "–"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Categories"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "–"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delivered by"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "–"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Kind"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "–"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Targets"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "0"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 37,
+  "tags": [
+    "smokeping",
+    "taxonomy"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Targets by service",
+  "uid": "targets-by-service-v1",
+  "version": 1
+}

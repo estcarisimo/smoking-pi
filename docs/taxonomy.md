@@ -272,10 +272,10 @@ labeled or not; the panels' queries gain one predicate, `target =~
 /^(.*)$/`, which the storage engine evaluates on the tag (no
 `contains(set:)`, which it would not push down). Target Detail shows the service and its categories in a **Service**
 tile on the first row, with the operator and kind in a **Delivered by**
-tile next to it ([Target Detail](target-detail.md)). Connectivity &
-Quality's row **What is measured (service labels)** counts the active
-targets per category and per delivery kind and lists the services
-([Connectivity and quality](connectivity-quality.md#what-is-measured)).
+tile next to it ([Target Detail](target-detail.md)). The
+**Targets by service** dashboard counts the active targets per category
+and per delivery kind and lists the services
+([Targets by service](targets-by-service.md)).
 
 **The assistants.** The MCP server's `list_targets` returns each target's
 `service` and `categories` and takes a `service_category` filter;

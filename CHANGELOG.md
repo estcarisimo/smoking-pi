@@ -29,13 +29,14 @@ version gets a matching GitHub release and git tag.
   the value at any width, and "unknown (no rule yet)" stays orange.
 
 ### Added
-- **Connectivity & Quality says what is measured.** Nothing showed how
-  many targets of each kind the Pi measures: the labels existed, but only
-  one target at a time. A collapsed row, *What is measured (service
-  labels)*, counts the active targets per service category and per
-  delivery kind (every id of each vocabulary, zero included) and lists
-  the services with their operator, kind and number of targets. It reads
-  one label point per target and ignores the Service category variable.
+- **A Targets by service dashboard says what is measured.** Nothing
+  showed how many targets of each kind the Pi measures: the labels
+  existed, but only one target at a time. The new dashboard (Targets
+  folder, uid `targets-by-service-v1`) counts the active targets per
+  service category and per delivery kind (every id of each vocabulary,
+  zero included) and lists the services with their operator, kind and
+  number of targets. It reads one label point per target. The Overview's
+  index and Connectivity & Quality's header link to it.
 
 ## [2.47.0] — 2026-10-23
 
