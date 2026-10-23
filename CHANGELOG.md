@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Context7 indexes the operating docs.** A scan of the whole tree
+  would hand an assistant the tests, the module READMEs and the
+  changelog beside the guide for running the stack, and would invent a
+  title. `context7.json` names Smoking Pi, limits the index to `docs/`,
+  `examples/` and the edition READMEs, skips tests and build output,
+  and repeats the rules those docs already give: `smoking-pi` writes
+  the env file, probe units and the 300 s step, a flat 100% is a
+  monitoring artifact, `get_chart` is the only image and only on
+  request, and the CPE loss floor is not a microcut.
+
 ### Fixed
 - **The six websites the staging Pi's wizard had adopted had no service
   label.** The v2.47.0 seed covered the hosts the reference Pi measured,
