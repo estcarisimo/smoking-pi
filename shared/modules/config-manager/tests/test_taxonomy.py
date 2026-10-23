@@ -35,7 +35,7 @@ def test_the_shipped_file_is_valid(raw):
 def test_the_vocabulary_is_the_decided_one(tx):
     assert list(tx.categories) == [
         "video", "audio", "gaming", "realtime_comms", "messaging", "social",
-        "web_search", "ai_assistant", "cloud_saas", "software_update", "cdn",
+        "web_search", "web", "ai_assistant", "cloud_saas", "software_update", "cdn",
         "dns", "connectivity", "ads_analytics", "academic", "unknown"]
     assert "unknown" not in tx.category_ids()
 
@@ -62,9 +62,21 @@ def test_base_name_strips_the_probe_suffix(name, base):
     assert taxonomy.base_name(name) == base
 
 
-def test_a_name_rule_beats_a_host_rule(tx):
-    # NYT by name, though its host would say nothing; Google_h2 by base name.
-    assert tx.resolve("Google_h2", "www.youtube.com", "http")["rule"] == "name:Google"
+def test_a_name_rule_beats_a_host_rule(raw):
+    # The seed has no name rules (it labels by host); the precedence holds.
+    raw["rules"].append({"match": {"name": "Google"}, "service": "Not search",
+                         "categories": ["cloud_saas"], "source": "manual",
+                         "confidence": "high", "since": "2026-10-23"})
+    tx = taxonomy.Taxonomy(taxonomy.parse(yaml.safe_dump(raw)))
+    assert tx.resolve("Google_h2", "www.google.com", "http")["rule"] == "name:Google"
+    assert tx.resolve("W_google_com_h2", "www.google.com", "dns_wizard")["rule"] == (
+        "host_suffix:google.com")
+
+
+def test_the_seed_labels_by_host_not_by_name(tx):
+    # A name rule labels the template's copy of a host and not the DNS
+    # wizard's (W_amazon_com_h2 for www.amazon.com): see docs/taxonomy.md.
+    assert tx.by_name == {}
 
 
 def test_the_longest_host_suffix_wins(tx):
@@ -198,7 +210,7 @@ def test_an_override_replaces_the_resolution_entirely(tx):
     assert fields == {"service": "Work search", "categories": ["cloud_saas"],
                       "label_source": "manual", "label_confidence": "high",
                       "label_rule": "override", "label_note": "n"}
-    assert taxonomy.label_fields(resolved)["label_rule"] == "name:Google"
+    assert taxonomy.label_fields(resolved)["label_rule"] == "host_suffix:google.com"
 
 
 # --- the in-container CLI (smoking-pi taxonomy) -----------------------------
@@ -267,3 +279,129 @@ def test_an_address_matches_in_any_spelling(tx):
     assert tx.resolve("W_x", "2001:4860:4860:0:0:0:0:8888", "custom")["service"] == (
         "Google Public DNS")
     assert tx.resolve("W_x", "2606:4700:4700:0000::1111", "custom")["categories"] == ["dns"]
+
+
+# --- what a real install measures ------------------------------------------
+
+# The shipped targets keep the labels they had when the seed matched them
+# by name, except Amazon, NYT and Apple, which became websites ([web, cdn]).
+TEMPLATE_LABELS = {
+    "Google": ("Google", ["web_search"]),
+    "Facebook": ("Facebook", ["social"]),
+    "Amazon": ("Amazon", ["web", "cdn"]),
+    "NYT": ("The New York Times", ["web", "cdn"]),
+    "Apple": ("Apple", ["web", "cdn"]),
+    "Cloudflare": ("Cloudflare", ["cdn"]),
+    "GoogleDNS": ("Google Public DNS", ["dns"]),
+    "CloudflareDNS": ("Cloudflare DNS", ["dns"]),
+    "Quad9DNS": ("Quad9", ["dns"]),
+    "uba_ar": ("Universidad de Buenos Aires", ["academic"]),
+}
+
+
+@pytest.mark.parametrize("target", list(template_targets()), ids=lambda t: t["name"])
+def test_template_targets_keep_their_labels(tx, target):
+    label = tx.resolve(target["name"], target["host"], target["category"],
+                       target["title"])
+    assert (label["service"], label["categories"]) == TEMPLATE_LABELS[
+        taxonomy.base_name(target["name"])]
+
+
+@pytest.mark.parametrize("seed, wizard, host", [
+    ("Google_h2", "W_google_com_h2", "www.google.com"),
+    ("Amazon", "W_amazon_com_h2", "www.amazon.com"),
+    ("Amazon", "W_www_amazon_com_icmp", "www.amazon.com"),
+    ("Apple", "W_apple_com_tcp", "apple.com"),
+    ("NYT", "W_nytimes_com_h3", "nytimes.com"),
+    ("Facebook_tcp443", "W_facebook_com_tcp", "www.facebook.com"),
+    ("uba_ar", "W_uba_ar_icmp", "uba.ar"),
+])
+def test_a_wizard_copy_resolves_like_its_seed_twin(tx, seed, wizard, host):
+    twin = tx.resolve(seed, host, "top_sites")
+    assert tx.resolve(wizard, host, "dns_wizard") == twin
+    assert twin["categories"] != ["unknown"]
+
+
+# The hosts the reference Pi measured unlabeled on 2026-10-22 (DNS wizard
+# targets, named W_<host>_<probe>), with the label each now gets.
+PRODUCTION_HOSTS = {
+    "acrobat.adobe.com": ("Adobe", ["web", "cloud_saas"]),
+    "api.amazonalexa.com": ("Alexa", ["ai_assistant"]),
+    "api.open-meteo.com": ("Open-Meteo", ["cloud_saas"]),
+    "api2.cursor.sh": ("Cursor", ["ai_assistant"]),
+    "app-analytics-services.com": ("Google Ads and Analytics", ["ads_analytics"]),
+    "app.notion.com": ("Notion", ["cloud_saas"]),
+    "asqzwp4gpyut7.us-east-1.prod.service.minerva.devices.a2z.com": (
+        "Amazon telemetry", ["ads_analytics"]),
+    "bag.itunes.apple.com": ("App Store", ["software_update"]),
+    "c.go-mpulse.net": ("Akamai mPulse", ["ads_analytics"]),
+    "configuration-lb.ls-apple.com.akadns.net": ("Apple device services", ["cloud_saas"]),
+    "configuration.ls.v.aaplimg.com": ("Apple device services", ["cloud_saas"]),
+    "consumer.cloud.gist.build": ("Customer.io in-app messaging", ["ads_analytics"]),
+    "easylist-downloads.adblockplus.org": ("Adblock Plus filter lists", ["software_update"]),
+    "extension.femetrics.grammarly.io": ("Grammarly", ["ads_analytics"]),
+    "gateway.grammarly.com": ("Grammarly", ["ai_assistant", "cloud_saas"]),
+    "grafana.com": ("Grafana Labs", ["software_update"]),
+    "http-intake.logs.us5.datadoghq.com": ("Datadog", ["ads_analytics"]),
+    "imap.gmail.com": ("Gmail", ["messaging", "cloud_saas"]),
+    "img-resize-cdn-prod.samsungnyc.com": ("Samsung Smart TV", ["cloud_saas"]),
+    "osb-v2.samsungqbe.com": ("Samsung Smart TV", ["cloud_saas"]),
+    "time.samsungcloudsolution.com": ("Time service (NTP)", ["connectivity"]),
+    "mask.apple-dns.net": ("iCloud Private Relay", ["connectivity"]),
+    "mattermost.caida.org": ("CAIDA Mattermost", ["messaging", "academic"]),
+    "mega-us-pr.eufy.com": ("eufy", ["cloud_saas"]),
+    "mobile.events.data.microsoft.com": ("Microsoft telemetry", ["ads_analytics"]),
+    "napps-1.com": ("NordVPN", ["connectivity"]),
+    "ns1.uba.ar": ("Universidad de Buenos Aires", ["academic"]),
+    "ntp.aliyun.com": ("Time service (NTP)", ["connectivity"]),
+    "oauthaccountmanager.googleapis.com": ("Google APIs", ["cloud_saas"]),
+    "sentry.io": ("Sentry", ["ads_analytics"]),
+    "slackb.com": ("Slack", ["messaging", "cloud_saas"]),
+    "ssl.gstatic.com": ("Google static content", ["cdn"]),
+    "tvx.adgrx.com": ("Samsung Ads", ["ads_analytics"]),
+    "unagi-na.amazon.com": ("Amazon telemetry", ["ads_analytics"]),
+    "web.diagnostic.networking.aws.dev": ("AWS network diagnostics", ["connectivity"]),
+    "www.piwheels.org": ("piwheels", ["software_update"]),
+}
+
+# Left unknown on purpose, with the reason.
+STILL_UNKNOWN = {
+    # No source lists it and its owner could not be confirmed (it may be a
+    # bot-detection collector); a guess would be worse than unknown.
+    "tzm.protechts.net",
+}
+
+
+def _wizard_name(host):
+    return "W_" + host.replace(".", "_").replace("-", "_") + "_icmp"
+
+
+@pytest.mark.parametrize("host", sorted(PRODUCTION_HOSTS))
+def test_production_hosts_have_a_label(tx, host):
+    label = tx.resolve(_wizard_name(host), host, "dns_wizard")
+    assert (label["service"], label["categories"]) == PRODUCTION_HOSTS[host]
+    assert label["rule"].startswith("host_suffix:")
+
+
+@pytest.mark.parametrize("host", sorted(STILL_UNKNOWN))
+def test_hosts_left_unknown_on_purpose(tx, host):
+    assert tx.resolve(_wizard_name(host), host, "dns_wizard")["categories"] == [
+        "unknown"]
+
+
+def test_production_counted_37_unlabeled_hosts():
+    assert len(PRODUCTION_HOSTS) + len(STILL_UNKNOWN) == 37
+
+
+def test_a_service_s_telemetry_outranks_its_website(tx):
+    assert tx.resolve("W_x", "www.amazon.com", "dns_wizard")["categories"] == ["web", "cdn"]
+    assert tx.resolve("W_x", "unagi-na.amazon.com", "dns_wizard")["categories"] == [
+        "ads_analytics"]
+    assert tx.resolve("W_x", "music.amazon.com", "dns_wizard")["service"] == "Amazon Music"
+
+
+def test_googleapis_carves_out_video_and_fonts(tx):
+    assert tx.resolve("W_x", "youtubei.googleapis.com", "dns_wizard")["service"] == "YouTube"
+    assert tx.resolve("W_x", "fonts.googleapis.com", "dns_wizard")["categories"] == ["cdn"]
+    assert tx.resolve("W_x", "www.googleapis.com", "dns_wizard")["categories"] == [
+        "cloud_saas"]
