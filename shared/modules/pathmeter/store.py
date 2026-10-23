@@ -12,7 +12,7 @@ stamped at the cycle's start:
 - ``path_hop``, one point per hop that answered, tagged ``ttl`` (two digits,
   so it sorts): ``addr``, ``asn`` when known, ``ixp`` (the exchange point's
   name, from PeeringDB) when the address is on an exchange LAN instead,
-  ``rtt_ms``. A router's reply
+  ``ptr`` (its reverse DNS name, names.py) when it has one, ``rtt_ms``. A router's reply
   time is its slow path's, rate-limited: descriptive, never a series to
   alert on.
 
@@ -23,7 +23,8 @@ Addresses are fields, never tags: a tag per router would multiply series.
 
 State (``PATHMETER_STATE_DIR``, default ``/var/lib/pathmeter``):
 ``state.json`` holds the prefix, when it was learned, and each
-destination's stable and candidate path; ``asn.json`` caches origin ASes
+destination's stable and candidate path; ``ptr.json`` the routers' reverse
+DNS names (names.py); ``asn.json`` caches origin ASes
 per /24.
 """
 
@@ -72,7 +73,8 @@ def measurement_name(measurement: str) -> str:
 
 def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: list,
                  reached: bool, distance: int | None, first_hop: int, path_text: str,
-                 path_hash: str, asns: list[int], flags: dict, asn_of, ixp_of=None) -> list:
+                 path_hash: str, asns: list[int], flags: dict, asn_of, ixp_of=None,
+                 ptr_of=None) -> list:
     from influxdb_client import Point, WritePrecision
 
     points = [Point(measurement_name(TRACE)).tag("target", base).tag("category", category)
@@ -100,6 +102,9 @@ def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: 
         # then missing; when one is, both are kept).
         if ixp_of and (exchange := ixp_of(addr)):
             point = point.field("ixp", exchange)
+        # The router's reverse DNS name (names.py): a hint, not part of the path.
+        if ptr_of and (name := ptr_of(addr)):
+            point = point.field("ptr", name)
         rtt = rtts[ttl - 1] if ttl - 1 < len(rtts) else None
         if isinstance(rtt, (int, float)):
             point = point.field("rtt_ms", float(rtt))

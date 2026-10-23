@@ -150,6 +150,24 @@ CAIDA's ([RouteViews prefix-to-AS mappings dataset](https://www.caida.org/catalo
 cite it if you publish results from it), and PeeringDB's terms allow its
 data for Internet operations, which is what this is, not redistribution.
 
+## Router names
+
+Next to each hop the path table shows its **name (PTR)**: the reverse DNS
+name the operator gave the address. It is often the best hint of where a
+router is and what it does: `be1.core1.hou2.he.net` is a Hurricane Electric
+core router in Houston, `192-200-234-53.mci.googlefiber.net` a Google Fiber
+router in Kansas City, `ipv4-c366-atl001-ix.1.oca.nflxvideo.net` a Netflix
+cache in Atlanta. It is also only a name: operators let them go stale, and
+some do not set one. So a name is shown with its hop and never used to
+judge a path: it is not part of the path, its hash or its changes, and a
+router renamed is not a path change.
+
+Public addresses only. Each address is asked once a week through the Pi's
+resolver (one with no name again after a day, a failed query after an
+hour), at most 100 new queries a cycle, eight at a time: the first day of
+the reference house asked about 250, the days after almost none. On the
+staging Pi, 43 of 66 routers had a name.
+
 ## What it costs
 
 The routing table is about 4 MB a day of download, plus a few hundred KB
@@ -188,8 +206,9 @@ start:
   `as_path` (`64500 64501 15169`), `changed`, `as_changed`, `dst_changed`,
   `first_hop`.
 - `path_hop`, one point per hop that answered, also tagged `ttl` (`01`,
-  `02`…): `addr`, `asn` when known, `ixp` (the exchange point's name) when
-  the address is on an exchange LAN instead, `rtt_ms`.
+  `02`…): `addr`, `ptr` (its reverse DNS name) when it has one, `asn`
+  when known, `ixp` (the exchange point's name) when the address is on an
+  exchange LAN, `rtt_ms`.
 - `pathmeter_pass`, one point per cycle: `traces`, `probes`, `seconds`,
   `failed`, `prefix_hops`, `full_traces`.
 

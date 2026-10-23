@@ -26,6 +26,7 @@ import logging
 import os
 import time
 
+import names as names_mod
 import owners as owners_mod
 import paths
 import status
@@ -111,7 +112,7 @@ def _trace_all(dsts: list[str], rate: int, first_hop: int, run) -> dict[str, tra
 
 def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
           write=write_points, owners=None, rate: int | None = None,
-          every: int | None = None) -> dict:
+          every: int | None = None, names=None) -> dict:
     """One cycle; returns its report (also written to status.json)."""
     started = time.monotonic()
     rate = rate or pps()
@@ -214,7 +215,12 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
     for ip in (inside if not report["failed"] else ()):
         at = prefix.index(ip)
         hop_sets[ip] = (prefix[: at + 1], [None] * (at + 1), True, at + 1, 0)
-    owners.refresh({a for hops, *_ in hop_sets.values() for a in hops if a})
+    on_paths = {a for hops, *_ in hop_sets.values() for a in hops if a}
+    owners.refresh(on_paths)
+    # The routers' names (PTR): shown with their hop, never part of a path.
+    names = names or names_mod.Names()
+    names.refresh(on_paths)
+    names.prune(on_paths)
 
     memory = state.setdefault("paths", {})
     # If the points do not reach InfluxDB, the changes this cycle confirmed
@@ -234,7 +240,7 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
             changes += bool(flags["changed"])
             points += store.trace_points(base, category, now, ip, hops, rtts, reached, distance,
                                          first_hop, paths.text(hops), paths.digest(hops), asns,
-                                         flags, owners.of, lookup.ixp)
+                                         flags, owners.of, lookup.ixp, names.of)
     for gone in [b for b in memory if b not in wanted]:
         del memory[gone]
     report["changed"] = changes

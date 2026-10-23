@@ -22,3 +22,26 @@ def _scrub_env(monkeypatch, tmp_path):
     for name in SCRUB_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("PATHMETER_STATE_DIR", str(tmp_path / "state"))
+
+
+@pytest.fixture(autouse=True)
+def _no_reverse_dns(monkeypatch):
+    """The cycle asks for routers' PTR names; no test resolves anything."""
+    import names
+
+    monkeypatch.setattr(names, "reverse", lambda ip: f"r-{ip.replace('.', '-')}.example.net")
+    # And should anything still reach dnspython, it fails instead of asking
+    # (CI installs tests/requirements.txt, without dnspython: then nothing can).
+    try:
+        import dns.resolver
+    except ImportError:
+        pass
+    else:
+        def no_dns(*args, **kwargs):
+            raise AssertionError("a test reached real DNS")
+        monkeypatch.setattr(dns.resolver.Resolver, "resolve", no_dns)
+    real_init = names.Names.__init__
+
+    def init(self, clock=names.time.time, resolve=None):
+        real_init(self, clock, resolve or names.reverse)
+    monkeypatch.setattr(names.Names, "__init__", init)
