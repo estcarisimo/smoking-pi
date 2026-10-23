@@ -17,7 +17,9 @@ The **Service category** variable at the top narrows the destinations to
 the targets in one or more service categories (video, gaming,
 ai_assistant...; see [Service taxonomy](taxonomy.md)). All, the default,
 counts every destination, labeled or not. The lines stay grouped by probe
-bucket; the whole-connection rows are not narrowed.
+bucket; the whole-connection rows are not narrowed. How many targets of
+each category the Pi measures is on [Targets by service](targets-by-service.md),
+linked from this dashboard's header.
 
 ## At a glance
 

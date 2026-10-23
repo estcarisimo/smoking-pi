@@ -39,6 +39,16 @@
       "targetBlank": false
     },
     {
+      "title": "Targets by service",
+      "type": "link",
+      "url": "/d/targets-by-service-v1",
+      "icon": "dashboard",
+      "tooltip": "How many targets of each service category and delivery kind are measured",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
+    {
       "title": "SmokePing dashboards",
       "type": "dashboards",
       "tags": [

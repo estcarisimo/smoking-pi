@@ -306,6 +306,30 @@ class TestDashboardsAreValidJson:
                          for t in link.get("tags", [])]
             assert "smokeping" in link_tags, f"{path.name} missing dashboards link"
 
+    def test_what_is_measured_bars_list_both_vocabularies_in_order(self):
+        """The bar charts name every category and kind in a Flux array: a
+        category added to taxonomy.yaml or a kind added to asn.KINDS without
+        them would draw last under its raw id."""
+        import re
+
+        from common import asn
+
+        taxonomy = (MODULE_DIR.parent / "config-manager" / "templates"
+                    / "taxonomy.yaml").read_text()
+        block = taxonomy.split("\ncategories:\n", 1)[1].split("\nrules:", 1)[0]
+        categories = re.findall(r"^  ([a-z_]+):$", block, re.MULTILINE)
+        with open(GRAFANA_DASHBOARDS / "dashboards" / "Targets"
+                  / "targets_by_service.json") as fh:
+            panels = json.load(fh)["panels"]
+        queries = {p["title"]: p["targets"][0]["query"] for p in panels
+                   if p.get("targets")}
+        listed = re.findall(r'\{category: "([a-z_]+)"',
+                            queries["Targets per service category"])
+        assert listed == categories
+        listed = re.findall(r'\{kind: "([a-z_]+)"',
+                            queries["Targets per delivery kind"])
+        assert listed == list(asn.KINDS)
+
 
 # ───────────────────── skip unchanged RRDs ─────────────────────
 class TestRRDChangedSince:

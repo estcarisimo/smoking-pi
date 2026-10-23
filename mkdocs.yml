@@ -30,6 +30,7 @@ nav:
       - The path to each destination (experimental): path.md
       - Connectivity and quality: connectivity-quality.md
       - Service taxonomy: taxonomy.md
+      - Targets by service: targets-by-service.md
   - Alerts and the assistant:
       - Alerting: alerting.md
       - Detection reliability: detection-reliability.md

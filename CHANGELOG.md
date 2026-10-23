@@ -19,6 +19,24 @@ version gets a matching GitHub release and git tag.
   `host_suffix` rules label them (`web`; ACM also `academic`), 114 rules
   in all; the `microsoft.com` catch-all yields to the Teams, Copilot,
   update and telemetry rules that already exist.
+- **Target Detail's Service tile was unreadable.** It drew the category
+  as the big value and the service's name as a tiny caption, so on a
+  phone "academic" was what you could read and "Universidad de Buenos
+  Aires" was not; the operator and its kind shared the same tile, just as
+  small. The tile is now two: **Service** shows the name large with the
+  categories over it, and **Delivered by** the operator large with its
+  kind in words ("CDN", "embedded cache"); both stack the small text over
+  the value at any width, and "unknown (no rule yet)" stays orange.
+
+### Added
+- **A Targets by service dashboard says what is measured.** Nothing
+  showed how many targets of each kind the Pi measures: the labels
+  existed, but only one target at a time. The new dashboard (Targets
+  folder, uid `targets-by-service-v1`) counts the active targets per
+  service category and per delivery kind (every id of each vocabulary,
+  zero included) and lists the services with their operator, kind and
+  number of targets. It reads one label point per target. The Overview's
+  index and Connectivity & Quality's header link to it.
 
 ## [2.47.0] — 2026-10-23
 
