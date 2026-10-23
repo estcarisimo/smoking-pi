@@ -1,0 +1,34 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Smoking Pi",
+  "description": "Continuous latency and loss monitoring for a home or small network, built for a Raspberry Pi: SmokePing probes, Grafana, alerting, and an MCP server over the recorded history.",
+  "folders": ["docs", "examples", "editions"],
+  "excludeFolders": [
+    "tests",
+    "site",
+    "dist",
+    "build",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    "htmlcov"
+  ],
+  "excludeFiles": [
+    "CHANGELOG.md",
+    "changelog.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "SECURITY.md",
+    "requirements.txt"
+  ],
+  "rules": [
+    "Install and operate the stack with the smoking-pi command (install, enable, alerts, config set). The command writes the env file: .env from a clone, /etc/smoking-pi/env when packaged.",
+    "Shipped probes step every 300 s (10 ICMP pings, or 5 for DNS, HTTP and TCP). An alert window has to cover more than three steps.",
+    "latency and dns_latency store loss as a 0-1 ratio; cpe_latency stores loss as 0-100 percent. DNS and HTTP medians in InfluxDB are seconds.",
+    "A flat 100% loss with no variance is a monitoring artifact: outbound ICMP is blocked, bare amazon.com does not answer ICMP (use a www host), or the host has no global IPv6.",
+    "get_chart is the only MCP tool that returns an image, and only when called. The stack keeps the MCP server on loopback (MCP_HOST=127.0.0.1).",
+    "The gateway rate-limits ICMP, so cpe_latency has a permanent loss floor. A microcut is a window above MICROCUT_LOSS_PCT (50%)."
+  ]
+}
