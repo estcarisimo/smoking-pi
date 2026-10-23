@@ -263,7 +263,9 @@ def ixp_ranges(ixpfx: list[dict], ixlan: list[dict], ix: list[dict]) -> list[lis
 
 def prune_snapshots(cache_dir: Path, keep: int = SNAPSHOTS_KEPT) -> int:
     """Delete all but the ``keep`` newest snapshots in originet's cache (it
-    keeps every day, about 4 MB each); returns how many went."""
+    keeps every day, about 4 MB each); returns how many went. IPv4 only, as
+    the table is loaded: the names (routeviews-rv2-YYYYMMDD-HHMM) then sort
+    by date across months and years."""
     files = sorted(Path(cache_dir).glob("routeviews-prefix2as/*/*/*.pfx2as.gz"),
                    key=lambda p: p.name)
     gone = 0
@@ -292,6 +294,7 @@ class RoutingTable:
         self._ixp: list[list] = []
         self.checked_at = 0.0
         self.snapshot = ""
+        self._cleaned = False
 
     @property
     def ready(self) -> bool:
@@ -321,29 +324,36 @@ class RoutingTable:
         tmp.write_text(json.dumps(ranges))
         tmp.replace(path)
 
-    def _load_table(self) -> None:
-        """A newer snapshot when there is one, else the cached one."""
+    def _load_table(self) -> bool:
+        """A newer snapshot when there is one, else the cached one. Whether
+        CAIDA was reached: a cached snapshot loaded offline may be weeks old,
+        so the next cycle tries again rather than waiting a day."""
         import logging
 
         log = logging.getLogger("common.asn")
+        online = True
         try:
             table = self._load(self.cache_dir, False)
         except Exception:  # noqa: BLE001 -- offline, CAIDA down: what is cached will do
             log.warning("could not fetch a routing snapshot; trying the cached one",
                         exc_info=True)
+            online = False
             if self._table is not None:
-                return
+                return False
             try:
                 table = self._load(self.cache_dir, True)
             except Exception:  # noqa: BLE001 -- nothing cached either
                 log.warning("no routing table; AS lookups go to Team Cymru", exc_info=True)
-                return
+                return False
         if table.len_v4 < TABLE_MIN_PREFIXES:
             log.warning("routing snapshot of %d prefixes refused", table.len_v4)
-            return
+            return online
+        # The new table is built before the old one goes: for a moment two
+        # are alive (about 75 MB each), once a day. No memory limit is set.
         self._table = table
         self.snapshot = str((table.snapshots or [{}])[0].get("file") or "")
         prune_snapshots(self.cache_dir)
+        return online
 
     def refresh(self) -> bool:
         """Check for a newer snapshot once a day, refresh the IXPs when a day
@@ -353,12 +363,14 @@ class RoutingTable:
 
         log = logging.getLogger("common.asn")
         try:
-            self.directory.mkdir(parents=True, exist_ok=True)
-            for name in _LEGACY:
-                (self.directory / name).unlink(missing_ok=True)
+            if not self._cleaned:
+                self.directory.mkdir(parents=True, exist_ok=True)
+                for name in _LEGACY:
+                    (self.directory / name).unlink(missing_ok=True)
+                self._cleaned = True
             if self._table is None or self._clock() - self.checked_at >= TABLE_REFRESH:
-                self.checked_at = self._clock()
-                self._load_table()
+                if self._load_table():
+                    self.checked_at = self._clock()
             ixp = self.directory / "ixp.json"
             if not ixp.exists() or self._stale(ixp):
                 try:

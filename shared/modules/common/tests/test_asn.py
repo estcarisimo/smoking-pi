@@ -199,3 +199,16 @@ def test_origin_uses_the_table_then_cymru(monkeypatch, tmp_path):
     assert table_mod.origin("64.1.1.1")[0] == 64500                            # not in it
     monkeypatch.setattr(table_mod, "_TABLE", None)
     assert table_mod.origin("10.1.2.3")[0] == 64500                            # no table
+
+
+def test_a_cached_table_loaded_offline_is_retried_online_next_time(tmp_path):
+    clock = [0.0]
+    loader = Loader(online=False)
+    t = table_mod.RoutingTable(tmp_path, fetch=_Net(fail=True), clock=lambda: clock[0],
+                               loader=loader)
+    assert t.refresh() and loader.calls == [False, True]
+    clock[0] += 3600
+    loader.online = True
+    assert t.refresh() and loader.calls == [False, True, False]     # not a day later
+    clock[0] += 3600
+    assert t.refresh() and loader.calls == [False, True, False]     # now a day's wait
