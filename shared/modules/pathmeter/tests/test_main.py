@@ -274,3 +274,14 @@ def test_one_odd_reply_at_hop_1_does_not_blind_the_meter():
     for n in range(4, 7):
         report = run_cycle(net, 1000 + 3600 * n, written)
         assert report["waiting"] == 0 and report["prefix_hops"] == 5
+
+
+
+def test_a_failed_cycle_forgets_no_router_name():
+    import names
+    net, written = Network(routes()), []
+    run_cycle(net, 1000, written)
+    known = dict(store.load(names.FILE))
+    assert known
+    _broken_cycle(4600, [])
+    assert store.load(names.FILE) == known
