@@ -50,9 +50,13 @@ def test_an_unexpected_error_is_one_failure_not_all():
     assert n.refresh({"23.0.0.1", "34.0.0.1"}) == 2 and n.of("34.0.0.1") == "ok.example.net"
 
 
-def test_prune_forgets_addresses_off_every_path():
-    n = names.Names(clock=lambda: 0, resolve=lambda ip: "x.example.net")
+def test_prune_forgets_only_routers_off_every_path_for_a_month():
+    clock = [0.0]
+    n = names.Names(clock=lambda: clock[0], resolve=lambda ip: "x.example.net")
     n.refresh({"23.0.0.1", "34.0.0.1"})
+    n.prune({"23.0.0.1"})                               # a partial cycle: nothing forgotten
+    assert n.of("34.0.0.1") == "x.example.net"
+    clock[0] = names.FORGET_AFTER
     n.prune({"23.0.0.1"})
     assert n.of("34.0.0.1") is None and n.of("23.0.0.1") == "x.example.net"
 

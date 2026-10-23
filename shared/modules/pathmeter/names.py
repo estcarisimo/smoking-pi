@@ -30,6 +30,7 @@ TTL = 7 * 86400          # a name found
 NONE_TTL = 86400         # no name (NXDOMAIN, no PTR record)
 FAILED_TTL = 3600        # the query failed (timeout, SERVFAIL)
 BUDGET = 100             # new queries per cycle
+FORGET_AFTER = 30 * 86400  # a router on no path for this long is forgotten
 PARALLEL = 8
 TIMEOUT = 2.0
 
@@ -73,7 +74,12 @@ class Names:
         if entry is None:
             return True
         # A failure is asked again soon even when a name is kept from before.
-        ttl = FAILED_TTL if entry.get("failed") else TTL if entry.get("name") else NONE_TTL
+        if entry.get("failed"):
+            ttl = FAILED_TTL
+        elif entry.get("name"):
+            ttl = TTL
+        else:
+            ttl = NONE_TTL
         return now - entry.get("at", 0) >= ttl
 
     def refresh(self, addresses: set[str]) -> int:
@@ -108,9 +114,15 @@ class Names:
         entry = self.cache.get(addr or "")
         return entry.get("name") or None if entry else None
 
-    def prune(self, keep: set[str]) -> None:
-        """Forget addresses no longer on any path."""
-        gone = [a for a in self.cache if a not in keep]
+    def prune(self, seen: set[str]) -> None:
+        """Forget routers on no path for ``FORGET_AFTER``. By age, not by
+        this cycle's hops: a cycle that traced only part of the paths (one
+        that failed, destinations waiting for their turn) must not forget
+        the rest. A router still on a path is asked again every week, so
+        its entry never gets that old."""
+        now = self.clock()
+        gone = [a for a, entry in self.cache.items()
+                if a not in seen and now - entry.get("at", 0) >= FORGET_AFTER]
         for a in gone:
             del self.cache[a]
         if gone:

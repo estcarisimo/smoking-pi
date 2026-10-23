@@ -26,8 +26,8 @@ import logging
 import os
 import time
 
-import owners as owners_mod
 import names as names_mod
+import owners as owners_mod
 import paths
 import status
 import store
@@ -220,10 +220,7 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
     # The routers' names (PTR): shown with their hop, never part of a path.
     names = names or names_mod.Names()
     names.refresh(on_paths)
-    # Only a cycle whose traces ran knows which routers are on the paths: a
-    # failed one would forget every name.
-    if traced and not report["failed"]:
-        names.prune(on_paths | set(by_ip))
+    names.prune(on_paths)
 
     memory = state.setdefault("paths", {})
     # If the points do not reach InfluxDB, the changes this cycle confirmed

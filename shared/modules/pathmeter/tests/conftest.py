@@ -30,6 +30,12 @@ def _no_reverse_dns(monkeypatch):
     import names
 
     monkeypatch.setattr(names, "reverse", lambda ip: f"r-{ip.replace('.', '-')}.example.net")
+    # And should anything still reach dnspython, it fails instead of asking.
+    import dns.resolver
+
+    def no_dns(*args, **kwargs):
+        raise AssertionError("a test reached real DNS")
+    monkeypatch.setattr(dns.resolver.Resolver, "resolve", no_dns)
     real_init = names.Names.__init__
 
     def init(self, clock=names.time.time, resolve=None):
