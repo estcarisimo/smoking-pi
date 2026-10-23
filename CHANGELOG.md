@@ -9,6 +9,35 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Each router on a path has its name.** The path table showed a hop's
+  address, network and reply time, and nothing of where the router was:
+  `184.104.193.47` says nothing, its reverse DNS name
+  `be1.core1.hou2.he.net` says Hurricane Electric's core in Houston. The
+  path meter now asks for the PTR name of every public hop and Target
+  Detail's path table shows it as **name (PTR)**. Names are hints, so they
+  are kept out of everything that judges a path (the path text, its hash,
+  its changes): a renamed router is not a path change. Each address is
+  asked once a week through the Pi's resolver, at most 100 new queries a
+  cycle, eight at a time, so the resolver never sees a burst: about 250
+  queries the first day on the reference house, almost none after. On the
+  staging Pi, 43 of 66 routers had a name.
+
+- **An agent can find the MCP server without already knowing this
+  repository.** The docs site had no `/llms.txt`, the published image
+  carried no registry name, and the repository had no `server.json`, so a
+  registry or an assistant that had not been pointed here could not
+  discover the server or tell a real image from one that only reused the
+  name. The docs build now writes `/llms.txt` (linked from the README).
+  The mcp-server image is labeled
+  `io.modelcontextprotocol.server.name=io.github.estcarisimo/smoking-pi`.
+  `server.json` at the repository root describes that OCI image and is
+  not published by CI. The image is the one `release.yml` already pushes
+  (`mcp-server:<version>`, and `:latest` only after the install tests);
+  that build repeats the registry name label. There is no second image
+  workflow.
+
 ### Changed
 
 - **The routing table is originet.** v2.46.0 looked hops' networks up in a
@@ -25,22 +54,6 @@ version gets a matching GitHub release and git tag.
   are removed on the first start. PeeringDB's exchange LANs and Team Cymru
   (names, and whatever no table covers) are unchanged. On the staging Pi,
   27 of 28 public hops got their network in the first cycle.
-
-### Added
-
-- **An agent can find the MCP server without already knowing this
-  repository.** The docs site had no `/llms.txt`, the published image
-  carried no registry name, and the repository had no `server.json`, so a
-  registry or an assistant that had not been pointed here could not
-  discover the server or tell a real image from one that only reused the
-  name. The docs build now writes `/llms.txt` (linked from the README).
-  The mcp-server image is labeled
-  `io.modelcontextprotocol.server.name=io.github.estcarisimo/smoking-pi`.
-  `server.json` at the repository root describes that OCI image and is
-  not published by CI. The image is the one `release.yml` already pushes
-  (`mcp-server:<version>`, and `:latest` only after the install tests);
-  that build repeats the registry name label. There is no second image
-  workflow.
 
 ### Fixed
 

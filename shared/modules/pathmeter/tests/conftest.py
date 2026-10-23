@@ -22,3 +22,16 @@ def _scrub_env(monkeypatch, tmp_path):
     for name in SCRUB_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("PATHMETER_STATE_DIR", str(tmp_path / "state"))
+
+
+@pytest.fixture(autouse=True)
+def _no_reverse_dns(monkeypatch):
+    """The cycle asks for routers' PTR names; no test resolves anything."""
+    import names
+
+    monkeypatch.setattr(names, "reverse", lambda ip: f"r-{ip.replace('.', '-')}.example.net")
+    real_init = names.Names.__init__
+
+    def init(self, clock=names.time.time, resolve=None):
+        real_init(self, clock, resolve or names.reverse)
+    monkeypatch.setattr(names.Names, "__init__", init)
