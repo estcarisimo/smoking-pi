@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+- **The six websites the staging Pi's wizard had adopted had no service
+  label.** The v2.47.0 seed covered the hosts the reference Pi measured,
+  so on the staging Pi every probe of `www.microsoft.com`,
+  `www.mozilla.org`, `www.python.org`, `www.wikipedia.org`,
+  `www.bbc.co.uk` and `acm.org` (28 targets) stayed `unknown` in the
+  Service category filter and the doctor's `targets-labeled` check. Six
+  `host_suffix` rules label them (`web`; ACM also `academic`), 114 rules
+  in all; the `microsoft.com` catch-all yields to the Teams, Copilot,
+  update and telemetry rules that already exist.
+
 ## [2.47.0] — 2026-10-23
 
 The paths say where they go: each router on Target Detail's path table now
