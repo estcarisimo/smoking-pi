@@ -13,12 +13,15 @@ Smoking Pi measures for it, layer by layer:
 
 The first row says when the target was last measured, whether it is
 measured now, how long this Pi's radio was deaf in the range, and what the
-target is: the **Service** tile shows its service and its service
-categories ([Service taxonomy](taxonomy.md)), from the last label the
-exporter recorded ("unknown (no rule yet)" when no rule labels it), and
-who delivers it: the network its host answers from and that network's kind
-("via Fastly: cdn"; "network not identified" for a host with no IPv4
-answer yet).
+target is, in two tiles side by side, from the last label the exporter
+recorded ([Service taxonomy](taxonomy.md)). **Service** shows the service's
+name large ("Universidad de Buenos Aires") with its categories in small
+text over it ("academic", "social, video"; "unknown (no rule yet)", in
+orange, when no rule labels it, and the name is then the target's title).
+**Delivered by** shows the operator of the network its host answers from
+large ("Imperva") with that network's kind over it ("CDN", "content
+network", "embedded cache"...); "network not identified" for a host with
+no IPv4 answer yet. Both say "no label yet" until the exporter writes one.
 
 The tiles below give the median and the loss for each layer over the
 selected range. A layer the target has no probe for, or whose probe wrote
