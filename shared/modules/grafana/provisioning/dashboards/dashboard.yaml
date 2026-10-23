@@ -4,9 +4,10 @@
 # maps each first-level subdirectory to a Grafana folder, with the directory
 # name as the folder's title: Connection (the Overview and Connectivity &
 # Quality), Targets (one target, every target of a category, HTTP by
-# version, targets by service), Network (Wi-Fi, the ISP gateway), DNS (resolvers, the wizard) and
-# Advanced (Diagnostics: are the collectors writing, which series stopped,
-# what the services record about themselves -- internals, off the main path).
+# version, targets by service), Network (Wi-Fi, the ISP gateway), DNS
+# (resolvers, the wizard) and Advanced (Diagnostics: are the collectors
+# writing, which series stopped, what the services record about themselves
+# -- internals, off the main path).
 # Renaming a directory moves its dashboards and leaves the old folder behind,
 # empty: `smoking-pi upgrade` deletes those (RETIRED_FOLDERS in
 # cli/lib/lifecycle.sh). Grafana matches folder titles case-insensitively:
