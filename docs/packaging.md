@@ -321,6 +321,13 @@ tag of that name (never `latest`, no version check) to exercise it before
 a release; delete the tag and the package versions afterwards. Which tags
 are accepted, and what each publishes, is `packaging/release-version.sh`.
 
+`mcp-image.yml` publishes the `mcp-server` image again, to the same
+registry name and version tag, when a GitHub release is published or
+someone runs that workflow by hand. It exists so the MCP Registry can read
+`io.modelcontextprotocol.server.name` on the image `server.json` names. It
+builds both architectures, it does not move `:latest`, and it does not
+publish `server.json`.
+
 Three places name the images and drift independently — the compose files,
 `shared/modules/*/Dockerfile`, the workflow's matrix — so
 `packaging/check-images.py` renders the three editions with every profile

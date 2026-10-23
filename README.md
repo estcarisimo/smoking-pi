@@ -324,7 +324,7 @@ The workflow this repository follows for every change:
 
 ### Project documentation
 
-Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](https://estcarisimo.github.io/smoking-pi/)** (MkDocs, built in CI, deployed from `main`).
+Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](https://estcarisimo.github.io/smoking-pi/)** (MkDocs, built in CI, deployed from `main`). Agents start from **[llms.txt](https://estcarisimo.github.io/smoking-pi/llms.txt)**.
 
 | Document | Contents |
 | --- | --- |

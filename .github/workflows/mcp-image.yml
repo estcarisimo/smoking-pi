@@ -1,0 +1,163 @@
+name: MCP image
+
+# Publishes the mcp-server image to ghcr.io so the MCP Registry can read
+# io.modelcontextprotocol.server.name on it (server.json names this image).
+# release.yml already publishes every image, this one included, on a tag
+# push. This workflow is the registry path: it runs only when a GitHub
+# release is published, or when someone runs it by hand. It does not
+# publish server.json, move :latest, or build the other images.
+#
+# The image tag is the one release.yml uses (vX.Y.Z -> X.Y.Z, a candidate
+# vX.Y.Z-rc.N -> X.Y.Z-rc.N), from packaging/release-version.sh, so the two
+# workflows name one image. A release event's github.sha is the default
+# branch, not the tagged commit, so the tag is checked out explicitly.
+# Both architectures build natively and are merged: an amd64-only push
+# would replace the Pi's arm64 manifest. Pushing the version tag again
+# replaces the manifest release.yml just published; both builds are that
+# tag, and neither moves :latest.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to publish (vX.Y.Z, vX.Y.Z-rc.N, or test-*)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository }}
+
+jobs:
+  version:
+    name: Resolve the image tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      ref: ${{ steps.resolve.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+          persist-credentials: false
+      - name: Version from the git tag
+        id: resolve
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -e
+          # Its own statement, so a refused tag stops the run here, with
+          # the script's reason, before anything is built or pushed.
+          out="$(packaging/release-version.sh "$TAG")"
+          echo "$out"
+          echo "$out" >> "$GITHUB_OUTPUT"
+          echo "ref=$TAG" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build mcp-server (${{ matrix.arch }})
+    needs: version
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.ref }}
+          persist-credentials: false
+      - name: Revision of the tag
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build context for mcp-server
+        id: ctx
+        run: |
+          # The same script ci.yml and release.yml read.
+          # Its own statement, so set -e stops here with the script's
+          # message: inside `read <<< "$(...)"` a failure is swallowed and
+          # the build fails later on an empty context.
+          ctx="$(packaging/image-context.sh mcp-server)"
+          read -r context dockerfile <<< "$ctx"
+          echo "context=$context" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ steps.ctx.outputs.context }}
+          file: ${{ steps.ctx.outputs.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
+          outputs: type=image,name=${{ env.REGISTRY }}/mcp-server,push-by-digest=true,name-canonical=true,push=true
+      - name: Export the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          # The file is named by the bare hash: upload-artifact rejects a
+          # colon in a path, and the merge job prepends `sha256:` again.
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-mcp-server-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish mcp-server (multi-arch)
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digest-mcp-server-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create the manifest list and tag it
+        working-directory: /tmp/digests
+        env:
+          IMAGE: ${{ env.REGISTRY }}/mcp-server
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -e
+          [ "$(ls | wc -l)" = 2 ] || { echo "expected two digests (amd64, arm64), found: $(ls)"; exit 1; }
+          refs=""
+          for f in *; do refs="$refs $IMAGE@sha256:$f"; done
+          # The version only. `latest` stays with release.yml's promote.
+          # shellcheck disable=SC2086
+          docker buildx imagetools create -t "$IMAGE:$VERSION" $refs
+      - name: Both platforms are in the published manifest
+        env:
+          IMAGE: ${{ env.REGISTRY }}/mcp-server:${{ needs.version.outputs.version }}
+        run: |
+          set -e
+          out=$(docker buildx imagetools inspect "$IMAGE")
+          echo "$out"
+          echo "$out" | grep -q 'linux/amd64' || { echo "amd64 missing"; exit 1; }
+          echo "$out" | grep -q 'linux/arm64' || { echo "arm64 missing"; exit 1; }
