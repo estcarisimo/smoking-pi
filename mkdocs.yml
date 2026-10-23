@@ -100,6 +100,17 @@ markdown_extensions:
 
 plugins:
   - search
+  # /llms.txt at the site root: a map of these pages for an agent that has
+  # not been pointed at the repository. Each listed page is also written as
+  # Markdown next to its HTML, which is what the links in llms.txt open.
+  - llmstxt:
+      markdown_description: >
+        Smoking Pi continuously measures a home or lab network and keeps the
+        history. Start with Getting started. Use the MCP server page to
+        connect an assistant, and Alerting for what an alert means.
+      sections:
+        Documentation:
+          - "*.md"
 
 validation:
   omitted_files: warn

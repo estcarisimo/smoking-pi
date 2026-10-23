@@ -1,0 +1,70 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.estcarisimo/smoking-pi",
+  "title": "Smoking Pi",
+  "description": "Answers questions about a Smoking Pi network monitor from its recorded history.",
+  "websiteUrl": "https://estcarisimo.github.io/smoking-pi/mcp-server/",
+  "repository": {
+    "url": "https://github.com/estcarisimo/smoking-pi",
+    "source": "github",
+    "id": "1016303873",
+    "subfolder": "shared/modules/mcp-server"
+  },
+  "version": "2.46.0",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/estcarisimo/smoking-pi/mcp-server:2.46.0",
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--network",
+          "value": "host",
+          "description": "Reach the Smoking Pi config API and InfluxDB on the host's loopback. The server reads a stack that is already running; it does not start one."
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MCP_TRANSPORT",
+          "value": "stdio",
+          "description": "Speak stdio. The image default is HTTP, which is how the Smoking Pi stack runs it; a registry client overrides that."
+        },
+        {
+          "name": "CONFIG_API_URL",
+          "default": "http://127.0.0.1:5000",
+          "description": "config-manager base URL. 127.0.0.1 is the host's loopback when the container uses the host network."
+        },
+        {
+          "name": "CONFIG_API_TOKEN",
+          "description": "Bearer token for the config API. Omit only when that API has no token.",
+          "isSecret": true
+        },
+        {
+          "name": "INFLUX_URL",
+          "default": "http://127.0.0.1:8086",
+          "description": "InfluxDB 2.x URL. 127.0.0.1 is the host's loopback when the container uses the host network."
+        },
+        {
+          "name": "INFLUX_TOKEN",
+          "description": "InfluxDB API token for the smokeping bucket.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "INFLUX_ORG",
+          "default": "smokeping",
+          "description": "InfluxDB organization."
+        },
+        {
+          "name": "INFLUX_BUCKET",
+          "default": "smokeping",
+          "description": "InfluxDB bucket that holds the latency and loss history."
+        }
+      ]
+    }
+  ]
+}

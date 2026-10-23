@@ -13,6 +13,10 @@ RUN pip install --no-cache-dir .
 ENV MCP_TRANSPORT=http \
     MCP_PORT=8090
 
+# The MCP Registry compares this image-config label to the name in
+# server.json. A manifest annotation is not what that check reads.
+LABEL io.modelcontextprotocol.server.name="io.github.estcarisimo/smoking-pi"
+
 EXPOSE 8090
 
 CMD ["python", "main.py"]

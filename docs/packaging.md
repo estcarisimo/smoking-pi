@@ -321,6 +321,12 @@ tag of that name (never `latest`, no version check) to exercise it before
 a release; delete the tag and the package versions afterwards. Which tags
 are accepted, and what each publishes, is `packaging/release-version.sh`.
 
+The `mcp-server` image is one of the images that workflow publishes. Its build repeats
+`io.modelcontextprotocol.server.name` (the same string as the Dockerfile
+`LABEL` and as `server.json`) so a registry can match the image this
+workflow already tags. There is no second image workflow, and nothing
+here publishes `server.json`.
+
 Three places name the images and drift independently — the compose files,
 `shared/modules/*/Dockerfile`, the workflow's matrix — so
 `packaging/check-images.py` renders the three editions with every profile

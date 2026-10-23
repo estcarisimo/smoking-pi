@@ -9,6 +9,22 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **An agent can find the MCP server without already knowing this
+  repository.** The docs site had no `/llms.txt`, the published image
+  carried no registry name, and the repository had no `server.json`, so a
+  registry or an assistant that had not been pointed here could not
+  discover the server or tell a real image from one that only reused the
+  name. The docs build now writes `/llms.txt` (linked from the README).
+  The mcp-server image is labeled
+  `io.modelcontextprotocol.server.name=io.github.estcarisimo/smoking-pi`.
+  `server.json` at the repository root describes that OCI image and is
+  not published by CI. The image is the one `release.yml` already pushes
+  (`mcp-server:<version>`, and `:latest` only after the install tests);
+  that build repeats the registry name label. There is no second image
+  workflow.
+
 ## [2.46.0] — 2026-10-22
 
 The release that gives every target a service label, carries it to the

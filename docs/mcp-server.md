@@ -394,6 +394,31 @@ Once connected, ask things like:
   the ISP" (`get_chart(..., hours=168, deliver=true)` — it lands in the chat
   as a file)
 
+## Registry
+
+`server.json` at the repository root is the MCP Registry description of
+this server (`io.github.estcarisimo/smoking-pi`). The package it names is
+the OCI image `ghcr.io/estcarisimo/smoking-pi/mcp-server:<version>`. No
+workflow publishes `server.json`; putting it on a registry is a step the
+maintainer takes by hand, after the image with that tag exists.
+
+The image label `io.modelcontextprotocol.server.name` is the same string,
+on the Dockerfile and again on the `mcp-server` build in `release.yml`.
+That workflow is the only publish: a `vX.Y.Z` tag pushes
+`ghcr.io/estcarisimo/smoking-pi/mcp-server:X.Y.Z` for both architectures,
+and `:latest` moves only after the install tests pass. Pull requests build
+the image and do not push it.
+
+A registry client is told to run that image over stdio (`MCP_TRANSPORT=stdio`,
+host network, the config API and InfluxDB on loopback). The Smoking Pi
+stack does not use that path: `smoking-pi enable mcp` serves streamable
+HTTP on `127.0.0.1:8090/mcp`. Either way the tools read a Pro stack that
+is already running.
+
+On a release, bump `version` and the tag in the package `identifier`
+together with `CITATION.cff`. A file left on the previous version names an
+image the new release did not push.
+
 ## Development
 
 ```bash

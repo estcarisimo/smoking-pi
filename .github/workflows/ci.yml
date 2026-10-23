@@ -70,6 +70,31 @@ jobs:
           echo "CHANGELOG: $changelog_version ($changelog_date)  CITATION.cff: $cff_version ($cff_date)"
           [ "$cff_version" = "$changelog_version" ] || { echo "CITATION.cff version is stale"; exit 1; }
           [ "$cff_date" = "$changelog_date" ] || { echo "CITATION.cff date-released is stale"; exit 1; }
+      - name: server.json names this version's MCP image
+        run: |
+          set -e
+          # The registry file is not published here. It has to name the same
+          # version the package and the image tag use, and the same server
+          # name the image label carries, or the next release ships a
+          # server.json that points at an image the registry will reject.
+          cff_version=$(sed -nE 's/^version: *"?([0-9.]+)"?.*/\1/p' CITATION.cff)
+          sj_version=$(jq -r .version server.json)
+          sj_name=$(jq -r .name server.json)
+          ident=$(jq -r '.packages[0].identifier' server.json)
+          registry=$(jq -r '.packages[0].registryType' server.json)
+          label=$(sed -nE 's/^LABEL io\.modelcontextprotocol\.server\.name="([^"]*)".*/\1/p' shared/modules/mcp-server/Dockerfile)
+          echo "CITATION.cff: $cff_version"
+          echo "server.json: $sj_name $sj_version $registry $ident"
+          echo "image label: $label"
+          [ "$sj_version" = "$cff_version" ] || { echo "server.json version must match CITATION.cff"; exit 1; }
+          [ "$registry" = "oci" ] || { echo "server.json package must be registryType oci"; exit 1; }
+          [ "$ident" = "ghcr.io/estcarisimo/smoking-pi/mcp-server:$cff_version" ] || { echo "server.json image tag must match CITATION.cff"; exit 1; }
+          [ -n "$label" ] && [ "$label" = "$sj_name" ] || { echo "Dockerfile label must match server.json name"; exit 1; }
+          # release.yml is the only publish. Its mcp-server build must repeat
+          # the same label; a second workflow must not grow back.
+          grep -q "io.modelcontextprotocol.server.name=${sj_name}" .github/workflows/release.yml \
+            || { echo "release.yml must label mcp-server with the server.json name"; exit 1; }
+          [ ! -e .github/workflows/mcp-image.yml ] || { echo "mcp-image.yml duplicates release.yml"; exit 1; }
 
   docs:
     name: Docs build (strict)
