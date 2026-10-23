@@ -405,6 +405,9 @@ def test_microsoft_catch_all_yields_to_its_services(tx):
     assert tx.resolve("W_x", "teams.microsoft.com", "dns_wizard")["service"] == "Microsoft Teams"
     assert tx.resolve("W_x", "mobile.events.data.microsoft.com", "dns_wizard")["categories"] == [
         "ads_analytics"]
+    assert tx.resolve("W_x", "copilot.microsoft.com", "dns_wizard")["service"] == "Microsoft Copilot"
+    assert tx.resolve("W_x", "update.microsoft.com", "dns_wizard")["service"] == "Windows Update"
+    assert tx.resolve("W_x", "delivery.mp.microsoft.com", "dns_wizard")["service"] == "Windows Update"
 
 
 @pytest.mark.parametrize("host", sorted(STILL_UNKNOWN))

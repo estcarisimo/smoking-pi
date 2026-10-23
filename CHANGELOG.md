@@ -86,7 +86,7 @@ except the labels, which are rewritten once.
   Python, Wikipedia, BBC, ACM). One,
   `tzm.protechts.net`, stays unknown: no source names its owner. The
   taxonomy `version` is now 2, so the exporter rewrites every target's
-  labels once (108 rules). A target someone created with a seed name
+  labels once (114 rules). A target someone created with a seed name
   (`Google`, `Amazon`) on another host is now labeled by its host, and the
   shipped Google targets' confidence is `medium`, the host rule's.
 
