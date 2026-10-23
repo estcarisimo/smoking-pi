@@ -8,6 +8,7 @@ dependencies = [
     "influxdb-client>=1.40",
     "numpy>=1.24",
     "pandas>=2.0",
+    "originet>=1.0.1,<2",
 ]
 
 [project.optional-dependencies]

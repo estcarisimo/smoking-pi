@@ -1,3 +1,5 @@
 # The shared package's own tests: stdlib only (dnspython is imported on
 # first lookup, and no test looks anything up).
 pytest
+# originet: the one test that loads a real table from a file.
+originet>=1.0.1,<2

@@ -19,7 +19,8 @@ WORKDIR /app
 # The dependencies only (pyproject.toml's), before the code: a code change
 # then reuses this layer, and the module's files are not installed into
 # site-packages.
-RUN pip install --no-cache-dir "influxdb-client>=1.40" "dnspython>=2.6" \
+# originet: the IP-to-AS table (a Rust wheel, aarch64 and x86_64).
+RUN pip install --no-cache-dir "influxdb-client>=1.40" "dnspython>=2.6" "originet>=1.0.1,<2" \
     && mkdir -p /var/lib/pathmeter
 
 COPY modules/pathmeter/*.py ./
