@@ -25,6 +25,25 @@ version gets a matching GitHub release and git tag.
   that build repeats the registry name label. There is no second image
   workflow.
 
+### Fixed
+
+- **Half of a real install's targets had no service label.** The seed
+  taxonomy labeled the shipped targets by name (`Amazon`, `Apple`, `NYT`,
+  ...), so the DNS wizard's copies of the same hosts (`W_amazon_com_h2`
+  for `www.amazon.com`) matched nothing, and the ordinary websites and
+  device endpoints the wizard adopts had no class in the vocabulary. On
+  the reference Pi, right after the v2.46.0 upgrade, the Service category
+  filter and the doctor's `targets-labeled` check called 124 of 247
+  active targets unknown. The seed now labels by host: the name rules are
+  `host_suffix` rules (the shipped targets keep their labels), a new
+  category `web` ("Websites": does ordinary browsing work?) makes Amazon,
+  The New York Times and Apple `[web, cdn]`, and rules cover the 37 hosts
+  that were unlabeled there (Alexa, Cursor, Grammarly, Notion, Samsung TV,
+  iCloud Private Relay, NTP, telemetry endpoints, ...). One,
+  `tzm.protechts.net`, stays unknown: no source names its owner. The
+  taxonomy `version` is now 2, so the exporter rewrites every target's
+  labels once (108 rules).
+
 ## [2.46.0] — 2026-10-22
 
 The release that gives every target a service label, carries it to the

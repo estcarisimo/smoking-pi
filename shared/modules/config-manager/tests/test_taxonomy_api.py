@@ -74,7 +74,7 @@ def _target(client, name):
 
 def test_get_taxonomy_serves_the_vocabulary(client):
     body = client.get("/taxonomy").get_json()
-    assert body["version"] == 1
+    assert body["version"] == 2
     ids = [c["id"] for c in body["categories"]]
     assert "video" in ids and ids[-1] == "unknown"
     assert all(c["label"] and c["description"] for c in body["categories"])
@@ -86,7 +86,7 @@ def test_targets_carry_their_resolved_label(client):
     assert google["categories"] == ["web_search"]
     assert google["label_source"] == "manual"
     assert google["label_confidence"] == "high"
-    assert google["label_rule"] == "name:Google"
+    assert google["label_rule"] == "host_suffix:google.com"
     assert google["category"] == "top_sites"  # the technical bucket is untouched
 
 

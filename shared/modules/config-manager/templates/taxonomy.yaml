@@ -21,13 +21,19 @@
 # (the longest suffix that matches the host; an IP address matches only
 # itself) > `category` (the technical bucket). Nothing matched: unknown.
 #
+# Label by host, not by name. The DNS wizard adopts the same public hosts
+# under its own names (W_amazon_com_h2 for www.amazon.com), so a rule on
+# the template's name labels one copy and leaves the other unknown. A
+# `name` rule is for a target whose host says nothing (a private address,
+# a host shared by unrelated services); the seed needs none.
+#
 # A rule: match (exactly one of name / host_suffix / category; a string or
 # a list of strings), service (optional: absent means the target's title),
 # categories (one or more ids from `categories`), source (manual | adguard
 # | ndpi | radar: the evidence used), confidence (high | medium | low),
 # since (the date the rule was written or last checked), note (optional).
 
-version: 1
+version: 2
 
 categories:
   video:
@@ -51,6 +57,9 @@ categories:
   web_search:
     label: Web search
     description: Does search answer fast, the first step of most browsing?
+  web:
+    label: Websites
+    description: Does ordinary browsing work (news, reference, shopping, company sites)?
   ai_assistant:
     label: AI assistant
     description: Can an AI assistant (chat, code, voice) be reached and answer?
@@ -80,73 +89,37 @@ categories:
     description: No rule says what this service is yet.
 
 rules:
-  # --- The shipped targets (templates/targets.yaml), by name ----------------
-  # The HTTP (_h1/_h2/_h3) and TCP (_tcp443) variants resolve through their
-  # base name, so one rule covers every probe of a service.
-  - match: {name: Google}
-    service: Google
-    categories: [web_search]
-    source: manual
-    confidence: high
-    since: 2026-10-22
-  - match: {name: Facebook}
-    service: Facebook
-    categories: [social]
-    source: manual
-    confidence: high
-    since: 2026-10-22
-  - match: {name: Amazon}
+  # --- Websites -------------------------------------------------------------
+  # Ordinary browsing. The shipped Amazon, NYT and Apple targets are these
+  # sites; each is also `cdn` because what answers is a CDN edge.
+  - match: {host_suffix: [amazon.com]}
     service: Amazon
-    categories: [cdn]
+    categories: [web, cdn]
     source: manual
     confidence: medium
-    since: 2026-10-22
+    since: 2026-10-23
     note: The retail site, served from CloudFront; it measures a CloudFront edge.
-  - match: {name: NYT}
+  - match: {host_suffix: [nytimes.com]}
     service: The New York Times
-    categories: [cdn]
+    categories: [web, cdn]
     source: manual
     confidence: medium
-    since: 2026-10-22
+    since: 2026-10-23
     note: A news site served from Fastly; it measures a Fastly edge.
-  - match: {name: Apple}
+  - match: {host_suffix: [apple.com]}
     service: Apple
-    categories: [cdn]
+    categories: [web, cdn]
     source: manual
     confidence: medium
-    since: 2026-10-22
-    note: apple.com is served from Apple's and Akamai's edges.
-  - match: {name: Cloudflare}
-    service: Cloudflare
-    categories: [cdn]
-    source: manual
-    confidence: high
-    since: 2026-10-22
-  - match: {name: GoogleDNS}
-    service: Google Public DNS
-    categories: [dns]
-    source: manual
-    confidence: high
-    since: 2026-10-22
-  - match: {name: CloudflareDNS}
-    service: Cloudflare DNS
-    categories: [dns]
-    source: manual
-    confidence: high
-    since: 2026-10-22
-  - match: {name: Quad9DNS}
-    service: Quad9
-    categories: [dns]
-    source: manual
-    confidence: high
-    since: 2026-10-22
-  - match: {name: uba_ar}
-    service: Universidad de Buenos Aires
-    categories: [academic]
+    since: 2026-10-23
+    note: apple.com is served from Apple's and Akamai's edges; longer apple.com suffixes (music, push, updates) win over it.
+  - match: {host_suffix: [adobe.com]}
+    service: Adobe
+    categories: [web, cloud_saas]
     source: manual
     confidence: medium
-    since: 2026-10-22
-    note: uba.ar is fronted by Imperva's CDN, so the path measured is Imperva's edge.
+    since: 2026-10-23
+    note: acrobat.adobe.com is Acrobat's web app and document cloud as much as a website.
 
   # --- Video and audio streaming --------------------------------------------
   - match: {host_suffix: [netflix.com, netflix.net, nflxvideo.net, nflximg.net, nflxso.net, nflxext.com, fast.com]}
@@ -317,6 +290,20 @@ rules:
     source: adguard
     confidence: medium
     since: 2026-10-22
+  - match: {host_suffix: [gmail.com]}
+    service: Gmail
+    categories: [messaging, cloud_saas]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: imap.gmail.com is mail delivery to a client; mail.google.com (the web app) stays Google Workspace.
+  - match: {host_suffix: [mattermost.caida.org]}
+    service: CAIDA Mattermost
+    categories: [messaging, academic]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: A research group's chat server.
 
   # --- Social ---------------------------------------------------------------
   - match: {host_suffix: [facebook.com, fbcdn.net, fb.com]}
@@ -361,9 +348,9 @@ rules:
     service: Google
     categories: [web_search]
     source: manual
-    confidence: medium
-    since: 2026-10-22
-    note: The catch-all for google.com; longer suffixes (meet, gemini, ...) win over it.
+    confidence: high
+    since: 2026-10-23
+    note: The catch-all for google.com, and the shipped Google targets; longer suffixes (meet, gemini, ...) win over it.
   - match: {host_suffix: [bing.com]}
     service: Bing
     categories: [web_search]
@@ -415,6 +402,34 @@ rules:
     source: manual
     confidence: medium
     since: 2026-10-22
+  - match: {host_suffix: [cursor.sh, cursor.com]}
+    service: Cursor
+    categories: [ai_assistant]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: An AI code editor; api2.cursor.sh is its model API.
+  - match: {host_suffix: [amazonalexa.com]}
+    service: Alexa
+    categories: [ai_assistant]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-23
+    note: A voice assistant (nDPI VIRTUAL_ASSISTANT); the vocabulary's ai_assistant includes voice.
+  - match: {host_suffix: [grammarly.com, grammarly.io]}
+    service: Grammarly
+    categories: [ai_assistant, cloud_saas]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: A writing assistant; gateway.grammarly.com is the API its extension talks to.
+  - match: {host_suffix: [femetrics.grammarly.io]}
+    service: Grammarly
+    categories: [ads_analytics]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: Front-end metrics, Grammarly's telemetry rather than the assistant.
 
   # --- Cloud and SaaS -------------------------------------------------------
   - match: {host_suffix: [office.com, office365.com, outlook.com, microsoftonline.com, sharepoint.com, onedrive.com]}
@@ -447,12 +462,13 @@ rules:
     source: ndpi
     confidence: high
     since: 2026-10-22
-  - match: {host_suffix: [slack.com, slack-edge.com]}
+  - match: {host_suffix: [slack.com, slack-edge.com, slackb.com]}
     service: Slack
     categories: [messaging, cloud_saas]
     source: adguard
     confidence: high
-    since: 2026-10-22
+    since: 2026-10-23
+    note: slackb.com is Slack's beacon (client telemetry) domain; AdGuard lists it with Slack.
   - match: {host_suffix: [amazonaws.com]}
     service: Amazon Web Services
     categories: [cloud_saas]
@@ -460,6 +476,60 @@ rules:
     confidence: medium
     since: 2026-10-22
     note: Many services run on AWS; a more specific rule should win where one exists.
+  - match: {host_suffix: [googleapis.com]}
+    service: Google APIs
+    categories: [cloud_saas]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: Google's API front door (oauthaccountmanager is account sign-in on devices); longer suffixes win.
+  - match: {host_suffix: [notion.so, notion.com]}
+    service: Notion
+    categories: [cloud_saas]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+  - match: {host_suffix: [open-meteo.com]}
+    service: Open-Meteo
+    categories: [cloud_saas]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: A weather API that apps and widgets call.
+  - match: {host_suffix: [eufy.com, eufylife.com]}
+    service: eufy
+    categories: [cloud_saas]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: The security cameras' cloud, which their uploads and live view depend on.
+  - match: {host_suffix: [samsungcloudsolution.com, samsungqbe.com, samsungnyc.com]}
+    service: Samsung Smart TV
+    categories: [cloud_saas]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: A Samsung TV's home screen and app services; img-resize-cdn on samsungnyc.com serves its artwork.
+  - match: {host_suffix: [a2z.com]}
+    service: Amazon devices
+    categories: [cloud_saas]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-23
+    note: Amazon's internal domain, used by Echo, Fire TV and Kindle; nDPI lists it as Amazon.
+  - match: {host_suffix: [aliyun.com, aliyuncs.com]}
+    service: Alibaba Cloud
+    categories: [cloud_saas]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-23
+  - match: {host_suffix: [ls.apple.com, ls.v.aaplimg.com, ls-apple.com.akadns.net]}
+    service: Apple device services
+    categories: [cloud_saas]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: Apple's configuration endpoints (configuration.ls.apple.com and its Akamai and Apple-edge names) that devices read for Maps and location services; not a download, so not software_update.
 
   # --- Software updates -----------------------------------------------------
   - match: {host_suffix: [windowsupdate.com, update.microsoft.com, delivery.mp.microsoft.com]}
@@ -486,6 +556,34 @@ rules:
     source: manual
     confidence: medium
     since: 2026-10-22
+  - match: {host_suffix: [itunes.apple.com]}
+    service: App Store
+    categories: [software_update]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: bag.itunes.apple.com is the store's bootstrap (the URL bag) that the App Store reads before an app download or update. AdGuard and nDPI call itunes.apple.com streaming; the video itself is served from aaplimg.com hosts.
+  - match: {host_suffix: [piwheels.org]}
+    service: piwheels
+    categories: [software_update]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: Python wheels built for the Raspberry Pi.
+  - match: {host_suffix: [adblockplus.org]}
+    service: Adblock Plus filter lists
+    categories: [software_update]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: easylist-downloads is where ad blockers fetch their filter list updates.
+  - match: {host_suffix: [grafana.com]}
+    service: Grafana Labs
+    categories: [software_update]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: Grafana's update and plugin check; on a Smoking Pi that is the stack's own Grafana calling home.
 
   # --- CDNs (what is left of a hostname once no service claims it) ---------
   - match: {host_suffix: [akamai.net, akamaiedge.net, akamaized.net, akamaihd.net, edgekey.net, edgesuite.net]}
@@ -512,6 +610,20 @@ rules:
     source: ndpi
     confidence: high
     since: 2026-10-22
+  - match: {host_suffix: [aaplimg.com, apple-dns.net]}
+    service: Apple edge
+    categories: [cdn]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-23
+    note: Apple's own CDN and traffic-steering names; nDPI lists both as Apple. Longer suffixes (ls.v.aaplimg.com, mask.apple-dns.net) win.
+  - match: {host_suffix: [gstatic.com]}
+    service: Google static content
+    categories: [cdn]
+    source: ndpi
+    confidence: high
+    since: 2026-10-23
+    note: Google's static assets (scripts, fonts, images) for its own pages; connectivitycheck.gstatic.com is the longer, connectivity rule.
 
   # --- DNS ------------------------------------------------------------------
   - match: {host_suffix: [dns.google, 8.8.8.8, 8.8.4.4, "2001:4860:4860::8888", "2001:4860:4860::8844"]}
@@ -546,6 +658,34 @@ rules:
     source: ndpi
     confidence: high
     since: 2026-10-22
+  - match: {host_suffix: [mask.apple-dns.net, mask.icloud.com, mask-h2.icloud.com]}
+    service: iCloud Private Relay
+    categories: [connectivity]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: The relay's ingress; when it is slow, every page an Apple device opens through it is.
+  - match: {host_suffix: [napps-1.com, napps-2.com, nordvpn.com]}
+    service: NordVPN
+    categories: [connectivity]
+    source: ndpi
+    confidence: medium
+    since: 2026-10-23
+    note: napps-1.com carries no name of its own; nDPI lists it as NordVPN's app API.
+  - match: {host_suffix: [ntp.aliyun.com, time.samsungcloudsolution.com, pool.ntp.org, time.apple.com, time.google.com, time.windows.com, time.cloudflare.com]}
+    service: Time service (NTP)
+    categories: [connectivity]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: Network time; a device that cannot reach one runs on a wrong clock and fails TLS.
+  - match: {host_suffix: [networking.aws.dev]}
+    service: AWS network diagnostics
+    categories: [connectivity]
+    source: manual
+    confidence: low
+    since: 2026-10-23
+    note: web.diagnostic.networking.aws.dev answers network checks for AWS clients; who calls it on a home network is not known.
 
   # --- Ads and analytics ----------------------------------------------------
   - match: {host_suffix: [doubleclick.net, googlesyndication.com, googleadservices.com, google-analytics.com, googletagmanager.com, app-measurement.com]}
@@ -560,6 +700,68 @@ rules:
     source: radar
     confidence: medium
     since: 2026-10-22
+  - match: {host_suffix: [app-analytics-services.com]}
+    service: Google Ads and Analytics
+    categories: [ads_analytics]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: The Google Analytics 4 / Firebase SDK's reporting endpoint, beside app-measurement.com.
+  - match: {host_suffix: [go-mpulse.net]}
+    service: Akamai mPulse
+    categories: [ads_analytics]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: Real-user monitoring beacons that sites load from pages.
+  - match: {host_suffix: [gist.build]}
+    service: Customer.io in-app messaging
+    categories: [ads_analytics]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: Gist, now Customer.io's in-app messages SDK, shows marketing messages inside apps; it is not chat.
+  - match: {host_suffix: [adgrx.com]}
+    service: Samsung Ads
+    categories: [ads_analytics]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: AdGear, Samsung's ad platform; a Samsung TV calls it.
+  - match: {host_suffix: [datadoghq.com]}
+    service: Datadog
+    categories: [ads_analytics]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: Log and real-user telemetry intake from apps on the network; not a service a person uses directly.
+  - match: {host_suffix: [sentry.io]}
+    service: Sentry
+    categories: [ads_analytics]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: App crash and error reports, telemetry like Datadog's intake.
+  - match: {host_suffix: [events.data.microsoft.com]}
+    service: Microsoft telemetry
+    categories: [ads_analytics]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+  - match: {host_suffix: [unagi.amazon.com, unagi-na.amazon.com, unagi-eu.amazon.com]}
+    service: Amazon telemetry
+    categories: [ads_analytics]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: Amazon apps' and devices' client metrics; longer than amazon.com, so it wins over the website.
+  - match: {host_suffix: [minerva.devices.a2z.com]}
+    service: Amazon telemetry
+    categories: [ads_analytics]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: Device metrics from Echo and Fire TV; longer than a2z.com, so it wins over Amazon devices.
 
   # --- Academic -------------------------------------------------------------
   - match: {host_suffix: [edu, edu.ar, ac.uk, edu.au]}
@@ -568,6 +770,27 @@ rules:
     confidence: medium
     since: 2026-10-22
     note: Academic registries; the service is the target's title.
+  - match: {host_suffix: [uba.ar]}
+    service: Universidad de Buenos Aires
+    categories: [academic]
+    source: manual
+    confidence: medium
+    since: 2026-10-23
+    note: uba.ar is fronted by Imperva's CDN, so the path measured is Imperva's edge.
+  - match: {host_suffix: [ns1.uba.ar]}
+    service: Universidad de Buenos Aires
+    categories: [academic]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: The university's own name server, on its own network (157.92.0.0/16), the real path there, unlike uba.ar.
+  - match: {host_suffix: [caida.org]}
+    service: CAIDA
+    categories: [academic]
+    source: manual
+    confidence: high
+    since: 2026-10-23
+    note: A network research center at UC San Diego.
 
   # --- Technical buckets: the fallback when name and host say nothing -------
   - match: {category: netflix_oca}

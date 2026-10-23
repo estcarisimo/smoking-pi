@@ -372,7 +372,7 @@ def list_targets(service_category: str | None = None) -> dict:
     `category` is the technical probe bucket. What the target *is* comes in
     `service` (e.g. "Netflix", "Claude") and `categories`, one or more ids
     from the service vocabulary: video, audio, gaming, realtime_comms,
-    messaging, social, web_search, ai_assistant, cloud_saas,
+    messaging, social, web_search, web, ai_assistant, cloud_saas,
     software_update, cdn, dns, connectivity, ads_analytics, academic, or
     unknown (no rule labels it yet; not a broken target). Speak of targets
     by those, not by the bucket.

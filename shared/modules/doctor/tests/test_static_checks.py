@@ -1526,7 +1526,8 @@ def test_a_rule_category_outside_the_vocabulary_fails(taxonomy_repo):
 
 def test_a_seed_target_without_a_rule_fails(taxonomy_repo):
     path, data = _taxonomy(taxonomy_repo)
-    data["rules"] = [r for r in data["rules"] if r["match"] != {"name": "NYT"}]
+    data["rules"] = [r for r in data["rules"]
+                     if r["match"] != {"host_suffix": ["nytimes.com"]}]
     path.write_text(yaml.safe_dump(data))
     check = run(taxonomy_repo)["service-taxonomy"]
     assert check.status is Status.FAIL

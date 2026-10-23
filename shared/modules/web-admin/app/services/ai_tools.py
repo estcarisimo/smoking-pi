@@ -143,7 +143,7 @@ TOOLS = [
             "is monitored or to find a target's exact name. `category` is "
             "the probe bucket; `service` and `categories` say what the "
             "target is, from the service vocabulary: video, audio, gaming, "
-            "realtime_comms, messaging, social, web_search, ai_assistant, "
+            "realtime_comms, messaging, social, web_search, web, ai_assistant, "
             "cloud_saas, software_update, cdn, dns, connectivity, "
             "ads_analytics, academic, or unknown (no rule labels it yet)."
         ),

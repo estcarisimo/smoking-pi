@@ -32,7 +32,7 @@ Imperva's CDN.
 
 ## The vocabulary
 
-Fifteen categories and `unknown`. Each answers one network question.
+Sixteen categories and `unknown`. Each answers one network question.
 
 | id | Label | The question |
 | --- | --- | --- |
@@ -43,6 +43,7 @@ Fifteen categories and `unknown`. Each answers one network question.
 | `messaging` | Messaging | Do messages and their notifications get through promptly? |
 | `social` | Social media | Do feeds, images and short videos load quickly? |
 | `web_search` | Web search | Does search answer fast, the first step of most browsing? |
+| `web` | Websites | Does ordinary browsing work (news, reference, shopping, company sites)? |
 | `ai_assistant` | AI assistant | Can an AI assistant (chat, code, voice) be reached and answer? |
 | `cloud_saas` | Cloud and SaaS | Are cloud storage, office suites and work tools reachable? |
 | `software_update` | Software updates | Can operating system, app and game updates download? |
@@ -65,7 +66,8 @@ Each rule matches on exactly one thing, and the most specific match wins:
 
 1. **`name`**: the target's name, or its base name without the probe
    suffix (`Google_h2`, `Google_h3` and `Google_tcp443` all match a
-   `Google` rule). This is how every seed target is labeled.
+   `Google` rule). The seed has none (see below); a name rule is for a
+   target whose host says nothing.
 2. **`host_suffix`**: the longest suffix of the host, on label boundaries.
    `meet.google.com` beats `google.com`; `notnetflix.com` does not match
    `netflix.com`. An IP address matches only itself, so a `1.1.1.1` rule
@@ -73,6 +75,18 @@ Each rule matches on exactly one thing, and the most specific match wins:
 3. **`category`**: the technical bucket as a last resort. Every
    `netflix_oca` target is Netflix video, every `dns_resolvers` target is
    DNS, the `cpe` target is the gateway.
+
+### Label by host, not by name
+
+The seed labels every public target by its host. The DNS wizard adopts
+the hosts a house uses under names of its own (`W_amazon_com_h2` for
+`www.amazon.com`), so a rule on the template's name, `Amazon`, labeled
+the shipped copy and left the wizard's copy of the same host unknown. A
+host rule labels both, and every probe of either, identically. A `name`
+rule is the right key only when the host is not: a private address, or a
+host shared by unrelated services. A service's own longer suffixes still
+win over its website, so `unagi-na.amazon.com` (Amazon's telemetry) is
+`ads_analytics` while `www.amazon.com` is `web` and `cdn`.
 
 Nothing matched: the target is `unknown`, and its service is its title.
 Unknown is allowed. `sudo smoking-pi taxonomy unknown` lists those
