@@ -205,9 +205,10 @@ disagrees with `CITATION.cff`), then the `.deb` built from the tagged tree
 and installed with each supported host's own `apt` (Ubuntu 22.04/24.04
 VMs, both architectures, Basic started with the release's images; Debian
 12/13 containers, package-level — `docs/packaging.md`, *Supported hosts*).
-`mcp-image.yml` publishes `mcp-server` again, to that same version tag and
-not to `:latest`, when the GitHub release is published or someone runs it
-by hand; it does not publish `server.json`.
+That same publish is the only one: `mcp-server` is in the matrix, and its
+image carries `io.modelcontextprotocol.server.name` (the Dockerfile label,
+repeated on the release build). `server.json` names that image and is not
+published by CI.
 Only after every host passed: `promote` moves `:latest` (releases only),
 and `attach` puts the `.deb` and `smoking-pi_<version>_evidence.md`
 (commit, run, digests, sha256) on the release you created. A candidate's

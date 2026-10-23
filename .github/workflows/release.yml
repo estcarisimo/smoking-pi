@@ -41,6 +41,11 @@ name: Release
 #                tag and the package versions afterwards. (workflow_dispatch
 #                would only work once the file is on the default branch, so
 #                it is not offered.)
+#
+# mcp-server is published here, not by a second workflow. Its build also
+# sets io.modelcontextprotocol.server.name, the same string as the
+# Dockerfile LABEL and server.json, so the registry can match the image
+# this file already tags (:<version>, and :latest only from `promote`).
 
 on:
   push:
@@ -124,6 +129,28 @@ jobs:
           read -r context dockerfile <<< "$ctx"
           echo "context=$context" >> "$GITHUB_OUTPUT"
           echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
+      - name: Image labels
+        id: labels
+        env:
+          SERVICE: ${{ matrix.service }}
+          VERSION: ${{ needs.version.outputs.version }}
+          REVISION: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -e
+          {
+            echo "value<<EOF"
+            echo "org.opencontainers.image.source=https://github.com/${REPOSITORY}"
+            echo "org.opencontainers.image.version=${VERSION}"
+            echo "org.opencontainers.image.revision=${REVISION}"
+            # Only mcp-server. The other images are not MCP servers, and an
+            # empty label on them would be a lie. Same string as the
+            # Dockerfile LABEL and as server.json's name.
+            if [ "$SERVICE" = mcp-server ]; then
+              echo "io.modelcontextprotocol.server.name=io.github.estcarisimo/smoking-pi"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7
@@ -131,10 +158,7 @@ jobs:
           context: ${{ steps.ctx.outputs.context }}
           file: ${{ steps.ctx.outputs.dockerfile }}
           platforms: linux/${{ matrix.arch }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.version=${{ needs.version.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
+          labels: ${{ steps.labels.outputs.value }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
       - name: Export the digest
         env:

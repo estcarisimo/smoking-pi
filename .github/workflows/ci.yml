@@ -90,6 +90,11 @@ jobs:
           [ "$registry" = "oci" ] || { echo "server.json package must be registryType oci"; exit 1; }
           [ "$ident" = "ghcr.io/estcarisimo/smoking-pi/mcp-server:$cff_version" ] || { echo "server.json image tag must match CITATION.cff"; exit 1; }
           [ -n "$label" ] && [ "$label" = "$sj_name" ] || { echo "Dockerfile label must match server.json name"; exit 1; }
+          # release.yml is the only publish. Its mcp-server build must repeat
+          # the same label; a second workflow must not grow back.
+          grep -q "io.modelcontextprotocol.server.name=${sj_name}" .github/workflows/release.yml \
+            || { echo "release.yml must label mcp-server with the server.json name"; exit 1; }
+          [ ! -e .github/workflows/mcp-image.yml ] || { echo "mcp-image.yml duplicates release.yml"; exit 1; }
 
   docs:
     name: Docs build (strict)

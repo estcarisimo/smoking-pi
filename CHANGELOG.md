@@ -20,10 +20,10 @@ version gets a matching GitHub release and git tag.
   The mcp-server image is labeled
   `io.modelcontextprotocol.server.name=io.github.estcarisimo/smoking-pi`.
   `server.json` at the repository root describes that OCI image and is
-  not published by CI. `.github/workflows/mcp-image.yml` builds the image
-  and pushes it to ghcr.io only when a GitHub release is published or
-  someone runs the workflow by hand. It pushes the same version tag as
-  `release.yml`, for both architectures, and it does not move `:latest`.
+  not published by CI. The image is the one `release.yml` already pushes
+  (`mcp-server:<version>`, and `:latest` only after the install tests);
+  that build repeats the registry name label. There is no second image
+  workflow.
 
 ## [2.46.0] — 2026-10-22
 

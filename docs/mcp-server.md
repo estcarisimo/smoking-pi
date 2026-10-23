@@ -402,11 +402,12 @@ the OCI image `ghcr.io/estcarisimo/smoking-pi/mcp-server:<version>`. No
 workflow publishes `server.json`; putting it on a registry is a step the
 maintainer takes by hand, after the image with that tag exists.
 
-The image label `io.modelcontextprotocol.server.name` is the same string.
-`.github/workflows/mcp-image.yml` builds the image and pushes it to ghcr.io
-when a GitHub release is published, or when someone runs the workflow by
-hand. The tag is the one `release.yml` uses (`vX.Y.Z` becomes `X.Y.Z`),
-both architectures, and `:latest` stays where the release workflow left it.
+The image label `io.modelcontextprotocol.server.name` is the same string,
+on the Dockerfile and again on the `mcp-server` build in `release.yml`.
+That workflow is the only publish: a `vX.Y.Z` tag pushes
+`ghcr.io/estcarisimo/smoking-pi/mcp-server:X.Y.Z` for both architectures,
+and `:latest` moves only after the install tests pass. Pull requests build
+the image and do not push it.
 
 A registry client is told to run that image over stdio (`MCP_TRANSPORT=stdio`,
 host network, the config API and InfluxDB on loopback). The Smoking Pi
