@@ -9,6 +9,17 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+- **The six websites the staging Pi's wizard had adopted had no service
+  label.** The v2.47.0 seed covered the hosts the reference Pi measured,
+  so on the staging Pi every probe of `www.microsoft.com`,
+  `www.mozilla.org`, `www.python.org`, `www.wikipedia.org`,
+  `www.bbc.co.uk` and `acm.org` (28 targets) stayed `unknown` in the
+  Service category filter and the doctor's `targets-labeled` check. Six
+  `host_suffix` rules label them (`web`; ACM also `academic`), 114 rules
+  in all; the `microsoft.com` catch-all yields to the Teams, Copilot,
+  update and telemetry rules that already exist.
+
 ## [2.47.0] — 2026-10-23
 
 The paths say where they go: each router on Target Detail's path table now
@@ -81,12 +92,10 @@ except the labels, which are rewritten once.
   category `web` ("Websites": does ordinary browsing work?) makes Amazon,
   The New York Times and Apple `[web, cdn]`, and rules cover the 37 hosts
   that were unlabeled there (Alexa, Cursor, Grammarly, Notion, Samsung TV,
-  iCloud Private Relay, NTP, telemetry endpoints, ...) and the six plain
-  websites the staging Pi's wizard had adopted (Microsoft, Mozilla,
-  Python, Wikipedia, BBC, ACM). One,
+  iCloud Private Relay, NTP, telemetry endpoints, ...). One,
   `tzm.protechts.net`, stays unknown: no source names its owner. The
   taxonomy `version` is now 2, so the exporter rewrites every target's
-  labels once (114 rules). A target someone created with a seed name
+  labels once (108 rules). A target someone created with a seed name
   (`Google`, `Amazon`) on another host is now labeled by its host, and the
   shipped Google targets' confidence is `medium`, the host rule's.
 
