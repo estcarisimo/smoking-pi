@@ -114,16 +114,16 @@ the first hop on only two traces in three.
 
 ## Where the networks come from
 
-Each hop's network (its origin AS) is looked up locally, in the routing
-table the [map-ip-to-asn](https://github.com/estcarisimo/map-ip-to-asn)
-tool reads: CAIDA's daily
+Each hop's network (its origin AS) is looked up locally with
+[originet](https://github.com/estcarisimo/originet) (formerly map-ip-to-asn),
+a Rust longest-prefix-match table over CAIDA's daily
 [RouteViews prefix-to-AS](https://publicdata.caida.org/datasets/routing/routeviews-prefix2as/)
-snapshot, about 4 MB compressed and 1.1 million prefixes. The service
-downloads it once a day into its state volume, builds a table of a few MB
-from it, and answers every hop at once by its longest announced prefix: no
-query per address, nothing rate-limited, and the first cycle already
-complete. A prefix announced by several networks takes the last one, as
-that tool does.
+snapshot: about 4 MB compressed and 1.1 million IPv4 prefixes, checked for a
+newer one once a day, cached in the service's state volume (the two newest
+kept) and loaded in a few seconds. Every hop is answered at once by its
+longest announced prefix: no query per address, nothing rate-limited, and
+the first cycle already complete. A prefix announced by several networks
+reports the first of them, as originet does.
 
 A router can answer from an address nobody announces. When it is on an
 exchange point's LAN, the hop is named by the exchange (the **exchange
@@ -133,13 +133,13 @@ asked of [Team Cymru](https://www.team-cymru.com/ip-asn-mapping)'s DNS
 service, as before; a private hop (the home router, the access network's
 10.x routers) has no network, by design.
 
-A download that fails, or a snapshot that looks broken (fewer than half a
-million prefixes), keeps the previous one; with none at all, every lookup
-goes to Team Cymru. A day when CAIDA has published nothing new costs one
-small request and no rebuild. PeeringDB limits how often anyone may ask: a
-refused download is tried again an hour later.
+A download that fails keeps the table loaded, and a restart without
+network loads the cached snapshot; a snapshot that looks broken (fewer than
+half a million prefixes) is refused; with no table at all, every lookup goes
+to Team Cymru. PeeringDB limits how often anyone may ask: a refused download
+is tried again an hour later.
 
-Because the table answers by the exact announced prefix and takes the last
+Because the table answers by the exact announced prefix and takes the first
 origin of a prefix several networks announce, a hop's network can, rarely,
 differ from the one the service labels show for the same address (the
 exporter still asks Team Cymru, per /24).

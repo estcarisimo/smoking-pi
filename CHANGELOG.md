@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **The routing table is originet.** v2.46.0 looked hops' networks up in a
+  table this project built itself from CAIDA's RouteViews snapshot: 43 s of
+  a Pi's half core to build, a parser of its own to keep right, and the
+  last origin of a multi-origin prefix where the tool it imitated has moved
+  on. [originet](https://github.com/estcarisimo/originet), the Rust rewrite
+  of map-ip-to-asn, does the same job: the path meter and inference now
+  install its wheel and let it fetch, cache and load the snapshot (8 s on
+  the staging Pi's half core, including the download; 2 s from its cache;
+  100 000 lookups in 0.1 s), keeping the two newest snapshots (its cache
+  keeps every day otherwise). A prefix several networks announce now
+  reports the first of them, as originet does. The files of the old table
+  are removed on the first start. PeeringDB's exchange LANs and Team Cymru
+  (names, and whatever no table covers) are unchanged. On the staging Pi,
+  27 of 28 public hops got their network in the first cycle.
+
 ### Added
 
 - **An agent can find the MCP server without already knowing this

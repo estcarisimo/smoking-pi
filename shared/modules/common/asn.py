@@ -11,8 +11,8 @@ that ask (inference's operator tags, pathmeter's hops).
   is its own operator, of kind ``other``.
 
 DNS queries, unless the process uses a routing table (:func:`use_table`):
-CAIDA's daily RouteViews prefix-to-AS snapshot, looked up locally, and
-PeeringDB's exchange-point LANs. The callers cache what they learn
+originet over CAIDA's daily RouteViews prefix-to-AS snapshot, looked up
+locally, and PeeringDB's exchange-point LANs. The callers cache what they learn
 (``operators.py`` per target, pathmeter's ``owners.py`` per hop). Needs
 dnspython, imported on first use, so importing this module needs nothing.
 """
@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import csv
 import ipaddress
-import zlib
 from functools import cache
 from pathlib import Path
 
@@ -169,28 +168,27 @@ def as_name(asn: int, resolver=None) -> str:
 
 # ───────────────────── the routing table, local ─────────────────────
 #
-# The data behind map-ip-to-asn (github.com/estcarisimo/map-ip-to-asn):
-# CAIDA's daily RouteViews prefix-to-AS snapshot, one line per announced
-# prefix ("1.0.0.0<TAB>24<TAB>13335", a multi-origin prefix as "a_b", an AS
-# set as "a,b"; the last AS is taken, as that tool takes it). About 4 MB
-# compressed and 1.1 million IPv4 prefixes, refreshed once a day, looked up
-# locally: no query per address, the announced prefix exactly, and nothing
-# rate-limited. Nested prefixes are flattened into non-overlapping ranges
-# (the longest prefix wins) kept in three arrays, a few MB, searched by
-# bisection. Exchange-point LANs are not announced, so the routers' replies
-# from them have no origin: PeeringDB's IXP prefixes name them instead.
-# Both are downloaded by the Pi for its own use and never shipped in an
-# image or the repository (CAIDA asks for a citation of the dataset;
-# PeeringDB's terms allow operational use, not redistribution).
+# originet (github.com/estcarisimo/originet, formerly map-ip-to-asn): CAIDA's
+# daily RouteViews prefix-to-AS snapshot in a Rust longest-prefix-match table,
+# with Python bindings. It reads CAIDA's index, downloads the newest snapshot
+# into its cache (about 4 MB) and loads it (1.1 million IPv4 prefixes, two
+# seconds on a Pi's half core); a lookup is the most specific announced
+# prefix, every hop at once and nothing rate-limited. A prefix several
+# networks announce reports the first of them, as originet does. Exchange-point
+# LANs are not announced, so the routers' replies from them have no origin:
+# PeeringDB's IXP prefixes name them instead. Both are downloaded by the Pi
+# for its own use and never shipped in an image or the repository (CAIDA asks
+# for a citation of the dataset; PeeringDB's terms allow operational use, not
+# redistribution). originet is imported only when a table is loaded: images
+# without it keep Team Cymru.
 
-PFX2AS_ROOT = "https://publicdata.caida.org/datasets/routing/routeviews-prefix2as/"
-PFX2AS_LOG = PFX2AS_ROOT + "pfx2as-creation.log"
 PEERINGDB = "https://www.peeringdb.com/api/"
-TABLE_REFRESH = 86400       # seconds between downloads
+TABLE_REFRESH = 86400       # seconds between checks for a newer snapshot
 TABLE_MIN_PREFIXES = 500_000  # a snapshot with fewer is broken, not the Internet
-TABLE_MIN_RANGES = 100_000     # flattened: ~400 000 from today's snapshot
-RANGES_MAGIC = 0x53505231      # "SPR1": the built ranges' format, version 1
+SNAPSHOTS_KEPT = 2          # originet's cache keeps every day; this prunes it
 FETCH_TIMEOUT = 60
+# What the hand-rolled table this replaced left in the same directory.
+_LEGACY = ("pfx2as.gz", "pfx2as.name", "pfx2as.ranges", "pfx2as.gz.tmp", "pfx2as.ranges.tmp")
 
 _TABLE = None
 
@@ -212,8 +210,11 @@ def _fetch(url: str) -> bytes:
         return response.read()
 
 
-def _last_as(field: str) -> int:
-    return int(field.replace(",", "_").split("_")[-1])
+def _originet(cache_dir: Path, offline: bool):
+    """The newest IPv4 snapshot as an originet table (the Pi measures IPv4)."""
+    from originet import Table
+
+    return Table.from_caida(cache_dir=str(cache_dir), ipv6=False, offline=offline)
 
 
 def _nested(items, emit) -> None:
@@ -239,43 +240,6 @@ def _nested(items, emit) -> None:
         cursor = max(cursor, e + 1)
 
 
-def _prefix2as_items(lines):
-    for line in lines:
-        parts = line.split()
-        if len(parts) != 3 or ":" in parts[0]:
-            continue
-        try:
-            # By hand, not ipaddress: a million lines, on a Pi, once a day.
-            a, b, c, d = (int(x) for x in parts[0].split("."))
-            length = int(parts[1])
-            if not (0 <= length <= 32 and max(a, b, c, d) <= 255):
-                continue
-            start = (a << 24) | (b << 16) | (c << 8) | d
-            yield start, start + (1 << (32 - length)) - 1, _last_as(parts[2])
-        except ValueError:
-            continue
-
-
-def flatten(lines) -> tuple:
-    """(starts, ends, asns) arrays of non-overlapping ranges from prefix2as
-    lines sorted by address, then by length (as CAIDA's are): inside a
-    prefix, a more specific one wins for its own addresses."""
-    from array import array
-
-    starts, ends, asns = array("I"), array("I"), array("I")
-
-    def emit(start: int, end: int, asn: int) -> None:
-        if asns and asns[-1] == asn and ends[-1] + 1 == start:
-            ends[-1] = end
-        else:
-            starts.append(start)
-            ends.append(end)
-            asns.append(asn)
-
-    _nested(_prefix2as_items(lines), emit)
-    return starts, ends, asns
-
-
 def ixp_ranges(ixpfx: list[dict], ixlan: list[dict], ix: list[dict]) -> list[list]:
     """[start, end, exchange name] per IPv4 IXP LAN prefix, sorted."""
     names = {i.get("id"): i.get("name") for i in ix}
@@ -289,61 +253,63 @@ def ixp_ranges(ixpfx: list[dict], ixlan: list[dict], ix: list[dict]) -> list[lis
         name = names.get(lan_ix.get(pfx.get("ixlan_id")))
         if net.version == 4 and name:
             out.append((int(net.network_address), int(net.broadcast_address), str(name)))
-    # Flattened like the routing table: PeeringDB does not promise that two
-    # exchanges' prefixes never nest, and a bisection needs disjoint ranges.
+    # Flattened: PeeringDB does not promise that two exchanges' prefixes never
+    # nest, and a bisection needs disjoint ranges.
     flat: list[list] = []
     _nested(sorted(out, key=lambda r: (r[0], -r[1])),
             lambda s, e, v: flat.append([s, e, v]))
     return flat
 
 
-class RoutingTable:
-    """The prefix-to-AS table and the IXP LANs, kept in ``directory``
-    (``pfx2as.gz``, ``ixp.json``) and refreshed once a day. A download that
-    fails, or a snapshot that looks broken, keeps the previous one."""
+def prune_snapshots(cache_dir: Path, keep: int = SNAPSHOTS_KEPT) -> int:
+    """Delete all but the ``keep`` newest snapshots in originet's cache (it
+    keeps every day, about 4 MB each); returns how many went. IPv4 only, as
+    the table is loaded: the names (routeviews-rv2-YYYYMMDD-HHMM) then sort
+    by date across months and years."""
+    files = sorted(Path(cache_dir).glob("routeviews-prefix2as/*/*/*.pfx2as.gz"),
+                   key=lambda p: p.name)
+    gone = 0
+    for old in files[:-keep] if keep > 0 else files:
+        try:
+            old.unlink()
+            gone += 1
+        except OSError:
+            pass
+    return gone
 
-    def __init__(self, directory: Path, fetch=_fetch, clock=None) -> None:
+
+class RoutingTable:
+    """originet's prefix-to-AS table and the IXP LANs, kept in ``directory``
+    (``originet/`` for its cache, ``ixp.json``) and checked once a day. A
+    download that fails keeps the table loaded, or the cached one."""
+
+    def __init__(self, directory: Path, fetch=_fetch, clock=None, loader=_originet) -> None:
         import time
 
         self.directory = Path(directory)
         self._fetch = fetch
         self._clock = clock or time.time
-        self._ranges: tuple | None = None
+        self._load = loader
+        self._table = None
         self._ixp: list[list] = []
-        self.loaded_at = 0.0
+        self.checked_at = 0.0
         self.snapshot = ""
+        self._cleaned = False
+        self._reached = False
 
     @property
     def ready(self) -> bool:
-        return self._ranges is not None
+        return self._table is not None
+
+    @property
+    def cache_dir(self) -> Path:
+        return self.directory / "originet"
 
     def _stale(self, path: Path) -> bool:
         try:
             return self._clock() - path.stat().st_mtime >= TABLE_REFRESH
         except OSError:
             return True
-
-    def _download_pfx2as(self, path: Path) -> None:
-        import gzip
-
-        log = self._fetch(PFX2AS_LOG).decode(errors="replace").strip().splitlines()
-        name = log[-1].split()[-1]
-        if not name.endswith(".pfx2as.gz") or ".." in name or name.startswith("/"):
-            raise ValueError("unexpected snapshot name")
-        recorded = self.directory / "pfx2as.name"
-        if path.exists() and recorded.exists() and recorded.read_text().strip() == name:
-            recorded.touch()  # CAIDA has nothing newer: checked, nothing to rebuild
-            return
-        data = self._fetch(PFX2AS_ROOT + name)
-        import io
-
-        with gzip.GzipFile(fileobj=io.BytesIO(data)) as lines:  # counted, never held
-            if sum(1 for _ in lines) < TABLE_MIN_PREFIXES:
-                raise ValueError("snapshot too small")
-        tmp = self.directory / "pfx2as.gz.tmp"
-        tmp.write_bytes(data)
-        tmp.replace(path)
-        recorded.write_text(name)
 
     def _download_ixp(self, path: Path) -> None:
         import json
@@ -359,99 +325,78 @@ class RoutingTable:
         tmp.write_text(json.dumps(ranges))
         tmp.replace(path)
 
+    def _load_table(self) -> bool:
+        """A newer snapshot when there is one, else the cached one. Whether
+        CAIDA was reached: a cached snapshot loaded offline may be weeks old,
+        so the next cycle tries again rather than waiting a day."""
+        import logging
+
+        log = logging.getLogger("common.asn")
+        online = True
+        try:
+            table = self._load(self.cache_dir, False)
+        except Exception:  # noqa: BLE001 -- offline, CAIDA down: what is cached will do
+            log.warning("could not fetch a routing snapshot; trying the cached one",
+                        exc_info=True)
+            online = False
+            if self._table is not None:
+                return False
+            try:
+                table = self._load(self.cache_dir, True)
+            except Exception:  # noqa: BLE001 -- nothing cached either
+                log.warning("no routing table; AS lookups go to Team Cymru", exc_info=True)
+                return False
+        if table.len_v4 < TABLE_MIN_PREFIXES:
+            log.warning("routing snapshot of %d prefixes refused", table.len_v4)
+            return online
+        # The new table is built before the old one goes: for a moment two
+        # are alive (about 75 MB each), once a day. No memory limit is set.
+        self._table = table
+        self.snapshot = str((table.snapshots or [{}])[0].get("file") or "")
+        prune_snapshots(self.cache_dir)
+        return online
+
     def refresh(self) -> bool:
-        """Download what is a day old, load what changed; never raises.
-        Whether a table is ready afterwards."""
-        import gzip
+        """Check for a newer snapshot once a day, refresh the IXPs when a day
+        old; never raises. Whether a table is ready afterwards."""
         import json
         import logging
 
         log = logging.getLogger("common.asn")
-        self.directory.mkdir(parents=True, exist_ok=True)
-        pfx2as, ixp = self.directory / "pfx2as.gz", self.directory / "ixp.json"
-        # pfx2as.name is touched at every check, the snapshot only when a new
-        # one arrives: a day without a new snapshot rebuilds nothing.
-        checks = ((self.directory / "pfx2as.name", pfx2as, self._download_pfx2as),
-                  (ixp, ixp, self._download_ixp))
-        for marker, path, download in checks:
-            if not path.exists() or self._stale(marker):
+        try:
+            if not self._cleaned:
+                self.directory.mkdir(parents=True, exist_ok=True)
+                for name in _LEGACY:
+                    (self.directory / name).unlink(missing_ok=True)
+                self._cleaned = True
+            # Once a day once CAIDA was reached; every cycle while the table
+            # in use is only the cached one (or none).
+            if (self._table is None or not self._reached
+                    or self._clock() - self.checked_at >= TABLE_REFRESH):
+                self._reached = self._load_table()
+                if self._reached:
+                    self.checked_at = self._clock()
+            ixp = self.directory / "ixp.json"
+            if not ixp.exists() or self._stale(ixp):
                 try:
-                    download(path)
+                    self._download_ixp(ixp)
                 except Exception:  # noqa: BLE001 -- the previous file stays
-                    log.warning("could not refresh %s; keeping the one there is", path.name,
+                    log.warning("could not refresh ixp.json; keeping the one there is",
                                 exc_info=True)
-        try:
-            mtime = pfx2as.stat().st_mtime
-            if self._ranges is None or mtime > self.loaded_at:
-                self._ranges = self._load_built(pfx2as)
-                if self._ranges is None:
-                    with gzip.open(pfx2as, "rt") as lines:
-                        ranges = flatten(lines)
-                    # An empty or cut file (a power loss before the write
-                    # reached the card) is not a routing table.
-                    if len(ranges[0]) < TABLE_MIN_RANGES:
-                        raise ValueError("routing table too small")
-                    self._ranges = ranges
-                    self._save_built(pfx2as, self._ranges)
-                self.loaded_at = mtime
-                name = self.directory / "pfx2as.name"
-                self.snapshot = name.read_text().strip() if name.exists() else ""
-        except (OSError, EOFError, ValueError, zlib.error):
-            log.warning("no routing table loaded; AS lookups go to Team Cymru", exc_info=True)
-        try:
-            self._ixp = json.loads(ixp.read_text())
-        except (OSError, ValueError):
-            pass
+            try:
+                self._ixp = json.loads(ixp.read_text())
+            except (OSError, ValueError):
+                pass
+        except Exception:  # noqa: BLE001 -- a table is an aid, never a reason to stop
+            log.warning("routing table refresh failed", exc_info=True)
         return self.ready
-
-    # The flattened ranges, saved next to the snapshot they came from: a
-    # restart reads them in milliseconds instead of flattening a million
-    # lines again (half a minute on a Pi's half core).
-    def _built(self) -> Path:
-        return self.directory / "pfx2as.ranges"
-
-    def _load_built(self, source: Path) -> tuple | None:
-        from array import array
-
-        built = self._built()
-        try:
-            if built.stat().st_mtime < source.stat().st_mtime:
-                return None
-            with built.open("rb") as f:
-                head = array("I")
-                head.fromfile(f, 2)
-                if head[0] != RANGES_MAGIC or head[1] < TABLE_MIN_RANGES:
-                    return None
-                out = tuple(array("I") for _ in range(3))
-                for arr in out:
-                    arr.fromfile(f, head[1])
-            return out
-        except (OSError, EOFError, ValueError):
-            return None
-
-    def _save_built(self, source: Path, ranges: tuple) -> None:
-        from array import array
-
-        try:
-            tmp = self.directory / "pfx2as.ranges.tmp"
-            with tmp.open("wb") as f:
-                array("I", [RANGES_MAGIC, len(ranges[0])]).tofile(f)
-                for arr in ranges:
-                    arr.tofile(f)
-            tmp.replace(self._built())
-        except OSError:
-            pass
 
     def lookup(self, ip: str) -> int | None:
         """The origin AS of the longest announced prefix covering ``ip``."""
-        import bisect
-
-        if self._ranges is None:
+        if self._table is None:
             return None
-        starts, ends, asns = self._ranges
-        x = int(ipaddress.IPv4Address(ip))
-        i = bisect.bisect_right(starts, x) - 1
-        return asns[i] if i >= 0 and ends[i] >= x else None
+        found = self._table.lookup(ip)
+        return found.asn if found else None
 
     def ixp(self, ip: str) -> str | None:
         """The exchange point whose LAN ``ip`` is on, from PeeringDB."""

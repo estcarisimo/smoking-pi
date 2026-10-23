@@ -23,6 +23,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
         --extra-index-url https://download.pytorch.org/whl/cpu \
         "jitterbug-inference[bcp]>=2.3" "influxdb-client>=1.40" "numpy>=1.24" "pandas>=2.0" "dnspython>=2.6" \
+        "originet>=1.0.1,<2" \
     && mkdir -p /var/lib/inference
 
 COPY modules/inference/*.py ./
