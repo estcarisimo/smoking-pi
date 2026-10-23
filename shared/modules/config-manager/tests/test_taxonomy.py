@@ -398,3 +398,10 @@ def test_a_service_s_telemetry_outranks_its_website(tx):
     assert tx.resolve("W_x", "unagi-na.amazon.com", "dns_wizard")["categories"] == [
         "ads_analytics"]
     assert tx.resolve("W_x", "music.amazon.com", "dns_wizard")["service"] == "Amazon Music"
+
+
+def test_googleapis_carves_out_video_and_fonts(tx):
+    assert tx.resolve("W_x", "youtubei.googleapis.com", "dns_wizard")["service"] == "YouTube"
+    assert tx.resolve("W_x", "fonts.googleapis.com", "dns_wizard")["categories"] == ["cdn"]
+    assert tx.resolve("W_x", "www.googleapis.com", "dns_wizard")["categories"] == [
+        "cloud_saas"]

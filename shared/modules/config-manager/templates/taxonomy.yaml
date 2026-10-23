@@ -128,7 +128,7 @@ rules:
     source: adguard
     confidence: high
     since: 2026-10-22
-  - match: {host_suffix: [youtube.com, youtu.be, googlevideo.com, ytimg.com, youtube-nocookie.com]}
+  - match: {host_suffix: [youtube.com, youtu.be, googlevideo.com, ytimg.com, youtube-nocookie.com, youtubei.googleapis.com]}
     service: YouTube
     categories: [video, social]
     source: adguard
@@ -348,7 +348,7 @@ rules:
     service: Google
     categories: [web_search]
     source: manual
-    confidence: high
+    confidence: medium
     since: 2026-10-23
     note: The catch-all for google.com, and the shipped Google targets; longer suffixes (meet, gemini, ...) win over it.
   - match: {host_suffix: [bing.com]}
@@ -482,7 +482,7 @@ rules:
     source: manual
     confidence: medium
     since: 2026-10-23
-    note: Google's API front door (oauthaccountmanager is account sign-in on devices); longer suffixes win.
+    note: Google's API front door (oauthaccountmanager is account sign-in on devices); YouTube's and the fonts API have their own, longer rules.
   - match: {host_suffix: [notion.so, notion.com]}
     service: Notion
     categories: [cloud_saas]
@@ -617,7 +617,7 @@ rules:
     confidence: medium
     since: 2026-10-23
     note: Apple's own CDN and traffic-steering names; nDPI lists both as Apple. Longer suffixes (ls.v.aaplimg.com, mask.apple-dns.net) win.
-  - match: {host_suffix: [gstatic.com]}
+  - match: {host_suffix: [gstatic.com, fonts.googleapis.com]}
     service: Google static content
     categories: [cdn]
     source: ndpi
@@ -734,7 +734,7 @@ rules:
     source: manual
     confidence: medium
     since: 2026-10-23
-    note: Log and real-user telemetry intake from apps on the network; not a service a person uses directly.
+    note: Log and real-user telemetry intake from apps on the network; app.datadoghq.com, the dashboard a person uses, needs an override.
   - match: {host_suffix: [sentry.io]}
     service: Sentry
     categories: [ads_analytics]

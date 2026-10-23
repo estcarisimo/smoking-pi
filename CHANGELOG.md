@@ -42,7 +42,9 @@ version gets a matching GitHub release and git tag.
   iCloud Private Relay, NTP, telemetry endpoints, ...). One,
   `tzm.protechts.net`, stays unknown: no source names its owner. The
   taxonomy `version` is now 2, so the exporter rewrites every target's
-  labels once (108 rules).
+  labels once (108 rules). A target someone created with a seed name
+  (`Google`, `Amazon`) on another host is now labeled by its host, and the
+  shipped Google targets' confidence is `medium`, the host rule's.
 
 ## [2.46.0] — 2026-10-22
 

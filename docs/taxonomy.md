@@ -88,6 +88,14 @@ host shared by unrelated services. A service's own longer suffixes still
 win over its website, so `unagi-na.amazon.com` (Amazon's telemetry) is
 `ads_analytics` while `www.amazon.com` is `web` and `cdn`.
 
+A website's suffix rule is a catch-all: any subdomain no longer rule
+claims gets the website's label, so `aws.amazon.com` is Amazon `[web,
+cdn]` too. When an adopted host is not what its domain's rule says, an
+[override](#overrides) corrects it for your install, and a rule for it
+here corrects it for everyone. A target you created with a seed name
+(`Google`, `Amazon`) on another host is labeled by that host now, not by
+its name.
+
 Nothing matched: the target is `unknown`, and its service is its title.
 Unknown is allowed. `sudo smoking-pi taxonomy unknown` lists those
 targets, and the doctor's `targets-labeled` check warns about them (it

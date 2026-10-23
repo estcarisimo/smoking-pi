@@ -85,7 +85,7 @@ def test_targets_carry_their_resolved_label(client):
     assert google["service"] == "Google"
     assert google["categories"] == ["web_search"]
     assert google["label_source"] == "manual"
-    assert google["label_confidence"] == "high"
+    assert google["label_confidence"] == "medium"
     assert google["label_rule"] == "host_suffix:google.com"
     assert google["category"] == "top_sites"  # the technical bucket is untouched
 
