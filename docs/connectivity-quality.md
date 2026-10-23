@@ -41,6 +41,27 @@ is a 5-minute window, the default probe step. With a different
 [frequency](measurement-frequency.md), the share is still comparable from
 one day to the next, but it is not a count of probe rounds.
 
+## What is measured
+
+The row **What is measured (service labels)**, collapsed under the tiles,
+answers "what does this Pi measure?": how many targets it measures of each
+kind. Expand it for three panels:
+
+- **Targets per service category**: one bar per category of the
+  [vocabulary](taxonomy.md#the-vocabulary), zero included, in its order.
+  A target with two categories (YouTube is video and social) counts in
+  both, so the bars add up to more than the targets.
+- **Targets per delivery kind**: one bar per kind of network the targets
+  answer from (CDN, content network, embedded cache...); one kind each.
+- **Services**: one row per service, with its categories, its operator,
+  its kind and how many targets measure it, most first.
+
+They read the last label of each active target (one a probe wrote for in
+the last 24 hours), whatever the Service category variable or the time
+range say, and each probe counts as a target: a website the DNS wizard
+probes by ICMP, TCP and three HTTP versions counts five times. The queries
+read one point per target, so expanding the row costs little.
+
 ## On one time axis
 
 - **ICMP loss by category (0–10 %).** This is the Overview's loss panel
