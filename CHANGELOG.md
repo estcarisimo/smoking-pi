@@ -9,7 +9,27 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.48.0] — 2026-10-26
+
+You can see what the Pi measures, not only one target at a time: a new
+**Targets by service** dashboard counts the active targets per service
+category and per delivery kind and lists the services with their operator,
+and Target Detail's Service tile now shows the service and the operator
+that delivers it in large text, legible on a phone. The six websites the
+staging Pi's DNS wizard had adopted get service labels, and Context7
+indexes the operating guides instead of the whole tree. Dashboards and
+labels only: nothing changes in what is measured or how.
+
 ### Added
+
+- **A Targets by service dashboard says what is measured.** Nothing
+  showed how many targets of each kind the Pi measures: the labels
+  existed, but only one target at a time. The new dashboard (Targets
+  folder, uid `targets-by-service-v1`) counts the active targets per
+  service category and per delivery kind (every id of each vocabulary,
+  zero included) and lists the services with their operator, kind and
+  number of targets. It reads one label point per target. The Overview's
+  index and Connectivity & Quality's header link to it.
 
 - **Context7 indexes the operating docs.** A scan of the whole tree
   would hand an assistant the tests, the module READMEs and the
@@ -22,6 +42,7 @@ version gets a matching GitHub release and git tag.
   request, and the CPE loss floor is not a microcut.
 
 ### Fixed
+
 - **The six websites the staging Pi's wizard had adopted had no service
   label.** The v2.47.0 seed covered the hosts the reference Pi measured,
   so on the staging Pi every probe of `www.microsoft.com`,
@@ -39,16 +60,6 @@ version gets a matching GitHub release and git tag.
   categories over it, and **Delivered by** the operator large with its
   kind in words ("CDN", "embedded cache"); both stack the small text over
   the value at any width, and "unknown (no rule yet)" stays orange.
-
-### Added
-- **A Targets by service dashboard says what is measured.** Nothing
-  showed how many targets of each kind the Pi measures: the labels
-  existed, but only one target at a time. The new dashboard (Targets
-  folder, uid `targets-by-service-v1`) counts the active targets per
-  service category and per delivery kind (every id of each vocabulary,
-  zero included) and lists the services with their operator, kind and
-  number of targets. It reads one label point per target. The Overview's
-  index and Connectivity & Quality's header link to it.
 
 ## [2.47.0] — 2026-10-23
 
