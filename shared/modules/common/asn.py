@@ -12,7 +12,7 @@ that ask (inference's operator tags, pathmeter's hops).
 
 DNS queries, unless the process uses a routing table (:func:`use_table`):
 originet over CAIDA's daily RouteViews prefix-to-AS snapshot, looked up
-locally, and PeeringDB's exchange-point LANs. The callers cache what they learn
+locally, CAIDA's IXP dataset and its AS2Org names. The callers cache what they learn
 (``operators.py`` per target, pathmeter's ``owners.py`` per hop). Needs
 dnspython, imported on first use, so importing this module needs nothing.
 """
@@ -129,18 +129,20 @@ def _txt(qname: str, resolver=None) -> str | None:
 
 
 def origin(ip: str, resolver=None) -> tuple[int, str] | None:
-    """(origin ASN, AS name) of an IPv4 address.
+    """(origin ASN, AS name) of an IP address.
 
-    From the process's routing table (:func:`use_table`) when it has one,
-    looked up locally; else, or when the table has no route for it, from
-    Team Cymru per /24. The AS name is Team Cymru's either way, asked once
-    per AS."""
+    From the process's routing table (:func:`use_table`: originet, and the
+    names from CAIDA's AS2Org) when it has one. A process without one, the
+    smokeping image's until originet ships wheels for it, still asks Team
+    Cymru per /24 (IPv4 only)."""
+    if _TABLE is not None and _TABLE.ready:
+        try:
+            asn = _TABLE.lookup(ip)
+        except ValueError:
+            return None
+        return (asn, as_name(asn, resolver)) if asn else None
     if ipaddress.ip_address(ip).version != 4:
         return None
-    if _TABLE is not None and _TABLE.ready:
-        asn = _TABLE.lookup(ip)
-        if asn:
-            return asn, as_name(asn, resolver)
     reply = _txt(".".join(reversed(ip.split(".")[:3])) + ".origin.asn.cymru.com", resolver)
     if not reply:
         return None
@@ -155,8 +157,12 @@ _NAMES: dict[int, str] = {}
 
 
 def as_name(asn: int, resolver=None) -> str:
-    """An AS's name from Team Cymru (``AS<n>.asn.cymru.com``), asked once
-    per AS per process; empty when it does not answer (asked again later)."""
+    """An AS's name, as ``HANDLE - Organization, CC``: from CAIDA's AS2Org
+    when the process has a routing table with names, else from Team Cymru
+    (``AS<n>.asn.cymru.com``, the same shape), asked once per AS per
+    process; empty when unknown."""
+    if _TABLE is not None and _TABLE.names:
+        return _TABLE.names.get(int(asn), "")
     if asn in _NAMES:
         return _NAMES[asn]
     parts = [p.strip() for p in (_txt(f"AS{asn}.asn.cymru.com", resolver) or "").split("|")]
@@ -175,14 +181,18 @@ def as_name(asn: int, resolver=None) -> str:
 # seconds on a Pi's half core); a lookup is the most specific announced
 # prefix, every hop at once and nothing rate-limited. A prefix several
 # networks announce reports the first of them, as originet does. Exchange-point
-# LANs are not announced, so the routers' replies from them have no origin:
-# PeeringDB's IXP prefixes name them instead. Both are downloaded by the Pi
-# for its own use and never shipped in an image or the repository (CAIDA asks
-# for a citation of the dataset; PeeringDB's terms allow operational use, not
-# redistribution). originet is imported only when a table is loaded: images
-# without it keep Team Cymru.
+# LANs are rarely announced, so the routers' replies from them have no origin:
+# CAIDA's IXP dataset (monthly; PeeringDB, PCH and Hurricane Electric merged)
+# names the exchange and the member AS behind each address. AS names come from
+# CAIDA's AS2Org (monthly). All are downloaded by the Pi for its own use and
+# never shipped in an image or the repository; CAIDA asks for a citation of
+# its datasets. originet is imported only when a table is loaded.
 
-PEERINGDB = "https://www.peeringdb.com/api/"
+IXPS_ROOT = "https://publicdata.caida.org/datasets/ixps/"
+IXP_REFRESH = 7 * 86400     # CAIDA's IXP dataset is monthly; checked weekly
+AS2ORG_ROOT = "https://publicdata.caida.org/datasets/as-organizations/"
+NAMES_REFRESH = 7 * 86400   # AS2Org is monthly; checked weekly
+NAMES_MIN = 50_000          # fewer named ASes is a broken file
 TABLE_REFRESH = 86400       # seconds between checks for a newer snapshot
 TABLE_MIN_PREFIXES = 500_000  # a snapshot with fewer is broken, not the Internet
 SNAPSHOTS_KEPT = 2          # originet's cache keeps every day; this prunes it
@@ -193,12 +203,13 @@ _LEGACY = ("pfx2as.gz", "pfx2as.name", "pfx2as.ranges", "pfx2as.gz.tmp", "pfx2as
 _TABLE = None
 
 
-def use_table(directory) -> RoutingTable:
+def use_table(directory, ipv6: bool = False) -> RoutingTable:
     """Use a routing table kept in ``directory`` for :func:`origin` in this
-    process (loaded and refreshed by :meth:`RoutingTable.refresh`)."""
+    process (loaded and refreshed by :meth:`RoutingTable.refresh`); with
+    ``ipv6``, IPv6 addresses too."""
     global _TABLE
     if _TABLE is None or _TABLE.directory != Path(directory):
-        _TABLE = RoutingTable(Path(directory))
+        _TABLE = RoutingTable(Path(directory), ipv6=ipv6)
     return _TABLE
 
 
@@ -210,11 +221,44 @@ def _fetch(url: str) -> bytes:
         return response.read()
 
 
-def _originet(cache_dir: Path, offline: bool):
-    """The newest IPv4 snapshot as an originet table (the Pi measures IPv4)."""
+def _originet(cache_dir: Path, offline: bool, ipv6: bool = False):
+    """The newest snapshot(s) as an originet table: IPv4, and IPv6 for a
+    caller that sees IPv6 addresses (the DNS observer's answers)."""
     from originet import Table
 
-    return Table.from_caida(cache_dir=str(cache_dir), ipv6=False, offline=offline)
+    return Table.from_caida(cache_dir=str(cache_dir), ipv6=ipv6, offline=offline)
+
+
+def as2org_names(lines) -> dict[int, str]:
+    """ASN -> ``HANDLE - Organization, CC`` from CAIDA's AS2Org JSON lines
+    (one object per AS or organization). The shape is Team Cymru's, which
+    :func:`classify` reads: the handle before " - " names the operator, the
+    organization's words tell an academic network. An organization with no
+    country ends without ", CC", so a reader that cuts the country at the
+    last comma also cuts a comma of its name ("Fastly, Inc." -> "Fastly");
+    rare (AS2Org gives nearly every organization a country), and Cymru's
+    shape had the same ambiguity."""
+    import json
+
+    orgs: dict[str, tuple[str, str]] = {}
+    ases: list[tuple[int, str, str]] = []
+    for line in lines:
+        try:
+            o = json.loads(line)
+        except ValueError:
+            continue
+        if o.get("type") == "Organization":
+            orgs[o.get("organizationId", "")] = (o.get("name") or "", o.get("country") or "")
+        elif o.get("type") == "ASN" and str(o.get("asn", "")).isdigit():
+            ases.append((int(o["asn"]), o.get("name") or "", o.get("organizationId") or ""))
+    out = {}
+    for asn, handle, org_id in ases:
+        org, country = orgs.get(org_id, ("", ""))
+        name = handle or f"AS{asn}"
+        if org:
+            name += f" - {org}" + (f", {country}" if country else "")
+        out[asn] = name
+    return out
 
 
 def _nested(items, emit) -> None:
@@ -240,25 +284,60 @@ def _nested(items, emit) -> None:
         cursor = max(cursor, e + 1)
 
 
-def ixp_ranges(ixpfx: list[dict], ixlan: list[dict], ix: list[dict]) -> list[list]:
-    """[start, end, exchange name] per IPv4 IXP LAN prefix, sorted."""
-    names = {i.get("id"): i.get("name") for i in ix}
-    lan_ix = {lan.get("id"): lan.get("ix_id") for lan in ixlan}
+def _ip_int(text: str) -> int | None:
+    try:
+        return int(ipaddress.ip_address(text))
+    except ValueError:
+        return None
+
+
+def ixp_data(ixs_lines, members_lines, ipv6: bool = False) -> dict:
+    """From CAIDA's IXP dataset (``ixs_YYYYMM.jsonl``, ``ix-asns_YYYYMM.jsonl``):
+    ``ranges``, [start, end, "Name (City)"] per exchange LAN prefix, flattened
+    and sorted; ``members``, address -> the member AS that uses it there."""
+    import json
+
+    def rows(lines):
+        for line in lines:
+            if line.startswith("#") or not line.strip():
+                continue
+            try:
+                yield json.loads(line)
+            except ValueError:
+                continue
+
+    families = ("ipv4", "ipv6") if ipv6 else ("ipv4",)
     out = []
-    for pfx in ixpfx:
-        try:
-            net = ipaddress.ip_network(pfx.get("prefix") or "", strict=False)
-        except ValueError:
+    for ix in rows(ixs_lines):
+        name = str(ix.get("name") or "").strip()
+        if not name:
             continue
-        name = names.get(lan_ix.get(pfx.get("ixlan_id")))
-        if net.version == 4 and name:
-            out.append((int(net.network_address), int(net.broadcast_address), str(name)))
-    # Flattened: PeeringDB does not promise that two exchanges' prefixes never
-    # nest, and a bisection needs disjoint ranges.
+        label = f"{name} ({ix['city']})" if ix.get("city") else name
+        for family in families:
+            for prefix in (ix.get("prefixes") or {}).get(family) or []:
+                try:
+                    net = ipaddress.ip_network(prefix, strict=False)
+                except ValueError:
+                    continue
+                out.append((int(net.network_address), int(net.broadcast_address), label))
+    # Flattened: two exchanges' prefixes may nest, and a bisection needs
+    # disjoint ranges.
     flat: list[list] = []
     _nested(sorted(out, key=lambda r: (r[0], -r[1])),
             lambda s, e, v: flat.append([s, e, v]))
-    return flat
+    claims: dict[str, set[int]] = {}
+    for m in rows(members_lines):
+        if not str(m.get("asn", "")).isdigit():
+            continue
+        for family in families:
+            for addr in m.get(family) or []:
+                if _ip_int(addr) is not None:
+                    claims.setdefault(str(ipaddress.ip_address(addr)), set()).add(int(m["asn"]))
+    # An address listed under several ASes (siblings, route servers: about
+    # 2 400 of 151 000 in October 2026) names none of them: its hop keeps
+    # the announced prefix's origin rather than whichever came last.
+    members = {addr: next(iter(asns)) for addr, asns in claims.items() if len(asns) == 1}
+    return {"ranges": flat, "members": members}
 
 
 def prune_snapshots(cache_dir: Path, keep: int = SNAPSHOTS_KEPT) -> int:
@@ -283,15 +362,22 @@ class RoutingTable:
     (``originet/`` for its cache, ``ixp.json``) and checked once a day. A
     download that fails keeps the table loaded, or the cached one."""
 
-    def __init__(self, directory: Path, fetch=_fetch, clock=None, loader=_originet) -> None:
+    def __init__(self, directory: Path, fetch=_fetch, clock=None, loader=_originet,
+                 ipv6: bool = False) -> None:
         import time
 
         self.directory = Path(directory)
         self._fetch = fetch
         self._clock = clock or time.time
         self._load = loader
+        self._ipv6 = ipv6
         self._table = None
+        self.names: dict[int, str] = {}
+        self._names_mtime = 0.0
+        # When each download last failed: retried an hour later, not every call.
+        self._failed_at: dict[str, float] = {}
         self._ixp: list[list] = []
+        self._members: dict[str, int] = {}
         self.checked_at = 0.0
         self.snapshot = ""
         self._cleaned = False
@@ -305,25 +391,47 @@ class RoutingTable:
     def cache_dir(self) -> Path:
         return self.directory / "originet"
 
-    def _stale(self, path: Path) -> bool:
+    def _due(self, what: str) -> bool:
+        """A download that failed is tried again an hour later, not on every
+        call (the wizard calls once per pass)."""
+        return self._clock() - self._failed_at.get(what, float("-inf")) >= 3600
+
+    def _stale(self, path: Path, ttl: float = TABLE_REFRESH) -> bool:
         try:
-            return self._clock() - path.stat().st_mtime >= TABLE_REFRESH
+            return self._clock() - path.stat().st_mtime >= ttl
         except OSError:
             return True
 
     def _download_ixp(self, path: Path) -> None:
+        """The newest month of CAIDA's IXP dataset, when it is not the one
+        there is (this month's, else up to three months back)."""
+        import datetime
         import json
 
-        def get(what: str, fields: str) -> list[dict]:
-            return json.loads(self._fetch(f"{PEERINGDB}{what}?fields={fields}"))["data"]
-
-        ranges = ixp_ranges(get("ixpfx", "prefix,ixlan_id"), get("ixlan", "id,ix_id"),
-                            get("ix", "id,name"))
-        if not ranges:
-            raise ValueError("no IXP prefix")
-        tmp = self.directory / "ixp.json.tmp"
-        tmp.write_text(json.dumps(ranges))
-        tmp.replace(path)
+        source = self.directory / "ixp.source"
+        today = datetime.datetime.fromtimestamp(self._clock(), datetime.UTC).date()
+        year, month = today.year, today.month
+        for _ in range(4):
+            stamp = f"{year:04d}{month:02d}"
+            base = f"{IXPS_ROOT}{year:04d}/{month:02d}/"
+            if path.exists() and source.exists() and source.read_text().strip() == stamp:
+                source.touch()
+                return
+            try:
+                ixs = self._fetch(f"{base}ixs_{stamp}.jsonl").decode(errors="replace")
+                members = self._fetch(f"{base}ix-asns_{stamp}.jsonl").decode(errors="replace")
+            except Exception:  # noqa: BLE001 -- not (fully) published: the month before
+                year, month = (year, month - 1) if month > 1 else (year - 1, 12)
+                continue
+            data = ixp_data(ixs.splitlines(), members.splitlines(), self._ipv6)
+            if not data["ranges"]:
+                raise ValueError("no IXP prefix")
+            tmp = self.directory / "ixp.json.tmp"
+            tmp.write_text(json.dumps(data, separators=(",", ":")))
+            tmp.replace(path)
+            source.write_text(stamp)
+            return
+        raise ValueError("no IXP dataset in the last four months")
 
     def _load_table(self) -> bool:
         """A newer snapshot when there is one, else the cached one. Whether
@@ -334,7 +442,7 @@ class RoutingTable:
         log = logging.getLogger("common.asn")
         online = True
         try:
-            table = self._load(self.cache_dir, False)
+            table = self._load(self.cache_dir, False, self._ipv6)
         except Exception:  # noqa: BLE001 -- offline, CAIDA down: what is cached will do
             log.warning("could not fetch a routing snapshot; trying the cached one",
                         exc_info=True)
@@ -342,7 +450,7 @@ class RoutingTable:
             if self._table is not None:
                 return False
             try:
-                table = self._load(self.cache_dir, True)
+                table = self._load(self.cache_dir, True, self._ipv6)
             except Exception:  # noqa: BLE001 -- nothing cached either
                 log.warning("no routing table; AS lookups go to Team Cymru", exc_info=True)
                 return False
@@ -356,9 +464,60 @@ class RoutingTable:
         prune_snapshots(self.cache_dir)
         return online
 
+    def _download_names(self, path: Path) -> None:
+        """The newest AS2Org file, when it is not the one there is."""
+        import gzip
+        import re
+
+        listing = self._fetch(AS2ORG_ROOT).decode(errors="replace")
+        files = sorted(set(re.findall(r"\b(\d{8}\.as-org2info\.jsonl\.gz)\b", listing)))
+        if not files:
+            raise ValueError("no AS2Org file listed")
+        source = self.directory / "as2org.source"
+        if path.exists() and source.exists() and source.read_text().strip() == files[-1]:
+            source.touch()  # nothing newer
+            return
+        import io
+
+        data = self._fetch(AS2ORG_ROOT + files[-1])
+        # Line by line: decompressed it is about 30 MB, and three services
+        # do this on a Pi.
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as raw:
+            names = as2org_names(line.decode(errors="replace") for line in raw)
+        if len(names) < NAMES_MIN:
+            raise ValueError("AS2Org file too small")
+        import json
+
+        tmp = self.directory / "as2org.json.tmp"
+        tmp.write_text(json.dumps(names, separators=(",", ":")))
+        tmp.replace(path)
+        source.write_text(files[-1])
+
+    def _refresh_names(self) -> None:
+        import json
+        import logging
+
+        path = self.directory / "as2org.json"
+        if (not path.exists() or self._stale(self.directory / "as2org.source", NAMES_REFRESH)) \
+                and self._due("as2org"):
+            try:
+                self._download_names(path)
+            except Exception:  # noqa: BLE001 -- the previous file stays
+                self._failed_at["as2org"] = self._clock()
+                logging.getLogger("common.asn").warning(
+                    "could not refresh AS2Org; keeping the names there are", exc_info=True)
+        try:
+            mtime = path.stat().st_mtime
+            if mtime > self._names_mtime:
+                self.names = {int(k): v for k, v in json.loads(path.read_text()).items()}
+                self._names_mtime = mtime
+        except (OSError, ValueError):
+            pass
+
     def refresh(self) -> bool:
         """Check for a newer snapshot once a day, refresh the IXPs when a day
-        old; never raises. Whether a table is ready afterwards."""
+        old and the AS names when a week old; never raises. Whether a table
+        is ready afterwards."""
         import json
         import logging
 
@@ -377,34 +536,56 @@ class RoutingTable:
                 if self._reached:
                     self.checked_at = self._clock()
             ixp = self.directory / "ixp.json"
-            if not ixp.exists() or self._stale(ixp):
+            if (not ixp.exists() or self._stale(self.directory / "ixp.source", IXP_REFRESH)) \
+                    and self._due("ixp"):
                 try:
                     self._download_ixp(ixp)
                 except Exception:  # noqa: BLE001 -- the previous file stays
+                    self._failed_at["ixp"] = self._clock()
                     log.warning("could not refresh ixp.json; keeping the one there is",
                                 exc_info=True)
             try:
-                self._ixp = json.loads(ixp.read_text())
-            except (OSError, ValueError):
+                data = json.loads(ixp.read_text())
+                if isinstance(data, dict):  # a PeeringDB-era list is replaced next check
+                    self._ixp, self._members = data["ranges"], data["members"]
+            except (OSError, ValueError, KeyError):
                 pass
+            self._refresh_names()
         except Exception:  # noqa: BLE001 -- a table is an aid, never a reason to stop
             log.warning("routing table refresh failed", exc_info=True)
         return self.ready
 
     def lookup(self, ip: str) -> int | None:
-        """The origin AS of the longest announced prefix covering ``ip``."""
+        """The origin AS of the longest announced prefix covering ``ip``
+        (IPv6 only when the table was loaded with it)."""
         if self._table is None:
             return None
+        # An address on an exchange LAN is a member's port: the router that
+        # answers is the member's, whoever announces the LAN (reference Pi:
+        # 206.223.118.40 is Transtelco's port on Equinix Dallas, AS32098, in
+        # a /23 that AS18734 announces). CAIDA's IXP dataset names it.
+        member = self.ixp_member(ip)
+        if member:
+            return member
         found = self._table.lookup(ip)
         return found.asn if found else None
 
     def ixp(self, ip: str) -> str | None:
-        """The exchange point whose LAN ``ip`` is on, from PeeringDB."""
+        """The exchange point whose LAN ``ip`` is on ("Name (City)")."""
         import bisect
 
-        x = int(ipaddress.IPv4Address(ip))
+        x = _ip_int(ip)
+        if x is None:
+            return None
         i = bisect.bisect_right(self._ixp, [x, float("inf")]) - 1
         return self._ixp[i][2] if i >= 0 and self._ixp[i][1] >= x else None
+
+    def ixp_member(self, ip: str) -> int | None:
+        """The AS that uses ``ip`` on an exchange LAN (CAIDA's ix-asns)."""
+        try:
+            return self._members.get(str(ipaddress.ip_address(ip)))
+        except ValueError:
+            return None
 
 
 def ixp(ip: str) -> str | None:

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # shared/modules: `common`
 
 SCRUB_ENV_VARS = [
     "DNS_UPSTREAMS", "DNS_FALLBACK", "DNS_BOOTSTRAP", "DNS_ALLOW_PRIVATE_UPSTREAM",

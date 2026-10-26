@@ -104,10 +104,9 @@ Each period is then qualified by **who runs the infrastructure** behind the
 targets that lost. The module looks up each target's host (as the exporter
 records it), its address and CNAME, and the origin AS from CAIDA's daily
 RouteViews prefix-to-AS table, downloaded into the state volume and looked
-up locally with [originet](https://github.com/estcarisimo/originet); see
-[The path to each destination](path.md#where-the-networks-come-from)), or
-from [Team Cymru](https://www.team-cymru.com/ip-asn-mapping)'s DNS service
-for what it does not cover; a
+up locally with [originet](https://github.com/estcarisimo/originet), with
+the network's name from CAIDA's AS Organizations dataset (see
+[The path to each destination](path.md#where-the-networks-come-from)); a
 short curated table maps well-known networks to their operator and kind: a multi-tenant CDN
 (Fastly, Cloudflare, Akamai, CloudFront, Imperva…), a content provider's own
 network (Google, Meta, Apple, Microsoft), a cache embedded near the access

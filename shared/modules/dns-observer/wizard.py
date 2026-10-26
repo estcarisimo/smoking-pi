@@ -17,9 +17,9 @@ Units, from finest to coarsest:
   service  the registrable domain (eTLD+1, Public Suffix List);
   cdn      the registrable domain at the end of the CNAME chain (ICANN
            suffixes only, so every CloudFront customer is "cloudfront.net");
-  asn/org  the origin AS of the answer's first address (Team Cymru, asked
-           of 1.1.1.1 directly: through the router the lookups would land
-           in the very log being summarised).
+  asn/org  the origin AS of the answer's first address, looked up locally
+           (originet's routing table and CAIDA's AS2Org names, common/asn.py):
+           no query that would land in the very log being summarised.
 Presence (distinct clock hours seen) ranks services: a burst of telemetry
 is one hour, a cache hides volume but not presence.
 """
@@ -36,14 +36,14 @@ import os
 import re
 from functools import lru_cache
 import time
-from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 
 import dns.exception
 import dns.message
 import dns.rdatatype
-import dns.resolver
+
+from common import asn
 from publicsuffixlist import PublicSuffixList
 
 log = logging.getLogger("dns-observer.wizard")
@@ -408,51 +408,44 @@ def jaccard(a: set[str], b: set[str]) -> float | None:
 
 
 class Owners:
-    """Origin AS per /24 (IPv4) or /48 (IPv6), from Team Cymru, cached."""
+    """Origin AS per /24 (IPv4) or /48 (IPv6), cached: from originet's
+    routing table and CAIDA's AS2Org names (``common/asn.py``), downloaded
+    into ``directory`` and looked up locally."""
 
-    def __init__(self, cache: dict | None = None, nameserver: str = "1.1.1.1") -> None:
+    def __init__(self, cache: dict | None = None, directory: str | None = None) -> None:
         self.cache: dict[str, list[str]] = cache or {}
-        self._res = dns.resolver.Resolver(configure=False)
-        self._res.nameservers = [nameserver]
-        self._res.lifetime = 3.0
-        self._names: dict[str, str] = {}
+        self.directory = directory
 
     @staticmethod
     def prefix(addr: str) -> str:
         ip = ipaddress.ip_address(addr)
         return str(ipaddress.ip_network(f"{addr}/{24 if ip.version == 4 else 48}", strict=False))
 
-    def _txt(self, qname: str) -> str | None:
-        try:
-            ans = self._res.resolve(qname, "TXT")
-        except (dns.exception.DNSException, OSError):
-            return None
-        return b"".join(ans[0].strings).decode(errors="replace")
-
     def _lookup(self, net: str) -> list[str] | None:
-        n = ipaddress.ip_network(net)
-        a = n.network_address
-        if n.version == 4:
-            qname = ".".join(reversed(str(a).split(".")[:3])) + ".origin.asn.cymru.com"
-        else:
-            qname = ".".join(reversed(a.exploded.replace(":", "")[:12])) + ".origin6.asn.cymru.com"
-        txt = self._txt(qname)
-        if not txt:
+        # Only from the local table and names: a fallback to Team Cymru would
+        # send DNS queries through the resolver whose log this summarizes.
+        # Until both are loaded, nothing is cached and the next pass asks.
+        table = asn._TABLE
+        if table is None or not table.ready or not table.names:
+            return None
+        found = asn.origin(str(ipaddress.ip_network(net).network_address))
+        if not found:
             return None  # not cached: tried again next pass
-        asn = "AS" + txt.split("|")[0].strip().split()[0]
-        if asn not in self._names:
-            parts = [p.strip() for p in (self._txt(f"{asn}.asn.cymru.com") or "").split("|")]
-            self._names[asn] = parts[-1].rsplit(",", 1)[0].strip() if parts[-1] else asn
-        return [asn, self._names[asn]]
+        number, name = found
+        # "HANDLE - Organization, CC" -> the organization, as the wizard shows it.
+        org = name.split(" - ", 1)[1].rsplit(",", 1)[0].strip() if " - " in name else name
+        return [f"AS{number}", org or f"AS{number}"]
 
     def resolve(self, addrs: set[str], budget: int = 200) -> None:
         todo = sorted({self.prefix(a) for a in addrs} - self.cache.keys())[:budget]
         if not todo:
             return
-        with ThreadPoolExecutor(8) as pool:
-            for net, owner in zip(todo, pool.map(self._lookup, todo), strict=True):
-                if owner:
-                    self.cache[net] = owner
+        if self.directory:
+            asn.use_table(self.directory, ipv6=True).refresh()
+        for net in todo:
+            owner = self._lookup(net)
+            if owner:
+                self.cache[net] = owner
 
     def owner(self, addr: str | None) -> list[str] | None:
         return self.cache.get(self.prefix(addr)) if addr else None
@@ -575,7 +568,7 @@ class Wizard:
         self.state = State.load(self.state_path)
         self.res_too_late = 0
         self.now = time.time()
-        self.owners = owners or Owners(self.state.owners)
+        self.owners = owners or Owners(self.state.owners, os.path.join(state_dir, "routing"))
 
     # -- reading ---------------------------------------------------------------
 
