@@ -9,6 +9,27 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **Networks without Team Cymru, and the right owner at an exchange.** The
+  path meter, inference and the DNS wizard still asked Team Cymru for each
+  network's name, the wizard for every address it saw, and a hop on an
+  exchange point's LAN showed whoever announces the LAN instead of the
+  network whose router it is: on the reference house, Transtelco's port on
+  Equinix Dallas (206.223.118.40) read as AS18734, the LAN's announcer,
+  while the next hop was already Transtelco's AS32098. Network names now
+  come from CAIDA's monthly AS Organizations dataset and exchanges from
+  CAIDA's monthly IXP dataset (PeeringDB, Packet Clearing House and
+  Hurricane Electric merged, with the member behind each exchange address)
+  instead of PeeringDB's API, which refused requests when asked too often.
+  An exchange address now reports its member's network, and the exchange
+  column its city when known. The DNS wizard looks networks up locally with
+  originet, IPv4 and IPv6, and its image now builds from `shared/` to
+  share `common/`. The first start downloads about 15 MB and takes about
+  half a minute on a Pi's half core. The smokeping image (the exporter's
+  service labels, the resolver and public-address checks) still asks Team
+  Cymru until originet ships wheels for its Alpine base.
+
 ## [2.48.0] — 2026-10-26
 
 You can see what the Pi measures, not only one target at a time: a new
@@ -40,36 +61,6 @@ labels only: nothing changes in what is measured or how.
   the env file, probe units and the 300 s step, a flat 100% is a
   monitoring artifact, `get_chart` is the only image and only on
   request, and the CPE loss floor is not a microcut.
-
-- **A Targets by service dashboard says what is measured.** Nothing
-  showed how many targets of each kind the Pi measures: the labels
-  existed, but only one target at a time. The new dashboard (Targets
-  folder, uid `targets-by-service-v1`) counts the active targets per
-  service category and per delivery kind (every id of each vocabulary,
-  zero included) and lists the services with their operator, kind and
-  number of targets. It reads one label point per target. The Overview's
-  index and Connectivity & Quality's header link to it.
-
-### Changed
-
-- **Networks without Team Cymru, and the right owner at an exchange.** The
-  path meter, inference and the DNS wizard still asked Team Cymru for each
-  network's name, the wizard for every address it saw, and a hop on an
-  exchange point's LAN showed whoever announces the LAN instead of the
-  network whose router it is: on the reference house, Transtelco's port on
-  Equinix Dallas (206.223.118.40) read as AS18734, the LAN's announcer,
-  while the next hop was already Transtelco's AS32098. Network names now
-  come from CAIDA's monthly AS Organizations dataset and exchanges from
-  CAIDA's monthly IXP dataset (PeeringDB, Packet Clearing House and
-  Hurricane Electric merged, with the member behind each exchange address)
-  instead of PeeringDB's API, which refused requests when asked too often.
-  An exchange address now reports its member's network, and the exchange
-  column its city when known. The DNS wizard looks networks up locally with
-  originet, IPv4 and IPv6, and its image now builds from `shared/` to
-  share `common/`. The first start downloads about 15 MB and takes about
-  half a minute on a Pi's half core. The smokeping image (the exporter's
-  service labels, the resolver and public-address checks) still asks Team
-  Cymru until originet ships wheels for its Alpine base.
 
 ### Fixed
 
