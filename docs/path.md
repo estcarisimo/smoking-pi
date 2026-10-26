@@ -125,30 +125,40 @@ longest announced prefix: no query per address, nothing rate-limited, and
 the first cycle already complete. A prefix announced by several networks
 reports the first of them, as originet does.
 
-A router can answer from an address nobody announces. When it is on an
-exchange point's LAN, the hop is named by the exchange (the **exchange
-(IXP)** column), from [PeeringDB](https://www.peeringdb.com/)'s IXP
-prefixes, also downloaded once a day. Anything the table does not cover is
-asked of [Team Cymru](https://www.team-cymru.com/ip-asn-mapping)'s DNS
-service, as before; a private hop (the home router, the access network's
-10.x routers) has no network, by design.
+A router can answer from an address on an **exchange point's LAN** (an
+IXP): its port on the exchange. Then the hop is named by the exchange (the
+**exchange (IXP)** column, with its city when known) and its network is the
+**member** that uses that port, not whoever announces the LAN: on the
+reference house, `206.223.118.40` is Transtelco's port (AS32098) on Equinix
+Dallas, in a /23 AS18734 announces, and the hop after it is Transtelco's.
+Both come from CAIDA's monthly
+[IXP dataset](https://publicdata.caida.org/datasets/ixps/) (PeeringDB,
+Packet Clearing House and Hurricane Electric merged: about 1,600 exchanges
+and 80,000 member addresses), checked weekly. A private hop (the home
+router, the access network's 10.x routers) has no network, by design.
 
-A download that fails keeps the table loaded, and a restart without
-network loads the cached snapshot; a snapshot that looks broken (fewer than
-half a million prefixes) is refused; with no table at all, every lookup goes
-to Team Cymru. PeeringDB limits how often anyone may ask: a refused download
-is tried again an hour later.
+Each network's name (`HURRICANE - Hurricane Electric LLC, US`) comes from
+CAIDA's monthly [AS Organizations](https://publicdata.caida.org/datasets/as-organizations/)
+dataset, also checked weekly.
 
-Because the table answers by the exact announced prefix and takes the first
-origin of a prefix several networks announce, a hop's network can, rarely,
-differ from the one the service labels show for the same address (the
-exporter still asks Team Cymru, per /24).
+A download that fails keeps what is loaded, and a restart without network
+loads the cached snapshot; a snapshot that looks broken (fewer than half a
+million prefixes) is refused. The first start downloads about 15 MB
+(routing snapshot, IXP dataset, AS names) and takes about half a minute on
+a Pi's half core; a restart afterwards, a couple of seconds.
 
-Both sources are downloaded by the Pi itself, for its own measurements, and
-never shipped in an image or this repository: the RouteViews data is
-CAIDA's ([RouteViews prefix-to-AS mappings dataset](https://www.caida.org/catalog/datasets/routeviews-prefix2as/),
-cite it if you publish results from it), and PeeringDB's terms allow its
-data for Internet operations, which is what this is, not redistribution.
+Because the table answers by the exact announced prefix, takes the first
+origin of a prefix several networks announce and the member for an
+exchange port, a hop's network can differ from the one the service labels
+show for the same address while the exporter still asks Team Cymru (until
+the smokeping image carries originet).
+
+All of it is downloaded by the Pi itself, for its own measurements, and
+never shipped in an image or this repository; the data is CAIDA's
+([RouteViews prefix-to-AS](https://www.caida.org/catalog/datasets/routeviews-prefix2as/),
+[IXPs](https://www.caida.org/catalog/datasets/ixps/),
+[AS Organizations](https://www.caida.org/catalog/datasets/as-organizations/)):
+cite it if you publish results from it.
 
 ## Router names
 

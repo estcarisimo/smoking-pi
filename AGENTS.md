@@ -92,8 +92,8 @@ setting a person changes by editing it is a missing command.
 
 **Containers cannot import across each other.** Shared code goes in
 `shared/modules/common/`, which each Dockerfile copies in. Build context for
-those images (alerter, ai-insights, inference, mcp-server, pathmeter,
-web-admin) and for smokeping (which bakes in
+those images (alerter, ai-insights, dns-observer, inference, mcp-server,
+pathmeter, web-admin) and for smokeping (which bakes in
 `shared/modules/smokeping-exporters`) is `shared/` in every edition's
 compose file, and `packaging/image-context.sh` says so to both CI's
 `image-build` and the release. **Source bind-mounts are

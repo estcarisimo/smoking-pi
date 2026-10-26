@@ -8,8 +8,12 @@ FROM python:3.14-slim
 WORKDIR /app
 
 COPY --from=adguard /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
-COPY pyproject.toml ./
-COPY *.py ./
+# Build context is `shared/` so the image can copy shared/modules/common (the
+# AS lookup: originet's routing table and CAIDA's AS2Org names).
+COPY modules/dns-observer/pyproject.toml ./
+COPY modules/dns-observer/*.py ./
+COPY modules/common/*.py ./common/
+COPY modules/common/data/ ./common/data/
 
 RUN pip install --no-cache-dir . \
     && mkdir -p /opt/adguardhome/conf /opt/adguardhome/work /var/lib/dns-observer \

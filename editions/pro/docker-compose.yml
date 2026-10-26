@@ -814,7 +814,10 @@ services:
   # network_mode: host: it binds port 53 on the Pi and must see the real
   # client address; its admin API stays on 127.0.0.1.
   dns-observer:
-    build: ../../shared/modules/dns-observer
+    build:
+      # Context is `shared/` so the image can copy shared/modules/common.
+      context: ../../shared
+      dockerfile: modules/dns-observer/Dockerfile
     image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/dns-observer:${SMOKING_PI_VERSION:-dev}
     pull_policy: missing
     network_mode: host

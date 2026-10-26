@@ -81,7 +81,7 @@ from .report import CheckResult, Finding, Status, result, skipped
 # bind-mounted over it, so the comparison is trivially true there).
 DEPLOYED_MODULES = {
     "alerter": ("alerter", "/app", True),
-    "dns-observer": ("dns-observer", "/app", False),
+    "dns-observer": ("dns-observer", "/app", True),
     "inference": ("inference", "/app", True),
     "mdns": ("mdns", "/app", False),
     "netmeter": ("netmeter", "/app", False),
