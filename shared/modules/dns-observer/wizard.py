@@ -422,6 +422,12 @@ class Owners:
         return str(ipaddress.ip_network(f"{addr}/{24 if ip.version == 4 else 48}", strict=False))
 
     def _lookup(self, net: str) -> list[str] | None:
+        # Only from the local table and names: a fallback to Team Cymru would
+        # send DNS queries through the resolver whose log this summarizes.
+        # Until both are loaded, nothing is cached and the next pass asks.
+        table = asn._TABLE
+        if table is None or not table.ready or not table.names:
+            return None
         found = asn.origin(str(ipaddress.ip_network(net).network_address))
         if not found:
             return None  # not cached: tried again next pass

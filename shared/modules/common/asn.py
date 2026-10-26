@@ -233,7 +233,11 @@ def as2org_names(lines) -> dict[int, str]:
     """ASN -> ``HANDLE - Organization, CC`` from CAIDA's AS2Org JSON lines
     (one object per AS or organization). The shape is Team Cymru's, which
     :func:`classify` reads: the handle before " - " names the operator, the
-    organization's words tell an academic network."""
+    organization's words tell an academic network. An organization with no
+    country ends without ", CC", so a reader that cuts the country at the
+    last comma also cuts a comma of its name ("Fastly, Inc." -> "Fastly");
+    rare (AS2Org gives nearly every organization a country), and Cymru's
+    shape had the same ambiguity."""
     import json
 
     orgs: dict[str, tuple[str, str]] = {}
@@ -321,14 +325,18 @@ def ixp_data(ixs_lines, members_lines, ipv6: bool = False) -> dict:
     flat: list[list] = []
     _nested(sorted(out, key=lambda r: (r[0], -r[1])),
             lambda s, e, v: flat.append([s, e, v]))
-    members: dict[str, int] = {}
+    claims: dict[str, set[int]] = {}
     for m in rows(members_lines):
         if not str(m.get("asn", "")).isdigit():
             continue
         for family in families:
             for addr in m.get(family) or []:
                 if _ip_int(addr) is not None:
-                    members[str(ipaddress.ip_address(addr))] = int(m["asn"])
+                    claims.setdefault(str(ipaddress.ip_address(addr)), set()).add(int(m["asn"]))
+    # An address listed under several ASes (siblings, route servers: about
+    # 2 400 of 151 000 in October 2026) names none of them: its hop keeps
+    # the announced prefix's origin rather than whichever came last.
+    members = {addr: next(iter(asns)) for addr, asns in claims.items() if len(asns) == 1}
     return {"ranges": flat, "members": members}
 
 
@@ -366,6 +374,8 @@ class RoutingTable:
         self._table = None
         self.names: dict[int, str] = {}
         self._names_mtime = 0.0
+        # When each download last failed: retried an hour later, not every call.
+        self._failed_at: dict[str, float] = {}
         self._ixp: list[list] = []
         self._members: dict[str, int] = {}
         self.checked_at = 0.0
@@ -380,6 +390,11 @@ class RoutingTable:
     @property
     def cache_dir(self) -> Path:
         return self.directory / "originet"
+
+    def _due(self, what: str) -> bool:
+        """A download that failed is tried again an hour later, not on every
+        call (the wizard calls once per pass)."""
+        return self._clock() - self._failed_at.get(what, float("-inf")) >= 3600
 
     def _stale(self, path: Path, ttl: float = TABLE_REFRESH) -> bool:
         try:
@@ -399,15 +414,15 @@ class RoutingTable:
         for _ in range(4):
             stamp = f"{year:04d}{month:02d}"
             base = f"{IXPS_ROOT}{year:04d}/{month:02d}/"
-            try:
-                ixs = self._fetch(f"{base}ixs_{stamp}.jsonl").decode(errors="replace")
-            except Exception:  # noqa: BLE001 -- not published yet: the month before
-                year, month = (year, month - 1) if month > 1 else (year - 1, 12)
-                continue
             if path.exists() and source.exists() and source.read_text().strip() == stamp:
                 source.touch()
                 return
-            members = self._fetch(f"{base}ix-asns_{stamp}.jsonl").decode(errors="replace")
+            try:
+                ixs = self._fetch(f"{base}ixs_{stamp}.jsonl").decode(errors="replace")
+                members = self._fetch(f"{base}ix-asns_{stamp}.jsonl").decode(errors="replace")
+            except Exception:  # noqa: BLE001 -- not (fully) published: the month before
+                year, month = (year, month - 1) if month > 1 else (year - 1, 12)
+                continue
             data = ixp_data(ixs.splitlines(), members.splitlines(), self._ipv6)
             if not data["ranges"]:
                 raise ValueError("no IXP prefix")
@@ -462,8 +477,13 @@ class RoutingTable:
         if path.exists() and source.exists() and source.read_text().strip() == files[-1]:
             source.touch()  # nothing newer
             return
+        import io
+
         data = self._fetch(AS2ORG_ROOT + files[-1])
-        names = as2org_names(gzip.decompress(data).decode(errors="replace").splitlines())
+        # Line by line: decompressed it is about 30 MB, and three services
+        # do this on a Pi.
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as raw:
+            names = as2org_names(line.decode(errors="replace") for line in raw)
         if len(names) < NAMES_MIN:
             raise ValueError("AS2Org file too small")
         import json
@@ -478,10 +498,12 @@ class RoutingTable:
         import logging
 
         path = self.directory / "as2org.json"
-        if not path.exists() or self._stale(self.directory / "as2org.source", NAMES_REFRESH):
+        if (not path.exists() or self._stale(self.directory / "as2org.source", NAMES_REFRESH)) \
+                and self._due("as2org"):
             try:
                 self._download_names(path)
             except Exception:  # noqa: BLE001 -- the previous file stays
+                self._failed_at["as2org"] = self._clock()
                 logging.getLogger("common.asn").warning(
                     "could not refresh AS2Org; keeping the names there are", exc_info=True)
         try:
@@ -514,10 +536,12 @@ class RoutingTable:
                 if self._reached:
                     self.checked_at = self._clock()
             ixp = self.directory / "ixp.json"
-            if not ixp.exists() or self._stale(self.directory / "ixp.source", IXP_REFRESH):
+            if (not ixp.exists() or self._stale(self.directory / "ixp.source", IXP_REFRESH)) \
+                    and self._due("ixp"):
                 try:
                     self._download_ixp(ixp)
                 except Exception:  # noqa: BLE001 -- the previous file stays
+                    self._failed_at["ixp"] = self._clock()
                     log.warning("could not refresh ixp.json; keeping the one there is",
                                 exc_info=True)
             try:

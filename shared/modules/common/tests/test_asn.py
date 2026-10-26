@@ -97,6 +97,8 @@ IXS = "\n".join([
 MEMBERS = "\n".join([
     json.dumps({"asn": 64500, "ipv4": ["198.32.10.5"], "ipv6": ["2001:db8:1::5"], "ix_id": 2}),
     json.dumps({"asn": "x", "ipv4": ["198.32.10.6"], "ix_id": 2}),
+    json.dumps({"asn": 64501, "ipv4": ["198.32.10.7"], "ix_id": 2}),     # listed twice:
+    json.dumps({"asn": 64502, "ipv4": ["198.32.10.7"], "ix_id": 2}),     # names neither
 ])
 AS2ORG = "\n".join(json.dumps(o) for o in [
     {"type": "Organization", "organizationId": "EX-1", "name": "Example, Inc.", "country": "US"},
@@ -274,3 +276,35 @@ def test_a_members_port_on_an_announced_exchange_lan_is_the_members():
     t = table_mod.RoutingTable.__new__(table_mod.RoutingTable)
     t._table, t._members = Announced(), {"198.32.10.5": 32098}
     assert t.lookup("198.32.10.5") == 32098 and t.lookup("198.32.10.9") == 18734
+
+
+def test_an_address_two_ases_claim_names_neither():
+    data = table_mod.ixp_data(IXS.splitlines(), MEMBERS.splitlines())
+    assert "198.32.10.7" not in data["members"] and data["members"]["198.32.10.5"] == 64500
+
+
+def test_a_month_whose_member_file_is_missing_falls_back_to_the_month_before(tmp_path):
+    class HalfPublished(_Net):
+        def __call__(self, url):
+            if url.endswith("ix-asns_202610.jsonl"):
+                self.asked.append(url)
+                raise OSError("404")
+            return super().__call__(url)
+
+    net = HalfPublished(months=("202610", "202609"))
+    t = table_mod.RoutingTable(tmp_path, fetch=net, clock=lambda: 1_792_700_000, loader=Loader())
+    t.refresh()
+    assert (tmp_path / "ixp.source").read_text() == "202609" and t.ixp("198.32.10.5")
+
+
+def test_a_failed_download_is_retried_an_hour_later_not_every_call(tmp_path):
+    clock = [1_792_700_000.0]
+    net = _Net(fail=True)
+    t = table_mod.RoutingTable(tmp_path, fetch=net, clock=lambda: clock[0], loader=Loader())
+    t.refresh()
+    first = len(net.asked)
+    t.refresh()
+    assert len(net.asked) == first                                   # no new attempt
+    clock[0] += 3600
+    t.refresh()
+    assert len(net.asked) > first

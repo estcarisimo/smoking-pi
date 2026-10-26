@@ -134,7 +134,9 @@ Dallas, in a /23 AS18734 announces, and the hop after it is Transtelco's.
 Both come from CAIDA's monthly
 [IXP dataset](https://publicdata.caida.org/datasets/ixps/) (PeeringDB,
 Packet Clearing House and Hurricane Electric merged: about 1,600 exchanges
-and 80,000 member addresses), checked weekly. A private hop (the home
+and 80,000 IPv4 member addresses), checked weekly. An address the dataset
+lists under two networks (sibling networks, route servers) is given
+neither: its hop keeps the network that announces the exchange's prefix. A private hop (the home
 router, the access network's 10.x routers) has no network, by design.
 
 Each network's name (`HURRICANE - Hurricane Electric LLC, US`) comes from
@@ -143,9 +145,11 @@ dataset, also checked weekly.
 
 A download that fails keeps what is loaded, and a restart without network
 loads the cached snapshot; a snapshot that looks broken (fewer than half a
-million prefixes) is refused. The first start downloads about 15 MB
-(routing snapshot, IXP dataset, AS names) and takes about half a minute on
-a Pi's half core; a restart afterwards, a couple of seconds.
+million prefixes) is refused; a failed download is tried again an hour
+later. The first start downloads about 17 MB (the routing snapshot, about
+4 MB, then daily when CAIDA publishes one; the IXP dataset, about 8 MB, and
+the AS names, about 5 MB, monthly) and takes about half a minute on a Pi's
+half core; a restart afterwards, a couple of seconds.
 
 Because the table answers by the exact announced prefix, takes the first
 origin of a prefix several networks announce and the member for an
@@ -180,9 +184,10 @@ staging Pi, 43 of 66 routers had a name.
 
 ## What it costs
 
-The routing table is about 4 MB a day of download, plus a few hundred KB
-from PeeringDB, not counted by `smoking-pi budget` (the netmeter counts it
-under `pathmeter`).
+The routing data is about 4 MB a day of download when CAIDA publishes a
+new snapshot, plus about 13 MB a month for the IXP dataset and the AS
+names, not counted by `smoking-pi budget` (the netmeter counts it under
+`pathmeter`).
 
 At the defaults, about 600 probes an hour for the reference house's 76
 destinations (about 3 % of the default samples ceiling) and a few MB a day.

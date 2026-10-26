@@ -295,8 +295,12 @@ top-level domain (`www.io.github.io`) is taken for one too. For each service it 
 - the **network** (origin AS and organization) of its address, IPv4 or
   IPv6, looked up locally with [originet](https://github.com/estcarisimo/originet)
   over CAIDA's RouteViews snapshot and CAIDA's AS Organizations names (see
-  [The path to each destination](path.md#where-the-networks-come-from)): no
-  query leaves the Pi, so nothing lands in the log being summarized.
+  [The path to each destination](path.md#where-the-networks-come-from)).
+  No lookup is asked of anyone per address, so the summary does not see
+  its own lookups; the only names the observer resolves for this are the
+  download hosts', a few times a month. Until the table and the names are
+  loaded (the first minute after a start), addresses wait for the next
+  pass.
 
 Services are ranked by **presence**, the number of hours in the last week in
 which they were seen. A burst of telemetry counts as one hour, and a cache

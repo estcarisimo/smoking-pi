@@ -683,8 +683,23 @@ def test_owners_come_from_the_routing_table(monkeypatch):
                 "2a04:4e42::": (54113, "FASTLY - Fastly, Inc., US")}.get(ip)
 
     monkeypatch.setattr(wizard.asn, "origin", origin)
+    ready = type("T", (), {"ready": True, "names": {54113: "FASTLY - Fastly, Inc., US"}})()
+    monkeypatch.setattr(wizard.asn, "_TABLE", ready)
     o = wizard.Owners()
     o.resolve({"151.101.1.164", "2a04:4e42::81", "10.0.0.1"})
     assert o.owner("151.101.1.200") == ["AS54113", "Fastly, Inc."]
     assert o.owner("2a04:4e42::1") == ["AS54113", "Fastly, Inc."]
     assert o.owner("10.0.0.1") is None and "10.0.0.0" in seen        # asked, not cached
+
+
+def test_no_owner_is_asked_of_anyone_until_the_table_and_names_are_loaded(monkeypatch):
+    def origin(ip):
+        raise AssertionError("asked before the table was loaded")
+
+    monkeypatch.setattr(wizard.asn, "origin", origin)
+    for table in (None, type("T", (), {"ready": False, "names": {1: "x"}})(),
+                  type("T", (), {"ready": True, "names": {}})()):
+        monkeypatch.setattr(wizard.asn, "_TABLE", table)
+        o = wizard.Owners()
+        o.resolve({"151.101.1.164"})
+        assert o.owner("151.101.1.164") is None
