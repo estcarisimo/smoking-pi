@@ -45,7 +45,9 @@ the same commit.
 
 1. **Prepare.** A `release/vX.Y.Z` branch converts `[Unreleased]` into
    the dated section (with its intro), bumps `version` and `date-released`
-   in `CITATION.cff`. PR, CI green, review, merge. The date is the day
+   in `CITATION.cff`, and `version` and the image tag in
+   `packages[0].identifier` in `server.json` (CI fails the PR if either
+   disagrees with `CITATION.cff`). PR, CI green, review, merge. The date is the day
    the candidate is cut: the release is that same commit, so it cannot
    change later.
 2. **Tag the candidate** on that merge commit: `git tag -a vX.Y.Z-rc.1 -m
@@ -85,7 +87,8 @@ the same commit.
 
 - [ ] The candidate is a `vX.Y.Z-rc.N` tag on a merged `main` (every PR
   reviewed, CI green) whose Release run is green, with `[Unreleased]`
-  converted into the dated section and `CITATION.cff` bumped.
+  converted into the dated section and `CITATION.cff` and `server.json`
+  bumped.
 - [ ] `smoking-pi backup` completed and
   the directory is somewhere other than the Pi's SD card. Note its path in
   the record.
