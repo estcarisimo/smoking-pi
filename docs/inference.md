@@ -170,8 +170,13 @@ periods above and the traces the path meter already stored.
    *lost* at 1 % or more (the qualification's threshold), *did not* under
    0.5 %, and *in between*, which counts on neither side, so a destination
    at the threshold cannot tip the hypothesis.
-2. **Their paths.** Each destination's last trace at or before the
-   period's end and no more than three hours before its start. One with
+2. **Their paths.** Each destination's last hourly trace at or before the
+   period's end and no more than three hours before its start. The rounds
+   the path meter traces [during an episode](path.md#during-a-loss-episode)
+   are left out here: taken while the loss lasts, they lose hops to it, and
+   they trace the destinations that lost first, so the two sides would be
+   read from different evidence. They answer another question, where the
+   paths go silent, read on Target Detail. One with
    none is *untraced*: it lowers the traced share, not the comparison. So
    does one whose path has no public hop (the gateway, a host on the LAN):
    it crosses nothing a cause beyond the house would sit on, and would make

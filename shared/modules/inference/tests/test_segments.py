@@ -248,6 +248,8 @@ def test_the_queries_read_the_window_and_refuse_odd_bucket_names(monkeypatch):
     assert f"range(start: {T0}, stop: {END + 1})" in flux
     assert 'r._measurement == "path_trace"' in flux
     assert 'r._field == "ixp"' in segments.ixp_flux(T0, END)
+    # The episode rounds (trigger=episode) lose hops to the loss itself.
+    assert "not exists r.trigger" in flux and "not exists r.trigger" in segments.ixp_flux(T0, END)
     monkeypatch.setenv("INFLUX_BUCKET", 'x"y')
     try:
         segments.traces_flux(T0, END)

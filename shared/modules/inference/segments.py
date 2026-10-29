@@ -15,7 +15,8 @@ one ``shared_segment`` point per period; it probes nothing.
    **mild** and counts as neither, so a destination at the threshold cannot
    tip a hypothesis either way.
 2. **Their paths.** Per destination (by base name, as the path meter stores
-   it), the last ``path_trace`` at or before the period's end and no older
+   it), the last hourly ``path_trace`` (not an episode round's, see
+   traces_flux) at or before the period's end and no older
    than LOOKBACK_S before its start: the path it was on then. A destination
    with none is **untraced** and counts in the coverage, not in the
    comparison; so does one whose path has no public hop (the gateway, a
@@ -100,21 +101,28 @@ KIND_RANK = {"as": 0, "ixp": 1, "router": 2}
 
 
 def traces_flux(start: int, stop: int) -> str:
-    """Every destination's traces in [start, stop]: its path, AS path,
-    whether it reached the destination, and the path's hash."""
+    """Every destination's hourly traces in [start, stop]: its path, AS path,
+    whether it reached the destination, and the path's hash. The rounds the
+    path meter traces during an episode (tagged ``trigger``) are left out:
+    taken while the loss lasts, they lose hops to it and would read as
+    unknown, and they trace the destinations that lost first, so the two
+    sides would be read from different evidence."""
     return (f"from(bucket: {flux_str(influx_bucket())}) "
             f"|> range(start: {int(start)}, stop: {int(stop) + 1}) "
             '|> filter(fn: (r) => r._measurement == "path_trace" and (r._field == "path" '
             'or r._field == "as_path" or r._field == "reached" or r._field == "path_hash")) '
+            "|> filter(fn: (r) => not exists r.trigger) "
             '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '
             '|> keep(columns: ["_time", "target", "path", "as_path", "reached", "path_hash"])')
 
 
 def ixp_flux(start: int, stop: int) -> str:
-    """The hops answered from an exchange point's LAN, in [start, stop]."""
+    """The hops answered from an exchange point's LAN, in [start, stop],
+    hourly traces only, as :func:`traces_flux`."""
     return (f"from(bucket: {flux_str(influx_bucket())}) "
             f"|> range(start: {int(start)}, stop: {int(stop) + 1}) "
             '|> filter(fn: (r) => r._measurement == "path_hop" and r._field == "ixp") '
+            "|> filter(fn: (r) => not exists r.trigger) "
             '|> keep(columns: ["_time", "target", "ttl", "_value"])')
 
 
