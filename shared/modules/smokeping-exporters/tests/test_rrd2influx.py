@@ -627,7 +627,7 @@ class TestTargetLabels:
 
 
 class FakeOperators:
-    """Stands in for common.operators.Operators: no DNS, no Team Cymru."""
+    """Stands in for common.operators.Operators: no DNS, no routing table."""
 
     def __init__(self, table, fail=False):
         self.table, self.fail, self.asked = table, fail, []

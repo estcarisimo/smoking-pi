@@ -31,9 +31,9 @@ Big resolvers are anycast pools, so the egress address changes from query to
 query. Three queries through one router gave three different Google
 addresses. What stays the same is who owns them. So every address's owner,
 an ASN and its registry name (for example `AS15169 GOOGLE - Google LLC, US`),
-is looked up from [Team Cymru](https://www.team-cymru.com/ip-asn-mapping)'s
-DNS service. That lookup goes to `1.1.1.1` directly, never through the path
-being measured.
+is looked up on the Pi itself, in the routing table it downloads from CAIDA
+(RouteViews prefix-to-AS, AS2Org names; see [Path](path.md)). No lookup
+leaves the Pi, so none can go through the path being measured.
 
 Some resolvers spread queries across providers. The DNS observer, with its
 default upstreams `1.1.1.1` and `8.8.8.8`, shows Cloudflare *and* Google. So
@@ -88,6 +88,6 @@ In the env file (`smoking-pi config set`):
 | `RESOLVER_OBSERVER` | `auto` | `off` skips the DNS observer path |
 
 Each cycle sends four small queries per path: three for
-`whoami.akamai.net` and one for Google's name. On top of those come Team
-Cymru lookups for any egress address or ASN not seen in the last day. Those servers learn the resolver's address, which
-they see on every lookup anyway. They learn nothing about your devices.
+`whoami.akamai.net` and one for Google's name. The owners are looked up
+locally, so nothing else is sent per address; the routing table's daily
+download from CAIDA carries nothing about the house.

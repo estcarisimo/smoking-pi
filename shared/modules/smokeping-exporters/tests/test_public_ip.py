@@ -19,8 +19,7 @@ import public_ip as pub  # noqa: E402
 from resolver_identity import OwnerCache  # noqa: E402
 
 V4 = "198.51.100.23"
-ORIGIN = "64500 | 198.51.100.0/24 | US | arin | 2010-01-01"
-NAME = "64500 | US | arin | 2000-01-01 | EXAMPLE-NET - Example ISP, US"
+NAME = "EXAMPLE-NET - Example ISP, US"
 PLACE = {"city": "Exampleville", "region": "Example Region", "country": "ZZ"}
 
 
@@ -34,9 +33,21 @@ LOOKUP = fake_dig({
     ("216.239.32.10", "o-o.myaddr.l.google.com"): [f'"{V4}"'],
     # No IPv6 route: dig gets no reply.
     ("2001:4860:4802:32::a", "o-o.myaddr.l.google.com"): None,
-    ("1.1.1.1", "23.100.51.198.origin.asn.cymru.com"): [f'"{ORIGIN}"'],
-    ("1.1.1.1", "AS64500.asn.cymru.com"): [f'"{NAME}"'],
 })
+
+
+class Table:
+    """A loaded routing table stand-in."""
+
+    ready = True
+    names = {64500: NAME}
+
+    def lookup(self, ip):
+        return 64500 if ip == V4 else None
+
+
+def owners():
+    return OwnerCache(table=Table())
 
 
 def geo(place=PLACE, calls=None):
@@ -58,15 +69,14 @@ def test_an_answer_in_the_wrong_family_is_not_taken():
 
 
 def test_probe_names_the_network_and_the_place():
-    owners = OwnerCache(lookup=LOOKUP)
-    p = pub.probe("ipv4", owners, geo(), LOOKUP)
+    p = pub.probe("ipv4", owners(), geo(), LOOKUP)
     assert (p.ip, p.asn, p.owner) == (V4, 64500, "EXAMPLE-NET - Example ISP, US")
     assert (p.city, p.region, p.country) == ("Exampleville", "Example Region", "ZZ")
 
 
 def test_a_family_without_a_route_is_not_ok_and_asks_nobody():
     calls = []
-    p = pub.probe("ipv6", OwnerCache(lookup=LOOKUP), geo(calls=calls), LOOKUP)
+    p = pub.probe("ipv6", owners(), geo(calls=calls), LOOKUP)
     assert not p.ok and calls == []
 
 
@@ -117,6 +127,7 @@ def test_main_builds_the_cache_from_the_setting(monkeypatch):
 
     monkeypatch.setattr(pub, "GeoCache", Cache)
     monkeypatch.setattr(pub, "probe", lambda family, owners, geo: SimpleNamespace())
+    monkeypatch.setattr(pub, "routing_table", lambda name: None)
     monkeypatch.setenv("PUBLIC_IP_GEO", "false")
     assert pub.main(["--once"]) == 0
     assert seen["enabled"] is False
@@ -157,7 +168,7 @@ def test_ipinfo_failure_or_bogon_is_empty():
 
 
 def test_previous_only_on_a_real_change_never_after_a_restart():
-    p = pub.probe("ipv4", OwnerCache(lookup=LOOKUP), geo(), LOOKUP)
+    p = pub.probe("ipv4", owners(), geo(), LOOKUP)
     same = pub.ChangeTracker({"ipv4": f"{V4} AS64500"})
     assert same.previous_for(p) is None
     moved = pub.ChangeTracker({"ipv4": "203.0.113.9 AS64501"})
@@ -165,8 +176,17 @@ def test_previous_only_on_a_real_change_never_after_a_restart():
     assert pub.ChangeTracker({}).previous_for(p) is None
 
 
+def test_the_same_address_with_its_network_not_loaded_yet_is_not_a_change():
+    loaded = pub.probe("ipv4", owners(), geo(), LOOKUP)
+    cold = pub.probe("ipv4", OwnerCache(table=SimpleNamespace(ready=False)), geo(), LOOKUP)
+    assert cold.ok and cold.asn == 0
+    assert pub.ChangeTracker({"ipv4": f"{V4} AS64500"}).previous_for(cold) is None
+    assert pub.ChangeTracker({"ipv4": f"{V4} AS0"}).previous_for(loaded) is None
+    assert pub.ChangeTracker({"ipv4": "203.0.113.9 AS0"}).previous_for(loaded) == "203.0.113.9 AS0"
+
+
 def test_the_point_carries_what_the_overview_reads():
-    p = pub.probe("ipv4", OwnerCache(lookup=LOOKUP), geo(), LOOKUP)
+    p = pub.probe("ipv4", owners(), geo(), LOOKUP)
     line = pub.build_point(p, "203.0.113.9 AS64501", 1_790_000_000).to_line_protocol()
     assert line.startswith("public_ip,family=ipv4 ")
     for needle in (f'ip="{V4}"', "asn=64500i", 'city="Exampleville"', 'country="ZZ"',

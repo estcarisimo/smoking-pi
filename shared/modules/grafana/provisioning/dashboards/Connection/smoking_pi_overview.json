@@ -291,7 +291,7 @@
       "id": 5,
       "type": "stat",
       "title": "Network (ISP)",
-      "description": "The network (AS) announcing the public address, from Team Cymru.",
+      "description": "The network (AS) announcing the public address, from the routing table (CAIDA RouteViews and AS2Org, looked up on the Pi).",
       "datasource": {
         "uid": "influxdb"
       },

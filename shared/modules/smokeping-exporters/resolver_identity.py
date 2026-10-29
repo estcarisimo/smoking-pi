@@ -18,9 +18,9 @@ A few names answer with the address of whoever asked them:
 Big resolvers are anycast pools, so the egress address changes from query to
 query (three queries through the reference router gave three Google
 addresses). What stays put is who owns them. So each probe resolves the
-owner, as an ASN and a name, from Team Cymru's DNS service
-(``<reversed ip>.origin.asn.cymru.com``), and a *change* is a change of owner,
-not of address.
+owner, as an ASN and a name, from the routing table (originet over CAIDA's
+RouteViews snapshot, with CAIDA's AS2Org names) looked up locally, and a
+*change* is a change of owner, not of address.
 
 Paths:
 
@@ -64,10 +64,6 @@ REQUIRED_ENV = ("INFLUX_URL", "INFLUX_TOKEN", "INFLUX_ORG", "INFLUX_BUCKET")
 DEFAULT_INTERVAL = 900
 # Egress addresses sampled per path and cycle: a pool shows several.
 PROBES = 3
-# The owner lookups go to a public resolver directly, never the router: the
-# answer must not depend on the path being measured.
-LOOKUP_SERVER = "1.1.1.1"
-OWNER_TTL = 86400  # seconds an address's owner is cached
 LOOKBACK = "-30d"
 # The latest result per path, for host_facts.py (the web admin's Connection
 # card) to read without querying InfluxDB on every page load.
@@ -163,64 +159,52 @@ def _is_ip(value: str) -> bool:
     return True
 
 
-def cymru_name(ip: str) -> str:
-    """The Team Cymru origin lookup name for an address."""
-    addr = ipaddress.ip_address(ip)
-    if addr.version == 4:
-        return ".".join(reversed(ip.split("."))) + ".origin.asn.cymru.com"
-    nibbles = addr.exploded.replace(":", "")
-    return ".".join(reversed(nibbles)) + ".origin6.asn.cymru.com"
-
-
-def parse_origin(lines: list[str]) -> int:
-    """'15169 | 172.253.0.0/16 | US | arin | 2013-04-04' -> 15169 (first ASN)."""
-    for line in lines:
-        head = _unquote(line).split("|", 1)[0].split()
-        if head and head[0].isdigit():
-            return int(head[0])
-    return 0
-
-
-def parse_as_name(lines: list[str]) -> str:
-    """'15169 | US | arin | 2000-03-30 | GOOGLE - Google LLC, US' -> 'GOOGLE - Google LLC, US'."""
-    for line in lines:
-        parts = [p.strip() for p in _unquote(line).split("|")]
-        if len(parts) >= 5 and parts[4]:
-            return parts[4]
-    return ""
+def routing_table(name: str):
+    """This process's routing table (``common.asn.use_table``: originet over
+    CAIDA's RouteViews snapshot, CAIDA's IXP dataset and AS2Org names), kept
+    in ``<SMOKEPING_CONFIG_DIR>/routing/<name>``, IPv6 included: a resolver's
+    egress is often IPv6. One directory per process, so two never write the
+    same download. None in an image without ``common/``."""
+    try:
+        from common import asn
+    except ImportError:  # pragma: no cover -- an older image under a newer checkout
+        return None
+    base = Path(os.environ.get("SMOKEPING_CONFIG_DIR", "/config")) / "routing"
+    return asn.use_table(base / name, ipv6=True)
 
 
 class OwnerCache:
-    """ASN and name per address, from Team Cymru, cached for OWNER_TTL."""
+    """ASN and name per address, looked up locally in the routing table
+    (:func:`routing_table`); 0 and "" until it is loaded or without a route.
+    Nothing is asked of anyone else, so there is nothing to cache."""
 
-    def __init__(self, lookup=dig, clock=time.monotonic) -> None:
-        self._lookup = lookup
-        self._clock = clock
-        self._asn: dict[str, tuple[float, int]] = {}
-        self._name: dict[int, tuple[float, str]] = {}
+    def __init__(self, table=None) -> None:
+        self._table = table
+
+    def _loaded(self):
+        table = self._table
+        if table is None:
+            try:
+                from common import asn
+            except ImportError:  # pragma: no cover
+                return None
+            table = asn._TABLE
+        return table if table is not None and table.ready else None
 
     def asn(self, ip: str) -> int:
-        hit = self._asn.get(ip)
-        if hit and self._clock() - hit[0] < OWNER_TTL:
-            return hit[1]
-        value = parse_origin(self._lookup(LOOKUP_SERVER, cymru_name(ip), "TXT") or [])
-        # Only a real answer is cached. An empty reply may be a REFUSED or a
-        # SERVFAIL (see dig), and caching it would name the owner "unknown"
-        # for a day instead of asking again next cycle.
-        if value:
-            self._asn[ip] = (self._clock(), value)
-        return value
+        table = self._loaded()
+        if table is None:
+            return 0
+        try:
+            return table.lookup(ip) or 0
+        except ValueError:
+            return 0
 
     def name(self, asn: int) -> str:
-        if not asn:
+        table = self._loaded()
+        if not asn or table is None:
             return ""
-        hit = self._name.get(asn)
-        if hit and self._clock() - hit[0] < OWNER_TTL:
-            return hit[1]
-        value = parse_as_name(self._lookup(LOOKUP_SERVER, f"AS{asn}.asn.cymru.com", "TXT") or [])
-        if value:
-            self._name[asn] = (self._clock(), value)
-        return value
+        return table.names.get(int(asn), "")
 
 
 def probe(path: str, server: str, owners: OwnerCache, port: int = 53,
@@ -390,6 +374,7 @@ def main() -> int:
                             org=os.environ["INFLUX_ORG"], timeout=10_000)
     write_api = client.write_api(write_options=SYNCHRONOUS)
     tracker = ChangeTracker(last_owners(client.query_api(), bucket))
+    table = routing_table("resolver_identity")
     owners = OwnerCache()
     log.info("resolver identity collector started (every %ds)", interval)
     announced: dict[str, str] = {}
@@ -397,6 +382,8 @@ def main() -> int:
 
     while True:
         started = time.time()
+        if table is not None:
+            table.refresh()  # never raises; owners stay unknown until it loads
         for path, server, port in paths():
             # One try for the whole path: whatever goes wrong with one path
             # costs that path this cycle, never the other path or the process.

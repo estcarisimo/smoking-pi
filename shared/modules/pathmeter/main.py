@@ -216,7 +216,6 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
         at = prefix.index(ip)
         hop_sets[ip] = (prefix[: at + 1], [None] * (at + 1), True, at + 1, 0)
     on_paths = {a for hops, *_ in hop_sets.values() for a in hops if a}
-    owners.refresh(on_paths)
     # The routers' names (PTR): shown with their hop, never part of a path.
     names = names or names_mod.Names()
     names.refresh(on_paths)
@@ -285,6 +284,8 @@ def main() -> None:
     # The routing table (CAIDA RouteViews prefix-to-AS, PeeringDB IXPs):
     # downloaded once a day into the state volume, looked up locally.
     table = lookup.use_table(store.state_dir() / "routing")
+    # Before the table answered every hop, owners.py kept its own /24 cache.
+    (store.state_dir() / "asn.json").unlink(missing_ok=True)
     while True:
         begun = time.time()
         try:

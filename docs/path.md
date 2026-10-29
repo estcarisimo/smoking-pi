@@ -153,9 +153,8 @@ half core; a restart afterwards, a couple of seconds.
 
 Because the table answers by the exact announced prefix, takes the first
 origin of a prefix several networks announce and the member for an
-exchange port, a hop's network can differ from the one the service labels
-show for the same address while the exporter still asks Team Cymru (until
-the smokeping image carries originet).
+exchange port, a hop's network is the one the service labels show for the
+same address: the exporter reads the same table.
 
 All of it is downloaded by the Pi itself, for its own measurements, and
 never shipped in an image or this repository; the data is CAIDA's

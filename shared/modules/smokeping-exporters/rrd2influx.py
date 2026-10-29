@@ -52,8 +52,9 @@ written and the next round tries again.
 The same points carry the delivery axis: string fields ``operator`` and
 ``kind`` and integer ``asn`` (0 when unknown), who runs the network the
 target's host answers from. These this process does compute, from the
-host config-manager reports, with ``common/operators.py`` (DNS, then Team
-Cymru's origin AS per /24, then ``common/asn.py``'s classification),
+host config-manager reports, with ``common/operators.py`` (DNS, then the
+origin AS from the routing table in ``<SMOKEPING_CONFIG_DIR>/routing/rrd2influx``,
+looked up locally, then ``common/asn.py``'s classification),
 cached next to the state file and bounded per round. A host with no IPv4
 answer is ``unknown``, an address on the LAN ``local``; neither is an
 error, and a later answer is a change like any other.
@@ -78,9 +79,10 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 try:
     # Baked into the image at /opt/smoking-pi (shared/modules/smokeping/
     # Dockerfile). An image built before that has no delivery axis.
+    from common import asn as routing
     from common.operators import Operators
 except ImportError:  # pragma: no cover -- an older image under a newer checkout
-    Operators = None
+    Operators = routing = None
 
 REQUIRED_ENV = ("INFLUX_URL", "INFLUX_TOKEN", "INFLUX_ORG", "INFLUX_BUCKET")
 DEFAULT_STATE_FILE = "/tmp/rrd2influx_state.json"
@@ -647,6 +649,8 @@ def main() -> int:
     labels_due = 0.0
     operators = (Operators(pathlib.Path(state_file).with_name("rrd2influx_operators.json"))
                  if Operators is not None else None)
+    table = (routing.use_table(pathlib.Path(SMOKEPING_CONFIG_DIR) / "routing" / "rrd2influx")
+             if routing is not None else None)
     if operators is None:
         logging.warning("target_labels: common/ is not in this image (built before the "
                         "delivery axis): every target's operator and kind stay unknown "
@@ -665,6 +669,8 @@ def main() -> int:
                     logging.info("target_host: %d target(s) new or moved", changed)
                 if time.time() >= labels_due:
                     labels_due = time.time() + LABELS_INTERVAL
+                    if table is not None:
+                        table.refresh()  # never raises; owners unknown until it loads
                     changed = record_labels(write_api, influx_bucket, labels,
                                             int(time.time()), operators=operators)
                     if changed:

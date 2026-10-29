@@ -6,7 +6,8 @@ modules that label targets (inference's shared detector, the exporter's
 
 1. the host's address and CNAME chain, from DNS (the chain is what tells
    CloudFront from the rest of Amazon); an address is its own answer;
-2. the address's origin AS and its name, from Team Cymru, per /24;
+2. the address's origin AS and its name, from the process's routing table
+   (:func:`common.asn.use_table`), looked up locally;
 3. the operator and its kind from :func:`common.asn.classify`.
 
 Addresses are kept a day, owners a week, a failed lookup an hour, so a

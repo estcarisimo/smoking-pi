@@ -26,9 +26,26 @@ version gets a matching GitHub release and git tag.
   column its city when known. The DNS wizard looks networks up locally with
   originet, IPv4 and IPv6, and its image now builds from `shared/` to
   share `common/`. The first start downloads about 15 MB and takes about
-  half a minute on a Pi's half core. The smokeping image (the exporter's
-  service labels, the resolver and public-address checks) still asks Team
-  Cymru until originet ships wheels for its Alpine base.
+  half a minute on a Pi's half core.
+- **No Team Cymru left on the Pi.** The smokeping image (the exporter's
+  service labels, the resolver probe and the public-address check) still
+  sent a DNS query to Team Cymru for every new address and network, because
+  originet had no wheels for its Alpine base: two sources for the same
+  question, so a hop and the service label of the same address could name
+  different networks, and every owner depended on a third party answering.
+  originet 1.1.0 ships musllinux wheels; the image now carries it, and each
+  of those three processes keeps its own copy of the routing table under
+  `/config/routing/` (Pro on InfluxDB only). Measured in the smokeping
+  image on the staging Pi: about 110 MB resident for an IPv4 table, 140 MB
+  with IPv6, peaking near 180 MB while one loads (35–45 s there), so
+  about 0.4 GB for the three, against 8 GB on the reference Pi. Each also downloads
+  its own copy of CAIDA's daily snapshot (about 15 MB), so three a day
+  instead of one; sharing a directory would race on the download. The Team Cymru code is gone from `common/asn.py`
+  and the exporter: with no table loaded yet, an owner is unknown, never
+  asked elsewhere. The public-address check no longer marks a change when
+  only the AS of the same address went unknown for a cycle. The path
+  meter's own `/24` cache (`asn.json`) is gone too: the table answers every
+  hop. Only the maintainer's `tools/dns-explore` still asks Team Cymru.
 
 ## [2.48.0] — 2026-10-26
 

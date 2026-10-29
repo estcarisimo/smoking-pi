@@ -199,8 +199,8 @@ def main() -> None:
     status.write({"starting": int(time.time()), "interval": interval})
     time.sleep(START_DELAY)
     # Operators come from the routing table (CAIDA RouteViews prefix-to-AS),
-    # downloaded once a day into the state volume and looked up locally;
-    # Team Cymru only for the AS names and what the table has no route for.
+    # downloaded once a day into the state volume and looked up locally,
+    # with CAIDA's AS2Org names; nothing is asked per address.
     table = asn.use_table(Path(os.environ.get("INFERENCE_STATE_DIR", "/var/lib/inference"))
                           / "routing")
     while True:

@@ -1,20 +1,21 @@
-"""Who announces an address, from public DNS data: shared by the modules
-that ask (inference's operator tags, pathmeter's hops).
+"""Who announces an address: shared by every module that asks (the
+exporter's service labels, inference's operator tags, pathmeter's hops, the
+DNS wizard, the resolver and public-address checks).
 
-- :func:`resolve`: a host's first IPv4 address and its CNAME chain;
-- :func:`origin`: an IPv4 address's origin AS and its name, from Team
-  Cymru's DNS service (``<reversed /24>.origin.asn.cymru.com``), as the DNS
-  observer and the resolver probe already do;
+- :func:`resolve`: a host's first IPv4 address and its CNAME chain (DNS);
+- :func:`origin`: an address's origin AS and its name, looked up locally in
+  the process's routing table (:func:`use_table`);
 - :func:`classify`: the operator and its kind from :data:`KNOWN`, a table of
   well-known networks, then from :func:`roles`, the AS roles derived from
   Linnaeus's hand-labeled ASes (``data/asn_roles.csv``). An AS in neither
   is its own operator, of kind ``other``.
 
-DNS queries, unless the process uses a routing table (:func:`use_table`):
-originet over CAIDA's daily RouteViews prefix-to-AS snapshot, looked up
-locally, CAIDA's IXP dataset and its AS2Org names. The callers cache what they learn
-(``operators.py`` per target, pathmeter's ``owners.py`` per hop). Needs
-dnspython, imported on first use, so importing this module needs nothing.
+The routing table is originet over CAIDA's daily RouteViews prefix-to-AS
+snapshot, CAIDA's IXP dataset and CAIDA's AS2Org names, downloaded by the Pi
+and looked up locally; nothing is asked per address. The callers cache what
+they learn (``operators.py`` per target, pathmeter's ``owners.py`` per hop).
+Needs dnspython for :func:`resolve` and originet for the table, both
+imported on first use, so importing this module needs nothing.
 """
 
 from __future__ import annotations
@@ -120,56 +121,30 @@ def addresses(host: str, resolver=None) -> list[str]:
     return [str(item) for item in answer]
 
 
-def _txt(qname: str, resolver=None) -> str | None:
-    try:
-        answer = (resolver or _resolver()).resolve(qname, "TXT")
-    except Exception:  # noqa: BLE001
-        return None
-    return b"".join(answer[0].strings).decode(errors="replace")
-
-
 def origin(ip: str, resolver=None) -> tuple[int, str] | None:
-    """(origin ASN, AS name) of an IP address.
-
-    From the process's routing table (:func:`use_table`: originet, and the
-    names from CAIDA's AS2Org) when it has one. A process without one, the
-    smokeping image's until originet ships wheels for it, still asks Team
-    Cymru per /24 (IPv4 only)."""
-    if _TABLE is not None and _TABLE.ready:
-        try:
-            asn = _TABLE.lookup(ip)
-        except ValueError:
-            return None
-        return (asn, as_name(asn, resolver)) if asn else None
-    if ipaddress.ip_address(ip).version != 4:
+    """(origin ASN, AS name) of an IP address, from the process's routing
+    table (:func:`use_table`: originet over CAIDA's RouteViews snapshot, the
+    exchange members of CAIDA's IXP dataset, the names of CAIDA's AS2Org),
+    looked up locally. None without a loaded table and its names, or with
+    no route: a lookup is never asked of anyone else, and an owner without
+    its name is not an answer (callers cache an answer for a week, and
+    :func:`classify` reads the name). ``resolver`` is unused and kept for
+    the callers' signature."""
+    if _TABLE is None or not _TABLE.ready or not _TABLE.names:
         return None
-    reply = _txt(".".join(reversed(ip.split(".")[:3])) + ".origin.asn.cymru.com", resolver)
-    if not reply:
+    try:
+        asn = _TABLE.lookup(ip)
+    except ValueError:
         return None
-    head = reply.split("|", 1)[0].split()
-    if not head or not head[0].isdigit():
-        return None
-    asn = int(head[0])
-    return asn, as_name(asn, resolver)
-
-
-_NAMES: dict[int, str] = {}
+    return (asn, as_name(asn)) if asn else None
 
 
 def as_name(asn: int, resolver=None) -> str:
-    """An AS's name, as ``HANDLE - Organization, CC``: from CAIDA's AS2Org
-    when the process has a routing table with names, else from Team Cymru
-    (``AS<n>.asn.cymru.com``, the same shape), asked once per AS per
-    process; empty when unknown."""
-    if _TABLE is not None and _TABLE.names:
-        return _TABLE.names.get(int(asn), "")
-    if asn in _NAMES:
-        return _NAMES[asn]
-    parts = [p.strip() for p in (_txt(f"AS{asn}.asn.cymru.com", resolver) or "").split("|")]
-    name = parts[4] if len(parts) >= 5 else ""
-    if name:
-        _NAMES[asn] = name
-    return name
+    """An AS's name, as ``HANDLE - Organization, CC``, from CAIDA's AS2Org
+    in the process's routing table; empty when unknown or not loaded."""
+    if _TABLE is None or not _TABLE.names:
+        return ""
+    return _TABLE.names.get(int(asn), "")
 
 
 # ───────────────────── the routing table, local ─────────────────────
@@ -231,13 +206,12 @@ def _originet(cache_dir: Path, offline: bool, ipv6: bool = False):
 
 def as2org_names(lines) -> dict[int, str]:
     """ASN -> ``HANDLE - Organization, CC`` from CAIDA's AS2Org JSON lines
-    (one object per AS or organization). The shape is Team Cymru's, which
+    (one object per AS or organization). The shape is the one
     :func:`classify` reads: the handle before " - " names the operator, the
     organization's words tell an academic network. An organization with no
     country ends without ", CC", so a reader that cuts the country at the
     last comma also cuts a comma of its name ("Fastly, Inc." -> "Fastly");
-    rare (AS2Org gives nearly every organization a country), and Cymru's
-    shape had the same ambiguity."""
+    rare (AS2Org gives nearly every organization a country)."""
     import json
 
     orgs: dict[str, tuple[str, str]] = {}
@@ -452,7 +426,7 @@ class RoutingTable:
             try:
                 table = self._load(self.cache_dir, True, self._ipv6)
             except Exception:  # noqa: BLE001 -- nothing cached either
-                log.warning("no routing table; AS lookups go to Team Cymru", exc_info=True)
+                log.warning("no routing table yet; AS lookups answer nothing", exc_info=True)
                 return False
         if table.len_v4 < TABLE_MIN_PREFIXES:
             log.warning("routing snapshot of %d prefixes refused", table.len_v4)

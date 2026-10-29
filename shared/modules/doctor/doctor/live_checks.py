@@ -839,8 +839,8 @@ def check_targets_labeled(docker: Docker | None = None) -> CheckResult:
         findings.append(Finding(
             f"{len(unknown)} of {total} labeled target(s) have no delivery network "
             f"(kind unknown): {_labels_shown(unknown)}. A host with no IPv4 address has none; "
-            "for the rest the exporter's AS lookups (DNS to Team Cymru) have not "
-            "answered yet (docs/taxonomy.md)"))
+            "for the rest the exporter's routing table has not loaded yet or has no "
+            "route for them (docs/taxonomy.md)"))
     if not findings:
         return result(name, [], "every active target has a service label")
     summary = (f"{len(names)} active target(s) have no service label" if names

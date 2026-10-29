@@ -24,8 +24,8 @@ Addresses are fields, never tags: a tag per router would multiply series.
 State (``PATHMETER_STATE_DIR``, default ``/var/lib/pathmeter``):
 ``state.json`` holds the prefix, when it was learned, and each
 destination's stable and candidate path; ``ptr.json`` the routers' reverse
-DNS names (names.py); ``asn.json`` caches origin ASes
-per /24.
+DNS names (names.py). Origin ASes come from the routing table in
+``routing/`` (owners.py), never from a cache of their own.
 """
 
 from __future__ import annotations
