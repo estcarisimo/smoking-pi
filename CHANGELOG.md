@@ -32,6 +32,18 @@ version gets a matching GitHub release and git tag.
   room for it whether an episode is under way or not. Pro with InfluxDB,
   IPv4, opt-in with the path meter ([The path to each
   destination](path.md#during-a-loss-episode)).
+- **The path reads by network.** Target Detail's last-trace table listed
+  every hop in the same color, so finding where the house's provider hands
+  off to a transit network, or to the destination's own, meant reading the
+  AS column row by row. Each row now takes its AS's color, the same on every
+  target and refresh (the AS number modulo twelve colors, computed in the
+  panel's query; six dark and six light, so neighbors also differ in
+  lightness, each bright or dark enough that Grafana picks a legible text
+  color in the dark and light themes). Hops with no AS, or with a private,
+  CGNAT, IPv4 loopback, link-local or ULA address, are gray. Twelve colors
+  cannot keep every pair of networks apart: Telia, Hurricane Electric and
+  Cloudflare share one, and of the 28 adjacent pairs on the reference
+  house's paths only Telia and Hurricane Electric touch.
 
 ### Changed
 
