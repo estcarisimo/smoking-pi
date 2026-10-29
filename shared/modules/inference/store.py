@@ -167,7 +167,7 @@ SHARED_NUMBERS = ("mean_loss_pct", "coverage", "lossy_operator_share", "dominant
 SHARED_COUNTS = ("voters", "operators")
 SHARED_TEXT = ("scope", "kinds", "dominant", "by_operator", "by_kind", "diverged")
 CONGESTION_NUMBERS = ("confidence", "jump_ms", "ks_p", "coverage")
-SEGMENT_NUMBERS = ("mean_loss_pct", "coverage", "recall", "spill")
+SEGMENT_NUMBERS = ("mean_loss_pct", "coverage", "recall", "spill", "p_value")
 SEGMENT_COUNTS = ("affected", "unaffected", "mild", "traced", "untraced", "common_hops",
                   "clean_common_hops", "path_changed", "affected_through",
                   "unaffected_through")

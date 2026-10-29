@@ -49,8 +49,9 @@ version gets a matching GitHub release and git tag.
   (`strong`, `weak`, `none`), the counts on each side, what each side
   shares, and the traced share. A destination whose trace cannot show a
   segment (silent where it sits, or never reaching the destination) counts
-  against the hypothesis, and fewer than three clean destinations is no
-  contrast. It needs the path meter, reads only what is already stored and
+  against the hypothesis, fewer than three clean destinations is no
+  contrast, and a segment that as many lossy destinations would cross by
+  chance more than 5 % of the time is no hypothesis. It needs the path meter, reads only what is already stored and
   is never in the alert path. Connectivity & Quality lists it under *who
   lost*. Replayed on the staging Pi's 2, 5 and 6 October nights (with the
   first paths recorded, three weeks later), it says what was true: every

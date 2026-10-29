@@ -98,21 +98,21 @@ def test_one_or_two_clean_destinations_are_too_few_to_contrast():
 
 
 def test_mild_destinations_count_on_neither_side():
-    rows, loss = _case(n_lost=4, n_clean=4)
+    rows, loss = _case(n_lost=5, n_clean=5)
     # A clean-path destination at 0.8 %: neither lost nor clean.
     rows.append(_direct("M0", 99))
     loss["M0"] = 0.8
     h = segments.hypothesis(_period(loss), segments.paths(rows, [], T0, END))
-    assert (h["affected"], h["unaffected"], h["mild"]) == (4, 4, 1)
-    assert h["traced"] == 8 and h["confidence"] == "strong"
+    assert (h["affected"], h["unaffected"], h["mild"]) == (5, 5, 1)
+    assert h["traced"] == 10 and h["confidence"] == "strong"
     assert ", 1 in between" in h["hypothesis"]
 
 
 def test_untraced_destinations_lower_the_coverage_and_the_confidence():
-    rows, loss = _case(n_lost=4, n_clean=4)
+    rows, loss = _case(n_lost=5, n_clean=5)
     loss |= {f"X{i}": 0.0 for i in range(10)}  # never traced
     h = segments.hypothesis(_period(loss), segments.paths(rows, [], T0, END))
-    assert h["untraced"] == 10 and h["coverage"] == 8 / 18
+    assert h["untraced"] == 10 and h["coverage"] == 10 / 20
     assert h["confidence"] == "weak"
 
 
@@ -122,33 +122,33 @@ def test_nothing_traced_is_no_hypothesis():
 
 
 def test_an_unaffected_destination_silent_where_the_segment_sits_counts_against_it():
-    rows, loss = _case(n_lost=4, n_clean=4)
+    rows, loss = _case(n_lost=5, n_clean=5)
     found = segments.paths(rows, [], T0, END)
     # Clean destinations silent at TTL 7, where the lossy ones meet 184.105.81.237:
     # they may cross it too.
     for i in range(3):
         found[f"C{i}"]["hops"][6] = "*"
     seg = ("router", "184.105.81.237", "")
-    assert segments._unknown(seg, 7, found["C0"])
-    assert not segments._unknown(seg, 7, found["C3"])
+    assert segments._unknown(seg, {7}, found["C0"])
+    assert not segments._unknown(seg, {7}, found["C3"])
     h = segments.hypothesis(_period(loss), found)
     # The AS is still known not to be on their (complete) paths, so it stays.
     assert h["segment"] == "AS6939" and h["spill"] == 0.0
 
 
 def test_an_unfinished_trace_may_cross_an_as_it_does_not_show():
-    rows, loss = _case(n_lost=4, n_clean=4)
+    rows, loss = _case(n_lost=5, n_clean=5)
     found = segments.paths(rows, [], T0, END)
-    for i in range(4):
+    for i in range(5):
         found[f"C{i}"]["reached"] = False
-    assert segments._unknown(("as", 6939), 0, found["C0"])
+    assert segments._unknown(("as", 6939), {0}, found["C0"])
     h = segments.hypothesis(_period(loss), found)
     # The AS may sit past where the clean traces went silent, but they
     # answered at TTL 7 from another router: the router still stands.
     assert h["segment"] == "router 184.105.81.237" and h["confidence"] == "strong"
     assert "AS6939" not in h["alternatives"]
     # Silent at TTL 7 as well: nothing is known about the clean ones there.
-    for i in range(4):
+    for i in range(5):
         found[f"C{i}"]["hops"][6] = "*"
     assert segments.hypothesis(_period(loss), found)["confidence"] == "none"
 
@@ -173,7 +173,7 @@ def test_the_same_private_address_in_two_networks_is_two_routers():
 
 
 def test_an_exchange_is_a_segment():
-    rows, loss = _case(n_lost=4, n_clean=4)
+    rows, loss = _case(n_lost=5, n_clean=5)
     ixp = [{"_time": _iso(T0 - 600), "target": f"L{i}", "ttl": "07", "_value": "Equinix Dallas"}
            for i in range(4)]
     found = segments.paths(rows, ixp, T0, END)
@@ -210,10 +210,10 @@ def test_malformed_rows_are_skipped():
 
 
 def test_probe_names_share_their_base_names_trace():
-    rows, loss = _case(n_lost=4, n_clean=4)
+    rows, loss = _case(n_lost=5, n_clean=5)
     loss = {(k + "_icmp" if k.startswith("L") else k): v for k, v in loss.items()}
     h = segments.hypothesis(_period(loss), segments.paths(rows, [], T0, END))
-    assert h["traced"] == 8 and h["confidence"] == "strong"
+    assert h["traced"] == 10 and h["confidence"] == "strong"
 
 
 def test_common_hops_stop_where_answers_part():
@@ -227,7 +227,7 @@ def test_common_hops_stop_where_answers_part():
 
 
 def test_run_reads_only_shared_periods_and_skips_when_there_are_no_traces():
-    rows, loss = _case(n_lost=4, n_clean=4)
+    rows, loss = _case(n_lost=5, n_clean=5)
     asked = []
 
     def query(flux):
@@ -255,3 +255,63 @@ def test_the_queries_read_the_window_and_refuse_odd_bucket_names(monkeypatch):
         pass
     else:
         raise AssertionError("a quote in the bucket must be refused")
+
+
+def test_one_destination_counts_once_by_the_mean_of_its_voters():
+    rows, loss = _case(n_lost=5, n_clean=5)
+    # Two voters of one destination on either side of the line: one
+    # destination, its mean (0.75 %) in between, on neither side.
+    loss.pop("C0")
+    loss |= {"C0": 1.2, "C0_icmp": 0.3}
+    groups = segments.classify(loss)
+    assert "C0" in groups["mild"] and "C0" not in groups["affected"] + groups["unaffected"]
+    assert sum(g.count("C0") for g in groups.values()) == 1
+    h = segments.hypothesis(_period(loss), segments.paths(rows, [], T0, END))
+    assert (h["affected"], h["unaffected"], h["mild"]) == (5, 4, 1)
+
+
+def test_a_clean_gateway_is_no_contrast():
+    # Five lost through AS6939; the clean side is three gateways/LAN hosts
+    # whose paths never leave the house: they would make every remote
+    # segment look clean.
+    rows = [_via_he(f"L{i}", i) for i in range(5)]
+    rows += [_row(f"G{i}", ["192.168.86.1", "*"], []) for i in range(3)]
+    loss = {f"L{i}": 4.0 for i in range(5)} | {f"G{i}": 0.0 for i in range(3)}
+    h = segments.hypothesis(_period(loss), segments.paths(rows, [], T0, END))
+    assert h["confidence"] == "none" and h["untraced"] == 3 and h["traced"] == 5
+
+
+def test_a_coincidence_among_few_is_not_a_hypothesis():
+    # 4 of 5 that lost happen to share an AS none of 3 clean ones cross:
+    # 5 / 70 = 7 % by chance alone.
+    rows = [_via_he(f"L{i}", i) for i in range(4)] + [_direct("L4", 4)]
+    rows += [_direct(f"C{i}", 10 + i) for i in range(3)]
+    loss = {f"L{i}": 2.0 for i in range(5)} | {f"C{i}": 0.0 for i in range(3)}
+    h = segments.hypothesis(_period(loss), segments.paths(rows, [], T0, END))
+    assert h["confidence"] == "none"
+    assert segments.p_value(4, 4, 5, 8) == 5 / 70
+
+
+def test_the_p_value_is_the_hypergeometric_tail():
+    assert segments.p_value(9, 9, 9, 29) == 1 / __import__("math").comb(29, 9)
+    assert segments.p_value(29, 9, 9, 29) == 1.0     # everyone crosses it
+    assert segments.p_value(0, 0, 9, 29) == 1.0
+    rows, loss = _case()
+    h = segments.hypothesis(_period(loss), segments.paths(rows, [], T0, END))
+    assert h["p_value"] < 1e-6
+
+
+def test_a_router_one_hop_further_on_another_path_is_still_that_router():
+    rows, loss = _case(n_lost=5, n_clean=5)
+    found = segments.paths(rows, [], T0, END)
+    # L0 reaches 184.105.81.237 at TTL 8 instead of 7.
+    found["L0"]["hops"] = PREFIX + ["*", "*", "184.105.81.237", "184.105.82.0"]
+    # C0 answered at 7 but is silent at 8: it may cross the router there.
+    found["C0"]["hops"] = PREFIX + ["*", "23.255.224.64", "*", "23.255.225.0"]
+    seg = ("router", "184.105.81.237", "")
+    assert segments.segments(found["L0"])[seg] == 8
+    assert segments._unknown(seg, {7, 8}, found["C0"])
+    assert not segments._unknown(seg, {7}, found["C0"])
+    h = segments.hypothesis(_period(loss), found)
+    # The AS stays the hypothesis; the router now spills onto C0.
+    assert h["segment"] == "AS6939" and "router 184.105.81.237 5/5 vs 0/5" in h["alternatives"]

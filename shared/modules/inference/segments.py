@@ -8,8 +8,9 @@ destinations that lost and cross one router are consistent with that
 router, they do not show it. It reads what the other two wrote and writes
 one ``shared_segment`` point per period; it probes nothing.
 
-1. **Who lost.** The period's voters (shared.py), each by its mean loss over
-   the period: **affected** at LOSSY_PCT (1 %) or more, as in the
+1. **Who lost.** The period's voters (shared.py), by destination (its base
+   name; one path counts once) and the mean loss of its voters over the
+   period: **affected** at LOSSY_PCT (1 %) or more, as in the
    qualification; **unaffected** under UNAFFECTED_PCT (0.5 %); in between is
    **mild** and counts as neither, so a destination at the threshold cannot
    tip a hypothesis either way.
@@ -17,7 +18,9 @@ one ``shared_segment`` point per period; it probes nothing.
    it), the last ``path_trace`` at or before the period's end and no older
    than LOOKBACK_S before its start: the path it was on then. A destination
    with none is **untraced** and counts in the coverage, not in the
-   comparison.
+   comparison; so does one whose path has no public hop (the gateway, a
+   host on the LAN): it crosses nothing a cause beyond the house would sit
+   on, and would make every remote segment look clean.
 3. **Segments.** Every trace is split into the segments it crosses:
    - a **router**, by its address. A private address (the home router,
      the access network's 10.x routers) names a router only within the
@@ -29,7 +32,7 @@ one ``shared_segment`` point per period; it probes nothing.
    - an **exchange point** (IXP), from the hops answered from one.
 4. **What is not known.** A destination that does not cross a segment is
    *unknown* rather than *not through* when its trace cannot show it:
-   silent at the TTL where the segment sits (a router), or never reaching
+   silent at a TTL where the other traces saw the segment (a router), or never reaching
    the destination (an AS or an exchange: they may sit past where the
    trace went silent).
 5. **Scoring.** For each segment, ``recall`` = the share of the traced
@@ -39,11 +42,19 @@ one ``shared_segment`` point per period; it probes nothing.
    every destination crosses (the house's first hops, its access network)
    scores 0: it is common to those that lost and those that did not, so it
    explains nothing on its own, and the text says so instead.
-6. **Confidence.** ``strong``: recall at least STRONG_RECALL, spill at most
-   STRONG_SPILL, at least MIN_AFFECTED affected and MIN_UNAFFECTED unaffected
-   traced, and COVERAGE_MIN of the destinations traced. ``weak``: a score of
-   WEAK_SCORE or more with at least MIN_AFFECTED crossing and MIN_UNAFFECTED
-   traced. Otherwise ``none``:
+6. **Confidence.** The best of many segments is picked, so a coincidence
+   must not read as a cause: with 1-3 % loss, which destinations cross the
+   1 % line is partly sampling noise. Each segment carries the chance that
+   as many of the destinations through it would have lost if losing had
+   nothing to do with the path (``p_value``, hypergeometric, the unknown
+   clean ones counted as crossing). ``strong``: recall at least
+   STRONG_RECALL, spill at most STRONG_SPILL, at least MIN_AFFECTED affected
+   and MIN_UNAFFECTED unaffected traced, COVERAGE_MIN of the destinations
+   traced, and a chance under STRONG_P. ``weak``: a score of WEAK_SCORE or
+   more with at least MIN_AFFECTED crossing, MIN_UNAFFECTED traced and a
+   chance under WEAK_P. The chance is per segment, not corrected for how
+   many were tried (they overlap: a router lies inside its AS), so even a
+   ``strong`` one is a lead to check, not a result. Otherwise ``none``:
    no segment sets the destinations that lost apart -- which is what a loss
    that is everyone's (too few unaffected to contrast) or nobody's in
    particular reads as.
@@ -63,6 +74,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import math
 
 import pandas as pd
 
@@ -79,6 +91,8 @@ MIN_UNAFFECTED = 3
 STRONG_RECALL = 0.8
 STRONG_SPILL = 0.2
 WEAK_SCORE = 0.5
+STRONG_P = 0.01
+WEAK_P = 0.05
 COVERAGE_MIN = 0.6
 ALTERNATIVES = 2
 SILENT = "*"
@@ -211,15 +225,38 @@ def common_hops(traces: list[dict]) -> int:
 
 
 def classify(target_loss: dict[str, float]) -> dict[str, list[str]]:
-    """Voters by their mean loss over the period, in percent."""
+    """Destinations by base name (the path meter's name), each by the mean
+    loss of its voters over the period, in percent: one destination is one
+    path, so it counts once, on one side."""
+    by_base: dict[str, list[float]] = {}
+    for target, loss in target_loss.items():
+        if loss is not None and not pd.isna(loss):
+            by_base.setdefault(target_base_name(target), []).append(float(loss))
     out = {"affected": [], "unaffected": [], "mild": []}
-    for target, loss in sorted(target_loss.items()):
-        if loss is None or pd.isna(loss):
-            continue
+    for name, values in sorted(by_base.items()):
+        loss = sum(values) / len(values)
         key = ("affected" if loss >= shared.LOSSY_PCT
                else "unaffected" if loss < UNAFFECTED_PCT else "mild")
-        out[key].append(target)
+        out[key].append(name)
     return out
+
+
+def _comparable(trace: dict) -> bool:
+    """Whether a trace reaches past the house: a destination whose path has
+    no public hop (the gateway, a host on the LAN) crosses none of the
+    segments a common cause beyond it would sit on, and is no contrast."""
+    return any(h not in ("", SILENT) and not _private(h) for h in trace["hops"])
+
+
+def p_value(through: int, a_in: int, a_total: int, total: int) -> float:
+    """The chance that ``a_in`` or more of the ``through`` destinations
+    crossing a segment would be among the ``a_total`` that lost if who lost
+    had nothing to do with the path (hypergeometric, one-sided)."""
+    denominator = math.comb(total, through)
+    if not denominator:
+        return 1.0
+    return sum(math.comb(a_total, k) * math.comb(total - a_total, through - k)
+               for k in range(a_in, min(through, a_total) + 1)) / denominator
 
 
 def hypothesis(period: dict, traces: dict[str, dict], name_of=None) -> dict | None:
@@ -227,26 +264,34 @@ def hypothesis(period: dict, traces: dict[str, dict], name_of=None) -> dict | No
     voters' mean loss, from shared.qualify), or None when no destination was
     traced."""
     groups = classify(period.get("target_loss") or {})
-    base = {t: target_base_name(t) for g in groups.values() for t in g}
-    traced = {g: [t for t in ts if base[t] in traces] for g, ts in groups.items()}
+    traced = {g: [t for t in ts if t in traces and _comparable(traces[t])]
+              for g, ts in groups.items()}
     a_all, u_all = traced["affected"], traced["unaffected"]
     compared = len(groups["affected"]) + len(groups["unaffected"])
     if not a_all and not u_all:
         return None
-    crossing = {t: segments(traces[base[t]]) for t in a_all + u_all}
-    candidates: dict[tuple, int] = {}
+    crossing = {t: segments(traces[t]) for t in a_all + u_all}
+    # Every TTL a segment was seen at: a router another path reaches one hop
+    # further is still that router, and a clean trace silent at any of them
+    # may cross it unseen.
+    candidates: dict[tuple, set[int]] = {}
     for t in a_all:
+        for seg in crossing[t]:
+            candidates[seg] = set()
+    for t in a_all + u_all:
         for seg, ttl in crossing[t].items():
-            candidates.setdefault(seg, ttl)
+            if seg in candidates:
+                candidates[seg].add(ttl)
     scored = []
-    for seg, ttl in candidates.items():
+    for seg, ttls in candidates.items():
         a_in = sum(seg in crossing[t] for t in a_all)
         u_in = sum(seg in crossing[t] for t in u_all)
-        u_unknown = sum(seg not in crossing[t] and _unknown(seg, ttl, traces[base[t]])
+        u_unknown = sum(seg not in crossing[t] and _unknown(seg, ttls, traces[t])
                         for t in u_all)
         recall = a_in / len(a_all) if a_all else 0.0
         spill = (u_in + u_unknown) / len(u_all) if u_all else 1.0
         through = sum(seg in c for c in crossing.values())
+        ttl = max(ttls)
         # Best first; on a tie the narrower segment (fewer destinations
         # through it), then an AS before an exchange before a router (a
         # network is the steadier hypothesis: its routers may share the
@@ -254,7 +299,10 @@ def hypothesis(period: dict, traces: dict[str, dict], name_of=None) -> dict | No
         scored.append(((-(recall - spill), through, KIND_RANK[seg[0]], -ttl, str(seg)),
                        {"segment": seg, "ttl": ttl, "affected_through": a_in,
                         "unaffected_through": u_in, "unaffected_unknown": u_unknown,
-                        "recall": recall, "spill": spill, "score": recall - spill}))
+                        "recall": recall, "spill": spill, "score": recall - spill,
+                        # Unknown clean ones counted as crossing, as in spill.
+                        "p": p_value(a_in + u_in + u_unknown, a_in, len(a_all),
+                                     len(a_all) + len(u_all))}))
     scored.sort(key=lambda kv: kv[0])
     best = scored[0][1] if scored else None
     coverage = (len(a_all) + len(u_all)) / compared if compared else 0.0
@@ -263,12 +311,12 @@ def hypothesis(period: dict, traces: dict[str, dict], name_of=None) -> dict | No
     # gateway or one quiet host does not set the others apart.
     if best and best["affected_through"] >= MIN_AFFECTED and len(u_all) >= MIN_UNAFFECTED:
         if (best["recall"] >= STRONG_RECALL and best["spill"] <= STRONG_SPILL
-                and coverage >= COVERAGE_MIN):
+                and coverage >= COVERAGE_MIN and best["p"] < STRONG_P):
             confidence = "strong"
-        elif best["score"] >= WEAK_SCORE:
+        elif best["score"] >= WEAK_SCORE and best["p"] < WEAK_P:
             confidence = "weak"
-    lost = [traces[base[t]] for t in a_all]
-    clean = [traces[base[t]] for t in u_all]
+    lost = [traces[t] for t in a_all]
+    clean = [traces[t] for t in u_all]
     out = {
         "start": period["start"], "end": period["end"],
         "mean_loss_pct": period.get("mean_loss_pct"),
@@ -279,7 +327,7 @@ def hypothesis(period: dict, traces: dict[str, dict], name_of=None) -> dict | No
         "coverage": coverage,
         "common_hops": common_hops(lost), "common_as": common_as(lost),
         "clean_common_hops": common_hops(clean), "clean_common_as": common_as(clean),
-        "path_changed": sum(traces[base[t]]["changed"] for t in a_all + u_all),
+        "path_changed": sum(traces[t]["changed"] for t in a_all + u_all),
         "confidence": confidence,
     }
     if confidence != "none":
@@ -287,7 +335,7 @@ def hypothesis(period: dict, traces: dict[str, dict], name_of=None) -> dict | No
             "segment": label(best["segment"], name_of), "segment_kind": best["segment"][0],
             "affected_through": best["affected_through"],
             "unaffected_through": best["unaffected_through"],
-            "recall": best["recall"], "spill": best["spill"],
+            "recall": best["recall"], "spill": best["spill"], "p_value": best["p"],
             "alternatives": "; ".join(
                 f"{label(s['segment'], name_of)} {s['affected_through']}/{len(a_all)} "
                 f"vs {s['unaffected_through']}/{len(u_all)}"
@@ -308,10 +356,11 @@ def common_as(traces: list[dict]) -> str:
     return " ".join(f"AS{a}" for a in dict.fromkeys(traces[0]["asns"]) if a in every)
 
 
-def _unknown(seg: tuple, ttl: int, trace: dict) -> bool:
-    """Whether a trace that does not show ``seg`` may still cross it."""
+def _unknown(seg: tuple, ttls, trace: dict) -> bool:
+    """Whether a trace that does not show ``seg`` (seen at ``ttls`` on the
+    traces that do) may still cross it."""
     if seg[0] == "router":
-        return _silent_at(trace, ttl)
+        return any(_silent_at(trace, ttl) for ttl in ttls)
     return not trace["reached"]
 
 
