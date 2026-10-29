@@ -15,6 +15,11 @@ the same way (``IPV6_MODE``). Reads and writes InfluxDB: with
 
 What it costs is in ``status.json`` (``probes_per_hour``), which
 ``smoking-pi budget`` counts with the rest of the measurements.
+
+Between cycles, every five minutes, it checks for a shared loss episode
+under way and, while one lasts, traces the destinations it hit
+(episodes.py), capped per hour. Checks and rounds run in this loop, one
+thing at a time, so ``PATHMETER_PPS`` holds over both.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ import logging
 import os
 import time
 
+import episodes
 import names as names_mod
 import owners as owners_mod
 import paths
@@ -258,8 +264,13 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
         log.exception("writing %d points failed", len(points))
         report["failed"] = 1
         state["paths"] = before
-    report["failed_cycles"] = (int(status.read().get("failed_cycles") or 0) + 1
+    previous = status.read()
+    report["failed_cycles"] = (int(previous.get("failed_cycles") or 0) + 1
                                if report["failed"] else 0)
+    # The episode rounds' own report (episodes.py) outlives the cycle's,
+    # unless they were turned off: then the budget must stop reserving them.
+    if previous.get("episodes") and episodes.cap() > 0:
+        report["episodes"] = previous["episodes"]
     store.save(STATE, state)
     status.write(report)
     log.info("path cycle: %d destinations, %d traces, %d probes in %.0f s, %d changed%s%s%s",
@@ -286,17 +297,27 @@ def main() -> None:
     table = lookup.use_table(store.state_dir() / "routing")
     # Before the table answered every hop, owners.py kept its own /24 cache.
     (store.state_dir() / "asn.json").unlink(missing_ok=True)
+    due = time.time()
     while True:
         begun = time.time()
-        try:
-            table.refresh()
-        except Exception:  # noqa: BLE001 -- the table is an aid; the paths go on without it
-            log.exception("routing table refresh failed")
-        try:
-            cycle(int(begun))
-        except Exception:  # noqa: BLE001 -- one bad cycle must not stop the next
-            log.exception("path cycle failed")
-        time.sleep(max(60.0, every - (time.time() - begun)))
+        if begun >= due:
+            try:
+                table.refresh()
+            except Exception:  # noqa: BLE001 -- the table is an aid; the paths go on without it
+                log.exception("routing table refresh failed")
+            try:
+                cycle(int(begun))
+            except Exception:  # noqa: BLE001 -- one bad cycle must not stop the next
+                log.exception("path cycle failed")
+            due = begun + max(60.0, every)
+        else:
+            try:
+                episodes.round_(int(begun), rate=pps(), hourly_state=STATE,
+                                full_per_cycle=FULL_PER_CYCLE)
+            except Exception:  # noqa: BLE001 -- one bad round must not stop the cycles
+                log.exception("episode round failed")
+        wake = due if episodes.cap() == 0 else min(due, time.time() + episodes.EVERY)
+        time.sleep(max(60.0, wake - time.time()))
 
 
 if __name__ == "__main__":

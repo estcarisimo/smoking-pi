@@ -9,6 +9,30 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Traceroutes while a shared loss episode lasts (path meter,
+  experimental).** The path meter traced each destination once an hour, so
+  the nightly episodes in which every destination lost packets at once had
+  no path recorded during them: whether the loss sat in the access network
+  every path shares (the home router and the next hops) or beyond it could
+  not be read, only guessed from the loss itself. Now, every five minutes,
+  the path meter checks for an episode by the alerter's own widespread rule
+  (`common/loss_events`, the same runs `get_loss_events` answers with; no
+  detector of its own), and while one is under way it traces the
+  destinations it hit: one from hop 1 (at most twelve probes an hour more at
+  the home router), the others past the shared hops, in turn, at most
+  `PATHMETER_EPISODE_TRACES_PER_HOUR` traces in any hour (default 60; 0
+  turns it off), counted from a ledger that survives a restart. Rounds run
+  in the same loop as the hourly cycle, so `PATHMETER_PPS` holds over both.
+  Their points carry `trigger=episode` and the episode's start, and never
+  count as a path change. `smoking-pi budget` reserves the worst case
+  (about 780 probes an hour at the default, 4 % of the default samples
+  ceiling and 2 MB a day) as its own `EpisodeTraces` row, so admission keeps
+  room for it whether an episode is under way or not. Pro with InfluxDB,
+  IPv4, opt-in with the path meter ([The path to each
+  destination](path.md#during-a-loss-episode)).
+
 ### Changed
 
 - **Networks without Team Cymru, and the right owner at an exchange.** The

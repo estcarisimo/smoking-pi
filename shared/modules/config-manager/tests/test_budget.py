@@ -498,3 +498,27 @@ def test_a_stopped_idle_or_absent_path_meter_costs_nothing():
                  _path_status(10_000 - 4 * 3600)):
         body = budget.report(TARGETS, CPE, PROBES, env=NO_ENV, now=10_000, path_text=text)
         assert not any(r["probe"] == "Traceroute" for r in body["by_probe"])
+
+
+def _episode_status(at, cap=60, per_trace=12.0):
+    status = json.loads(_path_status(at))
+    status["episodes"] = {"cap_per_hour": cap, "probes_per_trace": per_trace, "every": 300}
+    return json.dumps(status)
+
+
+def test_the_episode_rounds_are_reserved_at_their_cap():
+    plain = budget.report(TARGETS, CPE, PROBES, env=NO_ENV, now=10_000,
+                          path_text=_path_status(9_000))
+    body = budget.report(TARGETS, CPE, PROBES, env=NO_ENV, now=10_000,
+                         path_text=_episode_status(9_000))
+    row = next(r for r in body["by_probe"] if r["probe"] == "EpisodeTraces")
+    assert row["class"] == "Path" and row["samples_per_hour"] == 720.0 and row["step"] == 300
+    assert body["samples_per_hour"] == round(plain["samples_per_hour"] + 720, 1)
+    assert "EpisodeTraces" in budget.render(body)
+
+
+def test_no_reservation_when_the_rounds_are_off_or_the_meter_stopped():
+    for text in (_episode_status(9_000, cap=0), _episode_status(10_000 - 4 * 3600),
+                 _path_status(9_000)):
+        body = budget.report(TARGETS, CPE, PROBES, env=NO_ENV, now=10_000, path_text=text)
+        assert not any(r["probe"] == "EpisodeTraces" for r in body["by_probe"])

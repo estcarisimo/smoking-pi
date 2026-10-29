@@ -19,6 +19,12 @@ stamped at the cycle's start:
 And ``pathmeter_pass`` once per cycle (no target): ``traces``, ``probes``,
 ``seconds``, ``failed``, ``prefix_hops``, ``full_traces``, ``waiting``.
 
+The rounds traced during a loss episode (episodes.py) write the same
+points, tagged ``trigger=episode``, with ``episode`` (the episode's start)
+on ``path_trace`` and ``capped`` (affected destinations left for a later
+round) on ``pathmeter_pass``; their ``changed`` flags are always false.
+Their ledger and turns are ``episodes.json`` in the state directory.
+
 Addresses are fields, never tags: a tag per router would multiply series.
 
 State (``PATHMETER_STATE_DIR``, default ``/var/lib/pathmeter``):
@@ -74,10 +80,17 @@ def measurement_name(measurement: str) -> str:
 def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: list,
                  reached: bool, distance: int | None, first_hop: int, path_text: str,
                  path_hash: str, asns: list[int], flags: dict, asn_of, ixp_of=None,
-                 ptr_of=None) -> list:
+                 ptr_of=None, trigger: str | None = None, episode: str | None = None) -> list:
     from influxdb_client import Point, WritePrecision
 
-    points = [Point(measurement_name(TRACE)).tag("target", base).tag("category", category)
+    def tagged(point):
+        # Episode rounds (episodes.py) only: the hourly series stay untagged.
+        return point.tag("trigger", trigger) if trigger else point
+
+    head = tagged(Point(measurement_name(TRACE)).tag("target", base).tag("category", category))
+    if episode:
+        head = head.field("episode", episode)
+    points = [head
               .field("dst", dst)
               .field("hops", int(distance or len(hops)))
               .field("reached", bool(reached))
@@ -92,7 +105,8 @@ def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: 
     for ttl, addr in enumerate(hops, start=1):
         if not addr:
             continue
-        point = (Point(measurement_name(HOP)).tag("target", base).tag("category", category)
+        point = (tagged(Point(measurement_name(HOP)).tag("target", base)
+                        .tag("category", category))
                  .tag("ttl", f"{ttl:02d}").field("addr", addr))
         asn = asn_of(addr)
         if asn:
@@ -112,10 +126,13 @@ def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: 
     return points
 
 
-def pass_point(at: int, report: dict):
+def pass_point(at: int, report: dict, trigger: str | None = None):
     from influxdb_client import Point, WritePrecision
 
-    return (Point(measurement_name(PASS))
+    point = Point(measurement_name(PASS))
+    if trigger:
+        point = point.tag("trigger", trigger).field("capped", int(report.get("capped", 0)))
+    return (point
             .field("traces", int(report.get("traces", 0)))
             .field("probes", int(report.get("probes", 0)))
             .field("seconds", float(report.get("seconds", 0.0)))

@@ -104,6 +104,12 @@ the same size). Its `targets` are the distinct addresses it traced, and
 they are not added to the targets total. A path meter that has not
 finished a cycle in three intervals has no row.
 
+Its traces during a loss episode ([path meter](path.md#during-a-loss-episode))
+are reserved as an `EpisodeTraces` row at their worst case: the hourly cap
+(`PATHMETER_EPISODE_TRACES_PER_HOUR`) times the probes a round trace costs,
+whether an episode is under way or not, so admission keeps room for them.
+The row appears with the first check after the path meter starts; set the cap to 0 and it goes at the next hourly cycle.
+
 Nearly all of the seed's bandwidth is TLS handshakes: an HTTP sample costs
 70 to 110 times an ICMP one. That is why the HTTP probes send `HEAD`. Before
 they did, each sample downloaded the whole home page, and the same seed
