@@ -600,7 +600,11 @@ def _pivoted_after(query: str, set_only: bool = False) -> list[tuple[str, set[st
     return pieces
 
 
-_MADE_BY_RE = re.compile(r"\|>\s*(map|elapsed)\(")
+_MADE_BY_RE = re.compile(r"\|>\s*(map|elapsed|reduce|histogram)\(")
+# ``join.left(left: a, right: b, on: (l, r) => ..., as: (l, r) => ...)``: its
+# ``r`` is the right-hand stream's row, which the query built; a join never
+# filters storage, so nothing inside one is a tag filter.
+_JOIN_RE = re.compile(r"\bjoin\.(?:left|right|inner|full)\(")
 
 
 def _call_end(query: str, open_paren: int) -> int:
@@ -625,11 +629,40 @@ def _call_end(query: str, open_paren: int) -> int:
     return len(query)
 
 
+def _top_level_args(query: str, start: int, stop: int) -> dict[str, tuple[int, int]]:
+    """A call's named arguments between ``start`` (after its ``(``) and
+    ``stop`` (its ``)``): name -> (where its value starts, where it ends).
+    Commas inside parentheses, brackets, braces or strings do not split."""
+    args, depth, quoted, i, piece = {}, 0, False, start, start
+    while i <= stop:
+        c = query[i] if i < stop else ","
+        if quoted:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                quoted = False
+        elif c == '"':
+            quoted = True
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "," and depth == 0:
+            named = re.match(r"\s*([A-Za-z_]\w*)\s*:", query[piece:i])
+            if named:
+                args[named.group(1)] = (piece + named.end(), i)
+            piece = i + 1
+        i += 1
+    return args
+
+
 def _computed(query: str) -> list[tuple[int, set[str]]]:
-    """Each ``map()``/``elapsed()`` that adds columns: where it ends and the
-    columns it makes. ``map(fn: (r) => ({_time: r._time, s: ...}))`` makes
-    ``s``; ``{r with s: ...}`` too; ``elapsed()`` makes ``elapsed`` (or its
-    ``columnName``). Read after the call, ``r.s`` is that column, not a tag."""
+    """Each ``map()``/``elapsed()``/``reduce()``/``histogram()`` that adds
+    columns: where it ends and the columns it makes. ``map(fn: (r) =>
+    ({_time: r._time, s: ...}))`` makes ``s``; ``{r with s: ...}`` too;
+    ``reduce()`` the keys of its records; ``elapsed()`` makes ``elapsed`` (or
+    its ``columnName``), ``histogram()`` its ``le`` bound. Read after the
+    call, ``r.s`` is that column, not a tag."""
     made = []
     for m in _MADE_BY_RE.finditer(query):
         end = _call_end(query, m.end() - 1)
@@ -637,6 +670,9 @@ def _computed(query: str) -> list[tuple[int, set[str]]]:
         if m.group(1) == "elapsed":
             named = re.search(r'columnName:\s*"([A-Za-z_]\w*)"', call)
             names = {named.group(1) if named else "elapsed"}
+        elif m.group(1) == "histogram":
+            named = re.search(r'upperBoundColumn:\s*"([A-Za-z_]\w*)"', call)
+            names = {named.group(1) if named else "le"}
         else:
             # Text inside quotes is a value, never a column: ", foo: " in
             # a label must not exempt r.foo.
@@ -658,10 +694,27 @@ def tag_refs_in(query: str) -> set[str]:
     Only references AFTER the pivot are exempt, and only for values selected
     before it: ``r.loss`` ahead of the pivot is still a tag filter. A query
     joining streams can pivot more than once; each pivot exempts what it
-    made from there on. Columns a ``map()`` or ``elapsed()`` computed
-    (:func:`_computed`) are exempt the same way, after the call.
+    made from there on. Columns a ``map()``, ``elapsed()``, ``reduce()`` or
+    ``histogram()`` computed (:func:`_computed`) are exempt the same way,
+    after the call, and nothing inside a ``join.*()`` call counts
+    (:data:`_JOIN_RE`).
     """
-    events = sorted(_pivots(query) + _computed(query), key=lambda e: e[0])
+    events = _pivots(query) + _computed(query)
+    for m in reversed(list(_JOIN_RE.finditer(query))):
+        end = _call_end(query, m.end() - 1)
+        # Its on: and as: functions read the joined rows, never storage;
+        # left: and right: may be inline streams with real filters, so they
+        # are still read. The record as: returns is columns from here on.
+        for name, (a, b) in sorted(_top_level_args(query, m.end(), end - 1).items(),
+                                   key=lambda item: -item[1][0]):
+            if name not in ("on", "as"):
+                continue
+            if name == "as":
+                events.append((end, set(re.findall(
+                    r"(?:[{,]|\bwith)\s*([A-Za-z_]\w*)\s*:",
+                    _STRING_RE.sub('""', query[a:b])))))
+            query = query[:a] + " " * (b - a) + query[b:]
+    events.sort(key=lambda e: e[0])
     refs, exempt, start = set(), set(), 0
     for pos, made in events + [(len(query), set())]:
         refs |= set(_TAG_REF_RE.findall(query[start:pos])) - exempt

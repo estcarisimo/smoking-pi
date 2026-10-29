@@ -7,7 +7,8 @@
 # version, targets by service), Network (Wi-Fi, the ISP gateway), DNS
 # (resolvers, the wizard) and Advanced (Diagnostics: are the collectors
 # writing, which series stopped, what the services record about themselves
-# -- internals, off the main path).
+# -- internals, off the main path; Internet Topology, experimental: the path
+# meter's traces, every destination side by side).
 # Renaming a directory moves its dashboards and leaves the old folder behind,
 # empty: `smoking-pi upgrade` deletes those (RETIRED_FOLDERS in
 # cli/lib/lifecycle.sh). Grafana matches folder titles case-insensitively:

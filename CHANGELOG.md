@@ -71,6 +71,27 @@ version gets a matching GitHub release and git tag.
   Fiber's network is singled out; over the last week, with no shared
   period, it says nothing.
 
+- **Internet Topology (experimental): how the house reaches what it
+  measures.** The path meter has traced every destination hourly since
+  v2.45.0, but its traces could only be read one destination at a time, on
+  Target Detail's Path row: nothing said which networks the destinations
+  share, where their paths part, or how a path moved next to the latency it
+  carried, and answering "does everything I measure go through the same
+  transit?" meant reading 76 tables. A new dashboard in the *Advanced*
+  folder reads the same data, with no new probes: an **AS Map** (the
+  destinations grouped by their own network, and every network on the
+  paths with how many destinations cross it, kept apart from the
+  destinations it holds), **AS dispersion by hop** (which networks answer
+  at each distance from the house over every trace in the range, with
+  silent hops and private addresses counted as such, not dropped), and
+  **Path evolution** (one destination's AS path, hops and address trace
+  after trace, confirmed changes apart from what single traces saw, above
+  its RTT and loss). Filters by destination, network and time range; every
+  panel says that a hop's network is inferred from its address and that
+  one house sees one direction. The doctor's tag check now reads columns a
+  `reduce()`, a `histogram()` or a `join` makes as columns, not as tag
+  filters. See `docs/topology.md`.
+
 ### Changed
 
 - **Networks without Team Cymru, and the right owner at an exchange.** The
