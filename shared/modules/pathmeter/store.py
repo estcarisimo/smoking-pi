@@ -10,11 +10,12 @@ stamped at the cycle's start:
   ``as_changed`` / ``dst_changed`` (paths.py), ``first_hop`` (where this
   trace started; earlier hops are the shared prefix);
 - ``path_hop``, one point per hop that answered, tagged ``ttl`` (two digits,
-  so it sorts): ``addr``, ``asn`` when known, ``ixp`` (the exchange point's
-  name, from PeeringDB) when the address is on an exchange LAN instead,
-  ``ptr`` (its reverse DNS name, names.py) when it has one, ``rtt_ms``. A router's reply
-  time is its slow path's, rate-limited: descriptive, never a series to
-  alert on.
+  so it sorts): ``addr``, ``asn`` when known, ``as_name`` (that AS's CAIDA
+  AS2Org name, ``HANDLE - Organization, CC``) when the table has one,
+  ``ixp`` (the exchange point's name, from PeeringDB) when the address is
+  on an exchange LAN instead, ``ptr`` (its reverse DNS name, names.py) when
+  it has one, ``rtt_ms``. A router's reply time is its slow path's,
+  rate-limited: descriptive, never a series to alert on.
 
 And ``pathmeter_pass`` once per cycle (no target): ``traces``, ``probes``,
 ``seconds``, ``failed``, ``prefix_hops``, ``full_traces``, ``waiting``.
@@ -80,7 +81,8 @@ def measurement_name(measurement: str) -> str:
 def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: list,
                  reached: bool, distance: int | None, first_hop: int, path_text: str,
                  path_hash: str, asns: list[int], flags: dict, asn_of, ixp_of=None,
-                 ptr_of=None, trigger: str | None = None, episode: str | None = None) -> list:
+                 ptr_of=None, trigger: str | None = None, episode: str | None = None,
+                 name_of=None) -> list:
     from influxdb_client import Point, WritePrecision
 
     def tagged(point):
@@ -111,6 +113,10 @@ def trace_points(base: str, category: str, at: int, dst: str, hops: list, rtts: 
         asn = asn_of(addr)
         if asn:
             point = point.field("asn", int(asn))
+            # Who the network is, as the table knew it when traced: a
+            # dashboard names transit networks without a lookup of its own.
+            if name_of and (org := name_of(int(asn))):
+                point = point.field("as_name", org)
         # A router answering from its port on an exchange point: named by
         # the exchange (most exchange LANs are not announced, so the AS is
         # then missing; when one is, both are kept).
