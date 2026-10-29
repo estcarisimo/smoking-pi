@@ -40,9 +40,10 @@ version gets a matching GitHub release and git tag.
   panel's query; six dark and six light, so neighbors also differ in
   lightness, each bright or dark enough that Grafana picks a legible text
   color in the dark and light themes). Hops with no AS, or with a private,
-  CGNAT, loopback, link-local or ULA address, are gray. Twelve colors cannot
-  keep every pair of networks apart: of the 28 adjacent pairs on the
-  reference house's paths, only Telia and Hurricane Electric share one.
+  CGNAT, IPv4 loopback, link-local or ULA address, are gray. Twelve colors
+  cannot keep every pair of networks apart: Telia, Hurricane Electric and
+  Cloudflare share one, and of the 28 adjacent pairs on the reference
+  house's paths only Telia and Hurricane Electric touch.
 
 ### Changed
 

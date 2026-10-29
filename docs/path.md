@@ -156,7 +156,9 @@ On **Target Detail**, the collapsed **Path (experimental)** row:
   so a network has the same color on every target and every refresh; two
   networks can still share one, so read the AS column when two blocks of
   one color touch. Hops with no AS, and private (RFC 1918), CGNAT
-  (100.64.0.0/10), loopback, link-local and ULA addresses, are gray.
+  (100.64.0.0/10), IPv4 loopback, link-local and ULA addresses, are gray;
+  so is a router on an exchange point's LAN when no AS is known for it
+  (its exchange column still names it).
 
   ![Two last traces, dark and light theme: the house's private hops in gray, its access network in orange, Google Fiber in green, then Cloudflare in purple and Facebook in red; the house's own hops blurred](img/path-hops.png)
 - **Path changes**: when the AS path, the hops or the address changed in
