@@ -72,6 +72,52 @@ Every `PATHMETER_INTERVAL` seconds (default 3600):
    that resolved to a new address starts a new path, and that is not a path
    change.
 
+## During a loss episode
+
+The hourly traces describe a quiet hour. When every destination loses
+packets at once (the reference house had such an episode most evenings
+from late August to early October 2026), the question is *where*: inside
+the access network every path shares, or beyond it. So while a shared
+loss episode lasts, the path meter traces the destinations it hit every
+five minutes.
+
+- **What an episode is.** The alerter's widespread rule, as
+  `get_loss_events` reports it: `WIDESPREAD_PCT` (80 %) of the targets
+  reporting in a probe cycle had a loss event of at least
+  `WIDESPREAD_LOSS_PCT` (30 %). The path meter has no detector of its own;
+  it asks every five minutes for the last hour's widespread runs, and an
+  episode is under way while its last lossy cycle is at most three steps
+  old (the exporter writes a cycle a step after it ends, and a run carries
+  across two missing ones).
+- **What a round traces.** The destinations with a loss event in the
+  episode first, then the others, each in turn (the one traced longest ago
+  first), so a long episode covers all of them. One of each round's traces
+  starts at hop 1, in turn: it shows the shared hops answering or not,
+  hop by hop. The others start past them, as the hourly cycle's do. The
+  home router gets at most twelve probes an hour more. No name is resolved
+  during an episode: each destination is traced at the address its last
+  hourly trace used.
+- **The cap.** At most `PATHMETER_EPISODE_TRACES_PER_HOUR` traces (default
+  60, five a round) in any sixty minutes, counted from a ledger in the
+  service's state volume, so a restart mid-episode does not start a new
+  hour. The affected destinations a round left out are counted as
+  `capped`.
+- **One loop.** Rounds and the hourly cycle run one after the other, never
+  together, so `PATHMETER_PPS` holds over both.
+
+Round traces are tagged `trigger=episode` in InfluxDB (see below) with the
+episode's start, so a panel can show them apart from the hourly ones or
+leave them out. They are never part of the change tracking: a path seen
+every five minutes while it loses packets is not two hourly traces in a
+row. On Target Detail the **Last trace in range** of a range that ends
+during an episode is its last round's.
+
+Reading them: a round whose hop-1 trace goes silent inside the shared hops,
+while the hops past them stop answering too, points at the access network;
+the shared hops answering while the paths beyond them go silent at
+different places points beyond it. A router's own replies are rate-limited
+(see above), so one silent hop is not evidence: compare rounds.
+
 ### Why ICMP, and why Paris
 
 Measured from the reference house on 2026-10-21, over its 76 destinations:
@@ -198,6 +244,13 @@ its cycles of the last day actually sent, on average, not an estimate,
 and counts it in the totals
 that [admission](measurement-budget.md#admission) checks a change against.
 
+The episode rounds are reserved at their worst case, as an `EpisodeTraces`
+row: the hourly cap times the probes a round trace costs (measured over
+the last day's rounds, 13 until there are some). At the default, about 780
+probes an hour (4 % of the default samples ceiling) and 2 MB a day, counted
+whether an episode is under way or not, so admission keeps room for one. An
+episode of three hours sends about a quarter of a megabyte.
+
 Enabling it is not refused by admission: check `smoking-pi budget` first
 on a connection that is close to a ceiling.
 
@@ -207,6 +260,7 @@ on a connection that is close to a ceiling.
 |---|---|---|
 | `PATHMETER_INTERVAL` | 3600 | Seconds between cycles; at least 600 |
 | `PATHMETER_PPS` | 5 | Probes per second, every probe of a cycle together; at most 100 |
+| `PATHMETER_EPISODE_TRACES_PER_HOUR` | 60 | Traces in any hour [during a loss episode](#during-a-loss-episode); 0 turns them off; at most 1200 |
 
 `smoking-pi config set PATHMETER_INTERVAL 7200` changes one.
 
@@ -226,6 +280,12 @@ start:
 - `pathmeter_pass`, one point per cycle: `traces`, `probes`, `seconds`,
   `failed`, `prefix_hops`, `full_traces`.
 
+The rounds traced [during a loss episode](#during-a-loss-episode) write the
+same three measurements, every point tagged `trigger=episode` (the hourly
+ones have no `trigger` tag), plus `episode` (the episode's start, an ISO
+time) on `path_trace` and `capped` on `pathmeter_pass`. To leave them out
+of a query: `filter(fn: (r) => not exists r.trigger)`.
+
 Addresses are fields, not tags, so routers do not multiply series.
 
 ## Privileges
@@ -238,9 +298,6 @@ the network sends back as `nobody`, chrooted in an empty directory.
 
 ## Not yet
 
-- Traces triggered by an episode (shared loss, an alert), every few
-  minutes while it lasts: the next step, after this one has run for a
-  while.
 - A limit per network, so a large set of discovered targets does not
   concentrate probes on one operator ([measurement budget](measurement-budget.md),
   *What comes next*).

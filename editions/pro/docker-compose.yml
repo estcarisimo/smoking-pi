@@ -746,7 +746,10 @@ services:
   # Paris traceroute (ICMP, scamper) to every address the measured targets
   # resolve to, paced at PATHMETER_PPS; the hops every path shares are
   # traced once. Paths, AS paths and their changes go to InfluxDB for Target
-  # Detail's Path row; nothing here alerts. Host network: the hops are the
+  # Detail's Path row; nothing here alerts. While a shared loss episode lasts
+  # (the alerter's widespread rule, hence WIDESPREAD_*), a round every five
+  # minutes traces the destinations it hit, at most
+  # PATHMETER_EPISODE_TRACES_PER_HOUR. Host network: the hops are the
   # house's, not a Docker bridge's plus one. NET_RAW for the probes, and
   # SYS_CHROOT, SETUID and SETGID for scamper's own privilege separation
   # (it chroots the reply parser and runs it as nobody). See docs/path.md.
@@ -768,6 +771,9 @@ services:
     environment:
       - PATHMETER_INTERVAL=${PATHMETER_INTERVAL:-3600}
       - PATHMETER_PPS=${PATHMETER_PPS:-5}
+      - PATHMETER_EPISODE_TRACES_PER_HOUR=${PATHMETER_EPISODE_TRACES_PER_HOUR:-60}
+      - WIDESPREAD_PCT=${WIDESPREAD_PCT:-80}
+      - WIDESPREAD_LOSS_PCT=${WIDESPREAD_LOSS_PCT:-30}
       - TSDB_TYPE=${TSDB_TYPE:-influxdb}
       - INFLUX_URL=http://localhost:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}

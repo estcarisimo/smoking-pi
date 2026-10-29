@@ -341,6 +341,38 @@ def path_row(status_text: str, now: float) -> Optional[dict]:
     }
 
 
+def episode_row(status_text: str, now: float) -> Optional[dict]:
+    """The path meter's episode rounds (pathmeter/episodes.py), reserved at
+    their worst case: the hourly cap of traces times the probes a round
+    trace costs (measured over the last day, or the meter's own estimate).
+    Admission then keeps room for an episode whether one is under way or
+    not. None when the meter is not running or the rounds are off."""
+    try:
+        status = json.loads(status_text) if status_text.strip() else {}
+    except ValueError:
+        return None
+    if not isinstance(status, dict) or path_row(status_text, now) is None:
+        return None
+    rounds = status.get("episodes")
+    if not isinstance(rounds, dict):
+        return None
+    limit, per_trace = rounds.get("cap_per_hour"), rounds.get("probes_per_trace")
+    every = rounds.get("every") or 300
+    if not isinstance(limit, (int, float)) or limit <= 0 or not isinstance(per_trace, (int, float)):
+        return None
+    probes_h = float(limit) * float(per_trace)
+    return {
+        "probe": "EpisodeTraces",
+        "class": "Path",
+        "targets": 0,
+        "step": int(every),
+        "pings": round(float(per_trace), 1),
+        "samples_per_hour": round(probes_h, 1),
+        "bytes_per_sample": TRACEROUTE_BYTES_PER_PROBE,
+        "mb_per_day": round(probes_h * 24 * TRACEROUTE_BYTES_PER_PROBE / 1e6, 2),
+    }
+
+
 def report(
     targets_text: str,
     cpe_text: str,
@@ -382,6 +414,9 @@ def report(
     traceroute = path_row(path_text, time.time() if now is None else now)
     if traceroute:
         rows.append(traceroute)
+    reserved = episode_row(path_text, time.time() if now is None else now)
+    if reserved:
+        rows.append(reserved)
     # Most expensive first: what to cut is at the top.
     rows.sort(key=lambda r: (-(r["mb_per_day"] or 0), -r["samples_per_hour"], r["probe"]))
 
