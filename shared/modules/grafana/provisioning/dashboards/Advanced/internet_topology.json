@@ -1,0 +1,1252 @@
+{
+  "uid": "internet-topology-v1",
+  "id": null,
+  "title": "Internet Topology (experimental)",
+  "description": "Experimental. How the house reaches the destinations it measures and which networks they share, from the path meter's traces and the targets' labels: AS Map, AS dispersion by hop, path evolution. Inferences from one vantage point, not alerts.",
+  "schemaVersion": 37,
+  "version": 1,
+  "tags": [
+    "smokeping",
+    "path",
+    "experimental"
+  ],
+  "timezone": "browser",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "",
+  "graphTooltip": 1,
+  "editable": false,
+  "links": [
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/d/smoking-pi-overview-v1",
+      "icon": "dashboard",
+      "tooltip": "The landing page",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
+    {
+      "title": "Target detail",
+      "type": "link",
+      "url": "/d/target-detail-v1",
+      "icon": "dashboard",
+      "tooltip": "One target, every layer (its Path row: the last trace hop by hop)",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
+    {
+      "title": "SmokePing dashboards",
+      "type": "dashboards",
+      "tags": [
+        "smokeping"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#8F3BB8",
+        "name": "Path changed (experimental)",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "import \"regexp\"\n// pathmeter stores one path per base name (docs/path.md): match that name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${focus}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"$\")\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and not exists r.trigger and r.target =~ re and\n      (r._field == \"changed\" or r._field == \"as_changed\" or r._field == \"as_path\"))\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.changed or r.as_changed)\n  |> map(fn: (r) => ({_time: r._time, text: (if r.as_changed then \"AS path changed (experimental): now \" + r.as_path else \"Path changed (experimental), same AS path \" + r.as_path), tags: \"experimental\"}))"
+        }
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "target",
+        "label": "Destinations",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: v.timeRangeStart, stop: v.timeRangeStop,\n    predicate: (r) => r._measurement == \"path_trace\") |> sort()",
+        "definition": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: v.timeRangeStart, stop: v.timeRangeStop,\n    predicate: (r) => r._measurement == \"path_trace\") |> sort()",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "regex": "",
+        "sort": 0,
+        "description": "Destinations the path meter traced in the range (base names: Google, not Google_h2). Filters every panel but path evolution, which follows one destination."
+      },
+      {
+        "type": "query",
+        "name": "asn",
+        "label": "AS",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "query": "from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == \"asn\")\n  |> group() |> distinct() |> sort() |> map(fn: (r) => ({_value: string(v: r._value)}))",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "includeAll": true,
+        "allValue": "any",
+        "multi": false,
+        "refresh": 2,
+        "regex": "",
+        "sort": 3,
+        "description": "Keep only destinations whose recorded path crossed this network (AS number) in the range, at any hop. The network of a hop is inferred from its address."
+      },
+      {
+        "type": "query",
+        "name": "focus",
+        "label": "Path evolution of",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: v.timeRangeStart, stop: v.timeRangeStop,\n    predicate: (r) => r._measurement == \"path_trace\") |> sort()",
+        "definition": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"smokeping\", tag: \"target\", start: v.timeRangeStart, stop: v.timeRangeStop,\n    predicate: (r) => r._measurement == \"path_trace\") |> sort()",
+        "current": {
+          "text": "uba_ar",
+          "value": "uba_ar"
+        },
+        "options": [],
+        "includeAll": false,
+        "multi": false,
+        "refresh": 2,
+        "regex": "",
+        "sort": 0,
+        "allowCustomValue": true,
+        "description": "The one destination the Path evolution row follows. Clicking a destination in the tables above picks it."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "What this shows, and what it cannot",
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Experimental.** How this house reaches the destinations it measures, and which networks they share, from what the path meter already records (no extra probes; [how it traces](https://estcarisimo.github.io/smoking-pi/path/), [this page](https://estcarisimo.github.io/smoking-pi/topology/)). Only the hourly traces count: the extra traces taken during a loss episode are left out, so an evening of loss does not weigh more than any other hour.\n\n- **AS Map**: the network (autonomous system, AS) each destination's address is in, and the networks its path crosses on the way. A destination's own network and the networks on the way are kept in separate columns.\n- **AS dispersion by hop**: at each distance from the house, which networks answered, over every trace of the range: not one traceroute, the spread of many. Hops that did not answer and private addresses are counted as such.\n- **Path evolution**: for one destination, the AS path and the hops trace after trace, next to its RTT and loss.\n\nWhat it cannot say: a hop's network is **inferred** from the address that answered (who announces its prefix, or which member uses an exchange point's port), not proven: a router can answer from another network's address, and tunnels (MPLS) hide hops. It is one vantage point, in one direction: the way back, the other equal-cost paths and the topology beyond what these traces cross are not seen. Nothing here alerts."
+      }
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "AS Map: the networks the destinations are in, and the ones on the way",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "panels": []
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Destinations by their network (the destination's AS)",
+      "description": "Every destination measured in the range, grouped by the network its host's address is in: destinations in the same row share that network. From the exporter's delivery labels (docs/taxonomy.md), not from the traces, so it covers destinations the path meter has not traced; the AS filter keeps only destinations whose traced path crossed that AS. The destination's network says who answers it, not which networks carry the traffic there (see the next table). A hop's network (AS) is an inference, not proof of which networks carried the traffic: it is the network that announces the address's prefix in BGP (CAIDA's RouteViews table), or the member that uses an exchange point's port; a router can answer from an address another network owns.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"influxdata/influxdb/schema\"\nimport \"regexp\"\nimport \"strings\"\n// Destinations picked (pathmeter's base names), and the AS filter: only\n// destinations whose recorded path crossed that AS in the range. Both are\n// regular expressions on the target tag, so the filters stay in storage.\ndest = regexp.compile(v: \"^(?i)(${target:regex})$\")\nasSel = \"${asn}\"\ncrossing = if asSel == \"any\" then \".*\" else strings.joinStr(v: \"|\", arr: from(bucket: \"smokeping\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == \"asn\")\n  |> filter(fn: (r) => r._value == int(v: asSel)) |> group() |> distinct(column: \"target\")\n  |> findColumn(fn: (key) => true, column: \"_value\"))\nalong = regexp.compile(v: \"^(\" + crossing + \")$\")\npicked = (t) => t =~ dest and t =~ along\n// What the exporter says about each target's host: its network (AS) and who\n// runs it. Written on change only, so read back from the start; one row per\n// base name (Google, Google_h2 and Google_tcp443 are one destination).\nlabels = from(bucket: \"smokeping\") |> range(start: time(v: 0), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and (r._field == \"asn\" or r._field == \"operator\" or r._field == \"kind\"))\n  |> last() |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> group()\n  |> map(fn: (r) => ({destination: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r.target, t: \"\"),\n      asn: if exists r.asn then r.asn else 0,\n      operator: if exists r.operator then r.operator else \"unknown\",\n      kind: if exists r.kind then r.kind else \"unknown\"}))\n  |> map(fn: (r) => ({r with key: strings.toLower(v: r.destination)}))\n  |> sort(columns: [\"destination\"]) |> unique(column: \"key\")\n// Names for the networks that are some destination's own (other networks\n// show their number only).\nnames = labels |> filter(fn: (r) => r.asn > 0) |> sort(columns: [\"operator\"]) |> unique(column: \"asn\")\n  |> map(fn: (r) => ({asn: r.asn, name: r.operator}))\n// Destinations measured in the range (any probe).\nmeasured = schema.tagValues(bucket: \"smokeping\", tag: \"target\", start: v.timeRangeStart, stop: v.timeRangeStop,\n    predicate: (r) => r._measurement == \"latency\" or r._measurement == \"tcp_latency\" or r._measurement == \"http_latency\" or r._measurement == \"dns_latency\")\n  |> map(fn: (r) => ({_value: strings.toLower(v: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r._value, t: \"\"))}))\n  |> findColumn(fn: (key) => true, column: \"_value\")\nlabels\n  |> filter(fn: (r) => contains(value: r.key, set: measured) and picked(t: r.destination))\n  |> group(columns: [\"asn\"]) |> sort(columns: [\"destination\"])\n  |> reduce(identity: {destinations: \"\", n: 0, organization: \"\", kind: \"\"},\n      fn: (r, accumulator) => ({\n        destinations: if accumulator.n == 0 then r.destination else accumulator.destinations + \", \" + r.destination,\n        n: accumulator.n + 1,\n        organization: if accumulator.n == 0 then r.operator else accumulator.organization,\n        kind: if accumulator.n == 0 then r.kind else accumulator.kind}))\n  |> group()\n  |> map(fn: (r) => ({network: if r.asn > 0 then \"AS\" + string(v: r.asn) else \"not known\", organization: r.organization,\n      kind: r.kind, n: r.n, which: r.destinations}))\n  |> sort(columns: [\"n\", \"network\"], desc: true)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No labels yet: the exporter writes them when it starts and on every change."
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "network"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "AS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "organization"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "organization"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "n"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "destinations"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "network": 0,
+              "organization": 1,
+              "kind": 2,
+              "n": 3,
+              "which": 4
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Networks on the paths: how many destinations cross each",
+      "description": "Every network (AS) a recorded path crossed in the range, with how many destinations' paths cross it on the way, and how many are in it (the trace ended in the destination's own network, from its labels). A network many paths cross is infrastructure the destinations share: the house's provider first, then its transit. Only networks that answered with a public address count; names show for networks that are also some destination's own. A hop's network (AS) is an inference, not proof of which networks carried the traffic: it is the network that announces the address's prefix in BGP (CAIDA's RouteViews table), or the member that uses an exchange point's port; a router can answer from an address another network owns. EXPERIMENTAL (path meter; docs/topology.md).",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"join\"\nimport \"regexp\"\nimport \"strings\"\n// Destinations picked (pathmeter's base names), and the AS filter: only\n// destinations whose recorded path crossed that AS in the range. Both are\n// regular expressions on the target tag, so the filters stay in storage.\ndest = regexp.compile(v: \"^(?i)(${target:regex})$\")\nasSel = \"${asn}\"\ncrossing = if asSel == \"any\" then \".*\" else strings.joinStr(v: \"|\", arr: from(bucket: \"smokeping\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == \"asn\")\n  |> filter(fn: (r) => r._value == int(v: asSel)) |> group() |> distinct(column: \"target\")\n  |> findColumn(fn: (key) => true, column: \"_value\"))\nalong = regexp.compile(v: \"^(\" + crossing + \")$\")\npicked = (t) => t =~ dest and t =~ along\n// What the exporter says about each target's host: its network (AS) and who\n// runs it. Written on change only, so read back from the start; one row per\n// base name (Google, Google_h2 and Google_tcp443 are one destination).\nlabels = from(bucket: \"smokeping\") |> range(start: time(v: 0), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and (r._field == \"asn\" or r._field == \"operator\" or r._field == \"kind\"))\n  |> last() |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> group()\n  |> map(fn: (r) => ({destination: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r.target, t: \"\"),\n      asn: if exists r.asn then r.asn else 0,\n      operator: if exists r.operator then r.operator else \"unknown\",\n      kind: if exists r.kind then r.kind else \"unknown\"}))\n  |> map(fn: (r) => ({r with key: strings.toLower(v: r.destination)}))\n  |> sort(columns: [\"destination\"]) |> unique(column: \"key\")\n// Names for the networks that are some destination's own (other networks\n// show their number only).\nnames = labels |> filter(fn: (r) => r.asn > 0) |> sort(columns: [\"operator\"]) |> unique(column: \"asn\")\n  |> map(fn: (r) => ({asn: r.asn, name: r.operator}))\n// Every (destination, network) pair the traces recorded in the range.\npairs = from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == \"asn\" and r.target =~ dest and r.target =~ along)\n  |> group() |> map(fn: (r) => ({key: strings.toLower(v: r.target), destination: r.target, asn: r._value,\n      pair: strings.toLower(v: r.target) + \"|\" + string(v: r._value)}))\n  |> unique(column: \"pair\")\n// The destination's own network, from its labels: a network a path ends in\n// is the destination's, every other one is on the way.\nroles = join.left(left: pairs, right: labels |> keep(columns: [\"key\", \"asn\"]) |> rename(columns: {asn: \"own\"}),\n    on: (l, r) => l.key == r.key,\n    as: (l, r) => ({asn: l.asn, destination: l.destination,\n        own: if exists r.own and r.own == l.asn then 1 else 0}))\n  |> group(columns: [\"asn\"]) |> sort(columns: [\"destination\"])\n  |> reduce(identity: {in_it: 0, crossing: 0, which: \"\"},\n      fn: (r, accumulator) => ({in_it: accumulator.in_it + r.own, crossing: accumulator.crossing + 1 - r.own,\n        which: if r.own == 1 then accumulator.which\n               else if accumulator.which == \"\" then r.destination else accumulator.which + \", \" + r.destination}))\n  |> group()\njoin.left(left: roles, right: names, on: (l, r) => l.asn == r.asn,\n    as: (l, r) => ({network: \"AS\" + string(v: l.asn) + (if exists r.name then \" \" + r.name else \"\"),\n        crossing: l.crossing, in_it: l.in_it, which: l.which}))\n  |> sort(columns: [\"crossing\", \"in_it\"], desc: true)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No path in the range: the path meter is off (smoking-pi enable pathmeter), or no destination picked matches the filters."
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "network"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "AS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "crossing"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "destinations crossing it"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "in_it"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "destinations in it"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "which"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "crossed by"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "network": 0,
+              "crossing": 1,
+              "in_it": 2,
+              "which": 3
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Each destination: its network, and the AS path its last trace saw",
+      "description": "Per destination traced in the range: the network its address is in (the exporter's labels), apart from the networks its last trace crossed before reaching it (the AS path, from the house outwards, the destination's own network removed from its end). 'Ends in it' compares the two: 'no' is a path whose last answering network is another one (a CDN's address announced by its host, an exchange, or the two lookups disagreeing), 'not reached' a destination that did not answer the trace. Hops without a public network (private, silent) are not in the AS path. A hop's network (AS) is an inference, not proof of which networks carried the traffic: it is the network that announces the address's prefix in BGP (CAIDA's RouteViews table), or the member that uses an exchange point's port; a router can answer from an address another network owns. Seen from this house only, forward direction only, one flow per destination (Paris traceroute over ICMP, once an hour): the way back, the other equal-cost paths and the rest of the Internet's topology are not seen.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"join\"\nimport \"regexp\"\nimport \"strings\"\n// Destinations picked (pathmeter's base names), and the AS filter: only\n// destinations whose recorded path crossed that AS in the range. Both are\n// regular expressions on the target tag, so the filters stay in storage.\ndest = regexp.compile(v: \"^(?i)(${target:regex})$\")\nasSel = \"${asn}\"\ncrossing = if asSel == \"any\" then \".*\" else strings.joinStr(v: \"|\", arr: from(bucket: \"smokeping\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == \"asn\")\n  |> filter(fn: (r) => r._value == int(v: asSel)) |> group() |> distinct(column: \"target\")\n  |> findColumn(fn: (key) => true, column: \"_value\"))\nalong = regexp.compile(v: \"^(\" + crossing + \")$\")\npicked = (t) => t =~ dest and t =~ along\n// What the exporter says about each target's host: its network (AS) and who\n// runs it. Written on change only, so read back from the start; one row per\n// base name (Google, Google_h2 and Google_tcp443 are one destination).\nlabels = from(bucket: \"smokeping\") |> range(start: time(v: 0), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and (r._field == \"asn\" or r._field == \"operator\" or r._field == \"kind\"))\n  |> last() |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> group()\n  |> map(fn: (r) => ({destination: regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: r.target, t: \"\"),\n      asn: if exists r.asn then r.asn else 0,\n      operator: if exists r.operator then r.operator else \"unknown\",\n      kind: if exists r.kind then r.kind else \"unknown\"}))\n  |> map(fn: (r) => ({r with key: strings.toLower(v: r.destination)}))\n  |> sort(columns: [\"destination\"]) |> unique(column: \"key\")\n// Names for the networks that are some destination's own (other networks\n// show their number only).\nnames = labels |> filter(fn: (r) => r.asn > 0) |> sort(columns: [\"operator\"]) |> unique(column: \"asn\")\n  |> map(fn: (r) => ({asn: r.asn, name: r.operator}))\n// The last trace of each destination in the range.\nlast = from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and not exists r.trigger and (r._field == \"as_path\" or r._field == \"hops\" or r._field == \"reached\" or r._field == \"dst\") and r.target =~ dest and r.target =~ along)\n  // One row per destination, even when its category changed in the range.\n  |> group(columns: [\"target\", \"_field\"]) |> sort(columns: [\"_time\"]) |> last()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> group()\n  |> map(fn: (r) => ({key: strings.toLower(v: r.target), destination: r.target, _time: r._time,\n      as_path: if exists r.as_path then r.as_path else \"\", hops: r.hops, reached: r.reached, dst: r.dst}))\njoin.left(left: last, right: labels, on: (l, r) => l.key == r.key,\n    as: (l, r) => {\n      own = if exists r.asn and r.asn > 0 then string(v: r.asn) else \"\"\n      return {destination: l.destination, network: if own != \"\" then \"AS\" + own + \" \" + r.operator else \"not known\",\n        as_path: l.as_path,\n        // Does the path the trace saw end in the destination's network?\n        ends: if not l.reached then \"not reached\"\n              else if own == \"\" or l.as_path == \"\" then \"–\"\n              else if l.as_path == own or strings.hasSuffix(v: l.as_path, suffix: \" \" + own) then \"yes\"\n              else \"no\",\n        before: if own != \"\" and strings.hasSuffix(v: l.as_path, suffix: \" \" + own) then strings.trimSuffix(v: l.as_path, suffix: \" \" + own)\n                else l.as_path,\n        hops: l.hops, dst: l.dst, _time: l._time}\n    })\n  |> sort(columns: [\"network\", \"destination\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No path in the range: the path meter is off (smoking-pi enable pathmeter), or no destination picked matches the filters."
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "network"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "destination's network (AS)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "before"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "networks before it"
+              },
+              {
+                "id": "noValue",
+                "value": "–"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ends"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "ends in it"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dst"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "address"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "last trace"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "as_path"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "AS path seen"
+              },
+              {
+                "id": "noValue",
+                "value": "(no network)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "destination"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Path evolution of ${__value.raw}",
+                    "url": "/d/internet-topology-v1?var-focus=${__value.raw}&var-target=${target:queryparam}&var-asn=${asn}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "destination": 0,
+              "network": 1,
+              "before": 2,
+              "ends": 3,
+              "as_path": 4,
+              "hops": 5,
+              "dst": 6,
+              "_time": 7
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "AS dispersion by hop: which networks answer at each distance",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "panels": []
+    },
+    {
+      "id": 7,
+      "type": "barchart",
+      "title": "Networks at each hop distance, over every trace in the range",
+      "description": "Each bar is one distance from the house (hop 1 is the home router); its segments count how many times, over every trace of the destinations picked in the range, that hop answered from each network (AS). It is the spread of many observations, not one traceroute: a hop where several colors stack is where the paths branch. Gray is a hop that did not answer (routers that do not reply, or rate-limit, inside a trace's length); light gray a private address (the home router, the provider's internal routers), which no network announces; beige an address that answered but no network announces (often an exchange point's LAN). The shared first hops of a destination traced past them count with the addresses its full trace learned. A hop's network (AS) is an inference, not proof of which networks carried the traffic: it is the network that announces the address's prefix in BGP (CAIDA's RouteViews table), or the member that uses an exchange point's port; a router can answer from an address another network owns. Seen from this house only, forward direction only, one flow per destination (Paris traceroute over ICMP, once an hour): the way back, the other equal-cost paths and the rest of the Internet's topology are not seen.",
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"join\"\nimport \"regexp\"\nimport \"strings\"\n// Destinations picked (pathmeter's base names), and the AS filter: only\n// destinations whose recorded path crossed that AS in the range. Both are\n// regular expressions on the target tag, so the filters stay in storage.\ndest = regexp.compile(v: \"^(?i)(${target:regex})$\")\nasSel = \"${asn}\"\ncrossing = if asSel == \"any\" then \".*\" else strings.joinStr(v: \"|\", arr: from(bucket: \"smokeping\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == \"asn\")\n  |> filter(fn: (r) => r._value == int(v: asSel)) |> group() |> distinct(column: \"target\")\n  |> findColumn(fn: (key) => true, column: \"_value\"))\nalong = regexp.compile(v: \"^(\" + crossing + \")$\")\npicked = (t) => t =~ dest and t =~ along\ntwo = (n) => if n < 10 then \"0\" + string(v: n) else string(v: n)\n// RFC 1918, shared address space (RFC 6598) and link-local: no network announces them.\nprivate = /^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.|169\\.254\\.)/\nhop = (field) => from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == field and r.target =~ dest and r.target =~ along)\nnames = from(bucket: \"smokeping\") |> range(start: time(v: 0), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and (r._field == \"asn\" or r._field == \"operator\"))\n  |> last() |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.asn and r.asn > 0) |> group() |> sort(columns: [\"operator\"]) |> unique(column: \"asn\")\n  |> map(fn: (r) => ({asn: r.asn, name: r.operator}))\n// How often each network answered at each hop, then named (a small table to join).\nasns = hop(field: \"asn\") |> group() |> map(fn: (r) => ({ttl: r.ttl, asn: r._value, _value: 1}))\n  |> group(columns: [\"ttl\", \"asn\"]) |> sum() |> group()\nnamed = join.left(left: asns, right: names, on: (l, r) => l.asn == r.asn,\n    as: (l, r) => ({_value: l._value, ttl: l.ttl, series: \"AS\" + string(v: l.asn) + (if exists r.name then \" \" + r.name else \"\")}))\n// Every hop that answered, the private ones among them, and those with a network.\nperHop = (tables=<-) => tables |> group(columns: [\"ttl\"]) |> count()\n  |> map(fn: (r) => ({_value: r._value, ttl: r.ttl, series: \"\"})) |> group()\nprivates = hop(field: \"addr\") |> filter(fn: (r) => r._value =~ private) |> perHop() |> set(key: \"series\", value: \"private\")\ntotals = hop(field: \"addr\") |> perHop() |> set(key: \"series\", value: \"_answered\")\nknown = hop(field: \"asn\") |> perHop() |> set(key: \"series\", value: \"_known\")\n// A trace covers hops 1 to its hops field (the destination, or the last hop\n// probed): how many traces reach hop k is all of them minus those shorter.\ntraces = from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and not exists r.trigger and r._field == \"hops\" and r.target =~ dest and r.target =~ along)\n  |> group() |> toFloat()\ntotal = (traces |> count() |> findRecord(fn: (key) => true, idx: 0))._value\nreach = traces |> histogram(bins: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0])\n  |> map(fn: (r) => ({_value: total - int(v: r._value), ttl: two(n: int(v: r.le) + 1), series: \"\"}))\n  |> filter(fn: (r) => r._value > 0) |> set(key: \"series\", value: \"_reached\")\nunion(tables: [named, privates, totals, known, reach])\n  |> group(columns: [\"ttl\", \"series\"]) |> sum() |> group()\n  |> pivot(rowKey: [\"ttl\"], columnKey: [\"series\"], valueColumn: \"_value\")\n  // Silent: reached by a trace, nothing answered. Public with no network:\n  // answered from an address no one announces (an unannounced exchange LAN).\n  |> map(fn: (r) => ({r with\n      no_answer: r._reached - (if exists r._answered then r._answered else 0),\n      unknown_as: (if exists r._answered then r._answered else 0) - (if exists r._known then r._known else 0)\n          - (if exists r.private then r.private else 0)}))\n  |> drop(columns: [\"_reached\", \"_answered\", \"_known\"])\n  |> sort(columns: [\"ttl\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 85,
+            "gradientMode": "none",
+            "axisPlacement": "auto",
+            "axisLabel": "observations"
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No path in the range: the path meter is off (smoking-pi enable pathmeter), or no destination picked matches the filters."
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ttl"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "hop"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "no_answer"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "no answer"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a5a5a"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "private"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "private address (no AS)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#b8b8b8"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "unknown_as"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "public, no AS (exchange LAN?)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#D8C3A5"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "orientation": "vertical",
+        "xField": "ttl",
+        "stacking": "normal",
+        "showValue": "never",
+        "groupWidth": 0.8,
+        "barWidth": 0.95,
+        "xTickLabelRotation": 0,
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum"
+          ],
+          "sortBy": "Total",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "barchart",
+      "title": "How many different networks answer at each hop distance",
+      "description": "Per distance from the house, how many different networks (ASes) answered at that hop over the range. One is a stretch every path shares (the house's provider); more is where the destinations' paths part. Hops that did not answer and private addresses have no network and are not counted here (the chart above shows them). A hop's network (AS) is an inference, not proof of which networks carried the traffic: it is the network that announces the address's prefix in BGP (CAIDA's RouteViews table), or the member that uses an exchange point's port; a router can answer from an address another network owns.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"join\"\nimport \"regexp\"\nimport \"strings\"\n// Destinations picked (pathmeter's base names), and the AS filter: only\n// destinations whose recorded path crossed that AS in the range. Both are\n// regular expressions on the target tag, so the filters stay in storage.\ndest = regexp.compile(v: \"^(?i)(${target:regex})$\")\nasSel = \"${asn}\"\ncrossing = if asSel == \"any\" then \".*\" else strings.joinStr(v: \"|\", arr: from(bucket: \"smokeping\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == \"asn\")\n  |> filter(fn: (r) => r._value == int(v: asSel)) |> group() |> distinct(column: \"target\")\n  |> findColumn(fn: (key) => true, column: \"_value\"))\nalong = regexp.compile(v: \"^(\" + crossing + \")$\")\npicked = (t) => t =~ dest and t =~ along\ntwo = (n) => if n < 10 then \"0\" + string(v: n) else string(v: n)\n// RFC 1918, shared address space (RFC 6598) and link-local: no network announces them.\nprivate = /^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.|169\\.254\\.)/\nhop = (field) => from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == field and r.target =~ dest and r.target =~ along)\nnames = from(bucket: \"smokeping\") |> range(start: time(v: 0), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and (r._field == \"asn\" or r._field == \"operator\"))\n  |> last() |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.asn and r.asn > 0) |> group() |> sort(columns: [\"operator\"]) |> unique(column: \"asn\")\n  |> map(fn: (r) => ({asn: r.asn, name: r.operator}))\n// How often each network answered at each hop, then named (a small table to join).\nasns = hop(field: \"asn\") |> group() |> map(fn: (r) => ({ttl: r.ttl, asn: r._value, _value: 1}))\n  |> group(columns: [\"ttl\", \"asn\"]) |> sum() |> group()\nnamed = join.left(left: asns, right: names, on: (l, r) => l.asn == r.asn,\n    as: (l, r) => ({_value: l._value, ttl: l.ttl, series: \"AS\" + string(v: l.asn) + (if exists r.name then \" \" + r.name else \"\")}))\n// Every hop that answered gets a bar; one with no network (private only) is 0.\nseen = hop(field: \"addr\") |> group(columns: [\"ttl\"]) |> count() |> group() |> map(fn: (r) => ({ttl: r.ttl, networks: 0}))\nunion(tables: [named |> map(fn: (r) => ({ttl: r.ttl, networks: 1})), seen])\n  |> group(columns: [\"ttl\"]) |> sum(column: \"networks\")\n  |> group() |> sort(columns: [\"ttl\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 80,
+            "axisLabel": "networks"
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "No path in the range: the path meter is off (smoking-pi enable pathmeter), or no destination picked matches the filters."
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ttl"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "hop"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "networks"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "different networks"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "orientation": "vertical",
+        "xField": "ttl",
+        "stacking": "none",
+        "showValue": "auto",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "xTickLabelRotation": 0,
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Path evolution: one destination's path, trace after trace",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Path changes per destination in the range",
+      "description": "Confirmed changes (the three left columns) count only what two traces in a row agreed on: the AS path, the hops, or the address the name resolved to. The next two count what single traces saw, confirmed or not: how many different AS paths and hop sequences appeared. More sequences than confirmed changes is usually a load balancer or a router answering from another of its addresses, not a new route. Click a destination to follow it below. Seen from this house only, forward direction only, one flow per destination (Paris traceroute over ICMP, once an hour): the way back, the other equal-cost paths and the rest of the Internet's topology are not seen. A hop's network (AS) is an inference, not proof of which networks carried the traffic: it is the network that announces the address's prefix in BGP (CAIDA's RouteViews table), or the member that uses an exchange point's port; a router can answer from an address another network owns.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"regexp\"\nimport \"strings\"\n// Destinations picked (pathmeter's base names), and the AS filter: only\n// destinations whose recorded path crossed that AS in the range. Both are\n// regular expressions on the target tag, so the filters stay in storage.\ndest = regexp.compile(v: \"^(?i)(${target:regex})$\")\nasSel = \"${asn}\"\ncrossing = if asSel == \"any\" then \".*\" else strings.joinStr(v: \"|\", arr: from(bucket: \"smokeping\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and not exists r.trigger and r._field == \"asn\")\n  |> filter(fn: (r) => r._value == int(v: asSel)) |> group() |> distinct(column: \"target\")\n  |> findColumn(fn: (key) => true, column: \"_value\"))\nalong = regexp.compile(v: \"^(\" + crossing + \")$\")\npicked = (t) => t =~ dest and t =~ along\nflags = from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and not exists r.trigger and (r._field == \"changed\" or r._field == \"as_changed\" or r._field == \"dst_changed\") and r.target =~ dest and r.target =~ along)\n  |> toInt() |> group(columns: [\"target\", \"_field\"]) |> sum()\n// What the traces saw, confirmed or not: how many different AS paths and hop\n// sequences, and how many traces.\nseen = (field) => from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and not exists r.trigger and r._field == field and r.target =~ dest and r.target =~ along)\n  |> group(columns: [\"target\"]) |> unique() |> count()\ntraces = from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and not exists r.trigger and r._field == \"hops\" and r.target =~ dest and r.target =~ along)\n  |> group(columns: [\"target\"]) |> count() |> set(key: \"_field\", value: \"traces\")\nunion(tables: [flags |> keep(columns: [\"target\", \"_field\", \"_value\"]),\n               seen(field: \"as_path\") |> set(key: \"_field\", value: \"as_paths\") |> keep(columns: [\"target\", \"_field\", \"_value\"]),\n               seen(field: \"path_hash\") |> set(key: \"_field\", value: \"sequences\") |> keep(columns: [\"target\", \"_field\", \"_value\"]),\n               traces |> keep(columns: [\"target\", \"_field\", \"_value\"])])\n  |> group() |> pivot(rowKey: [\"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({destination: r.target, as_changed: r.as_changed, changed: r.changed, dst_changed: r.dst_changed,\n      as_paths: r.as_paths, sequences: r.sequences, traces: r.traces}))\n  |> sort(columns: [\"as_changed\", \"changed\", \"sequences\", \"destination\"], desc: true)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No path in the range: the path meter is off (smoking-pi enable pathmeter), or no destination picked matches the filters.",
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "as_changed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "AS path changes (confirmed)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "changed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "hop changes (confirmed)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dst_changed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "address changes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "as_paths"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "AS paths seen"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sequences"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "hop sequences seen"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "destination"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Path evolution of ${__value.raw}",
+                    "url": "/d/internet-topology-v1?var-focus=${__value.raw}&var-target=${target:queryparam}&var-asn=${asn}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "destination": 0,
+              "as_changed": 1,
+              "changed": 2,
+              "dst_changed": 3,
+              "as_paths": 4,
+              "sequences": 5,
+              "traces": 6
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "state-timeline",
+      "title": "${focus}: path per trace (experimental)",
+      "description": "One bar per trace (hourly). Top three rows are what each trace saw: the AS path, the hop sequence (a short hash of the hop addresses) and the address the name resolved to; each different value is numbered in the order it first appeared in the range (#1, #2...) and keeps its color (ten colors, so #1 and #11 share one). A color that flickers for one trace and comes back is a single trace, not a confirmed change. The last row marks only the changes two traces in a row agreed on. Seen from this house only, forward direction only, one flow per destination (Paris traceroute over ICMP, once an hour): the way back, the other equal-cost paths and the rest of the Internet's topology are not seen. A hop's network (AS) is an inference, not proof of which networks carried the traffic: it is the network that announces the address's prefix in BGP (CAIDA's RouteViews table), or the member that uses an exchange point's port; a router can answer from an address another network owns.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"join\"\nimport \"strings\"\nimport \"regexp\"\n// pathmeter stores one path per base name (docs/path.md): match that name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${focus}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"$\")\nraw = (field) => from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and not exists r.trigger and r.target =~ re and r._field == field)\n  |> group() |> keep(columns: [\"_time\", \"_value\"]) |> sort(columns: [\"_time\"])\n// Each different value numbered in the order it first appeared (#1, #2...): the\n// number picks the color, so one value keeps one color along the row.\nnumbered = (field, label, show) => {\n  rows = raw(field: field)\n  firsts = rows |> group(columns: [\"_value\"]) |> first() |> group() |> sort(columns: [\"_time\"])\n    |> map(fn: (r) => ({value: r._value, n: 1})) |> cumulativeSum(columns: [\"n\"])\n  return join.inner(left: rows, right: firsts, on: (l, r) => l._value == r.value,\n      as: (l, r) => ({_time: l._time, _value: \"#\" + string(v: r.n) + \" \" + show(v: l._value), _field: label}))\n}\nflags = from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and not exists r.trigger and r.target =~ re and\n      (r._field == \"changed\" or r._field == \"as_changed\" or r._field == \"dst_changed\"))\n  |> group(columns: [\"_field\"]) |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> group()\n// One row per thing a trace records; the last row is only what two traces in a row confirmed.\nunion(tables: [\n      numbered(field: \"as_path\", label: \"1 AS path seen\", show: (v) => if v == \"\" then \"(no network)\" else v),\n      numbered(field: \"path_hash\", label: \"2 hop sequence seen\", show: (v) => strings.substring(v: v, start: 0, end: 6)),\n      numbered(field: \"dst\", label: \"3 address traced\", show: (v) => v),\n      flags |> map(fn: (r) => ({_time: r._time, _value: if r.as_changed then \"AS path changed\" else if r.changed then \"hops changed\"\n          else if r.dst_changed then \"address changed\" else \"no change\", _field: \"4 confirmed change\"}))])\n  |> group(columns: [\"_field\"]) |> sort(columns: [\"_time\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "noValue": "No path in the range: the path meter is off (smoking-pi enable pathmeter), or no destination picked matches the filters.",
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 80
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "no change": {
+                  "color": "transparent",
+                  "index": 0
+                },
+                "AS path changed": {
+                  "color": "red",
+                  "index": 1
+                },
+                "hops changed": {
+                  "color": "orange",
+                  "index": 2
+                },
+                "address changed": {
+                  "color": "yellow",
+                  "index": 3
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*0 .*",
+                "result": {
+                  "color": "#7EB26D",
+                  "index": 4
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*1 .*",
+                "result": {
+                  "color": "#EAB839",
+                  "index": 5
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*2 .*",
+                "result": {
+                  "color": "#6ED0E0",
+                  "index": 6
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*3 .*",
+                "result": {
+                  "color": "#EF843C",
+                  "index": 7
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*4 .*",
+                "result": {
+                  "color": "#E24D42",
+                  "index": 8
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*5 .*",
+                "result": {
+                  "color": "#1F78C1",
+                  "index": 9
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*6 .*",
+                "result": {
+                  "color": "#BA43A9",
+                  "index": 10
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*7 .*",
+                "result": {
+                  "color": "#705DA0",
+                  "index": 11
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*8 .*",
+                "result": {
+                  "color": "#508642",
+                  "index": 12
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^#\\d*9 .*",
+                "result": {
+                  "color": "#CCA300",
+                  "index": 13
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 AS path seen"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "AS path seen"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "2 hop sequence seen"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "hop sequence seen"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "3 address traced"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "address traced"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "4 confirmed change"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "confirmed change"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showValue": "auto",
+        "rowHeight": 0.85,
+        "mergeValues": true,
+        "alignValue": "left",
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "${focus}: RTT (median of the pings)",
+      "description": "The destination's own round-trip time from SmokePing's ICMP probe, on the same time axis as the path above: a step that lines up with a confirmed change is worth reading together; one that does not happened on a path the traces did not see change. The path changed annotations mark confirmed changes.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"regexp\"\n// The ICMP probe of the same destination: the traces are ICMP too.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${focus}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_icmp)?$\")\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"latency\" and r._field == \"median\" and r.target =~ re)\n  |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value * 1000.0, _field: \"median RTT\"}))\n  |> group(columns: [\"_field\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 1,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "noValue": "No ICMP measurement of this destination in the range.",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "axisWidth": 140,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "${focus}: loss",
+      "description": "Share of the ICMP pings to the destination that got no answer, averaged per point, on the same time axis as the path. Loss at the destination says nothing about which hop lost it: a silent or slow hop in a trace is that router's own reply, not the traffic through it.",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 75
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"regexp\"\n// The ICMP probe of the same destination: the traces are ICMP too.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${focus}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_icmp)?$\")\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"latency\" and r._field == \"loss\" and r.target =~ re)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: \"loss\"}))\n  |> group(columns: [\"_field\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "noValue": "No ICMP measurement of this destination in the range.",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "axisWidth": 140,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    }
+  ]
+}

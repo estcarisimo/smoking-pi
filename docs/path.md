@@ -174,6 +174,10 @@ where on the path a common cause would sit: the router, network or exchange
 the destinations that lost cross and the others do not. Connectivity &
 Quality lists it under *who lost*.
 
+Every destination side by side (which networks they are in and share, which
+networks answer at each hop, and how one destination's path moved next to
+its RTT and loss) is the [Internet Topology](topology.md) dashboard.
+
 A router's reply time is how fast its own slow path answers a probe that
 expired there, and routers rate-limit those replies. It describes the hop;
 it is not that hop's latency, and a slow or silent hop says nothing about

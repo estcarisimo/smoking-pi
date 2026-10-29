@@ -1039,6 +1039,30 @@ def test_columns_a_map_or_elapsed_computes_are_not_tag_filters():
     assert sources.tag_refs_in(quoted) == {"phase", "to_version", "foo"}
 
 
+def test_columns_a_reduce_a_histogram_or_a_join_makes_are_not_tag_filters():
+    """Internet Topology folds rows with reduce(), counts traces per hop with
+    histogram() (its le bound) and names networks with join.left(), whose r
+    is the right-hand stream's row. None of those is a tag filter; a column
+    read before the call that makes it still is."""
+    from doctor import sources
+
+    query = (
+        'a = from(bucket:"s") |> filter(fn:(r) => r._measurement == "path_hop" and r.ttl == "01") '
+        '|> group(columns: ["asn"]) '
+        '|> reduce(identity: {n: 0, which: ""}, fn: (r, accumulator) => ({n: accumulator.n + 1, '
+        'which: accumulator.which + r.target})) |> group() |> map(fn: (r) => ({r with m: r.n}))\n'
+        'b = from(bucket:"s") |> filter(fn:(r) => r._measurement == "path_trace") |> toFloat() '
+        '|> histogram(bins: [1.0, 2.0]) |> map(fn: (r) => ({hop: r.le}))\n'
+        'join.left(left: a, right: b, on: (l, r) => l.own == r.own, '
+        'as: (l, r) => ({x: l.which, y: r.name})) |> filter(fn: (r) => r.y != "")'
+    )
+    assert sources.tag_refs_in(query) == {"ttl", "target"}
+    early = query.replace('|> group(columns: ["asn"])', '|> filter(fn: (r) => r.n > 0)', 1)
+    assert sources.tag_refs_in(early) == {"ttl", "target", "n"}
+    unbounded = query.replace("|> toFloat()", "|> filter(fn: (r) => r.le > 0.0) |> toFloat()")
+    assert sources.tag_refs_in(unbounded) == {"ttl", "target", "le"}
+
+
 def test_a_joined_query_answers_with_a_number():
     """The deaf stream's keep() names a tag, but it shapes a join, not the
     answer; and _value: r.cut reads a pivoted field."""

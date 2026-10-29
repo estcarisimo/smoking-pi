@@ -600,7 +600,11 @@ def _pivoted_after(query: str, set_only: bool = False) -> list[tuple[str, set[st
     return pieces
 
 
-_MADE_BY_RE = re.compile(r"\|>\s*(map|elapsed)\(")
+_MADE_BY_RE = re.compile(r"\|>\s*(map|elapsed|reduce|histogram)\(")
+# ``join.left(left: a, right: b, on: (l, r) => ..., as: (l, r) => ...)``: its
+# ``r`` is the right-hand stream's row, which the query built; a join never
+# filters storage, so nothing inside one is a tag filter.
+_JOIN_RE = re.compile(r"\bjoin\.(?:left|right|inner|full)\(")
 
 
 def _call_end(query: str, open_paren: int) -> int:
@@ -626,10 +630,12 @@ def _call_end(query: str, open_paren: int) -> int:
 
 
 def _computed(query: str) -> list[tuple[int, set[str]]]:
-    """Each ``map()``/``elapsed()`` that adds columns: where it ends and the
-    columns it makes. ``map(fn: (r) => ({_time: r._time, s: ...}))`` makes
-    ``s``; ``{r with s: ...}`` too; ``elapsed()`` makes ``elapsed`` (or its
-    ``columnName``). Read after the call, ``r.s`` is that column, not a tag."""
+    """Each ``map()``/``elapsed()``/``reduce()``/``histogram()`` that adds
+    columns: where it ends and the columns it makes. ``map(fn: (r) =>
+    ({_time: r._time, s: ...}))`` makes ``s``; ``{r with s: ...}`` too;
+    ``reduce()`` the keys of its records; ``elapsed()`` makes ``elapsed`` (or
+    its ``columnName``), ``histogram()`` its ``le`` bound. Read after the
+    call, ``r.s`` is that column, not a tag."""
     made = []
     for m in _MADE_BY_RE.finditer(query):
         end = _call_end(query, m.end() - 1)
@@ -637,6 +643,9 @@ def _computed(query: str) -> list[tuple[int, set[str]]]:
         if m.group(1) == "elapsed":
             named = re.search(r'columnName:\s*"([A-Za-z_]\w*)"', call)
             names = {named.group(1) if named else "elapsed"}
+        elif m.group(1) == "histogram":
+            named = re.search(r'upperBoundColumn:\s*"([A-Za-z_]\w*)"', call)
+            names = {named.group(1) if named else "le"}
         else:
             # Text inside quotes is a value, never a column: ", foo: " in
             # a label must not exempt r.foo.
@@ -658,10 +667,20 @@ def tag_refs_in(query: str) -> set[str]:
     Only references AFTER the pivot are exempt, and only for values selected
     before it: ``r.loss`` ahead of the pivot is still a tag filter. A query
     joining streams can pivot more than once; each pivot exempts what it
-    made from there on. Columns a ``map()`` or ``elapsed()`` computed
-    (:func:`_computed`) are exempt the same way, after the call.
+    made from there on. Columns a ``map()``, ``elapsed()``, ``reduce()`` or
+    ``histogram()`` computed (:func:`_computed`) are exempt the same way,
+    after the call, and nothing inside a ``join.*()`` call counts
+    (:data:`_JOIN_RE`).
     """
-    events = sorted(_pivots(query) + _computed(query), key=lambda e: e[0])
+    events = _pivots(query) + _computed(query)
+    for m in reversed(list(_JOIN_RE.finditer(query))):
+        end = _call_end(query, m.end() - 1)
+        # The record its as: function returns: columns, from the join on.
+        names = set(re.findall(r"(?:[{,]|\bwith)\s*([A-Za-z_]\w*)\s*:",
+                               _STRING_RE.sub('""', query[m.end():end])))
+        events.append((end, names))
+        query = query[:m.end()] + " " * (end - 1 - m.end()) + query[end - 1:]
+    events.sort(key=lambda e: e[0])
     refs, exempt, start = set(), set(), 0
     for pos, made in events + [(len(query), set())]:
         refs |= set(_TAG_REF_RE.findall(query[start:pos])) - exempt

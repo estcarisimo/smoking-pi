@@ -28,6 +28,7 @@ nav:
       - Overview and public address: public-address.md
       - One target, every layer: target-detail.md
       - The path to each destination (experimental): path.md
+      - Internet Topology (experimental): topology.md
       - Connectivity and quality: connectivity-quality.md
       - Service taxonomy: taxonomy.md
       - Targets by service: targets-by-service.md
