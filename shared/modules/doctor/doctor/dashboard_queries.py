@@ -177,6 +177,14 @@ def _epoch_ms(spec, now_ms: int) -> int:
     return int(moment.timestamp() * 1000)
 
 
+def _regex_escape(value: str) -> str:
+    """Grafana's regex escape (``regexEscape``): only ``\\ ^ $ * + ? . ( ) |
+    [ ] { } /``. Python's ``re.escape`` also escapes a space or ``-``, which
+    Grafana never sends: a picked ``a-b`` read ``a\\-b``, and inside a Flux
+    string that is an escape Flux refuses."""
+    return re.sub(r"[\\^$*+?.()|\[\]{}/]", lambda m: "\\" + m.group(0), value)
+
+
 class AllValue(str):
     """A variable's custom all value (``allValue``) while "All" is picked.
 
@@ -204,7 +212,7 @@ def _format(name: str, value: str, fmt: str | None, is_multi: bool = False) -> s
     if fmt == "queryparam":
         return f"var-{name}={urllib.parse.quote(value, safe='')}"
     if fmt == "regex":
-        return f"({re.escape(value)})" if is_multi else re.escape(value)
+        return f"({_regex_escape(value)})" if is_multi else _regex_escape(value)
     if fmt == "json":
         return json.dumps([value] if is_multi else value)
     if fmt == "singlequote":
@@ -517,7 +525,9 @@ def _check_dashboard(run: _Run, dash: dict, now_ms: int, timezone: str,
             current = current[0] if current else None
         if kind != "query":
             raw = variable.get("query")
-            if kind == "custom" and isinstance(raw, str):
+            if current == "$__all" and variable.get("includeAll") and variable.get("allValue"):
+                values[name] = AllValue(variable["allValue"])
+            elif kind == "custom" and isinstance(raw, str):
                 options = [o.strip() for o in raw.split(",") if o.strip()]
                 values[name] = str(current) if current in options else (options[0] if options else "")
             elif kind in ("textbox", "constant"):
