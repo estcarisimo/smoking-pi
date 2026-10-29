@@ -462,6 +462,30 @@ def test_multi_value_formats_keep_their_shape():
     assert dq.substitute("${x:json}", {"x": "a"}) == '"a"'
 
 
+def test_a_custom_all_value_is_sent_as_written_in_any_format():
+    """Grafana does not format a custom all value: ``${x:regex}`` on "All"
+    with allValue ``.*`` sends ``.*``. Escaped like a value, it put
+    ``\\.\\*`` inside a Flux string and every Internet Topology panel
+    failed to compile here (v2.49.0-rc.1) while the browser drew them."""
+    every = dq.AllValue(".*")
+    assert dq.substitute('"^(?i)(${x:regex})$"', {"x": every}, {"x"}) == '"^(?i)(.*)$"'
+    assert dq.substitute("${x:pipe} ${x:json} ${x}", {"x": every}, {"x"}) == ".* .* .*"
+    assert dq.substitute("${x:text}", {"x": every}, {"x"}) == "All"
+    assert dq.substitute("${x:percentencode}", {"x": every}, {"x"}) == ".%2A"
+
+
+def test_regex_all_value_reaches_the_query_unescaped():
+    target = {"type": "query", "name": "target", "datasource": {"uid": "influxdb"},
+              "query": "list targets", "multi": True, "includeAll": True,
+              "allValue": ".*", "current": {"value": ["$__all"]}}
+    g = FakeGrafana({"a": _dash("a", [_panel("P", 'dest = regexp.compile(v: "^(?i)(${target:regex})$")')],
+                                [target])},
+                    {"list targets": ["Google"]})
+    res = _run(g)
+    assert res.status is Status.OK, res.findings
+    assert g.queries[-1] == 'dest = regexp.compile(v: "^(?i)(.*)$")'
+
+
 def test_rounded_ranges():
     now = 2 * 86_400_000 + 3_600_000  # day 2, 01:00 UTC
     assert dq._epoch_ms("now/d", now) == 2 * 86_400_000

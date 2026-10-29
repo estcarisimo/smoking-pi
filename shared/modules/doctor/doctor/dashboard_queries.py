@@ -177,10 +177,28 @@ def _epoch_ms(spec, now_ms: int) -> int:
     return int(moment.timestamp() * 1000)
 
 
+class AllValue(str):
+    """A variable's custom all value (``allValue``) while "All" is picked.
+
+    Grafana sends it as written, never in the reference's format: ``.*``
+    stays ``.*`` in ``${x:regex}``, so a panel can put it inside a Flux
+    string. Only ``text`` (which reads ``All``) and ``percentencode``
+    format it. Escaped like a value it was ``\\.\\*``, an escape no Flux
+    string accepts, and every Internet Topology panel failed here while
+    the browser drew them (v2.49.0-rc.1)."""
+
+
 def _format(name: str, value: str, fmt: str | None, is_multi: bool = False) -> str:
     """One value in a Grafana format. A multi-value variable keeps its list
     shape in ``json``, ``regex`` and ``pipe``/``csv`` though only one value
-    is ever sent: this check runs one value per variable."""
+    is ever sent: this check runs one value per variable. A custom all value
+    (:class:`AllValue`) is sent as written."""
+    if isinstance(value, AllValue):
+        if fmt == "text":
+            return "All"
+        if fmt == "percentencode":
+            return urllib.parse.quote(value, safe="")
+        return str(value)
     if fmt == "sqlstring":
         return "'" + value.replace("'", "''") + "'"
     if fmt == "queryparam":
@@ -536,7 +554,7 @@ def _check_dashboard(run: _Run, dash: dict, now_ms: int, timezone: str,
         # Saved on "All" with a custom all value: Grafana sends that value,
         # whatever the query offers (none, on a fresh install, is fine).
         if current == "$__all" and variable.get("includeAll") and variable.get("allValue"):
-            values[name] = str(variable["allValue"])
+            values[name] = AllValue(variable["allValue"])
             continue
         if not options:
             unresolved.add(name)

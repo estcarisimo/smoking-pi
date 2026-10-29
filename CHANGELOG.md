@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The doctor failed every Internet Topology panel that the browser drew.**
+  On the v2.49.0-rc.1 candidate, `smoking-pi doctor --live` reported six
+  failures in `dashboard-queries-run` (Flux "compilation failed" and
+  "invalid character '\x1f'") on the new dashboard. That blocked the release
+  over panels that worked. With "All" picked, Grafana sends a variable's
+  custom all value as written (`.*` stays `.*` in `${target:regex}`). The
+  doctor ran it through the regex format like any other value, put `\.\*`
+  inside a Flux string, and Flux accepts no such escape. The doctor now sends
+  a custom all value unformatted, as Grafana does: written as is in every
+  format but `text` ("All") and `percentencode`. Re-run on the staging Pi:
+  0 failures.
+
 ## [2.49.0] — 2026-10-29
 
 The path meter now reads every network on the Pi itself and looks where the
