@@ -237,3 +237,33 @@ def test_an_aggregate_pass_without_a_shared_pass_is_never_run():
     calls = []
     report = _quiet(aggregate_pass=lambda *a: calls.append(a))
     assert calls == [] and "shared_congestion" not in report
+
+
+def test_the_segments_pass_reads_the_shared_result_and_replaces_the_window():
+    _, d_start = main.windows(NOW)
+    seen, written = [], []
+
+    def seg(s):
+        seen.append(s["voters"])
+        return [{"start": d_start + 900, "end": d_start + 9000, "confidence": "strong"},
+                {"start": d_start + 9900, "end": d_start + 12000, "confidence": "none"}]
+
+    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None,
+                    segments_pass=seg, replace_segments=lambda p, s, e: written.append((len(p), s, e)))
+    assert seen == [40] and written == [(2, d_start, NOW)]
+    assert report["shared_segment"] == {"periods": 2, "hypotheses": 1}
+    assert report["errors"] == 0
+
+
+def test_no_segments_pass_without_enough_voters_and_a_failure_is_isolated():
+    calls = []
+    _quiet(shared_pass=lambda s, d: {"periods": [], "voters": 3},
+           segments_pass=lambda s: calls.append(s))
+    assert calls == []
+
+    def boom(s):
+        raise RuntimeError("no path data")
+
+    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None, segments_pass=boom)
+    assert report["shared_segment"] == {"error": True}
+    assert report["shared"]["voters"] == 40 and report["errors"] == 1

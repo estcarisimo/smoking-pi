@@ -33,6 +33,31 @@ version gets a matching GitHub release and git tag.
   IPv4, opt-in with the path meter ([The path to each
   destination](path.md#during-a-loss-episode)).
 
+- **Which part of the path the destinations that lost share, as a
+  hypothesis (experimental).** The shared-degradation detector says when
+  loss rose for the whole connection and who lost, and the path meter
+  records every destination's path, but nothing put the two together: to
+  ask whether the destinations that lost had a router, a network or an
+  exchange in common that the ones that did not lacked, someone had to
+  read dozens of traceroutes by hand against a loss table, and a night
+  like the August–October ones would have stayed "somewhere past the
+  gateway". The inference module now compares, for each shared period, the
+  paths of the destinations that lost (1 % or more) with those that did
+  not (under 0.5 %), router by router (a private one named by the public
+  hop before it), AS by AS and exchange by exchange, and writes the segment
+  that best sets them apart to `shared_segment`, with its confidence
+  (`strong`, `weak`, `none`), the counts on each side, what each side
+  shares, and the traced share. A destination whose trace cannot show a
+  segment (silent where it sits, or never reaching the destination) counts
+  against the hypothesis, and fewer than three clean destinations is no
+  contrast. It needs the path meter, reads only what is already stored and
+  is never in the alert path. Connectivity & Quality lists it under *who
+  lost*. Replayed on the staging Pi's 2, 5 and 6 October nights (with the
+  first paths recorded, three weeks later), it says what was true: every
+  steady destination lost, so nothing past the shared hops 1–5 and Google
+  Fiber's network is singled out; over the last week, with no shared
+  period, it says nothing.
+
 ### Changed
 
 - **Networks without Team Cymru, and the right owner at an exchange.** The

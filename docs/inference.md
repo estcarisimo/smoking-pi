@@ -155,6 +155,77 @@ out of it (lost at most a tenth of the pooled loss; five at most, then
 *Whole connection: who lost in each shared loss period*. Untagged targets
 are left out of the operators and kinds, as in the qualification.
 
+## Shared path segments: a hypothesis of where
+
+With the [path meter](path.md) on, each `shared` period also gets a
+hypothesis of **where on the path** a common cause would sit: the router,
+network (AS) or exchange point the destinations that lost cross and the
+ones that did not, mostly, do not. It is a hypothesis, never a finding:
+destinations that lost and cross one router are consistent with that
+router, they do not show it. Nothing is probed for it; it reads the
+periods above and the traces the path meter already stored.
+
+1. **Who lost.** The period's voters by their mean loss over the period:
+   *lost* at 1 % or more (the qualification's threshold), *did not* under
+   0.5 %, and *in between*, which counts on neither side, so a destination
+   at the threshold cannot tip the hypothesis.
+2. **Their paths.** Each destination's last trace at or before the
+   period's end and no more than three hours before its start. One with
+   none is *untraced*: it lowers the traced share, not the comparison.
+3. **Segments.** Every router a trace answered from, by its address; a
+   private address (the home router, the access network's `10.x` routers)
+   only names a router within the network that uses it, so it is named by
+   the public hop before it (`10.248.2.13 after 136.25.220.1`). Every AS of
+   the trace's AS path, and every exchange point a hop answered from. A hop
+   that did not answer is no segment.
+4. **What a trace cannot show.** A destination that does not cross a
+   segment may still cross it unseen when its trace was silent at that
+   router's TTL, or, for an AS or an exchange, never reached the
+   destination. Such a destination counts *against* the hypothesis.
+5. **Scoring.** For each segment, the share of the destinations that lost
+   crossing it, minus the share of the clean ones crossing it (or possibly
+   crossing it). A segment every destination crosses, like the house's
+   first hops or its provider, scores nothing: it is common to both sides.
+   On a tie, a network goes before an exchange before a router (a network's
+   routers may share the load).
+6. **Confidence.** `strong`: 80 % or more of those that lost cross it and
+   20 % or less of the clean ones do, with at least three on each side and
+   60 % of the destinations traced. `weak`: a gap of at least one half
+   between the two shares, with at least three on each side. Otherwise
+   `none`: nothing sets the destinations that lost apart. That is also what
+   a loss everyone shared reads as: with fewer than three clean
+   destinations there is nothing to contrast, and the text says so.
+
+Every row also says what each side shares, the first hops all its traces
+agree on (at least half answering, all with the same address) and the ASes
+they all cross: "9 lost, 20 did not (29 traced). The 9 that lost share hops
+1–5 and AS19165 AS16591 AS6939; the 20 that did not share hops 1–5 and
+AS19165 AS16591. Hypothesis (strong): AS6939 (HURRICANE…), crossed by 9 of
+9 that lost and 0 of 20 that did not."
+
+Results go to `shared_segment`, one point per shared period that at least
+one destination was traced for (no target tag): `confidence`, `segment`,
+`segment_kind` (`as`, `ixp`, `router` or `none`), `hypothesis` (the text
+above), `affected`, `unaffected`, `mild`, `traced`, `untraced`, `coverage`
+(the traced share), `affected_through`, `unaffected_through`, `recall` and
+`spill` (the two shares), `common_hops`/`common_as` and
+`clean_common_hops`/`clean_common_as`, `path_changed` (destinations whose
+path changed within the window read), and `alternatives` (the next two
+segments). Connectivity & Quality lists them under *who lost*, in *Whole
+connection: the path segment the destinations that lost share, a
+hypothesis*. A `dominated` period is one destination's, and its own path is
+its hypothesis: it gets no row.
+
+Replayed on the staging Pi (17 steady destinations) over its 2, 5 and 6
+October nights, the first shared nights it measured, with the paths it
+first recorded three weeks later (the path meter did not run before
+2026-10-22; the paths past the access network were stable since): every
+destination lost 1–8 %, so it said `none` each night, "the 17 that lost
+share hops 1–5 and AS19165 AS16591", the house's provider. That is what
+those nights were: loss past the gateway on every destination, so on no
+single route beyond the provider. Over the following week, with no shared
+period, it wrote nothing.
+
 ## Shared persistent congestion: Jitterbug on an aggregate input
 
 The same question for queues: did a floor rise and stay up for the whole
@@ -372,6 +443,12 @@ fills 7 days a day at a time: about 30 s once, at most ~390 MB.
 - **Upgrades are left out of the shared passes only.** A per-target
   degradation period that covers an upgrade still reads `loss`: its
   `class` names the radio (`monitor_deaf`), and an upgrade is not that.
+- **Path segments are a hypothesis.** They compare paths, they do not test
+  a router: a segment crossed by every destination that lost may be where
+  the loss was, or merely on the way to every destination that was busy
+  that evening. The path read is the destination's last trace before the
+  period's end, an hour old at worst, so a route that moved during the
+  period is read as it was before (`path_changed` counts those).
 - **Not in the alert path.** Alerts and other ways of passing these results
   on come later, once each detector has been validated on real connections.
 - The image is larger than the others: the detectors need PyTorch (the

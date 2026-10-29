@@ -279,6 +279,8 @@ def qualify(period: dict, lo: pd.DataFrame, of) -> dict:
         "dominant_share": float(per_target.max() / total) if top else 0.0,
         "scope": "shared" if share >= SHARED_OPERATOR_SHARE and len(kinds) >= MIN_KINDS
         else "dominated",
+        # Every voter's mean loss over the period, for segments.py; not written.
+        "target_loss": {str(t): float(v) for t, v in per_target.items() if pd.notna(v)},
     })
     return period
 

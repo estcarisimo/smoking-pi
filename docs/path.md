@@ -156,6 +156,12 @@ On **Target Detail**, the collapsed **Path (experimental)** row:
 The **Path changed (experimental)** annotation marks confirmed changes on
 every panel of the dashboard.
 
+With the [inference module](inference.md#shared-path-segments-a-hypothesis-of-where)
+on too, every loss period the whole connection shared gets a hypothesis of
+where on the path a common cause would sit: the router, network or exchange
+the destinations that lost cross and the others do not. Connectivity &
+Quality lists it under *who lost*.
+
 A router's reply time is how fast its own slow path answers a probe that
 expired there, and routers rate-limit those replies. It describes the hop;
 it is not that hop's latency, and a slow or silent hop says nothing about

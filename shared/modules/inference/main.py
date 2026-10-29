@@ -11,7 +11,9 @@ and their periods replace the window's earlier ones in InfluxDB (store.py).
 Then, once per pass, shared degradation over the same window as the loss
 (shared.py): one series across every destination, for the whole connection;
 and Jitterbug, unchanged, on an aggregate stream of every voter's pings
-over its own floor (aggregate.py), over the congestion window.
+over its own floor (aggregate.py), over the congestion window. With the
+path meter on, each shared period also gets the path segment its lossy
+destinations share, as a hypothesis (segments.py).
 ``INFERENCE_SINCE`` (a date) keeps both windows from reaching before it, for
 a host that moved or changed provider: history from another connection is
 not this one's baseline.
@@ -34,6 +36,7 @@ import aggregate
 import congestion
 import deaf
 import degradation
+import segments
 import series
 import shared
 import status
@@ -82,17 +85,23 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
              replace=store.replace, read_deaf=series.deaf_bins,
              record_pass=store.write_pass, shared_pass=None,
              replace_shared=store.replace_shared, aggregate_pass=None,
-             replace_shared_congestion=None) -> dict:
+             replace_shared_congestion=None, segments_pass=None,
+             replace_segments=None) -> dict:
     """One pass over every target. A target that fails is logged and skipped;
     the others still run. ``shared_pass(start, deaf_bins)`` runs the shared
     detector once after them (main() passes shared.run), and
     ``aggregate_pass(shared_result, c_start, d_start, now)`` Jitterbug on the
     aggregate stream after that, with the shared pass's voters (main() passes
-    aggregate.run)."""
+    aggregate.run). ``segments_pass(shared_result)`` reads the paths behind
+    the shared periods (main() passes segments.run)."""
     if replace_shared_congestion is None:
         def replace_shared_congestion(periods, start, end):
             return store.replace_shared(periods, start, end,
                                         measurement=store.SHARED_CONGESTION)
+    if replace_segments is None:
+        def replace_segments(periods, start, end):
+            return store.replace_shared(periods, start, end,
+                                        measurement=store.SHARED_SEGMENT)
     now = int(time.time()) if now is None else now
     c_start, d_start = windows(now)
     started = time.monotonic()
@@ -153,6 +162,17 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             log.warning("shared degradation failed", exc_info=True)
             report["shared"] = {"error": True}
             report["errors"] += 1
+    if segments_pass is not None and s is not None and s["voters"] >= shared.MIN_VOTERS:
+        try:
+            h = segments_pass(s)
+            replace_segments(h, d_start, now)
+            report["shared_segment"] = {
+                "periods": len(h),
+                "hypotheses": sum(1 for x in h if x.get("confidence") != "none")}
+        except Exception:  # noqa: BLE001 -- the other results stand without it
+            log.warning("shared segments failed", exc_info=True)
+            report["shared_segment"] = {"error": True}
+            report["errors"] += 1
     if aggregate_pass is not None and s is not None and s["voters"] >= shared.MIN_VOTERS:
         try:
             a = aggregate_pass(s, c_start, d_start, now)
@@ -209,7 +229,8 @@ def main() -> None:
             table.refresh()
         except Exception:  # noqa: BLE001 -- the table is an aid; the pass goes on without it
             log.exception("routing table refresh failed")
-        report = run_once(shared_pass=shared.run, aggregate_pass=aggregate.run)
+        report = run_once(shared_pass=shared.run, aggregate_pass=aggregate.run,
+                          segments_pass=lambda s: segments.run(s, name_of=asn.as_name))
         report["interval"] = interval
         status.write(report)
         time.sleep(max(60.0, interval - (time.time() - began)))

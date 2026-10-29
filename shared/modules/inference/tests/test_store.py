@@ -141,3 +141,21 @@ def test_the_pass_point_counts_shared_congestion_periods():
     line = store.pass_point({"targets": {}, "shared_congestion": {"periods": 2}},
                             1000).to_line_protocol()
     assert "shared_congestion_periods=2i" in line
+
+
+def test_shared_segment_points_carry_the_hypothesis_and_its_counts():
+    h = {"start": 1000, "end": 4600, "mean_loss_pct": 3.0, "affected": 9, "unaffected": 20,
+         "mild": 1, "traced": 29, "untraced": 0, "coverage": 1.0, "common_hops": 5,
+         "path_changed": 0, "confidence": "strong", "segment": "AS6939 (HURRICANE)",
+         "segment_kind": "as", "affected_through": 9, "unaffected_through": 0,
+         "recall": 1.0, "spill": 0.0, "alternatives": "", "hypothesis": "9 lost, 20 did not",
+         "target_loss": {"a": 4.0}}
+    [pt] = store.shared_points([h, {"start": 100, "end": 200}], 500, store.SHARED_SEGMENT)
+    line = pt.to_line_protocol()
+    assert line.startswith("shared_segment ")
+    for part in ('confidence="strong"', 'segment="AS6939 (HURRICANE)"', "affected=9i",
+                 "unaffected_through=0i", "recall=1", "common_hops=5i", "end=4600i",
+                 'hypothesis="9 lost, 20 did not"'):
+        assert part in line
+    assert "target_loss" not in line and "voters" not in line
+    assert store.measurement_name(store.SHARED_SEGMENT) == "shared_segment"

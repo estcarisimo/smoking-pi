@@ -253,6 +253,8 @@ def test_a_period_says_who_lost_and_who_stayed_out_of_it():
     kinds = dict(part.rsplit(" ", 2)[0:2] for part in p["by_kind"].split(", "))
     assert kinds == {tags.CONTENT: "5.0", tags.CDN: "4.5", tags.CACHE: "3.0", tags.CLOUD: "1.5"}
     assert p["diverged"] == "b1 0.0 %, b2 0.0 %, f2 0.0 %"
+    # Every voter's own loss, for segments.py (not written to InfluxDB).
+    assert p["target_loss"]["a1"] == 10.0 and p["target_loss"]["b1"] == 0.0
 
 
 def test_a_long_list_of_diverged_voters_is_cut_short():
