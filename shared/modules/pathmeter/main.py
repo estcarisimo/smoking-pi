@@ -267,8 +267,9 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
     previous = status.read()
     report["failed_cycles"] = (int(previous.get("failed_cycles") or 0) + 1
                                if report["failed"] else 0)
-    # The episode rounds' own report (episodes.py) outlives the cycle's.
-    if previous.get("episodes"):
+    # The episode rounds' own report (episodes.py) outlives the cycle's,
+    # unless they were turned off: then the budget must stop reserving them.
+    if previous.get("episodes") and episodes.cap() > 0:
         report["episodes"] = previous["episodes"]
     store.save(STATE, state)
     status.write(report)
@@ -311,7 +312,8 @@ def main() -> None:
             due = begun + max(60.0, every)
         else:
             try:
-                episodes.round_(int(begun))
+                episodes.round_(int(begun), rate=pps(), hourly_state=STATE,
+                                full_per_cycle=FULL_PER_CYCLE)
             except Exception:  # noqa: BLE001 -- one bad round must not stop the cycles
                 log.exception("episode round failed")
         wake = due if episodes.cap() == 0 else min(due, time.time() + episodes.EVERY)

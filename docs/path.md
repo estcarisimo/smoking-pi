@@ -88,7 +88,10 @@ five minutes.
   it asks every five minutes for the last hour's widespread runs, and an
   episode is under way while its last lossy cycle is at most three steps
   old (the exporter writes a cycle a step after it ends, and a run carries
-  across two missing ones).
+  across two missing ones). A run the rule reads as this host's own uplink
+  down, or its own DNS, is not traced: nothing past a dead uplink answers,
+  and a DNS failure is not on the path. The check itself is the last hour's
+  loss-event queries every five minutes, a fraction of a second each.
 - **What a round traces.** The destinations with a loss event in the
   episode first, then the others, each in turn (the one traced longest ago
   first), so a long episode covers all of them. One of each round's traces
@@ -99,11 +102,12 @@ five minutes.
   hourly trace used.
 - **The cap.** At most `PATHMETER_EPISODE_TRACES_PER_HOUR` traces (default
   60, five a round) in any sixty minutes, counted from a ledger in the
-  service's state volume, so a restart mid-episode does not start a new
-  hour. The affected destinations a round left out are counted as
+  service's state volume before each round is sent, so a restart or a
+  crash mid-episode does not start a new hour. The affected destinations a round left out are counted as
   `capped`.
 - **One loop.** Rounds and the hourly cycle run one after the other, never
-  together, so `PATHMETER_PPS` holds over both.
+  together, so `PATHMETER_PPS` holds over both; while a cycle runs (about
+  two minutes) the rounds wait.
 
 Round traces are tagged `trigger=episode` in InfluxDB (see below) with the
 episode's start, so a panel can show them apart from the hourly ones or

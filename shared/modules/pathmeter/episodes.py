@@ -11,15 +11,19 @@ shares (the home router and the hops after it), or beyond it.
 widespread run of ``common.loss_events`` -- the alerter's widespread rule
 (WIDESPREAD_PCT of the targets reporting in a cycle with a loss event of at
 least WIDESPREAD_LOSS_PCT, the breadth-only voters counted), the same runs
-the MCP ``get_loss_events`` and the web chat answer with. It is under way
+the MCP ``get_loss_events`` and the web chat answer with. A run read as
+this host's own uplink down or its own DNS (``reading`` uplink_down,
+monitor_dns) is not traced: nothing beyond a dead uplink answers, and a
+DNS failure is not on the path. It is under way
 while its last lossy cycle is at most ``ONGOING_STEPS`` steps old: the
 exporter writes a cycle a step after it ends, and a run carries across
 ``loss_events.GAP_STEPS`` missing steps.
 
 **The cap is per hour, hard.** At most ``PATHMETER_EPISODE_TRACES_PER_HOUR``
 traces in any sixty minutes (default 60, so 5 a round at 12 rounds an
-hour), counted from a ledger kept in the state volume: a restart in the
-middle of an episode does not start a new hour. 0 turns the rounds off.
+hour), counted from a ledger kept in the state volume and written before scamper
+runs: a restart, or a crash, in the middle of an episode does not start a
+new hour. The ledger counts the traces a round started, answered or not. 0 turns the rounds off.
 Destinations take turns (the one traced longest ago first), so a long
 episode covers all of them and a short one the most affected.
 
@@ -30,7 +34,12 @@ hop-by-hop answer through the access network costs. The others start past
 the shared prefix the hourly cycle learned (``-f``), and borrow its
 addresses as the hourly traces do. With no prefix learned yet, only the
 hop-1 trace runs. Rounds run in the same loop as the hourly cycle, never
-beside it, so ``PATHMETER_PPS`` holds over both.
+beside it, so ``PATHMETER_PPS`` holds over both; while a cycle runs (about
+two minutes for 76 destinations) the rounds wait.
+
+**What the check costs.** Every five minutes, the loss-event query of the
+last hour (``loss_events.answer``: five Flux queries, a fraction of a
+second each on the reference Pi) and the targets' cadence.
 
 **Kept apart.** Round traces are tagged ``trigger=episode`` on
 ``path_trace`` and ``path_hop`` (the hourly ones carry no such tag, so
@@ -71,6 +80,8 @@ EVERY = 300  # seconds between rounds while an episode lasts
 DEFAULT_CAP = 60  # traces per hour
 MAX_CAP = 1200
 HOUR = 3600
+# Runs whose loss is this host's own, where a trace shows nothing.
+NOT_ON_THE_PATH = ("uplink_down", "monitor_dns")
 DAY = 86400
 # The traces of a round that start at hop 1. main.FULL_PER_CYCLE is the
 # limit per cycle; one is enough to see the access network hop by hop.
@@ -92,7 +103,8 @@ STATE = "episodes.json"
 
 def cap() -> int:
     try:
-        value = int(os.environ.get("PATHMETER_EPISODE_TRACES_PER_HOUR", "") or DEFAULT_CAP)
+        value = int(os.environ.get("PATHMETER_EPISODE_TRACES_PER_HOUR", "")
+                    or DEFAULT_CAP)
     except ValueError:
         return DEFAULT_CAP
     return min(max(value, 0), MAX_CAP)
@@ -112,11 +124,11 @@ def _epoch(value) -> float | None:
 
 def under_way(answer: dict, now: float, step_s: int) -> dict | None:
     """The widespread run of ``answer`` (loss_events.answer) still going
-    at ``now``: ``{"start", "start_epoch", "targets"}``, the targets being
+    at ``now``: ``{"start", "targets"}``, the targets being
     the base names with a loss event since it began; None when there is
     none."""
     newest = next(iter(answer.get("widespread") or []), None)
-    if not newest:
+    if not newest or newest.get("reading") in NOT_ON_THE_PATH:
         return None
     start, end = _epoch(newest.get("start")), _epoch(newest.get("end"))
     if start is None or end is None or now - end > ONGOING_STEPS * step_s:
@@ -126,7 +138,7 @@ def under_way(answer: dict, now: float, step_s: int) -> dict | None:
         last = _epoch(event.get("last_time"))
         if event.get("target") and last is not None and last >= start:
             hit.add(target_base_name(str(event["target"])))
-    return {"start": newest["start"], "start_epoch": start, "targets": hit}
+    return {"start": newest["start"], "targets": hit}
 
 
 def detect(now: float, query=query_influx) -> dict | None:
@@ -160,15 +172,15 @@ def _ledger(rounds: list, now: float) -> list:
 
 
 def round_(now: int, query=query_influx, run=trace.run, write=write_points,
-           detect_fn=None, owners=None, names=None, rate: int | None = None,
-           limit: int | None = None) -> dict:
+           detect_fn=None, owners=None, names=None, rate: int = 5,
+           limit: int | None = None, hourly_state: str = "state.json",
+           full_per_cycle: int = 4) -> dict:
     """One check, and one round of traces when an episode is under way;
-    returns its report (also written to status.json, under ``episodes``)."""
-    import main  # the rate and the hourly state; imported here, main imports this
-
+    returns its report (also written to status.json, under ``episodes``).
+    ``rate``, ``hourly_state`` and ``full_per_cycle`` are main's
+    PATHMETER_PPS, STATE and FULL_PER_CYCLE, which main passes."""
     started = time.monotonic()
     limit = cap() if limit is None else limit
-    rate = rate or main.pps()
     mine = store.load(STATE)
     rounds = _ledger(mine.get("rounds") or [], now)
     report = {"at": now, "cap_per_hour": limit, "every": EVERY, "episode": None,
@@ -191,7 +203,7 @@ def round_(now: int, query=query_influx, run=trace.run, write=write_points,
         mine["episode"] = {"id": episode["start"], "at": now}
         report["episode"] = episode["start"]
 
-        hourly = store.load(main.STATE)
+        hourly = store.load(hourly_state)
         prefix: list = hourly.get("prefix") or []
         wanted = targets.wanted(query)
         # The address each destination was traced at last: no name is
@@ -209,10 +221,16 @@ def round_(now: int, query=query_influx, run=trace.run, write=write_points,
         room = max(0, min(per_round(limit), limit - used))
         traced_at, full_at = mine.get("traced_at") or {}, mine.get("full_at") or {}
         fulls, past = pick(affected, others, room, traced_at, full_at,
-                           min(FULL_PER_ROUND, main.FULL_PER_CYCLE))
+                           min(FULL_PER_ROUND, full_per_cycle))
         if not prefix:
             past = []  # nothing to start past: only the hop-1 trace runs
         report["capped"] = max(0, len(affected) - room)
+        # Counted before they are sent: a round that crashes or fails
+        # halfway still used its share of the hour.
+        if fulls or past:
+            rounds.append([now, len(fulls) + len(past), 0])
+            mine["rounds"] = rounds
+            store.save(STATE, mine)
         traced: dict[str, trace.Trace] = {}
         try:
             traced.update({t.dst: t for t in run(fulls, rate, 1)})
@@ -250,8 +268,9 @@ def round_(now: int, query=query_influx, run=trace.run, write=write_points,
         mine.pop("episode", None)
 
     report["seconds"] = round(time.monotonic() - started, 1)
+    if rounds and rounds[-1][0] == now:
+        rounds[-1][2] = report["probes"]
     if report["traces"]:
-        rounds.append([now, report["traces"], report["probes"]])
         try:
             write(points + [store.pass_point(now, report, trigger=TRIGGER)])
         except Exception:  # noqa: BLE001 -- the traces were sent; the cap counts them
@@ -263,8 +282,9 @@ def round_(now: int, query=query_influx, run=trace.run, write=write_points,
     mine["rounds"] = rounds
     store.save(STATE, mine)
 
-    traces_day = sum(r[1] for r in rounds)
-    probes_day = sum(r[2] for r in rounds)
+    measured = [r for r in rounds if r[2]]
+    traces_day = sum(r[1] for r in measured)
+    probes_day = sum(r[2] for r in measured)
     report["traces_last_hour"] = sum(r[1] for r in rounds if now - r[0] < HOUR)
     report["probes_last_day"] = probes_day
     report["probes_per_trace"] = (round(probes_day / traces_day, 1) if traces_day

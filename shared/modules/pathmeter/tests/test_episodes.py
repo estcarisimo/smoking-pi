@@ -19,7 +19,7 @@ def iso(epoch):
 
 def episode_at(now, targets=("D0", "D1")):
     """What detect() returns while an episode that began at START lasts."""
-    return {"start": iso(START), "start_epoch": START, "targets": set(targets)}
+    return {"start": iso(START), "targets": set(targets)}
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +41,7 @@ def go(net, now, written, detect=episode_at, limit=60):
     return episodes.round_(now, query=query_for(TARGETS), run=net, write=written.extend,
                            detect_fn=lambda at, query: detect(at),
                            owners=owners.Owners(table=None),
-                           rate=20, limit=limit)
+                           rate=20, limit=limit, full_per_cycle=main.FULL_PER_CYCLE)
 
 
 def lines(points):
@@ -170,7 +170,7 @@ def test_one_episode_keeps_one_id_past_the_window_it_is_read_from():
     net, written = Network(routes()), []
     learned(net)
     go(net, START, written)
-    later = {"start": iso(START + 3600), "start_epoch": START + 3600, "targets": {"D0"}}
+    later = {"start": iso(START + 3600), "targets": {"D0"}}
     report = go(net, START + episodes.EVERY, written, detect=lambda at: later)
     assert report["episode"] == iso(START)
 
@@ -220,3 +220,48 @@ def test_cap_from_the_environment(monkeypatch):
     assert episodes.cap() == episodes.MAX_CAP
     monkeypatch.setenv("PATHMETER_EPISODE_TRACES_PER_HOUR", "lots")
     assert episodes.cap() == episodes.DEFAULT_CAP
+
+
+def test_the_hosts_own_uplink_or_dns_is_not_traced():
+    now = START + 900
+    for reading in episodes.NOT_ON_THE_PATH:
+        run = answer(START, now - 300, [("D0", now - 300)])
+        run["widespread"][0]["reading"] = reading
+        assert episodes.under_way(run, now, 300) is None
+    run = answer(START, now - 300, [("D0", now - 300)])
+    run["widespread"][0]["reading"] = "internet_down"
+    assert episodes.under_way(run, now, 300)["targets"] == {"D0"}
+
+
+def test_a_failed_run_still_counts_against_the_cap():
+    net, written = Network(routes()), []
+    learned(net)
+
+    def broken(dsts, rate, first_hop=1):
+        raise RuntimeError("scamper died")
+    for n in range(3):
+        report = episodes.round_(START + n * episodes.EVERY, query=query_for(TARGETS),
+                                 run=broken, write=written.extend,
+                                 detect_fn=lambda at, query: episode_at(at),
+                                 rate=20, limit=10, full_per_cycle=2)
+        assert report["failed"] == 1
+    # 10 an hour, a round's share 1: three rounds started three traces.
+    assert sum(r[1] for r in store.load(episodes.STATE)["rounds"]) == 3
+
+
+def test_turned_off_the_cycle_drops_the_rounds_report(monkeypatch):
+    net, written = Network(routes()), []
+    learned(net)
+    go(net, START, written)
+    monkeypatch.setenv("PATHMETER_EPISODE_TRACES_PER_HOUR", "0")
+    run_cycle(net, START + 600, written)
+    assert "episodes" not in status.read()
+
+
+def test_a_cap_that_is_not_a_multiple_of_twelve_holds_over_any_hour():
+    net, written = Network(routes()), []
+    learned(net)
+    traced = [go(net, START + n * episodes.EVERY, written,
+                 detect=lambda at: episode_at(at, targets=FAR), limit=7)["traces"]
+              for n in range(30)]
+    assert all(sum(traced[n:n + 12]) <= 7 for n in range(30)) and sum(traced[:12]) == 7
