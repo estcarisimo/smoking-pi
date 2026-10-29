@@ -31,7 +31,7 @@ version gets a matching GitHub release and git tag.
   ceiling and 2 MB a day) as its own `EpisodeTraces` row, so admission keeps
   room for it whether an episode is under way or not. Pro with InfluxDB,
   IPv4, opt-in with the path meter ([The path to each
-  destination](docs/path.md#during-a-loss-episode)).
+  destination](path.md#during-a-loss-episode)).
 
 ### Changed
 
