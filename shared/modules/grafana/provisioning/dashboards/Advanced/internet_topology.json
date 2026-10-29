@@ -318,6 +318,10 @@
               {
                 "id": "displayName",
                 "value": "AS"
+              },
+              {
+                "id": "custom.width",
+                "value": 280
               }
             ]
           },
@@ -329,7 +333,7 @@
             "properties": [
               {
                 "id": "displayName",
-                "value": "destinations crossing it"
+                "value": "crossing it"
               },
               {
                 "id": "unit",
@@ -345,7 +349,7 @@
             "properties": [
               {
                 "id": "displayName",
-                "value": "destinations in it"
+                "value": "in it"
               },
               {
                 "id": "unit",
