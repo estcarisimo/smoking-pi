@@ -67,8 +67,10 @@ COPY modules/smokeping-exporters/*.py /exporters/
 # files bind-mount the checkout's exporters over that directory, which
 # would hide it. Like the other images, it is not bind-mounted: a change to
 # shared/modules/common needs a rebuild. dnspython is what the lookup asks
-# DNS with.
-RUN pip3 install --no-cache-dir --break-system-packages "dnspython>=2.6"
+# DNS with; originet holds the routing table the exporter, the resolver probe
+# and the public-address check look AS owners up in (musllinux wheels from
+# 1.1.0: this image is Alpine).
+RUN pip3 install --no-cache-dir --break-system-packages "dnspython>=2.6" "originet>=1.1.0,<2"
 COPY modules/common/*.py /opt/smoking-pi/common/
 COPY modules/common/data/ /opt/smoking-pi/common/data/
 ENV PYTHONPATH=/opt/smoking-pi

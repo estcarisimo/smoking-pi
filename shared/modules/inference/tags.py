@@ -9,9 +9,9 @@ network's kind from a short curated table of well-known networks:
 1. its host, from the ``target_host`` measurement the exporter writes;
 2. the host's address and CNAME chain, from DNS (the chain is what tells
    CloudFront from the rest of Amazon);
-3. the address's origin AS and its name, from Team Cymru's DNS service
-   (``<reversed /24>.origin.asn.cymru.com``), as the DNS observer and the
-   resolver probe already do;
+3. the address's origin AS and its name, from the routing table in the
+   state volume (originet over CAIDA's RouteViews snapshot, CAIDA's AS2Org
+   names), looked up locally;
 4. the operator and its kind from :data:`KNOWN`, a table of well-known
    networks, then the AS roles derived from Linnaeus
    (``common/data/asn_roles.csv``). An AS in neither is its own operator,
@@ -29,8 +29,9 @@ A target on the local network counts as no operator here, as before.
 PeeringDB's network type was tried first and is too coarse: it calls nearly
 all of these "Content".
 
-Lookups are DNS queries only, a few per target and cached in the state
-volume (addresses for a day, owners for a week). A failed lookup is cached
+Lookups are a few DNS queries per target for its address, then the local
+routing table for its owner, cached in the state volume (addresses for a
+day, owners for a week). A failed lookup is cached
 for an hour, so a host that never resolves cannot hold the budget forever;
 until a lookup succeeds the target is ``unknown`` and counts as no operator.
 """
@@ -42,7 +43,7 @@ from pathlib import Path
 
 from common.asn import (  # noqa: F401 -- re-exported: tags.CDN, tags.classify...
     ACADEMIC, ACCESS, AMAZON, CACHE, CDN, CLOUD, CLOUDFRONT_HINTS, CONTENT, DNS_INFRA,
-    KNOWN, LOCAL, OTHER, TRANSIT, UNKNOWN, _resolver, _txt, classify, origin, resolve,
+    KNOWN, LOCAL, OTHER, TRANSIT, UNKNOWN, _resolver, classify, origin, resolve,
 )
 from common.operators import (  # noqa: F401 -- re-exported: tags.ADDRESS_TTL...
     ADDRESS_TTL, BUDGET, FAILED_TTL, OWNER_TTL, Operators,

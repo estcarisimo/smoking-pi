@@ -1,48 +1,24 @@
 import owners
 
 
-def test_one_lookup_per_slash24_cached_and_private_skipped():
-    asked = []
+class Table:
+    ready = True
 
-    def origin(ip):
-        asked.append(ip)
-        return (64500, "EXAMPLE") if ip.startswith("23.") else None
-
-    o = owners.Owners(clock=lambda: 1000, origin_fn=origin)
-    assert o.refresh({"23.0.0.1", "23.0.0.2", "192.168.1.1", "34.0.0.1", "nonsense"}) == 2
-    assert sorted(asked) == ["23.0.0.1", "34.0.0.1"] or sorted(asked) == ["23.0.0.2", "34.0.0.1"]
-    assert o.of("23.0.0.200") == 64500 and o.of("34.0.0.1") is None and o.of(None) is None
-    again = owners.Owners(clock=lambda: 1500, origin_fn=origin)
-    assert again.refresh({"23.0.0.9"}) == 0            # a week's cache, from the file
-    assert owners.Owners(clock=lambda: 1000 + 3601, origin_fn=origin).refresh({"34.0.0.5"}) == 1
+    def lookup(self, ip):
+        if ip == "nonsense":
+            raise ValueError(ip)
+        return 16591 if ip.startswith("23.") else None
 
 
-def test_a_lookup_that_raises_counts_as_failed():
-    def origin(ip):
-        raise RuntimeError("boom")
-    o = owners.Owners(clock=lambda: 0, origin_fn=origin)
-    assert o.refresh({"23.0.0.1"}) == 1 and o.of("23.0.0.1") is None
+def test_the_routing_table_answers_and_nothing_else_is_asked():
+    o = owners.Owners(table=Table())
+    assert o.of("23.9.9.9") == 16591
+    assert o.of("34.0.0.1") is None and o.of("nonsense") is None and o.of(None) is None
 
 
-def test_the_routing_table_answers_first_and_cymru_only_what_it_lacks():
-    class Table:
-        ready = True
+def test_no_table_yet_means_no_as():
+    class Loading(Table):
+        ready = False
 
-        def lookup(self, ip):
-            return 16591 if ip.startswith("23.") else None
-
-    asked = []
-    o = owners.Owners(clock=lambda: 0, origin_fn=lambda ip: asked.append(ip) or (64500, "X"),
-                      table=Table())
-    assert o.refresh({"23.0.0.1", "23.0.1.1", "34.0.0.1"}) == 1    # only the one it lacks
-    assert asked == ["34.0.0.1"]
-    assert o.of("23.9.9.9") == 16591 and o.of("34.0.0.1") == 64500
-
-
-
-def test_a_hop_on_an_exchange_keeps_its_as_and_names_the_exchange():
-    import store
-    pts = store.trace_points("X", "c", 1000, "34.0.0.9", ["206.223.115.1"], [1.0], True, 1, 1,
-                             "p", "h", [], {}, lambda a: 64500, lambda a: "Example IX")
-    hop = next(p.to_line_protocol() for p in pts if p.to_line_protocol().startswith("path_hop"))
-    assert "asn=64500i" in hop and 'ixp="Example IX"' in hop
+    assert owners.Owners(table=Loading()).of("23.0.0.1") is None
+    assert owners.Owners(table=lambda: None).of("23.0.0.1") is None

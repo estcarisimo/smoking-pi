@@ -1,3 +1,4 @@
+import ipaddress
 import json
 
 import pytest
@@ -28,10 +29,17 @@ def _cap(monkeypatch):
     monkeypatch.setattr(main, "WARMUP_PATHS", 3)
 
 
+class AnyTable:
+    ready = True
+
+    def lookup(self, ip):
+        return 64500 if ipaddress.ip_address(ip).is_global else None
+
+
 def run_cycle(net, now, written, write=None):
     return main.cycle(now, query=query_for(TARGETS), run=net,
                       resolve=lambda host: [IPS[host]], write=write or written.extend,
-                      owners=owners.Owners(clock=lambda: now, origin_fn=lambda ip: (64500, "X")),
+                      owners=owners.Owners(table=AnyTable()),
                       rate=20, every=3600)
 
 
@@ -62,7 +70,7 @@ def test_the_warm_up_is_the_default_eight_then_four(monkeypatch):
     def go(now):
         return main.cycle(now, query=query_for({n: n.lower() for n in names}), run=net,
                           resolve=lambda host: [names[host.upper()]], write=written.extend,
-                          owners=owners.Owners(origin_fn=lambda ip: None), rate=20, every=3600)
+                          owners=owners.Owners(table=None), rate=20, every=3600)
     assert go(1000)["full_traces"] == 8
     assert go(4600)["full_traces"] == 4
 
@@ -131,7 +139,7 @@ def test_no_prefix_means_the_rest_wait_rather_than_cross_it_at_once(monkeypatch)
     ips = {"a": "30.0.0.9", "b": "31.0.0.9", "c": "32.0.0.9"}
     report = main.cycle(1000, query=query_for({"A": "a", "B": "b", "C": "c"}), run=net,
                         resolve=lambda host: [ips[host]], write=written.extend,
-                        owners=owners.Owners(origin_fn=lambda ip: None), rate=20, every=3600)
+                        owners=owners.Owners(table=None), rate=20, every=3600)
     assert report["prefix_hops"] == 0 and report["waiting"] == 1
     assert len(net.calls) == 1
 
@@ -162,7 +170,7 @@ def _broken_cycle(now, written):
         raise RuntimeError("scamper died")
     return main.cycle(now, query=query_for(TARGETS), run=broken,
                       resolve=lambda host: [IPS[host]], write=written.extend,
-                      owners=owners.Owners(origin_fn=lambda ip: None), rate=20, every=3600)
+                      owners=owners.Owners(table=None), rate=20, every=3600)
 
 
 def test_scamper_failing_costs_the_cycle_and_invents_nothing():
@@ -254,7 +262,7 @@ def test_a_destination_list_that_halves_in_one_cycle_keeps_what_was_learned():
     learned = store.load(main.STATE)["full_paths"]
     main.cycle(1000 + 3600 * 4, query=query_for({"D0": "d0.example"}), run=net,
                resolve=lambda host: [IPS[host]], write=written.extend,
-               owners=owners.Owners(origin_fn=lambda ip: None), rate=20, every=3600)
+               owners=owners.Owners(table=None), rate=20, every=3600)
     assert set(store.load(main.STATE)["full_paths"]) >= set(learned)
 
 

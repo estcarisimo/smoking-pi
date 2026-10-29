@@ -39,8 +39,10 @@ from, which is the house's public address. It asks once over IPv4 and once
 over IPv6; a family with no route here writes nothing, so most houses show
 "no IPv6".
 
-- **Network:** the AS that announces the address, from Team Cymru's DNS
-  service (the same lookup [resolver identity](public-resolver.md) uses).
+- **Network:** the AS that announces the address, looked up on the Pi in
+  the routing table it downloads from CAIDA (the same lookup
+  [resolver identity](public-resolver.md) uses; see [Path](path.md) for the
+  data).
 - **Approximate location:** city, region and country from
   [ipinfo.io](https://ipinfo.io). This is geolocation *by address*: often
   the ISP's point of presence, sometimes another city, never the house. It
@@ -61,7 +63,7 @@ In the env file (`smoking-pi config set`):
 | `IPINFO_TOKEN` | empty | Optional; without one, IPinfo's free tier is far above one lookup a day |
 
 What leaves the house: one DNS query per family to Google's authoritative
-server per cycle, a Team Cymru lookup when the address or its network is new
-to the day, and, unless `PUBLIC_IP_GEO=false`, one HTTPS request a day to
+server per cycle, the routing table's daily download from CAIDA (which
+carries nothing about the house), and, unless `PUBLIC_IP_GEO=false`, one HTTPS request a day to
 ipinfo.io carrying the address. Grafana sits behind its login; the address
 and location are in InfluxDB like every other measurement.

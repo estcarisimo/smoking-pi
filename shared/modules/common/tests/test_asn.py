@@ -164,7 +164,7 @@ def test_a_restart_without_network_uses_the_cached_snapshot(tmp_path):
     assert t.refresh() and loader.calls == [False, True]
 
 
-def test_nothing_anywhere_means_cymru(tmp_path):
+def test_nothing_anywhere_means_no_table(tmp_path):
     t = table_mod.RoutingTable(tmp_path, fetch=_Net(fail=True), clock=lambda: 0,
                                loader=Loader(online=False, cached=False))
     assert not t.refresh() and t.lookup("10.1.2.3") is None
@@ -233,26 +233,16 @@ def test_as2org_names_take_the_handle_and_the_organization():
     assert names == {300: "EXAMPLE-NET - Example, Inc., US", 64500: "MEMBER"}
 
 
-def test_origin_uses_the_table_then_cymru(monkeypatch, tmp_path):
-    asked = []
-
-    def is_origin_query(q):
-        # The label, not the host as text (CodeQL reads a host substring as
-        # an incomplete URL check, even in a fake).
-        return q.split(".")[-4] == "origin"
-
-    monkeypatch.setattr(table_mod, "_txt", lambda q, r=None: asked.append(q) or (
-        "64500 | 64.0.0.0/8 | US | arin | 2000-01-01" if is_origin_query(q)
-        else "300 | US | arin | 2000-01-01 | EXAMPLE-NET - Example, US"))
+def test_origin_comes_from_the_table_only(monkeypatch, tmp_path):
     t = table_mod.RoutingTable(tmp_path, fetch=_Net(), clock=lambda: 0, loader=Loader())
     t.refresh()
     monkeypatch.setattr(table_mod, "_TABLE", t)
-    monkeypatch.setattr(table_mod, "_NAMES", {})
     assert table_mod.origin("10.1.2.3") == (300, "EXAMPLE-NET - Example, Inc., US")  # AS2Org
-    assert not asked                                                            # nothing asked
     assert table_mod.origin("64.1.1.1") is None                               # no route: none
+    assert table_mod.origin("not an address") is None
     monkeypatch.setattr(table_mod, "_TABLE", None)
-    assert table_mod.origin("10.1.2.3")[0] == 64500                            # no table
+    assert table_mod.origin("10.1.2.3") is None                                # no table: none
+    assert table_mod.as_name(300) == ""
 
 
 def test_a_cached_table_loaded_offline_is_retried_online_next_time(tmp_path):

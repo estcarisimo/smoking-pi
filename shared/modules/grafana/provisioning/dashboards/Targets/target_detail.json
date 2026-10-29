@@ -488,7 +488,7 @@
     {
       "type": "stat",
       "title": "Delivered by",
-      "description": "Who delivers this target: the network its host answers from (its origin AS, from Team Cymru; docs/taxonomy.md, Delivery). Value: that network's operator; the small text over it: its kind (CDN, content network, embedded cache, cloud origin, access network, transit, DNS infrastructure, academic network, local network, other network). \"network not identified\": no IPv4 answer or no AS lookup yet, not an error; \"not looked up yet\": a label written before the delivery axis existed. As the exporter last recorded it; \"no label yet\": it has not written one. Reduces over every field (/.*/), as the Service tile.",
+      "description": "Who delivers this target: the network its host answers from (its origin AS, from the routing table on the Pi; docs/taxonomy.md, Delivery). Value: that network's operator; the small text over it: its kind (CDN, content network, embedded cache, cloud origin, access network, transit, DNS infrastructure, academic network, local network, other network). \"network not identified\": no IPv4 answer or no AS lookup yet, not an error; \"not looked up yet\": a label written before the delivery axis existed. As the exporter last recorded it; \"no label yet\": it has not written one. Reduces over every field (/.*/), as the Service tile.",
       "gridPos": {
         "h": 4,
         "w": 5,

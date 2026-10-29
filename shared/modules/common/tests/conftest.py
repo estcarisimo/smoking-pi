@@ -1,5 +1,5 @@
-"""Pytest setup for the shared package. No test resolves a name or asks
-Team Cymru: every lookup is a fake passed in."""
+"""Pytest setup for the shared package. No test resolves a name or
+downloads a table: every lookup is a fake passed in."""
 
 import sys
 from pathlib import Path

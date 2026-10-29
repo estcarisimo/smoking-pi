@@ -8,8 +8,9 @@ Internet sees, the network (AS) that announces it, and an approximate place.
   authoritative server directly (not through any resolver), answers with the
   address the question came from: this host's public address. Once over IPv4
   and once over IPv6; a family with no route here is simply absent.
-* **Network.** Team Cymru's origin lookup, as resolver_identity.py does for
-  resolvers (the same helpers, the same cache).
+* **Network.** The origin AS from the routing table, looked up locally, as
+  resolver_identity.py does for resolvers (the same helpers, this process's
+  own copy of the table).
 * **Place.** IPinfo (``https://ipinfo.io/<ip>/json``): city, region and
   country. This is geolocation *by address*, often only
   the ISP's point of presence, never the house. Asked only when the address
@@ -40,7 +41,7 @@ from dataclasses import dataclass
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
 
-from resolver_identity import OwnerCache, _is_ip, _unquote, dig
+from resolver_identity import OwnerCache, _is_ip, _unquote, dig, routing_table
 
 log = logging.getLogger("public_ip")
 
@@ -158,7 +159,14 @@ class ChangeTracker:
 
     def previous_for(self, p: Public) -> str | None:
         before = self._last.get(p.family)
-        return before if before and p.ok and before != p.key() else None
+        if not before or not p.ok or before == p.key():
+            return None
+        # The same address with its AS unknown on one side (the routing
+        # table not loaded yet) is not a change of network.
+        ip, _, asn = before.partition(" AS")
+        if ip == p.ip and (asn in ("", "0") or not p.asn):
+            return None
+        return before
 
     def written(self, p: Public) -> None:
         if p.ok:
@@ -210,8 +218,11 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     geo = GeoCache(enabled=geo_enabled(),
                    token=os.environ.get("IPINFO_TOKEN", ""))
+    table = routing_table("public_ip")
     owners = OwnerCache()
     if "--once" in argv:
+        if table is not None:
+            table.refresh()
         # One cycle printed, nothing written: to check a host by hand.
         for family in GOOGLE_NS:
             print(json.dumps(probe(family, owners, geo).__dict__, sort_keys=True))
@@ -230,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
              interval, "on" if geo._enabled else "off")
     while True:
         started = time.time()
+        if table is not None:
+            table.refresh()  # never raises; the AS stays 0 until it loads
         for family in GOOGLE_NS:
             try:
                 p = probe(family, owners, geo)

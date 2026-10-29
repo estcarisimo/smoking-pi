@@ -116,10 +116,11 @@ Each rule records:
 
 The service axis is what someone wrote down; the delivery axis is looked
 up. For each active target, the InfluxDB exporter resolves the host (an IP
-address is its own answer; a URL's hostname for HTTP targets), asks Team
-Cymru's DNS service for the address's origin AS (cached a week per /24, a
-failed lookup an hour, at most 64 new lookups per round), and classifies
-that AS (`shared/modules/common/asn.py`):
+address is its own answer; a URL's hostname for HTTP targets), looks the
+address's origin AS up in the routing table the Pi downloads from CAIDA
+(originet over RouteViews prefix-to-AS, with AS2Org names; [Path](path.md)
+has the data), caches it a week (a failed lookup an hour, at most 64 new
+lookups per round), and classifies that AS (`shared/modules/common/asn.py`):
 
 1. **`KNOWN`**, a short hand table of well-known networks in `asn.py`. It
    always wins: it is where a kind that matters for measurement is decided
@@ -157,9 +158,10 @@ The same lookups and kinds feed the experimental shared-congestion
 detector (`inference/tags.py`), which asks whether loss reached several
 kinds of infrastructure at once, and the path meter records the same
 origin AS for each hop ([Path](path.md)). The per-target cache is
-`common/operators.py`, shared by the exporter and the detector; four older
-Team Cymru readers (the resolver probe, the public-IP check, the DNS
-wizard, `tools/dns-explore`) predate it and are left as they are.
+`common/operators.py`, shared by the exporter and the detector. Every
+reader on the Pi (these, the resolver probe, the public-IP check, the DNS
+wizard) looks owners up in its own copy of the same table; only the
+maintainer's `tools/dns-explore`, run on a laptop, still asks Team Cymru.
 
 Refreshing the roles file is a maintainer step:
 `python3 shared/scripts/build-asn-roles.py hierarchical.csv --release <release>`
