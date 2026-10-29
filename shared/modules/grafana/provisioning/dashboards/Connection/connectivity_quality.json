@@ -1005,6 +1005,237 @@
       ]
     },
     {
+      "id": 17,
+      "type": "table",
+      "title": "Whole connection: the path segment the destinations that lost share, a hypothesis (experimental)",
+      "description": "One row per shared loss period above that the path meter traced (shared_segment; needs `smoking-pi enable pathmeter`), newest first. Destinations that lost (1 % or more over the period) and those that did not (under 0.5 %) are compared on the routers, networks (AS) and exchanges their last trace before the period's end crossed. The segment shown is crossed by most of those that lost and few of the rest: a hypothesis of where a common cause could sit, never a finding. strong: 80 % or more of those that lost and 20 % or less of the rest cross it, with at least three on each side and 60 % of the destinations traced; weak: the gap between the two shares is at least one half; none: no segment sets the lossy ones apart, which is also what loss on the hops every destination crosses reads as. A destination whose trace cannot show a segment (silent where it sits, or never reaching the destination) counts against it. Experimental, never an alert.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Start",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "_time": 0,
+              "duration_s": 1,
+              "mean_loss_pct": 2,
+              "confidence": 3,
+              "segment": 4,
+              "hypothesis": 5,
+              "affected": 6,
+              "unaffected": 7,
+              "traced": 8,
+              "coverage": 9,
+              "alternatives": 10
+            },
+            "renameByName": {
+              "_time": "Start",
+              "duration_s": "Duration",
+              "mean_loss_pct": "Pooled loss",
+              "confidence": "Confidence",
+              "segment": "Segment",
+              "hypothesis": "Hypothesis",
+              "affected": "Lost",
+              "unaffected": "Did not",
+              "traced": "Traced",
+              "coverage": "Traced share",
+              "alternatives": "Next candidates"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Start"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pooled loss"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Confidence"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "strong": {
+                        "text": "strong",
+                        "color": "#8F1B2A",
+                        "index": 0
+                      },
+                      "weak": {
+                        "text": "weak",
+                        "color": "#E0752D",
+                        "index": 1
+                      },
+                      "none": {
+                        "text": "none",
+                        "color": "#8E8E8E",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Traced share"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lost"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Did not"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Traced"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\n// Stamped at the period's start: reach back so one that began before the range but ends inside it is listed.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_segment\" and (r._field == \"end\" or r._field == \"duration_s\" or r._field == \"mean_loss_pct\" or r._field == \"confidence\" or r._field == \"hypothesis\" or r._field == \"segment\" or r._field == \"affected\" or r._field == \"unaffected\" or r._field == \"traced\" or r._field == \"coverage\" or r._field == \"alternatives\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> group() |> keep(columns: [\"_time\", \"duration_s\", \"mean_loss_pct\", \"confidence\", \"hypothesis\", \"segment\", \"affected\", \"unaffected\", \"traced\", \"coverage\", \"alternatives\"]) |> sort(columns: [\"_time\"], desc: true)"
+        }
+      ]
+    },
+    {
       "id": 15,
       "type": "row",
       "title": "The targets behind the loss, over the selected range",
@@ -1013,7 +1244,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 46
       },
       "panels": []
     },
@@ -1030,7 +1261,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 40
+        "y": 47
       },
       "options": {
         "showHeader": true,
@@ -1233,7 +1464,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 57
       },
       "collapsed": false,
       "panels": []
@@ -1253,7 +1484,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 51
+        "y": 58
       },
       "options": {
         "calculate": false,
@@ -1359,7 +1590,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 51
+        "y": 58
       },
       "options": {
         "calculate": false,
@@ -1465,7 +1696,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 62
+        "y": 69
       },
       "options": {
         "calculate": false,
@@ -1572,7 +1803,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 62
+        "y": 69
       },
       "options": {
         "calculate": false,

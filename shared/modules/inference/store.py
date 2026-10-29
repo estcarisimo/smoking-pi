@@ -29,6 +29,10 @@ SHARED = "shared_degradation"
 # Jitterbug on the aggregate stream (aggregate.py): one point per period the
 # whole connection stayed congested; no target tag either.
 SHARED_CONGESTION = "shared_congestion"
+# One point per shared period the path meter's traces could be read for
+# (segments.py): the path segment the destinations that lost share, as a
+# hypothesis; no target tag either.
+SHARED_SEGMENT = "shared_segment"
 # One point per pass: how long, how many targets, how many failed.
 PASS = "inference_pass"
 
@@ -72,6 +76,8 @@ def measurement_name(measurement: str) -> str:
         return "shared_degradation"
     if measurement == SHARED_CONGESTION:
         return "shared_congestion"
+    if measurement == SHARED_SEGMENT:
+        return "shared_segment"
     raise ValueError("unknown measurement")
 
 
@@ -161,15 +167,26 @@ SHARED_NUMBERS = ("mean_loss_pct", "coverage", "lossy_operator_share", "dominant
 SHARED_COUNTS = ("voters", "operators")
 SHARED_TEXT = ("scope", "kinds", "dominant", "by_operator", "by_kind", "diverged")
 CONGESTION_NUMBERS = ("confidence", "jump_ms", "ks_p", "coverage")
+SEGMENT_NUMBERS = ("mean_loss_pct", "coverage", "recall", "spill", "p_value")
+SEGMENT_COUNTS = ("affected", "unaffected", "mild", "traced", "untraced", "common_hops",
+                  "clean_common_hops", "path_changed", "affected_through",
+                  "unaffected_through")
+SEGMENT_TEXT = ("confidence", "segment", "segment_kind", "hypothesis", "alternatives",
+                "common_as", "clean_common_as")
+FIELDS = {
+    SHARED: (SHARED_NUMBERS, SHARED_COUNTS, SHARED_TEXT),
+    SHARED_CONGESTION: (CONGESTION_NUMBERS, SHARED_COUNTS, SHARED_TEXT),
+    SHARED_SEGMENT: (SEGMENT_NUMBERS, SEGMENT_COUNTS, SEGMENT_TEXT),
+}
 
 
 def shared_points(periods: list[dict], window_start: int,
                   measurement: str = SHARED) -> list:
-    """``shared_degradation`` (or ``shared_congestion``) points; a period cut
-    by the window is skipped, as in :func:`points`."""
+    """``shared_degradation`` (or ``shared_congestion``, ``shared_segment``)
+    points; a period cut by the window is skipped, as in :func:`points`."""
     from influxdb_client import Point, WritePrecision
 
-    numbers = CONGESTION_NUMBERS if measurement == SHARED_CONGESTION else SHARED_NUMBERS
+    numbers, counts, texts = FIELDS[measurement]
     out = []
     for p in periods:
         if p.get("truncated") or p["start"] <= window_start:
@@ -179,10 +196,10 @@ def shared_points(periods: list[dict], window_start: int,
         for key in numbers:
             if p.get(key) is not None:
                 pt = pt.field(key, float(p[key]))
-        for key in SHARED_COUNTS:
+        for key in counts:
             if p.get(key) is not None:
                 pt = pt.field(key, int(p[key]))
-        for key in SHARED_TEXT:
+        for key in texts:
             if p.get(key) is not None:
                 pt = pt.field(key, str(p[key]))
         out.append(pt)
@@ -191,8 +208,8 @@ def shared_points(periods: list[dict], window_start: int,
 
 def replace_shared(periods: list[dict], window_start: int, now: int, client=None,
                    measurement: str = SHARED) -> int:
-    """Delete the window's ``shared_degradation`` (or ``shared_congestion``)
-    points and write ``periods``."""
+    """Delete the window's ``shared_degradation`` (or ``shared_congestion``,
+    ``shared_segment``) points and write ``periods``."""
     own = client is None
     client = client or _client()
     try:
