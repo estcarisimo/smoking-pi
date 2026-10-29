@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.49.0] — 2026-10-29
+
+The path meter now reads every network on the Pi itself and looks where the
+loss is: Team Cymru is gone (every AS owner comes from the CAIDA routing
+table the Pi downloads, now in the SmokePing image too, thanks to originet
+1.1.0's Alpine wheels), and a hop on an exchange shows the member whose
+router it is. While a shared loss episode lasts, the destinations it hits
+are traced every five minutes, capped per hour; inference names the path
+segment the destinations that lost share, as a hypothesis, never a cause.
+Target Detail's hops table colors each network and grays private hops, and
+a new experimental **Internet Topology** dashboard shows how the house
+reaches what it measures: the AS map, AS dispersion per hop and path
+evolution next to RTT and loss.
+
 ### Added
 
 - **Traceroutes while a shared loss episode lasts (path meter,
