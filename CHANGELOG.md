@@ -9,6 +9,14 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.50.0] — 2026-10-29
+
+Transit networks get their names. The Internet Topology dashboard named a
+network only when some destination lived in it, so the provider and its
+upstreams, the networks the paths actually cross, were bare numbers. The
+path meter now writes each hop's organization from the routing table the Pi
+already holds, and the dashboard shows it.
+
 ### Added
 
 - **The path meter records each hop's network name.** The Internet Topology
