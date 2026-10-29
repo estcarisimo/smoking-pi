@@ -245,7 +245,8 @@ def cycle(now: int, query=query_influx, run=trace.run, resolve=lookup.addresses,
             changes += bool(flags["changed"])
             points += store.trace_points(base, category, now, ip, hops, rtts, reached, distance,
                                          first_hop, paths.text(hops), paths.digest(hops), asns,
-                                         flags, owners.of, lookup.ixp, names.of)
+                                         flags, owners.of, lookup.ixp, names.of,
+                                         name_of=lookup.as_name)
     for gone in [b for b in memory if b not in wanted]:
         del memory[gone]
     report["changed"] = changes

@@ -293,3 +293,39 @@ def test_a_failed_or_partial_cycle_forgets_no_router_name():
     assert known
     _broken_cycle(4600, [])
     assert store.load(names.FILE) == known
+
+
+def test_a_hop_carries_its_network_name_when_the_table_has_one(monkeypatch):
+    """The topology dashboard named only the networks some destination was in;
+    a transit network showed its bare number. Each hop now carries the AS2Org
+    name the routing table had for its AS when it was traced."""
+    from common import asn as lookup
+
+    class Named:
+        names = {64500: "EXAMPLE-NET - Example Transit, LLC, US"}
+        _ixp = None
+
+    monkeypatch.setattr(lookup, "_TABLE", Named())
+    net, written = Network(routes()), []
+    run_cycle(net, 1000, written)
+    hops = [line for line in lines(written) if line.startswith("path_hop")]
+    public = [line for line in hops if "asn=64500i" in line]
+    assert public and all('as_name="EXAMPLE-NET - Example Transit, LLC, US"' in line
+                          for line in public)
+    # A hop with no AS (a private address) has no name either.
+    assert all("as_name=" not in line for line in hops if "asn=" not in line)
+
+
+def test_an_as_the_table_cannot_name_gets_no_name_field(monkeypatch):
+    from common import asn as lookup
+
+    class Unnamed:
+        names = {}
+        _ixp = None
+
+    monkeypatch.setattr(lookup, "_TABLE", Unnamed())
+    net, written = Network(routes()), []
+    run_cycle(net, 1000, written)
+    hops = [line for line in lines(written) if line.startswith("path_hop")]
+    assert any("asn=64500i" in line for line in hops)
+    assert all("as_name=" not in line for line in hops)

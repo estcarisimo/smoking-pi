@@ -263,7 +263,7 @@ def round_(now: int, query=query_influx, run=trace.run, write=write_points,
                     base, wanted[base][0], now, ip, hops, rtts, t.reached, t.distance,
                     t.first_hop, paths.text(hops), paths.digest(hops), asns, {},
                     owners.of, lookup.ixp, names.of, trigger=TRIGGER,
-                    episode=episode["start"])
+                    episode=episode["start"], name_of=lookup.as_name)
     else:
         mine.pop("episode", None)
 

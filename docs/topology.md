@@ -43,7 +43,8 @@ hour, and every destination contributes one trace per cycle.
   one row share a network: on the reference house, six Netflix names are
   all Netflix's own network (embedded caches), five sites are all served by
   Fastly.
-- **Networks on the paths**: every network a trace crossed, with how many
+- **Networks on the paths**: every network a trace crossed, named (see
+  [what it cannot say](#what-it-cannot-say)), with how many
   destinations' paths cross it **on the way** and how many are **in it**.
   The house's provider is first (every path crosses it); the transit
   networks after it are the infrastructure some destinations share and
@@ -128,15 +129,19 @@ per hop per cycle.
 - **Who networks are, not how they relate.** Two destinations behind the
   same transit network share that network; nothing here says anything
   about the business relationships between networks.
-- **Names only for some networks.** A network shows its name when it is
-  also some destination's own (from the targets' labels); a transit
-  network shows its number (`AS6939`). Its PTR names on Target Detail's
-  *Path* row, or a lookup by number, say who it is.
+- **A network's name is a registry's.** A network that is some
+  destination's own shows its operator from the targets' labels (`Google`);
+  any other shows the organization CAIDA's AS2Org file gives for its number
+  (`AS6939 Hurricane Electric LLC`), as the path meter recorded it with the
+  hop. Hops traced before the path meter recorded names (v2.49.0 and
+  earlier) show the number alone. An organization's registered name is not
+  always the brand people know.
 - **A silent hop is the router's choice.** A hop that does not answer, or
   answers slowly, says nothing about the traffic going through it.
 
 ## In InfluxDB
 
-Nothing new is written. The dashboard reads `path_trace` and `path_hop`
-from the path meter ([In InfluxDB](path.md#in-influxdb)) and
-`target_labels` from the exporter ([service taxonomy](taxonomy.md)).
+The dashboard writes nothing. It reads `path_trace` and `path_hop` from the
+path meter ([In InfluxDB](path.md#in-influxdb)), including each hop's
+`as_name`, and `target_labels` from the exporter ([service
+taxonomy](taxonomy.md)).

@@ -301,8 +301,9 @@ start:
   `first_hop`.
 - `path_hop`, one point per hop that answered, also tagged `ttl` (`01`,
   `02`…): `addr`, `ptr` (its reverse DNS name) when it has one, `asn`
-  when known, `ixp` (the exchange point's name) when the address is on an
-  exchange LAN, `rtt_ms`.
+  when known, `as_name` (that network's CAIDA AS2Org name, `HANDLE -
+  Organization, CC`) when the routing table has one, `ixp` (the exchange
+  point's name) when the address is on an exchange LAN, `rtt_ms`.
 - `pathmeter_pass`, one point per cycle: `traces`, `probes`, `seconds`,
   `failed`, `prefix_hops`, `full_traces`.
 

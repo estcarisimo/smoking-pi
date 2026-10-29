@@ -9,6 +9,20 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The path meter records each hop's network name.** The Internet Topology
+  dashboard named a network only when it was also some destination's own
+  (Google, Fastly…): the transit networks that matter most there, the
+  house's provider and its upstreams, showed a bare number (`AS19165`,
+  `AS6939`), and reading them meant a lookup elsewhere. Every `path_hop`
+  point with an AS now carries `as_name`, the CAIDA AS2Org name the Pi's
+  routing table already holds (`HURRICANE - Hurricane Electric LLC, US`), so
+  nothing new is asked of anyone. The dashboard's network tables and
+  dispersion legend show the organization (`AS6939 Hurricane Electric LLC`),
+  still preferring a destination's own label when there is one; hops traced
+  before this release keep their number.
+
 ## [2.49.0] — 2026-10-29
 
 The path meter now reads every network on the Pi itself and looks where the
