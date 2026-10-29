@@ -125,10 +125,12 @@ def origin(ip: str, resolver=None) -> tuple[int, str] | None:
     """(origin ASN, AS name) of an IP address, from the process's routing
     table (:func:`use_table`: originet over CAIDA's RouteViews snapshot, the
     exchange members of CAIDA's IXP dataset, the names of CAIDA's AS2Org),
-    looked up locally. None without a loaded table, or with no route: a
-    lookup is never asked of anyone else. ``resolver`` is unused and kept
-    for the callers' signature."""
-    if _TABLE is None or not _TABLE.ready:
+    looked up locally. None without a loaded table and its names, or with
+    no route: a lookup is never asked of anyone else, and an owner without
+    its name is not an answer (callers cache an answer for a week, and
+    :func:`classify` reads the name). ``resolver`` is unused and kept for
+    the callers' signature."""
+    if _TABLE is None or not _TABLE.ready or not _TABLE.names:
         return None
     try:
         asn = _TABLE.lookup(ip)

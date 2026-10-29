@@ -284,6 +284,8 @@ def main() -> None:
     # The routing table (CAIDA RouteViews prefix-to-AS, PeeringDB IXPs):
     # downloaded once a day into the state volume, looked up locally.
     table = lookup.use_table(store.state_dir() / "routing")
+    # Before the table answered every hop, owners.py kept its own /24 cache.
+    (store.state_dir() / "asn.json").unlink(missing_ok=True)
     while True:
         begun = time.time()
         try:

@@ -35,8 +35,12 @@ version gets a matching GitHub release and git tag.
   different networks, and every owner depended on a third party answering.
   originet 1.1.0 ships musllinux wheels; the image now carries it, and each
   of those three processes keeps its own copy of the routing table under
-  `/config/routing/` (about 75–100 MB of memory each, measured against
-  8 GB on the reference Pi). The Team Cymru code is gone from `common/asn.py`
+  `/config/routing/` (Pro on InfluxDB only). Measured in the smokeping
+  image on the staging Pi: about 110 MB resident for an IPv4 table, 140 MB
+  with IPv6, peaking near 180 MB while one loads (35–45 s there), so
+  about 0.4 GB for the three, against 8 GB on the reference Pi. Each also downloads
+  its own copy of CAIDA's daily snapshot (about 15 MB), so three a day
+  instead of one; sharing a directory would race on the download. The Team Cymru code is gone from `common/asn.py`
   and the exporter: with no table loaded yet, an owner is unknown, never
   asked elsewhere. The public-address check no longer marks a change when
   only the AS of the same address went unknown for a cycle. The path

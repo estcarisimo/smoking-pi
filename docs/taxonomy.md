@@ -119,8 +119,8 @@ up. For each active target, the InfluxDB exporter resolves the host (an IP
 address is its own answer; a URL's hostname for HTTP targets), looks the
 address's origin AS up in the routing table the Pi downloads from CAIDA
 (originet over RouteViews prefix-to-AS, with AS2Org names; [Path](path.md)
-has the data), caches it a week (a failed lookup an hour, at most 64 new
-lookups per round), and classifies that AS (`shared/modules/common/asn.py`):
+has the data), caches it a week (a failed lookup an hour, at most 64 hosts
+resolved per round), and classifies that AS (`shared/modules/common/asn.py`):
 
 1. **`KNOWN`**, a short hand table of well-known networks in `asn.py`. It
    always wins: it is where a kind that matters for measurement is decided

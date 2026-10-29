@@ -240,6 +240,9 @@ def test_origin_comes_from_the_table_only(monkeypatch, tmp_path):
     assert table_mod.origin("10.1.2.3") == (300, "EXAMPLE-NET - Example, Inc., US")  # AS2Org
     assert table_mod.origin("64.1.1.1") is None                               # no route: none
     assert table_mod.origin("not an address") is None
+    names, t.names = t.names, {}
+    assert table_mod.origin("10.1.2.3") is None                     # no names yet: no answer
+    t.names = names
     monkeypatch.setattr(table_mod, "_TABLE", None)
     assert table_mod.origin("10.1.2.3") is None                                # no table: none
     assert table_mod.as_name(300) == ""
