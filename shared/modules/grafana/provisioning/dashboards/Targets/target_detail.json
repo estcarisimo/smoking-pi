@@ -1830,7 +1830,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "description": "EXPERIMENTAL. A Paris traceroute (ICMP) once an hour from the path meter. A router's reply time is its slow path's and rate-limited: read it as a description, not as that hop's latency. A change is counted after two traces in a row show it. See docs/path.md. Hops that did not answer are left out of the table; a private hop has no AS. AS from CAIDA's RouteViews prefix-to-AS table; a router on an exchange point's LAN (not announced) is named by its exchange, from PeeringDB. The name (PTR) is the reverse DNS name the operator gave the address: often a hint of where the router is, sometimes stale; it never counts toward a path change.",
+          "description": "EXPERIMENTAL. A Paris traceroute (ICMP) once an hour from the path meter. A router's reply time is its slow path's and rate-limited: read it as a description, not as that hop's latency. A change is counted after two traces in a row show it. See docs/path.md. Hops that did not answer are left out of the table; a private hop has no AS. AS from CAIDA's RouteViews prefix-to-AS table; a router on an exchange point's LAN (not announced) is named by its exchange, from PeeringDB. The name (PTR) is the reverse DNS name the operator gave the address: often a hint of where the router is, sometimes stale; it never counts toward a path change. Each row takes its AS's color, so a run of hops in one network reads as one block; the color comes from the AS number (modulo 12), so an AS keeps it on every target, and two networks can share one. Gray: a private, CGNAT, link-local or ULA address, or a hop with no AS.",
           "gridPos": {
             "h": 10,
             "w": 12,
@@ -1845,7 +1845,7 @@
                 "uid": "influxdb"
               },
               "queryType": "flux",
-              "query": "import \"regexp\"\n// pathmeter stores one path per base name (docs/path.md): match that name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"$\")\n// The last trace in the selected range, and its hops (one timestamp per cycle).\nlatest = from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and r._field == \"hops\" and r.target =~ re)\n  |> last() |> group() |> sort(columns: [\"_time\"], desc: true) |> findRecord(fn: (key) => true, idx: 0)\nat = if exists latest._time then latest._time else time(v: 0)\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and r.target =~ re and r._time == at)\n  |> pivot(rowKey: [\"_time\", \"ttl\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group() |> keep(columns: [\"ttl\", \"addr\", \"ptr\", \"asn\", \"ixp\", \"rtt_ms\"]) |> sort(columns: [\"ttl\"])"
+              "query": "import \"regexp\"\n// pathmeter stores one path per base name (docs/path.md): match that name, any case.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"$\")\n// The last trace in the selected range, and its hops (one timestamp per cycle).\nlatest = from(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_trace\" and r._field == \"hops\" and r.target =~ re)\n  |> last() |> group() |> sort(columns: [\"_time\"], desc: true) |> findRecord(fn: (key) => true, idx: 0)\nat = if exists latest._time then latest._time else time(v: 0)\nprivate = /^(10\\.|127\\.|169\\.254\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.|(?i)f[cd]|(?i)fe[89ab])/\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"path_hop\" and r.target =~ re and r._time == at\n    and (r._field == \"addr\" or r._field == \"asn\" or r._field == \"ixp\" or r._field == \"ptr\" or r._field == \"rtt_ms\"))\n  |> pivot(rowKey: [\"_time\", \"ttl\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n// net: which color the row takes. One per AS, the AS number modulo the 12 colors,\n// so an AS has the same color on every target; \"private\" (gray) when the hop has\n// no AS or a non-public address (RFC 1918, CGNAT 100.64/10, loopback, link-local, ULA).\n  |> map(fn: (r) => ({r with net: if not exists r.asn or regexp.matchRegexpString(r: private, v: r.addr) then \"private\" else string(v: r.asn % 12)}))\n  |> keep(columns: [\"ttl\", \"addr\", \"ptr\", \"asn\", \"ixp\", \"rtt_ms\", \"net\"]) |> sort(columns: [\"ttl\"])"
             }
           ],
           "fieldConfig": {
@@ -1948,6 +1948,88 @@
                     "value": "–"
                   }
                 ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "net"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hidden",
+                    "value": true
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "basic",
+                      "applyToRow": true
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "index": 0,
+                            "color": "#2F6DB5"
+                          },
+                          "1": {
+                            "index": 1,
+                            "color": "#F2B880"
+                          },
+                          "2": {
+                            "index": 2,
+                            "color": "#2E7D32"
+                          },
+                          "3": {
+                            "index": 3,
+                            "color": "#D7B9E8"
+                          },
+                          "4": {
+                            "index": 4,
+                            "color": "#B85C00"
+                          },
+                          "5": {
+                            "index": 5,
+                            "color": "#9AD0EC"
+                          },
+                          "6": {
+                            "index": 6,
+                            "color": "#C62828"
+                          },
+                          "7": {
+                            "index": 7,
+                            "color": "#A5D6A7"
+                          },
+                          "8": {
+                            "index": 8,
+                            "color": "#7B4FA3"
+                          },
+                          "9": {
+                            "index": 9,
+                            "color": "#F4D35E"
+                          },
+                          "10": {
+                            "index": 10,
+                            "color": "#00838F"
+                          },
+                          "11": {
+                            "index": 11,
+                            "color": "#F7B6C5"
+                          },
+                          "private": {
+                            "index": 12,
+                            "color": "rgba(128, 128, 128, 0.12)"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           },
@@ -1965,7 +2047,8 @@
                   "ptr": 2,
                   "asn": 3,
                   "ixp": 4,
-                  "rtt_ms": 5
+                  "rtt_ms": 5,
+                  "net": 6
                 },
                 "excludeByName": {},
                 "renameByName": {}

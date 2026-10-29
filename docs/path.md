@@ -141,7 +141,7 @@ done.
 
 On **Target Detail**, the collapsed **Path (experimental)** row:
 
-![Target Detail's Path row: the last trace to uba_ar, hop by hop with each hop's AS, no change in the range, and the destination ten hops away](img/path-row.png)
+![Target Detail's Path row: the last trace to Cloudflare, hop by hop, each network's hops in its own color and the house's own hops blurred; no change in the range, and the destination thirteen hops away](img/path-row.png)
 
 
 - **Last trace in range**: hop, address, AS and reply time of the last
@@ -149,6 +149,16 @@ On **Target Detail**, the collapsed **Path (experimental)** row:
   as it was then. Hops that did not answer are left out. The shared first
   hops of a destination traced past them show their addresses but no reply
   time: only one destination probed them that cycle.
+
+  Each row takes its network's color, so a run of hops in one AS reads as
+  one block and the hand-off from one network to the next stands out. The
+  color comes from the AS number (the AS number modulo the twelve colors),
+  so a network has the same color on every target and every refresh; two
+  networks can still share one, so read the AS column when two blocks of
+  one color touch. Hops with no AS, and private (RFC 1918), CGNAT
+  (100.64.0.0/10), loopback, link-local and ULA addresses, are gray.
+
+  ![Two last traces, dark and light theme: the house's private hops in gray, its access network in orange, Google Fiber in green, then Cloudflare in purple and Facebook in red; the house's own hops blurred](img/path-hops.png)
 - **Path changes**: when the AS path, the hops or the address changed in
   the range.
 - **Hops to the destination**: how far the destination answered, per trace.
