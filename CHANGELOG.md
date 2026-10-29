@@ -9,20 +9,6 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
-### Fixed
-
-- **The doctor failed every Internet Topology panel that the browser drew.**
-  On the v2.49.0-rc.1 candidate, `smoking-pi doctor --live` reported six
-  failures in `dashboard-queries-run` (Flux "compilation failed" and
-  "invalid character '\x1f'") on the new dashboard. That blocked the release
-  over panels that worked. With "All" picked, Grafana sends a variable's
-  custom all value as written (`.*` stays `.*` in `${target:regex}`). The
-  doctor ran it through the regex format like any other value, put `\.\*`
-  inside a Flux string, and Flux accepts no such escape. The doctor now sends
-  a custom all value unformatted, as Grafana does: written as is in every
-  format but `text` ("All") and `percentencode`. Re-run on the staging Pi:
-  0 failures.
-
 ## [2.49.0] — 2026-10-29
 
 The path meter now reads every network on the Pi itself and looks where the
@@ -146,17 +132,32 @@ evolution next to RTT and loss.
   different networks, and every owner depended on a third party answering.
   originet 1.1.0 ships musllinux wheels; the image now carries it, and each
   of those three processes keeps its own copy of the routing table under
-  `/config/routing/` (Pro on InfluxDB only). Measured in the smokeping
-  image on the staging Pi: about 110 MB resident for an IPv4 table, 140 MB
-  with IPv6, peaking near 180 MB while one loads (35–45 s there), so
-  about 0.4 GB for the three, against 8 GB on the reference Pi. Each also downloads
-  its own copy of CAIDA's daily snapshot (about 15 MB), so three a day
-  instead of one; sharing a directory would race on the download. The Team Cymru code is gone from `common/asn.py`
+  `/config/routing/` (Pro on InfluxDB only). Measured on the staging Pi
+  running v2.49.0-rc.1: 136 MB resident for the exporter (IPv4 table),
+  157 MB each for the resolver and public-address checks (IPv6 too), about
+  0.45 GB for the three, against 8 GB on the reference Pi; a table loads in
+  35–45 s there. Each also downloads its own copy of CAIDA's daily snapshot
+  (about 15 MB), so three a day instead of one; sharing a directory would
+  race on the download. The Team Cymru code is gone from `common/asn.py`
   and the exporter: with no table loaded yet, an owner is unknown, never
   asked elsewhere. The public-address check no longer marks a change when
   only the AS of the same address went unknown for a cycle. The path
   meter's own `/24` cache (`asn.json`) is gone too: the table answers every
   hop. Only the maintainer's `tools/dns-explore` still asks Team Cymru.
+
+### Fixed
+
+- **The doctor failed every Internet Topology panel that the browser drew.**
+  On the v2.49.0-rc.1 candidate, `smoking-pi doctor --live` reported six
+  failures in `dashboard-queries-run` (Flux "compilation failed" and
+  "invalid character '\x1f'") on the new dashboard. That blocked the release
+  over panels that worked. With "All" picked, Grafana sends a variable's
+  custom all value as written (`.*` stays `.*` in `${target:regex}`). The
+  doctor ran it through the regex format like any other value, put `\.\*`
+  inside a Flux string, and Flux accepts no such escape. The doctor now sends
+  a custom all value unformatted, as Grafana does: written as is in every
+  format but `text` ("All") and `percentencode`. Re-run on the staging Pi:
+  0 failures.
 
 ## [2.48.0] — 2026-10-26
 
