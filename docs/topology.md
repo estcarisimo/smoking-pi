@@ -82,7 +82,9 @@ traceroute. Read it from the left:
 - **public, no AS** (beige) answered from a public address no network
   announces, most often an exchange point's LAN.
 
-Bars get shorter to the right as destinations are reached. The second chart
+Each network is named in the legend as in the tables (see [what it cannot
+say](#what-it-cannot-say)). Bars get shorter to the right as destinations
+are reached. The second chart
 counts how many different networks answered at each distance: one is a
 shared stretch, more is where the destinations' paths part.
 

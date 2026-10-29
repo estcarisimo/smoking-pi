@@ -10,13 +10,12 @@ stamped at the cycle's start:
   ``as_changed`` / ``dst_changed`` (paths.py), ``first_hop`` (where this
   trace started; earlier hops are the shared prefix);
 - ``path_hop``, one point per hop that answered, tagged ``ttl`` (two digits,
-  so it sorts): ``addr``, ``asn`` when known with ``as_name`` (its CAIDA
+  so it sorts): ``addr``, ``asn`` when known, ``as_name`` (that AS's CAIDA
   AS2Org name, ``HANDLE - Organization, CC``) when the table has one,
-  ``ixp`` (the exchange point's
-  name, from PeeringDB) when the address is on an exchange LAN instead,
-  ``ptr`` (its reverse DNS name, names.py) when it has one, ``rtt_ms``. A router's reply
-  time is its slow path's, rate-limited: descriptive, never a series to
-  alert on.
+  ``ixp`` (the exchange point's name, from PeeringDB) when the address is
+  on an exchange LAN instead, ``ptr`` (its reverse DNS name, names.py) when
+  it has one, ``rtt_ms``. A router's reply time is its slow path's,
+  rate-limited: descriptive, never a series to alert on.
 
 And ``pathmeter_pass`` once per cycle (no target): ``traces``, ``probes``,
 ``seconds``, ``failed``, ``prefix_hops``, ``full_traces``, ``waiting``.
