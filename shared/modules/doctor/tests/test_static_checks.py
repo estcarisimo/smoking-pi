@@ -1061,6 +1061,10 @@ def test_columns_a_reduce_a_histogram_or_a_join_makes_are_not_tag_filters():
     assert sources.tag_refs_in(early) == {"ttl", "target", "n"}
     unbounded = query.replace("|> toFloat()", "|> filter(fn: (r) => r.le > 0.0) |> toFloat()")
     assert sources.tag_refs_in(unbounded) == {"ttl", "target", "le"}
+    # A stream written inline as a join's left: or right: is still read.
+    inline = query.replace("join.left(left: a,", 'join.left(left: from(bucket:"s") '
+                           '|> filter(fn: (r) => r.nope == "x"),')
+    assert sources.tag_refs_in(inline) == {"ttl", "target", "nope"}
 
 
 def test_a_joined_query_answers_with_a_number():

@@ -629,6 +629,33 @@ def _call_end(query: str, open_paren: int) -> int:
     return len(query)
 
 
+def _top_level_args(query: str, start: int, stop: int) -> dict[str, tuple[int, int]]:
+    """A call's named arguments between ``start`` (after its ``(``) and
+    ``stop`` (its ``)``): name -> (where its value starts, where it ends).
+    Commas inside parentheses, brackets, braces or strings do not split."""
+    args, depth, quoted, i, piece = {}, 0, False, start, start
+    while i <= stop:
+        c = query[i] if i < stop else ","
+        if quoted:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                quoted = False
+        elif c == '"':
+            quoted = True
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "," and depth == 0:
+            named = re.match(r"\s*([A-Za-z_]\w*)\s*:", query[piece:i])
+            if named:
+                args[named.group(1)] = (piece + named.end(), i)
+            piece = i + 1
+        i += 1
+    return args
+
+
 def _computed(query: str) -> list[tuple[int, set[str]]]:
     """Each ``map()``/``elapsed()``/``reduce()``/``histogram()`` that adds
     columns: where it ends and the columns it makes. ``map(fn: (r) =>
@@ -675,11 +702,18 @@ def tag_refs_in(query: str) -> set[str]:
     events = _pivots(query) + _computed(query)
     for m in reversed(list(_JOIN_RE.finditer(query))):
         end = _call_end(query, m.end() - 1)
-        # The record its as: function returns: columns, from the join on.
-        names = set(re.findall(r"(?:[{,]|\bwith)\s*([A-Za-z_]\w*)\s*:",
-                               _STRING_RE.sub('""', query[m.end():end])))
-        events.append((end, names))
-        query = query[:m.end()] + " " * (end - 1 - m.end()) + query[end - 1:]
+        # Its on: and as: functions read the joined rows, never storage;
+        # left: and right: may be inline streams with real filters, so they
+        # are still read. The record as: returns is columns from here on.
+        for name, (a, b) in sorted(_top_level_args(query, m.end(), end - 1).items(),
+                                   key=lambda item: -item[1][0]):
+            if name not in ("on", "as"):
+                continue
+            if name == "as":
+                events.append((end, set(re.findall(
+                    r"(?:[{,]|\bwith)\s*([A-Za-z_]\w*)\s*:",
+                    _STRING_RE.sub('""', query[a:b])))))
+            query = query[:a] + " " * (b - a) + query[b:]
     events.sort(key=lambda e: e[0])
     refs, exempt, start = set(), set(), 0
     for pos, made in events + [(len(query), set())]:
