@@ -210,3 +210,206 @@ def test_wifi_entry_point_renders_and_its_tunnel_twin_does_not():
     assert 'href="https://t/o">🌐 anywhere</a>' in text
 
 
+
+
+# --- episode renderers (front 8, the plain-words messages) -----------------
+
+def _record(**over):
+    """An episode record (episodes.summary) for 2026-10-12 19:30-20:10 UTC."""
+    record = {
+        "key": "episode:7", "start": 1_791_833_400.0, "end": 1_791_835_800.0,
+        "duration_s": 2400, "class": "upstream", "detail": "degraded",
+        "cause": "your provider, beyond the modem", "confidence": "medium",
+        "suspected": None, "down": False, "microcut": False, "longest_cut_s": 0,
+        "breadth_pct": 78.0, "categories": 3, "sites": [],
+        "measures": {"affected": 14, "reporting": 18, "all_at_once": False,
+                     "lost_all_cycles": 0, "hop_loss_pct": 7.0, "hop_usual_pct": 10.0,
+                     "dns": [0, 4], "worst": [["Ocean_Reef_Club_Airport_DFW_c567_2", 30.0,
+                                               "netflix"], ["Google", 6.0, "topsites"]],
+                     "wifi": "receiving", "wifi_dbm": -50.0, "wifi_weak": 0,
+                     "radio_blind_s": 0, "longest_cut_s": 0},
+    }
+    record.update(over)
+    return record
+
+
+def _event(kind="degradation", record=None, **render):
+    ctx = {"now": 1_791_834_900.0, "step": 300,
+           "names": {"Ocean_Reef_Club_Airport_DFW_c567_2": "Netflix", "Google": "Google",
+                     "W_uba_ar_icmp": "uba.ar"}}
+    ctx.update(render)
+    return {"type": "alert", "rule": "episode", "kind": kind, "key": "episode:7",
+            "severity": "warning", "episode": record or _record(), "render": ctx}
+
+
+@pytest.fixture
+def utc_plain(monkeypatch):
+    monkeypatch.setenv("DIGEST_TZ", "UTC")
+    monkeypatch.setenv("ALERT_MARKUP", "plain")
+
+
+def test_the_opening_message_of_the_brief(utc_plain):
+    """Esteban's example of 2026-10-30, as rendered."""
+    assert templates.plain(_event()) == (
+        "🟡 Internet with packet loss since 19:30 (25 min)\n"
+        "Probable cause: your provider, beyond the modem (medium confidence).\n"
+        "• 14 of 18 destinations lost packets; never all at once\n"
+        "• your router answered normally (7%, its usual 10%)\n"
+        "• this Pi's Wi-Fi was stable (-50 dBm, no cuts)\n"
+        "Against: Netflix alone lost 30%.")
+
+
+def test_below_medium_the_cause_is_undetermined_and_the_hint_a_signal(utc_plain):
+    record = _record(**{"class": "undetermined", "confidence": "low",
+                        "suspected": "upstream", "cause": "undetermined"})
+    assert templates.plain(_event(record=record)) == (
+        "🟡 Internet with packet loss since 19:30 (25 min)\n"
+        "Cause: undetermined.\n"
+        "• the strongest hint: your provider, beyond the modem (low confidence)\n"
+        "• 14 of 18 destinations lost packets; never all at once\n"
+        "• your router answered normally (7%, its usual 10%)\n"
+        "Against: Netflix alone lost 30%.")
+
+
+def test_a_router_not_measured_is_the_contrary_of_a_network_cause(utc_plain):
+    measures = {**_record()["measures"], "hop_loss_pct": None, "worst": []}
+    text = templates.plain(_event(record=_record(measures=measures)))
+    assert text.endswith("Against: your router is not measured, so your line and "
+                         "your provider cannot be told apart.")
+
+
+def test_a_disagreeing_diagnosis_is_the_contrary_when_nothing_else_is(utc_plain):
+    measures = {**_record()["measures"], "worst": []}
+    event = _event(record=_record(measures=measures))
+    event["diagnosis"] = {"class": "local_wifi", "confidence": "high"}
+    assert templates.plain(event).endswith(
+        "Against: the last hours' diagnosis points at this Pi's Wi-Fi radio "
+        "stopped receiving (high confidence).")
+    event["diagnosis"] = {"class": "upstream", "confidence": "high"}  # agrees
+    assert "Against" not in templates.plain(event)
+
+
+def test_one_service_is_named_by_its_label_never_its_target(utc_plain):
+    record = _record(**{"class": "destination", "detail": None,
+                        "cause": "just W_uba_ar_icmp", "sites": ["W_uba_ar_icmp"],
+                        "breadth_pct": 5.0, "categories": 0},
+                     measures={**_record()["measures"], "affected": 1,
+                               "worst": [["W_uba_ar_icmp", 40.0, "topsites"]]})
+    assert templates.plain(_event(record=record)) == (
+        "🟡 Packet loss at uba.ar since 19:30 (25 min)\n"
+        "Probable cause: just uba.ar (medium confidence).\n"
+        "• only 1 of 18 destinations lost packets\n"
+        "• your router answered normally (7%, its usual 10%)\n"
+        "• this Pi's Wi-Fi was stable (-50 dBm, no cuts)")
+
+
+def test_an_update_is_one_line(utc_plain):
+    record = _record(down=True)
+    event = _event("update", record, was_down=False, why=templates.update_why(
+        record, {}, {"escalated": True}))
+    assert templates.plain(event) == (
+        "🔁 Update on the packet loss since 19:30: now the Internet is down.")
+    event = _event("update", _record(**{"class": "local_link"}), was_down=False,
+                   why=templates.update_why(_record(**{"class": "local_link"}), {},
+                                            {"reclassed": True,
+                                             "words": "your provider, beyond the modem"}))
+    assert templates.plain(event) == (
+        "🔁 Update on the packet loss since 19:30: the probable cause is now "
+        "your line, the modem or the line to your provider (it was your "
+        "provider, beyond the modem).")
+
+
+def test_the_end_corrects_the_first_message_when_the_class_changed(utc_plain):
+    record = _record(**{"class": "local_link", "confidence": "high"})
+    event = _event("recovery", record, now=1_791_836_400.0, told_kind="degradation",
+                   told_class="upstream",
+                   told_words="your provider, beyond the modem", updates=0)
+    assert templates.plain(event) == (
+        "✅ Packet loss over after 40 min (19:30 to 20:10)\n"
+        "Cause: your line, the modem or the line to your provider (high confidence). "
+        "This corrects the first message, which said your provider, beyond the modem.\n"
+        "Affected: 14 of 18 destinations; the worst, Netflix, lost 30%.")
+
+
+def test_no_internal_words_reach_a_message(utc_plain):
+    """Rule names, target names, ASNs and the old structure's labels."""
+    texts = [templates.plain(_event(kind, _record(down=kind == "down")))
+             for kind in ("down", "degradation", "recovery", "night", "monitor")]
+    for text in texts:
+        for word in ("high_loss", "microcut_burst", "outage", "Ocean_Reef", "W_",
+                     "AS1", "mute", "Range:", "Scope:", "Signals:", "episode:"):
+            assert word not in text, (word, text)
+        assert text.count("\n") < 8
+
+
+def test_the_telegram_rendering_escapes_and_links(monkeypatch):
+    monkeypatch.setenv("DIGEST_TZ", "UTC")
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "h")
+    event = _event(names={"Ocean_Reef_Club_Airport_DFW_c567_2": "<Net&flix>"})
+    text = templates.format_message(event)
+    assert text.startswith("🟡 <b>Internet with packet loss since 19:30 (25 min)</b>\n")
+    assert "Against: &lt;Net&amp;flix&gt; alone lost 30%." in text
+    assert text.endswith(f'">19:25–19:55</a>')
+    assert "now-6h" not in text
+
+
+@pytest.mark.parametrize("mode, channel, expected", [
+    ("telegram", None, "html"), ("openclaw", None, "html"),
+    ("openclaw", "whatsapp", "plain"), ("webhook", None, "plain")])
+def test_only_telegram_gets_html(monkeypatch, mode, channel, expected):
+    monkeypatch.setenv("NOTIFY_MODE", mode)
+    if channel:
+        monkeypatch.setenv("OPENCLAW_CHANNEL", channel)
+    assert templates.markup() == expected
+
+
+@pytest.mark.parametrize("target, category, known, expected", [
+    ("Google_h2", "topsites", {"Google": "Google"}, "Google"),
+    ("Ocean_Reef_Club_Airport_DFW_c567_2", "netflix", {}, "Netflix"),
+    ("W_netflix_com_icmp", None, {}, "netflix.com"),
+    ("Cloudflare_DNS", "dns", {}, "Cloudflare DNS"),
+])
+def test_a_destination_is_called_by_its_service(target, category, known, expected):
+    import names
+    assert names.display(target, category, known) == expected
+
+
+def test_percentages_and_ranges_read_plainly(monkeypatch):
+    monkeypatch.setenv("TZ", "UTC")  # a fallback zone: its name once, at the end
+    assert [templates.pct(v) for v in (7.0, 2.5, 30.04, None)] == ["7%", "2.5%", "30%", "?"]
+    assert templates.span(1_791_833_400.0, 1_791_835_800.0, 1_791_835_800.0) == \
+        "19:30–20:10 UTC"
+
+
+# --- review of #438 ---------------------------------------------------------
+
+def test_a_lossy_router_with_no_usual_level_is_not_called_normal(utc_plain):
+    """No cycle before the episode (opened before an upgrade): 40% on the
+    router is its own loss, never "answered normally"."""
+    measures = {**_record()["measures"], "hop_loss_pct": 40.0, "hop_usual_pct": None,
+                "worst": []}
+    record = _record(**{"class": "local_link"}, measures=measures)
+    assert "• your router lost 40%\n" in templates.plain(_event(record=record))
+    calm = {**measures, "hop_loss_pct": 8.0}
+    assert "your router answered normally (8% lost)" in templates.plain(
+        _event(record=_record(measures=calm)))
+
+
+def test_an_update_after_an_undetermined_message_reads(utc_plain):
+    record = _record()
+    why = templates.update_why(record, {}, {"reclassed": True, "words": "undetermined"})
+    assert why == ("the probable cause is now your provider, beyond the modem "
+                   "(it was undetermined).")
+
+
+def test_the_contrary_outlives_the_extra_signals_in_a_caption():
+    sections = templates.episode_sections(_event())
+    against = [s for s in sections if "Against:" in s.text]
+    extra = [s for s in sections if s.text.startswith("• this Pi")]
+    assert against[0].priority < extra[0].priority
+
+
+def test_an_end_within_a_minute_says_so(utc_plain):
+    record = _record(duration_s=30, end=1_791_833_430.0)
+    assert templates.plain(_event("recovery", record)).startswith(
+        "✅ Packet loss over within a minute (19:30 to 19:30)")

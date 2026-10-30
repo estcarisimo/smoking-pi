@@ -37,6 +37,7 @@ import time
 
 import clock
 import ledger
+import names
 import notifications
 import notifier
 import templates
@@ -153,33 +154,50 @@ def _incidents(items: list[dict]) -> list[dict]:
             elif payload.get("type") == "recovery":
                 duration = payload.get("duration_s")
                 started = started - float(duration) if duration else None
-            lines = str(payload.get("message") or "").split("\n")
             by_key[key] = {
                 "key": key,
-                # An episode is named by its head ("Internet down") and its
-                # cause, not the word "episode" (review of #436).
-                "rule": lines[0] if episode else payload.get("rule"),
+                "rule": payload.get("rule"),
                 "severity": payload.get("severity"),
-                "target": episode.get("cause") if episode else payload.get("target"),
-                "message": (" · ".join(lines[1:3]) if episode
-                            else payload.get("message")),
+                "target": payload.get("target"),
+                "message": payload.get("message"),
                 "started": started,
                 "order": item["queued_at"],
                 "recovered": None,
             }
+            if episode:
+                # An episode is named by what happened and its cause, in
+                # the words of its own messages (templates.py), never by
+                # the word "episode" or a rule.
+                by_key[key].update(_episode_entry(payload))
         entry = by_key[key]
         if payload.get("type") == "recovery":
-            entry["recovered"] = item["queued_at"]
+            # An episode ended when its loss did, not when this was queued.
+            entry["recovered"] = (float(episode["end"]) if episode.get("end") is not None
+                                  else item["queued_at"])
+            if episode:
+                entry.update(_episode_entry(payload))
         else:
             # A re-notification carries the newer numbers; a later alert
             # after a recovery means it came back.
-            entry["message"] = (" · ".join(str(payload.get("message") or "")
-                                           .split("\n")[1:3])
-                                if episode else payload.get("message")) or entry["message"]
-            entry["severity"] = payload.get("severity") or entry["severity"]
+            if episode:
+                entry.update(_episode_entry(payload))
+            else:
+                entry["message"] = payload.get("message") or entry["message"]
+                entry["severity"] = payload.get("severity") or entry["severity"]
             entry["recovered"] = None
     return sorted(by_key.values(),
                   key=lambda e: e["started"] if e["started"] is not None else e["order"])
+
+
+def _episode_entry(payload: dict) -> dict:
+    """An episode message's name and text in a summary: the renderers'
+    words (templates.summary_entry); a message without their context, its
+    first line and the next two."""
+    if payload.get("render"):
+        return templates.summary_entry(payload)
+    lines = str(payload.get("message") or "").split("\n")
+    return {"rule": lines[0], "target": None,
+            "message": " · ".join(lines[1:3])}
 
 
 def now_line(state: dict, now: float) -> str:
@@ -189,8 +207,20 @@ def now_line(state: dict, now: float) -> str:
     if not ep:
         return f"{templates.STATUS_EMOJI['ok']} Nothing open now."
     judgment = ep.get("judgment") or {}
-    return (f"Now open: {esc(judgment.get('cause') or 'an episode')} "
-            f"(since {clock.at(float(ep.get('start') or now), now)})")
+    if not judgment.get("class"):  # not judged yet: its cause, as written
+        return (f"Now open: {esc(judgment.get('cause') or 'an episode')} "
+                f"(since {clock.at(float(ep.get('start') or now), now)})")
+    sites = (ep.get("facts") or {}).get("sites") or []
+    category_of = ep.get("category_of") or {}
+    record = {"class": judgment.get("class"), "detail": judgment.get("detail"),
+              "down": ep.get("down"), "microcut": ep.get("microcut"),
+              "longest_cut_s": ep.get("longest_cut_s"), "sites": sites}
+    render = {"names": {t: names.display(t, category_of.get(t)) for t in sites}}
+    since = ep.get("loss_start") or ep.get("start") or now
+    cause = (templates.cause_words(record, render) if record["class"] not in
+             (None, "undetermined") else "cause undetermined")
+    return (f"Now open: {esc(templates.what(record, render))}, {esc(cause)} "
+            f"(since {clock.at(float(since), now)})")
 
 
 def summary_lines(state: dict, items: list[dict], now: float,
@@ -215,7 +245,8 @@ def summary_lines(state: dict, items: list[dict], now: float,
                 when = f"✅ {clock.at(entry['recovered'], now)}"
         elif entry["key"] not in open_keys:
             when += " (over)"
-        lines.append(f"{emoji} {esc(name)} · {when} — {esc(entry['message'] or '')}")
+        said = f" — {esc(entry['message'])}" if entry["message"] else ""
+        lines.append(f"{emoji} {esc(name)} · {when}{said}")
     more = len(entries) - SUMMARY_LINES + dropped
     if more > 0:
         lines.append(f"…and {more} more")

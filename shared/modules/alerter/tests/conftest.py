@@ -106,6 +106,11 @@ def _scrub_env(monkeypatch, tmp_path):
         raise ConnectionError("tests never reach InfluxDB")
 
     monkeypatch.setattr(flux, "query_influx", _no_influx)
+    # The chart on an alert reads through common.tsdb: the same, so an
+    # alert under test is sent without one rather than trying the network.
+    from common import tsdb
+
+    monkeypatch.setattr(tsdb, "query_influx", _no_influx)
     # Every delivery writes the notification ledger: into the test's own
     # directory, never /var/lib/alerter or /tmp.
     import notifications
@@ -113,6 +118,11 @@ def _scrub_env(monkeypatch, tmp_path):
     monkeypatch.setattr(notifications, "ledger_file",
                         lambda: str(tmp_path / "ledger" / "ledger.jsonl"))
     monkeypatch.setattr(notifications, "_last_compact", None)
+    # The service labels are cached for an hour, per process: each test
+    # reads its own.
+    import names
+
+    monkeypatch.setattr(names, "_cache", {"at": None, "labels": {}})
 
 
 @pytest.fixture

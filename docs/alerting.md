@@ -88,11 +88,11 @@ Pushed, and only this:
 
 | What | Message | Sound |
 |---|---|---|
-| **The home's Internet down**: nearly every destination (`WIDESPREAD_PCT`) lost everything for three heard probe cycles in a row, and not because the monitor could not hear | `🔴 Internet down` | sounds |
-| **Material degradation** (below) | `🟡 Internet degraded` | sounds by day |
-| **The end of either** | `✅ Over`: the real duration (the loss itself, not the window), the scope, and the final cause -- which may correct what was said (*"corrects what was said (…)"*) | silent |
-| **The monitor blind for 15 minutes or more** (`MONITOR_BLIND_MIN_MINUTES`) | `🛠 Could not measure`: from when to when, the cause, what the watchdog did, and that what happened on the network meanwhile is unknown. ONE message, once it can measure again; nothing while blind -- the [dead man's switch](#when-this-host-goes-silent-the-dead-mans-switch) covers that | silent |
-| **A class change, or a jump in breadth** (`MATERIAL_BREADTH_PCT` points or more) of an episode already told | `🔁 Update`: the same episode, at most two | silent; sounds when it escalates to the Internet down |
+| **The home's Internet down**: nearly every destination (`WIDESPREAD_PCT`) lost everything for three heard probe cycles in a row, and not because the monitor could not hear | `🔴 Internet down since …` | sounds |
+| **Material degradation** (below) | `🟡 Internet with packet loss since …` (or *Packet loss at* one service, *IPv6 down*) | sounds by day |
+| **The end of either** | `✅ Internet back after …` / `✅ Packet loss over after …`: the real duration (the loss itself, not the window), who was affected, and the final cause -- which says *"This corrects the first message"* when the reading changed | silent |
+| **The monitor blind for 15 minutes or more** (`MONITOR_BLIND_MIN_MINUTES`) | `🛠 This Pi could not measure the network from … to …`: the cause, what the watchdog did, and that what happened on the network meanwhile is unknown. ONE message, once it can measure again; nothing while blind -- the [dead man's switch](#when-this-host-goes-silent-the-dead-mans-switch) covers that | silent |
+| **A class change, or a jump in breadth** (`MATERIAL_BREADTH_PCT` points or more) of an episode already told | `🔁 Update on …`: one line, the same episode, at most two | silent; sounds when it escalates to the Internet down |
 
 A per-destination signal that has been active for six hours
 (`CHRONIC_SIGNAL_S`: a host that never answers ICMP, IPv6 on a host
@@ -115,28 +115,99 @@ evidence, whether it was material and, when not, the conditions it missed
 the open one and those of the last day, so "why was I not told?" has an
 answer.
 
-A message is minimal and structured -- a head, then `Cause:`, `Range:`,
-`Scope:`, `Signals:` -- for example, the evening of 6 October:
+### What a message says
+
+Every pushed message reads as sentences a home user understands
+(`templates.py`; decided 2026-10-30): the head says what happened and since
+when; then the **probable cause with its confidence**, from the episode's
+classification (`common/diagnosis.classify_episode`); up to **three
+supporting signals and the strongest contrary one**, each with its number,
+chosen in a fixed priority -- how many destinations, the router (the first
+hop), this Pi's own Wi-Fi and route, the DNS resolvers, a single
+destination; and **one link to the episode's own range** (from one probe
+cycle before it to now, or to one cycle after its end), never "the last 6
+hours". Below medium confidence the cause line reads *Cause:
+undetermined.* and the reading it suspected is the first signal, marked low
+confidence. Destinations are named by their service (the taxonomy's
+`target_labels`: *Netflix*, *uba.ar*), never by a target's name, a rule's
+name or an AS number. One marker, one clock (`DIGEST_TZ`). With OpenClaw
+connected, an opening message ends *Reply "ack" to the assistant to silence
+this episode.*; with no assistant to reply to, it does not.
+
+The examples below are the October replays (`tests/test_messages.py`
+renders them and asserts this exact text; the first with links configured,
+`PUBLIC_BASE_HOST=smoking-pi.local`, the others without, so with no link
+line). The evening of 6 October, at 19:45:
 
 ```text
-🟡 Internet degraded
-Cause: your provider, beyond the modem (high confidence)
-Range: since 19:30
-Scope: 70% of the destinations, 3 categories, mean loss 6.7%
-Signals: 70% of the destinations, in 3 categories, lost together; the first hop (the ISP gateway) answered and never cut out; this Pi's radio was receiving the whole time
+🟡 Internet with packet loss since 19:30 (15 min)
+Probable cause: your provider, beyond the modem (high confidence).
+• 16 of 23 destinations lost packets; never all at once
+• your router answered normally (10%, its usual 10%)
+• this Pi's Wi-Fi was stable (-50 dBm, no cuts)
+See 19:25–19:45 → http://smoking-pi.local:3000/d/smoking-pi-overview-v1?from=…&to=…
 ```
 
-and the morning of 11 October, when the radio had been deaf all night:
+With one Netflix cache losing 30% meanwhile, the contrary signal says so:
+`Against: Netflix alone lost 30%.` Its end, after 23:00, silent:
 
 ```text
-🛠 Could not measure
-Range: 03:40 to 14:35 (10h 55m)
-Cause: this Pi's radio (monitor blind)
-Watchdog: nothing (not enabled, or no action)
-What happened on the network meanwhile is unknown.
+✅ Packet loss over after 3h 30m (19:30 to 23:00)
+Cause: your provider, beyond the modem (high confidence).
+Affected: 16 of 23 destinations.
 ```
 
-A webhook receiver gets the same text in `message`, and the episode's
+The line down (invented: 10:00-10:20, the router with it), at 10:15, and
+its end:
+
+```text
+🔴 Internet down since 10:00 (15 min)
+Probable cause: your line, the modem or the line to your provider (high confidence).
+• all 23 destinations lost every packet
+• your router stopped answering too
+• this Pi's Wi-Fi was stable (-50 dBm, no cuts)
+```
+
+```text
+✅ Internet back after 20 min down (10:00 to 10:20)
+Cause: your line, the modem or the line to your provider (high confidence).
+Affected: all 23 destinations.
+```
+
+When the reading changed after the first message, the end says so:
+*Cause: your line, … (high confidence). This corrects the first message,
+which said your provider, beyond the modem.* An update is one line:
+*🔁 Update on the packet loss since 19:30: now the Internet is down.*
+
+The radio deaf for 17 minutes on 18 October, and the watchdog reloading
+its driver (the monitor's own message, silent, once it measures again):
+
+```text
+🛠 This Pi could not measure the network from 14:05 to 14:27 (22 min)
+Cause: this Pi's Wi-Fi radio stopped receiving (high confidence).
+The watchdog reloaded the Wi-Fi driver at 14:22.
+What the network did meanwhile is unknown.
+```
+
+An episode that began and ended in quiet hours is one line of their
+morning summary (and an undelivered one, of the outbox's):
+
+```text
+🌙 Quiet hours, 02:55 to 07:00 — held overnight:
+🟢 Nothing open now.
+🔴 Internet down · 02:00 → ✅ 02:40 — probable cause: your line, the modem or the line to your provider
+```
+
+What is recorded and not pushed has its line in the
+[notification ledger](#the-notification-ledger-what-it-told-you), in the
+same words -- the 40-second cut of 15 October:
+
+```text
+📝 Recorded, not sent (under a minute): Your line cut out for 40 s, 12:35 to 12:40
+Cause: your line, the modem or the line to your provider
+```
+
+A webhook receiver gets the same text, plain, in `message`, and the episode's
 record in `episode` with its `kind` (`down`, `degradation`, `update`,
 `recovery`, `monitor`, `night`).
 
@@ -190,12 +261,20 @@ waits for the next day):
 
 | When | Message |
 |---|---|
-| A band reaches 3 days -- on the third evening, at the minute it would have been alerted | *For the 3rd evening in a row, packet loss on most destinations from 19:30 to 23:00. Looks like your provider at peak hour (high confidence). 3 of 3 evenings, 14 of 18 destinations, 5–6 % loss. With this you can complain to your provider*, and the last occurrence in the Connection quality dashboard when links are configured |
-| 3 observed days in a row without it | *The evening loss window did not appear in 3 days; last seen Tuesday.* with its days seen of days observed |
+| A band reaches 3 days -- on the third evening, at the minute it would have been alerted | the window, its probable cause and its evidence, in the episodes' words (below), with the last occurrence in the Connection quality dashboard when links are configured |
+| 3 observed days in a row without it | *✅ The evening packet loss (19:30 to 23:00) did not come back for 3 days; last seen Tuesday. It was there on 9 of 12 evenings while it lasted.* |
+
+```text
+🔁 For the 3rd evening in a row, packet loss on most destinations from 19:30 to 23:00.
+Probable cause: your provider, beyond the modem, at peak hour (high confidence).
+• 3 of the last 3 evenings
+• 14 of 18 destinations lost packets, 5–6%
+This is evidence you can show your provider.
+```
 
 In between, its episodes are recorded, never pushed (`smoking-pi alerts
-history` shows each as `recorded` with *part of pattern
-1930-2300-upstream*), and its counters advance. The weekly summary's
+history` shows each as `recorded` with *part of a recurring loss window,
+already told*; the record keeps the pattern id), and its counters advance. The weekly summary's
 *Recurring* section reads the pattern objects -- *19:30–23:00: packet
 loss on most destinations, 5 evenings of 7 (your provider; 17 evenings of
 21 since 28 Sep)* -- and says a pattern gone that week once. MCP
@@ -272,13 +351,13 @@ cycle, asserting the exact messages:
 | Day | What happened | Before | Now |
 |---|---|---|---|
 | 10-09 21:21 | The Pi lost its default route for 30 s | a microcut alert, "the line to the ISP", and its recovery | nothing; recorded, *this Pi* |
-| 10-11 03:40-14:35 | Radio deaf 11 h | outage, uplink_down, re-notifications, recoveries | one silent *Could not measure* at 14:35 |
-| 10-12 10:10-16:00 | Radio deaf 5 h 40 min, the exporter stalled, a reconnection cut | three outages, exporter_stale, two recoveries, a microcut "just that site" | one silent *Could not measure* |
+| 10-11 03:40-14:35 | Radio deaf 11 h | outage, uplink_down, re-notifications, recoveries | one silent *This Pi could not measure the network* at 14:35 |
+| 10-12 10:10-16:00 | Radio deaf 5 h 40 min, the exporter stalled, a reconnection cut | three outages, exporter_stale, two recoveries, a microcut "just that site" | one silent *This Pi could not measure the network* |
 | 10-14 | Netflix_5 10 min; UBA 10 + 15 min | four `high_loss` alerts and recoveries | nothing; recorded, *just that site* |
 | 10-15 12:35 | A real 40 s cut of the line, 12 destinations | a microcut alert and its recovery | nothing; recorded as a line microcut, *your line* |
-| 10-18, 10-28 | Deaf 15-20 min, the watchdog reloaded the driver | four to six messages each | one silent *Could not measure* each |
-| 10-06 19:30-23:00 | Most destinations losing 2-8 %, the first hop clean | nothing (no rule saw it) | *Internet degraded* at 19:45, *your provider, beyond the modem*; a silent *Over* after 23:00 with 3h 30m |
-| invented | The line down 20 min | | *Internet down* at 15 min; a silent *Over* with 20 min |
+| 10-18, 10-28 | Deaf 15-20 min, the watchdog reloaded the driver | four to six messages each | one silent *This Pi could not measure the network* each |
+| 10-06 19:30-23:00 | Most destinations losing 2-8 %, the first hop clean | nothing (no rule saw it) | *Internet with packet loss* at 19:45, *your provider, beyond the modem*; a silent *Packet loss over* after 23:00 with 3h 30m |
+| invented | The line down 20 min | | *Internet down* at 15 min; a silent *Internet back* with 20 min |
 
 ## Signals: the rules
 
@@ -432,9 +511,10 @@ arriving is the only proof. `--webhook` (the URL typed at a prompt or piped on s
 the credential itself) and `--off` work the same way.
 Run it with no options to be asked.
 
-Messages are an episode's: a head (🔴 Internet down, 🟡 Internet degraded,
-✅ Over, 🛠 Could not measure), then its cause, range, scope and signals --
-composed to fit the channel's budget. See [One episode, one
+Messages are an episode's: a head (🔴 Internet down, 🟡 Internet with
+packet loss, ✅ Internet back, 🛠 This Pi could not measure), then its
+probable cause, its signals and a link to its range -- composed to fit the
+channel's budget. See [One episode, one
 message](#one-episode-one-message) and [Message rendering](#message-rendering)
 below.
 
@@ -566,7 +646,7 @@ POSTs JSON to `ALERT_WEBHOOK_URL`, optionally with
   "kind": "degradation",
   "severity": "warning",
   "target": null,
-  "message": "🟡 <b>Internet degraded</b>\nCause: your provider, beyond the modem ...",
+  "message": "🟡 Internet with packet loss since 19:30 (15 min)\nProbable cause: your provider, beyond the modem (high confidence).\n...",
   "episode": {"key": "episode:12", "class": "upstream", "cause": "...",
               "confidence": "high", "start": 0, "end": 0, "material": true},
   "state": {"first_seen": 0, "notified_count": 1},
@@ -784,9 +864,10 @@ When an episode is alerted (the Internet down or degraded), the alerter
 also diagnoses the last `ALERT_DIAGNOSIS_HOURS` (default 3) exactly as the
 assistants' `diagnose_loss` tool does (`common/diagnosis_query.py`), and
 attaches the newest incident of a broad class -- this host's Wi-Fi, the
-line, upstream -- from the last four probe steps. At high or medium
-confidence its summary rides under the episode as one line (*Diagnosis of
-the last hours: …*); it never replaces the episode's cause.
+line, upstream -- from the last four probe steps. It never replaces the
+episode's cause: at high or medium confidence, when it points elsewhere and
+nothing else contradicts the episode, it is the message's contrary signal
+(*Against: the last hours' diagnosis points at …*).
 
 **Cost:** about ten InfluxDB queries over three hours, only for an alert
 (a handful a month), within **20 seconds**; past that, or on any failure,
@@ -1041,16 +1122,18 @@ that site's, in *Destinations*.
 
 ## Message rendering
 
-Messages are Telegram HTML. Two budgets apply: 4096 characters for a plain
+Messages are Telegram HTML when they go to Telegram (directly, or through
+OpenClaw's `telegram` channel); a webhook and any other OpenClaw channel get
+plain text, whatever `ALERT_MARKUP` says. Two budgets apply: 4096 characters for a plain
 message, **1024 for a caption** on a message carrying an image — so a chart
 costs three quarters of the room.
 
 Rather than truncate, sections are dropped by priority until the message fits,
-so what survives is always the head, the cause and the range. An episode's
-message (`templates.episode_sections`) is its head in bold, then `Cause:`,
-`Range:` and `Scope:` (never dropped), then `Signals:` and the diagnosis
-line, then the links -- links last among what can go, because the link is
-the way out of a static caption. Only if the headline
+so what survives is always the head and the cause. An episode's message
+(`templates.episode_sections`, rendered by `templates.render`) is its head
+in bold, the cause line and the first signal (never dropped), then the
+range link, then the contrary signal, then the other signals -- the extra signals go first, then the contrary, the link last
+among what can go, because the link is the way out of a static caption. Only if the headline
 alone still overflows is text trimmed, and then on a line boundary: an HTML tag
 cut in half makes Telegram reject the whole message with a 400, which
 `/tools/invoke` reports as HTTP 200 with `{"ok": false}`.
@@ -1060,10 +1143,13 @@ Every interpolated value is escaped. Target names are user-editable, and
 
 ### The chart
 
-The chart below is the one `get_chart` draws (episode messages carry none
-for now; `ALERT_CHARTS` and `CHART_HOURS` went with the alert charts and the
-daily digest). It covers the last hours of a target, drawn to be read in a
-chat on a phone and sent as an inline photo:
+The opening message of a material episode (the Internet down, or a
+material degradation) carries one chart -- never an update, an end or the
+monitor's message: the destination that lost most, with the others of its
+category as context, from before the episode to now. It is the chart
+`get_chart` draws, sent as an inline photo; not while the outbox holds
+anything, and any failure sends the text alone. `ALERT_CHARTS` and
+`CHART_HOURS` stay retired: there is no switch.
 
 ![An incident chart for one target: latency triples and loss rises above the 20% threshold where the alert is marked](img/chart-alert.png)
 
@@ -1089,6 +1175,11 @@ These images come from `tools/chart-examples/render.py`, which runs the real
 renderer on invented data; rerun it when the chart code changes.
 
 ### The links row
+
+An episode's message has one link, its range (`common.links.range_link`:
+the Overview, or the Wi-Fi link dashboard for this Pi's radio, from and to
+the episode's own minutes). The row below is the weekly summary's and the
+older per-target shape's:
 
 `graph · per-ping · peers · edit`, followed by `🌐 anywhere` when a tunnel is
 configured (`TUNNEL_BASE_HOST` — see

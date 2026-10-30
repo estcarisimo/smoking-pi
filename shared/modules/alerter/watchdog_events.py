@@ -129,6 +129,8 @@ def _collect(state: dict, query, now: float) -> list[dict]:
             "target": None,
             "at": at,
             "area": row.get("area") or "watchdog",
+            # Its own words, for the monitor's message (templates.py).
+            "text": message,
             "message": (
                 "the watchdog on this host, at "
                 f"{clock.at(at, now)}: "

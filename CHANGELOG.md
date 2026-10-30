@@ -68,6 +68,46 @@ version gets a matching GitHub release and git tag.
 
 ### Changed
 
+- **Every message the alerter pushes reads as sentences a home user
+  understands, with the evidence for its cause.** After the front-8
+  pipeline (#436) the messages were deliberately bare -- *Cause:*,
+  *Range:*, *Scope:*, *Signals:* -- and before it they spoke the code's
+  language: `high_loss`, `microcut_burst`, "mean loss 21.7% over 15m",
+  `Ocean_Reef_Club_Airport_DFW_c567_2`, "AS13335 CLOUDFLARENET", "mute: say
+  …", "❔ not a clear pattern" as a cause, links to the last six hours
+  instead of the event, and recoveries that repeated the alert with no
+  duration. Esteban could not tell from his phone what had happened, how
+  sure the Pi was, or why it thought so, and the October audit counted
+  most of those messages as noise for that reason. Now one renderer per
+  message kind (`alerter/templates.py`: the Internet down, a material
+  degradation, its end, the monitor blind, an update, the quiet hours'
+  line, the outbox's) writes: what happened and since when; the probable
+  cause with its confidence, or *Cause: undetermined* with the strongest
+  hint as a signal; up to three supporting signals and the strongest
+  contrary one, each with its number (*14 of 18 destinations lost packets;
+  never all at once*, *your router answered normally (7%, its usual
+  10%)*, *this Pi's Wi-Fi was stable (-50 dBm, no cuts)*, *Against:
+  Netflix alone lost 30%*), in a fixed priority; and one link to the
+  episode's own range (`common.links.range_link`). An end gives the real
+  duration, who was affected and the final cause, and says *This corrects
+  the first message* when the reading changed; the monitor's message says
+  from when to when, why, what the watchdog did and that the network
+  meanwhile is unknown; an update is one line. Destinations are named by
+  their service from the taxonomy (`target_labels`, read at most hourly by
+  the new `alerter/names.py`), never by target, rule or AS number. The
+  episode keeps the numbers it needs (`measures`: the router's loss
+  against its usual, the resolvers, the worst destination, the weakest
+  Wi-Fi signal). The opening message of a material episode carries one
+  chart again; nothing else does. A webhook, or an OpenClaw channel other
+  than Telegram, gets plain text instead of Telegram's HTML. With OpenClaw
+  connected, an alert ends with how to silence it (*Reply "ack" to the
+  assistant*). The recurring-window messages (#437) speak the same way:
+  *Probable cause:*, the evidence as signals, no pattern id in the ledger's
+  line. `tests/test_messages.py` replays October (the 10-06
+  evening, the 10-11/10-12/10-18 monitor messages, the 10-15 microcut,
+  an invented line-down, a night bundle) and asserts each exact text;
+  `docs/alerting.md` shows them.
+
 - **The daily digest is gone; a weekly summary goes out only when the week
   is news.** In October on the reference Pi the digest arrived 16 times in
   16 days: 10 said "all clear" with only the Wi-Fi's dBm changed, 5 repeated

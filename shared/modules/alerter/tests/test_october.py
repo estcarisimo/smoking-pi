@@ -44,6 +44,11 @@ DNS = ["GoogleDNS", "CloudflareDNS", "Quad9DNS", "OpenDNS", "ns1_uba"]
 DESTINATIONS = TOPSITES + NETFLIX + DNS
 CATEGORY = {**{t: "topsites" for t in TOPSITES}, **{t: "netflix" for t in NETFLIX},
             **{t: "dns" for t in DNS}, "CPE_IPv4": "cpe"}
+# The taxonomy's service labels (target_labels), as the exporter writes
+# them: the Netflix caches are Netflix, UBA's web and name servers uba.ar.
+SERVICE = {**{t: "Netflix" for t in NETFLIX}, "UBA": "uba.ar", "ns1_uba": "uba.ar",
+           "GoogleDNS": "Google DNS", "CloudflareDNS": "Cloudflare DNS",
+           "Quad9DNS": "Quad9", "OpenDNS": "OpenDNS", "NYT": "The New York Times"}
 
 
 def at(day: int, hhmm: str) -> float:
@@ -126,6 +131,11 @@ class Pi:
                     if t <= self.now]
         if '"upgrade"' in src:
             return []
+        if "target_labels" in src:
+            return [{"target": t, "_value": v} for t, v in SERVICE.items()]
+        if "signal_dbm" in src:  # the weakest signal of the hour
+            return ([{"interface": "wlan0", "n": 60, "weak": 0, "min": -50.0}]
+                    if self.case.wifi else [])
         if "host_uplink" in src:
             rows = []
             for a, b in self.case.route:
@@ -237,9 +247,9 @@ def test_1011_eleven_hours_deaf_is_one_silent_monitor_message(replay):
     when, message = sent[0]
     assert when >= at(11, "14:35")
     text = message["message"]
-    assert "Could not measure" in text
+    assert "could not measure the network" in text
     assert "03:40" in text and "14:35" in text
-    assert "this Pi's radio (monitor blind)" in text
+    assert "this Pi's Wi-Fi radio stopped receiving" in text
     assert "unknown" in text
     [episode] = closed(current)
     assert episode["class"] == "monitor"
@@ -317,8 +327,8 @@ def test_deaf_minutes_and_a_driver_reload_are_one_silent_monitor_message(
     sent, current = replay(case, at(day, deaf[0]) - 1200, at(day, deaf[1]) + 4200)
     assert kinds(sent) == [("monitor", True)]
     text = sent[0][1]["message"]
-    assert "reloaded the driver" in text
-    assert "this Pi's radio (monitor blind)" in text
+    assert "reloaded the Wi-Fi driver" in text
+    assert "this Pi's Wi-Fi radio stopped receiving" in text
     [episode] = closed(current)
     assert episode["class"] == "monitor"
 
@@ -340,7 +350,7 @@ def test_1006_the_evening_loss_is_one_alert_and_one_silent_recovery(replay):
     assert kinds(sent) == [("degradation", False), ("recovery", True)]
     (alerted, alert), (recovered, recovery) = sent
     assert at(6, "19:40") <= alerted <= at(6, "19:45")
-    assert "Internet degraded" in alert["message"]
+    assert "Internet with packet loss" in alert["message"]
     assert "your provider, beyond the modem" in alert["message"]
     assert recovered > at(6, "23:00")
     assert "19:30 to 23:00" in recovery["message"]

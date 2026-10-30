@@ -52,10 +52,12 @@ from datetime import datetime
 import clock
 import episodes
 import flux
+import names
+import notifier
 import quiet
 import state as state_mod
 import templates
-from common import definitions, diagnosis, links, mutes, patterns
+from common import definitions, links, mutes, patterns
 
 log = logging.getLogger("alerter.policy")
 
@@ -137,9 +139,8 @@ def _open(state: dict, ep: dict, pol: dict, now: float, night: bool) -> list[dic
         return []
     if int(pol.get("updates", 0)) >= MAX_UPDATES or _over_ceiling(state, now):
         return []
-    why = ("now the Internet is down" if escalated else
-           f"cause now {judgment['cause']} (was {pol.get('sent_cause') or pol.get('sent_class')})"
-           if reclassed else f"now {breadth:.0f}% of the destinations")
+    why = {"escalated": escalated, "reclassed": reclassed,
+           "words": pol.get("sent_words"), "was_down": pol["sent_kind"] == "down"}
     pol.update({"sent_kind": kind, "sent_class": judgment["class"],
                 "sent_breadth": breadth, "updates": int(pol.get("updates", 0)) + 1})
     return [_payload(state, ep, pol, "update", now, why=why, sound=escalated)]
@@ -170,40 +171,60 @@ def recorded(ep: dict) -> dict:
     record = episodes.summary(ep)
     pol = ep.get("policy") or {}
     why = ("acknowledged" if pol.get("muted") else
-           f"part of pattern {record['pattern']}" if record.get("pattern") else
-           "a line microcut under a minute" if record["microcut"] else
-           "the monitor's own, blind under 15 min" if record["class"] == "monitor" else
+           "part of a recurring loss window, already told" if record.get("pattern") else
+           "under a minute" if record["microcut"] else
+           "this Pi could not measure, under 15 min" if record["class"] == "monitor" else
            "not material: " + ", ".join(record["unmet"] or ["?"]))
-    lines = [f"📝 Recorded, not sent: {why}",
-             f"Cause: {record['cause']}",
-             f"Range: {_range(record, record['end'], False)}"]
+    render = _context(ep, record, pol, float(record["end"]))
+    lines = [f"📝 Recorded, not sent ({why}): {templates.what(record, render)}, "
+             f"{templates.span(record['start'], record['end'], record['end'], ' to ')}",
+             f"Cause: {templates.cause_words(record, render)}"]
     return {"type": "episode", "rule": "episode", "kind": "recorded",
             "key": ep["key"], "target": None, "targets": record["sites"],
             "severity": "info", "silent": True, "episode": record,
             "message": "\n".join(lines)}
 
 
-_HEAD = {
-    "down": "🔴 Internet down",
-    "degradation": "🟡 Internet degraded",
-    "update": "🔁 Update",
-    "recovery": "✅ Over",
-    "night": "🌙 In the night",
-    "monitor": "🛠 Could not measure",
-}
+def _context(ep: dict, record: dict, pol: dict, now: float, **extra) -> dict:
+    """What the renderers (templates.py) need beyond the record: the
+    clock, the cycle, each destination's service name, and what was told."""
+    m = record.get("measures") or {}
+    category_of = ep.get("category_of") or {}
+    targets = list(record.get("sites") or []) + [w[0] for w in m.get("worst") or []]
+    known = names.labels(now) if targets else {}
+    blind_by = record.get("blind_by") or {}
+    return {
+        "now": now,
+        "step": record.get("step") or ep.get("step"),
+        "names": {t: names.display(t, category_of.get(t), known) for t in targets},
+        "told_kind": pol.get("sent_kind"),
+        "told_class": pol.get("sent_class"),
+        # An episode told before the words were kept: its cause as written.
+        "told_words": pol.get("sent_words") or pol.get("sent_cause"),
+        # Updates actually sent (the counter also caps them).
+        "updates": sum(1 for s in pol.get("sent") or () if s.get("kind") == "update"),
+        # Only with an assistant to reply to (OpenClaw) is "ack" useful.
+        "assistant": notifier.notify_mode() == "openclaw",
+        "blind_reason": max(blind_by, key=blind_by.get) if blind_by else None,
+        **extra,
+    }
 
 
 def _payload(state: dict, ep: dict, pol: dict, kind: str, now: float,
-             why: str | None = None, sound: bool = False,
+             why: dict | None = None, sound: bool = False,
              record: dict | None = None) -> dict:
-    """One notification about ``ep``. Minimal and structured on purpose --
-    head, cause and confidence, range, scope, signals -- for the
-    formatting that follows to dress."""
+    """One notification about ``ep``: the episode's record and what the
+    renderers need (``render``), its text rendered by templates.py --
+    ``message`` is the plain one the ledger and summaries read."""
     judgment = ep.get("judgment") or {}
     record = record or episodes.summary(ep)
-    lines = [f"{_HEAD[kind]}: {why}" if kind == "update" and why else _HEAD[kind]]
-    lines += _body(kind, ep, pol, record, now)
     final = kind in ("recovery", "monitor", "night")
+    extra = {}
+    if kind == "update" and why:
+        extra = {"was_down": why.get("was_down")}
+    render = _context(ep, record, pol, now, **extra)
+    if kind == "update":
+        render["why"] = templates.update_why(record, render, why or {})
     count = 1 if kind in ("down", "degradation") else int(pol.get("updates", 0)) + 1
     payload = {
         "type": "recovery" if final else "alert",
@@ -217,12 +238,13 @@ def _payload(state: dict, ep: dict, pol: dict, kind: str, now: float,
         # Internet being down; nothing sounds in quiet hours (quiet.py holds
         # what is sent then).
         "silent": not (kind in ("down", "degradation") or sound),
-        "message": "\n".join(lines),
         "episode": record,
+        "render": render,
         # For the idempotent delivery (ledger.key_of): which episode, and
         # which of its messages.
         "state": {"first_seen": ep.get("opened_at"), "notified_count": count},
     }
+    payload["message"] = templates.plain(payload)
     if kind in ("down", "degradation", "update"):
         state.setdefault("pushes", []).append(now)
     pol.setdefault("sent", []).append({"kind": kind, "at": now})
@@ -230,54 +252,9 @@ def _payload(state: dict, ep: dict, pol: dict, kind: str, now: float,
         # The cause last told: an update corrects it, so the end compares
         # with that, not with the first message (review of #436).
         pol["sent_cause"] = judgment.get("cause")
+        pol["sent_words"] = templates.cause_words(record, render)
     log.info("Episode %s: %s", ep["key"], kind)
     return payload
-
-
-def _range(record: dict, now: float, open_: bool) -> str:
-    start = clock.at(record["start"], now)
-    if open_:
-        return f"since {start}"
-    return (f"{start} to {clock.at(record['end'], now)} "
-            f"({templates._duration(record['duration_s']) or 'under a minute'})")
-
-
-def _body(kind: str, ep: dict, pol: dict, record: dict, now: float) -> list[str]:
-    judgment = ep.get("judgment") or {}
-    lines = []
-    if kind == "monitor":
-        lo, hi = episodes.blind_range(ep) or (record["start"], record["end"])
-        lines.append(f"Range: {clock.at(lo, now)} to {clock.at(hi, now)} "
-                     f"({templates._duration(hi - lo) or 'under a minute'})")
-        lines.append("Cause: " + (judgment.get("cause")
-                                  if judgment.get("class") == "monitor"
-                                  else diagnosis.monitor_cause(ep.get("facts") or {})))
-        actions = [w.get("message") for w in ep.get("watchdog") or []
-                   if w.get("message")]
-        lines.append("Watchdog: " + ("; ".join(actions[:3]) if actions
-                                      else "nothing (not enabled, or no action)"))
-        lines.append("What happened on the network meanwhile is unknown.")
-        return lines
-    open_ = kind in ("down", "degradation", "update")
-    cause = judgment.get("cause") or diagnosis.UNDETERMINED_CAUSE
-    confidence = judgment.get("confidence")
-    corrected = (kind == "recovery" and pol.get("sent_cause")
-                 and pol["sent_cause"] != cause)
-    lines.append(f"Cause: {cause}"
-                 + (f" ({confidence} confidence)" if confidence and
-                    judgment.get("class") != "undetermined" else "")
-                 + (f" — corrects what was said ({pol['sent_cause']})"
-                    if corrected else ""))
-    lines.append(f"Range: {_range(record, now, open_)}")
-    scope = f"Scope: {record['breadth_pct']:.0f}% of the destinations"
-    if record.get("categories"):
-        scope += f", {record['categories']} categories"
-    if record.get("loss_pct") is not None:
-        scope += f", mean loss {record['loss_pct']:.1f}%"
-    lines.append(scope)
-    if judgment.get("evidence"):
-        lines.append("Signals: " + "; ".join(judgment["evidence"][:3]))
-    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -321,28 +298,29 @@ def _ordinal(n: int) -> str:
 
 
 def _cause_line(pattern: dict) -> str:
+    """The pattern's probable cause in the episodes' words (templates.py)."""
     cls = pattern["class"]
-    what = {"upstream": "your provider", "local_link":
-            "your line (the modem or the line to the ISP)",
-            "destination": "the destinations themselves"}[cls]
+    what = (templates.CAUSE_WORDS.get(cls) if cls != "destination"
+            else "the destinations themselves")
     if cls == "upstream" and patterns.peak_hour(pattern):
-        what += " at peak hour"
+        what += ", at peak hour"
     confidence = pattern.get("confidence")
-    return f"Looks like {what}" + (f" ({confidence} confidence)." if confidence else ".")
+    return (f"Probable cause: {what}"
+            + (f" ({confidence} confidence)." if confidence else "."))
 
 
-def _loss(pattern: dict) -> str:
+def _loss(pattern: dict) -> str | None:
     lo, hi = pattern.get("loss_min"), pattern.get("loss_max")
     if lo is None:
-        return "loss"
+        return None
     if round(lo) == round(hi):
-        return f"about {lo:.0f} % loss"
-    return f"{lo:.0f}–{hi:.0f} % loss"
+        return f"about {lo:.0f}%"
+    return f"{lo:.0f}–{hi:.0f}%"
 
 
 def pattern_message(pattern: dict, event: str, now: float) -> str:
     """The words of a pattern's one message: when it appears, or when it
-    is gone. Informative: what it is, how sure, the evidence."""
+    is gone -- what it is, how sure, the evidence, as an episode's."""
     part = pattern["part"]
     hours = f"from {pattern['from']} to {pattern['to']}"
     if event == "gone":
@@ -350,10 +328,10 @@ def pattern_message(pattern: dict, event: str, now: float) -> str:
         when = (datetime.fromtimestamp(float(last), tz=clock.zone()).strftime("%A")
                 if last else "never")
         return "\n".join([
-            f"✅ The {part} loss window did not appear in "
-            f"{patterns.absent_days(pattern)} days; last seen {when}.",
-            f"{pattern['from']} to {pattern['to']}, seen on {pattern['days_seen']} "
-            f"of {pattern['days_observed']} {part}s while it lasted."])
+            f"✅ The {part} packet loss ({pattern['from']} to {pattern['to']}) did not "
+            f"come back for {patterns.absent_days(pattern)} days; last seen {when}.",
+            f"It was there on {pattern['days_seen']} of {pattern['days_observed']} "
+            f"{part}s while it lasted."])
     today = datetime.fromtimestamp(now, tz=clock.zone()).date()
     seen, heard = patterns.recent_counts(pattern, today)
     run = patterns.streak(pattern)
@@ -362,16 +340,17 @@ def pattern_message(pattern: dict, event: str, now: float) -> str:
             else "many destinations")
     head = (f"🔁 For the {_ordinal(run)} {part} in a row, " if run >= seen
             else f"🔁 On {seen} of the last {heard} {part}s, ")
+    loss = _loss(pattern)
     lines = [head + f"packet loss on {many} {hours}.",
              _cause_line(pattern),
-             f"{seen} of {heard} {part}s, {affected} of {reporting} destinations, "
-             f"{_loss(pattern)}."]
+             f"• {seen} of the last {heard} {part}s",
+             f"• {affected} of {reporting} destinations lost packets"
+             + (f", {loss}" if loss else "")]
     if pattern.get("inference_days"):
-        lines.append(f"The inference found it too on {pattern['inference_days']} of them.")
+        lines.append(f"• the congestion detector found it too on "
+                     f"{pattern['inference_days']} of them")
     if pattern["class"] in ("upstream", "local_link"):
-        lines.append("With this you can complain to your provider"
-                     + (" → the last one is the graph link." if _last_link(pattern)
-                        else "."))
+        lines.append("This is evidence you can show your provider.")
     return "\n".join(lines)
 
 
@@ -404,7 +383,7 @@ def _pattern_payload(pattern: dict, event: str, now: float) -> dict:
         "state": {"first_seen": pattern.get("created_at"), "notified_count": 1},
     }
     if link:
-        payload["links"] = {"graph": link}
+        payload["links"] = {"last_window": link}
     log.info("Pattern %s: %s", pattern["id"], event)
     return payload
 

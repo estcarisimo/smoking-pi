@@ -523,3 +523,20 @@ def week_link(start: float, stop: float) -> str | None:
         return None
     return grafana_url("connectivity-quality-v1", extra={
         "from": str(int(start * 1000)), "to": str(int(stop * 1000))})
+
+
+# The dashboard an alerter message points at, by what it is about.
+RANGE_DASHBOARDS = {"network": "smoking-pi-overview-v1", "radio": "wifi-link-v1"}
+
+
+def range_link(start: float, stop: float, about: str = "network") -> str | None:
+    """A dashboard over exactly ``[start, stop]`` (epoch seconds), on the
+    primary base: an alerter message's one link, so it opens on the
+    episode's own minutes, never on ``now-6h``. ``about`` picks the
+    dashboard (RANGE_DASHBOARDS: the Overview, or this Pi's Wi-Fi link).
+    None when links are not configured."""
+    if not links_configured() or stop <= start:
+        return None
+    uid = RANGE_DASHBOARDS.get(about, RANGE_DASHBOARDS["network"])
+    return grafana_url(uid, extra={
+        "from": str(int(start * 1000)), "to": str(int(stop * 1000))})
