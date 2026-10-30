@@ -33,22 +33,86 @@ alerter_preflight_line() {
     done
 }
 
-alerts_set_digest() {
-    # $1: HH:MM or off (validated by the caller); $2: a zone or empty.
-    if [ "$1" = off ]; then
-        env_set DIGEST_ENABLED false
-        echo "Daily digest off."
-        return 0
-    fi
-    env_set DIGEST_ENABLED true
-    env_set DIGEST_AT "$1"
-    [ -z "$2" ] || env_set DIGEST_TZ "$2"
+# The weekly summary's day as WEEKLY_DAY takes it (mon..sun), from any
+# case or the full name; empty when it is not a day.
+alerts_weekday() {
+    local d="${1,,}"
+    case "$d" in
+        mon|monday) echo mon ;; tue|tuesday) echo tue ;; wed|wednesday) echo wed ;;
+        thu|thursday) echo thu ;; fri|friday) echo fri ;; sat|saturday) echo sat ;;
+        sun|sunday) echo sun ;;
+    esac
+}
+
+alerts_day_name() {
+    case "$1" in
+        mon) echo Monday ;; tue) echo Tuesday ;; wed) echo Wednesday ;; thu) echo Thursday ;;
+        fri) echo Friday ;; sat) echo Saturday ;; sun) echo Sunday ;; *) echo "$1" ;;
+    esac
+}
+
+alerts_zone() {
     local zone
     zone="$(env_get DIGEST_TZ)"; zone="${zone:-$(env_get TZ)}"
-    echo "Daily digest at $1 ${zone:-UTC}: a summary of the last day, so a quiet day reads as \"nothing broke\"."
+    echo "${zone:-UTC}"
+}
+
+alerts_set_weekly() {
+    # $1: mon..sun, or off; $2: HH:MM (both validated by the caller).
+    if [ "$1" = off ]; then
+        env_set WEEKLY_ENABLED false
+        echo "Weekly summary off."
+        return 0
+    fi
+    env_set WEEKLY_ENABLED true
+    env_set WEEKLY_DAY "$1"
+    env_set WEEKLY_AT "$2"
+    echo "Weekly summary on $(alerts_day_name "$1")s at $2 $(alerts_zone): the week before, against the one before it."
+    echo "A week with nothing worth telling sends nothing (the alerter logs that it skipped it)."
     case "$(env_get NOTIFY_MODE)" in
-        ""|off) echo "Note: NOTIFY_MODE is off, so the digest is logged, not sent. $(cli_name) alerts --telegram (or --openclaw, --webhook) sends it." ;;
+        ""|off) echo "Note: NOTIFY_MODE is off, so the summary is logged, not sent. $(cli_name) alerts --telegram (or --openclaw, --webhook) sends it." ;;
     esac
+}
+
+alerts_set_zone() {
+    env_set DIGEST_TZ "$1"
+    echo "Every time a message prints, its schedule and quiet hours are in $1."
+}
+
+alerts_status() {
+    # What `alerts` has set, read from the env file: where they go, when the
+    # weekly goes, quiet hours, the dead man's switch.
+    local mode weekly day at zone legacy=""
+    mode="$(env_get NOTIFY_MODE)"; zone="$(alerts_zone)"
+    case "${mode:-off}" in
+        telegram) echo "Delivery:     Telegram chat $(env_get TELEGRAM_CHAT_ID)" ;;
+        openclaw) echo "Delivery:     OpenClaw, to $(env_get OPENCLAW_TO)" ;;
+        webhook) echo "Delivery:     a webhook" ;;
+        *) echo "Delivery:     off (evaluated and logged, not sent)" ;;
+    esac
+    weekly="$(env_get WEEKLY_ENABLED)"
+    day="$(env_get WEEKLY_DAY)"; day="${day:-mon}"
+    at="$(env_get WEEKLY_AT)"
+    if [ -z "$weekly" ] && [ "$(env_get DIGEST_ENABLED)" = true ]; then
+        # The alerter maps the retired daily digest the same way (weekly.py).
+        weekly=true; at="${at:-$(env_get DIGEST_AT)}"
+        legacy=" (from the retired daily digest's settings; $(cli_name) alerts --weekly sets it)"
+    fi
+    if [ "$weekly" = true ]; then
+        echo "Weekly:       $(alerts_day_name "$day")s at ${at:-08:00} $zone, only when the week is news$legacy"
+    else
+        echo "Weekly:       off"
+    fi
+    if [ -n "$(env_get QUIET_FROM)" ] && [ -n "$(env_get QUIET_UNTIL)" ]; then
+        echo "Quiet hours:  $(env_get QUIET_FROM) to $(env_get QUIET_UNTIL) $zone"
+    else
+        echo "Quiet hours:  off"
+    fi
+    if [ -n "$(env_get ALERT_DEADMAN_URL)" ]; then
+        echo "Dead man:     on (the check-in URL is set, hidden)"
+    else
+        echo "Dead man:     off"
+    fi
 }
 
 alerts_set_quiet() {
@@ -62,8 +126,8 @@ alerts_set_quiet() {
     env_set QUIET_FROM "${1%-*}"
     env_set QUIET_UNTIL "${1#*-}"
     local zone
-    zone="$(env_get DIGEST_TZ)"; zone="${zone:-$(env_get TZ)}"
-    echo "Quiet hours ${1%-*} to ${1#*-} ${zone:-UTC}: alerts are held and sent as one message when they end."
+    zone="$(alerts_zone)"
+    echo "Quiet hours ${1%-*} to ${1#*-} $zone: alerts are held and sent as one message when they end."
     echo "A total loss (the uplink, the Internet, this host's DNS) is never held."
 }
 
@@ -213,8 +277,8 @@ alerts_history() {
         echo "--days takes 1 to 30: the ledger keeps 30 days." >&2; return 2
     fi
     case "$kind" in
-        ""|alert|recovery|superseded|update|outbox_summary|quiet_bundle|digest|watchdog|monitor|report) ;;
-        *) echo "--kind takes alert, recovery, monitor, watchdog, outbox_summary, quiet_bundle, digest or report." >&2; return 2 ;;
+        ""|alert|recovery|superseded|update|outbox_summary|quiet_bundle|weekly|digest|watchdog|monitor|report) ;;
+        *) echo "--kind takes alert, recovery, monitor, watchdog, outbox_summary, quiet_bundle, weekly, digest (before the weekly) or report." >&2; return 2 ;;
     esac
     need_edition
     if ! grep -q '^  alerter:' "$EDITION_DIR/docker-compose.yml"; then
@@ -235,13 +299,23 @@ cmd_alerts() {
     if [ "${1:-}" = history ]; then
         shift; alerts_history "$@"; return
     fi
-    local mode="" to="" url="" test_msg="" yes=0 digest="" digest_tz="" quiet="" deadman=""
+    local mode="" to="" url="" test_msg="" yes=0 week_day="" week_at="" digest_tz="" quiet="" deadman=""
     while [ $# -gt 0 ]; do
         case "$1" in
-            --digest) case "${2:-}" in ""|-*) echo "--digest needs HH:MM or off" >&2; return 2 ;; esac
-                      digest="$2"; shift 2 ;;
+            --weekly) if [ "${2:-}" = off ]; then echo "To turn it off: --no-weekly" >&2; return 2; fi
+                      if [ -z "${2:-}" ] || [ -z "${3:-}" ] || [ "${2#-}" != "$2" ] || [ "${3#-}" != "$3" ]; then
+                          echo "--weekly needs a day and a time: --weekly mon 08:00" >&2; return 2
+                      fi
+                      week_day="$2"; week_at="$3"; shift 3 ;;
+            --no-weekly) week_day=off; shift ;;
+            --digest) echo "The daily digest is retired: a weekly summary replaces it, sent only when the week is news." >&2
+                      echo "  $(cli_name) alerts --weekly mon 08:00   (and --digest-tz ZONE for the zone)" >&2
+                      return 2 ;;
             --digest-tz) case "${2:-}" in ""|-*) echo "--digest-tz needs a zone (Europe/London)" >&2; return 2 ;; esac
                          digest_tz="$2"; shift 2 ;;
+            status|--status) [ $# -eq 1 ] && [ -z "$mode$week_day$digest_tz$quiet$to$test_msg$deadman" ] \
+                                 || { echo "alerts status goes alone" >&2; return 2; }
+                             alerts_status; return 0 ;;
             --quiet) case "${2:-}" in ""|-*) echo "--quiet needs HH:MM-HH:MM or off" >&2; return 2 ;; esac
                      quiet="$2"; shift 2 ;;
             --deadman) if [ "${2:-}" = off ]; then deadman=off; shift 2; else deadman=set; shift; fi ;;
@@ -267,20 +341,19 @@ cmd_alerts() {
     if [ -n "$deadman" ]; then
         # Its own step: it reads a credential from stdin, which a delivery
         # mode may want too.
-        [ -z "$mode$digest$digest_tz$quiet$to$test_msg" ] || { echo "--deadman goes alone" >&2; return 2; }
+        [ -z "$mode$week_day$digest_tz$quiet$to$test_msg" ] || { echo "--deadman goes alone" >&2; return 2; }
         [ "$deadman" = off ] && { alerts_deadman off; return; }
         alerts_deadman ""; return
     fi
-    if [ -n "$digest_tz" ] && [ -z "$digest" ]; then
-        echo "--digest-tz goes with --digest HH:MM" >&2; return 2
-    fi
     # Checked before anything is written, so a typo changes nothing.
-    case "$digest" in
-        ""|off) ;;
-        [0-9]:[0-5][0-9]) digest="0$digest" ;;  # 7:45, as the alerter reads it
-        [01][0-9]:[0-5][0-9]|2[0-3]:[0-5][0-9]) ;;
-        *) echo "--digest takes HH:MM (24-hour, 07:45) or off; the alerter disables a digest it cannot read." >&2; return 2 ;;
-    esac
+    if [ -n "$week_day" ] && [ "$week_day" != off ]; then
+        local day; day="$(alerts_weekday "$week_day")"
+        [ -n "$day" ] || { echo "--weekly takes a day, mon to sun (or Monday...), then HH:MM: --weekly mon 08:00" >&2; return 2; }
+        week_day="$day"
+        local hhmm; hhmm="$(alerts_hhmm "$week_at")"
+        [ -n "$hhmm" ] || { echo "--weekly takes HH:MM (24-hour, 08:00) after the day; the alerter disables a summary it cannot read." >&2; return 2; }
+        week_at="$hhmm"
+    fi
     case "$digest_tz" in
         *..*|/*|*[!A-Za-z0-9_+/-]*) echo "$digest_tz is not a zone name (Europe/London)." >&2; return 2 ;;
     esac
@@ -298,11 +371,12 @@ cmd_alerts() {
             quiet="$q_from-$q_until" ;;
         *) echo "--quiet takes two different 24-hour times, HH:MM-HH:MM (23:00-07:00), or off." >&2; return 2 ;;
     esac
-    if { [ -n "$digest" ] || [ -n "$quiet" ]; } && [ -z "$mode" ]; then
+    if { [ -n "$week_day" ] || [ -n "$quiet" ] || [ -n "$digest_tz" ]; } && [ -z "$mode" ]; then
         # Only the schedule: nothing about where alerts go changes.
-        [ -z "$digest" ] || alerts_set_digest "$digest" "$digest_tz"
+        [ -z "$digest_tz" ] || alerts_set_zone "$digest_tz"
+        [ -z "$week_day" ] || alerts_set_weekly "$week_day" "$week_at"
         [ -z "$quiet" ] || alerts_set_quiet "$quiet"
-        config_apply DIGEST_AT
+        config_apply WEEKLY_AT
         return 0
     fi
     if [ -z "$mode" ]; then
@@ -379,7 +453,8 @@ cmd_alerts() {
             ;;
     esac
 
-    [ -z "$digest" ] || alerts_set_digest "$digest" "$digest_tz"
+    [ -z "$digest_tz" ] || alerts_set_zone "$digest_tz"
+    [ -z "$week_day" ] || alerts_set_weekly "$week_day" "$week_at"
     [ -z "$quiet" ] || alerts_set_quiet "$quiet"
     env_set COMPOSE_PROFILES "$(profiles_with alerts)"
     # The mcp-server delivers get_chart through the same OpenClaw keys.

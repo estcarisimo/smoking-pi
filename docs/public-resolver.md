@@ -46,8 +46,6 @@ every owner seen is kept, not only the most frequent one.
   … on to websites", with the addresses seen.
 - **Grafana**: a *Resolver changed* annotation on the same dashboards as
   *Uplink changed*.
-- **The daily digest**: a line under *Local link* on a day the resolver
-  changed hands.
 - **The assistant**: `system_status` has a `resolver` block with the owner
   and client subnet per path, and the last change within a week.
 - **InfluxDB**: measurement `dns_resolver`, tag `path`. Fields:

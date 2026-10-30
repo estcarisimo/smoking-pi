@@ -75,7 +75,6 @@ def test_the_night_is_held_and_the_morning_gets_one_message(overnight, sent):
     main._deliver(current, _alert(key="outage:1", rule="outage", target=None,
                                   message="4 of 16 targets lost packets"), now=LATE)
     assert sent == []
-    assert [h["delivery"] for h in current["history"]] == ["held"] * 3
     assert len(current["held"]["items"]) == 3
     # Still night: nothing goes.
     assert quiet.release(current, LATE, lambda e: main._deliver(current, e, now=LATE)) is False
@@ -87,8 +86,6 @@ def test_the_night_is_held_and_the_morning_gets_one_message(overnight, sent):
     assert "high_loss Google" in msg["message"] and "✅" in msg["message"]
     assert "outage" in msg["message"]
     assert "held" not in current
-    assert current["history"][-1] == {**current["history"][-1],
-                                      "type": "held", "delivery": "sent"}
 
 
 def test_a_total_loss_or_a_blind_monitor_is_never_held(overnight, sent):

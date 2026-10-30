@@ -12,11 +12,11 @@ from datetime import datetime, timezone
 import pytest
 
 import clock
-import digest
 import evaluator
 import outbox
 import quiet
 import watchdog_events
+import weekly
 
 OUTAGE = datetime(2026, 10, 29, 1, 40, tzinfo=timezone.utc).timestamp()
 # 08:00 CDT on Thursday the 29th: the outage was yesterday evening there.
@@ -96,13 +96,18 @@ def test_a_watchdog_event_reads_the_digest_zone(chicago):
         "the watchdog on this host, at 28 Oct 20:40: wifi:")
 
 
-def test_the_digest_reads_its_own_zone_not_the_containers(chicago):
-    """The digest said "Thu 01:40" (Europe/London) for Wednesday 20:40."""
-    assert digest._clock("2026-10-29T01:40:00+00:00", MORNING) == "Wed 28 Oct 20:40"
-    assert digest._clock("2026-10-29T01:40:00+00:00", EVENING) == "20:40"
-    # State is UTC ISO; a naive one is still UTC, not the host's clock.
-    assert digest._clock("2026-10-29T01:40:00", MORNING) == "Wed 28 Oct 20:40"
-    assert digest._clock(None) == "?"
+def test_the_weekly_reads_its_own_zone_not_the_containers(chicago):
+    """The digest said "Thu 01:40" (Europe/London) for Wednesday 20:40; the
+    weekly summary that replaced it reads clock.py."""
+    week = {"start": OUTAGE - 3 * 86400, "stop": MORNING + 4 * 86400,
+            "episodes": [{"kind": "loss", "cause": "line", "start": OUTAGE,
+                          "end": OUTAGE + 1860, "minutes": 31, "affected": 18,
+                          "reporting": 30, "loss_pct": 25.0}],
+            "deaf_minutes": {}, "minor": 0, "measured_pct": 100.0,
+            "no_data_minutes": 0, "watchdog": {}, "upgrades": 0}
+    empty = {**week, "episodes": []}
+    text = weekly.render(week, empty, [], [], [], weekly.zone())
+    assert "Wed 28 Oct 20:40, 31 min: your line" in text
 
 
 def test_unset_falls_back_to_utc_and_says_so(monkeypatch):

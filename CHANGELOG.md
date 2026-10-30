@@ -29,10 +29,48 @@ version gets a matching GitHub release and git tag.
   compacted atomically to 30 days and 5,000 entries. It is read by
   `smoking-pi alerts history [--days N] [--kind K] [--json]`, by the MCP
   tool `get_notification_history(days, kind)` and the web admin's chat (which
-  now mounts the alerter's state volume read-only), and by the digest's
-  "alerts fired" count — the same numbers as before for the same window;
-  `state["history"]` stays for the 48 hours before the ledger begins.
-  Nothing about what is sent, or when, changes.
+  now mounts the alerter's state volume read-only). Nothing about what is
+  sent, or when, changes.
+
+### Changed
+
+- **The daily digest is gone; a weekly summary goes out only when the week
+  is news.** In October on the reference Pi the digest arrived 16 times in
+  16 days: 10 said "all clear" with only the Wi-Fi's dBm changed, 5 repeated
+  what alerts had already pushed, and 1 carried a new fact (a one-minute cut
+  of the Pi itself). It reported a fixed state with no "since last time",
+  counted queued, held and watchdog messages as "alerts fired", listed
+  targets by internal name and ignored the recurring patterns and the
+  inference's results, so a message that mattered once a month arrived every
+  morning and trained its reader to skip it; that the monitor is alive is
+  the dead man's switch's job. Now `alerter/weekly.py` reads, on
+  `WEEKLY_DAY` at `WEEKLY_AT` in `DIGEST_TZ` (Monday 08:00), the seven
+  calendar days before that day against the seven before those, and says in
+  plain words: a good, mixed or bad week by cause (the Pi's Wi-Fi, your
+  line, your provider, individual destinations) with its material episodes;
+  the recurring windows (hours of the day with loss or slowdowns the
+  destinations shared on 3 or more days, from the inference's shared periods
+  and the incident history) and whether they are new; the share of the week
+  the monitor could measure and what the watchdog did; at most three
+  destinations with loss of their own, by service label; one link to that
+  exact week in Grafana. Text only. **It is not sent** when the week had no
+  material episode, no recurring window and the monitor measured ≥ 99 % of
+  it: one log line, and the skipped slot in state. A week it cannot read is
+  never told as quiet: it is read again 30 minutes later, three times, and a
+  slot up to a day late still goes out. "Material" is one set of
+  constants in `common/definitions.py` (`MATERIAL_*`: ≥ 30 % of the
+  reporting destinations or ≥ 2 categories, ≥ 15 min outside the monitor's
+  deaf spans, upgrades and watchdog actions, mean loss ≥ 5 % or median
+  latency ≥ 2× the same hours a week before). `smoking-pi alerts --weekly
+  DAY HH:MM`, `--no-weekly` and `alerts status` set and show it;
+  `--digest HH:MM` is refused with the new command, `--digest-tz` still sets
+  the zone. **An upgrade keeps working**: `DIGEST_ENABLED=true` with no
+  `WEEKLY_ENABLED` is read as the weekly on Mondays at `DIGEST_AT`, with one
+  log line (docs/upgrades.md, *Settings retired or renamed*);
+  `DIGEST_WINDOW_HOURS`, `DIGEST_MAX_LATENESS`, `DIGEST_SILENT` and
+  `DIGEST_HISTORY_MAX` are gone, and so are the digest's chart and
+  `state["history"]`, whose only reader it was; the notification ledger
+  records each weekly (kind `weekly`).
 
 ### Fixed
 

@@ -214,8 +214,8 @@ value before writing it and recreates just the services that read it:
 ```bash
 sudo smoking-pi config list            # every setting, by section; secrets hidden
 sudo smoking-pi config list alerts     # one section
-sudo smoking-pi config describe DIGEST_AT
-sudo smoking-pi config set DIGEST_AT 07:30
+sudo smoking-pi config describe WEEKLY_AT
+sudo smoking-pi config set WEEKLY_AT 07:30
 ```
 
 `describe` says what a setting does, what it takes (a number in a range,

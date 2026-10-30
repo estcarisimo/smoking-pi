@@ -119,7 +119,7 @@ class Loop:
                             lambda: reachable(self.minute))
         monkeypatch.setattr(main.time, "time", lambda: self.now)
         monkeypatch.setattr(main.dead_man, "check_in", lambda ok, now=None: None)
-        for module in (main.incident_history, main.digest, main.reports_watcher):
+        for module in (main.incident_history, main.weekly, main.reports_watcher):
             for name in ("merge", "maybe_record", "check"):
                 if hasattr(module, name):
                     monkeypatch.setattr(module, name, lambda *a, **k: None)

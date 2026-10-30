@@ -83,9 +83,10 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      name the mdns service holds. --tunnel: the address that
                      works from anywhere (a Cloudflare tunnel), scheme included.
   alerts [--telegram [--to CHAT_ID] | --openclaw [--to RECIPIENT] | --webhook
-         | --off] [--test] [--yes] [--digest HH:MM|off [--digest-tz ZONE]]
-         [--quiet HH:MM-HH:MM|off]
+         | --off] [--test] [--yes] [--weekly DAY HH:MM | --no-weekly]
+         [--digest-tz ZONE] [--quiet HH:MM-HH:MM|off]
   alerts --deadman [off]
+  alerts status
                      Where alerts go (Pro): set NOTIFY_MODE and its keys, turn
                      on the alerts profile, recreate the alerter and print its
                      own delivery preflight. --telegram: a bot of your own,
@@ -93,21 +94,23 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      and finds the chat id from a message you send the bot.
                      --test (or answering yes) sends one labeled test
                      message: the only proof one arrives.
-                     --digest: a daily summary at HH:MM (in ZONE, else TZ),
-                     alone or with the rest.
-                     --quiet: hold alerts between the two times (the
-                     digest's zone) and send them as one message after; a
-                     total loss is never held.
+                     --weekly: a summary of the week before on DAY (mon..sun)
+                     at HH:MM, sent only when the week had something worth
+                     telling; alone or with the rest. --digest-tz: the zone
+                     of every message, its schedule and quiet hours (else TZ).
+                     --quiet: hold alerts between the two times (that zone)
+                     and send them as one message after; a total loss is
+                     never held. status: what is set.
                      --deadman: check in with an outside service
                      (healthchecks.io) that says when this host goes
                      silent; asks for its ping URL (hidden, or on stdin).
   alerts history [--days N] [--kind KIND] [--json]
                      Every notification the alerter decided in the last N
-                     days (default 7, at most 30): time in the digest's
+                     days (default 7, at most 30): time in DIGEST_TZ's
                      zone, kind, outcome (sent, handed, queued, held,
                      failed, skipped-duplicate) and
                      its first line. KIND: alert, recovery, monitor,
-                     watchdog, outbox_summary, quiet_bundle, digest, report.
+                     watchdog, outbox_summary, quiet_bundle, weekly, report.
   connect --tailscale [--off] [--yes]
                      Publish the MCP server for remote assistants through
                      Tailscale Funnel (Pro): installs Tailscale if asked, signs

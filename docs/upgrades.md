@@ -245,6 +245,21 @@ old images are re-tagged first, rebuilds all nine — the loop in that
 section keeps the existing images. Either way the stack restarts once;
 nothing in the volumes changes.
 
+## Settings retired or renamed
+
+An upgrade never rewrites the env file, so a setting that is retired keeps
+working for the release it is retired in, mapped onto what replaced it, and
+the alerter or the command says so once.
+
+| Retired | Since | Read as | To set it the new way |
+|---|---|---|---|
+| `DIGEST_ENABLED`, `DIGEST_AT` (the daily digest) | the release after v2.50.0 | `DIGEST_ENABLED=true` with no `WEEKLY_ENABLED`: the [weekly summary](alerting.md#the-weekly-summary) is on, on Mondays at `DIGEST_AT` (`WEEKLY_AT` wins once set). The alerter logs one line at start. `DIGEST_WINDOW_HOURS`, `DIGEST_MAX_LATENESS`, `DIGEST_SILENT` and `DIGEST_HISTORY_MAX` are ignored | `smoking-pi alerts --weekly mon 08:00`, or `--no-weekly` |
+
+`DIGEST_TZ` is not retired: it stays the zone of every message, the weekly
+summary's schedule and quiet hours (`smoking-pi alerts --digest-tz ZONE`).
+`smoking-pi alerts status` shows which settings are in effect, mapped ones
+included.
+
 ## Verifying any upgrade
 
 `doctor --live` is the check that the thing you built is the thing that is

@@ -32,7 +32,7 @@ snapshot.
 
 **Looking and acting.** Grafana, the alerter, ai-insights and the MCP server
 all read InfluxDB. With the `clickhouse` profile, Grafana reads ClickHouse
-through its own set of dashboards. The alerter sends alerts and digests to
+through its own set of dashboards. The alerter sends alerts and weekly summaries to
 Telegram (through the OpenClaw gateway), Slack or webhooks. ai-insights asks
 the Anthropic API for written health reports and writes them to a shared
 volume: web-admin shows them and the alerter delivers them. The MCP server

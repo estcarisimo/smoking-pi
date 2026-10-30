@@ -158,7 +158,7 @@ def _link_line(links: dict | None) -> str:
     """The links row: the primary set, plus ONE from-anywhere link.
 
     Exactly one tunnel twin is emitted, whichever applies to the event: the
-    target graph on an alert, the overview on a digest. A caption has 1024
+    target graph on an alert, the overview on an entry-point message. A caption has 1024
     characters and a Grafana deep link runs to ~120 of them, so mirroring the
     whole row would cost a quarter of the budget to say the same thing twice.
     Whoever is on cellular wants the picture; from there the rest of the
@@ -172,13 +172,15 @@ def _link_line(links: dict | None) -> str:
         ("compare_with_peers", "peers"),
         ("edit", "edit"),
         ("graph_tunnel", "🌐 anywhere"),
-        # Entry points, from links.entry_point_links() -- what a digest
-        # carries, since it is about everything rather than one target.
+        # Entry points, from links.entry_point_links(): about everything
+        # rather than one target.
         ("grafana_overview", "overview"),
         ("grafana_cpe_microcuts", "microcuts"),
         ("grafana_wifi_link", "wi-fi"),
         ("web_admin_targets", "targets"),
         ("grafana_overview_tunnel", "🌐 anywhere"),
+        # The weekly summary's one link: its week, exactly.
+        ("grafana_week", "the week in Grafana"),
     )
     parts: list[str] = []
     seen_labels: set[str] = set()
@@ -187,7 +189,7 @@ def _link_line(links: dict | None) -> str:
         if not url:
             continue
         # Enforce "one from-anywhere link", rather than merely documenting it.
-        # An alert carries graph_tunnel and a digest carries
+        # An alert carries graph_tunnel and an entry point
         # grafana_overview_tunnel, so today only one is ever present -- but a
         # payload holding both would render "🌐 anywhere" twice, pointing at
         # two different pages under one label, and burn caption budget doing
@@ -349,8 +351,8 @@ def format_message(event: dict, limit: int = TG_TEXT_LIMIT) -> str:
         # outbox.build, a quiet-hours one by quiet.build (already escaped
         # for the markup).
         return assemble([Section(0, str(event.get("message", "")))], limit)
-    if event.get("type") == "digest":
-        # The body is pre-rendered by digest.render(), which already builds
+    if event.get("type") == "weekly":
+        # The body is pre-rendered by weekly.render(), which already builds
         # its own sections; splitting the links onto their own Section lets
         # them drop first when a caption budget bites, exactly as on alerts.
         return assemble(

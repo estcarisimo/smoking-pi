@@ -42,7 +42,7 @@ MAX_ENTRIES_ANSWER = 200
 # adds (an incident replaced by a worse one, a follow-up on an open one);
 # nothing sends either yet.
 KINDS = ("alert", "recovery", "superseded", "update", "outbox_summary",
-         "quiet_bundle", "digest", "watchdog", "monitor", "report")
+         "quiet_bundle", "weekly", "digest", "watchdog", "monitor", "report")
 # handed: the OpenClaw gateway has it and delivers it from its own queue;
 # skipped-duplicate: already said (alerter/ledger.py), not handed again.
 OUTCOMES = ("sent", "handed", "queued", "held", "failed", "skipped-duplicate")

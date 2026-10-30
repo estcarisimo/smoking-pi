@@ -1,7 +1,8 @@
 """Wall-clock scheduling for a process that wakes on a sleep loop.
 
 The alerter wakes every ALERT_INTERVAL seconds and has no idea what time it
-is between ticks. A daily digest wants a wall-clock instant ("08:30 local"),
+is between ticks. The weekly summary wants a wall-clock instant ("Monday
+08:00 local"),
 and the gap between those two models is where double-sends live.
 
 **The slot is the identity, not the send time.** Every tick resolves the most
@@ -30,7 +31,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 log = logging.getLogger("alerter.schedule")
 
 # Four hours. Long enough to cover a reboot, a slow start, or a laptop lid;
-# short enough that a digest never arrives in a different part of the day
+# short enough that a summary never arrives in a different part of the day
 # than the one it describes.
 DEFAULT_MAX_LATENESS_S = 4 * 3600
 
@@ -40,9 +41,9 @@ Reason = str  # "due" | "not_due" | "skipped_stale" | "disabled"
 def parse_hhmm(value: str | None) -> tuple[int, int] | None:
     """Parse ``HH:MM`` into (hour, minute), or None when unusable.
 
-    Returns None rather than raising: a typo in DIGEST_AT must disable the
-    digest with a loud log, never crash the alert loop that shares this
-    process.
+    Returns None rather than raising: a typo in WEEKLY_AT must disable the
+    weekly summary with a loud log, never crash the alert loop that shares
+    this process.
     """
     if not value:
         return None
@@ -65,7 +66,7 @@ def resolve_zone(tzname: str | None) -> ZoneInfo:
     """Timezone by name, falling back to UTC with a warning.
 
     An unknown zone must not take the alert loop down with it, and silently
-    using the container's local time would put the digest at an hour the
+    using the container's local time would put a summary at an hour the
     operator never chose.
     """
     if not tzname or not str(tzname).strip():
@@ -96,13 +97,37 @@ def _slot_on(day: datetime, hour: int, minute: int, zone: ZoneInfo) -> datetime:
     return datetime.fromtimestamp(local.timestamp(), tz=zone)
 
 
-def previous_slot(now: datetime, hour: int, minute: int, zone: ZoneInfo) -> datetime:
-    """The most recent scheduled instant at or before ``now``."""
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def parse_weekday(value: str | None) -> int | None:
+    """``mon``..``sun`` (or the full name, any case) as 0..6, else None."""
+    text = str(value or "").strip().lower()[:3]
+    return WEEKDAYS.index(text) if text in WEEKDAYS else None
+
+
+def previous_slot(now: datetime, hour: int, minute: int, zone: ZoneInfo,
+                  weekday: int | None = None) -> datetime:
+    """The most recent scheduled instant at or before ``now``: daily, or on
+    ``weekday`` (0 = Monday) only."""
     local_now = now.astimezone(zone)
-    candidate = _slot_on(local_now, hour, minute, zone)
+    day = local_now
+    if weekday is not None:
+        day = local_now - timedelta(days=(local_now.weekday() - weekday) % 7)
+    candidate = _slot_on(day, hour, minute, zone)
     if candidate > local_now:
-        candidate = _slot_on(local_now - timedelta(days=1), hour, minute, zone)
+        back = 7 if weekday is not None else 1
+        candidate = _slot_on(day - timedelta(days=back), hour, minute, zone)
     return candidate
+
+
+def midnight_before(slot: datetime, zone: ZoneInfo, days_back: int = 0) -> datetime:
+    """00:00 of ``slot``'s calendar day in ``zone``, ``days_back`` calendar
+    days earlier: a week is seven calendar days, which is 167 or 169 hours
+    across a DST change, never ``slot - 7 * 86400``."""
+    local = slot.astimezone(zone)
+    day = (local - timedelta(days=days_back)).date()
+    return _slot_on(datetime(day.year, day.month, day.day), 0, 0, zone)
 
 
 def due_slot(
@@ -111,6 +136,7 @@ def due_slot(
     at_hhmm: str | None,
     tzname: str | None,
     max_lateness_s: int | None = DEFAULT_MAX_LATENESS_S,
+    weekday: int | None = None,
 ) -> tuple[float | None, Reason]:
     """Decide whether a scheduled job is due, and for which slot.
 
@@ -129,6 +155,9 @@ def due_slot(
     - ``not_due``       -- this slot already fired
     - ``skipped_stale`` -- too late to be meaningful; record without sending
     - ``disabled``      -- unusable ``at_hhmm``
+
+    ``weekday`` (0 = Monday): one slot a week, on that day, instead of one
+    a day.
     """
     parsed = parse_hhmm(at_hhmm)
     if parsed is None:
@@ -137,7 +166,7 @@ def due_slot(
 
     zone = resolve_zone(tzname)
     now_dt = datetime.fromtimestamp(now, tz=zone)
-    slot = previous_slot(now_dt, hour, minute, zone)
+    slot = previous_slot(now_dt, hour, minute, zone, weekday)
     slot_epoch = slot.timestamp()
 
     # >= not >: the same slot must never fire twice, and float round-tripping

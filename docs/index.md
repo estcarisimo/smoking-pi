@@ -68,8 +68,9 @@ did, and is the way to run an unreleased branch.
 
 - **Alerts that say what they mean.** Every alert leads with a verdict — *is
   it me or the internet?* — carries the chart, links into the exact Grafana
-  view, and can be muted by asking in chat. A daily digest makes a quiet day
-  distinguishable from a dead monitor ([Alerting](alerting.md)).
+  view, and can be muted by asking in chat. A weekly summary, sent only when
+  the week had something worth telling, says what it added up to
+  ([Alerting](alerting.md)).
 - **An assistant that has read the history.** The MCP server exposes latency,
   loss, microcut and Wi-Fi statistics, system status and on-request charts to
   any MCP client; the OpenClaw skill turns that into *"how was the line last

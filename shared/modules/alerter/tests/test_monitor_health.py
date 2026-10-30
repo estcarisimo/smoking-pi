@@ -195,7 +195,7 @@ def _loop(monkeypatch, state_file, readable):
                         lambda payload, image=None: sent.append(payload) or "sent")
     monkeypatch.setattr(main.notifier, "reachable", lambda: True)
     monkeypatch.setattr(main.time, "time", lambda: clock["now"])
-    for module in (main.incident_history, main.digest, main.reports_watcher):
+    for module in (main.incident_history, main.weekly, main.reports_watcher):
         for name in ("merge", "maybe_record", "check"):
             if hasattr(module, name):
                 monkeypatch.setattr(module, name, lambda *a, **k: None)

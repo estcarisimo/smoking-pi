@@ -7,9 +7,9 @@ transport, which keeps a notification from being said twice; this is the
 One entry per notification decision (common/notification_ledger.py says
 what a line holds and how it is read): an alert or a recovery, sent, queued
 in the outbox or held for quiet hours; the summary the outbox or quiet hours
-later sent in their place; the digest; a report. The hooks are where a
+later sent in their place; the weekly summary; a report. The hooks are where a
 message is handed to a transport and where its outcome is known
-(main._deliver, outbox.flush, quiet.release, digest.check,
+(main._deliver, outbox.flush, quiet.release, weekly.check,
 reports_watcher.check); none of them changes what is sent or when, and
 none of them can cost a notification: every function here logs and moves
 on.
@@ -158,7 +158,7 @@ def record(payload: dict, outcome: str, now: float | None = None,
             "id": entry_id,
             "decided_at": now,
             "kind": kind_of(payload),
-            # The payload's own type: the digest counts by it.
+            # The payload's own type (weekly, alert, recovery...).
             "type": payload.get("type") or "alert",
             "key": payload.get("key"),
             "rule": payload.get("rule"),
@@ -270,41 +270,8 @@ def compact(now: float | None = None) -> int:
     return len(kept)
 
 
-def history_since(cutoff: float, now: float, ttl_s: float, limit: int) -> list[dict]:
-    """The digest's notification history, from the ledger, in the shape
-    ``state["history"]`` had: what ``_deliver`` and a delivered outbox
-    summary recorded, the last ``limit`` within ``ttl_s``, from ``cutoff``.
-    Raises OSError when the file exists and cannot be read."""
-    entries, _ = notification_ledger.read(ledger_file())
-    fired = [
-        e for e in entries
-        if e.get("kind") not in ("digest", "report")
-        # Never handed over: _deliver returned before the history.
-        and e.get("outcome") != "skipped-duplicate"
-        # An outbox summary went into the history only once it went.
-        and (e.get("kind") != "outbox_summary"
-             or e.get("outcome") in ("sent", "handed"))
-        and now - float(e.get("decided_at") or 0) <= ttl_s
-    ][-limit:]
-    return [
-        {"ts": float(e.get("decided_at") or 0), "key": e.get("key"),
-         "rule": e.get("rule"), "severity": e.get("severity"),
-         "type": e.get("type"), "target": (e.get("targets") or [None])[0],
-         "delivery": e.get("outcome")}
-        for e in fired if float(e.get("decided_at") or 0) >= cutoff
-    ]
-
-
-def recorded_from() -> float | None:
-    """When the ledger begins, or None when it is empty or unreadable."""
-    try:
-        entries, _ = notification_ledger.read(ledger_file())
-    except OSError:
-        return None
-    return float(entries[0].get("decided_at") or 0) if entries else None
-
-
 # --- show: what `smoking-pi alerts history` prints ----------------------------
+
 
 def _zone():
     # The one zone every time the alerter prints is in (clock.py).

@@ -90,14 +90,6 @@ def main() -> int:
         "chart-alert.png": lambda: charts.render_incident_chart(
             "Google", "latency", 6, first_seen=first_seen,
             severity="critical", peers=peers),
-        "chart-digest.png": lambda: charts.render_digest_chart({
-            "window_hours": 24, "targets": [
-                {"target": "Google", "avg_loss_pct": 24.2, "p95_ms": 48},
-                {"target": "uba_ar", "avg_loss_pct": 6.1, "p95_ms": 182},
-                {"target": "Netflix_h3", "avg_loss_pct": 3.4, "p95_ms": 31},
-                {"target": "CPE_IPv4", "avg_loss_pct": 1.2, "p95_ms": 4},
-                {"target": "Cloudflare", "avg_loss_pct": 0.4, "p95_ms": 14},
-            ]}),
     }
     for name, render in images.items():
         png = render()

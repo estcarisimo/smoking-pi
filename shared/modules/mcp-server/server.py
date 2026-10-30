@@ -1174,7 +1174,7 @@ def get_notification_history(days: int = 7, kind: str | None = None) -> dict:
     The notification ledger (kept 30 days): one entry per notification
     the alerter decided on, newest first, at most 200. Each has `kind`
     (alert, recovery, monitor, watchdog, outbox_summary, quiet_bundle,
-    digest, report), `rule`, `key`, `severity`, `targets`, `text` (the
+    weekly, digest, report), `rule`, `key`, `severity`, `targets`, `text` (the
     message as handed to the transport, with its markup), `outcome`
     (sent; handed: the gateway has it and delivers it itself; queued;
     held; failed; skipped-duplicate: already said, not handed over
@@ -1192,7 +1192,7 @@ def get_notification_history(days: int = 7, kind: str | None = None) -> dict:
     Args:
         days: Lookback in days (default 7, at most 30).
         kind: Only this kind (alert, recovery, monitor, watchdog,
-            outbox_summary, quiet_bundle, digest, report).
+            outbox_summary, quiet_bundle, weekly, digest, report).
     """
     days, kind, problem = notification_ledger.validate(days, kind)
     if problem:
@@ -1805,7 +1805,7 @@ def mute_alerts(target: str | None = None, rule: str | None = None,
     everything, which must be typed deliberately. Duration is capped at 24
     hours; a longer request is clamped and the response says so. Muting
     suppresses only the *sending* — incidents are still tracked, still counted,
-    and still appear in the daily digest and in list_alert_state.
+    and still appear in list_alert_state.
     """
     if not target and not rule:
         return {

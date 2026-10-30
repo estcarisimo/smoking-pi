@@ -70,6 +70,7 @@ __all__ = [
     "MAX_TARGETS",
     "MAX_WORST_WINDOWS",
     "collect",
+    "target_stats",
     "describe_uplink_change",
     "describe_resolver_change",
     "resolver_changes_flux",
@@ -168,7 +169,8 @@ def _subtract_spans(stats: dict, mean_loss: dict[tuple, float], base: str,
 
 
 def _collect_target_stats(hours: int,
-                          monitor_spans: list[tuple[float, float]] | None = None
+                          monitor_spans: list[tuple[float, float]] | None = None,
+                          window: tuple[float, float] | None = None,
                           ) -> list[dict]:
     """Per-target aggregates from the ``latency``/``dns_latency`` series.
 
@@ -182,11 +184,18 @@ def _collect_target_stats(hours: int,
     point the target has falls inside them (one renamed into a deaf
     spell): heard only through a deaf radio, it has no loss of its own to
     report. Without spans both equal the plain figures.
+
+    ``window``: epoch ``(start, stop)`` instead of the last ``hours`` (the
+    weekly summary's calendar week, see :func:`target_stats`).
     """
     # The window's start, taken before the first query: a span clipped to a
     # later one would leave out edge points the whole-window counts hold.
-    start = time.time() - int(hours) * 3600
-    base = _destinations(f"-{int(hours)}h")
+    if window is not None:
+        start, stop = window
+        base = _destinations(_rfc3339(start), _rfc3339(stop))
+    else:
+        start, stop = time.time() - int(hours) * 3600, None
+        base = _destinations(f"-{int(hours)}h")
     group = '|> group(columns: ["target", "_measurement"]) '
     median_filter = '|> filter(fn: (r) => r._field == "median") '
     loss = '|> filter(fn: (r) => r._field == "loss") ' + _CLAMP_LOSS_RATIO
@@ -234,8 +243,9 @@ def _collect_target_stats(hours: int,
 
     # Clipped to the window: a span reaching back past its start would
     # subtract points the whole-window figures never counted.
-    spans = merge_spans([(max(lo, start), hi) for lo, hi in monitor_spans or ()
-                         if hi > start])
+    spans = merge_spans([(max(lo, start), hi if stop is None else min(hi, stop))
+                         for lo, hi in monitor_spans or ()
+                         if hi > start and (stop is None or lo < stop)])
     if spans:
         try:
             _subtract_spans(stats, mean_loss, base, loss, events, group, prelude,
@@ -254,6 +264,16 @@ def _collect_target_stats(hours: int,
         reverse=True,
     )
     return results
+
+
+def target_stats(start: float, stop: float,
+                 monitor_spans: list[tuple[float, float]] | None = None
+                 ) -> list[dict]:
+    """The per-target figures of :func:`collect` over ``[start, stop)``
+    (epoch seconds), worst first, uncapped: ``avg_loss_pct_measurable`` is
+    the loss outside ``monitor_spans``. Raises whatever the queries raise
+    (the span subtraction alone degrades to the plain figures)."""
+    return _collect_target_stats(0, monitor_spans, window=(start, stop))
 
 
 def _collect_cpe_stats(hours: int) -> dict:

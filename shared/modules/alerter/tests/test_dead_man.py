@@ -125,7 +125,7 @@ def _loop(monkeypatch, current):
     monkeypatch.setattr(main.state, "load_state", lambda: current)
     monkeypatch.setattr(main.state, "save_state", lambda state: None)
     monkeypatch.setattr(main.notifier, "send", lambda payload, image=None: "sent")
-    for module in (main.incident_history, main.digest, main.reports_watcher):
+    for module in (main.incident_history, main.weekly, main.reports_watcher):
         for name in ("merge", "maybe_record", "check"):
             if hasattr(module, name):
                 monkeypatch.setattr(module, name, lambda *a, **k: None)

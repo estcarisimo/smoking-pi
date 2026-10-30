@@ -513,3 +513,13 @@ def entry_point_links(hours: int = 24) -> dict[str, str]:
     return _with_tunnel_twins(
         primary, tier(grafana_tunnel_base(), web_admin_tunnel_base())
     )
+
+
+def week_link(start: float, stop: float) -> str | None:
+    """The Connection quality dashboard over exactly ``[start, stop)`` (epoch
+    seconds): the weekly summary's one link, on the primary base. None when
+    links are not configured."""
+    if not links_configured():
+        return None
+    return grafana_url("connectivity-quality-v1", extra={
+        "from": str(int(start * 1000)), "to": str(int(stop * 1000))})

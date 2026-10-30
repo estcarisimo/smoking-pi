@@ -2,7 +2,6 @@
 
 import pytest
 
-import digest
 import main
 import outbox
 
@@ -156,21 +155,16 @@ def test_deliver_queues_behind_a_waiting_outbox_and_records_how(monkeypatch):
                             sent.append(payload) or ("sent" if ok[0] else "failed")))
     ok = [False]
     current = {}
-    main._deliver(current, _alert(), now=T)               # fails: queued
+    first, second, third = _alert(), _alert(key="outage:2"), _alert(key="outage:3")
+    main._deliver(current, first, now=T)               # fails: queued
     ok[0] = True
-    main._deliver(current, _alert(key="outage:2"), now=T + 60)  # behind it
+    main._deliver(current, second, now=T + 60)  # behind it
     assert len(sent) == 1
-    assert [h["delivery"] for h in current["history"]] == ["queued", "queued"]
+    assert [first["delivery"], second["delivery"]] == ["queued", "queued"]
     assert len(current["outbox"]["items"]) == 2
     outbox.clear(current)
-    main._deliver(current, _alert(key="outage:3"), now=T + 120)
-    assert current["history"][-1]["delivery"] == "sent"
-
-
-def test_history_records_the_delivery():
-    state = {}
-    digest.record_history(state, {**_alert(), "delivery": "queued"}, now=T)
-    assert state["history"][0]["delivery"] == "queued"
+    main._deliver(current, third, now=T + 120)
+    assert third["delivery"] == "sent"
 
 
 # --- review of #333 -------------------------------------------------------------
