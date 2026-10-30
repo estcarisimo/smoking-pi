@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 
 import charts
 import clock
+import notifications
 import notifier
 import schedule
 import templates
@@ -119,12 +120,40 @@ def prune_history(state: dict, now: float | None = None) -> None:
     state["history"] = history[-limit:]
 
 
-def _history_since(state: dict, cutoff: float) -> list[dict]:
-    return [
+def _history_since(state: dict, cutoff: float,
+                   now: float | None = None) -> list[dict]:
+    """What was notified since ``cutoff``: the notification ledger
+    (notifications.py), with the same 48-hour and DIGEST_HISTORY_MAX bounds
+    ``state["history"]`` has. Before the ledger begins (the first days
+    after the upgrade that added it), and when it cannot be read,
+    ``state["history"]`` fills in."""
+    if now is None:
+        now = time.time()
+    legacy = [
         entry
         for entry in state.get("history", [])
         if float(entry.get("ts", 0) or 0) >= cutoff
     ]
+    begins = notifications.recorded_from()
+    if begins is None:
+        return legacy
+    limit = max(1, _env_int("DIGEST_HISTORY_MAX", DEFAULT_HISTORY_MAX))
+    try:
+        recorded = notifications.history_since(cutoff, now, HISTORY_TTL_S, limit)
+    except OSError:
+        log.warning("Digest: the notification ledger cannot be read; "
+                    "counting from state", exc_info=True)
+        return legacy
+    # And whatever the ledger could not write (a full card): an alert or a
+    # recovery in state["history"] with no ledger entry of the same moment.
+    seen = {(e.get("key"), e.get("type"), e.get("ts")) for e in recorded}
+    missing = [
+        e for e in legacy
+        if float(e.get("ts", 0) or 0) < begins
+        or (e.get("type") in ("alert", "recovery")
+            and (e.get("key"), e.get("type"), e.get("ts")) not in seen)
+    ]
+    return sorted(missing + recorded, key=lambda e: float(e.get("ts", 0) or 0))
 
 
 def _plural(count: int, one: str, many: str) -> str:
@@ -160,7 +189,7 @@ def build(
         )
         return None
 
-    fired = _history_since(state, now - hours * 3600)
+    fired = _history_since(state, now - hours * 3600, now)
     alerts = [e for e in fired if e.get("type") == "alert"]
     recoveries = [e for e in fired if e.get("type") == "recovery"]
     active = state.get("incidents", {})
@@ -507,7 +536,10 @@ def check(state: dict, now: float | None = None) -> bool:
     )
     payload["silent"] = _env_bool("DIGEST_SILENT", True)
 
-    if notifier.notify(payload, image=image):
+    sent = notifier.notify(payload, image=image)
+    notifications.record(payload, "sent" if sent else "failed", now,
+                  notifier.take_receipt())
+    if sent:
         record["last_fired_slot"] = slot
         record["attempts"] = 0
         record.pop("last_error", None)

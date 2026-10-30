@@ -247,6 +247,9 @@ services:
       # (/app/common is NOT mounted: a change to shared/modules/common needs
       # `docker compose build web-admin`, as for the other three images)
       - reports:/reports:ro
+      # The chat's get_notification_history reads the alerter's ledger
+      # (ledger.jsonl beside state.json), read-only as the MCP server does.
+      - alerter-state:/var/lib/alerter:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:

@@ -84,7 +84,7 @@ SCRUB_ENV_VARS = [
 
 
 @pytest.fixture(autouse=True)
-def _scrub_env(monkeypatch):
+def _scrub_env(monkeypatch, tmp_path):
     for name in SCRUB_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     # The incident history starts a background diagnosis from run_iteration.
@@ -103,6 +103,13 @@ def _scrub_env(monkeypatch):
         raise ConnectionError("tests never reach InfluxDB")
 
     monkeypatch.setattr(flux, "query_influx", _no_influx)
+    # Every delivery writes the notification ledger: into the test's own
+    # directory, never /var/lib/alerter or /tmp.
+    import notifications
+
+    monkeypatch.setattr(notifications, "ledger_file",
+                        lambda: str(tmp_path / "ledger" / "ledger.jsonl"))
+    monkeypatch.setattr(notifications, "_last_compact", None)
 
 
 @pytest.fixture

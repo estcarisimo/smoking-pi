@@ -19,6 +19,8 @@ os.environ['WEB_ADMIN_USERNAME'] = 'admin'
 os.environ['WEB_ADMIN_PASSWORD'] = 'test-password'
 os.environ.pop('WEB_ADMIN_PASSWORD_HASH', None)
 os.environ.pop('ENABLE_SCHEDULER', None)
+# The notification ledger is read beside the alerter's state file.
+os.environ.pop('ALERT_STATE_FILE', None)
 # A config-manager call a test forgot to stub is refused at once on the
 # loopback discard port instead of trying the compose hostname for 30 s.
 os.environ['CONFIG_MANAGER_URL'] = 'http://127.0.0.1:9'

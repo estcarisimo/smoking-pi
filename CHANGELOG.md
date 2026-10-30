@@ -9,6 +9,31 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **A 30-day ledger of every notification the alerter decided, and three
+  ways to read it.** The project could not tell what it had told the user:
+  the digest's `state["history"]` kept 48 hours of bare keys, the alerter's
+  log is wiped by every upgrade, and the October audit of 72 Telegram
+  messages on production (78 % noise) had to be rebuilt from the OpenClaw
+  gateway's message cache. Without a record, the front-8 rebuild could not
+  be measured, and "since last time" had nothing to start from. Now every
+  alert, recovery, monitor and watchdog notice, outbox summary, quiet-hours
+  bundle, digest and report is one line of `ledger.jsonl` beside
+  `state.json`: its kind, rule, targets, the text as handed to the
+  transport, the outcome (sent, handed to the gateway, queued, held,
+  failed, or skipped-duplicate when the said-once record stopped it) with
+  Telegram's
+  message id, when it was decided and delivered, the diagnosis it carried,
+  and which later summary delivered it. Appends only, a torn line skipped,
+  compacted atomically to 30 days and 5,000 entries. It is read by
+  `smoking-pi alerts history [--days N] [--kind K] [--json]`, by the MCP
+  tool `get_notification_history(days, kind)` and the web admin's chat (which
+  now mounts the alerter's state volume read-only), and by the digest's
+  "alerts fired" count — the same numbers as before for the same window;
+  `state["history"]` stays for the 48 hours before the ledger begins.
+  Nothing about what is sent, or when, changes.
+
 ### Fixed
 
 - **An alert is said once.** October's Telegram messages from the reference

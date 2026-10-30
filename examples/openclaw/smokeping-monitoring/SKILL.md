@@ -94,6 +94,11 @@ line cut out?", "when was the last outage?"), call `get_incident_history`:
 the same incidents, as the alerter wrote them down once they were over.
 Its newest half hour is never there yet; that is `diagnose_loss`'s.
 
+For what the alerts themselves said ("what did you tell me?", "did I get
+an alert about X?", "what was held overnight?"), call
+`get_notification_history`: every message the alerter decided on in the
+last 30 days, its text and whether it was sent, queued, held or failed.
+
 `diagnose_loss` already reads the rest; when you go to `get_loss_events`
 yourself, read `widespread` first: a run with `all_lost: true` is one
 event, never each target failing. Its `reading` says where it was:

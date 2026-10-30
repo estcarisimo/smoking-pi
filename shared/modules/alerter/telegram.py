@@ -44,6 +44,9 @@ BACKOFF_BASE_S = 1.0
 # Telegram says how long to wait on a 429; past this, give up this message.
 MAX_RETRY_AFTER_S = 30
 
+# The id Telegram gave the last message sent, for the notification ledger.
+last_message_id: int | None = None
+
 _BOT_PATH = re.compile(r"/bot[^/\s\"']+")
 
 
@@ -118,9 +121,12 @@ def _send(method: str, data: dict, files: dict | None = None) -> tuple[bool, str
     """Send with retries. A 4xx other than 429 is the request's fault (a
     wrong chat, a bot the owner never wrote to, bad HTML): retrying cannot
     fix it, so it is reported once."""
+    global last_message_id
     for attempt in range(1, MAX_ATTEMPTS + 1):
         status, body = _call(method, data, files)
         if status == 200 and body.get("ok") is True:
+            result = body.get("result")
+            last_message_id = result.get("message_id") if isinstance(result, dict) else None
             return True, ""
         log.warning("Telegram %s failed: %s (attempt %d/%d)", method,
                     _describe(status, body), attempt, MAX_ATTEMPTS)

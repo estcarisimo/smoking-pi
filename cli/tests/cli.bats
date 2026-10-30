@@ -2142,6 +2142,55 @@ STUB
     [[ "$output" == *"pause the check once"* ]]
 }
 
+# --- alerts history ---------------------------------------------------------------
+
+alerts_history_setup() {
+    alerts_setup
+    # The alerter is running, and its notifications.py prints two entries.
+    sed -i 's|^case "\$\*" in|case "$*" in\n    *"ps --status running --services"*) echo alerter; exit 0 ;;\n    *"exec -T alerter python notifications.py show"*) echo "docker $*" >> "$DOCKER_LOG"; printf "2026-10-30 07:00 CDT  alert          sent         Google lost 30%%\\n2026-10-30 08:00 CDT  digest         failed       Daily digest\\n"; exit 0 ;;|' "$BATS_TEST_TMPDIR/bin2/docker"
+}
+
+@test "alerts history reads the ledger through the alerter, one line per entry" {
+    alerts_history_setup
+    run "$CLI" alerts history
+    [ "$status" -eq 0 ]
+    grep -q 'exec -T alerter python notifications.py show --days 7$' "$DOCKER_LOG"
+    [ "$(printf '%s\n' "$output" | grep -c 'CDT')" -eq 2 ]
+    [[ "$output" == *"alert          sent         Google lost 30%"* ]]
+    # Read-only: nothing written, nothing recreated.
+    grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
+    if grep -q ' up -d' "$DOCKER_LOG"; then false; fi
+}
+
+@test "alerts history passes --days, --kind and --json on" {
+    alerts_history_setup
+    run "$CLI" alerts history --days 30 --kind digest --json
+    [ "$status" -eq 0 ]
+    grep -q 'notifications.py show --days 30 --kind digest --json' "$DOCKER_LOG"
+}
+
+@test "alerts history refuses a window past the ledger or an unknown kind, before docker" {
+    alerts_history_setup
+    for bad in 0 31 x 1.5; do
+        run "$CLI" alerts history --days "$bad"
+        [ "$status" -eq 2 ]
+    done
+    run "$CLI" alerts history --kind nonsense
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"--kind takes"* ]]
+    run "$CLI" alerts history --sideways
+    [ "$status" -eq 2 ]
+    if grep -q 'notifications.py' "$DOCKER_LOG"; then false; fi
+}
+
+@test "alerts history with the alerter stopped says how to start it" {
+    alerts_setup
+    run "$CLI" alerts history
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"The alerter is not running"* ]]
+    if grep -q 'notifications.py' "$DOCKER_LOG"; then false; fi
+}
+
 # --- alerts --digest ---------------------------------------------------------------
 
 @test "alerts --digest alone sets the time and zone, touches nothing about delivery, and says it is not sent while off" {
