@@ -327,7 +327,7 @@ rules:
     source: manual
     confidence: medium
     since: 2026-10-30
-    note: The push service iMessage and FaceTime ring through, not the messages themselves. Kept as our vocabulary on 2026-10-30; nDPI files push.apple.com under cloud.
+    note: The push service iMessage and FaceTime ring through, not the messages themselves (kept as our vocabulary on 2026-10-30; nDPI files push.apple.com under cloud).
   - match: {host_suffix: [messenger.com]}
     service: Messenger
     categories: [messaging, realtime_comms]
@@ -664,7 +664,7 @@ rules:
     source: manual
     confidence: medium
     since: 2026-10-30
-    note: Apple's own CDN and traffic-steering names; nDPI lists both as Apple. Longer suffixes (ls.v.aaplimg.com, mask.apple-dns.net) win. Kept as our vocabulary on 2026-10-30; nDPI files aaplimg.com under software updates; it is Apple's edge for every service.
+    note: Apple's own CDN and traffic-steering names, the edge for every Apple service; longer suffixes (ls.v.aaplimg.com, mask.apple-dns.net) win. Kept as our vocabulary on 2026-10-30; nDPI names them Apple but files aaplimg.com under software updates.
   - match: {host_suffix: [gstatic.com, fonts.googleapis.com]}
     service: Google static content
     categories: [cdn]
