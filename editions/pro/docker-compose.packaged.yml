@@ -38,6 +38,7 @@ services:
     volumes: !override
       - ${SMOKING_PI_CONFIG_DIR:-./config-manager/config}:/app/config
       - reports:/reports:ro
+      - alerter-state:/var/lib/alerter:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
   postgres:

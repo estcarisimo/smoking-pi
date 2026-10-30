@@ -45,6 +45,7 @@ from common import (
     loss_events,
     microcuts,
     mutes,
+    notification_ledger,
     openclaw,
 )
 
@@ -1161,6 +1162,45 @@ def get_incident_history(days: int = 30, include_probe_miss: bool = False) -> di
             lambda flux: query_influx(flux), influx_bucket(), days, include_probe_miss)
     except Exception as exc:
         return _tool_error("InfluxDB query failed", exc)
+
+
+@mcp.tool()
+@logged_tool
+def get_notification_history(days: int = 7, kind: str | None = None) -> dict:
+    """What the alerter told the user, and what became of each message:
+    for "what did you tell me?", "did I get an alert about X?", "why did
+    my phone buzz at 3 a.m.?", "what was held overnight?".
+
+    The notification ledger (kept 30 days): one entry per notification
+    the alerter decided on, newest first, at most 200. Each has `kind`
+    (alert, recovery, monitor, watchdog, outbox_summary, quiet_bundle,
+    digest, report), `rule`, `key`, `severity`, `targets`, `text` (the
+    message as handed to the transport, with its markup), `outcome`
+    (sent; handed: the gateway has it and delivers it itself; queued;
+    held; failed; skipped-duplicate: already said, not handed over
+    again), `decided` and `delivered` (ISO UTC),
+    `message_id` when the transport gave one, and `diagnosis` when the
+    message carried one. An entry that was queued, failed or held and
+    went out later inside a summary has `delivered_in` (that summary's
+    `id`) and its `delivered` time. `counts` sums kind/outcome over the
+    whole window.
+
+    `recorded_from` is when the ledger begins; `null` means nothing is
+    recorded yet (the `alerts` service writes it, from the release that
+    added it on). Before it, nothing is known -- not "nothing was sent".
+
+    Args:
+        days: Lookback in days (default 7, at most 30).
+        kind: Only this kind (alert, recovery, monitor, watchdog,
+            outbox_summary, quiet_bundle, digest, report).
+    """
+    days, kind, problem = notification_ledger.validate(days, kind)
+    if problem:
+        return {"error": problem}
+    try:
+        return notification_ledger.answer(days, kind)
+    except OSError as exc:
+        return _tool_error("The notification ledger could not be read", exc)
 
 
 @mcp.tool()

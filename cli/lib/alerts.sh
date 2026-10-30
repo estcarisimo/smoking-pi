@@ -192,7 +192,49 @@ alerts_telegram() {
     echo "Alerts go to Telegram chat $to through your bot."
 }
 
+alerts_history() {
+    # The notification ledger (alerter/notifications.py), read by the alerter
+    # itself: it lives in the alerter's state volume, and the zone the
+    # times are shown in is the alerter's (DIGEST_TZ, then TZ).
+    local days=7 kind="" json=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --days) days="${2:-}"; shift 2 || { echo "--days needs a number of days" >&2; return 2; } ;;
+            --kind) kind="${2:-}"; shift 2 || { echo "--kind needs a kind" >&2; return 2; } ;;
+            --json) json=1; shift ;;
+            -h|--help) usage; return 0 ;;
+            *) echo "unknown option $1" >&2; return 2 ;;
+        esac
+    done
+    case "$days" in
+        ""|*[!0-9]*) echo "--days takes a whole number of days, 1 to 30." >&2; return 2 ;;
+    esac
+    if [ "$days" -lt 1 ] || [ "$days" -gt 30 ]; then
+        echo "--days takes 1 to 30: the ledger keeps 30 days." >&2; return 2
+    fi
+    case "$kind" in
+        ""|alert|recovery|superseded|update|outbox_summary|quiet_bundle|digest|watchdog|monitor|report) ;;
+        *) echo "--kind takes alert, recovery, monitor, watchdog, outbox_summary, quiet_bundle, digest or report." >&2; return 2 ;;
+    esac
+    need_edition
+    if ! grep -q '^  alerter:' "$EDITION_DIR/docker-compose.yml"; then
+        echo "Alerts are a Pro service; the $SMOKING_PI_EDITION edition does not ship the alerter." >&2
+        return 1
+    fi
+    if ! grep -qx alerter <(compose ps --status running --services 2>/dev/null); then
+        echo "The alerter is not running, so it has no ledger to read. Turn it on: $(cli_name) alerts" >&2
+        return 1
+    fi
+    local args=(--days "$days")
+    [ -z "$kind" ] || args+=(--kind "$kind")
+    [ -z "$json" ] || args+=(--json)
+    compose exec -T alerter python notifications.py show "${args[@]}"
+}
+
 cmd_alerts() {
+    if [ "${1:-}" = history ]; then
+        shift; alerts_history "$@"; return
+    fi
     local mode="" to="" url="" test_msg="" yes=0 digest="" digest_tz="" quiet="" deadman=""
     while [ $# -gt 0 ]; do
         case "$1" in

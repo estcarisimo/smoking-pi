@@ -37,6 +37,8 @@ import time
 
 import clock
 import ledger
+import notifications
+import notifier
 import templates
 
 log = logging.getLogger("alerter.outbox")
@@ -273,6 +275,44 @@ def fallback(state: dict, now: float) -> dict:
     }
 
 
+def _record(box: dict, items: list[dict], event: dict, outcome, now: float) -> None:
+    """The try into the notification record (notifications.py) and, once it
+    went, on each entry it carried, which message that was. A single
+    notification resent as it was is the same entry. A summary refused
+    every retry is one entry with an attempt count, not one per try."""
+    result = {True: "sent", False: "failed"}.get(outcome, outcome)
+    if result not in ("sent", "handed"):
+        result = "failed"
+    went = result != "failed"
+    receipt = notifier.take_receipt()
+    carried = notifications.carried_ids(items)
+    own = event.get("notification_id")
+    if own and own in carried:
+        if went:
+            notifications.update(own, outcome=result, delivered_at=now,
+                                 message_id=receipt.get("message_id"))
+        return
+    tried = box.get("notifications") or {}
+    if tried.get("id"):
+        summary_id = tried["id"]
+        tried["attempts"] = int(tried.get("attempts", 1)) + 1
+        if went:
+            notifications.update(summary_id, outcome=result, delivered_at=now,
+                                 attempts=tried["attempts"],
+                                 text=receipt.get("text"),
+                                 message_id=receipt.get("message_id"),
+                                 carries=carried)
+        else:
+            notifications.update(summary_id, attempts=tried["attempts"])
+    else:
+        summary_id = notifications.record({**event, "items": items}, result,
+                                          now, receipt)
+        if not went:
+            box["notifications"] = {"id": summary_id, "attempts": 1}
+    if went:
+        notifications.delivered_in(carried, summary_id, now)
+
+
 def flush(state: dict, now: float, send, reachable) -> bool | None:
     """Try to deliver what is waiting, if it is time. Never raises.
 
@@ -304,7 +344,9 @@ def flush(state: dict, now: float, send, reachable) -> bool | None:
             return None
         refused = int(box.get("refused", 0))
         event = build(state, now) if refused < FALLBACK_AFTER else fallback(state, now)
+        notifier.last_receipt.clear()
         outcome = send(event)
+        _record(box, items, event, outcome, now)
         if outcome is True or outcome in (ledger.SENT, "handed"):
             log.info("Delivered %d waiting notification(s) as one %s",
                      len(items), event.get("type"))

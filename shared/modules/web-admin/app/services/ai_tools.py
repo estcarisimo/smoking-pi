@@ -12,8 +12,10 @@ against web-admin's own backends:
   code the MCP server, the alerter and the reports read, so the two
   assistants cannot drift apart on what a microcut is; ``get_loss_events``
   answers through common/loss_events.py, ``diagnose_loss`` and
-  ``get_incident_history`` through common/incident_answers.py, the MCP
-  server's own code paths
+  ``get_incident_history`` through common/incident_answers.py, and
+  ``get_notification_history`` through common/notification_ledger.py
+  (the alerter's state volume, mounted read-only), the MCP server's own
+  code paths
 
 ``TOOLS`` is the Anthropic ``tools`` schema list; ``execute_tool`` is the
 dispatcher. Mutating tools are listed in ``MUTATING_TOOLS`` and are executed
@@ -33,7 +35,13 @@ from datetime import datetime
 from typing import Any
 
 from app.services.config_api import ConfigAPIGateway, over_budget_message
-from common import cadence, incident_answers, loss_events, microcuts
+from common import (
+    cadence,
+    incident_answers,
+    loss_events,
+    microcuts,
+    notification_ledger,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +338,37 @@ TOOLS = [
                 "include_probe_miss": {
                     "type": "boolean",
                     "description": "Also list single-point probe misses.",
+                },
+            },
+        },
+    },
+    {
+        "name": "get_notification_history",
+        "description": (
+            "What the alerter told the user and what became of each message, "
+            "from its 30-day notification ledger: for 'what did you tell me?', "
+            "'did I get an alert about X?', 'what was held overnight?'. Newest "
+            "first; each entry has kind, rule, targets, text (as sent), "
+            "outcome (sent, handed, queued, held, failed, skipped-duplicate), "
+            "decided/delivered times "
+            "and delivered_in when a later summary carried it. "
+            "'recorded_from' null means nothing is recorded yet: say so "
+            "instead of 'nothing was sent'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": (
+                        "Lookback in days (default 7, at most "
+                        f"{notification_ledger.MAX_DAYS})."
+                    ),
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": list(notification_ledger.KINDS),
+                    "description": "Only this kind of notification.",
                 },
             },
         },
@@ -642,6 +681,14 @@ def _get_incident_history(tool_input: dict) -> dict:
                                     bool(tool_input.get("include_probe_miss")))
 
 
+def _get_notification_history(tool_input: dict) -> dict:
+    days, kind, problem = notification_ledger.validate(
+        tool_input.get("days"), tool_input.get("kind"))
+    if problem:
+        return {"error": problem}
+    return notification_ledger.answer(days, kind)
+
+
 def _get_microcut_stats(tool_input: dict) -> dict:
     """Same definition as the MCP server's tool: cuts (runs of windows above
     ``MICROCUT_LOSS_PCT``, folded by common.microcuts), the per-target floor
@@ -771,6 +818,7 @@ _DISPATCH = {
     "get_microcut_stats": _get_microcut_stats,
     "diagnose_loss": _diagnose_loss,
     "get_incident_history": _get_incident_history,
+    "get_notification_history": _get_notification_history,
 }
 
 

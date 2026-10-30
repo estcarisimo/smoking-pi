@@ -268,3 +268,12 @@ def test_httpx_own_request_log_never_carries_the_token(bot, monkeypatch, caplog)
         assert telegram.send("x")
     assert "HTTP Request" in caplog.text and "/bot<redacted>/sendMessage" in caplog.text
     _no_token_in(caplog)
+
+
+def test_an_odd_result_never_costs_a_delivered_message(monkeypatch):
+    """The message id is for the ledger; a result that is not an object
+    must not turn a delivered message into an exception."""
+    monkeypatch.setattr(telegram, "_call", lambda *a, **k: (200, {"ok": True,
+                                                                   "result": True}))
+    assert telegram._send("sendMessage", {"chat_id": "1", "text": "x"}) == (True, "")
+    assert telegram.last_message_id is None

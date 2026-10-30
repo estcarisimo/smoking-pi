@@ -91,6 +91,23 @@ HANDED = "handed"
 FAILED = "failed"
 
 
+# What the last send() handed to its transport: the text, the mode, and
+# the message id when the transport gave one. The notification record
+# (notifications.py) takes it; nothing here reads it.
+last_receipt: dict = {}
+
+
+def take_receipt() -> dict:
+    """The last send()'s receipt, once: a later reader gets {}."""
+    receipt = dict(last_receipt)
+    last_receipt.clear()
+    return receipt
+
+
+def _handed(text: str, mode: str) -> None:
+    last_receipt.update({"text": text, "mode": mode, "message_id": None})
+
+
 def notify(event: dict, image: bytes | None = None) -> bool:
     """Deliver one event via the configured backend; True when delivered.
     Never raises. See :func:`send` for the three outcomes."""
@@ -106,6 +123,7 @@ def send(event: dict, image: bytes | None = None) -> str:
     a caption as in a message, so the text is rendered to whichever budget
     applies -- see templates.assemble.
     """
+    last_receipt.clear()
     mode = notify_mode()
     limit = templates.TG_CAPTION_LIMIT if image else templates.TG_TEXT_LIMIT
     text = format_message(event, limit)
@@ -127,21 +145,46 @@ def send(event: dict, image: bytes | None = None) -> str:
     if mode == "telegram":
         silent = _silent(event)
         if image is None:
-            return _outcome(telegram.send(text, silent=silent))
-        if telegram.send(text, image=image, filename=_chart_filename(event),
-                         silent=silent):
+            return _outcome(_telegram(text, silent=silent))
+        if _telegram(text, image=image, filename=_chart_filename(event),
+                     silent=silent):
             return SENT
         # As for OpenClaw: a chart failure must never cost the alert.
         log.warning("Image delivery failed; retrying text-only (chart_dropped=1)")
-        return _outcome(telegram.send(
+        return _outcome(_telegram(
             format_message(event, templates.TG_TEXT_LIMIT), silent=silent))
     if mode == "webhook":
         # A generic webhook receives JSON; an image has nowhere to go in it.
         return _outcome(_notify_webhook(event, text))
     if mode != "off":
         log.warning("Unknown NOTIFY_MODE %r; logging only", mode)
+    _handed(text, mode)
     log.info("NOTIFY (%s)%s %s", mode, " [+chart]" if image else "", text)
     return SENT
+
+
+def _telegram(text: str, **kwargs) -> bool:
+    _handed(text, "telegram")
+    telegram.last_message_id = None
+    sent = telegram.send(text, **kwargs)
+    last_receipt["message_id"] = telegram.last_message_id if sent else None
+    return sent
+
+
+def _message_id(response) -> str | None:
+    """The message id in a transport's answer, when it gives one."""
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    for _ in range(3):
+        if not isinstance(body, dict):
+            return None
+        for name in ("messageId", "message_id"):
+            if body.get(name) is not None:
+                return str(body[name])
+        body = body.get("result") or body.get("details")
+    return None
 
 
 def _outcome(delivered: bool) -> str:
@@ -304,6 +347,7 @@ def _notify_openclaw(
         log.warning("NOTIFY_MODE=openclaw but OPENCLAW_TO is unset; skipping")
         return FAILED, False
     headers = {"Authorization": f"Bearer {token}"}
+    _handed(text, "openclaw")
     payload = openclaw_invoke_payload(
         text,
         image,
@@ -344,6 +388,7 @@ def _post_openclaw(url: str, payload: dict, headers: dict) -> tuple[str, bool]:
     if 200 <= response.status_code < 300:
         error = _body_error(response)
         if error is None:
+            last_receipt["message_id"] = _message_id(response)
             return SENT, False
         log.warning("Notification to %s answered HTTP %s with a failure: %s; "
                     "the gateway holds it in its queue, so it is not sent "
@@ -376,6 +421,7 @@ def _notify_webhook(event: dict, text: str) -> bool:
         "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     headers = {}
+    _handed(text, "webhook")
     token = os.environ.get("ALERT_WEBHOOK_TOKEN", "")
     if token:
         headers["Authorization"] = f"Bearer {token}"

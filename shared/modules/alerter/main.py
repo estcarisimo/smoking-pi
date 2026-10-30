@@ -25,6 +25,7 @@ import evaluator
 import flux
 import incident_history
 import ledger
+import notifications
 import notifier
 import outbox
 import quiet
@@ -176,24 +177,38 @@ def _deliver(current: dict, payload: dict, image: bytes | None = None,
     if ledger.done(current, idem):
         log.info("Notification %s already %s; not sent again", idem,
                  ledger.outcome(current, idem))
+        notifications.record(payload, "skipped-duplicate", now)
         return
+    # Named before it is held or queued, so the box keeps the id and the
+    # summary that later carries it can say so (notifications.py).
+    payload["notification_id"] = notifications.new_id()
+    receipt = None
     if quiet.holds(payload, now):
         quiet.hold(current, payload, now)
         payload["delivery"], result = "held", ledger.HELD
+        told = "held"
     elif outbox.pending(current):
         outbox.enqueue(current, payload, now)
         payload["delivery"], result = "queued", ledger.OUTBOX
+        told = "queued"
     else:
         outcome = notifier.send(payload, image=image)
+        receipt = notifier.take_receipt()
         if outcome == notifier.SENT:
             payload["delivery"], result = "sent", ledger.SENT
+            told = "sent"
         elif outcome == notifier.HANDED:
             outbox.enqueue(current, payload, now, handed=True)
             payload["delivery"], result = "handed", ledger.QUEUED
+            told = "handed"
         else:
             outbox.enqueue(current, payload, now)
             payload["delivery"], result = "queued", ledger.FAILED
+            # Tried and not delivered: it waits in the outbox.
+            told = "failed"
     ledger.record(current, idem, result, now)
+    notifications.record(payload, told, now, receipt,
+                         entry_id=payload["notification_id"])
     digest.record_history(current, payload, now)
 
 

@@ -31,3 +31,6 @@ def no_wifi_influx(monkeypatch):
     # The microcut threshold too: a developer's exported value would move
     # every cut/floor assertion in the suite.
     monkeypatch.delenv("MICROCUT_LOSS_PCT", raising=False)
+    # The alerter's state file and the notification ledger beside it: an
+    # exported value would read a real ledger.
+    monkeypatch.delenv("ALERT_STATE_FILE", raising=False)

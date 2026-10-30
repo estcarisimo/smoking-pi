@@ -715,6 +715,60 @@ it is over.
 It needs the `alerts` service, and InfluxDB: in ClickHouse mode nothing is
 written. `INCIDENT_HISTORY_HOURS=0` turns it off.
 
+### The notification ledger: what it told you
+
+Until 2026-10-30 the project could not say what it had told anyone. The
+digest's `state["history"]` kept 48 hours of bare keys, the alerter's log is
+wiped by every upgrade, and the October audit of 72 Telegram messages had to
+be rebuilt from the OpenClaw gateway's own message cache. Now every
+notification the alerter decides on is one entry in a ledger, kept 30 days.
+
+- **What an entry holds.** An `id`; the incident or alert `key`; the
+  `kind` (`alert`, `recovery`, `monitor` — the alerter blind or the
+  measurements stopped —, `watchdog`, `outbox_summary`, `quiet_bundle`,
+  `digest`, `report`); the `rule`, `severity` and the `targets` it named; the
+  `text` exactly as handed to the transport (with its markup: HTML unless
+  `ALERT_MARKUP` says otherwise; one that was held or queued, as it would
+  have read); the `outcome` — `sent`, `handed` (the OpenClaw gateway has
+  it and delivers it from its own queue), `queued` (joined the outbox
+  without a try), `held` (quiet hours), `failed` (tried and not delivered:
+  it waits in the outbox), `skipped-duplicate` (already said, so
+  [*Said once*](#said-once-what-delivery-guarantees) kept it from being handed over again) — with the transport's `message_id` when it gives one
+  (Telegram does); when it was `decided` and `delivered`; and the
+  diagnosis `class` and `cause` when the alert carried one.
+- **Later deliveries.** When the outbox or the end of quiet hours sends one
+  message for everything waiting, that message is an entry of its own
+  (`carries` lists what it carried) and each entry it carried gets
+  `delivered_in` and its delivery time. A single notification the outbox
+  resends as it was stays one entry, now `sent`. A summary the receiver
+  keeps refusing, or a report that keeps failing, is one `failed` entry
+  whose `attempts` grows, not one entry per retry.
+- **Where.** `ledger.jsonl`, beside `state.json` in the alerter's state
+  volume (written by `alerter/notifications.py`; *Said once*'s per-key
+  record is `state["delivered"]`, kept by `alerter/ledger.py`, and decides
+  what may be sent, while this one only records what was): one JSON line per entry, a later line per change to one. A line a
+  power cut tore is skipped by every reader. Once an hour, or past 8 MB, the
+  file is rewritten atomically with only the last 30 days, at most 5,000
+  entries and 6 MB.
+- **Who reads it.** You, with `smoking-pi alerts history` (below);
+  assistants, through the `get_notification_history` MCP tool and the web
+  admin's chat; the digest's "alerts fired" count (until the ledger is 48
+  hours old, `state["history"]` fills in what came before it).
+
+Recording never changes what is sent or when, and a ledger that cannot be
+written costs nothing but its own warning in the log.
+
+```bash
+smoking-pi alerts history
+```
+
+One line per notification of the last seven days, oldest first: the time
+in the digest's zone (`DIGEST_TZ`, then `TZ`), the kind, the outcome
+(`queued→sent` or `held→sent` when a later summary carried it; plain
+`sent` for one the outbox resent as it was) and its first line.
+`--days N` (1 to 30), `--kind KIND` and `--json` (every field) narrow or
+widen it. The alerter reads its own ledger, so it must be running.
+
 ## The daily digest
 
 Alerts only fire when something breaks, so on a good day the channel is
@@ -803,11 +857,14 @@ reassuring message — precisely the failure the digest exists to catch.
 ### What it says
 
 The same shape as everything else: traffic lights, bold sections, worst
-targets first, capped at five. Counts come from `state["history"]`, appended
-on each alert or recovery the alerter decides to send — regardless of
-whether delivery then succeeded — and pruned to `DIGEST_HISTORY_MAX` and 48
-hours — necessary because `reconcile()` pops a record on recovery, so by
-08:30 an incident that fired and cleared at 03:00 has left no other trace.
+targets first, capped at five. Counts come from the
+[notification ledger](#the-notification-ledger-what-it-told-you), every
+alert or recovery the alerter decided to send — regardless of whether
+delivery then succeeded — bounded as `state["history"]` was (the last
+`DIGEST_HISTORY_MAX` of 48 hours), which still fills in for the time before
+the ledger begins. Necessary because `reconcile()` pops a record on
+recovery, so by 08:30 an incident that fired and cleared at 03:00 has left
+no other trace.
 
 On a host whose uplink is Wi-Fi, a *Local link* section carries one line —
 `📶 Wi-Fi Supersonic ch36 — −52 dBm median, −71 dBm min, 433 Mb/s, 1

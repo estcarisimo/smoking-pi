@@ -29,6 +29,7 @@ from datetime import datetime
 
 import clock
 import ledger
+import notifications
 import outbox
 import schedule
 import templates
@@ -144,6 +145,12 @@ def release(state: dict, now: float, deliver) -> bool:
     deliver(event)
     if event.get("delivery") in ("sent", "handed"):
         ledger.told(state, items, now)
+        # And in the notification record, which message carried each one.
+        # One that went to the outbox instead is said when the outbox
+        # delivers it.
+        if event.get("notification_id"):
+            notifications.delivered_in(notifications.carried_ids(items),
+                                       event["notification_id"], now)
     count = len(items)
     log.info("Quiet hours over: %d held notification(s) sent as one", count)
     return True
