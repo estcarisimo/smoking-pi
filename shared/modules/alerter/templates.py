@@ -228,7 +228,10 @@ def episode_sections(event: dict) -> list[Section]:
     sections = [Section(0, f"{esc(marker)} {_b(esc(words))}" if words and
                         not marker.isalnum() else _b(esc(head)))]
     for index, line in enumerate(rendered["lines"]):
-        sections.append(Section(0 if index < 2 else 2, esc(line)))
+        # The cause and the first signal stay; the contrary goes after the
+        # other signals: it is what says the verdict is contested.
+        keep = 0 if index < 2 else 1 if line.startswith("Against:") else 2
+        sections.append(Section(keep, esc(line)))
     link = rendered.get("link")
     if link:
         label, url = link
@@ -289,11 +292,14 @@ MONITOR_WORDS = {
 }
 # The readings the last hours' diagnosis (common.diagnosis) can give, as an
 # episode's: a second opinion that disagrees is a contrary signal.
-DIAGNOSIS_READING = {"local_wifi": "monitor", "local_link": "local_link",
-                     "upstream": "upstream"}
+DIAGNOSIS_READING = {"local_wifi": "monitor", "monitor": "monitor",
+                     "local_link": "local_link", "upstream": "upstream"}
 NETWORK = frozenset({"local_link", "upstream"})
 # The first hop's loss this far above its usual level is its own loss.
 HOP_RISE_PCT = 5.0
+# Without its usual level (no cycle before the episode), the first hop's
+# loss is weighed against this: the gateway's ICMP rate-limit floor.
+HOP_FLOOR_PCT = 10.0
 # One destination "alone" when it lost this many times the next one.
 ALONE_RATIO = 2.0
 
@@ -319,7 +325,7 @@ def span(lo: float, hi: float, now: float, sep: str = "–") -> str:
 
 
 def lasted(seconds: float | None) -> str:
-    return _duration(seconds) or "under a minute"
+    return _duration(seconds) if seconds and seconds >= 60 else "under a minute"
 
 
 def _name(target: str, render: dict) -> str:
@@ -423,8 +429,11 @@ def evidence(record: dict, render: dict) -> list[Evidence]:
         out.append(Evidence("your router stopped answering too",
                             frozenset({"local_link"}),
                             frozenset({"upstream", "destination"})))
-    elif hop is not None and usual is not None and hop - usual >= HOP_RISE_PCT:
-        out.append(Evidence(f"your router lost {pct(hop)}, above its usual {pct(usual)}",
+    elif hop is not None and hop - (usual if usual is not None
+                                    else HOP_FLOOR_PCT) >= HOP_RISE_PCT:
+        out.append(Evidence(f"your router lost {pct(hop)}"
+                            + (f", above its usual {pct(usual)}" if usual is not None
+                               else ""),
                             frozenset({"local_link"}), frozenset({"upstream"})))
     elif hop is not None:
         out.append(Evidence("your router answered normally ("
@@ -574,9 +583,10 @@ def update_why(record: dict, render: dict, told: dict) -> str:
     if told.get("escalated"):
         return "now the Internet is down."
     if told.get("reclassed"):
-        before = told.get("words") or "something else"
+        before = told.get("words")
         return (f"the probable cause is now {cause_words(record, render)} "
-                f"(it was {before}).")
+                + (f"(it was {before})." if before and before != "undetermined"
+                   else "(it was undetermined)."))
     return (f"now {m.get('affected', 0)} of {m.get('reporting', 0)} "
             "destinations are losing packets.")
 
@@ -588,9 +598,11 @@ def ending(event: dict) -> dict:
     now, step = float(render["now"]), float(render.get("step") or 300)
     lo, hi = float(record["start"]), float(record["end"])
     told_down = render.get("told_kind") == "down" or record.get("down")
-    when = f"after {lasted(record.get('duration_s'))} ({span(lo, hi, now, ' to ')})"
+    took = lasted(record.get("duration_s"))
+    when = (f"after {took}" if took != "under a minute" else "within a minute") + \
+        f" ({span(lo, hi, now, ' to ')})"
     if told_down:
-        head = (f"✅ Internet back after {lasted(record.get('duration_s'))} down "
+        head = (f"✅ Internet back after {took} down "
                 f"({span(lo, hi, now, ' to ')})")
     elif record.get("class") == "destination":
         head = f"✅ {_names(record.get('sites') or [], render)} fine again {when}"

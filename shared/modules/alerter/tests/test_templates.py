@@ -379,3 +379,37 @@ def test_percentages_and_ranges_read_plainly(monkeypatch):
     assert [templates.pct(v) for v in (7.0, 2.5, 30.04, None)] == ["7%", "2.5%", "30%", "?"]
     assert templates.span(1_791_833_400.0, 1_791_835_800.0, 1_791_835_800.0) == \
         "19:30–20:10 UTC"
+
+
+# --- review of #438 ---------------------------------------------------------
+
+def test_a_lossy_router_with_no_usual_level_is_not_called_normal(utc_plain):
+    """No cycle before the episode (opened before an upgrade): 40% on the
+    router is its own loss, never "answered normally"."""
+    measures = {**_record()["measures"], "hop_loss_pct": 40.0, "hop_usual_pct": None,
+                "worst": []}
+    record = _record(**{"class": "local_link"}, measures=measures)
+    assert "• your router lost 40%\n" in templates.plain(_event(record=record))
+    calm = {**measures, "hop_loss_pct": 8.0}
+    assert "your router answered normally (8% lost)" in templates.plain(
+        _event(record=_record(measures=calm)))
+
+
+def test_an_update_after_an_undetermined_message_reads(utc_plain):
+    record = _record()
+    why = templates.update_why(record, {}, {"reclassed": True, "words": "undetermined"})
+    assert why == ("the probable cause is now your provider, beyond the modem "
+                   "(it was undetermined).")
+
+
+def test_the_contrary_outlives_the_extra_signals_in_a_caption():
+    sections = templates.episode_sections(_event())
+    against = [s for s in sections if "Against:" in s.text]
+    extra = [s for s in sections if s.text.startswith("• this Pi")]
+    assert against[0].priority < extra[0].priority
+
+
+def test_an_end_within_a_minute_says_so(utc_plain):
+    record = _record(duration_s=30, end=1_791_833_430.0)
+    assert templates.plain(_event("recovery", record)).startswith(
+        "✅ Packet loss over within a minute (19:30 to 19:30)")

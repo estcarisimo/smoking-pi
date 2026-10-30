@@ -1124,7 +1124,7 @@ Rather than truncate, sections are dropped by priority until the message fits,
 so what survives is always the head and the cause. An episode's message
 (`templates.episode_sections`, rendered by `templates.render`) is its head
 in bold, the cause line and the first signal (never dropped), then the
-range link, then the other signals -- the signals go first, the link last
+range link, then the contrary signal, then the other signals -- the extra signals go first, then the contrary, the link last
 among what can go, because the link is the way out of a static caption. Only if the headline
 alone still overflows is text trimmed, and then on a line boundary: an HTML tag
 cut in half makes Telegram reject the whole message with a 400, which

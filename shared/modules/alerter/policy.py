@@ -199,7 +199,8 @@ def _context(ep: dict, record: dict, pol: dict, now: float, **extra) -> dict:
         "names": {t: names.display(t, category_of.get(t), known) for t in targets},
         "told_kind": pol.get("sent_kind"),
         "told_class": pol.get("sent_class"),
-        "told_words": pol.get("sent_words"),
+        # An episode told before the words were kept: its cause as written.
+        "told_words": pol.get("sent_words") or pol.get("sent_cause"),
         # Updates actually sent (the counter also caps them).
         "updates": sum(1 for s in pol.get("sent") or () if s.get("kind") == "update"),
         # Only with an assistant to reply to (OpenClaw) is "ack" useful.
@@ -251,9 +252,7 @@ def _payload(state: dict, ep: dict, pol: dict, kind: str, now: float,
         # The cause last told: an update corrects it, so the end compares
         # with that, not with the first message (review of #436).
         pol["sent_cause"] = judgment.get("cause")
-        pol["sent_words"] = (templates.cause_words(record, render)
-                             if record.get("class") != "undetermined" else
-                             "the cause was undetermined")
+        pol["sent_words"] = templates.cause_words(record, render)
     log.info("Episode %s: %s", ep["key"], kind)
     return payload
 

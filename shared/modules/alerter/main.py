@@ -277,7 +277,8 @@ def _push(current: dict, events: list[dict], now: float,
                 payload["message"] = templates.plain(payload)
             # The one chart: on the opening message of a material episode.
             # Not while the outbox holds anything: it would not be sent.
-            if not outbox.pending(current):
+            # Nor for one quiet hours hold: it would be dropped.
+            if not outbox.pending(current) and not quiet.holds(payload, now):
                 image = _chart_for(current, payload, now)
         _deliver(current, payload, image=image, now=now)
 

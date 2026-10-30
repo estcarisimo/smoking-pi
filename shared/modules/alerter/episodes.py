@@ -404,8 +404,11 @@ def update(state: dict, cycle: dict) -> list[dict]:
     for at, stats in evaluator.step_stats(cycle.get("rows") or [], step).items():
         if at > ep["start"] - step:
             ep["steps"][str(at)] = stats
-        elif stats.get("hop_loss_pct") is not None and len(before) < HOP_USUAL_STEPS:
+        elif stats.get("hop_loss_pct") is not None:
             before[str(at)] = stats["hop_loss_pct"]
+    # The HOP_USUAL_STEPS cycles nearest the episode's start.
+    for key in sorted(before, key=float)[:-HOP_USUAL_STEPS]:
+        del before[key]
     if len(ep["steps"]) > STEPS_MAX:
         for key in sorted(ep["steps"], key=float)[:-STEPS_MAX]:
             del ep["steps"][key]
