@@ -121,6 +121,9 @@ version gets a matching GitHub release and git tag.
   ([Upgrades](docs/upgrades.md#settings-retired-or-renamed)). `ALERT_RESOLVE_AFTER` now closes an episode, and
   `ALERT_MAX_PER_HOUR` caps alerts across every episode. `ack_incident`
   takes an episode key; a webhook gets the episode's record beside the text.
+  Every decision is in the notification ledger: an episode that closed with
+  nothing pushed is an entry of kind `episode`, outcome `recorded`, with
+  why (`smoking-pi alerts history --kind episode`).
   Messages are minimal and structured (cause, range, scope, signals); their
   wording is the next change's. The state file's per-incident records stay
   readable; an upgrade starts with no episode open, so an incident alerted
