@@ -9,6 +9,24 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The service taxonomy agrees with its sources again, and `hbo.com` is Max.**
+  The week's validation read of front 5 on the reference Pi (336 targets, all
+  labeled but `tzm.protechts.net`, on purpose) ran
+  `build-taxonomy.py --adguard --ndpi --check` and it failed with 13
+  disagreements, so the release checklist step would have stopped the next
+  release. Six were our vocabulary answering a different question than the
+  source (Zoom and Meet are calls, Discord and Messenger chat, Apple Push
+  messaging, `aaplimg.com` Apple's edge for every service): those rules are now
+  `source: manual` with a note saying what the source says. Four named a source
+  that no longer lists the hosts (nDPI dropped Microsoft 365, GitHub and Apple
+  software update from `host_match`; AdGuard never had PlayStation, nDPI does):
+  the first three are `manual`, PlayStation is `ndpi`. `hbo.com` joins the Max
+  rule (`W_hbo_com_*` was unknown on the Pi). Targets under a changed rule get
+  one new `target_labels` point with the new `label_source`; no series is
+  renamed.
+
 ## [2.50.0] — 2026-10-29
 
 Transit networks get their names. The Internet Topology dashboard named a
