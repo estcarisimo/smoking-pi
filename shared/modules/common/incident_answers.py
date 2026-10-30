@@ -58,47 +58,58 @@ def diagnose(query: Query, hours: int, cadences: dict | None = None) -> dict:
     }
 
 
+def _history_flux(bucket: str, range_clause: str) -> str:
+    return (f'from(bucket: {flux_str(bucket)}) |> range({range_clause}) '
+            '|> filter(fn: (r) => r._measurement == "loss_incident") '
+            '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '
+            '|> group() |> sort(columns: ["_time"], desc: true)')
+
+
+def _incident(r: dict) -> dict:
+    """One ``loss_incident`` row as the answers give it."""
+    cls = r.get("class") or "unclear"
+    start = r.get("_time")
+    if isinstance(start, datetime):
+        start = start.astimezone(timezone.utc)
+    end = (datetime.fromtimestamp(int(r["end_epoch"]), tz=timezone.utc)
+           if r.get("end_epoch") is not None else None)
+    targets = [t for t in (r.get("targets") or "").split(",") if t]
+    inc = {
+        "class": cls,
+        "detail": r.get("detail") or None,
+        "confidence": r.get("confidence") or None,
+        "summary": r.get("summary") or "",
+        "start": start.isoformat() if isinstance(start, datetime) else start,
+        "end": end.isoformat() if end else None,
+        "minutes": r.get("minutes"),
+        "targets": targets,
+        "targets_reporting": r.get("targets_reporting"),
+        "evidence": [e for e in (r.get("evidence") or "").split(" | ") if e],
+        "against": [e for e in (r.get("against") or "").split(" | ") if e],
+    }
+    # -1: a cut or deaf span with no loss run (incident_history.point).
+    if r.get("max_loss_pct") is not None and r["max_loss_pct"] >= 0:
+        inc["max_loss_pct"] = r["max_loss_pct"]
+    return inc
+
+
 def history(
     query: Query, bucket: str, days: int, include_probe_miss: bool = False
 ) -> dict:
     """The stored incidents (``loss_incident``, written by the alerter) of
     the last ``days``, newest first. Raises whatever ``query`` raises."""
-    flux = (f'from(bucket: {flux_str(bucket)}) |> range(start: -{int(days)}d) '
-            '|> filter(fn: (r) => r._measurement == "loss_incident") '
-            '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '
-            '|> group() |> sort(columns: ["_time"], desc: true)')
-    rows = query(flux)
+    rows = query(_history_flux(bucket, f"start: -{int(days)}d"))
     by_class: dict[str, int] = {}
     incidents = []
     for r in rows:
-        cls = r.get("class") or "unclear"
+        inc = _incident(r)
+        cls = inc["class"]
         by_class[cls] = by_class.get(cls, 0) + 1
         if cls == "probe_miss" and not include_probe_miss:
             continue
         start = r.get("_time")
         if isinstance(start, datetime):
-            start = start.astimezone(timezone.utc)
-        end = (datetime.fromtimestamp(int(r["end_epoch"]), tz=timezone.utc)
-               if r.get("end_epoch") is not None else None)
-        targets = [t for t in (r.get("targets") or "").split(",") if t]
-        inc = {
-            "class": cls,
-            "detail": r.get("detail") or None,
-            "confidence": r.get("confidence") or None,
-            "summary": r.get("summary") or "",
-            "start": start.isoformat() if isinstance(start, datetime) else start,
-            "end": end.isoformat() if end else None,
-            "minutes": r.get("minutes"),
-            "targets": targets,
-            "targets_reporting": r.get("targets_reporting"),
-            "evidence": [e for e in (r.get("evidence") or "").split(" | ") if e],
-            "against": [e for e in (r.get("against") or "").split(" | ") if e],
-        }
-        # -1: a cut or deaf span with no loss run (incident_history.point).
-        if r.get("max_loss_pct") is not None and r["max_loss_pct"] >= 0:
-            inc["max_loss_pct"] = r["max_loss_pct"]
-        if isinstance(start, datetime):
-            graph = _graph(targets, start)
+            graph = _graph(inc["targets"], start)
             if graph:
                 inc["graph"] = graph
         incidents.append(inc)
@@ -116,3 +127,30 @@ def history(
         "truncated": len(incidents) > HISTORY_MAX_INCIDENTS,
         "by_class": by_class,
     }
+
+
+def _rfc3339(epoch: float) -> str:
+    return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+
+
+def history_between(query: Query, bucket: str, start: float, stop: float) -> list[dict]:
+    """The stored incidents that began in ``[start, stop)`` (epoch seconds),
+    oldest first, ``probe_miss`` left out: the weekly summary's week, which
+    is a calendar week in its zone, not "the last N days". Each also carries
+    ``start_epoch``, ``end_epoch`` and ``targets_affected``. Raises whatever
+    ``query`` raises."""
+    rows = query(_history_flux(
+        bucket, f"start: {_rfc3339(start)}, stop: {_rfc3339(stop)}"))
+    out = []
+    for r in rows:
+        inc = _incident(r)
+        when = r.get("_time")
+        if inc["class"] == "probe_miss" or not isinstance(when, datetime):
+            continue
+        inc["start_epoch"] = when.timestamp()
+        inc["end_epoch"] = (float(r["end_epoch"]) if r.get("end_epoch") is not None
+                            else inc["start_epoch"] + 60 * float(inc["minutes"] or 0))
+        inc["targets_affected"] = int(r.get("targets_affected") or len(inc["targets"]))
+        out.append(inc)
+    return sorted(out, key=lambda i: i["start_epoch"])

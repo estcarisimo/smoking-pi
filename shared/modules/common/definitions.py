@@ -81,6 +81,29 @@ def breadth_voters(rows: list[dict], cadences: dict[str, Cadence]) -> set[str]:
             if clean.get(t, 0) >= BREADTH_CLEAN_SHARE * n}
 
 
+# What makes an episode material: worth a line in the weekly summary, and
+# the reason one is sent at all (decision of 2026-10-30, front 8). October's
+# daily digest said "all clear" 10 times in 16 days and carried one new fact
+# in all of them; these are the bar that keeps a message for the weeks that
+# had one. Measured outside the monitor's own deaf spans, the upgrade
+# windows and the watchdog's actions, which are the monitor's, not the
+# network's. Breadth counts only when MIN_BREADTH_TARGETS report, as
+# everywhere.
+MATERIAL_BREADTH_PCT = 30.0  # share of the reporting destinations...
+MATERIAL_MIN_CATEGORIES = 2  # ...or destinations in this many categories
+MATERIAL_MIN_MINUTES = 15  # three 5-minute probe cycles
+MATERIAL_LOSS_PCT = 5.0  # mean loss over the episode's destinations
+# Median latency over the episode against the same hours a week before.
+MATERIAL_LATENCY_RATIO = 2.0
+# Below this share of the week measured, the monitor's own availability is
+# news: the weekly goes out to say so.
+MATERIAL_AVAILABILITY_PCT = 99.0
+# Days of one week on which loss or congestion shared by the destinations
+# touched the same hours of the day before those hours are a recurring
+# window (the weekly's own rule; the Quality dashboard only draws a band
+# someone chose, docs/connectivity-quality.md).
+RECURRING_MIN_DAYS = 3
+
 # Total loss, by what still answers: one incident at a time.
 TOTAL_RULES = ("uplink_down", "internet_down", "monitor_dns")
 # Below this many reporting targets in a cycle, breadth means nothing.

@@ -20,7 +20,6 @@ import alert_diagnosis
 import charts
 import clock
 import dead_man
-import digest
 import evaluator
 import flux
 import incident_history
@@ -33,6 +32,7 @@ import reports_watcher
 import state
 import verdict
 import watchdog_events
+import weekly
 from common import links
 
 DEFAULT_INTERVAL = 60  # seconds; ALERT_INTERVAL
@@ -209,7 +209,6 @@ def _deliver(current: dict, payload: dict, image: bytes | None = None,
     ledger.record(current, idem, result, now)
     notifications.record(payload, told, now, receipt,
                          entry_id=payload["notification_id"])
-    digest.record_history(current, payload, now)
 
 
 def _unreadable(current: dict, exc: Exception, now: float) -> None:
@@ -259,14 +258,10 @@ def _unreadable(current: dict, exc: Exception, now: float) -> None:
         _deliver(current, {**event, "type": "recovery",
                            "duration_s": _duration_of(event)}, now=now)
     quiet.release(current, now, lambda event: _deliver(current, event, now=now))
-    if outbox.flush(current, now, send=notifier.send,
-                    reachable=notifier.reachable):
-        digest.record_history(current, {"type": "undelivered",
-                                        "key": "undelivered",
-                                        "delivery": "sent"}, now)
-    # The digest, the reports and the incident history are skipped: each
-    # reads InfluxDB too. A digest slot more than DIGEST_MAX_LATENESS late is
-    # skipped as usual.
+    outbox.flush(current, now, send=notifier.send, reachable=notifier.reachable)
+    # The weekly summary, the reports and the incident history are skipped:
+    # each reads InfluxDB too. A weekly slot past its lateness budget is
+    # retired as usual.
     state.save_state(current)
     # Alive, and blind: the outside service says so at once -- once the
     # blindness has lasted as long as influx_unreadable waits, so that an
@@ -391,11 +386,8 @@ def run_iteration() -> None:
     # What quiet hours held, as one message, once they are over.
     quiet.release(current, time.time(), lambda event: _deliver(current, event))
     # Whatever is waiting, as one message, once delivery works again.
-    if outbox.flush(current, time.time(), send=notifier.send,
-                    reachable=notifier.reachable):
-        digest.record_history(current, {"type": "undelivered",
-                                        "key": "undelivered",
-                                        "delivery": "sent"})
+    outbox.flush(current, time.time(), send=notifier.send,
+                 reachable=notifier.reachable)
 
     reports_watcher.check(current)
     # Every half hour, in the background: the incidents that are over, into
@@ -407,11 +399,11 @@ def run_iteration() -> None:
         log.exception("Incident history check failed")
     # Before save_state, so the fired slot lands in the same atomic write as
     # the incident records it was built from. A crash between the two would
-    # otherwise re-send the digest on restart.
+    # otherwise re-send the weekly summary on restart.
     try:
-        digest.check(current)
-    except Exception:  # noqa: BLE001 - a digest must never cost an alert
-        log.exception("Digest check failed")
+        weekly.check(current)
+    except Exception:  # noqa: BLE001 - the weekly must never cost an alert
+        log.exception("Weekly summary check failed")
     state.save_state(current)
     # Alive, and judging: the check-in an outside service expects. Last,
     # so an iteration that crashed before here is silence, as it should be.

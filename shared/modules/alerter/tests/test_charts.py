@@ -315,40 +315,6 @@ def test_latency_loss_is_a_ratio_and_cpe_loss_is_a_percent():
     assert charts._loss_pct([20.0], "latency") == [100.0]
 
 
-# ---------------------------------------------------------------------------
-# Digest chart
-# ---------------------------------------------------------------------------
-
-
-def _digest(values):
-    return {
-        "window_hours": 24,
-        "targets": [
-            {"target": f"t{i}", "avg_loss_pct": v, "p95_ms": 10.0}
-            for i, v in enumerate(values)
-        ],
-    }
-
-
-def test_digest_renders(fake_influx):
-    png = charts.render_digest_chart(_digest([30.0, 12.0, 3.0]))
-    assert png and png.startswith(PNG_MAGIC)
-
-
-def test_an_all_healthy_digest_has_no_chart():
-    """A bar chart of zeros is worse than no chart; the caption says so."""
-    assert charts.render_digest_chart(_digest([0.0, 0.0, 0.0])) is None
-
-
-def test_an_empty_digest_has_no_chart():
-    assert charts.render_digest_chart({"targets": []}) is None
-
-
-def test_digest_never_raises_on_bad_input():
-    assert charts.render_digest_chart({"targets": [{"target": "x",
-                                                    "avg_loss_pct": "nonsense"}]}) is None
-
-
 def test_cpe_latency_is_already_in_ms():
     """REINTRODUCTION TEST: cpe_latency stores ms, the others seconds. Scaling
     the gateway's 7 ms by 1000 drew the microcut chart three orders of

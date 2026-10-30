@@ -1562,10 +1562,10 @@ config_setup() {
     config_setup
     run "$CLI" config list
     [ "$status" -eq 0 ]
-    [[ "$output" == *$'Alerts: daily digest\n  DIGEST_ENABLED'* ]]
-    run "$CLI" config list digest
+    [[ "$output" == *$'Alerts: weekly summary\n  WEEKLY_ENABLED'* ]]
+    run "$CLI" config list weekly
     [ "$status" -eq 0 ]
-    [[ "$output" == *"DIGEST_AT"* ]]
+    [[ "$output" == *"WEEKLY_AT"* ]]
     [[ "$output" != *"POSTGRES_PASSWORD"* ]]
     run "$CLI" config list nosuchsection
     [ "$status" -eq 2 ]
@@ -1592,7 +1592,7 @@ config_setup() {
     config_setup
     cp "$SMOKING_PI_ENV_FILE" "$BATS_TEST_TMPDIR/env.before"
     local bad
-    for bad in "CPE_PROBE_RATE 0" "CPE_PROBE_RATE fast" "DIGEST_AT 25:00" "NOTIFY_MODE email" \
+    for bad in "CPE_PROBE_RATE 0" "CPE_PROBE_RATE fast" "WEEKLY_AT 25:00" "WEEKLY_DAY someday" "NOTIFY_MODE email" \
                "ALERT_CHARTS maybe" "DNS_WIZARD_COVERAGE 1.5" "OPENCLAW_URL localhost:18789" \
                "INFERENCE_SINCE 2026-13-01" "SMOKEPING_PORT 70000" \
                "DNS_WIZARD_COVERAGE 0" "DNS_WIZARD_INTERVAL 30" "TZ zone.tab" \
@@ -1607,7 +1607,7 @@ config_setup() {
 
 @test "config set takes a value its type allows, and anything for an untyped key" {
     config_setup
-    run "$CLI" config set DIGEST_AT 7:05 --no-apply
+    run "$CLI" config set WEEKLY_AT 7:05 --no-apply
     [ "$status" -eq 0 ]
     run "$CLI" config set DNS_EXPORT_NAMES 1 --no-apply
     [ "$status" -eq 0 ]
@@ -1629,7 +1629,7 @@ config_setup() {
     run "$CLI" config set CPE_PROBE_RATE ""
     [ "$status" -eq 2 ]
     [[ "$output" == *"config unset CPE_PROBE_RATE"* ]]
-    grep -qx 'DIGEST_AT=7:05' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WEEKLY_AT=7:05' "$SMOKING_PI_ENV_FILE"
     grep -qx 'WIFI_WEAK_DBM=-70.5' "$SMOKING_PI_ENV_FILE"
 }
 
@@ -1728,7 +1728,7 @@ config_setup() {
 
 @test "config refuses a value with a single quote, two values, and an empty secret on stdin" {
     config_setup
-    run "$CLI" config set DIGEST_AT "it's" --no-apply
+    run "$CLI" config set WEEKLY_AT "it's" --no-apply
     [ "$status" -eq 2 ]
     run "$CLI" config set WIFI_INTERFACE wlan0 wlan1
     [ "$status" -eq 2 ]
@@ -2164,9 +2164,9 @@ alerts_history_setup() {
 
 @test "alerts history passes --days, --kind and --json on" {
     alerts_history_setup
-    run "$CLI" alerts history --days 30 --kind digest --json
+    run "$CLI" alerts history --days 30 --kind weekly --json
     [ "$status" -eq 0 ]
-    grep -q 'notifications.py show --days 30 --kind digest --json' "$DOCKER_LOG"
+    grep -q 'notifications.py show --days 30 --kind weekly --json' "$DOCKER_LOG"
 }
 
 @test "alerts history refuses a window past the ledger or an unknown kind, before docker" {
@@ -2191,37 +2191,101 @@ alerts_history_setup() {
     if grep -q 'notifications.py' "$DOCKER_LOG"; then false; fi
 }
 
-# --- alerts --digest ---------------------------------------------------------------
+# --- alerts --weekly ---------------------------------------------------------------
 
-@test "alerts --digest alone sets the time and zone, touches nothing about delivery, and says it is not sent while off" {
+@test "alerts --weekly alone sets the day, time and zone, touches nothing about delivery, and says it is not sent while off" {
     alerts_setup
-    run "$CLI" alerts --digest 07:45 --digest-tz Europe/London
+    run "$CLI" alerts --weekly Monday 7:45 --digest-tz Europe/London
     [ "$status" -eq 0 ]
-    grep -qx 'DIGEST_ENABLED=true' "$SMOKING_PI_ENV_FILE"
-    grep -qx 'DIGEST_AT=07:45' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WEEKLY_ENABLED=true' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WEEKLY_DAY=mon' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WEEKLY_AT=07:45' "$SMOKING_PI_ENV_FILE"
     grep -qx 'DIGEST_TZ=Europe/London' "$SMOKING_PI_ENV_FILE"
     grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
-    [[ "$output" == *"07:45 Europe/London"* ]]
+    [[ "$output" == *"Mondays at 07:45 Europe/London"* ]]
+    [[ "$output" == *"sends nothing"* ]]
     [[ "$output" == *"logged, not sent"* ]]
     # The alerts profile is not in the stub's enabled services: nothing started.
     if grep -q ' up -d' "$DOCKER_LOG"; then false; fi
+    run "$CLI" config validate
+    [[ "$output" != *"WEEKLY_"* ]]
 }
 
-@test "alerts --digest refuses a time or zone it cannot read, before writing anything" {
+@test "alerts --weekly refuses a day, time or zone it cannot read, before writing anything" {
     alerts_setup
-    for bad in 24:00 12:60 noon 7:5; do
-        run "$CLI" alerts --digest "$bad"
-        [ "$status" -eq 2 ]
+    local bad
+    for bad in "someday 08:00" "mon 24:00" "mon 12:60" "mon noon" "08:00 mon" "mon"; do
+        # shellcheck disable=SC2086  # DAY HH:MM
+        run "$CLI" alerts --weekly $bad
+        [ "$status" -eq 2 ] || { echo "accepted: $bad"; return 1; }
     done
-    run "$CLI" alerts --digest 07:45 --digest-tz Mars/Olympus
+    run "$CLI" alerts --weekly mon 08:00 --digest-tz Mars/Olympus
     [ "$status" -eq 2 ]
-    run "$CLI" alerts --digest 07:45 --digest-tz ../../etc/hostname
+    run "$CLI" alerts --weekly mon 08:00 --digest-tz ../../etc/hostname
     [ "$status" -eq 2 ]
-    run "$CLI" alerts --digest-tz Europe/London
+    run "$CLI" alerts --weekly --openclaw
     [ "$status" -eq 2 ]
-    run "$CLI" alerts --digest --openclaw
+    run "$CLI" alerts --weekly off
     [ "$status" -eq 2 ]
-    if grep -q '^DIGEST_' "$SMOKING_PI_ENV_FILE"; then false; fi
+    [[ "$output" == *"--no-weekly"* ]]
+    run "$CLI" alerts --weekly mon 08:00 status
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"goes alone"* ]]
+    if grep -q '^WEEKLY_\|^DIGEST_' "$SMOKING_PI_ENV_FILE"; then false; fi
+}
+
+@test "alerts --digest is retired and says what replaces it; --digest-tz alone still sets the zone" {
+    alerts_setup
+    run "$CLI" alerts --digest 08:30
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"retired"*"--weekly mon 08:00"* ]]
+    if grep -q '^DIGEST_\|^WEEKLY_' "$SMOKING_PI_ENV_FILE"; then false; fi
+    run "$CLI" alerts --digest-tz America/Chicago
+    [ "$status" -eq 0 ]
+    grep -qx 'DIGEST_TZ=America/Chicago' "$SMOKING_PI_ENV_FILE"
+    if grep -q '^WEEKLY_' "$SMOKING_PI_ENV_FILE"; then false; fi
+}
+
+@test "alerts --no-weekly turns it off; with a mode, both are set in one go" {
+    alerts_setup
+    run "$CLI" alerts --no-weekly
+    [ "$status" -eq 0 ]
+    grep -qx 'WEEKLY_ENABLED=false' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts --openclaw --to telegram:1 --weekly fri 17:30 --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'NOTIFY_MODE=openclaw' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WEEKLY_ENABLED=true' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WEEKLY_DAY=fri' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WEEKLY_AT=17:30' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" != *"logged, not sent"* ]]
+}
+
+@test "alerts status shows the delivery, the weekly, quiet hours and the dead man without the secret" {
+    alerts_setup
+    printf 'DIGEST_TZ=America/Chicago\nQUIET_FROM=23:00\nQUIET_UNTIL=07:00\nALERT_DEADMAN_URL=https://hc-ping.example/s3cret\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Delivery:     off"* ]]
+    [[ "$output" == *"Weekly:       off"* ]]
+    [[ "$output" == *"Quiet hours:  23:00 to 07:00 America/Chicago"* ]]
+    [[ "$output" == *"Dead man:     on"* ]]
+    [[ "$output" != *"s3cret"* ]]
+    run "$CLI" alerts --weekly mon 08:00
+    run "$CLI" alerts --status
+    [[ "$output" == *"Weekly:       Mondays at 08:00 America/Chicago, only when the week is news"* ]]
+}
+
+@test "alerts status reads an upgraded daily digest as the weekly, as the alerter does" {
+    alerts_setup
+    printf 'DIGEST_ENABLED=true\nDIGEST_AT=08:30\nDIGEST_TZ=America/Chicago\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" alerts status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Weekly:       Mondays at 08:30 America/Chicago"*"retired daily digest"* ]]
+    # Once --weekly has run, its settings win.
+    run "$CLI" alerts --weekly tue 07:00
+    run "$CLI" alerts status
+    [[ "$output" == *"Weekly:       Tuesdays at 07:00 America/Chicago, only when the week is news"* ]]
+    [[ "$output" != *"retired"* ]]
 }
 
 # --- alerts --quiet ----------------------------------------------------------------
@@ -2253,49 +2317,33 @@ alerts_history_setup() {
     if grep -q '^QUIET_' "$SMOKING_PI_ENV_FILE"; then false; fi
 }
 
-@test "alerts --quiet with --digest or a delivery mode sets everything in one go" {
+@test "alerts --quiet with --weekly or a delivery mode sets everything in one go" {
     alerts_setup
-    run "$CLI" alerts --digest 08:00 --quiet 23:00-07:00
+    run "$CLI" alerts --weekly mon 08:00 --quiet 23:00-07:00
     [ "$status" -eq 0 ]
-    grep -qx 'DIGEST_AT=08:00' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WEEKLY_AT=08:00' "$SMOKING_PI_ENV_FILE"
     grep -qx 'QUIET_FROM=23:00' "$SMOKING_PI_ENV_FILE"
     run "$CLI" alerts --openclaw --to telegram:1 --quiet 22:30-06:30 --yes
     [ "$status" -eq 0 ]
     grep -qx 'NOTIFY_MODE=openclaw' "$SMOKING_PI_ENV_FILE"
     grep -qx 'QUIET_FROM=22:30' "$SMOKING_PI_ENV_FILE"
     grep -qx 'QUIET_UNTIL=06:30' "$SMOKING_PI_ENV_FILE"
-    # A zone goes with the digest, never alone with --quiet.
+    # The zone may come with quiet hours: it is theirs too.
     run "$CLI" alerts --quiet 23:00-07:00 --digest-tz Europe/London
-    [ "$status" -eq 2 ]
+    [ "$status" -eq 0 ]
+    grep -qx 'DIGEST_TZ=Europe/London' "$SMOKING_PI_ENV_FILE"
     # Empty is a valid value of a time setting: quiet hours off.
     run "$CLI" alerts --quiet off
     run "$CLI" config validate
     [[ "$output" != *"QUIET_"* ]]
 }
 
-@test "alerts --digest off turns it off; with a mode, both are set in one go" {
+@test "alerts --weekly takes 7:45 as 07:45; with --off both are said once each" {
     alerts_setup
-    run "$CLI" alerts --digest off
-    [ "$status" -eq 0 ]
-    grep -qx 'DIGEST_ENABLED=false' "$SMOKING_PI_ENV_FILE"
-    run "$CLI" alerts --openclaw --to telegram:1 --digest 08:30 --yes
-    [ "$status" -eq 0 ]
-    grep -qx 'NOTIFY_MODE=openclaw' "$SMOKING_PI_ENV_FILE"
-    grep -qx 'DIGEST_ENABLED=true' "$SMOKING_PI_ENV_FILE"
-    grep -qx 'DIGEST_AT=08:30' "$SMOKING_PI_ENV_FILE"
-    [[ "$output" != *"logged, not sent"* ]]
-}
-
-
-@test "alerts --digest takes 7:45 as 07:45; with --off both are said once each" {
-    alerts_setup
-    run "$CLI" alerts --digest 7:45
-    [ "$status" -eq 0 ]
-    grep -qx 'DIGEST_AT=07:45' "$SMOKING_PI_ENV_FILE"
-    run "$CLI" alerts --off --digest 08:30 --yes
+    run "$CLI" alerts --off --weekly sun 7:45 --yes
     [ "$status" -eq 0 ]
     grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
-    grep -qx 'DIGEST_AT=08:30' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'WEEKLY_AT=07:45' "$SMOKING_PI_ENV_FILE"
     [[ "$output" == *"logged, not delivered"* ]]
     [[ "$output" == *"logged, not sent"* ]]
 }

@@ -18,7 +18,8 @@ definitions:
 
 - **The alerter** (`shared/modules/alerter/`, [alerting.md](alerting.md)):
   rules evaluated every minute, delivered to Telegram through OpenClaw when
-  `NOTIFY_MODE` is not `off`, summarized in the daily digest.
+  `NOTIFY_MODE` is not `off`, summarized in the weekly summary when the
+  week had something worth telling.
 - **The assistant** (the OpenClaw skill over the MCP tools,
   [mcp-server.md](mcp-server.md)): `get_loss_events` and
   `get_microcut_stats` are what answer "how is my connection?", and each has
@@ -94,7 +95,7 @@ per target, plus a background counted as events.**
   without a recovery.
 
 **Assistant** (`get_loss_events`, and `common.aggregates.LOSS_EVENT_PCT`
-which the digest and the AI report use):
+which the AI report uses):
 
 - Default `min_loss_pct` 5 → 15: two or more lost pings, or any lost DNS
   query. The excluded single-ping points are returned as
@@ -218,8 +219,8 @@ cadence, `GAP_S` = 70), its duration first-to-last plus the window; it is
   windows) possible ones. Its message names the cut: *"1 cut of 2 min 40 s
   (6 windows, all at 100%)"*. The verdict's "first hop cutting" signal
   applies the same bar.
-- The digest's and the AI report's CPE summary (`common.aggregates`) carry
-  the same fields; the report template explains the floor before listing
+- The AI report's CPE summary (`common.aggregates`) carry
+  the fields; the report template explains the floor before listing
   cuts.
 - The OpenClaw skill's *Reading the numbers* describes cuts, possible cuts
   and the floor in those words.
@@ -423,8 +424,8 @@ those minutes listed in `against`.
 
 ### Diagnosis backlog
 
-1. The alerter's verdict (`alerter/verdict.py`) and the digest still
-   attribute on their own; move them onto `common.diagnosis` so an alert and
+1. The alerter's verdict (`alerter/verdict.py`) still attributes on its
+   own; move them onto `common.diagnosis` so an alert and
    the assistant's later answer cannot disagree.
 2. ~~The web-admin assistant does not have the tool yet.~~ It has
    `diagnose_loss` and `get_incident_history` since 2026-10-13, through

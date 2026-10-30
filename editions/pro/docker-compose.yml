@@ -549,16 +549,18 @@ services:
       # Gateway token = gateway.auth.token in ~/.openclaw/openclaw.json.
       # OPENCLAW_HOOK_TOKEN is accepted as a legacy alias.
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
-      # Daily digest (opt-in). A wall-clock summary so that silence on a
-      # good day is distinguishable from a monitor that stopped. See
-      # docs/alerting.md
-      - DIGEST_ENABLED=${DIGEST_ENABLED:-false}
-      - DIGEST_AT=${DIGEST_AT:-08:30}
+      # Weekly summary (opt-in), sent only when the week is news. See
+      # docs/alerting.md. DIGEST_TZ is the zone of every message.
+      - WEEKLY_ENABLED=${WEEKLY_ENABLED:-}
+      - WEEKLY_DAY=${WEEKLY_DAY:-mon}
+      - WEEKLY_AT=${WEEKLY_AT:-}
+      - WEEKLY_SILENT=${WEEKLY_SILENT:-true}
       - DIGEST_TZ=${DIGEST_TZ:-}
-      - DIGEST_WINDOW_HOURS=${DIGEST_WINDOW_HOURS:-24}
-      - DIGEST_MAX_LATENESS=${DIGEST_MAX_LATENESS:-14400}
-      - DIGEST_SILENT=${DIGEST_SILENT:-true}
-      - DIGEST_HISTORY_MAX=${DIGEST_HISTORY_MAX:-200}
+      # The retired daily digest's switch and time, read only to map an
+      # upgraded install onto the weekly (docs/upgrades.md). Empty defaults:
+      # unset must stay distinguishable from set.
+      - DIGEST_ENABLED=${DIGEST_ENABLED:-}
+      - DIGEST_AT=${DIGEST_AT:-}
       - QUIET_FROM=${QUIET_FROM:-}
       - QUIET_UNTIL=${QUIET_UNTIL:-}
       - ALERT_DEADMAN_URL=${ALERT_DEADMAN_URL:-}

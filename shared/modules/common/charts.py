@@ -1,4 +1,4 @@
-"""Render the charts: the one that ships with an alert or a digest, and the
+"""Render the charts: the one that ships with an alert, and the
 one a person asks for to share.
 
 Lives in ``common`` because two containers draw them: the alerter attaches a
@@ -535,93 +535,6 @@ def _render_series_chart(
         stamp.strftime("%a %d %b %Y · times %Z"),
         color=theme["MUTED"], fontsize=13,
     )
-    data = _save(fig, _env_int("CHART_MAX_BYTES", DEFAULT_MAX_BYTES))
-    plt.close(fig)
-    return data
-
-
-def render_digest_chart(payload: dict) -> bytes | None:
-    """Worst targets by mean loss, as a horizontal bar chart."""
-    try:
-        return _render_digest_chart(payload)
-    except Exception:  # noqa: BLE001
-        log.warning("Digest chart render failed; sending text only",
-                    exc_info=True)
-        return None
-
-
-def _render_digest_chart(payload: dict, threshold_pct: float | None = None):
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    if threshold_pct is None:
-        threshold_pct = definitions.high_loss_pct()
-
-    targets = [t for t in payload.get("targets", []) if t.get("target")]
-    targets.sort(key=lambda t: t.get("avg_loss_pct", 0.0), reverse=True)
-    top = targets[:8]
-    if not top:
-        return None
-    # A bar chart of zeros is worse than no chart; the caption says "all clear".
-    if all(t.get("avg_loss_pct", 0.0) <= 0.0 for t in top):
-        log.info("No digest chart: every target at 0%% loss")
-        return None
-
-    theme = _theme()
-    names = [t["target"] for t in top][::-1]
-    values = [float(t.get("avg_loss_pct", 0.0)) for t in top][::-1]
-    p95s = [t.get("p95_ms") for t in top][::-1]
-
-    fig, ax = plt.subplots(
-        figsize=(10, 0.55 * len(top) + 2.4), dpi=DPI, layout="constrained"
-    )
-    _style(fig, (ax,), theme)
-    ax.grid(axis="y", visible=False)
-
-    # ONE hue for every bar. Coloring each bar darker-where-bigger would
-    # double-encode bar length as hue on nominal categories, and a wall of
-    # saturated full-width blocks reads loud besides -- saturated fills belong
-    # on small marks and accents, not large blocks.
-    #
-    # Status still has to be visible, so it rides on the LABEL: over-threshold
-    # rows get a marker plus a status-colored value. That satisfies the status
-    # rule properly (icon + label, never color alone) and keeps discriminating
-    # when, as here, every target happens to be over the line.
-    # height < 1 leaves a surface gap between bars instead of a border.
-    ax.barh(names, values, color=theme["SERIES"], height=0.58, zorder=3)
-
-    span = max(values) or 1.0
-    for index, (value, p95) in enumerate(zip(values, p95s)):
-        over = value > threshold_pct
-        # Outside the bar end, so a short bar never clips its own label.
-        loss_label = f"{'▲ ' if over else ''}{value:.1f}%"
-        ax.annotate(
-            loss_label, (value, index), textcoords="offset points",
-            xytext=(6, 0), va="center", fontsize=15,
-            color=theme["STATUS"]["warning"] if over else theme["MUTED"],
-        )
-        # p95 latency is NOT the thing in status -- it wears the muted text
-        # token, so the status color keeps meaning "this loss is over the
-        # line" rather than bleeding onto an unrelated number.
-        if p95 is not None:
-            ax.annotate(
-                f"p95 {float(p95):.0f} ms", (value, index),
-                textcoords="offset points",
-                xytext=(14 + 9.5 * len(loss_label), 0),
-                va="center", fontsize=14, color=theme["MUTED"],
-            )
-    ax.set_xlim(0, span * 1.5)
-    ax.set_xlabel("mean loss (%)", color=theme["INK"], fontsize=16)
-    ax.set_title(
-        f"Worst targets — last {payload.get('window_hours', 24)}h",
-        color=theme["INK"], fontsize=20, fontweight="bold", loc="left", pad=10,
-    )
-    for label in ax.get_yticklabels():
-        label.set_color(theme["INK"])
-        label.set_fontsize(15)
-
     data = _save(fig, _env_int("CHART_MAX_BYTES", DEFAULT_MAX_BYTES))
     plt.close(fig)
     return data

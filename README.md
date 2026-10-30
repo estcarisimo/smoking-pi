@@ -144,7 +144,7 @@ Tools: `diagnose_loss` (what each loss episode was, with evidence and confidence
 sudo smoking-pi alerts --telegram --test     # or --openclaw, --webhook; see docs/alerting.md
 ```
 
-Rules: target down, high loss, CPE microcut bursts, exporter stale. Each alert leads with a verdict (*🌐 not you — 12 of 16 destinations affected but your local link is clean*), attaches the chart, and links home and from-anywhere. A daily digest makes a quiet day distinguishable from a dead monitor. Muting is done by asking the assistant, capped at 24 h, and read back to you. See [docs/alerting.md](docs/alerting.md).
+Rules: target down, high loss, CPE microcut bursts, exporter stale. Each alert leads with a verdict (*🌐 not you — 12 of 16 destinations affected but your local link is clean*), attaches the chart, and links home and from-anywhere. A weekly summary, sent only when the week had something worth telling, says what it added up to; a dead man's switch says when the monitor itself goes silent. Muting is done by asking the assistant, capped at 24 h, and read back to you. See [docs/alerting.md](docs/alerting.md).
 
 ### Remote Access
 
@@ -172,7 +172,7 @@ Everything is Compose, run by `smoking-pi`. Optional services are behind profile
 |---|---|---|
 | `influxdb` *(the default backend)* | InfluxDB 2.x + the RRD→Influx exporter | — |
 | `clickhouse` | ClickHouse + its exporter and dashboards (`-f docker-compose.clickhouse.yml`) | see [docs/clickhouse.md](docs/clickhouse.md) |
-| `alerts` | The alerting engine and daily digest | `smoking-pi alerts …` (where they go) |
+| `alerts` | The alerting engine and weekly summary | `smoking-pi alerts …` (where they go) |
 | `mcp` | MCP server on `127.0.0.1:8090` | `smoking-pi enable mcp`, then `connect` or `openclaw` |
 | `ai` | AI health reports | `smoking-pi config set ANTHROPIC_API_KEY`, `smoking-pi enable ai` |
 | `inference` | Experimental congestion and degradation detectors | `smoking-pi enable inference`; see [docs/inference.md](docs/inference.md) |
@@ -234,7 +234,7 @@ smoking-pi/
 │   │   ├── web-admin/         # Flask UI: targets, sources, countries, AI assistant
 │   │   ├── grafana/           # Custom image with provisioned dashboards
 │   │   ├── smokeping-exporters/  # RRD → InfluxDB / ClickHouse, CPE microcut detector, Wi-Fi link collector
-│   │   ├── alerter/           # Rules, verdict, charts, digest, delivery
+│   │   ├── alerter/           # Rules, verdict, charts, weekly summary, delivery
 │   │   ├── mcp-server/        # MCP tools over the config API and InfluxDB
 │   │   ├── ai-insights/       # Periodic AI health reports
 │   │   ├── dns-observer/      # AdGuard Home + the DNS wizard: what the house resolves
@@ -334,7 +334,7 @@ Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](ht
 | [AGENTS.md](AGENTS.md) | Guidance for AI coding agents working in this repo |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting, scope, and what this stack assumes about your network |
-| [docs/alerting.md](docs/alerting.md) | Rules, the verdict, charts, digest, muting, delivery, flap damping |
+| [docs/alerting.md](docs/alerting.md) | Rules, the verdict, charts, the weekly summary, muting, delivery, flap damping |
 | [docs/mcp-server.md](docs/mcp-server.md) | MCP tools, deep links, on-request charts |
 | [docs/openclaw-integration.md](docs/openclaw-integration.md) | Registering the MCP server and installing the skill for a chat assistant |
 | [docs/remote-openclaw.md](docs/remote-openclaw.md) | OpenClaw on another machine: SSH tunnel, Tailscale/WireGuard, or Cloudflare Access — ranked by exposure |

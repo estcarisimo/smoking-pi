@@ -137,7 +137,7 @@ The same change is said everywhere else, in the same words:
   this host's uplink moved from wlan0 to eth0 (wired) at 14:02, so the
   measurements before and after crossed different links."*
   ([The verdict](alerting.md#the-verdict-is-it-me-or-the-internet))
-- **The daily digest**, under *Local link*, and the AI report's prompt.
+- **The AI report's prompt.**
 - **The MCP server:** `system_status` has an `uplink` block with the last
   change within a week, and `get_loss_events` has `uplink_changes` when one
   falls in its window.
@@ -214,7 +214,7 @@ Every `links` object the MCP server and the alerter emit can carry
 `grafana_wifi_link`; `links.wifi_links(interface, hours, at)` builds a link
 into this dashboard zoomed to a moment.
 
-## Saying it: MCP, the verdict, the digest
+## Saying it: MCP, the verdict, the weekly summary
 
 - **`get_wifi_stats(hours, interface)`** (MCP) answers "how is the Wi-Fi?"
   from the record: the current association (`now`), the window's signal
@@ -233,9 +233,11 @@ into this dashboard zoomed to a moment.
   context line, which shows `wi-fi min −54 dBm` so the reader knows the hop
   was in view. A radio that is not the default route is reported, never
   acted on. Details and the precedence table: [alerting.md](alerting.md).
-- **The digest** carries a *Local link* line with median/min signal,
-  bitrate, disconnects and roams; the AI report's prompt gets the same
-  block. Wired hosts see neither.
+- **The weekly summary** counts the time the Pi's own Wi-Fi heard nothing
+  against the monitor's availability, never as the network's episode, and
+  says what the watchdog did about it. The AI report's prompt carries the
+  median/min signal, bitrate, disconnects and roams; wired hosts see none
+  of it.
 
 ## Writing queries against it
 

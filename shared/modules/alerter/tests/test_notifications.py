@@ -4,7 +4,6 @@ import json
 
 import pytest
 
-import digest
 import notifications
 import main
 import outbox
@@ -171,7 +170,6 @@ def test_deliver_records_what_was_sent_with_its_text_and_message_id(notified):
     assert entry["transport"] == "telegram"
     # What is sent and the old history are unchanged.
     assert payload["delivery"] == "sent"
-    assert current["history"][-1]["delivery"] == "sent"
 
 
 def test_a_failed_send_is_recorded_and_the_summary_that_carries_it_is_named(
@@ -242,51 +240,6 @@ def test_quiet_hours_held_then_the_bundle_names_what_it_carried(notified, monkey
         if entry["kind"] != "quiet_bundle":
             assert entry["delivered_in"] == bundle["id"]
             assert entry["delivered_at"] == morning
-
-
-def test_the_digest_is_recorded(monkeypatch, notified):
-    monkeypatch.setenv("DIGEST_ENABLED", "true")
-    monkeypatch.setenv("DIGEST_AT", "08:30")
-    monkeypatch.setenv("ALERT_CHARTS", "false")
-    monkeypatch.setattr(digest.aggregates, "collect", lambda hours=24: {
-        "targets": [{"target": "A", "avg_loss_pct": 5.0, "median_ms": 1,
-                     "p95_ms": 2}], "cpe": [], "incidents": None})
-    at = DAY + 8.5 * 3600 + 60
-    assert digest.check({"incidents": {}}, now=at) is True
-    [entry] = _entries()
-    assert entry["kind"] == "digest" and entry["outcome"] == "sent"
-    assert entry["targets"] == ["A"]
-
-
-def test_the_digest_counts_from_the_ledger_as_it_did_from_history(notified):
-    """Same notifications, same window: the same numbers either way."""
-    now = DAY + 8.5 * 3600
-    from_ledger = {"incidents": {}}
-    for at, payload in [(now - 3600, _alert(key="a")), (now - 1800, _alert(key="b")),
-                        (now - 900, _alert(key="a", type="recovery")),
-                        (now - 40 * 3600, _alert(key="old"))]:
-        main._deliver(from_ledger, payload, now=at)
-    legacy = {"history": from_ledger["history"]}
-    fired_ledger = digest._history_since(from_ledger, now - 24 * 3600, now)
-    # With no ledger, state["history"] alone.
-    ledger_path = notifications.ledger_file()
-    import os
-    os.unlink(ledger_path)
-    fired_state = digest._history_since(legacy, now - 24 * 3600, now)
-    strip = [{k: e[k] for k in ("ts", "key", "type", "delivery")}
-             for e in fired_ledger]
-    assert strip == [{k: e[k] for k in ("ts", "key", "type", "delivery")}
-                     for e in fired_state]
-    assert [e["type"] for e in fired_ledger] == ["alert", "alert", "recovery"]
-
-
-def test_before_the_ledger_begins_the_old_history_fills_in(notified):
-    now = DAY + 8.5 * 3600
-    state = {"incidents": {}, "history": [
-        {"ts": now - 7200, "key": "pre", "type": "alert", "delivery": "sent"}]}
-    main._deliver(state, _alert(key="post"), now=now - 600)
-    fired = digest._history_since(state, now - 24 * 3600, now)
-    assert [e["key"] for e in fired] == ["pre", "post"]
 
 
 # --- show: what `smoking-pi alerts history` prints --------------------------------
@@ -396,17 +349,6 @@ def test_compaction_also_bounds_the_size(monkeypatch):
     assert keys and keys[-1] == "k19"
 
 
-def test_the_digest_still_counts_an_alert_the_ledger_could_not_write(
-        notified, monkeypatch):
-    now = DAY + 8.5 * 3600
-    state = {"incidents": {}}
-    main._deliver(state, _alert(key="a"), now=now - 3600)
-    monkeypatch.setattr(notifications, "_append", lambda line: False)  # a full card
-    main._deliver(state, _alert(key="b"), now=now - 1800)
-    fired = digest._history_since(state, now - 24 * 3600, now)
-    assert [e["key"] for e in fired] == ["a", "b"]
-
-
 def test_a_new_ledger_file_is_readable_by_the_web_admin():
     import os
     import stat
@@ -426,7 +368,7 @@ def _incident(**extra):
             **extra}
 
 
-def test_a_duplicate_is_recorded_as_skipped_and_not_counted_by_the_digest(notified):
+def test_a_duplicate_is_recorded_as_skipped(notified):
     current = {"incidents": {}}
     main._deliver(current, _incident(), now=NOON)
     main._deliver(current, _incident(), now=NOON + 60)  # the same alert again
@@ -435,8 +377,6 @@ def test_a_duplicate_is_recorded_as_skipped_and_not_counted_by_the_digest(notifi
     assert first["outcome"] == "sent"
     assert second["outcome"] == "skipped-duplicate"
     assert second["key"] == first["key"]
-    fired = digest._history_since(current, NOON - 3600, NOON + 120)
-    assert [e["delivery"] for e in fired] == ["sent"]
 
 
 def test_handed_to_the_gateway_is_its_own_outcome(monkeypatch):

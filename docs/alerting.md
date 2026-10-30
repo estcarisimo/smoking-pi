@@ -30,10 +30,10 @@ The service runs with `network_mode: host`, so it reaches InfluxDB on
 | `outage` | warning | A run of probe cycles in which most targets lost at least `WIDESPREAD_LOSS_PCT` at once — a brief cut of the link that had ended by the time it was seen. ONE incident per run, keyed by its first cycle — and by the first cycle of the outage it continues once that has slid out of the window, so a long one is still one incident; *transient*: it leaves the window on its own and no recovery notice follows. The tail of an `uplink_down` (lost cycles still in the window after the uplink returned) is not an outage: it suppresses the per-target incidents and is never sent | `WIDESPREAD_PCT` (80 %), `WIDESPREAD_LOSS_PCT` (30 %) |
 | `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points. Not sent while anything widespread is active | `DOWN_WINDOW` (1200 s) |
 | `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold **and** the loss persisted: at least `HIGH_LOSS_MIN_POINTS` probe cycles that lost two or more pings (see [Probe cadence](#probe-cadence)) within the same 15 minutes the mean covers. Targets already down are excluded; not sent while anything widespread is active | `HIGH_LOSS_PCT` (20 %), `HIGH_LOSS_MIN_POINTS` (2) |
-| `microcut_burst` | warning | Per target+protocol in `cpe_latency`, over the last 60 min: a **confirmed cut** — a run of two or more consecutive 10 s windows above `MICROCUT_LOSS_PCT`, or one window at 100% — or `MICROCUT_BURST_N` **possible cuts** (isolated single windows at 51–99%). The message names the cut and its duration (*"1 cut of 2 min 40 s (6 windows, all at 100%)"*). Definitions in `common/microcuts.py`, shared with the MCP tool, the digest and the AI report | `MICROCUT_BURST_N` (3), `MICROCUT_LOSS_PCT` (50 %) |
+| `microcut_burst` | warning | Per target+protocol in `cpe_latency`, over the last 60 min: a **confirmed cut** — a run of two or more consecutive 10 s windows above `MICROCUT_LOSS_PCT`, or one window at 100% — or `MICROCUT_BURST_N` **possible cuts** (isolated single windows at 51–99%). The message names the cut and its duration (*"1 cut of 2 min 40 s (6 windows, all at 100%)"*). Definitions in `common/microcuts.py`, shared with the MCP tool, the weekly summary and the AI report | `MICROCUT_BURST_N` (3), `MICROCUT_LOSS_PCT` (50 %) |
 | `exporter_stale` | critical | Zero `latency` points written in the last window (global — the RRD exporter is probably stalled). Not while the bucket holds no latency point at all: a new install has none before its first step, and has not stalled. An incident already open stays open | `STALE_WINDOW` (1200 s) |
 | `measurement_stale` | warning | One of the other writers stopped: no `dns_latency`, `http_latency`, `tcp_latency`, `cpe_latency` (gateway microcut probe) or `wifi_link` point in the window (or in four of that measurement's own steps, when longer), though it wrote within the last 24 hours. A host that never had one (wired: no `wifi_link`) is not expected to. Not while `exporter_stale` is open: that is one stall, one message. A writer silent for more than 24 hours is taken as removed on purpose (an Ethernet uplink, a disabled probe) and the incident is retired without a recovery; mute it to stop it sooner. Without it, a stopped microcut probe or Wi-Fi exporter silently took the evidence the verdict and diagnosis read | `STALE_WINDOW` (1200 s) |
-| `influx_unreadable` | critical | The alerter could not read InfluxDB for five minutes: no rule ran, so the absence of alerts means nothing. Every other open incident is held as it was (neither recovered nor re-sent, its grace period restarted) until the database answers again; it counts as readable after three good cycles in a row, so a database failing every other cycle still alerts. For one stale window after that, a new `exporter_stale` or `measurement_stale` is not raised: the writers could not write meanwhile. The digest, the AI reports and the incident history are skipped while blind (each reads InfluxDB). Before, each failed cycle only went to the log | — |
+| `influx_unreadable` | critical | The alerter could not read InfluxDB for five minutes: no rule ran, so the absence of alerts means nothing. Every other open incident is held as it was (neither recovered nor re-sent, its grace period restarted) until the database answers again; it counts as readable after three good cycles in a row, so a database failing every other cycle still alerts. For one stale window after that, a new `exporter_stale` or `measurement_stale` is not raised: the writers could not write meanwhile. The weekly summary, the AI reports and the incident history are skipped while blind (each reads InfluxDB). Before, each failed cycle only went to the log | — |
 | `evaluation_failed` | critical | The same blindness from a bug in the alerter's own rules rather than the database (any exception that is not a connection or InfluxDB client error): no rule ran. Held and counted as `influx_unreadable` is; the traceback is in the alerter's log | — |
 | `watchdog` | info / warning | What `smoking-pi watchdog` did on the host, read from `watchdog_event` in InfluxDB: a driver reload, a reboot, a SmokePing restart, the network back (info); an action it could not take or a SmokePing crash loop (warning). Each event once, never a recovery; the first look after an upgrade skips older ones. See [watchdog.md](watchdog.md) | — |
 | `ipv6_down` | warning | Every IPv6 target (name ends in `6`, or an `fping6`-ish category) at 100% loss for 15 min while at least one IPv4 target is healthy; emits ONE aggregate incident | — |
@@ -201,8 +201,8 @@ Sends straight to the Telegram Bot API with your own bot, no gateway in
 between: `sendMessage`, or `sendPhoto` with the message as the caption when
 there is a chart (`sendDocument` with `ALERT_IMAGE_AS_DOCUMENT=true`). The
 text is the same Telegram HTML the OpenClaw path sends. Link previews are
-off, because the links point at this house's Grafana. A digest is sent
-silently.
+off, because the links point at this house's Grafana. The weekly summary
+is sent silently.
 
 ```env
 NOTIFY_MODE=telegram
@@ -323,7 +323,7 @@ POSTs JSON to `ALERT_WEBHOOK_URL`, optionally with
 }
 ```
 
-`type` is `alert`, `recovery`, `report`, `digest`, or `undelivered` (see
+`type` is `alert`, `recovery`, `report`, `weekly`, `held`, or `undelivered` (see
 below).
 
 Delivery (both HTTP modes): 10 s timeout. The webhook gets 3 attempts with
@@ -354,9 +354,9 @@ outbox, not dropped. While anything waits there:
 
 The outbox holds at most 100 notifications (the oldest go first, and the
 summary counts them). `list_alert_state` shows what is waiting
-(`undelivered`), and the history the digest reads records each
-notification's `delivery`: `sent`, `queued` (in the outbox), `handed` (to the
-OpenClaw gateway) or `held`.
+(`undelivered`), and each notification's payload carries its
+`delivery`: `sent`, `queued` (in the outbox), `handed` (to the OpenClaw
+gateway) or `held`.
 
 Before, a failed alert waited for the next hourly cooldown, a failed
 `outage` was never retried, and a failed recovery was lost. During the
@@ -398,20 +398,20 @@ sent again by the outbox a minute later, as it was.
 
 ### Times in messages
 
-Every time the alerter prints is in one zone, the digest's: `DIGEST_TZ`,
-which `smoking-pi alerts --digest 08:30 --digest-tz America/Chicago` sets, falling back
-to `TZ` and then UTC exactly as the digest's schedule and quiet hours do.
+Every time the alerter prints is in one zone: `DIGEST_TZ`, which
+`smoking-pi alerts --digest-tz America/Chicago` sets, falling back to `TZ`
+and then UTC exactly as the weekly summary's schedule and quiet hours do.
 That covers alerts and recoveries, the "not delivered" summary, the
-quiet-hours message, the watchdog's actions and the digest. A time today
-reads `20:40`; any other day carries its date, `28 Oct 20:40` (the digest
-keeps its weekday: `Wed 28 Oct 20:40`). When `DIGEST_TZ` is unset or not a
-zone, the zone in use is named after the time (`01:40 UTC`), since nobody
-chose it; an unknown name is logged once. No time is read from the
-process's local zone, and what is stored (the state file, InfluxDB) stays
-in UTC.
+quiet-hours message, the watchdog's actions and the weekly summary. A time
+today reads `20:40`; any other day carries its date, `28 Oct 20:40` (the
+weekly summary adds the weekday: `Wed 28 Oct 20:40`). When `DIGEST_TZ` is
+unset or not a zone, the zone in use is named after the time (`01:40 UTC`),
+since nobody chose it; an unknown name is logged once. No time is read from
+the process's local zone, and what is stored (the state file, InfluxDB)
+stays in UTC.
 
 ```bash
-sudo smoking-pi alerts --digest 08:30 --digest-tz America/Chicago
+sudo smoking-pi alerts --digest-tz America/Chicago
 ```
 
 ### Quiet hours
@@ -421,7 +421,7 @@ microcuts, recoveries and the watchdog's actions are held instead of sent.
 When quiet hours end, everything held goes out as **one message**, type
 `held`, without a notification sound: what is open now, then each
 incident once, when it started and whether it recovered. It is the
-outbox's summary, with times in the digest's zone like every other message
+outbox's summary, with times in `DIGEST_TZ` like every other message
 (see [Times in messages](#times-in-messages)).
 
 Never held, because they are worth waking up for or because without them
@@ -440,12 +440,12 @@ sudo smoking-pi alerts --quiet 23:00-07:00
 sudo smoking-pi alerts --quiet off
 ```
 
-The times are in the digest's zone (`DIGEST_TZ`, then `TZ`, then UTC), and
+The times are in `DIGEST_TZ` (then `TZ`, then UTC), the zone of every message, and
 a span may cross midnight. Both are checked before anything is written.
 Quiet hours are off while either value is empty or unreadable; the alerter
 logs a warning and sends everything as it happens. Turning them off sends
-what was held on the next cycle. The history the digest reads records a
-held notification's `delivery` as `held`, and MCP `list_alert_state` shows
+what was held on the next cycle. A held notification's `delivery` is
+`held`, and MCP `list_alert_state` shows
 what is waiting (`held`: how many, since when, until when, which
 incidents), so an assistant asked at 4 a.m. does not answer "all quiet".
 A crash between sending the summary and saving the state sends it again
@@ -544,7 +544,7 @@ missing reports directory is skipped quietly.
 | `REPORT_DELIVERY_INTERVAL` | `86400` | Min seconds between report deliveries |
 | `REPORT_MAX_CHARS` | `3500` | Truncation limit for a delivered report, **including** the header — it bounds the whole message, since that is what the channel budget applies to |
 | `ALERT_MARKUP` | `html` | `html` (Telegram's parse mode) or `plain` |
-| `ALERT_CHARTS` | `true` | Attach a PNG chart to incident alerts and the digest. Charts are optional: `false` sends text only. The chart is never allowed to cost the alert — a render failure falls back to text |
+| `ALERT_CHARTS` | `true` | Attach a PNG chart to incident alerts. Charts are optional: `false` sends text only. The chart is never allowed to cost the alert — a render failure falls back to text |
 | `CHART_HOURS` | `6` | Window an incident chart covers |
 | `CHART_THEME` | `light` | `light` or `dark`. A static image cannot follow the reader's theme, so one is chosen. Light is a paper-style figure: white, large type, sized to stay legible on a phone |
 | `CHART_MAX_BYTES` | `700000` | Cap before a chart is dropped rather than shrunk further (must stay inside the gateway's 2 MB invoke body once base64-encoded) |
@@ -726,7 +726,7 @@ notification the alerter decides on is one entry in a ledger, kept 30 days.
 - **What an entry holds.** An `id`; the incident or alert `key`; the
   `kind` (`alert`, `recovery`, `monitor` — the alerter blind or the
   measurements stopped —, `watchdog`, `outbox_summary`, `quiet_bundle`,
-  `digest`, `report`); the `rule`, `severity` and the `targets` it named; the
+  `weekly`, `report`; `digest` on entries from before the weekly replaced it); the `rule`, `severity` and the `targets` it named; the
   `text` exactly as handed to the transport (with its markup: HTML unless
   `ALERT_MARKUP` says otherwise; one that was held or queued, as it would
   have read); the `outcome` — `sent`, `handed` (the OpenClaw gateway has
@@ -752,8 +752,7 @@ notification the alerter decides on is one entry in a ledger, kept 30 days.
   entries and 6 MB.
 - **Who reads it.** You, with `smoking-pi alerts history` (below);
   assistants, through the `get_notification_history` MCP tool and the web
-  admin's chat; the digest's "alerts fired" count (until the ledger is 48
-  hours old, `state["history"]` fills in what came before it).
+  admin's chat.
 
 Recording never changes what is sent or when, and a ledger that cannot be
 written costs nothing but its own warning in the log.
@@ -763,122 +762,163 @@ smoking-pi alerts history
 ```
 
 One line per notification of the last seven days, oldest first: the time
-in the digest's zone (`DIGEST_TZ`, then `TZ`), the kind, the outcome
+in `DIGEST_TZ` (then `TZ`), the kind, the outcome
 (`queued→sent` or `held→sent` when a later summary carried it; plain
 `sent` for one the outbox resent as it was) and its first line.
 `--days N` (1 to 30), `--kind KIND` and `--json` (every field) narrow or
 widen it. The alerter reads its own ledger, so it must be running.
 
-## The daily digest
+## The weekly summary
 
-Alerts only fire when something breaks, so on a good day the channel is
-silent — and silence has two meanings: nothing happened, or the monitoring
-stopped. The digest resolves that on a schedule.
+Once a week the alerter says what the week added up to, and only when it
+is news. It replaces the daily digest, which in October 2026 on the
+reference Pi arrived 16 times in 16 days: 10 said "all clear" with only the
+Wi-Fi's signal changed, 5 repeated what alerts had already pushed, and 1
+carried a new fact (a one-minute cut of the Pi itself). That the monitor is
+alive is the [dead man's switch](#when-this-host-goes-silent-the-dead-mans-switch)'s
+job, every five minutes; a message every morning to prove it trained its
+reader to skip it.
 
 Off by default. It needs `NOTIFY_MODE` set to deliver anywhere. The short
 way (Pro):
 
 ```bash
-sudo smoking-pi alerts --digest 08:30 --digest-tz Europe/London
-sudo smoking-pi alerts --digest off
+sudo smoking-pi alerts --weekly mon 08:00 --digest-tz America/Chicago
+sudo smoking-pi alerts --no-weekly
+sudo smoking-pi alerts status
 ```
 
-It checks the time and the zone before writing anything (a value the
-alerter can't read would disable the digest), recreates the alerter, and
-says so when `NOTIFY_MODE` is off and the digest would only be logged. It
-also works together with a delivery mode, for example `--openclaw --to
-telegram:<id> --digest 08:30`.
+`--weekly` takes a day (`mon` to `sun`, or the full name) and a 24-hour
+time; it checks both, and the zone, before writing anything, recreates the
+alerter, and says so when `NOTIFY_MODE` is off and the summary would only
+be logged. It also works together with a delivery mode, for example
+`--openclaw --to telegram:<id> --weekly mon 08:00`. `alerts status` shows
+where alerts go, when the weekly goes, quiet hours and the dead man's
+switch.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DIGEST_ENABLED` | `false` | Opt in |
-| `DIGEST_AT` | `08:30` | Wall-clock `HH:MM`; anything else disables with a warning |
-| `DIGEST_TZ` | *(unset)* | Zone for `DIGEST_AT`, quiet hours and every time a message prints; falls back to `TZ`, then UTC |
-| `DIGEST_WINDOW_HOURS` | `24` | How far back it summarizes |
-| `DIGEST_MAX_LATENESS` | `14400` | Seconds a missed slot may still be delivered |
-| `DIGEST_SILENT` | `true` | Deliver without a notification sound |
-| `DIGEST_HISTORY_MAX` | `200` | Cap on the retained notification history |
+| `WEEKLY_ENABLED` | `false` | Opt in |
+| `WEEKLY_DAY` | `mon` | `mon` … `sun` |
+| `WEEKLY_AT` | `08:00` | Wall-clock `HH:MM` in `DIGEST_TZ`; anything else disables it with a warning |
+| `DIGEST_TZ` | *(unset)* | The zone of the schedule, of quiet hours and of every time a message prints; falls back to `TZ`, then UTC |
+| `WEEKLY_SILENT` | `true` | Deliver without a notification sound |
+| `DIGEST_ENABLED`, `DIGEST_AT` | *(unset)* | The retired daily digest's, read only to map an upgraded install: `DIGEST_ENABLED=true` with no `WEEKLY_ENABLED` turns the weekly on, at `DIGEST_AT` when `WEEKLY_AT` is unset ([Upgrades](upgrades.md#settings-retired-or-renamed)) |
 
-The digest names the window's incidents as the alerts and the assistants
-name them (the shared diagnosis, `common/diagnosis.py`, the one behind
-`diagnose_loss`): the line between the house and the ISP, one destination,
-this host's own Wi-Fi. A day's mean loss alone hid a ten-minute cut of the
-line ("all clear") and blamed two dozen destinations for five hours the
-monitor's radio heard nothing. Minutes in which the monitor itself could not
-measure (its own Wi-Fi or DNS) are said as such, and that share of the
-window is put down to the monitor before a target is lit red: 5 h 40 min of
-a deaf radio accounts for ~24 % of a day's loss everywhere, five minutes for
-0.3 %, never for a destination lost all day. When the diagnosis
-cannot be read, the digest says so rather than reporting no incidents. The
-targets listed are the pinged and DNS ones, without the ISP gateway (the
-first hop is evidence about the line, not a destination). The Wi-Fi line is
-weak by the same rule as the verdict: `WIFI_WEAK_SAMPLES` readings under
-`WIFI_WEAK_DBM`, not one dip of the minimum.
+### The week
 
-When any target lost packets in the window, the digest carries a chart of
-the worst ones: mean loss as bars, one color for all of them, with the value
-and the p95 latency next to each. A target whose mean loss is over
-`HIGH_LOSS_PCT` (20) is marked with ▲ and its value in orange (warning), so
-the color never carries the meaning alone. On a day with no loss there is no chart; the text says all
-clear.
+The week is the seven calendar days before 00:00 of the slot's day, in
+`DIGEST_TZ`: on Monday 08:00, Monday 00:00 to Monday 00:00. It is compared
+with the seven days before it. A week across a DST change is 167 or 169
+hours, as the calendar says.
 
-![The daily digest chart: the worst targets by mean loss, one of them marked over the threshold](img/chart-digest.png)
+### What it says
+
+In this order, in plain words (the Pi's Wi-Fi, your line, your provider,
+individual destinations), never a rule name, never an internal target
+name in the headline, every time in `DIGEST_TZ`, text only:
+
+1. **One line: a good, mixed or bad week** against the one before, by
+   cause, then the week's material episodes, the longest three: when, how
+   long, how many destinations, how much loss. Smaller episodes are
+   counted, not listed: they stay in the [incident history](#incident-history).
+2. **Recurring windows**: hours of the day in which loss or slowdowns the
+   destinations shared came back on at least 3 days of the week
+   (`RECURRING_MIN_DAYS`), from the inference's shared periods
+   (`shared_degradation`, `shared_congestion`; none when the `inference`
+   profile is off) and the incident history's broad episodes, and whether the week before
+   had them too. A window of the week before that did not come back is
+   said once.
+3. **The monitor**: the share of the week it could measure (a 5-minute bin
+   with no point at all, or a span in which its own Wi-Fi or DNS heard
+   nothing, is not measured), what the watchdog did (driver reloads,
+   reboots, SmokePing restarts) and how many upgrades ran.
+4. **Destinations**: at most three with loss of their own, outside the
+   monitor's deaf spans, the upgrades and the watchdog's actions
+   (`avg_loss_pct_measurable`), only at or above 5 %, by their service
+   label (`smoking-pi taxonomy`) when they have one.
+5. **One link**: the Connection quality dashboard over exactly that week,
+   when [links](#the-links-row) are configured.
+
+A week with one cut of the line, the Wi-Fi driver reloaded once, and
+Netflix lossy on its own (`ALERT_MARKUP=plain`; in Telegram the section
+titles are bold and the last line is a link reading *the week in
+Grafana*):
+
+```text
+🔴 Bad week, 26 Oct – 1 Nov: your line worse (31 min; the week before: none).
+
+What happened
+🟡 Wed 28 Oct 20:40, 31 min: your line — 18 of 30 destinations, 25 % loss.
+
+The monitor
+🟢 It measured 100.0 % of the week.
+🟡 The watchdog reloaded the Wi-Fi driver once.
+
+Destinations
+🟡 Netflix: 7.2 % loss of its own.
+http://192.168.1.10:3000/d/connectivity-quality-v1?from=1792990800000&to=1793599200000
+```
+
+### When it is not sent
+
+**A week with nothing material sends nothing**: no material episode, no
+recurring window this week or the week before, and the monitor measured at
+least 99 % of it. The alerter logs one line and records the skipped slot in
+its state (`weekly.last_skipped`):
+
+```text
+INFO alerter.weekly: Weekly for 26 Oct – 1 Nov not sent: no material episode, no recurring window, the monitor measured 100.0 % of the week
+```
+
+**Material** is defined once, in `common/definitions.py` (`MATERIAL_*`),
+for every reader:
+
+| What | Bar |
+|---|---|
+| Breadth | ≥ 30 % of the reporting destinations, or destinations in ≥ 2 categories; never with fewer than 3 reporting |
+| Duration | ≥ 15 min (three 5-minute cycles), counted outside the monitor's deaf spans, the upgrades and the watchdog's actions |
+| Size | mean loss ≥ 5 % over the episode's destinations, or, for a slowdown, median latency ≥ 2× the same hours a week before |
+| The monitor | measured < 99 % of the week |
+
+An episode of the Pi's own Wi-Fi or DNS (`local_wifi`, `monitor`) is never
+the network's: it counts against the monitor's availability instead.
+
+**It never claims a quiet week it did not verify.** When the incident
+history, the availability, the destinations' categories or the inference's
+periods cannot be read, nothing is sent and nothing is recorded as skipped:
+it tries again 30 minutes later, three times, and only then retires the
+slot with `last_error`. With the `inference` profile off its periods are
+simply empty, which is not a failure. "Nothing to
+report" when the truth is "InfluxDB did not answer" would turn a broken
+monitor into a reassuring silence; the dead man's switch reports a monitor
+that stopped.
 
 ### Fires once, however the clock behaves
 
 The loop wakes every `ALERT_INTERVAL` seconds and has no idea what time it
 is between ticks, which is where double-sends live. Each tick resolves the
-most recent scheduled instant at or before now — the **slot** — and state
-records which slot last fired. Firing is idempotent on that: ten ticks in the
-same minute resolve the same slot and do nothing.
+most recent scheduled instant at or before now — the **slot**, one a week
+on `WEEKLY_DAY` — and state records which slot last fired. Firing is
+idempotent on that: ten ticks in the same minute resolve the same slot and
+do nothing.
 
-**The slot is persisted, not the send time.** That is the whole mechanism.
-Anything recorded *before* the slot instant — which is what a send-time-like
-value becomes after an NTP correction backwards, or on a container whose RTC
-starts behind — re-fires the same day. A test pins this by reintroduction.
+**The slot is persisted, not the send time.** Anything recorded *before*
+the slot instant — which is what a send-time-like value becomes after an
+NTP correction backwards, or on a Pi with no RTC — would re-fire it.
 
-Past `DIGEST_MAX_LATENESS` the slot is recorded as fired **without sending**.
-A Pi that was off for two days must not deliver 08:30's digest at 19:00, and
-must not deliver two. Both DST transitions are covered by tests: a
-nonexistent wall time resolves to one stable instant, and an ambiguous one
-picks the same instant every tick.
+A late slot still goes out the same day: a Pi that was off on Monday
+morning sends the summary when it is back. A slot more than a day old is
+recorded as fired **without sending**. Both DST transitions are covered by
+tests. At most 3 tries per slot (reading the week, then delivering it), 30
+minutes apart, then it waits for the next week.
 
-Rate limiting is structural rather than a parallel budget — one slot per day,
-idempotent on the persisted slot, at most 3 delivery attempts before the slot
-is retired. There is nothing to tune.
-
-### It never claims health it did not verify
-
-If the aggregate query raises, or returns zero targets, **nothing is sent**
-and the slot is retired with `last_error`. Reporting "all clear" when the
-truth is "InfluxDB did not answer" would convert a broken monitor into a
-reassuring message — precisely the failure the digest exists to catch.
-
-### What it says
-
-The same shape as everything else: traffic lights, bold sections, worst
-targets first, capped at five. Counts come from the
-[notification ledger](#the-notification-ledger-what-it-told-you), every
-alert or recovery the alerter decided to send — regardless of whether
-delivery then succeeded — bounded as `state["history"]` was (the last
-`DIGEST_HISTORY_MAX` of 48 hours), which still fills in for the time before
-the ledger begins. Necessary because `reconcile()` pops a record on
-recovery, so by 08:30 an incident that fired and cleared at 03:00 has left
-no other trace.
-
-On a host whose uplink is Wi-Fi, a *Local link* section carries one line —
-`📶 Wi-Fi Supersonic ch36 — −52 dBm median, −71 dBm min, 433 Mb/s, 1
-disconnect.` — green, yellow (any drop, or a minimum below −75 dBm) or red
-(three or more drops). A wired host has no such section. The AI report's
-prompt carries the same block.
-
-On a day the uplink changed, the *Local link* section also lists the
-changes (the newest three), e.g. `🟡 This host's uplink moved from wlan0 to
-eth0 (wired) at 14:02.`, on a wired host too. The AI report's prompt lists
-every change in the window.
-
-With the `ai` profile enabled, `reports_watcher` also delivers LLM-written
-reports. Both paths then run; they are independent.
+The episodes come from the [incident history](#incident-history), which
+the alerter writes every half hour: with `INCIDENT_HISTORY_HOURS=0` the
+weekly sees no episode at all, only the monitor's availability and the
+inference's windows. Recurring windows count only episodes the destinations
+shared (the breadth bar); one flaky site at the same hour every evening is
+that site's, in *Destinations*.
 
 ## Message rendering
 
@@ -979,7 +1019,7 @@ pytest -q
 ## Muting alerts without losing them
 
 Mutes suppress the *sending* of a notification. Incidents are still evaluated,
-still recorded, still counted, and still shown in the digest — the only thing
+still recorded, still counted, and still shown by `list_alert_state` — the only thing
 that changes is whether a phone buzzes.
 
 Control is natural language onto MCP tools rather than buttons on a message:
@@ -1017,9 +1057,10 @@ So every mitigation lives here rather than being left to operator discipline:
 
 - **24-hour cap** (`mutes.MAX_HOURS`). A longer request is clamped, not
   rejected, and the response says what it actually granted.
-- **Every digest lists active mutes** and how many alerts each has swallowed
-  (`muted_suppressed_count`) — the number that reveals a mute set two days ago
-  and forgotten.
+- **`list_alert_state` lists active mutes** and how many alerts each has
+  swallowed (`muted_suppressed_count`). The daily digest listed them every
+  morning; with the weekly, the 24-hour cap is what keeps a forgotten mute
+  from lasting.
 - **Recoveries are never muted for an incident that was already announced.**
   If you were told something broke, you get told when it is fixed.
 - **An incident muted from first sight produces no recovery either**, because
@@ -1087,7 +1128,7 @@ one lost DNS query of five cleared it. It is 1.5 and not 2 because the RRD
 spreads each cycle's lost pings over two aligned steps, so loss values are
 not whole pings: on the reference Pi, seven days held values at every
 percent from 1 to 13. Persistence for `high_loss`, the `outage` floor and
-the loss events that `get_loss_events`, the digest and the AI report count
+the loss events that `get_loss_events`, the weekly summary and the AI report count
 all use this rule (`common.cadence.EVENT_LOST_PINGS`). The `high_loss` mean
 threshold (`HIGH_LOSS_PCT`) stays a percent: it is an average, not a count.
 

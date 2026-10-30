@@ -451,7 +451,7 @@ smoking-pi dns adopt --retire-only
 ```
 
 **Kept apart from the rest.** Many CDNs do not answer ICMP, so their ICMP
-targets would read as "down". The alerter, the daily digest and the
+targets would read as "down". The alerter, the weekly summary and the
 assistant leave the `dns_wizard` category out, and so do the target pickers
 of the other dashboards. The DNS Wizard dashboard shows them:
 

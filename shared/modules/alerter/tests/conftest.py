@@ -80,6 +80,13 @@ SCRUB_ENV_VARS = [
     "TZ",
     # A real URL here would make the suite check in with a real service.
     "ALERT_DEADMAN_URL",
+    # The weekly summary, and the retired digest's settings it maps.
+    "WEEKLY_ENABLED",
+    "WEEKLY_DAY",
+    "WEEKLY_AT",
+    "WEEKLY_SILENT",
+    "DIGEST_ENABLED",
+    "DIGEST_AT",
 ]
 
 
