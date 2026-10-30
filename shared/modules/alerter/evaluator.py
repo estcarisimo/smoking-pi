@@ -17,8 +17,8 @@ import logging
 import os
 import time
 from collections.abc import Collection
-from datetime import datetime, timezone
 
+import clock
 import flux
 from common import aggregates, breadth, cadence, definitions, microcuts
 
@@ -374,7 +374,7 @@ def rule_measurement_stale(
             "key": key,
             "target": None,
             "message": (
-                f"no {name} points written since {_hhmm(int(since))} — "
+                f"no {name} points written since {_hhmm(int(since), now)} — "
                 f"{_LIVENESS_WRITER[name]} appears stalled, so what it "
                 "measures is not being watched. If it was removed on purpose "
                 "(a wired uplink, a disabled probe), this stops on its own "
@@ -653,8 +653,8 @@ def rule_exporter_stale(
     ]
 
 
-def _hhmm(step: int) -> str:
-    return datetime.fromtimestamp(step, tz=timezone.utc).strftime("%H:%M UTC")
+def _hhmm(step: int, now: float | None = None) -> str:
+    return clock.at(step, now)
 
 
 def _breadth(targets: set[str], total: int) -> dict:

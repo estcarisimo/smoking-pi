@@ -360,6 +360,24 @@ nothing afterwards said what had happened.
 One limit remains: the state file is written once per cycle, after the
 sends. A crash between a send and that write sends it again on restart.
 
+### Times in messages
+
+Every time the alerter prints is in one zone, the digest's: `DIGEST_TZ`,
+which `smoking-pi alerts --digest 08:30 --digest-tz America/Chicago` sets, falling back
+to `TZ` and then UTC exactly as the digest's schedule and quiet hours do.
+That covers alerts and recoveries, the "not delivered" summary, the
+quiet-hours message, the watchdog's actions and the digest. A time today
+reads `20:40`; any other day carries its date, `28 Oct 20:40` (the digest
+keeps its weekday: `Wed 28 Oct 20:40`). When `DIGEST_TZ` is unset or not a
+zone, the zone in use is named after the time (`01:40 UTC`), since nobody
+chose it; an unknown name is logged once. No time is read from the
+process's local zone, and what is stored (the state file, InfluxDB) stays
+in UTC.
+
+```bash
+sudo smoking-pi alerts --digest 08:30 --digest-tz America/Chicago
+```
+
 ### Quiet hours
 
 Between `QUIET_FROM` and `QUIET_UNTIL`, per-target alerts, brief outages,
@@ -367,7 +385,8 @@ microcuts, recoveries and the watchdog's actions are held instead of sent.
 When quiet hours end, everything held goes out as **one message**, type
 `held`, without a notification sound: what is open now, then each
 incident once, when it started and whether it recovered. It is the
-outbox's summary, with times in the quiet hours' zone.
+outbox's summary, with times in the digest's zone like every other message
+(see [Times in messages](#times-in-messages)).
 
 Never held, because they are worth waking up for or because without them
 a quiet night proves nothing:
@@ -684,7 +703,7 @@ telegram:<id> --digest 08:30`.
 |---|---|---|
 | `DIGEST_ENABLED` | `false` | Opt in |
 | `DIGEST_AT` | `08:30` | Wall-clock `HH:MM`; anything else disables with a warning |
-| `DIGEST_TZ` | *(unset)* | Zone for `DIGEST_AT`; falls back to `TZ`, then UTC |
+| `DIGEST_TZ` | *(unset)* | Zone for `DIGEST_AT`, quiet hours and every time a message prints; falls back to `TZ`, then UTC |
 | `DIGEST_WINDOW_HOURS` | `24` | How far back it summarizes |
 | `DIGEST_MAX_LATENESS` | `14400` | Seconds a missed slot may still be delivered |
 | `DIGEST_SILENT` | `true` | Deliver without a notification sound |

@@ -129,7 +129,7 @@ def test_the_summary_reads_in_the_local_zone(monkeypatch):
     quiet.hold(current, _alert(), at)
     assert current["held"]["until"] == "07:00 America/Chicago"
     text = quiet.build(current, DAY + 36 * 3600)["message"]  # 07:00 CDT
-    assert "00:00 CDT to 07:00 CDT" in text
+    assert "00:00 to 07:00" in text and "UTC" not in text
 
 
 def test_across_a_dst_change(monkeypatch):

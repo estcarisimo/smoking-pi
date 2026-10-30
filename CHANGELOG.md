@@ -11,6 +11,22 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Every time the alerter prints is in one zone, the digest's.** October's
+  Telegram chat read three clocks at once: outage alerts, the "not delivered"
+  summary and the watchdog's actions printed UTC, quiet-hours bundles printed
+  America/Chicago, and the daily digest printed the container's own clock
+  (`TZ=Europe/London` on the reference Pi) with a weekday, so on 2026-10-29
+  it said "Thu 01:40" for an outage that happened Wednesday 20:40 CDT. A
+  reader lining up an alert with the digest, or with what the house noticed,
+  had to convert by hand and could land on the wrong day. A new
+  `alerter/clock.py` resolves the zone once, as the digest's schedule and
+  quiet hours already do (`DIGEST_TZ`, then `TZ`, then UTC; an unknown name
+  logged once), and every message time goes through it: `20:40` today,
+  `28 Oct 20:40` another day (`Wed 28 Oct 20:40` in the digest, which already
+  showed the weekday), and the zone's abbreviation after the time when
+  `DIGEST_TZ` is not the zone in effect. The messages say nothing else new;
+  the state file and InfluxDB keep UTC.
+
 - **The service taxonomy agrees with its sources again, and `hbo.com` is Max.**
   The week's validation read of front 5 on the reference Pi (336 targets, all
   labeled but `tzm.protechts.net`, on purpose) ran
