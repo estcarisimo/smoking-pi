@@ -269,8 +269,8 @@ def test_the_loop_diagnoses_once_and_only_when_a_loss_alert_goes_out(monkeypatch
     monkeypatch.setattr(main.alert_diagnosis, "run",
                         lambda cadences: runs.append(cadences) or _result(
                             _inc("destination", ["google"], 0)))
-    monkeypatch.setattr(main.notifier, "notify",
-                        lambda payload, image=None: sent.append(payload) or True)
+    monkeypatch.setattr(main.notifier, "send",
+                        lambda payload, image=None: sent.append(payload) or "sent")
     monkeypatch.setattr(main, "_chart_for", lambda event, peers: None)
     monkeypatch.setattr(main.alert_diagnosis.time, "time", lambda: NOW)
     main.run_iteration()

@@ -28,6 +28,7 @@ import os
 from datetime import datetime
 
 import clock
+import ledger
 import outbox
 import schedule
 import templates
@@ -122,7 +123,11 @@ def build(state: dict, now: float) -> dict:
 
 def release(state: dict, now: float, deliver) -> bool:
     """Once quiet hours are over, hand what was held to ``deliver`` as one
-    message (through the outbox if the network is down). Never raises."""
+    message (through the outbox if the network is down). Never raises.
+
+    Once that message is delivered, everything it carried is told
+    (ledger.told): an alert it summarized does not arrive again on its own.
+    Through the outbox, the outbox's summary does that when it goes."""
     if not (state.get("held") or {}).get("items") or active(now):
         return False
     try:
@@ -134,8 +139,11 @@ def release(state: dict, now: float, deliver) -> bool:
                  "message": f"Smoking Pi: {len(held['items'])} notification(s) "
                             "held during quiet hours. Ask the assistant for the "
                             "incident history for the details."}
-    count = len(state["held"]["items"])
+    items = state["held"]["items"]
     state.pop("held", None)
     deliver(event)
+    if event.get("delivery") in ("sent", "handed"):
+        ledger.told(state, items, now)
+    count = len(items)
     log.info("Quiet hours over: %d held notification(s) sent as one", count)
     return True

@@ -24,6 +24,7 @@ import digest
 import evaluator
 import flux
 import incident_history
+import ledger
 import notifier
 import outbox
 import quiet
@@ -162,20 +163,37 @@ def _deliver(current: dict, payload: dict, image: bytes | None = None,
     While the outbox holds anything, the network (or the channel) was down
     at the last try: this joins the queue instead of being sent into it,
     and outbox.flush sends everything as one message once it is back.
+
+    Said once (ledger.py): a notification already delivered, handed to the
+    gateway or told in a summary is not handed to anything again. One the
+    gateway answered with a failure is with the gateway, which delivers it
+    from its own queue; it opens the outbox all the same, so what follows
+    waits instead of piling up there too.
     """
     if now is None:
         now = time.time()
+    idem = ledger.key_of(payload)
+    if ledger.done(current, idem):
+        log.info("Notification %s already %s; not sent again", idem,
+                 ledger.outcome(current, idem))
+        return
     if quiet.holds(payload, now):
         quiet.hold(current, payload, now)
-        payload["delivery"] = "held"
+        payload["delivery"], result = "held", ledger.HELD
     elif outbox.pending(current):
         outbox.enqueue(current, payload, now)
-        payload["delivery"] = "queued"
-    elif notifier.notify(payload, image=image):
-        payload["delivery"] = "sent"
+        payload["delivery"], result = "queued", ledger.OUTBOX
     else:
-        outbox.enqueue(current, payload, now)
-        payload["delivery"] = "queued"
+        outcome = notifier.send(payload, image=image)
+        if outcome == notifier.SENT:
+            payload["delivery"], result = "sent", ledger.SENT
+        elif outcome == notifier.HANDED:
+            outbox.enqueue(current, payload, now, handed=True)
+            payload["delivery"], result = "handed", ledger.QUEUED
+        else:
+            outbox.enqueue(current, payload, now)
+            payload["delivery"], result = "queued", ledger.FAILED
+    ledger.record(current, idem, result, now)
     digest.record_history(current, payload, now)
 
 
@@ -226,7 +244,7 @@ def _unreadable(current: dict, exc: Exception, now: float) -> None:
         _deliver(current, {**event, "type": "recovery",
                            "duration_s": _duration_of(event)}, now=now)
     quiet.release(current, now, lambda event: _deliver(current, event, now=now))
-    if outbox.flush(current, now, send=notifier.notify,
+    if outbox.flush(current, now, send=notifier.send,
                     reachable=notifier.reachable):
         digest.record_history(current, {"type": "undelivered",
                                         "key": "undelivered",
@@ -358,7 +376,7 @@ def run_iteration() -> None:
     # What quiet hours held, as one message, once they are over.
     quiet.release(current, time.time(), lambda event: _deliver(current, event))
     # Whatever is waiting, as one message, once delivery works again.
-    if outbox.flush(current, time.time(), send=notifier.notify,
+    if outbox.flush(current, time.time(), send=notifier.send,
                     reachable=notifier.reachable):
         digest.record_history(current, {"type": "undelivered",
                                         "key": "undelivered",

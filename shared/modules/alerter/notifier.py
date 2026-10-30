@@ -30,8 +30,14 @@
   ``{type, rule, severity, target, message, state, ts}`` and an optional
   ``Authorization: Bearer {ALERT_WEBHOOK_TOKEN}`` header.
 
-Delivery uses httpx with a 10s timeout and 3 attempts (exponential
-backoff). Never raises: returns True on success, False otherwise.
+Delivery uses httpx with a 10s timeout. A webhook gets 3 attempts
+(exponential backoff); the OpenClaw gateway gets ONE per call, because it
+keeps every request it has received in its own durable retry queue and
+replays them (2026-10-09: six copies of one alert in one second, from the
+three attempts with a chart and three without). :func:`send` says which of
+three things happened -- delivered, handed to the gateway (which delivers it
+itself), or failed -- and never raises; :func:`notify` is True only for the
+first.
 """
 
 from __future__ import annotations
@@ -75,8 +81,25 @@ def format_message(event: dict, limit: int = templates.TG_TEXT_LIMIT) -> str:
     return templates.format_message(event, limit)
 
 
+# What a send came to (:func:`send`).
+SENT = "sent"
+# The OpenClaw gateway answered with a failure, or received the request and
+# did not answer in time: it may hold the message in its retry queue and
+# deliver it later, so it must not be sent again.
+HANDED = "handed"
+# Nobody received it: safe to try again later.
+FAILED = "failed"
+
+
 def notify(event: dict, image: bytes | None = None) -> bool:
-    """Deliver one event via the configured backend. Never raises.
+    """Deliver one event via the configured backend; True when delivered.
+    Never raises. See :func:`send` for the three outcomes."""
+    return send(event, image=image) == SENT
+
+
+def send(event: dict, image: bytes | None = None) -> str:
+    """Deliver one event via the configured backend: SENT, HANDED or FAILED.
+    Never raises.
 
     ``image`` is an optional PNG delivered as the message's attachment, with
     the text as its caption. Telegram allows a quarter as many characters in
@@ -88,41 +111,41 @@ def notify(event: dict, image: bytes | None = None) -> bool:
     text = format_message(event, limit)
 
     if mode == "openclaw":
-        if image is None:
-            # `event` matters here, not just on the retry below: this is the
-            # path a digest takes whenever there is no chart (ALERT_CHARTS
-            # off, or every target clean so render_digest_chart returns None),
-            # and without it the message loses its own `silent` flag and buzzes.
-            return _notify_openclaw(text, event=event)
-        if _notify_openclaw(text, image=image, event=event):
-            return True
-        # A chart failure must never cost the alert. Exactly ONE text-only
-        # retry, as its own call: folding it into _post_with_retries would
-        # multiply the 3-attempt budget into 6.
-        log.warning("Image delivery failed; retrying text-only (chart_dropped=1)")
-        # `event` still goes through: without it the retry loses the
-        # message's own `silent` flag and a quiet digest rings on the retry.
+        # `event` matters on both calls: it carries the message's own
+        # `silent` flag, and without it a quiet digest buzzes.
+        outcome, refused = _notify_openclaw(text, image=image, event=event)
+        if image is None or not refused:
+            return outcome
+        # A chart failure must never cost the alert -- but only a gateway
+        # that refused the request outright (HTTP 4xx) has not queued it.
+        # One that answered anything else may replay it, and a text-only
+        # copy beside it is the same alert twice.
+        log.warning("Image delivery refused; retrying text-only (chart_dropped=1)")
         return _notify_openclaw(
             format_message(event, templates.TG_TEXT_LIMIT), event=event
-        )
+        )[0]
     if mode == "telegram":
         silent = _silent(event)
         if image is None:
-            return telegram.send(text, silent=silent)
+            return _outcome(telegram.send(text, silent=silent))
         if telegram.send(text, image=image, filename=_chart_filename(event),
                          silent=silent):
-            return True
+            return SENT
         # As for OpenClaw: a chart failure must never cost the alert.
         log.warning("Image delivery failed; retrying text-only (chart_dropped=1)")
-        return telegram.send(format_message(event, templates.TG_TEXT_LIMIT),
-                             silent=silent)
+        return _outcome(telegram.send(
+            format_message(event, templates.TG_TEXT_LIMIT), silent=silent))
     if mode == "webhook":
         # A generic webhook receives JSON; an image has nowhere to go in it.
-        return _notify_webhook(event, text)
+        return _outcome(_notify_webhook(event, text))
     if mode != "off":
         log.warning("Unknown NOTIFY_MODE %r; logging only", mode)
     log.info("NOTIFY (%s)%s %s", mode, " [+chart]" if image else "", text)
-    return True
+    return SENT
+
+
+def _outcome(delivered: bool) -> str:
+    return SENT if delivered else FAILED
 
 
 TEST_MESSAGE = (
@@ -140,7 +163,7 @@ def send_test() -> bool:
     """
     mode = notify_mode()
     if mode == "openclaw":
-        return _notify_openclaw(TEST_MESSAGE)
+        return _notify_openclaw(TEST_MESSAGE)[0] == SENT
     if mode == "telegram":
         return telegram.send(TEST_MESSAGE)
     if mode == "webhook":
@@ -266,7 +289,9 @@ def _chart_filename(event: dict) -> str:
 
 def _notify_openclaw(
     text: str, image: bytes | None = None, event: dict | None = None
-) -> bool:
+) -> tuple[str, bool]:
+    """(outcome, refused): ``refused`` when the gateway turned the request
+    down outright (HTTP 4xx), so nothing of it is queued anywhere."""
     url = openclaw_hook_url()
     token = openclaw_token()
     if not token:
@@ -274,10 +299,10 @@ def _notify_openclaw(
             "NOTIFY_MODE=openclaw but no Gateway token "
             "(OPENCLAW_GATEWAY_TOKEN/OPENCLAW_HOOK_TOKEN); skipping"
         )
-        return False
+        return FAILED, False
     if not os.environ.get("OPENCLAW_TO"):
         log.warning("NOTIFY_MODE=openclaw but OPENCLAW_TO is unset; skipping")
-        return False
+        return FAILED, False
     headers = {"Authorization": f"Bearer {token}"}
     payload = openclaw_invoke_payload(
         text,
@@ -285,11 +310,46 @@ def _notify_openclaw(
         _chart_filename(event or {}) if image else None,
         silent=(event or {}).get("silent"),
     )
-    # Retried only when the gateway did not answer. Once it has, it has the
-    # message: a failed send is already in its durable delivery queue, and
-    # each retry would add another copy for it to replay later.
-    return _post_with_retries(url, payload, headers, body_must_be_ok=True,
-                              retry_answered=False)
+    return _post_openclaw(url, payload, headers)
+
+
+# The request never reached the gateway: nothing of it is queued there.
+_NOT_REACHED = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _post_openclaw(url: str, payload: dict, headers: dict) -> tuple[str, bool]:
+    """ONE request to the gateway, never retried here.
+
+    Once the gateway has received a request it holds it: a failure it
+    answers goes into its durable delivery queue, and so does a request it
+    is still working on when the 10 s timeout fires. Each retry was one more
+    copy for it to replay -- six of one alert on 2026-10-09. A request that
+    never reached it waits in the outbox and is tried again next cycle.
+    """
+    try:
+        response = httpx.post(url, json=payload, headers=headers, timeout=TIMEOUT_S)
+    except _NOT_REACHED as exc:
+        log.warning("Notification to %s not delivered: the gateway was not "
+                    "reached (%s)", url, exc)
+        return FAILED, False
+    except httpx.HTTPError as exc:
+        log.warning("Notification sent to %s with no answer (%s): the gateway "
+                    "may hold it, so it is not sent again", url, exc)
+        return HANDED, False
+    if 200 <= response.status_code < 300:
+        error = _body_error(response)
+        if error is None:
+            return SENT, False
+        log.warning("Notification to %s answered HTTP %s with a failure: %s; "
+                    "the gateway holds it in its queue, so it is not sent "
+                    "again", url, response.status_code, error)
+        return HANDED, False
+    if response.status_code >= 500:
+        log.warning("Notification to %s answered HTTP %s; the gateway may hold "
+                    "it, so it is not sent again", url, response.status_code)
+        return HANDED, False
+    log.error("Notification to %s refused with HTTP %s", url, response.status_code)
+    return FAILED, True
 
 
 def _notify_webhook(event: dict, text: str) -> bool:
@@ -448,10 +508,8 @@ def _body_error(response: httpx.Response) -> str | None:
 
 def _post_with_retries(
     url: str, payload: dict, headers: dict, body_must_be_ok: bool = False,
-    retry_answered: bool = True,
 ) -> bool:
-    """POST with up to MAX_ATTEMPTS tries. ``retry_answered=False`` retries
-    only a request that got no response at all."""
+    """POST with up to MAX_ATTEMPTS tries (the webhook; never the gateway)."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             response = httpx.post(
@@ -478,10 +536,6 @@ def _post_with_retries(
                     attempt,
                     MAX_ATTEMPTS,
                 )
-            if not retry_answered:
-                log.error("Notification to %s answered with a failure; not "
-                          "retried (the receiver may have queued it)", url)
-                return False
         except httpx.HTTPError as exc:
             log.warning(
                 "Notification POST to %s failed: %s (attempt %d/%d)",

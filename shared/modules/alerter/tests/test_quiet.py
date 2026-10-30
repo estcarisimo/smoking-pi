@@ -29,8 +29,8 @@ def overnight(monkeypatch):
 @pytest.fixture
 def sent(monkeypatch):
     out = []
-    monkeypatch.setattr(main.notifier, "notify",
-                        lambda payload, image=None: out.append(payload) or True)
+    monkeypatch.setattr(main.notifier, "send",
+                        lambda payload, image=None: out.append(payload) or "sent")
     return out
 
 
@@ -159,7 +159,7 @@ def test_a_held_summary_in_a_later_outbox_summary_lists_the_incidents(overnight)
 
 
 def test_a_held_summary_that_cannot_be_sent_waits_in_the_outbox(overnight, monkeypatch):
-    monkeypatch.setattr(main.notifier, "notify", lambda payload, image=None: False)
+    monkeypatch.setattr(main.notifier, "send", lambda payload, image=None: "failed")
     current = {}
     main._deliver(current, _alert(), now=NIGHT)
     quiet.release(current, MORNING, lambda e: main._deliver(current, e, now=MORNING))

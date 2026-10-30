@@ -231,10 +231,10 @@ def test_a_hang_the_alerter_could_not_report_arrives_as_one_summary(monkeypatch)
         attempts.append(clock["minute"])
         if online(clock["minute"]):
             delivered.append((clock["minute"], payload))
-            return True
-        return False
+            return "sent"
+        return "failed"
 
-    monkeypatch.setattr(main.notifier, "notify", notify)
+    monkeypatch.setattr(main.notifier, "send", notify)
     current = {"incidents": {}}
     for minute in range(120):
         clock["minute"] = minute

@@ -155,12 +155,30 @@ def test_http_200_with_ok_false_is_a_failure(posts, openclaw):
     assert len(posts["calls"]) == 1
 
 
-def test_a_gateway_that_did_not_answer_is_retried(posts, openclaw):
-    """No response means the gateway never had the message: retry that."""
+def test_a_gateway_that_was_not_reached_is_left_to_the_outbox(posts, openclaw):
+    """Never reached: nothing is queued there, and the outbox tries again
+    next cycle -- not three times in this one."""
     posts["responses"].append(httpx.ConnectError("refused"))
     posts["responses"].append(FakeResponse(200, {"ok": True}))
-    assert notifier.notify(_event()) is True
-    assert len(posts["calls"]) == 2
+    assert notifier.send(_event()) == notifier.FAILED
+    assert len(posts["calls"]) == 1
+
+
+def test_a_request_the_gateway_got_is_never_sent_again(posts, openclaw):
+    """2026-10-09: a gateway busy with its own queue answered after the 10 s
+    timeout. Each retry was one more copy in that queue -- six of one alert,
+    three with the chart and three without, replayed in one second."""
+    posts["responses"].extend([httpx.ReadTimeout("slow")] * 10)
+    assert notifier.send(_event(), image=PNG) == notifier.HANDED
+    assert len(posts["calls"]) == 1
+    posts["calls"].clear()
+    posts["responses"][:] = [FakeResponse(200, {"ok": False})] * 3
+    assert notifier.send(_event(), image=PNG) == notifier.HANDED
+    assert len(posts["calls"]) == 1
+    posts["calls"].clear()
+    posts["responses"][:] = [FakeResponse(502)] * 3
+    assert notifier.send(_event()) == notifier.HANDED
+    assert len(posts["calls"]) == 1
 
 
 def test_non_json_body_does_not_break_delivery(posts, openclaw):
@@ -438,16 +456,22 @@ def test_a_failed_image_send_retries_exactly_once_as_text(posts, openclaw):
 
 def test_the_text_retry_is_bounded_when_everything_fails(posts, openclaw):
     for _ in range(10):
-        posts["responses"].append(FakeResponse(500))
+        posts["responses"].append(FakeResponse(413))
     assert notifier.notify(_event(), image=PNG) is False
     # One with the image + one text-only, never an unbounded cascade.
     assert len(posts["calls"]) == 2
-    # With no answer at all: 3 with the image + 3 text-only.
+    # Not reached at all: one call; the outbox tries again next cycle. It
+    # was 3 with the image + 3 text-only.
     posts["calls"].clear()
     posts["responses"].clear()
     posts["responses"].extend([httpx.ConnectError("refused")] * 10)
     assert notifier.notify(_event(), image=PNG) is False
-    assert len(posts["calls"]) == 6
+    assert len(posts["calls"]) == 1
+    # Answered with a server error: the gateway may hold it, so no text copy.
+    posts["calls"].clear()
+    posts["responses"][:] = [FakeResponse(500)] * 10
+    assert notifier.send(_event(), image=PNG) == notifier.HANDED
+    assert len(posts["calls"]) == 1
 
 
 def test_off_mode_notes_the_chart_without_sending(posts, caplog):
@@ -501,14 +525,14 @@ def test_a_chartless_digest_is_still_silent(monkeypatch):
     """
     sent = {}
 
-    def fake_post(url, payload, headers, body_must_be_ok=False, **_):
+    def fake_post(url, payload, headers):
         sent.update(payload)
-        return True
+        return notifier.SENT, False
 
     monkeypatch.setenv("NOTIFY_MODE", "openclaw")
     monkeypatch.setenv("OPENCLAW_GATEWAY_TOKEN", "t")
     monkeypatch.setenv("OPENCLAW_TO", "telegram:1")
-    monkeypatch.setattr(notifier, "_post_with_retries", fake_post)
+    monkeypatch.setattr(notifier, "_post_openclaw", fake_post)
 
     notifier.notify({"type": "digest", "message": "all clear", "silent": True})
     assert sent["args"].get("silent") is True, (
@@ -524,9 +548,9 @@ def test_a_loud_alert_stays_loud_on_the_text_path(monkeypatch):
     monkeypatch.setenv("OPENCLAW_GATEWAY_TOKEN", "t")
     monkeypatch.setenv("OPENCLAW_TO", "telegram:1")
     monkeypatch.setattr(
-        notifier, "_post_with_retries",
-        lambda url, payload, headers, body_must_be_ok=False, **_: (
-            sent.update(payload) or True),
+        notifier, "_post_openclaw",
+        lambda url, payload, headers: (
+            sent.update(payload) or (notifier.SENT, False)),
     )
     notifier.notify({"type": "alert", "severity": "critical", "target": "x",
                      "message": "down", "verdict": {}, "links": {}})

@@ -151,8 +151,9 @@ def test_a_failed_or_crashing_flush_keeps_everything():
 
 def test_deliver_queues_behind_a_waiting_outbox_and_records_how(monkeypatch):
     sent = []
-    monkeypatch.setattr(main.notifier, "notify",
-                        lambda payload, image=None: sent.append(payload) or ok[0])
+    monkeypatch.setattr(main.notifier, "send",
+                        lambda payload, image=None: (
+                            sent.append(payload) or ("sent" if ok[0] else "failed")))
     ok = [False]
     current = {}
     main._deliver(current, _alert(), now=T)               # fails: queued
