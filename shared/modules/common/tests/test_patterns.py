@@ -111,3 +111,19 @@ def test_the_book_is_bounded():
     for day in range(1, 31):
         patterns.mark_heard(box, when(10, day, "12:00"), CHI)
     assert len(box["heard"]) == patterns.HEARD_DAYS
+
+
+def test_a_much_worse_evening_in_the_hours_is_not_the_pattern():
+    """Review of #437: a real failure at 21:00 inside the window is news."""
+    box = patterns.book({})
+    _heard(box, range(1, 8))
+    patterns.update(box, [_ep(1, 2), _ep(2, 4), _ep(3, 6)], when(10, 7, "23:59"), CHI)
+    usual = {**_ep(9, 7, lo="20:00", hi="21:00"), "loss_pct": 7.0, "breadth_pct": 78.0}
+    assert patterns.explaining(box, usual, CHI) == "1930-2300-upstream"
+    assert patterns.explaining(box, {**usual, "loss_pct": 60.0}, CHI) is None
+    assert patterns.explaining(box, {**usual, "loss_pct": 12.0}, CHI) == "1930-2300-upstream"
+
+
+def test_peak_hour_is_most_of_the_band_in_the_evening():
+    assert patterns.peak_hour({"from_min": 1170, "to_min": 1380})
+    assert not patterns.peak_hour({"from_min": 1350, "to_min": 1800})

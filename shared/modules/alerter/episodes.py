@@ -468,7 +468,8 @@ def judge(ep: dict, box: dict, now: float, step: int,
           known: dict | None = None) -> None:
     """Classify the episode and judge its materiality, on heard minutes.
     ``known``: ``state["patterns"]`` (common.patterns); an episode in the
-    hours of one of them, of its class, is not novel."""
+    hours of one of them, of its class and its usual size, is not novel."""
+    ep["pattern"] = None
     blind = ep["blind"]
     heard = _heard_steps(ep, step)
     broad = [(at, s) for at, s in heard if evaluator.broad_step(s)]
@@ -563,7 +564,8 @@ def judge(ep: dict, box: dict, now: float, step: int,
     # episode of its class in its hours: recorded as part of it, not news.
     ep["pattern"] = (patterns.explaining(known, {
         "class": judgment["class"], "start": ep["loss_start"],
-        "end": ep["loss_end"]}, clock.zone()) if heard_lossy else None)
+        "end": ep["loss_end"], "loss_pct": loss,
+        "breadth_pct": facts["breadth_pct"]}, clock.zone()) if heard_lossy else None)
     if ep["pattern"]:
         unmet = sorted(set(unmet) | {"novelty"})
         ep["materiality"]["unmet"] = unmet

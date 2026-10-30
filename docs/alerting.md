@@ -190,7 +190,7 @@ waits for the next day):
 
 | When | Message |
 |---|---|
-| A band reaches 3 days -- on the third evening, at the minute it would have been alerted | *For the 3rd evening in a row, packet loss on most destinations from 19:30 to 23:00. Looks like your provider at peak hour (high confidence). 3 of 3 evenings, 14 of 18 destinations, 5–6 % loss. With this you can complain to them*, and the last occurrence in the Connection quality dashboard when links are configured |
+| A band reaches 3 days -- on the third evening, at the minute it would have been alerted | *For the 3rd evening in a row, packet loss on most destinations from 19:30 to 23:00. Looks like your provider at peak hour (high confidence). 3 of 3 evenings, 14 of 18 destinations, 5–6 % loss. With this you can complain to your provider*, and the last occurrence in the Connection quality dashboard when links are configured |
 | 3 observed days in a row without it | *The evening loss window did not appear in 3 days; last seen Tuesday.* with its days seen of days observed |
 
 In between, its episodes are recorded, never pushed (`smoking-pi alerts
@@ -202,6 +202,16 @@ loss on most destinations, 5 evenings of 7 (your provider; 17 evenings of
 `list_alert_state` lists them (`patterns`: hours, state `new` / `active`
 / `gone`, days seen of days observed, typical breadth and loss, evidence
 episode keys), so an assistant can answer "is this normal for this hour?".
+
+**Only the usual evening.** An episode in the hours is part of the pattern
+only at its usual size: loss at most twice its worst (or 5 points above
+it) and breadth at most 30 points above its typical. A real failure at
+21:00 inside the window -- 60 % loss on everything -- is news and is
+alerted as any other. The band is matched in the zone it was drawn in, so
+changing `DIGEST_TZ` does not shift it. `mute_alerts(rule="pattern")`
+silences the two messages. A pattern is of one class: evenings the
+diagnosis calls alternately *your provider* and *your line* make two
+half-patterns that may never reach 3 days each (a known limitation).
 
 The inference's shared degradation periods (profile `inference`) are
 supporting evidence only: counted on a new pattern (`inference_days`) when

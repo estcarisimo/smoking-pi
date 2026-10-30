@@ -777,9 +777,12 @@ def render(week: dict, before: dict, windows: list[dict], before_windows: list[d
         gone = [w for w in before_windows if not any(_overlaps(w, x) for x in windows)]
     if windows or gone:
         lines += ["", b("Recurring")]
+        ended = {id(w["pattern"]) for w in gone if w.get("pattern")}
         for w in windows:
             if w.get("pattern"):
-                lines.append(esc(f"{watch} {_pattern_line(w, week['stop'])}"))
+                # Gone this week: its one line is the gone one, below.
+                if id(w["pattern"]) not in ended:
+                    lines.append(esc(f"{watch} {_pattern_line(w, week['stop'])}"))
                 continue
             seen = next((x for x in before_windows if _overlaps(w, x)), None)
             since = (f"also the week before ({seen['days']} days)" if seen

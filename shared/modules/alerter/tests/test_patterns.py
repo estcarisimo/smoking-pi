@@ -137,7 +137,7 @@ def test_the_nightly_window_is_two_alerts_one_pattern_and_its_end(replay):
     assert "Looks like your provider at peak hour (high confidence)." in text
     assert "3 of 3 evenings, 14 of 18 destinations" in text
     assert "5–6 % loss." in text
-    assert "With this you can complain to them" in text
+    assert "With this you can complain to your provider" in text
     # Announced when the third evening became material, as an alert would.
     assert when(9, 30, "19:40") <= sent[4][0] <= when(9, 30, "19:50")
     gone = sent[5][1]
@@ -207,3 +207,27 @@ def test_the_weekly_of_0928_names_the_pattern_with_its_count(replay, monkeypatch
     assert [w["days"] for w in windows] == [2]
     assert len(gone) == 1
     assert "9 evenings of 12 since 28 Sep" in weekly._pattern_line(windows[0], stop)
+
+
+def test_at_most_one_pattern_message_a_day_and_a_mute_silences_them(monkeypatch):
+    import policy
+    monkeypatch.setenv("DIGEST_TZ", "America/Chicago")
+    now = when(10, 7, "20:00")
+    pattern = {"id": "x", "created_at": now, "from": "19:30", "to": "23:00",
+               "from_min": 1170, "to_min": 1380, "tz": "America/Chicago",
+               "part": "evening", "class": "upstream", "cause": "your provider",
+               "state": "new", "days": {}, "evidence": [], "days_seen": 3,
+               "days_observed": 3}
+    other = {**pattern, "id": "y"}
+    changes = iter([[{"event": "new", "pattern": pattern},
+                     {"event": "new", "pattern": other}], [], []])
+    monkeypatch.setattr(policy.patterns, "update", lambda *a, **k: next(changes))
+    current = {"episodes": {"seq": 0, "open": None, "closed": []},
+               "patterns": {"items": [pattern, other], "heard": {}}}
+    said = policy.patterns_said(current, now, 300)
+    assert [p["key"] for p in said] == ["pattern:x"]
+    assert policy.patterns_said(current, now + 600, 300) == []
+    # The next day, the second; muted, nothing.
+    monkeypatch.setattr(policy.mutes, "load", lambda: [{"rule": "pattern"}])
+    monkeypatch.setattr(policy.mutes, "find", lambda entries, *a, **k: entries[0])
+    assert policy.patterns_said(current, now + 86400, 300) == []

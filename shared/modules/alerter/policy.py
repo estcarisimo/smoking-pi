@@ -369,7 +369,7 @@ def pattern_message(pattern: dict, event: str, now: float) -> str:
     if pattern.get("inference_days"):
         lines.append(f"The inference found it too on {pattern['inference_days']} of them.")
     if pattern["class"] in ("upstream", "local_link"):
-        lines.append("With this you can complain to them"
+        lines.append("With this you can complain to your provider"
                      + (" → the last one is the graph link." if _last_link(pattern)
                         else "."))
     return "\n".join(lines)
@@ -429,19 +429,28 @@ def patterns_said(state: dict, now: float, step: int, query=None) -> list[dict]:
         pattern = change["pattern"]
         if change["event"] == "new" and query is not None:
             pattern["inference_days"] = _inference_days(pattern, query, tz)
-        if change["event"] == "gone" and {"event": "new", "id": pattern["id"]} in pending:
+        item = {"event": change["event"], "id": pattern["id"],
+                "created_at": pattern.get("created_at")}
+        if change["event"] == "gone" and {**item, "event": "new"} in pending:
             # Never announced: nothing to take back.
-            pending.remove({"event": "new", "id": pattern["id"]})
+            pending.remove({**item, "event": "new"})
             continue
-        pending.append({"event": change["event"], "id": pattern["id"]})
+        pending.append(item)
     if changes and ep is not None:
         episodes.rejudge(state, now, step)
     today = datetime.fromtimestamp(now, tz=tz).date().isoformat()
     if not pending or box.get("said_day") == today:
         return []
     item = pending.pop(0)
-    pattern = next((p for p in box["items"] if p["id"] == item["id"]), None)
+    # By id and birth: a re-formed pattern of the same id is another one.
+    pattern = next((p for p in box["items"] if p["id"] == item["id"]
+                    and p.get("created_at") == item.get("created_at")), None)
     if pattern is None:
+        return []
+    key = f"pattern:{pattern['id']}"
+    if mutes.find(mutes.load(), {"key": key, "rule": "pattern"}, now,
+                  first_seen=pattern.get("created_at")) is not None:
+        log.info("Pattern %s is muted; its %s not said", pattern["id"], item["event"])
         return []
     box["said_day"] = today
     return [_pattern_payload(pattern, item["event"], now)]

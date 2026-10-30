@@ -68,8 +68,12 @@ DAYS_KEPT = 90
 EVIDENCE_MAX = 60
 MAX_PATTERNS = 20
 GONE_KEPT_DAYS = 30
-# The hours a provider's network is busiest at home: the evening.
+# The hours a provider's network is busiest at home: the evening; a band
+# is "at peak hour" when at least half of it lies there.
 PEAK_FROM_MIN, PEAK_TO_MIN = 19 * 60, 23 * 60
+# An episode inside a pattern's hours with loss above max(2x, this many
+# points over) the pattern's worst is news, not the pattern.
+WORSE_LOSS_PTS = 5.0
 
 CAUSE = {
     "upstream": "your provider",
@@ -134,7 +138,9 @@ def part_of_day(lo_min: int) -> str:
 
 
 def peak_hour(pattern: dict) -> bool:
-    return pattern["from_min"] < PEAK_TO_MIN and PEAK_FROM_MIN < pattern["to_min"]
+    lo, hi = pattern["from_min"], pattern["to_min"]
+    inside = max(0, min(hi, PEAK_TO_MIN) - max(lo, PEAK_FROM_MIN))
+    return inside >= 0.5 * (hi - lo)
 
 
 def match_day(pattern: dict, start: float, end: float, tz: ZoneInfo) -> date | None:
@@ -201,16 +207,46 @@ def live(box: dict | None) -> list[dict]:
     return [p for p in (box or {}).get("items") or () if p.get("state") != "gone"]
 
 
+def usual(pattern: dict, loss_pct: float | None, breadth_pct: float | None) -> bool:
+    """Whether an episode's size is the pattern's own: loss at most twice
+    its worst (or WORSE_LOSS_PTS above it), breadth at most
+    MATERIAL_BREADTH_PCT points above its typical. A much worse evening in
+    the same hours is news (review of #437)."""
+    worst = pattern.get("loss_max")
+    if loss_pct is not None and worst is not None:
+        if float(loss_pct) > max(2 * float(worst), float(worst) + WORSE_LOSS_PTS):
+            return False
+    reporting = int(pattern.get("reporting") or 0)
+    if breadth_pct is not None and reporting:
+        typical = 100.0 * int(pattern.get("affected") or 0) / reporting
+        if float(breadth_pct) > typical + definitions.MATERIAL_BREADTH_PCT:
+            return False
+    return True
+
+
 def explaining(box: dict | None, ep: dict, tz: ZoneInfo) -> str | None:
     """The id of the live pattern ``ep`` (an episode's summary: class,
-    start, end) falls in, or None: then it is not news."""
+    start, end, and ``loss_pct`` / ``breadth_pct`` when known) falls in, or
+    None: then it is not news. One much worse than the pattern's usual
+    (:func:`usual`) is not explained by it."""
     if ep.get("class") not in CLASSES or ep.get("start") is None:
         return None
     for pattern in live(box):
         if (pattern["class"] == ep["class"]
-                and match_day(pattern, ep["start"], ep["end"], tz) is not None):
+                and match_day(pattern, ep["start"], ep["end"], _zone(pattern, tz))
+                is not None
+                and usual(pattern, ep.get("loss_pct"), ep.get("breadth_pct"))):
             return pattern["id"]
     return None
+
+
+def _zone(pattern: dict, tz: ZoneInfo) -> ZoneInfo:
+    """The zone the pattern's band was drawn in: a changed DIGEST_TZ must
+    not shift every live band by hours (review of #437)."""
+    try:
+        return ZoneInfo(pattern["tz"]) if pattern.get("tz") else tz
+    except (KeyError, ValueError):
+        return tz
 
 
 def _median(values: list[float]) -> float:
@@ -232,7 +268,7 @@ def _seen(pattern: dict, cands: list[dict], tz: ZoneInfo) -> dict[date, list[dic
     for ep in cands:
         if ep.get("class") != pattern["class"]:
             continue
-        day = match_day(pattern, ep["start"], ep["end"], tz)
+        day = match_day(pattern, ep["start"], ep["end"], _zone(pattern, tz))
         if day is not None:
             out.setdefault(day, []).append(ep)
     return out
@@ -378,7 +414,9 @@ def update(box: dict, episodes: list[dict], now: float, tz: ZoneInfo,
                      for e in eps)
     for pattern in _form(cands, taken, today, tz, now):
         _refresh(box, pattern, cands, today, now, tz, margin)
-        box["items"] = [p for p in box["items"] if p["id"] != pattern["id"]]
+        # A gone one of the same id stays, for the weekly and the MCP.
+        box["items"] = [p for p in box["items"]
+                        if p["id"] != pattern["id"] or p.get("state") == "gone"]
         box["items"].append(pattern)
         events.append({"event": "new", "pattern": pattern})
     gone_keep = now - GONE_KEPT_DAYS * 86400

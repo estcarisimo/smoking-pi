@@ -28,11 +28,11 @@ version gets a matching GitHub release and git tag.
   so a pattern neither forms nor ends on blind days. Its appearance is one
   silent message ("For the 3rd evening in a row, packet loss on most
   destinations from 19:30 to 23:00. Looks like your provider at peak hour
-  … With this you can complain to them"), its end another after 3 observed
+  … With this you can complain to your provider"), its end another after 3 observed
   days without it, at most one a day. The novelty condition of
   `definitions.materiality()` is now real: an episode of a pattern's class
-  in its hours is recorded as "part of pattern <id>", not pushed, its end
-  included; one outside every band is judged as before; an Internet down
+  in its hours and of its usual size is recorded as "part of pattern
+  <id>", not pushed, its end included; a much worse one is still news; one outside every band is judged as before; an Internet down
   is still pushed. The weekly's *Recurring* section reads the patterns
   ("17 evenings of 21 since 28 Sep"), and those evenings are no longer
   counted as smaller episodes. MCP `list_alert_state` lists `patterns`
