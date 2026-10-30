@@ -29,6 +29,13 @@ then, as by day; one that began and ended in the night goes, only if
 material, into the one silent message quiet.py sends at the end. A silent
 message (an end, the monitor's message) wakes nobody and goes as it is.
 
+**A recurring window** (common.patterns: the same hours, the same class,
+on RECURRING_MIN_DAYS of the last seven days): ONE silent message when it
+appears, ONE when it is gone, at most one such message a day
+(:func:`patterns_said`). In between its episodes are not news -- recorded
+as part of the pattern, their end included -- and the weekly summary
+counts its days.
+
 Mutes (common.mutes, the MCP server's ``mute_alerts`` / ``ack_incident``)
 apply to the signals (episodes.signals) and, by ``episode:<id>``, to a whole
 episode. ALERT_MAX_PER_HOUR stays as a blast-radius ceiling on alerts and
@@ -40,11 +47,15 @@ from __future__ import annotations
 import logging
 import os
 
+from datetime import datetime
+
 import clock
 import episodes
+import flux
 import quiet
+import state as state_mod
 import templates
-from common import definitions, diagnosis, mutes
+from common import definitions, diagnosis, links, mutes, patterns
 
 log = logging.getLogger("alerter.policy")
 
@@ -159,6 +170,7 @@ def recorded(ep: dict) -> dict:
     record = episodes.summary(ep)
     pol = ep.get("policy") or {}
     why = ("acknowledged" if pol.get("muted") else
+           f"part of pattern {record['pattern']}" if record.get("pattern") else
            "a line microcut under a minute" if record["microcut"] else
            "the monitor's own, blind under 15 min" if record["class"] == "monitor" else
            "not material: " + ", ".join(record["unmet"] or ["?"]))
@@ -266,3 +278,179 @@ def _body(kind: str, ep: dict, pol: dict, record: dict, now: float) -> list[str]
     if judgment.get("evidence"):
         lines.append("Signals: " + "; ".join(judgment["evidence"][:3]))
     return lines
+
+
+# ---------------------------------------------------------------------------
+# Recurring windows
+# ---------------------------------------------------------------------------
+
+# How far back the inference's shared periods are read for a new pattern.
+_INFERENCE_LOOKBACK_S = (patterns.WINDOW_DAYS + 1) * 86400
+
+
+def _inference_days(pattern: dict, query, tz) -> int | None:
+    """Days of the pattern on which the inference (profile ``inference``)
+    also found shared degradation in its hours: supporting evidence, None
+    when it could not be read. Off, the query is simply empty."""
+    src = (f"from(bucket: {flux.flux_str(flux.influx_bucket())}) "
+           f"|> range(start: -{_INFERENCE_LOOKBACK_S}s) "
+           '|> filter(fn: (r) => r._measurement == "shared_degradation" and '
+           '(r._field == "end" or r._field == "class")) '
+           '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '
+           '|> group() |> sort(columns: ["_time"])')
+    try:
+        rows = query(src)
+    except Exception:  # influx client raises many exception types
+        log.warning("Inference periods could not be read; the pattern stands "
+                    "on the episodes", exc_info=True)
+        return None
+    days = set()
+    for row in rows or ():
+        lo, hi = episodes._epoch(row.get("_time")), episodes._epoch(row.get("end"))
+        if lo is None or hi is None or row.get("class") == "monitor_deaf":
+            continue
+        day = patterns.match_day(pattern, lo, hi, tz)
+        if day is not None:
+            days.add(day)
+    return len(days)
+
+
+def _ordinal(n: int) -> str:
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _cause_line(pattern: dict) -> str:
+    cls = pattern["class"]
+    what = {"upstream": "your provider", "local_link":
+            "your line (the modem or the line to the ISP)",
+            "destination": "the destinations themselves"}[cls]
+    if cls == "upstream" and patterns.peak_hour(pattern):
+        what += " at peak hour"
+    confidence = pattern.get("confidence")
+    return f"Looks like {what}" + (f" ({confidence} confidence)." if confidence else ".")
+
+
+def _loss(pattern: dict) -> str:
+    lo, hi = pattern.get("loss_min"), pattern.get("loss_max")
+    if lo is None:
+        return "loss"
+    if round(lo) == round(hi):
+        return f"about {lo:.0f} % loss"
+    return f"{lo:.0f}–{hi:.0f} % loss"
+
+
+def pattern_message(pattern: dict, event: str, now: float) -> str:
+    """The words of a pattern's one message: when it appears, or when it
+    is gone. Informative: what it is, how sure, the evidence."""
+    part = pattern["part"]
+    hours = f"from {pattern['from']} to {pattern['to']}"
+    if event == "gone":
+        last = pattern.get("last_seen")
+        when = (datetime.fromtimestamp(float(last), tz=clock.zone()).strftime("%A")
+                if last else "never")
+        return "\n".join([
+            f"✅ The {part} loss window did not appear in "
+            f"{patterns.absent_days(pattern)} days; last seen {when}.",
+            f"{pattern['from']} to {pattern['to']}, seen on {pattern['days_seen']} "
+            f"of {pattern['days_observed']} {part}s while it lasted."])
+    today = datetime.fromtimestamp(now, tz=clock.zone()).date()
+    seen, heard = patterns.recent_counts(pattern, today)
+    run = patterns.streak(pattern)
+    affected, reporting = pattern.get("affected") or 0, pattern.get("reporting") or 0
+    many = ("most destinations" if reporting and 2 * affected > reporting
+            else "many destinations")
+    head = (f"🔁 For the {_ordinal(run)} {part} in a row, " if run >= seen
+            else f"🔁 On {seen} of the last {heard} {part}s, ")
+    lines = [head + f"packet loss on {many} {hours}.",
+             _cause_line(pattern),
+             f"{seen} of {heard} {part}s, {affected} of {reporting} destinations, "
+             f"{_loss(pattern)}."]
+    if pattern.get("inference_days"):
+        lines.append(f"The inference found it too on {pattern['inference_days']} of them.")
+    if pattern["class"] in ("upstream", "local_link"):
+        lines.append("With this you can complain to your provider"
+                     + (" → the last one is the graph link." if _last_link(pattern)
+                        else "."))
+    return "\n".join(lines)
+
+
+def _last_link(pattern: dict) -> str | None:
+    """The Connection quality dashboard over the last occurrence."""
+    last = pattern.get("last")
+    if not last or not links.links_configured():
+        return None
+    pad = 1800
+    return links.grafana_url("connectivity-quality-v1", extra={
+        "from": str(int((float(last["start"]) - pad) * 1000)),
+        "to": str(int((float(last["end"]) + pad) * 1000))})
+
+
+def _pattern_payload(pattern: dict, event: str, now: float) -> dict:
+    gone = event == "gone"
+    link = None if gone else _last_link(pattern)
+    payload = {
+        # An alert and its recovery to the idempotent delivery
+        # (ledger.key_of): one of each per pattern, ever.
+        "type": "recovery" if gone else "alert",
+        "rule": "pattern",
+        "kind": f"pattern_{event}",
+        "key": f"pattern:{pattern['id']}",
+        "target": None,
+        "severity": "info",
+        "silent": True,
+        "message": pattern_message(pattern, event, now),
+        "pattern": patterns.view(pattern, now, clock.zone()),
+        "state": {"first_seen": pattern.get("created_at"), "notified_count": 1},
+    }
+    if link:
+        payload["links"] = {"graph": link}
+    log.info("Pattern %s: %s", pattern["id"], event)
+    return payload
+
+
+def patterns_said(state: dict, now: float, step: int, query=None) -> list[dict]:
+    """Fold the episodes into the recurring windows (common.patterns) and
+    return what of them is said: at most one silent message a day, the
+    pattern's appearance or its end. Re-judges the open episode when a
+    pattern now explains it, so it is recorded as part of the pattern
+    rather than pushed."""
+    tz = clock.zone()
+    box = patterns.book(state)
+    record = episodes.book(state)
+    eps = list(record["closed"])
+    ep = record["open"]
+    if ep is not None and ep.get("judgment"):
+        eps.append({**episodes.summary(ep), "open": True})
+    margin = max(state_mod.resolve_after(), 3 * step)
+    changes = patterns.update(box, eps, now, tz, margin=margin)
+    pending = box.setdefault("pending", [])
+    for change in changes:
+        pattern = change["pattern"]
+        if change["event"] == "new" and query is not None:
+            pattern["inference_days"] = _inference_days(pattern, query, tz)
+        item = {"event": change["event"], "id": pattern["id"],
+                "created_at": pattern.get("created_at")}
+        if change["event"] == "gone" and {**item, "event": "new"} in pending:
+            # Never announced: nothing to take back.
+            pending.remove({**item, "event": "new"})
+            continue
+        pending.append(item)
+    if changes and ep is not None:
+        episodes.rejudge(state, now, step)
+    today = datetime.fromtimestamp(now, tz=tz).date().isoformat()
+    if not pending or box.get("said_day") == today:
+        return []
+    item = pending.pop(0)
+    # By id and birth: a re-formed pattern of the same id is another one.
+    pattern = next((p for p in box["items"] if p["id"] == item["id"]
+                    and p.get("created_at") == item.get("created_at")), None)
+    if pattern is None:
+        return []
+    key = f"pattern:{pattern['id']}"
+    if mutes.find(mutes.load(), {"key": key, "rule": "pattern"}, now,
+                  first_seen=pattern.get("created_at")) is not None:
+        log.info("Pattern %s is muted; its %s not said", pattern["id"], item["event"])
+        return []
+    box["said_day"] = today
+    return [_pattern_payload(pattern, item["event"], now)]

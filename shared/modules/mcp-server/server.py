@@ -47,6 +47,7 @@ from common import (
     mutes,
     notification_ledger,
     openclaw,
+    patterns,
 )
 
 def _instructions() -> str:
@@ -1173,8 +1174,9 @@ def get_notification_history(days: int = 7, kind: str | None = None) -> dict:
 
     The notification ledger (kept 30 days): one entry per notification
     the alerter decided on, newest first, at most 200. Each has `kind`
-    (alert, recovery, monitor, watchdog, outbox_summary, quiet_bundle,
-    weekly, digest, report), `rule`, `key`, `severity`, `targets`, `text` (the
+    (alert, recovery, monitor, pattern -- a recurring window appearing or
+    gone --, watchdog, outbox_summary, quiet_bundle, weekly, digest,
+    report), `rule`, `key`, `severity`, `targets`, `text` (the
     message as handed to the transport, with its markup), `outcome`
     (sent; handed: the gateway has it and delivers it itself; queued;
     held; failed; skipped-duplicate: already said, not handed over
@@ -1191,7 +1193,7 @@ def get_notification_history(days: int = 7, kind: str | None = None) -> dict:
 
     Args:
         days: Lookback in days (default 7, at most 30).
-        kind: Only this kind (alert, recovery, monitor, watchdog,
+        kind: Only this kind (alert, recovery, monitor, pattern, watchdog,
             outbox_summary, quiet_bundle, weekly, digest, report).
     """
     days, kind, problem = notification_ledger.validate(days, kind)
@@ -1976,6 +1978,7 @@ def _episodes_view(state: dict, now: float) -> dict:
             "evidence": judgment.get("evidence", [])[:3],
             "material": bool(ep.get("material")),
             "unmet": (ep.get("materiality") or {}).get("unmet", []),
+            "pattern": ep.get("pattern"),
             "down": bool(ep.get("down")),
             "blind_s": ep.get("blind_s", 0),
             "signals": sorted((ep.get("signals") or {}).keys()),
@@ -1984,6 +1987,25 @@ def _episodes_view(state: dict, now: float) -> dict:
     recent = [e for e in box.get("closed") or []
               if float(e.get("end") or 0) >= now - RECENT_EPISODES_S]
     return {"open": open_view, "recent": recent[-20:]}
+
+
+# How long a gone recurring window stays in list_alert_state.
+RECENT_PATTERNS_S = 7 * 86400
+
+
+def _patterns_view(state: dict, now: float) -> list[dict]:
+    """The alerter's recurring windows (common.patterns): the live ones,
+    and those gone in the last RECENT_PATTERNS_S."""
+    out = []
+    for item in (state.get("patterns") or {}).get("items") or []:
+        if (item.get("state") == "gone"
+                and float(item.get("gone_at") or 0) < now - RECENT_PATTERNS_S):
+            continue
+        try:
+            out.append(patterns.view(item, now))
+        except (KeyError, TypeError, ValueError):
+            log.warning("A recurring window in the alerter's state is malformed")
+    return out
 
 
 @mcp.tool()
@@ -2007,7 +2029,12 @@ def list_alert_state() -> dict:
     those its quiet hours are holding until `until` (then one message);
     `no_data_since`
     on an incident means it is held open because its target stopped
-    reporting.
+    reporting. `patterns` are the recurring windows -- loss of one class in
+    the same hours on 3 or more of the last 7 days (`hours` in the Pi's
+    zone, `state` new/active/gone, `days_seen` of `days_observed`, days the
+    monitor could not hear counted neither way, `typical` breadth and loss,
+    `evidence` episode keys): an episode in one's hours is recorded as
+    `pattern`, not pushed. Answers "is this normal for this hour?".
     """
     now = time.time()
     state = _read_alerter_state()
@@ -2063,6 +2090,7 @@ def list_alert_state() -> dict:
 
     return {
         "episodes": _episodes_view(state, now),
+        "patterns": _patterns_view(state, now),
         "incidents": incidents,
         "undelivered": undelivered,
         "held": held,

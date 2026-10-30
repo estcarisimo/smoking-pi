@@ -75,6 +75,9 @@ def kind_of(payload: dict) -> str:
         return "outbox_summary"
     if kind == "alert" and rule == "watchdog":
         return "watchdog"
+    if rule == "pattern":
+        # A recurring window appearing or gone (policy.patterns_said).
+        return "pattern"
     if rule == "episode":
         # An episode's message (policy.py), by what it says.
         return {"down": "alert", "degradation": "alert", "update": "update",

@@ -8,6 +8,8 @@ pipeline:
          subtracted)
       -> classification (common.diagnosis.classify_episode)
       -> materiality (common.definitions.materiality)
+      -> recurring windows (policy.patterns_said: common.patterns, an
+         episode in a known window's hours is not news)
       -> policy (policy.decide: what is said, and how loud)
       -> delivery (_deliver: quiet hours, outbox, notifier)
 
@@ -42,6 +44,7 @@ import reports_watcher
 import state
 import watchdog_events
 import weekly
+from common import patterns
 
 DEFAULT_INTERVAL = 60  # seconds; ALERT_INTERVAL
 # How long InfluxDB may be unreadable before that is itself an alert: five
@@ -264,6 +267,19 @@ def _push(current: dict, events: list[dict], now: float,
         _deliver(current, payload, now=now)
 
 
+def _patterns(current: dict, cycle: dict | None, now: float, step: int) -> list[dict]:
+    """The recurring windows: this cycle's half hour marked heard when the
+    monitor could hear it, the episodes folded in, and the one message a
+    pattern's appearance or end calls for. Never costs the cycle."""
+    try:
+        if cycle is not None and episodes.heard_now(cycle):
+            patterns.mark_heard(patterns.book(current), now, clock.zone())
+        return policy.patterns_said(current, now, step, evaluator._query)
+    except Exception:  # noqa: BLE001 - must never cost the cycle's state
+        log.exception("Recurring-window check failed")
+        return []
+
+
 def run_iteration() -> None:
     # Loaded first: which signals are open changes what exporter_stale
     # may conclude from an empty window (evaluator.rule_exporter_stale).
@@ -296,12 +312,17 @@ def run_iteration() -> None:
     # Guarded like the policy: a bug here costs this cycle's episode, never
     # the state save, the outbox or the check-in below (review of #436).
     try:
-        events = episodes.update(current, _cycle(current, incidents, context,
-                                                 watched, now))
+        cycle = _cycle(current, incidents, context, watched, now)
+        events = episodes.update(current, cycle)
     except Exception:  # noqa: BLE001 - must never cost the cycle's state
         log.exception("Episode update failed")
-        events = []
+        cycle, events = None, []
+    # Before the policy: an episode that makes a pattern of the evenings
+    # before it is recorded as part of it, not pushed on its own.
+    said = _patterns(current, cycle, now, step)
     _push(current, events, now, context.get("cadences"), step)
+    for payload in said:
+        _deliver(current, payload, now=now)
     # What quiet hours held, as one message, once they are over.
     quiet.release(current, time.time(), lambda event: _deliver(current, event))
     # Whatever is waiting, as one message, once delivery works again.

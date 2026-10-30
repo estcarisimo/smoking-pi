@@ -296,6 +296,15 @@ so and point to the Smoking Pi web admin.
   `list_alert_state` shows each recent episode with what was pushed and,
   when nothing was, the conditions it missed (`unmet`). Say that, rather
   than calling it a failure to alert.
+- **Is this normal for this hour?** `list_alert_state` lists the
+  recurring windows (`patterns`): loss of one cause in the same hours on 3
+  or more of the last 7 days, told once when it appeared and once when it
+  was gone, its evenings in between recorded as part of it (`pattern` on
+  the episode), not pushed. Answer with its hours, its days seen of the
+  days observed and its likely cause ("yes: most evenings since 28 Sep,
+  19:30-23:00, most likely your provider at peak hour"); the record is the
+  evidence for a complaint to the provider. Not in a pattern means it is
+  not a known window -- say so, not "normal".
 - **Never mute to make a complaint go away.** "Stop telling me about amazon"
   is a mute; "amazon keeps dropping" is a question. Ask when it is unclear.
   `unmute_alerts` lifts a mute early.

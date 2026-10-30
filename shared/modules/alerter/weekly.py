@@ -15,8 +15,11 @@ the seven before those, and says in order:
 1. one line: a good, mixed or bad week against the one before, by cause --
    the Pi's Wi-Fi, your line, your provider, individual destinations --
    then the week's material episodes, at most three;
-2. the recurring windows: hours of the day in which loss or slowdowns the
-   destinations shared came back on several days, and whether that is new;
+2. the recurring windows: the alerter's patterns (common.patterns, the
+   ones it announced when they appeared and when they were gone), each with
+   its days this week and since it began ("17 evenings of 21"); for a week
+   its record does not cover, hours of the day in which loss or slowdowns
+   the destinations shared came back on several days;
 3. the monitor's own availability, the share of the week it could measure,
    and what the watchdog did;
 4. at most three destinations with loss of their own above the bar;
@@ -336,6 +339,9 @@ def _from_alerter(closed: list[dict], start: float, stop: float) -> dict:
             continue
         if ep.get("broad_cycles"):
             repeating.append((lo, hi))
+        if ep.get("pattern"):
+            # Part of a recurring window: counted there, not as minor.
+            continue
         if not ep.get("material"):
             minor += 1
             continue
@@ -568,6 +574,51 @@ def recurring(spans: list[tuple[float, float]], start: float, stop: float,
     return windows
 
 
+def pattern_windows(box: dict | None, start: float, stop: float,
+                    tz: ZoneInfo) -> tuple[list[dict], list[dict]] | None:
+    """The week's recurring windows from the alerter's patterns: (seen this
+    week, gone this week). None when its record does not cover the week
+    whole, so the hours are counted the old way."""
+    if not box or box.get("since") is None or float(box["since"]) > start:
+        return None
+    first = datetime.fromtimestamp(start, tz=tz).date().isoformat()
+    last = datetime.fromtimestamp(stop - 1, tz=tz).date().isoformat()
+    windows, gone = [], []
+    for p in box.get("items") or ():
+        week = {k: v for k, v in (p.get("days") or {}).items() if first <= k <= last}
+        seen = sum(v == "seen" for v in week.values())
+        entry = {"pattern": p, "from": p["from"], "to": p["to"], "days": seen,
+                 "observed": sum(v in ("seen", "clear") for v in week.values()),
+                 "new": first <= str(p.get("created_day") or "") <= last}
+        if seen:
+            windows.append(entry)
+        if p.get("state") == "gone" and start <= float(p.get("gone_at") or 0) < stop:
+            gone.append(entry)
+    return windows, gone
+
+
+def _pattern_line(w: dict, stop: float) -> str:
+    p = w["pattern"]
+    part = p.get("part") or "day"
+    reporting = int(p.get("reporting") or 0)
+    many = ("most destinations" if reporting and 2 * int(p.get("affected") or 0) > reporting
+            else "many destinations")
+    first = datetime.fromtimestamp(float(p.get("first_seen") or stop), tz=zone())
+    since = ("new this week" if w["new"] else
+             f"{p.get('days_seen', 0)} {part}s of {p.get('days_observed', 0)} since "
+             f"{first.day} {first:%b}")
+    return (f"{p['from']}–{p['to']}: packet loss on {many}, {w['days']} {part}s "
+            f"of {w['observed']} ({p.get('cause') or 'unclear'}; {since}).")
+
+
+def _gone_line(w: dict, stop: float) -> str:
+    p = w["pattern"]
+    last = clock.at(float(p.get("last_seen") or 0), now=stop, weekday=True)
+    return (f"{p['from']}–{p['to']}, the {p.get('part') or 'day'} loss window: gone "
+            f"({p.get('days_seen', 0)} of {p.get('days_observed', 0)} while it "
+            f"lasted; last seen {last}).")
+
+
 def _overlaps(a: dict, b: dict) -> bool:
     return a["from"] < b["to"] and b["from"] < a["to"]
 
@@ -681,7 +732,8 @@ def _cause_part(cause: str, now: int, prev: int, trend: str) -> str:
 
 
 def render(week: dict, before: dict, windows: list[dict], before_windows: list[dict],
-           tops: list[dict] | None, tz: ZoneInfo) -> str:
+           tops: list[dict] | None, tz: ZoneInfo,
+           gone: list[dict] | None = None) -> str:
     esc, b = templates.esc, templates._b
     ok, watch, bad = (templates.STATUS_EMOJI["ok"], templates.STATUS_EMOJI["watch"],
                       templates.STATUS_EMOJI["bad"])
@@ -721,16 +773,26 @@ def render(week: dict, before: dict, windows: list[dict], before_windows: list[d
                          f"{'' if week['minor'] == 1 else 's'} below the bar, "
                          f"in the record."))
 
-    gone = [w for w in before_windows if not any(_overlaps(w, x) for x in windows)]
+    if gone is None:
+        gone = [w for w in before_windows if not any(_overlaps(w, x) for x in windows)]
     if windows or gone:
         lines += ["", b("Recurring")]
+        ended = {id(w["pattern"]) for w in gone if w.get("pattern")}
         for w in windows:
+            if w.get("pattern"):
+                # Gone this week: its one line is the gone one, below.
+                if id(w["pattern"]) not in ended:
+                    lines.append(esc(f"{watch} {_pattern_line(w, week['stop'])}"))
+                continue
             seen = next((x for x in before_windows if _overlaps(w, x)), None)
             since = (f"also the week before ({seen['days']} days)" if seen
                      else "new: not the week before")
             lines.append(esc(f"{watch} {w['from']:02d}:00–{w['to'] % 24:02d}:00: loss "
                              f"or slowdowns on {w['days']} of 7 days ({since})."))
         for w in gone:
+            if w.get("pattern"):
+                lines.append(esc(f"{ok} {_gone_line(w, week['stop'])}"))
+                continue
             lines.append(esc(f"{ok} {w['from']:02d}:00–{w['to'] % 24:02d}:00, "
                              f"{w['days']} days the week before, did not come back."))
 
@@ -765,17 +827,23 @@ def render(week: dict, before: dict, windows: list[dict], before_windows: list[d
     return "\n".join(lines)
 
 
-def build(slot: float, query=None, record: dict | None = None) -> dict:
+def build(slot: float, query=None, record: dict | None = None,
+          known: dict | None = None) -> dict:
     """The week of ``slot`` read and judged: ``{"send": bool, "message":
     ..., ...}``. Raises when the week cannot be read (see read_week).
-    ``record``: the alerter's episodes (``state["episodes"]``)."""
+    ``record``: the alerter's episodes (``state["episodes"]``); ``known``:
+    its recurring windows (``state["patterns"]``)."""
     tz = zone()
     prev, start, stop = week_bounds(slot, tz)
     week = read_week(start, stop, query, record)
     before = read_week(prev, start, query, record)
-    windows = recurring(week["repeating"], start, stop, tz)
-    before_windows = recurring(before["repeating"], prev, start, tz)
-    gone = [w for w in before_windows if not any(_overlaps(w, x) for x in windows)]
+    from_patterns = pattern_windows(known, start, stop, tz)
+    if from_patterns is not None:
+        (windows, gone), before_windows = from_patterns, []
+    else:
+        windows = recurring(week["repeating"], start, stop, tz)
+        before_windows = recurring(before["repeating"], prev, start, tz)
+        gone = [w for w in before_windows if not any(_overlaps(w, x) for x in windows)]
     out = {"type": "weekly", "week_start": start, "week_stop": stop,
            "measured_pct": week["measured_pct"],
            "episodes": len(week["episodes"]), "windows": len(windows)}
@@ -788,7 +856,8 @@ def build(slot: float, query=None, record: dict | None = None) -> dict:
     out.update({
         "send": True,
         "message": render(week, before, windows, before_windows,
-                          destinations(start, stop, week["excluded"], query), tz),
+                          destinations(start, stop, week["excluded"], query), tz,
+                          gone),
         "links": {"grafana_week": link} if link else {},
     })
     return out
@@ -850,7 +919,7 @@ def check(state: dict, now: float | None = None, query=None) -> bool:
         return False
 
     try:
-        payload = build(slot, query, state.get("episodes"))
+        payload = build(slot, query, state.get("episodes"), state.get("patterns"))
     except Exception:  # noqa: BLE001 - an unread week is never a quiet one
         log.warning("Weekly: the week could not be read (attempt %d/%d); nothing "
                     "sent", attempts + 1, MAX_ATTEMPTS, exc_info=True)

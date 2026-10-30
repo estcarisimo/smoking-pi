@@ -146,7 +146,8 @@ def materiality(
     - ``magnitude``: mean loss ``loss_pct`` at least MATERIAL_LOSS_PCT, or
       median latency at least MATERIAL_LATENCY_RATIO times the same hours
       a week before (``latency_ratio``; None when not measured).
-    - ``novelty``: not explained by an open episode or a known pattern.
+    - ``novelty``: not explained by an open episode or a known pattern
+      (common.patterns: a recurring window of its class in its hours).
 
     The names in the list are the conditions, for the record and the MCP.
     """

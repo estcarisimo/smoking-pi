@@ -110,7 +110,8 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      zone, kind, outcome (sent, handed, queued, held,
                      failed, skipped-duplicate) and
                      its first line. KIND: alert, recovery, monitor,
-                     watchdog, outbox_summary, quiet_bundle, weekly, report.
+                     pattern, watchdog, outbox_summary, quiet_bundle,
+                     weekly, report.
   connect --tailscale [--off] [--yes]
                      Publish the MCP server for remote assistants through
                      Tailscale Funnel (Pro): installs Tailscale if asked, signs

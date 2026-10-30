@@ -304,3 +304,27 @@ def test_a_corrupt_mutes_file_reads_as_no_mutes(files):
     files.mutes.write_text("{ truncated")
     assert mutes.load() == []
     assert server.list_alert_state()["active_mutes"] == []
+
+
+def test_list_alert_state_shows_the_recurring_windows(files):
+    """"Is this normal for this hour?": the alerter's patterns, live ones
+    and those gone in the last week, with their counts."""
+    import json
+    import time
+    now = time.time()
+    window = {"id": "1930-2300-upstream", "from": "19:30", "to": "23:00",
+              "from_min": 1170, "to_min": 1380, "tz": "America/Chicago",
+              "class": "upstream", "cause": "your provider", "state": "active",
+              "confidence": "high", "days": {}, "days_seen": 17,
+              "days_observed": 21, "affected": 14, "reporting": 18,
+              "loss_min": 5.4, "loss_max": 7.8, "evidence": [3, 4, 5]}
+    old = {**window, "id": "0600-0700-local_link", "state": "gone",
+           "gone_at": now - 30 * 86400}
+    files.state.write_text(json.dumps({"incidents": {}, "patterns": {
+        "items": [old, window]}}))
+    [shown] = server.list_alert_state()["patterns"]
+    assert shown["id"] == "1930-2300-upstream"
+    assert shown["hours"] == "19:30-23:00 America/Chicago"
+    assert (shown["days_seen"], shown["days_observed"]) == (17, 21)
+    assert shown["evidence"] == ["episode:3", "episode:4", "episode:5"]
+    assert shown["typical"]["loss_pct"] == [5.4, 7.8]
