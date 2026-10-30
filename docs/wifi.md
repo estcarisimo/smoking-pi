@@ -133,10 +133,10 @@ the `previous` points: a vertical marker reading *Uplink wlan0 → eth0
 
 The same change is said everywhere else, in the same words:
 
-- **The alert's verdict**, when the change was in the hour before it: *"Also:
-  this host's uplink moved from wlan0 to eth0 (wired) at 14:02, so the
-  measurements before and after crossed different links."*
-  ([The verdict](alerting.md#the-verdict-is-it-me-or-the-internet))
+- **The alerter**: a span with no default route is one of the monitor's
+  blind spans; an episode inside it is *this Pi (it lost its own default
+  route)*, never the line
+  ([One episode, one message](alerting.md#one-episode-one-message)).
 - **The AI report's prompt.**
 - **The MCP server:** `system_status` has an `uplink` block with the last
   change within a week, and `get_loss_events` has `uplink_changes` when one
@@ -225,7 +225,10 @@ into this dashboard zoomed to a moment.
   other number crossed that link. Both use `group(columns: ["_field"]) |>
   last()` for "now" — after a roam a plain `last()` would answer from the
   stale series.
-- **The verdict** gains a `wifi` scope (📶): when the first hop is cutting
+- **The diagnosis** (`diagnose_loss`, and the line it adds under an
+  alert; the per-alert verdict below was retired in front 8, see
+  [alerting.md](alerting.md#the-verdict-retired)) reads the Wi-Fi the same
+  way. The verdict had a `wifi` scope (📶): when the first hop is cutting
   *and* the uplink had at least `WIFI_WEAK_SAMPLES` samples below
   `WIFI_WEAK_DBM` in the hour, or a carrier drop, the line reads *"Your
   Wi-Fi — the first hop is cutting out and the signal fell to −78 dBm; the

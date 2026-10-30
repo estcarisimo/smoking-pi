@@ -1,10 +1,13 @@
 # Alerting Engine (`alerter`)
 
 Deterministic alerting for the Pro edition: a small Python service that
-evaluates rules against InfluxDB every minute and delivers notifications via
+evaluates rules against InfluxDB every minute, folds what they find into
+**episodes** -- one per physical fact -- and tells you about an episode only
+when it is worth it: the home's Internet down, a material degradation, their
+end, and the monitor blind for a quarter of an hour. Delivery is Telegram,
 an [OpenClaw](https://openclaw.ai) hook or a generic webhook. No LLM
-involved — the rules are plain thresholds, so behavior is predictable and
-testable.
+involved -- the rules and the policy are plain thresholds, so behavior is
+predictable and testable.
 
 Module: `shared/modules/alerter/`. Opt-in via the `alerts` Compose profile:
 
@@ -14,28 +17,226 @@ sudo smoking-pi alerts --telegram --test   # or --openclaw, --webhook (below)
 
 which turns on the profile, recreates the alerter and prints its own
 delivery check. `sudo smoking-pi enable alerts` turns it on alone (it logs
-alerts and sends nothing until `NOTIFY_MODE` points somewhere).
+episodes and sends nothing until `NOTIFY_MODE` points somewhere).
 
 The service runs with `network_mode: host`, so it reaches InfluxDB on
 `localhost:8086` and a locally running OpenClaw gateway on
 `127.0.0.1:18789` without extra wiring.
 
-## Rules
+## One episode, one message
+
+Until front 8 (2026-10-30) every rule was its own notification. October on
+the reference Pi sent **72 messages for about eleven real events, two of
+them actionable**: one radio hang arrived as three `outage`s (one per
+5-minute bucket), an `uplink_down`, an `exporter_stale`, two recoveries and
+a microcut; loss at one far destination (a university in Buenos Aires, four
+times; one Netflix cache, three) paged like an outage; 15 of 18 recoveries
+repeated alerts nobody needed; and the stated cause was often wrong -- "the
+line to the ISP" when the Pi had lost its own default route for 30 s, "not
+a clear pattern" for a deaf radio the watchdog had just reloaded, "just that
+site" for the 10 s cut that reload makes. Replayed against the same month,
+the policy below sends about eight messages.
+
+Every minute is one pass through a pipeline (`main.run_iteration`):
+
+```text
+signals -> episode -> classification -> materiality -> policy -> delivery
+```
+
+1. **Signals** (`evaluator.py`, `watchdog_events.py`, the monitor's own
+   health): what the rules found, each with its kind, targets and span.
+   A muted signal stops here.
+2. **Episode** (`episodes.py`): the signals join the open episode, or open
+   one. At most one is open: an `outage`, the `uplink_down` that follows,
+   the stalled exporter, the watchdog's driver reload and the microcut of
+   the reconnection are one fact, and per-destination loss in the same
+   window is one episode with breadth. It closes once no signal has had
+   evidence for `ALERT_RESOLVE_AFTER` (15 min, never under three probe
+   cycles) -- a signal's evidence is the last cycle its loss was measured,
+   not the last minute its rule's window still held it -- and never while
+   the monitor is blind or no destination reports.
+3. **What the monitor could not hear is subtracted first.** The episode
+   keeps the monitor's own blind spans: this Pi's deaf radio (`wifi_link`
+   samples that received nothing), its lost default route (`host_uplink`),
+   an `upgrade` window, a watchdog action, its database unreadable, its
+   exporter stalled. Each is widened by one probe cycle on either side,
+   and a probe cycle or a signal inside one is not evidence about the
+   network. An episode that is all blind is a **monitor** episode, never
+   an Internet one.
+4. **Classification** (`common/diagnosis.py`, `classify_episode`): one
+   cause per episode, from the heard minutes, with a confidence and the
+   evidence:
+
+   | Class | Cause, as the message says it | When |
+   |---|---|---|
+   | `monitor` | *this Pi's radio (monitor blind)*, *this Pi (it lost its own default route)*, *this Pi's monitor (its database could not be read / its measurements stopped arriving)*, *an upgrade*, *this Pi's own DNS* | Nothing about the network was heard, or `monitor_dns` |
+   | `local_link` | *your line (the modem or the line to the ISP)* | Nearly everything lost with the first hop (the ISP gateway) lost too, or the first-hop probe cut out |
+   | `upstream` | *your provider, beyond the modem* | Nearly everything lost while the first hop answered, or broad loss with the first hop clean |
+   | `destination` | *just UBA*, *IPv6 only* | One or a few destinations, the rest fine |
+   | `undetermined` | *undetermined* | Below medium confidence -- the first hop unmeasured, or no reading fits. The message says so rather than guess |
+
+5. **Materiality** (`common/definitions.py`, `materiality()` and
+   `material()`): the single gate, shared with the weekly summary and the
+   MCP tools. See [What is material](#what-is-material).
+6. **Policy** (`policy.py`): what of the episode is said, and how loud.
+   See [What is pushed](#what-is-pushed-and-what-is-recorded).
+7. **Delivery** (`main._deliver`): quiet hours, the outbox, the notifier.
+
+### What is pushed, and what is recorded
+
+Pushed, and only this:
+
+| What | Message | Sound |
+|---|---|---|
+| **The home's Internet down**: nearly every destination (`WIDESPREAD_PCT`) lost everything for three heard probe cycles in a row, and not because the monitor could not hear | `🔴 Internet down` | sounds |
+| **Material degradation** (below) | `🟡 Internet degraded` | sounds by day |
+| **The end of either** | `✅ Over`: the real duration (the loss itself, not the window), the scope, and the final cause -- which may correct what was said (*"corrects what was said (…)"*) | silent |
+| **The monitor blind for 15 minutes or more** (`MONITOR_BLIND_MIN_MINUTES`) | `🛠 Could not measure`: from when to when, the cause, what the watchdog did, and that what happened on the network meanwhile is unknown. ONE message, once it can measure again; nothing while blind -- the [dead man's switch](#when-this-host-goes-silent-the-dead-mans-switch) covers that | silent |
+| **A class change, or a jump in breadth** (`MATERIAL_BREADTH_PCT` points or more) of an episode already told | `🔁 Update`: the same episode, at most two | silent; sounds when it escalates to the Internet down |
+
+A per-destination signal that has been active for six hours
+(`CHRONIC_SIGNAL_S`: a host that never answers ICMP, IPv6 on a host
+without it) is that destination's state, not an event, and stops counting:
+otherwise it would keep the one open episode open forever. The watchdog's
+warnings (it could not act) are recorded in the episode, not pushed: the
+monitor message tells what it did when the monitor was blind long enough.
+
+Everything else is **recorded and never pushed, its end included**: loss at
+one or two destinations, a cut of the line under a minute
+(`MICROCUT_MAX_S`; the weekly summary counts them), the watchdog's actions
+resolved in under 15 minutes, upgrades, resolver changes, a route change of
+seconds, and every consequence of an open episode. There is no
+re-notification: an episode is said once, and its end once.
+
+The record is `state.json`'s `episodes` (the open one, and the closed ones
+of the last 30 days, at most 500), each with its class, cause, confidence,
+evidence, whether it was material and, when not, the conditions it missed
+(`unmet`), and what was pushed about it. The MCP `list_alert_state` shows
+the open one and those of the last day, so "why was I not told?" has an
+answer.
+
+A message is minimal and structured -- a head, then `Cause:`, `Range:`,
+`Scope:`, `Signals:` -- for example, the evening of 6 October:
+
+```text
+🟡 Internet degraded
+Cause: your provider, beyond the modem (high confidence)
+Range: since 19:30
+Scope: 70% of the destinations, 3 categories, mean loss 6.7%
+Signals: 70% of the destinations, in 3 categories, lost together; the first hop (the ISP gateway) answered and never cut out; this Pi's radio was receiving the whole time
+```
+
+and the morning of 11 October, when the radio had been deaf all night:
+
+```text
+🛠 Could not measure
+Range: 03:40 to 14:35 (10h 55m)
+Cause: this Pi's radio (monitor blind)
+Watchdog: nothing (not enabled, or no action)
+What happened on the network meanwhile is unknown.
+```
+
+A webhook receiver gets the same text in `message`, and the episode's
+record in `episode` with its `kind` (`down`, `degradation`, `update`,
+`recovery`, `monitor`, `night`).
+
+### What is material
+
+An episode is material when all five hold, judged on the minutes the
+monitor could hear:
+
+| Condition | Threshold (constant in `common/definitions.py`) |
+|---|---|
+| **Measurable** | Something heard outside the monitor's deaf spans, `upgrade` windows and watchdog actions, with one probe cycle of margin |
+| **Breadth** | `MATERIAL_BREADTH_PCT` (30 %) of the reporting destinations lost in the same cycle, or `MATERIAL_MIN_CATEGORIES` (2) categories each with `MATERIAL_CATEGORY_SHARE` (50 %) of its own destinations lost -- one site in each of two categories (a university's web server and its name server) is still one site |
+| **Persistence** | `MATERIAL_MIN_MINUTES` (15) of consecutive broad cycles -- three 5-minute cycles -- or `MATERIAL_MIN_EPISODES` (2) broad episodes within `MATERIAL_EPISODES_WINDOW_S` (an hour) |
+| **Magnitude** | Mean loss over every reporting destination, across the broad cycles, at least `MATERIAL_LOSS_PCT` (5 %); or median latency at least `MATERIAL_LATENCY_RATIO` (2×) the same hours a week before. No rule measures latency against last week yet: the condition is in the gate, and nothing feeds it |
+| **Novelty** | Not explained by an open episode (its consequences join it) or a known pattern. Known patterns arrive with the recurring-pattern notification; until then every episode is new |
+
+These are constants, not settings, on purpose: the alerter, the weekly
+summary and the MCP tools must agree on what was material, and a
+per-install knob would split them. The rule windows and thresholds that
+make the signals (below) stay tunable.
+
+### Quiet hours
+
+Between `QUIET_FROM` and `QUIET_UNTIL` **nothing sounds**, the Internet down
+included:
+
+- an episode that became material in the night and is **still open** when
+  quiet hours end is alerted then, as by day -- it sounds;
+- one that **began and ended in the night** goes, only if it was material,
+  into **one silent message** when quiet hours end, the outbox's summary
+  (type `held`): what is open now, then each episode once;
+- a silent message -- the end of an episode told by day, the monitor's one
+  message -- wakes nobody and is sent as it is.
+
+Until front 8 a total loss and the monitor going blind passed through
+(`TOTAL_RULES`, `MONITOR_RULES`); now nothing does. The outbox is not held:
+a notification already late because delivery failed goes as soon as it can.
+
+```bash
+sudo smoking-pi alerts --quiet 23:00-07:00
+sudo smoking-pi alerts --quiet off
+```
+
+The times are in the digest's zone (`DIGEST_TZ`, then `TZ`, then UTC), and
+a span may cross midnight. Both are checked before anything is written.
+Quiet hours are off while either value is empty or unreadable; the alerter
+logs a warning. Turning them off sends what was held on the next cycle.
+MCP `list_alert_state` shows what is waiting (`held`: how many, since when,
+until when), so an assistant asked at 4 a.m. does not answer "all quiet".
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `QUIET_FROM` | *(unset)* | `HH:MM` when quiet hours begin |
+| `QUIET_UNTIL` | *(unset)* | `HH:MM` when they end and the held message goes out |
+
+### Tested against October
+
+`shared/modules/alerter/tests/test_october.py` rebuilds the audited facts as
+the measurements the Pi wrote -- loss per 300 s step, the 10 s first-hop
+probe, the Wi-Fi exporter's deaf samples, `host_uplink`'s route changes, the
+watchdog's events -- and replays them minute by minute through the real
+cycle, asserting the exact messages:
+
+| Day | What happened | Before | Now |
+|---|---|---|---|
+| 10-09 21:21 | The Pi lost its default route for 30 s | a microcut alert, "the line to the ISP", and its recovery | nothing; recorded, *this Pi* |
+| 10-11 03:40-14:35 | Radio deaf 11 h | outage, uplink_down, re-notifications, recoveries | one silent *Could not measure* at 14:35 |
+| 10-12 10:10-16:00 | Radio deaf 5 h 40 min, the exporter stalled, a reconnection cut | three outages, exporter_stale, two recoveries, a microcut "just that site" | one silent *Could not measure* |
+| 10-14 | Netflix_5 10 min; UBA 10 + 15 min | four `high_loss` alerts and recoveries | nothing; recorded, *just that site* |
+| 10-15 12:35 | A real 40 s cut of the line, 12 destinations | a microcut alert and its recovery | nothing; recorded as a line microcut, *your line* |
+| 10-18, 10-28 | Deaf 15-20 min, the watchdog reloaded the driver | four to six messages each | one silent *Could not measure* each |
+| 10-06 19:30-23:00 | Most destinations losing 2-8 %, the first hop clean | nothing (no rule saw it) | *Internet degraded* at 19:45, *your provider, beyond the modem*; a silent *Over* after 23:00 with 3h 30m |
+| invented | The line down 20 min | | *Internet down* at 15 min; a silent *Over* with 20 min |
+
+## Signals: the rules
+
+Every rule below finds something in the last minutes of measurements and
+produces a **signal**: its kind, the targets, the span its evidence covers
+(``start``-``end``), and its reading. A signal is never a message of its
+own; it joins the open episode. The detection of each is unchanged by front
+8, except that `outage` has one key whatever its age (it used to be keyed
+per 5-minute bucket, and one cut became three outages) and `degradation` is
+new.
+
 
 | Rule | Severity | Condition | Tunables (default) |
 |------|----------|-----------|--------------------|
 | `uplink_down` | critical | Most targets (`WIDESPREAD_PCT` of those reporting) at 100% loss in each of the latest 3 probe cycles, consecutive in time (one absent cycle tolerated), and the first hop (the ISP gateway, category `cpe`) lost too — the monitor's own uplink is gone. With no first-hop measurement it says the two cannot be told apart. The first hop never counts in the breadth: it is evidence, not a destination. ONE incident; the per-target ones it would fan out into are not sent | `WIDESPREAD_PCT` (80 %), `DOWN_WINDOW` |
 | `internet_down` | critical | The same total loss while the first hop **answers**: the Internet beyond the house is down, not this host or the line. Before, this read "this host's uplink is down". Verdict `isp_upstream` | as `uplink_down` |
 | `monitor_dns` | critical | Every named destination at 100% for the same 3 cycles while the first hop and the DNS resolvers queried by address (`dns_latency`) answer: this host cannot resolve names (its own DNS; 2026-08: a frozen `resolv.conf`), the network is fine. Verdict `monitoring` | as `uplink_down` |
-| `outage` | warning | A run of probe cycles in which most targets lost at least `WIDESPREAD_LOSS_PCT` at once — a brief cut of the link that had ended by the time it was seen. ONE incident per run, keyed by its first cycle — and by the first cycle of the outage it continues once that has slid out of the window, so a long one is still one incident; *transient*: it leaves the window on its own and no recovery notice follows. The tail of an `uplink_down` (lost cycles still in the window after the uplink returned) is not an outage: it suppresses the per-target incidents and is never sent | `WIDESPREAD_PCT` (80 %), `WIDESPREAD_LOSS_PCT` (30 %) |
+| `outage` | warning | A run of probe cycles in which most targets lost at least `WIDESPREAD_LOSS_PCT` at once. One key, `outage`, with `since` its first cycle -- and the first cycle of the outage it continues once that has slid out of the window, so a long one keeps its start. An older run still in the window rides *quiet*, as does the tail of an `uplink_down` (lost cycles still in the window after the uplink returned): both keep the episode's evidence and suppress the per-target signals | `WIDESPREAD_PCT` (80 %), `WIDESPREAD_LOSS_PCT` (30 %) |
+| `degradation` | warning | New in front 8: the newest probe cycle (or the one before) lost something on `MATERIAL_BREADTH_PCT` (30 %) of the reporting destinations, or on half of the destinations of `MATERIAL_MIN_CATEGORIES` (2) categories, with a mean loss over every reporting destination of at least `MATERIAL_LOSS_PCT` (5 %). A provider dropping 2-8 % on most destinations every evening reaches neither `high_loss` (one target over 20 %) nor `outage` (most over 30 % in one cycle), and was never reported (the reference Pi, 30/08-06/10/2026, 19:30-23:00). Not while anything widespread is active | the material thresholds below (constants) |
 | `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points. Not sent while anything widespread is active | `DOWN_WINDOW` (1200 s) |
 | `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold **and** the loss persisted: at least `HIGH_LOSS_MIN_POINTS` probe cycles that lost two or more pings (see [Probe cadence](#probe-cadence)) within the same 15 minutes the mean covers. Targets already down are excluded; not sent while anything widespread is active | `HIGH_LOSS_PCT` (20 %), `HIGH_LOSS_MIN_POINTS` (2) |
 | `microcut_burst` | warning | Per target+protocol in `cpe_latency`, over the last 60 min: a **confirmed cut** — a run of two or more consecutive 10 s windows above `MICROCUT_LOSS_PCT`, or one window at 100% — or `MICROCUT_BURST_N` **possible cuts** (isolated single windows at 51–99%). The message names the cut and its duration (*"1 cut of 2 min 40 s (6 windows, all at 100%)"*). Definitions in `common/microcuts.py`, shared with the MCP tool, the weekly summary and the AI report | `MICROCUT_BURST_N` (3), `MICROCUT_LOSS_PCT` (50 %) |
 | `exporter_stale` | critical | Zero `latency` points written in the last window (global — the RRD exporter is probably stalled). Not while the bucket holds no latency point at all: a new install has none before its first step, and has not stalled. An incident already open stays open | `STALE_WINDOW` (1200 s) |
-| `measurement_stale` | warning | One of the other writers stopped: no `dns_latency`, `http_latency`, `tcp_latency`, `cpe_latency` (gateway microcut probe) or `wifi_link` point in the window (or in four of that measurement's own steps, when longer), though it wrote within the last 24 hours. A host that never had one (wired: no `wifi_link`) is not expected to. Not while `exporter_stale` is open: that is one stall, one message. A writer silent for more than 24 hours is taken as removed on purpose (an Ethernet uplink, a disabled probe) and the incident is retired without a recovery; mute it to stop it sooner. Without it, a stopped microcut probe or Wi-Fi exporter silently took the evidence the verdict and diagnosis read | `STALE_WINDOW` (1200 s) |
-| `influx_unreadable` | critical | The alerter could not read InfluxDB for five minutes: no rule ran, so the absence of alerts means nothing. Every other open incident is held as it was (neither recovered nor re-sent, its grace period restarted) until the database answers again; it counts as readable after three good cycles in a row, so a database failing every other cycle still alerts. For one stale window after that, a new `exporter_stale` or `measurement_stale` is not raised: the writers could not write meanwhile. The weekly summary, the AI reports and the incident history are skipped while blind (each reads InfluxDB). Before, each failed cycle only went to the log | — |
-| `evaluation_failed` | critical | The same blindness from a bug in the alerter's own rules rather than the database (any exception that is not a connection or InfluxDB client error): no rule ran. Held and counted as `influx_unreadable` is; the traceback is in the alerter's log | — |
-| `watchdog` | info / warning | What `smoking-pi watchdog` did on the host, read from `watchdog_event` in InfluxDB: a driver reload, a reboot, a SmokePing restart, the network back (info); an action it could not take or a SmokePing crash loop (warning). Each event once, never a recovery; the first look after an upgrade skips older ones. See [watchdog.md](watchdog.md) | — |
+| `measurement_stale` | warning | One of the other writers stopped: no `dns_latency`, `http_latency`, `tcp_latency`, `cpe_latency` (gateway microcut probe) or `wifi_link` point in the window (or in four of that measurement's own steps, when longer), though it wrote within the last 24 hours. A host that never had one (wired: no `wifi_link`) is not expected to. Not while `exporter_stale` is open: that is one stall, one message. A writer silent for more than 24 hours is taken as removed on purpose (an Ethernet uplink, a disabled probe) and the incident is retired without a recovery; mute it to stop it sooner. Without it, a stopped microcut probe or Wi-Fi exporter silently took the evidence the diagnosis reads | `STALE_WINDOW` (1200 s) |
+| `influx_unreadable` | critical | The alerter could not read InfluxDB for five minutes: no rule ran. The whole unreadable spell is a `database` blind span of the episode, and every open signal record is held as it was until the database answers again; it counts as readable after three good cycles in a row. For one stale window after that, a new `exporter_stale` or `measurement_stale` is not raised: the writers could not write meanwhile. The weekly summary, the AI reports and the incident history are skipped while blind (each reads InfluxDB). The dead-man check-in reports it outside at once | — |
+| `evaluation_failed` | critical | The same blindness from a bug in the alerter's own rules rather than the database (any exception that is not a connection or InfluxDB client error). Treated as `influx_unreadable` is; the traceback is in the alerter's log | — |
+| `watchdog` | info / warning | What `smoking-pi watchdog` did on the host, read from `watchdog_event` in InfluxDB: a driver reload, a reboot, a SmokePing restart (an *action*: one probe cycle after it is a `watchdog` blind span), the network back (info); an action it could not take or a SmokePing crash loop (warning). Each event once; the first look after an upgrade skips older ones. See [watchdog.md](watchdog.md) | — |
 | `ipv6_down` | warning | Every IPv6 target (name ends in `6`, or an `fping6`-ish category) at 100% loss for 15 min while at least one IPv4 target is healthy; emits ONE aggregate incident | — |
 
 Loss semantics match the exporters: `latency`/`dns_latency` loss is a 0-1
@@ -50,8 +251,8 @@ Every target went to 100% including the LAN gateway, and the alerter sent 18
 cooldown: about 110 messages for one fact. A 3-minute blink on 2026-09-19 did
 the same in miniature — every target got one bad cycle, every 15-minute mean
 cleared 20%, and 18 warnings plus 18 recoveries went out for a link that
-blinked. Both shapes are now one incident, and its verdict line says what it
-is (see `monitor_uplink` below). The evidence and the numbers behind the
+blinked. Both shapes became one incident, and since front 8 one episode.
+The evidence and the numbers behind the
 thresholds are in [detection-reliability.md](detection-reliability.md).
 
 **Which targets count in the breadth.** Every ICMP and DNS resolver target
@@ -59,7 +260,7 @@ counts and can also alert on its own. The HTTP and TCP probes and the DNS
 wizard's adopted services (every protocol) count in the breadth only: they
 never raise a `target_down` or `high_loss`, but they are in the share that
 makes `outage`, `uplink_down`, `internet_down` and `monitor_dns`, and in
-the verdict's count. Before, the breadth was the ICMP and resolver targets
+the diagnosis's count. Before, the breadth was the ICMP and resolver targets
 alone, 19 of 247 on the reference Pi, so a handful of sites losing packets
 read as "the link". A breadth-only target counts in a window only when at
 least half of its points in that window were clean (under one and a half
@@ -97,53 +298,30 @@ class and every per-target list are the ICMP and resolver targets. A cut of
 the web services alone, every ping answering, is an incident with no
 `targets`.
 
-## Incident lifecycle
+## Signal bookkeeping
 
 State lives in a JSON file (`ALERT_STATE_FILE`, default
 `/var/lib/alerter/state.json` on the `alerter-state` volume; falls back to
-`/tmp/alerter-state.json` if unwritable). Writes are atomic.
+`/tmp/alerter-state.json` if unwritable). Writes are atomic. Besides the
+episodes, it keeps one record per active signal key (`incidents`), which
+the rules read back between cycles and `list_alert_state` shows. None of
+this notifies (`state.track`):
 
-- **First seen** → notification fires immediately.
-- **Still active** → silent until `ALERT_COOLDOWN` (default 3600 s) has
-  elapsed since the last notification, then re-notifies.
-- **Cleared** → a single recovery notice (only if the incident ever fired).
-  A *transient* incident (`outage`) is dropped silently instead: it
-  describes a cut that had already ended when it was reported, and
-  "recovered — was down 20 min" would be false twice over.
-- **"Was down N min"** runs from the first alert to the first cycle the
-  rule no longer fired. The `ALERT_RESOLVE_AFTER` wait before the notice is
-  not counted. It is said only by the rules where nothing answered
-  (`target_down`, `uplink_down`, `internet_down`, `monitor_dns`,
-  `ipv6_down`, `exporter_stale`): they need
-  every cycle in their window lost, so they clear on the first good one.
-  They also fire only after their window has filled, so the figure can
-  undercount by that window (20 minutes for `target_down`); it never
-  overcounts.
-- `microcut_burst` and `high_loss` recoveries give no duration. They keep
-  firing while the event is inside their window (any cut in 60 minutes; a
-  15-minute mean), so the alert's open time would make a 2-minute cut read
-  as an hour. Their message already says what was measured.
-
-- **No data is not a recovery.** An incident about a target that no longer
-  has enough points to judge (three in the down window) is *held*: neither
-  missing nor recovered, whatever the reason — a stalled probe, the
-  exporter itself (`exporter_stale`), a renamed or removed target. Its
-  recovery comes once data shows it answering. `uplink_down`,
-  `internet_down`, `monitor_dns` and `outage` are held when no target has
-  data at all. The three total-loss incidents are one at a time: when the
-  reading changes mid-outage (the gateway reboots, or comes back before
-  the ISP does), the new one supersedes the old without a "recovered", and
-  is sent as news. After 24 hours with no data the
-  incident is dropped without a notice. `list_alert_state` shows a held
-  incident's `no_data_since`.
-- **Worse replaces milder.** A target that goes down usually crossed
-  `high_loss` two cycles earlier. `target_down` *supersedes* that warning:
-  it is retired without a recovery, and `high_loss` stays off for the
-  target until the `target_down` record is gone. One problem reads warning,
-  critical, recovered.
-
-Per incident the state tracks `first_seen`, `last_seen`, `last_notified`,
-`notified_count`, and while it applies `missing_since` or `held_since`.
+- **First seen** → recorded (`first_seen`, `last_seen`).
+- **Gone** → a grace period (`missing_since`); dropped after
+  `ALERT_RESOLVE_AFTER`. Reappearing inside it is the same signal.
+- **No data is not an end.** A record about a target that no longer has
+  enough points to judge (three in the down window) is *held*
+  (`held_since`): a stalled probe, the exporter itself, a renamed or
+  removed target. `uplink_down`, `internet_down`, `monitor_dns` and
+  `outage` are held when no target has data at all. Dropped after 24 hours
+  with no data.
+- **Worse replaces milder.** `target_down` *supersedes* the `high_loss` it
+  grew out of, and the three total-loss signals supersede one another when
+  the reading changes mid-outage (the gateway reboots, or comes back before
+  the ISP does).
+- **Quiet** signals (an older outage run, the tail of an `uplink_down`) are
+  never recorded; a tail keeps the record it continues from ending.
 
 ## Notifier modes (`NOTIFY_MODE`)
 
@@ -185,10 +363,11 @@ arriving is the only proof. `--webhook` (the URL typed at a prompt or piped on s
 the credential itself) and `--off` work the same way.
 Run it with no options to be asked.
 
-Messages carry a severity headline (🔴 critical, 🟡 warning, ✅ recovery), the
-verdict line, the numbers, a breadth recap, deep links, and a mute hint —
-composed to fit the channel's budget. See [The verdict](#the-verdict-is-it-me-or-the-internet)
-and [Message rendering](#message-rendering) below.
+Messages are an episode's: a head (🔴 Internet down, 🟡 Internet degraded,
+✅ Over, 🛠 Could not measure), then its cause, range, scope and signals --
+composed to fit the channel's budget. See [One episode, one
+message](#one-episode-one-message) and [Message rendering](#message-rendering)
+below.
 
 ### `off` (default)
 
@@ -314,17 +493,20 @@ POSTs JSON to `ALERT_WEBHOOK_URL`, optionally with
 ```json
 {
   "type": "alert",
-  "rule": "high_loss",
+  "rule": "episode",
+  "kind": "degradation",
   "severity": "warning",
-  "target": "<target>",
-  "message": "🟡 <b>warning</b> — <target>\n🎯 Just that site — 1 of 16 ...",
-  "state": {"first_seen": 0, "last_seen": 0, "last_notified": 0, "notified_count": 1},
+  "target": null,
+  "message": "🟡 <b>Internet degraded</b>\nCause: your provider, beyond the modem ...",
+  "episode": {"key": "episode:12", "class": "upstream", "cause": "...",
+              "confidence": "high", "start": 0, "end": 0, "material": true},
+  "state": {"first_seen": 0, "notified_count": 1},
   "ts": "2026-01-01T00:00:00+00:00"
 }
 ```
 
-`type` is `alert`, `recovery`, `report`, `weekly`, `held`, or `undelivered` (see
-below).
+`type` is `alert`, `recovery`, `report`, `weekly`, `held` or `undelivered`
+(see below); `kind` and `episode` come with an episode's message.
 
 Delivery (both HTTP modes): 10 s timeout. The webhook gets 3 attempts with
 exponential backoff; the OpenClaw gateway gets one request per message, and
@@ -414,48 +596,6 @@ stays in UTC.
 sudo smoking-pi alerts --digest-tz America/Chicago
 ```
 
-### Quiet hours
-
-Between `QUIET_FROM` and `QUIET_UNTIL`, per-target alerts, brief outages,
-microcuts, recoveries and the watchdog's actions are held instead of sent.
-When quiet hours end, everything held goes out as **one message**, type
-`held`, without a notification sound: what is open now, then each
-incident once, when it started and whether it recovered. It is the
-outbox's summary, with times in `DIGEST_TZ` like every other message
-(see [Times in messages](#times-in-messages)).
-
-Never held, because they are worth waking up for or because without them
-a quiet night proves nothing:
-- a total loss: `uplink_down`, `internet_down`, `monitor_dns`;
-- the monitor going blind or deaf: `influx_unreadable`,
-  `evaluation_failed`, `exporter_stale`, `measurement_stale`.
-
-A `target_down` is held. The outbox is not held either: a notification
-already late because delivery failed goes as soon as it can. When the
-summary itself cannot be delivered, the outbox keeps it, and an outbox
-summary lists the held incidents, not the summary.
-
-```bash
-sudo smoking-pi alerts --quiet 23:00-07:00
-sudo smoking-pi alerts --quiet off
-```
-
-The times are in `DIGEST_TZ` (then `TZ`, then UTC), the zone of every message, and
-a span may cross midnight. Both are checked before anything is written.
-Quiet hours are off while either value is empty or unreadable; the alerter
-logs a warning and sends everything as it happens. Turning them off sends
-what was held on the next cycle. A held notification's `delivery` is
-`held`, and MCP `list_alert_state` shows
-what is waiting (`held`: how many, since when, until when, which
-incidents), so an assistant asked at 4 a.m. does not answer "all quiet".
-A crash between sending the summary and saving the state sends it again
-on restart, the same limit as the outbox's.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `QUIET_FROM` | *(unset)* | `HH:MM` when quiet hours begin |
-| `QUIET_UNTIL` | *(unset)* | `HH:MM` when they end and the held message goes out |
-
 ### When this host goes silent: the dead man's switch
 
 Every alert comes from the host being watched. When it hangs, loses power
@@ -528,11 +668,10 @@ missing reports directory is skipped quietly.
 | `ALERT_WEBHOOK_URL` | — | Generic webhook endpoint |
 | `ALERT_WEBHOOK_TOKEN` | — | Optional bearer token for the webhook |
 | `ALERT_INTERVAL` | `60` | Seconds between evaluations |
-| `ALERT_COOLDOWN` | `3600` | Seconds before re-notifying an active incident |
-| `ALERT_RESOLVE_AFTER` | `900` | Seconds an incident must be absent before a recovery notice fires (flap damping). Never less than three steps of the slowest probe |
-| `ALERT_MAX_PER_HOUR` | `6` | Hard ceiling on notifications per incident per rolling hour; `0` disables |
-| `ALERT_STATE_FILE` | `/var/lib/alerter/state.json` | Incident/report state (atomic writes) |
-| `DOWN_WINDOW` | `1200` | `target_down` window (seconds). SmokePing probes on a 300 s step by default and `DOWN_MIN_POINTS` is 3, so this must span **strictly more** than 3 steps — at exactly 3 the rule stops matching whenever jitter costs it one point, and the incident flaps. See [Flap damping](#flap-damping-and-why-the-cooldown-alone-is-not-enough). A probe on a slower step raises it to four of that probe's steps by itself (see [Probe cadence](#probe-cadence)) |
+| `ALERT_RESOLVE_AFTER` | `900` | Seconds without evidence before an episode closes (and its end is told, if it was told at all), and a signal record is dropped. Never less than three steps of the slowest probe |
+| `ALERT_MAX_PER_HOUR` | `6` | Hard ceiling on alerts and updates per rolling hour, across every episode: a blast-radius limit, unreachable when the policy works; `0` disables |
+| `ALERT_STATE_FILE` | `/var/lib/alerter/state.json` | Episodes, signal records, outbox, quiet-hours box (atomic writes) |
+| `DOWN_WINDOW` | `1200` | `target_down` window (seconds). SmokePing probes on a 300 s step by default and `DOWN_MIN_POINTS` is 3, so this must span **strictly more** than 3 steps — at exactly 3 the rule stops matching whenever jitter costs it one point, and the incident flaps. See [Flap damping](#flap-damping). A probe on a slower step raises it to four of that probe's steps by itself (see [Probe cadence](#probe-cadence)) |
 | `STALE_WINDOW` | `1200` | `exporter_stale` window (seconds); same step arithmetic as `DOWN_WINDOW`, raised the same way |
 | `HIGH_LOSS_PCT` | `20` | `high_loss` threshold (percent) |
 | `HIGH_LOSS_MIN_POINTS` | `2` | Probe cycles with two or more lost pings (15% on a 10-ping probe) that `high_loss` needs within the mean's own 15 minutes (the latest three cycles of the down window, so a cycle that aged out of the mean cannot corroborate a new one). One bad cycle can average over `HIGH_LOSS_PCT` on its own, and one cycle is a blink |
@@ -544,20 +683,15 @@ missing reports directory is skipped quietly.
 | `REPORT_DELIVERY_INTERVAL` | `86400` | Min seconds between report deliveries |
 | `REPORT_MAX_CHARS` | `3500` | Truncation limit for a delivered report, **including** the header — it bounds the whole message, since that is what the channel budget applies to |
 | `ALERT_MARKUP` | `html` | `html` (Telegram's parse mode) or `plain` |
-| `ALERT_CHARTS` | `true` | Attach a PNG chart to incident alerts. Charts are optional: `false` sends text only. The chart is never allowed to cost the alert — a render failure falls back to text |
-| `CHART_HOURS` | `6` | Window an incident chart covers |
 | `CHART_THEME` | `light` | `light` or `dark`. A static image cannot follow the reader's theme, so one is chosen. Light is a paper-style figure: white, large type, sized to stay legible on a phone |
 | `CHART_MAX_BYTES` | `700000` | Cap before a chart is dropped rather than shrunk further (must stay inside the gateway's 2 MB invoke body once base64-encoded) |
 | `ALERT_IMAGE_AS_DOCUMENT` | `false` | Send images as documents (a file card to tap open) instead of inline photos. Telegram re-encodes photos as JPEG; the charts are drawn large enough for that, so inline is the default |
 | `ALERT_SILENT` | `false` | Deliver without a notification buzz |
-| `ALERT_DIAGNOSIS_HOURS` | `3` | Hours diagnosed when a loss alert fires; the alert then says what the episode was and how sure (see [The diagnosis](#the-diagnosis-what-the-episode-was-and-how-sure)). `0` turns it off |
+| `ALERT_DIAGNOSIS_HOURS` | `3` | Hours diagnosed when an episode is alerted; its reading rides under the episode's own cause (see [The diagnosis](#the-diagnosis-of-the-last-hours)). `0` turns it off |
 | `INCIDENT_HISTORY_HOURS` | `12` | Window the alerter diagnoses every half hour to write down the loss incidents that are over (see [Incident history](#incident-history)); widened automatically for a longer incident. `0` turns it off |
-| `VERDICT_BROAD_PCT` | `60` | Share of measurable targets impaired before a problem counts as broad |
-| `VERDICT_MIN_TARGETS` | `3` | Below this many measurable targets, breadth means nothing |
-| `VERDICT_IMPAIRED_LOSS_PCT` | `10` | Mean loss percent at which a target counts as impaired |
-| `VERDICT_STALE_DOWN_HOURS` | `6` | A target at 100% for longer than this is treated as a host that never answered ICMP, and excluded from breadth |
-| `WIFI_WEAK_DBM` | `-75` | Wi-Fi uplink signal below which a sample counts as weak (also what `get_wifi_stats` reports against) |
-| `WIFI_WEAK_SAMPLES` | `6` | Weak samples in the hour before a cutting first hop is called `wifi` rather than `local_link`; rescale with `WIFI_SAMPLE_INTERVAL` |
+| `VERDICT_BROAD_PCT` | `60` | Share of destinations at which the diagnosis (`diagnose_loss`, the incident history) calls damage broad. Materiality has its own fixed thresholds |
+| `WIFI_WEAK_DBM` | `-75` | Wi-Fi uplink signal below which a sample counts as weak (the diagnosis; also what `get_wifi_stats` reports against) |
+| `WIFI_WEAK_SAMPLES` | `6` | Weak samples before a cutting first hop is called the Wi-Fi in the diagnosis; rescale with `WIFI_SAMPLE_INTERVAL` |
 | `ALERT_MUTES_FILE` | `/var/lib/alerter-mutes/mutes.json` | Suppression windows. **Written by mcp-server, read-only here** — see [Muting](#muting-alerts-without-losing-them) |
 | `INFLUX_URL` | `http://localhost:8086` | InfluxDB (host network namespace) |
 | `INFLUX_TOKEN` / `INFLUX_ORG` / `INFLUX_BUCKET` | — / `smokeping` / `smokeping` | InfluxDB auth/scope |
@@ -565,125 +699,29 @@ missing reports directory is skipped quietly.
 All keys ship EMPTY in `editions/pro/.env.template`; nothing
 machine-specific is baked into the images or compose files.
 
-## The verdict: is it me or the internet?
+## The verdict, retired
 
-Every alert carries one line that answers the question the alert actually
-raises. `amazon: mean loss 22.4% over 15m` tells you something happened;
-`🌐 Not you — 12 of 16 destinations affected but your local link is clean`
-tells you what to do about it.
+Until front 8 every alert carried a *verdict* line (`verdict.py`: "Not you
+-- 12 of 16 destinations affected but your local link is clean"), computed
+per message from the last 15 minutes. It is gone with the per-rule
+messages: an episode has one cause, from `classify_episode`, over the whole
+of its heard minutes. `VERDICT_MIN_TARGETS`, `VERDICT_IMPAIRED_LOSS_PCT`
+and `VERDICT_STALE_DOWN_HOURS` went with it; a value left in an env file is
+ignored.
 
-It is deterministic and cheap. Most of what it needs is already fetched by
-the rules: the mean-loss row for every target (breadth), the CPE microcut
-counts (the local link), and exporter liveness. On top of those come four
-small aggregates over `wifi_link` and one query for the last hour's uplink
-changes (`host_uplink`), which returns nothing on a quiet day. That matters on
-a Pi that has already hit its thermal limit.
+### The diagnosis of the last hours
 
-Scopes, in precedence order — the first match wins:
+When an episode is alerted (the Internet down or degraded), the alerter
+also diagnoses the last `ALERT_DIAGNOSIS_HOURS` (default 3) exactly as the
+assistants' `diagnose_loss` tool does (`common/diagnosis_query.py`), and
+attaches the newest incident of a broad class -- this host's Wi-Fi, the
+line, upstream -- from the last four probe steps. At high or medium
+confidence its summary rides under the episode as one line (*Diagnosis of
+the last hours: …*); it never replaces the episode's cause.
 
-| Scope | Meaning |
-|---|---|
-| `monitoring` | `exporter_stale` or `monitor_dns` fired. **Outranks everything unconditionally**: announcing a network fault from an *absence* of data is the worst thing this can do |
-| `monitor_uplink` | `uplink_down` fired: every destination including the first hop is unreachable from this host, so nothing beyond it can be judged. Named as precisely as `wifi_link` allows — *"still associated at −49 dBm but it has received nothing for the whole window: the radio is hung, not the network"* when the packets-received counter did not move; *"the link dropped N times"* on a carrier drop; the generic line on a wired host |
-| `wifi` | The first hop is dropping *and* the host's own Wi-Fi uplink was weak or dropped in the same hour (no breadth requirement — a dropped uplink takes everything with it). Only on a host whose default route is wireless; see [wifi.md](wifi.md) |
-| `local_link` | Broad impairment *and* the first hop is dropping |
-| `isp_upstream` | Broad impairment with a clean first hop |
-| `ipv6` | Every impaired target is IPv6 while IPv4 is healthy |
-| `dns` | Every impaired target is a resolver |
-| `remote_target` | One or two impaired, peers in the same category fine |
-| `unclear` | States the numbers and claims nothing |
-
-**An uplink change in the last hour is named, whatever the scope.** When
-the host's default route moved in the hour before the alert (a cable
-plugged in, Wi-Fi back after a drop, the route lost), the line gets one more
-sentence, e.g. *"Also: this host's uplink moved from wlan0 to eth0 (wired) at
-14:02, so the measurements before and after crossed different links."* With
-several changes it names the newest and counts the rest. The scope itself
-does not change: the change explains a step, not whether the network is
-broken. See [When the uplink changes](wifi.md#when-the-uplink-changes).
-
-Three deliberate properties:
-
-- **One weak Wi-Fi sample cannot trigger `wifi`.** The evaluator counts
-  samples below `WIFI_WEAK_DBM` (−75) over the hour, and the verdict needs
-  `WIFI_WEAK_SAMPLES` (6 — a minute's worth at the collector's 10 s
-  interval, anywhere in the window) or a carrier drop. A spare radio that is
-  not the default route is reported in the verdict's `wifi` block but never
-  acted on. When the Wi-Fi was fine, every other line is byte-identical to a
-  wired host's, and the alert's context line carries `wi-fi min −54 dBm` so
-  a reader can see it was checked.
-
-- **The CPE floor cannot trigger `local_link`.** The gateway rate-limits ICMP,
-  so `cpe_latency` sits at a permanent single-digit loss floor (observed p50
-  10%, p99 30%) with nothing wrong. The verdict reads `micro_rows`, which only
-  ever contains windows above `MICROCUT_LOSS_PCT` (50%) — the floor is
-  invisible to it by construction. Never feed raw CPE loss in here.
-- **Hosts that never answer ICMP are excluded from breadth.** Bare
-  `amazon.com` does not respond and charts a permanent flat 100%. Counting
-  such targets turns one slow site into an ISP outage — with six of them and
-  one genuinely slow site, 7 of 10 looks broad. Anything at 100% whose
-  `target_down` incident is older than `VERDICT_STALE_DOWN_HOURS` is dropped
-  from both the numerator and the denominator.
-
-Every verdict logs its own inputs at INFO (`verdict inputs: 12/16 impaired
-(75.0%), cpe_cutting=…, excluded_chronic=…, wifi=wlan0 min -54.0 dBm, 0 weak,
-0 drops`), so a verdict you disagree with
-can be diagnosed from `docker compose logs alerter` without reproducing the
-moment it was made.
-
-### The diagnosis: what the episode was, and how sure
-
-When a loss alert fires (`target_down`, `high_loss`, `microcut_burst`,
-`outage`, `uplink_down`, `internet_down`, `ipv6_down`), the alerter
-diagnoses the last
-`ALERT_DIAGNOSIS_HOURS` (default 3) exactly as the assistants'
-`diagnose_loss` tool does. Both use one code path,
-`common/diagnosis_query.py`. The alert then carries the incident that covers
-it, from the last four probe steps, or nothing. Attaching the wrong one is
-worse than attaching none, so the match is strict:
-
-- An alert about a target gets only an incident that names that target's
-  site (`google_h2` finds `google`), never another target's.
-- `microcut_burst` (the first hop) gets a cut on the line or this host's
-  deaf radio.
-- `ipv6_down` gets only an incident that was IPv6 alone.
-- `outage`, `uplink_down` and `internet_down` get the newest incident on
-  this host's Wi-Fi, the line, or upstream. `monitor_dns` gets only a
-  `monitor` incident (the same reading), never another cause.
-
-The diagnosis sees more than the verdict: the first hop's loss against its
-usual level, whether this host's radio was deaf, and the TCP/HTTP siblings.
-It also says how sure it is. So when it is **high or medium confidence** it
-replaces the verdict line, and the evidence follows the numbers:
-
-```text
-🔴 critical — google
-📶 This host's own Wi-Fi, not the line: the monitor could not hear, so nothing beyond it can be judged for that span. The radio was associated but received nothing (or not associated): the monitor was deaf. (high confidence)
-google: 100% loss across all 4 probes
-Why: this host's Wi-Fi heard nothing for 312 s (deaf); the first-hop probe lost everything for exactly that span.
-target_down
-mute: say "mute google for 2h"
-```
-
-(Rendered with `ALERT_MARKUP=plain` and no links configured.)
-
-The context line drops the verdict's own reading of the line, which would
-otherwise contradict the diagnosis. A count such as `12 of 16 affected`
-appears there only under `outage` and the total-loss rules, and it is the rule's
-own: the targets that lost packets in the cut, out of those reporting.
-
-At **low confidence**, for an `unclear` incident, or with no incident to
-match, the verdict line stays and nothing is added. When no measurements
-are arriving, the verdict's "the monitor, not the network" always wins.
-
-**Cost:** about ten InfluxDB queries over three hours. They run only when an
-alert is being sent, once per evaluation however many alerts fire, and never
-on a quiet minute. They get **20 seconds**: the alerts are sent after them,
-and on a struggling Pi a single query can take a minute to time out, which
-is exactly when an outage alert matters. Past the budget, or on any
-failure, the alerts go out with the verdict alone, and a diagnosis still
-running is not started again. `ALERT_DIAGNOSIS_HOURS=0` turns the diagnosis
-off.
+**Cost:** about ten InfluxDB queries over three hours, only for an alert
+(a handful a month), within **20 seconds**; past that, or on any failure,
+the alert goes without it. `ALERT_DIAGNOSIS_HOURS=0` turns it off.
 
 ### Incident history
 
@@ -724,16 +762,18 @@ be rebuilt from the OpenClaw gateway's own message cache. Now every
 notification the alerter decides on is one entry in a ledger, kept 30 days.
 
 - **What an entry holds.** An `id`; the incident or alert `key`; the
-  `kind` (`alert`, `recovery`, `monitor` — the alerter blind or the
-  measurements stopped —, `watchdog`, `outbox_summary`, `quiet_bundle`,
-  `weekly`, `report`; `digest` on entries from before the weekly replaced it); the `rule`, `severity` and the `targets` it named; the
+  `kind` (`alert`, `update`, `recovery`, `monitor` — the monitor blind
+  for 15 minutes or more —, `episode` — an episode that closed with nothing
+  pushed, recorded with why —, `watchdog`, `outbox_summary`,
+  `quiet_bundle`, `weekly`, `report`; `digest` on entries from before the
+  weekly replaced it); the `rule`, `severity` and the `targets` it named; the
   `text` exactly as handed to the transport (with its markup: HTML unless
   `ALERT_MARKUP` says otherwise; one that was held or queued, as it would
   have read); the `outcome` — `sent`, `handed` (the OpenClaw gateway has
   it and delivers it from its own queue), `queued` (joined the outbox
   without a try), `held` (quiet hours), `failed` (tried and not delivered:
   it waits in the outbox), `skipped-duplicate` (already said, so
-  [*Said once*](#said-once-what-delivery-guarantees) kept it from being handed over again) — with the transport's `message_id` when it gives one
+  [*Said once*](#said-once-what-delivery-guarantees) kept it from being handed over again), `recorded` (the push policy decided not to send it) — with the transport's `message_id` when it gives one
   (Telegram does); when it was `decided` and `delivered`; and the
   diagnosis `class` and `cause` when the alert carried one.
 - **Later deliveries.** When the outbox or the end of quiet hours sends one
@@ -871,12 +911,12 @@ its state (`weekly.last_skipped`):
 INFO alerter.weekly: Weekly for 26 Oct – 1 Nov not sent: no material episode, no recurring window, the monitor measured 100.0 % of the week
 ```
 
-**Material** is defined once, in `common/definitions.py` (`MATERIAL_*`),
-for every reader:
+**Material** is the alerter's own gate, `common/definitions.material()`
+(see [What is material](#what-is-material)), for every reader:
 
 | What | Bar |
 |---|---|
-| Breadth | ≥ 30 % of the reporting destinations, or destinations in ≥ 2 categories; never with fewer than 3 reporting |
+| Breadth | ≥ 30 % of the reporting destinations, or ≥ 2 categories each with half its destinations; never with fewer than 3 reporting |
 | Duration | ≥ 15 min (three 5-minute cycles), counted outside the monitor's deaf spans, the upgrades and the watchdog's actions |
 | Size | mean loss ≥ 5 % over the episode's destinations, or, for a slowdown, median latency ≥ 2× the same hours a week before |
 | The monitor | measured < 99 % of the week |
@@ -913,9 +953,14 @@ recorded as fired **without sending**. Both DST transitions are covered by
 tests. At most 3 tries per slot (reading the week, then delivering it), 30
 minutes apart, then it waits for the next week.
 
-The episodes come from the [incident history](#incident-history), which
-the alerter writes every half hour: with `INCIDENT_HISTORY_HOURS=0` the
-weekly sees no episode at all, only the monitor's availability and the
+The episodes are the alerter's own ([One episode, one
+message](#one-episode-one-message)): the ones it pushed or recorded in the
+week, already judged, the monitor's blind spans already subtracted; a
+`monitor` episode counts against the monitor's availability. For a week the
+alerter's record does not cover whole (the first week after an upgrade, a
+lost state file), the [incident history](#incident-history) stands in,
+judged by the same gate: with `INCIDENT_HISTORY_HOURS=0` too, the weekly
+sees no episode at all, only the monitor's availability and the
 inference's windows. Recurring windows count only episodes the destinations
 shared (the breadth bar); one flaky site at the same hour every evening is
 that site's, in *Destinations*.
@@ -927,10 +972,11 @@ message, **1024 for a caption** on a message carrying an image — so a chart
 costs three quarters of the room.
 
 Rather than truncate, sections are dropped by priority until the message fits,
-so what survives is always the headline, the verdict and the numbers. Drop
-order is the mute hint, then the breadth recap (the verdict line already gives
-that number), then the links — links last, because a static image caption
-cannot be explored and the link is the way out of it. Only if the headline
+so what survives is always the head, the cause and the range. An episode's
+message (`templates.episode_sections`) is its head in bold, then `Cause:`,
+`Range:` and `Scope:` (never dropped), then `Signals:` and the diagnosis
+line, then the links -- links last among what can go, because the link is
+the way out of a static caption. Only if the headline
 alone still overflows is text trimmed, and then on a line boundary: an HTML tag
 cut in half makes Telegram reject the whole message with a 400, which
 `/tools/invoke` reports as HTTP 200 with `{"ok": false}`.
@@ -940,8 +986,10 @@ Every interpolated value is escaped. Target names are user-editable, and
 
 ### The chart
 
-An incident alert carries a chart of the last `CHART_HOURS` (6) of the
-target, drawn to be read in a chat on a phone and sent as an inline photo:
+The chart below is the one `get_chart` draws (episode messages carry none
+for now; `ALERT_CHARTS` and `CHART_HOURS` went with the alert charts and the
+daily digest). It covers the last hours of a target, drawn to be read in a
+chat on a phone and sent as an inline photo:
 
 ![An incident chart for one target: latency triples and loss rises above the 20% threshold where the alert is marked](img/chart-alert.png)
 
@@ -1005,8 +1053,9 @@ cd editions/pro      # from a clone
 COMPOSE_PROFILES=alerts docker compose run --rm alerter python main.py --once
 ```
 
-With `NOTIFY_MODE=off` this prints the active incidents without sending
-anything — a safe dry run. Unit tests live in
+With `NOTIFY_MODE=off` this logs the active signals and the episode without
+sending anything -- a safe dry run. `tests/test_october.py` replays the
+audited month through the whole cycle. Unit tests live in
 `shared/modules/alerter/tests/` and run in CI (module auto-discovery):
 
 ```bash
@@ -1018,9 +1067,11 @@ pytest -q
 
 ## Muting alerts without losing them
 
-Mutes suppress the *sending* of a notification. Incidents are still evaluated,
-still recorded, still counted, and still shown by `list_alert_state` — the only thing
-that changes is whether a phone buzzes.
+A mute keeps a **signal** out of every episode (`mute amazon for 2h`: its
+loss neither opens nor extends one), or, by its key `episode:<id>`, keeps
+one **episode** unsaid -- no alert, update or end message -- while it is
+still recorded. The rules still evaluate, and `list_alert_state` still shows
+the muted signal.
 
 Control is natural language onto MCP tools rather than buttons on a message:
 `mute_alerts`, `unmute_alerts`, `ack_incident`, `list_alert_state`. Telegram
@@ -1057,15 +1108,13 @@ So every mitigation lives here rather than being left to operator discipline:
 
 - **24-hour cap** (`mutes.MAX_HOURS`). A longer request is clamped, not
   rejected, and the response says what it actually granted.
-- **`list_alert_state` lists active mutes** and how many alerts each has
-  swallowed (`muted_suppressed_count`). The daily digest listed them every
-  morning; with the weekly, the 24-hour cap is what keeps a forgotten mute
-  from lasting.
-- **Recoveries are never muted for an incident that was already announced.**
-  If you were told something broke, you get told when it is fixed.
-- **An incident muted from first sight produces no recovery either**, because
-  `notified_count` stays 0 and the recovery branch gates on it. Announcing the
-  end of something nobody heard about is just noise.
+- **`list_alert_state` lists active mutes**; with the weekly, the 24-hour
+  cap is what keeps a forgotten mute from lasting.
+- **An episode muted from its first message produces no end either.**
+  Announcing the end of something nobody heard about is just noise. One
+  acknowledged after it was told (`ack_incident("episode:<id>")`) says
+  nothing more, its end included; a mute by target or rule keeps that
+  signal out, and the episode's end is still told.
 - **An ack ends when its incident recovers.** `ack_incident` writes the
   time it was made (`created_at`); the alerter, which may not write the
   mutes file, applies it only to an occurrence first seen before then. The
@@ -1075,28 +1124,16 @@ So every mitigation lives here rather than being left to operator discipline:
   never depend on this file being readable; the failure mode has to be noise,
   not silence.
 
-There is deliberately **no catch-up on unmute**: a still-active incident
-re-alerts once on the normal cooldown path, and suppressed alerts are dropped
-rather than queued. A burst of stale notifications on unmute would be its own
-kind of failure.
+There is deliberately **no catch-up on unmute**: what a mute kept out of an
+episode is not replayed into it. A burst of stale notifications on unmute
+would be its own kind of failure.
 
 ### Where the check sits, and why
 
-In `state.reconcile()`, the mute is consulted **after** the cooldown check and
-**after** `_rate_limited()`, and never calls `_record_notification()`. Each
-position matters:
-
-- After the rate limiter, so an alert the ceiling already blocked is not also
-  counted as one the mute suppressed. (This is an accounting guarantee, not a
-  delivery one — either order stops the send.)
-- Before `_record_notification()`, because the budget counts what was actually
-  sent. A muted incident consumes none of it.
-- Inside the incident loop, so `last_seen`, the `missing_since` clearing and
-  the severity refresh still run. Skipping them would leave the incident
-  looking brand new when the mute lifts, sending it down the first-seen path
-  and alerting immediately — reintroducing exactly the flapping described
-  below.
-
+In `episodes.signals`, before a signal can open or extend an episode, with
+the key's `first_seen` from the signal records (so an ack covers the
+occurrence it acknowledged); and in `policy.decide` for an episode key.
+Neither writes the mutes file: the alerter's mount is read-only.
 
 ## Probe cadence
 
@@ -1185,45 +1222,26 @@ On the reference Pi, seven days of loss events came to 843 under both
 rules. The lossy overlay's only difference is the same one: a single lost
 fetch or query out of 5 does not mark a window.
 
-## Flap damping, and why the cooldown alone is not enough
+## Flap damping
 
-`ALERT_COOLDOWN` only suppresses repeats for an incident that stays
-*continuously* active. It does nothing for one that oscillates, because a
-recovery used to delete the incident record outright — so the next appearance
-looked brand new, took the first-seen path, and alerted immediately.
+The per-rule lifecycle this section used to describe -- `ALERT_COOLDOWN`
+re-notifications, a recovery per incident key, a ceiling per key -- is gone
+with front 8: an episode is said once and its end once, so a flapping rule
+can at most keep one episode open longer. What stays from that history:
 
-That is not hypothetical. A `target_down` incident on an unroutable test target
-flapped on a five-minute cycle and sent **48 notifications every two hours**,
-indefinitely, to a real phone. The trigger was `DOWN_WINDOW=900` with
-`DOWN_MIN_POINTS=3` on a 300 s probe step: 900/300 is *exactly* three points, so
-any timing skew produced two, the rule stopped matching, and the incident
-"recovered" — then re-fired one cycle later.
-
-Three changes, at three different layers:
-
-1. **`DOWN_WINDOW` is now 1200 s** — four points where three are required, so
-   one point of slack absorbs the jitter. If you retune either value, keep
-   `DOWN_WINDOW / 300` strictly greater than `DOWN_MIN_POINTS`.
-
-   Raising the constant in `evaluator.py` was not enough on its own:
-   `docker-compose.yml` pinned `DOWN_WINDOW=${DOWN_WINDOW:-900}`, so the
-   deployed container kept getting 900 and the fix did nothing where it
-   mattered. **A compose default silently overrides a module default**, and
-   nothing compared the two. `doctor`'s `check_alerter_env_defaults_match` now
-   does, and fails CI when they disagree — the fix for the fix.
-2. **An incident must be absent for `ALERT_RESOLVE_AFTER` (default 900 s)
-   before it counts as recovered.** Reappearing inside that window is silent:
-   it never recovered, so there is nothing to announce, and the cooldown keeps
-   governing re-alerts. This protects every rule, not just the one that flapped.
-3. **`ALERT_MAX_PER_HOUR` (default 6) is a hard ceiling per incident key**,
-   independent of the lifecycle logic above. It is a blast-radius limit rather
-   than a tuning knob — unreachable in normal operation, and it caps the damage
-   if the lifecycle is ever wrong again.
-
-Layer 1 fixes the specific trigger; layer 2 fixes the class of bug; layer 3
-bounds the cost of the next one. Set `ALERT_MAX_PER_HOUR=0` to disable the
-ceiling if you genuinely want unbounded delivery.
-
-A fully-down target matches `high_loss` before it matches `target_down`, so a
-real outage produces two alerts — one warning, then one critical that
-supersedes it — and one recovery.
+1. **`DOWN_WINDOW` is 1200 s** -- four points where three are required, so
+   one point of slack absorbs the jitter. A `target_down` on an unroutable
+   test target once flapped on a five-minute cycle with `DOWN_WINDOW=900`
+   (exactly three points) and sent 48 notifications every two hours. A
+   compose default silently overrides a module default, so `doctor`'s
+   `check_alerter_env_defaults_match` fails CI when they disagree. If you
+   retune either value, keep `DOWN_WINDOW / 300` strictly greater than
+   `DOWN_MIN_POINTS`.
+2. **An episode closes only after `ALERT_RESOLVE_AFTER` (900 s) without
+   evidence**, and never while the monitor is blind or no destination
+   reports: a signal that drops out on ordinary jitter and returns is the
+   same episode.
+3. **`ALERT_MAX_PER_HOUR` (6) caps alerts and updates per rolling hour
+   across every episode**, independent of the policy above: unreachable
+   when it works, and a bound on the cost if it is ever wrong. `0`
+   disables it.

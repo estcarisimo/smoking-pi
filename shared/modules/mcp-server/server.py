@@ -1914,19 +1914,21 @@ def unmute_alerts(target: str | None = None, rule: str | None = None,
 @logged_tool
 @writes
 def ack_incident(key: str, hours: float = 24) -> dict:
-    """Acknowledge one specific incident: stop re-notifying until it recovers.
+    """Acknowledge one open episode or signal: say nothing more about it.
 
-    Narrower than mute_alerts — this silences exactly one active incident and
-    nothing else, so a new problem on the same target still alerts. Get the key
-    from list_alert_state. The recovery notice is NOT suppressed: you will
-    still be told when it clears.
+    Narrower than mute_alerts. An episode key (``episode:<id>``, from
+    list_alert_state's ``episodes.open``) keeps that episode unsaid -- no
+    alert, update or end message -- and nothing else, so the next episode
+    still alerts. A signal key (``high_loss:<target>``, ``outage``...) keeps
+    that signal out of every episode until it ends.
     """
     state = _read_alerter_state()
     records = state.get("incidents", {})
-    if key not in records:
+    episode = (state.get("episodes") or {}).get("open") or {}
+    if key not in records and key != episode.get("key"):
         return {
-            "error": f"No active incident with key '{key}'.",
-            "active_keys": sorted(records),
+            "error": f"No open episode or active signal with key '{key}'.",
+            "active_keys": sorted(records) + ([episode["key"]] if episode.get("key") else []),
         }
 
     now = time.time()
@@ -1948,20 +1950,58 @@ def ack_incident(key: str, hours: float = 24) -> dict:
     return {
         "success": True,
         "acknowledged": mutes.describe(entry, now),
-        "message": f"{key} acknowledged; no further alerts for {granted:g}h "
-                   f"or until it recovers.",
+        "message": f"{key} acknowledged; nothing more said about it for "
+                   f"{granted:g}h or until it ends.",
     }
+
+
+# How far back list_alert_state lists closed episodes.
+RECENT_EPISODES_S = 24 * 3600
+
+
+def _episodes_view(state: dict, now: float) -> dict:
+    """The alerter's episodes (alerter/episodes.py) as the assistant reads
+    them: the open one, and those closed in the last RECENT_EPISODES_S."""
+    box = state.get("episodes") or {}
+    ep = box.get("open")
+    open_view = None
+    if ep:
+        judgment = ep.get("judgment") or {}
+        open_view = {
+            "key": ep.get("key"),
+            "start": ep.get("start"),
+            "class": judgment.get("class"),
+            "cause": judgment.get("cause"),
+            "confidence": judgment.get("confidence"),
+            "evidence": judgment.get("evidence", [])[:3],
+            "material": bool(ep.get("material")),
+            "unmet": (ep.get("materiality") or {}).get("unmet", []),
+            "down": bool(ep.get("down")),
+            "blind_s": ep.get("blind_s", 0),
+            "signals": sorted((ep.get("signals") or {}).keys()),
+            "pushed": [s.get("kind") for s in (ep.get("policy") or {}).get("sent", [])],
+        }
+    recent = [e for e in box.get("closed") or []
+              if float(e.get("end") or 0) >= now - RECENT_EPISODES_S]
+    return {"open": open_view, "recent": recent[-20:]}
 
 
 @mcp.tool()
 @logged_tool
 def list_alert_state() -> dict:
-    """Show active incidents and active mutes — what is wrong and what is quiet.
+    """Show the open episode, recent ones, active signals and mutes — what is
+    wrong, what was said about it, and what is quiet.
 
     Answers "is anything muted?" and "why haven't I heard about X?". Reads both
-    files read-only. `muted_suppressed_count` on an incident is how many alerts
-    a mute has actually swallowed, which is the number that matters when
-    deciding whether a mute is still a good idea. `undelivered` counts the
+    files read-only. The alerter folds its rules' signals into **episodes**,
+    one per physical fact, and pushes only the home's Internet down, material
+    degradation, their end, and the monitor blind for 15 min or more
+    (docs/alerting.md). `episodes.open` is the open one with its cause,
+    confidence and whether it is material (`unmet`: the conditions it
+    misses); `episodes.recent` the closed ones of the last day, each with what
+    was `pushed` about it -- empty means recorded, not sent, and why is in
+    `unmet`, `microcut` or its class. `incidents` are the active signals
+    (the rules' raw findings), no longer messages of their own. `undelivered` counts the
     notifications the alerter could not deliver (network or channel down),
     which it sends as one summary once delivery works again; `held` counts
     those its quiet hours are holding until `until` (then one message);
@@ -1983,8 +2023,6 @@ def list_alert_state() -> dict:
             "target": record.get("target"),
             "message": record.get("message"),
             "first_seen": record.get("first_seen"),
-            "notified_count": record.get("notified_count", 0),
-            "muted_suppressed_count": record.get("muted_suppressed_count", 0),
         }
         # Recompute rather than trusting the alerter's cached muted_until: the
         # mute may have been lifted since it last ran.
@@ -2024,6 +2062,7 @@ def list_alert_state() -> dict:
         }
 
     return {
+        "episodes": _episodes_view(state, now),
         "incidents": incidents,
         "undelivered": undelivered,
         "held": held,

@@ -144,17 +144,25 @@ def _incidents(items: list[dict]) -> list[dict]:
     for item in flat:
         payload = item["payload"]
         key = payload.get("key") or payload.get("type") or "?"
+        episode = payload.get("episode") or {}
         if key not in by_key:
             started = item["queued_at"]
-            if payload.get("type") == "recovery":
+            if episode.get("start") is not None:
+                # An episode's message (policy.py) knows when it began.
+                started = float(episode["start"])
+            elif payload.get("type") == "recovery":
                 duration = payload.get("duration_s")
                 started = started - float(duration) if duration else None
+            lines = str(payload.get("message") or "").split("\n")
             by_key[key] = {
                 "key": key,
-                "rule": payload.get("rule"),
+                # An episode is named by its head ("Internet down") and its
+                # cause, not the word "episode" (review of #436).
+                "rule": lines[0] if episode else payload.get("rule"),
                 "severity": payload.get("severity"),
-                "target": payload.get("target"),
-                "message": payload.get("message"),
+                "target": episode.get("cause") if episode else payload.get("target"),
+                "message": (" · ".join(lines[1:3]) if episode
+                            else payload.get("message")),
                 "started": started,
                 "order": item["queued_at"],
                 "recovered": None,
@@ -165,7 +173,9 @@ def _incidents(items: list[dict]) -> list[dict]:
         else:
             # A re-notification carries the newer numbers; a later alert
             # after a recovery means it came back.
-            entry["message"] = payload.get("message") or entry["message"]
+            entry["message"] = (" · ".join(str(payload.get("message") or "")
+                                           .split("\n")[1:3])
+                                if episode else payload.get("message")) or entry["message"]
             entry["severity"] = payload.get("severity") or entry["severity"]
             entry["recovered"] = None
     return sorted(by_key.values(),
@@ -173,21 +183,14 @@ def _incidents(items: list[dict]) -> list[dict]:
 
 
 def now_line(state: dict, now: float) -> str:
+    """What is open now: the open episode (episodes.py), if any."""
     esc = templates.esc
-    still_open = sorted(
-        (record.get("first_seen") or 0, key, record)
-        for key, record in (state.get("incidents") or {}).items()
-        if not record.get("transient")
-    )
-    if not still_open:
+    ep = (state.get("episodes") or {}).get("open")
+    if not ep:
         return f"{templates.STATUS_EMOJI['ok']} Nothing open now."
-    return "Now open: " + ", ".join(
-        f"{templates.SEVERITY_EMOJI.get(r.get('severity'), '•')} "
-        f"{esc(r.get('rule') or key)}"
-        f"{' ' + esc(r['target']) if r.get('target') else ''}"
-        f" (since {clock.at(first, now)})"
-        for first, key, r in still_open
-    )
+    judgment = ep.get("judgment") or {}
+    return (f"Now open: {esc(judgment.get('cause') or 'an episode')} "
+            f"(since {clock.at(float(ep.get('start') or now), now)})")
 
 
 def summary_lines(state: dict, items: list[dict], now: float,
@@ -196,7 +199,8 @@ def summary_lines(state: dict, items: list[dict], now: float,
     whether it recovered), then "…and N more". Shared by this summary and
     the quiet-hours one (quiet.py), times in the digest's zone (clock.py)."""
     esc = templates.esc
-    open_keys = set(state.get("incidents") or {})
+    episode = (state.get("episodes") or {}).get("open")
+    open_keys = set(state.get("incidents") or {}) | ({episode["key"]} if episode else set())
     lines = []
     entries = _incidents(items)
     for entry in entries[:SUMMARY_LINES]:
@@ -221,7 +225,7 @@ def summary_lines(state: dict, items: list[dict], now: float,
 def build(state: dict, now: float) -> dict:
     """The one event that delivers everything waiting.
 
-    ``state["incidents"]`` (already reconciled this cycle) supplies the
+    ``state["episodes"]`` (already updated this cycle) supplies the
     "now" line, second after the header: it is the line that matters most,
     and a message over budget is cut from the end.
     """
@@ -260,10 +264,8 @@ def fallback(state: dict, now: float) -> dict:
     box = state["outbox"]
     since = float(box.get("since", now))
     waiting = len(_to_tell(box)) + int(box.get("dropped", 0))
-    still_open = sorted({(r.get("rule") or "incident")
-                         for r in (state.get("incidents") or {}).values()
-                         if not r.get("transient")})
-    now_part = ("open now: " + ", ".join(still_open)) if still_open else "nothing open now"
+    episode = (state.get("episodes") or {}).get("open")
+    now_part = ("an episode is open now" if episode else "nothing open now")
     return {
         "type": "undelivered",
         "key": "undelivered",

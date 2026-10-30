@@ -4,6 +4,11 @@ Before: InfluxDB unreadable meant every iteration failed into the log and
 nothing was sent; exporter_stale watched ``latency`` alone, so the DNS, HTTP
 and TCP probes, the gateway microcut probe and the Wi-Fi exporter could stop
 unnoticed; and one failing Wi-Fi query or verdict silenced every rule.
+
+Since front 8 the monitor's blindness is an episode's blind span: nothing is
+pushed while it lasts (the dead-man check-in covers that), and a blind spell
+of MONITOR_BLIND_MIN_MINUTES or more is told once, silently, when it can
+measure again.
 """
 
 from datetime import datetime, timezone
@@ -90,9 +95,8 @@ def test_a_writer_silent_past_the_lookback_is_retired_without_a_recovery():
     current = {"incidents": {}}
     opened = evaluator.rule_measurement_stale(
         _count(*alive), [_newest("wifi_link", 3600)], NOW, W)
-    state.reconcile(current, opened, now=NOW)
-    actions = state.reconcile(current, [inc], now=NOW + 86_400)
-    assert actions == {"alerts": [], "recoveries": []}
+    state.track(current, opened, now=NOW)
+    assert state.track(current, [inc], now=NOW + 86_400) == []
     assert current["incidents"] == {}
 
 
@@ -186,8 +190,12 @@ def _loop(monkeypatch, state_file, readable):
     def evaluate(**_):
         if not readable[0]:
             raise ConnectionError("influx down")
+        fresh = [{"target": t, "_value": 0.0, "category": "topsites",
+                  "_time": datetime.fromtimestamp(clock["now"] - age, tz=timezone.utc)}
+                 for t in ("google", "apple", "amazon") for age in (0, 300, 600)]
         return [], {"mean_rows": [], "micro_rows": [], "wifi_rows": {},
-                    "uplink_changes": [], "windows": {"mean": 900, "step": 300},
+                    "down_rows": fresh, "uplink_changes": [],
+                    "windows": {"mean": 900, "step": 300, "stale": 1200},
                     "cadences": {}, "judged": {"google"}}
 
     monkeypatch.setattr(main.evaluator, "evaluate_with_context", evaluate)
@@ -202,63 +210,57 @@ def _loop(monkeypatch, state_file, readable):
     return sent, clock
 
 
-def test_an_unreadable_influx_is_a_critical_and_holds_everything_else(
+def _run(clock, minutes):
+    for minute in minutes:
+        clock["now"] = NOW + 60 * minute
+        main.run_iteration()
+
+
+def test_an_unreadable_influx_is_told_once_when_it_reads_again(
         monkeypatch, state_file):
     current = {"incidents": {}}
     down = {"rule": "target_down", "severity": "critical", "key": "target_down:google",
             "target": "google", "message": "google down"}
-    state.reconcile(current, [down], now=NOW - 3600, judged={"google"})
+    state.track(current, [down], now=NOW - 3600, judged={"google"})
     state.save_state(current)
 
     readable = [False]
     sent, clock = _loop(monkeypatch, state_file, readable)
-    for minute in range(6):  # five minutes of failures: then it is news
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
-    alerts = [p for p in sent if p.get("type") == "alert"]
-    assert [a["key"] for a in alerts] == ["influx_unreadable"]
-    assert "cannot read InfluxDB" in alerts[0]["message"]
-    assert "ConnectionError" in alerts[0]["message"]
-    # Blind: the open target_down was neither recovered nor re-sent.
-    for minute in range(6, 40):
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
-    assert [p.get("type") for p in sent] == ["alert"]
-    assert "target_down:google" in state.load_state()["incidents"]
+    _run(clock, range(40))
+    # Blind: nothing pushed, and the open target_down held as it was.
+    assert sent == []
+    saved = state.load_state()
+    assert "target_down:google" in saved["incidents"]
+    assert saved["episodes"]["open"]["signals"].get("influx_unreadable")
 
-    # Readable again, and google answers: both recover, once each.
     readable[0] = True
-    for minute in range(40, 80):
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
-    recovered = sorted(p["key"] for p in sent if p.get("type") == "recovery")
-    assert recovered == ["influx_unreadable", "target_down:google"]
+    _run(clock, range(40, 80))
+    assert [(p["kind"], p["silent"]) for p in sent] == [("monitor", True)]
+    assert "its database could not be read" in sent[0]["message"]
+    assert "unknown" in sent[0]["message"]
 
 
 def test_a_brief_influx_hiccup_says_nothing(monkeypatch, state_file):
     readable = [False]
     sent, clock = _loop(monkeypatch, state_file, readable)
-    for minute in range(4):
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
+    _run(clock, range(4))
     readable[0] = True
-    for minute in range(4, 8):
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
+    _run(clock, range(4, 40))
     assert sent == []
     assert "unreadable_since" not in state.load_state().get("monitor", {})
 
 
-def test_a_flapping_influx_still_alerts(monkeypatch, state_file):
+def test_a_flapping_influx_is_still_the_monitors_blindness(monkeypatch, state_file):
     """Review of #334: one good read among timeouts must not reset the
-    clock, or a database failing every other cycle never alerts."""
+    clock, or a database failing every other cycle never registers."""
     readable = [False]
     sent, clock = _loop(monkeypatch, state_file, readable)
     for minute in range(12):
         readable[0] = minute % 2 == 1
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
-    assert [p["key"] for p in sent if p.get("type") == "alert"] == ["influx_unreadable"]
+        _run(clock, [minute])
+    assert sent == []
+    episode = state.load_state()["episodes"]["open"]
+    assert episode["signals"].get("influx_unreadable")
 
 
 def test_a_bug_is_not_reported_as_the_database(monkeypatch, state_file):
@@ -269,17 +271,15 @@ def test_a_bug_is_not_reported_as_the_database(monkeypatch, state_file):
         raise KeyError("windows")
 
     monkeypatch.setattr(main.evaluator, "evaluate_with_context", broken)
-    for minute in range(6):
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
-    [alert] = [p for p in sent if p.get("type") == "alert"]
-    assert alert["key"] == "evaluation_failed"
-    assert "InfluxDB" not in alert["message"]
+    _run(clock, range(6))
+    signals = state.load_state()["episodes"]["open"]["signals"]
+    assert "evaluation_failed" in signals and "influx_unreadable" not in signals
+    assert sent == []
 
 
 def test_no_false_stall_right_after_the_database_comes_back(monkeypatch, state_file):
     """Review of #334: the writers could not write while InfluxDB was down;
-    the empty window that leaves is the outage already reported."""
+    the empty window that leaves is the outage already seen."""
     readable = [False]
     sent, clock = _loop(monkeypatch, state_file, readable)
     stall = {"rule": "exporter_stale", "severity": "critical",
@@ -288,40 +288,31 @@ def test_no_false_stall_right_after_the_database_comes_back(monkeypatch, state_f
 
     def evaluate(**kw):
         incidents, context = good(**kw)
-        return incidents + [stall], {**context, "windows": {**context["windows"],
-                                                            "stale": 1200}}
+        return incidents + [stall], context
 
-    for minute in range(30):
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
+    _run(clock, range(30))
     readable[0] = True
     monkeypatch.setattr(main.evaluator, "evaluate_with_context", evaluate)
-    for minute in range(30, 50):  # inside one stale window after it clears
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
-    assert "exporter_stale" not in [p["key"] for p in sent]
-    for minute in range(55, 60):  # past it: a stall is a stall again
-        clock["now"] = NOW + 60 * minute
-        main.run_iteration()
-    assert "exporter_stale" in [p["key"] for p in sent]
+    _run(clock, range(30, 50))  # inside one stale window after it clears
+    assert "exporter_stale" not in state.load_state()["incidents"]
+    _run(clock, range(55, 60))  # past it: a stall is a stall again
+    assert "exporter_stale" in state.load_state()["incidents"]
 
 
-def test_a_failing_verdict_costs_its_line_not_the_alert(monkeypatch, state_file):
-    incident = {"key": "target_down:google", "rule": "target_down",
-                "severity": "critical", "target": "google", "message": "down"}
-    context = {"mean_rows": [], "micro_rows": [], "wifi_rows": {},
-               "uplink_changes": [], "windows": {"mean": 900, "step": 300},
-               "cadences": {}, "judged": {"google"}}
-    sent = []
-    monkeypatch.setattr(main.evaluator, "evaluate_with_context",
-                        lambda **_: ([incident], context))
+def test_a_failing_policy_costs_its_messages_not_the_cycle(monkeypatch, state_file):
+    readable = [True]
+    sent, clock = _loop(monkeypatch, state_file, readable)
 
     def broken(*a, **k):
         raise KeyError("boom")
 
-    monkeypatch.setattr(main.verdict, "classify", broken)
-    monkeypatch.setattr(main.notifier, "send",
-                        lambda payload, image=None: sent.append(payload) or "sent")
-    monkeypatch.setattr(main, "_chart_for", lambda event, peers: None)
-    main.run_iteration()
-    assert [p["key"] for p in sent if p.get("type") == "alert"] == ["target_down:google"]
+    monkeypatch.setattr(main.policy, "decide", broken)
+    stall = {"rule": "exporter_stale", "severity": "critical",
+             "key": "exporter_stale", "target": None, "message": "stalled"}
+    good = main.evaluator.evaluate_with_context
+    monkeypatch.setattr(main.evaluator, "evaluate_with_context",
+                        lambda **kw: (good(**kw)[0] + [stall], good(**kw)[1]))
+    _run(clock, [0])
+    saved = state.load_state()
+    assert "exporter_stale" in saved["incidents"]
+    assert saved["episodes"]["open"] is not None

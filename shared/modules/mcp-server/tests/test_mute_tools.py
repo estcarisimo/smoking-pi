@@ -160,20 +160,51 @@ def test_list_alert_state_tolerates_a_missing_state_file(files):
     assert result["active_mutes"] == []
 
 
-def test_list_alert_state_reports_what_a_mute_is_hiding(files, api):
+def test_list_alert_state_reports_what_a_mute_covers(files, api):
     files.seed_state({
         "target_down:google_dns": {
             "rule": "target_down", "severity": "critical",
             "target": "google_dns", "message": "down",
-            "notified_count": 0, "muted_suppressed_count": 4,
         }
     })
     server.mute_alerts(target="google_dns", hours=2)
     result = server.list_alert_state()
-    incident = result["incidents"][0]
-    assert incident["muted"] is True
-    assert incident["muted_suppressed_count"] == 4
+    assert result["incidents"][0]["muted"] is True
     assert len(result["active_mutes"]) == 1
+
+
+def _seed_episodes(files, now):
+    import json
+    files.state.write_text(json.dumps({"incidents": {}, "episodes": {
+        "open": {"key": "episode:8", "start": now - 600, "material": True,
+                 "down": True, "blind_s": 0,
+                 "judgment": {"class": "local_link", "cause": "your line",
+                              "confidence": "high", "evidence": ["a", "b"]},
+                 "materiality": {"unmet": []}, "signals": {"uplink_down": {}},
+                 "policy": {"sent": [{"kind": "down", "at": now - 300}]}},
+        "closed": [
+            {"key": "episode:6", "end": now - 3 * 86400, "pushed": []},
+            {"key": "episode:7", "end": now - 3600, "class": "destination",
+             "material": False, "unmet": ["breadth"], "pushed": []},
+        ]}}))
+
+
+def test_list_alert_state_shows_the_episodes_and_what_was_pushed(files):
+    import time
+    _seed_episodes(files, time.time())
+    episodes = server.list_alert_state()["episodes"]
+    assert episodes["open"]["key"] == "episode:8"
+    assert episodes["open"]["cause"] == "your line"
+    assert episodes["open"]["pushed"] == ["down"]
+    assert [e["key"] for e in episodes["recent"]] == ["episode:7"]
+    assert episodes["recent"][0]["unmet"] == ["breadth"]
+
+
+def test_an_open_episode_can_be_acknowledged(files):
+    import time
+    _seed_episodes(files, time.time())
+    assert server.ack_incident("episode:8")["success"] is True
+    assert files.read_mutes()[0]["key"] == "episode:8"
 
 
 def test_list_alert_state_recomputes_muted_rather_than_trusting_the_cache(files):

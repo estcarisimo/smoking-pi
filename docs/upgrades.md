@@ -254,6 +254,9 @@ the alerter or the command says so once.
 | Retired | Since | Read as | To set it the new way |
 |---|---|---|---|
 | `DIGEST_ENABLED`, `DIGEST_AT` (the daily digest) | the release after v2.50.0 | `DIGEST_ENABLED=true` with no `WEEKLY_ENABLED`: the [weekly summary](alerting.md#the-weekly-summary) is on, on Mondays at `DIGEST_AT` (`WEEKLY_AT` wins once set). The alerter logs one line at start. `DIGEST_WINDOW_HOURS`, `DIGEST_MAX_LATENESS`, `DIGEST_SILENT` and `DIGEST_HISTORY_MAX` are ignored | `smoking-pi alerts --weekly mon 08:00`, or `--no-weekly` |
+| `ALERT_COOLDOWN` | the release after v2.50.0 | Ignored: an episode is said once and its end once, with no re-notification ([One episode, one message](alerting.md#one-episode-one-message)) | nothing to set |
+| `VERDICT_MIN_TARGETS`, `VERDICT_IMPAIRED_LOSS_PCT`, `VERDICT_STALE_DOWN_HOURS` | the release after v2.50.0 | Ignored: the per-alert verdict is retired; an episode's cause comes from the shared diagnosis | nothing to set |
+| `ALERT_CHARTS`, `CHART_HOURS` | the release after v2.50.0 | Ignored: episode messages carry no chart, and the daily digest that had one is gone | nothing to set |
 
 `DIGEST_TZ` is not retired: it stays the zone of every message, the weekly
 summary's schedule and quiet hours (`smoking-pi alerts --digest-tz ZONE`).

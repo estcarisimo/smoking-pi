@@ -569,15 +569,14 @@ services:
       - OPENCLAW_TO=${OPENCLAW_TO:-}
       - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
       - ALERT_WEBHOOK_TOKEN=${ALERT_WEBHOOK_TOKEN:-}
-      # Cadence / dedup / report delivery (seconds)
+      # Cadence / report delivery (seconds)
       - ALERT_INTERVAL=${ALERT_INTERVAL:-60}
-      - ALERT_COOLDOWN=${ALERT_COOLDOWN:-3600}
-      # How long an incident must stay ABSENT before it counts as recovered.
-      # Without this, a rule that flaps alternates alert/recovery and the
-      # cooldown never applies, because recovery deletes the record.
+      # How long an episode must go without evidence before it closes (and
+      # its end is told, if it was told at all). One episode, one message:
+      # there is no re-notification cooldown any more.
       - ALERT_RESOLVE_AFTER=${ALERT_RESOLVE_AFTER:-900}
-      # Hard ceiling per incident key per rolling hour. A blast-radius limit,
-      # not a tuning knob — unreachable in normal operation.
+      # Hard ceiling on alerts and updates per rolling hour, across every
+      # episode. A blast-radius limit, unreachable in normal operation.
       - ALERT_MAX_PER_HOUR=${ALERT_MAX_PER_HOUR:-6}
       - REPORT_DELIVERY_INTERVAL=${REPORT_DELIVERY_INTERVAL:-86400}
       # Rule thresholds (optional overrides; module defaults apply).
@@ -603,32 +602,24 @@ services:
       # rescale the notion of "consecutive" (common/microcuts.py GAP_S) if
       # CPE_PROBE_IDLE changes.
       - MICROCUT_BURST_N=${MICROCUT_BURST_N:-3}
-      # Hours diagnosed (diagnose_loss, common/diagnosis.py) when a loss
-      # alert fires, so it says what the episode was and how sure that is.
-      # 0 turns it off; the verdict line is used alone then.
+      # Hours diagnosed (diagnose_loss, common/diagnosis.py) when an episode
+      # is alerted; its reading rides beside the episode's own cause.
+      # 0 turns it off.
       - ALERT_DIAGNOSIS_HOURS=${ALERT_DIAGNOSIS_HOURS:-3}
       - INCIDENT_HISTORY_HOURS=${INCIDENT_HISTORY_HOURS:-12}
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
       - REPORT_MAX_CHARS=${REPORT_MAX_CHARS:-3500}
       # Message rendering: html (Telegram's default parse mode) | plain
       - ALERT_MARKUP=${ALERT_MARKUP:-html}
-      # Charts attached to alerts. Rendered in-process and posted as base64,
-      # so nothing is written to disk and no renderer service is needed.
-      - ALERT_CHARTS=${ALERT_CHARTS:-true}
-      - CHART_HOURS=${CHART_HOURS:-6}
+      # Charts. Rendered in-process and posted as base64, so nothing is
+      # written to disk and no renderer service is needed.
       - CHART_THEME=${CHART_THEME:-light}
       - CHART_MAX_BYTES=${CHART_MAX_BYTES:-700000}
       # Telegram re-encodes photos as JPEG, which wrecks thin chart lines.
       - ALERT_IMAGE_AS_DOCUMENT=${ALERT_IMAGE_AS_DOCUMENT:-false}
       - ALERT_SILENT=${ALERT_SILENT:-false}
-      # "Is it me or the internet?" thresholds. Derived from rows the rules
-      # already fetch, so tuning these costs no extra queries.
+      # Share of destinations at which the diagnosis calls damage broad.
       - VERDICT_BROAD_PCT=${VERDICT_BROAD_PCT:-60}
-      - VERDICT_MIN_TARGETS=${VERDICT_MIN_TARGETS:-3}
-      - VERDICT_IMPAIRED_LOSS_PCT=${VERDICT_IMPAIRED_LOSS_PCT:-10}
-      # A target stuck at 100% longer than this never answered ICMP in the
-      # first place; counting it would turn one slow site into an outage.
-      - VERDICT_STALE_DOWN_HOURS=${VERDICT_STALE_DOWN_HOURS:-6}
       # The Wi-Fi uplink (wifi_link, when the host has one): a signal below
       # WIFI_WEAK_DBM for at least WIFI_WEAK_SAMPLES samples in the hour --
       # one minute's worth at WIFI_SAMPLE_INTERVAL=10, rescale together --

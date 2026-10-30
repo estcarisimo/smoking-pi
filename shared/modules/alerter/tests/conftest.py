@@ -32,7 +32,6 @@ SCRUB_ENV_VARS = [
     "ALERT_WEBHOOK_URL",
     "ALERT_WEBHOOK_TOKEN",
     "ALERT_INTERVAL",
-    "ALERT_COOLDOWN",
     "ALERT_STATE_FILE",
     "DOWN_WINDOW",
     "HIGH_LOSS_PCT",
@@ -53,9 +52,6 @@ SCRUB_ENV_VARS = [
     "MICROCUT_LOSS_PCT",
     "ALERT_MARKUP",
     "VERDICT_BROAD_PCT",
-    "VERDICT_MIN_TARGETS",
-    "VERDICT_IMPAIRED_LOSS_PCT",
-    "VERDICT_STALE_DOWN_HOURS",
     "WIFI_WEAK_DBM",
     "WIFI_WEAK_SAMPLES",
     # Link building reads these; an exported value would change the rendered

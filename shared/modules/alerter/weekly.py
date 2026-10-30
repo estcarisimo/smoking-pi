@@ -25,8 +25,15 @@ the seven before those, and says in order:
 **It is not sent when nothing happened**: no material episode, no
 recurring window this week or the week before, and the monitor measured at
 least ``MATERIAL_AVAILABILITY_PCT`` of the week. Then it logs one line and
-records the skipped slot in state. What "material" means is
-``common.definitions`` (``MATERIAL_*``), one place for every reader.
+records the skipped slot in state. What "material" means is one gate,
+``common.definitions.material()`` / ``materiality()``, the one the
+alerter's push policy uses (policy.py): one place for every reader.
+
+**The episodes are the alerter's** (episodes.py, ``state["episodes"]``):
+the same ones it pushed or recorded, already judged, the monitor's blind
+spans already subtracted. For a week its record does not cover whole (the
+first week after an upgrade, a state file lost), the incident history
+(``loss_incident``) stands in, judged by the same gate.
 
 **It never claims a quiet week it did not verify.** When the incident
 history, the availability, the categories or the inference's periods
@@ -97,6 +104,7 @@ CAUSE_OF_CLASS = {
     "unclear": "unclear",
 }
 CAUSE_TEXT = {
+    "monitor": "the Pi itself",
     "wifi": "the Pi's Wi-Fi",
     "dns": "the Pi's own DNS",
     "line": "your line",
@@ -105,7 +113,14 @@ CAUSE_TEXT = {
     "unclear": "episodes with no single cause",
     "slow": "slowdowns across the connection",
 }
-CAUSE_ORDER = ("wifi", "dns", "line", "provider", "slow", "destinations", "unclear")
+CAUSE_ORDER = ("wifi", "dns", "monitor", "line", "provider", "slow", "destinations",
+               "unclear")
+# The alerter's episode classes (common.diagnosis.EPISODE_CLASSES) in the
+# weekly's causes; a monitor episode by what blinded it.
+CAUSE_OF_EPISODE = {"local_link": "line", "upstream": "provider",
+                    "destination": "destinations", "undetermined": "unclear"}
+MONITOR_CAUSE_OF_DETAIL = {"radio": "wifi", "watchdog": "wifi", "route": "wifi",
+                           "dns": "dns"}
 
 _legacy_logged = False
 
@@ -289,19 +304,70 @@ def _measured_bins(query, start: float, stop: float) -> list[tuple[float, float]
     return merge([(max(start, t - STEP_S), min(stop, t)) for t in ends])
 
 
-def read_week(start: float, stop: float, query=None) -> dict:
+def _category_breadth(targets: list[str], categories: dict[str, str]) -> int:
+    """Categories in which MATERIAL_CATEGORY_SHARE of the destinations were
+    among ``targets``: the gate's second breadth (common.definitions)."""
+    total: dict[str, int] = {}
+    for target, category in categories.items():
+        if category and category != definitions.FIRST_HOP_CATEGORY:
+            total[category] = total.get(category, 0) + 1
+    hit: dict[str, int] = {}
+    for target in set(targets):
+        category = categories.get(target)
+        if category in total:
+            hit[category] = hit.get(category, 0) + 1
+    return sum(1 for c, n in hit.items()
+               if 100.0 * n / total[c] >= definitions.MATERIAL_CATEGORY_SHARE)
+
+
+def _from_alerter(closed: list[dict], start: float, stop: float) -> dict:
+    """The week's episodes as the alerter recorded and judged them
+    (episodes.summary): material ones told, the rest counted, monitor ones
+    as the time the monitor could not hear."""
+    episodes, repeating, deaf, deaf_by_cause, minor = [], [], [], {}, 0
+    for ep in closed:
+        lo, hi = max(start, float(ep["start"])), min(stop, float(ep["end"]))
+        if hi <= lo:
+            continue
+        if ep.get("class") == "monitor":
+            cause = MONITOR_CAUSE_OF_DETAIL.get(ep.get("detail"), "monitor")
+            deaf.append((lo, hi))
+            deaf_by_cause[cause] = deaf_by_cause.get(cause, 0.0) + (hi - lo)
+            continue
+        if ep.get("broad_cycles"):
+            repeating.append((lo, hi))
+        if not ep.get("material"):
+            minor += 1
+            continue
+        episodes.append({
+            "kind": "loss", "cause": CAUSE_OF_EPISODE.get(ep.get("class"), "unclear"),
+            "start": lo, "end": hi, "minutes": round((hi - lo) / 60.0),
+            "affected": int(ep.get("affected") or 0),
+            "reporting": int(ep.get("reporting") or 0),
+            "loss_pct": float(ep.get("loss_pct") or 0.0),
+        })
+    return {"episodes": episodes, "repeating": repeating, "deaf": merge(deaf),
+            "deaf_by_cause": deaf_by_cause, "minor": minor}
+
+
+def read_week(start: float, stop: float, query=None, record: dict | None = None) -> dict:
     """Everything one week says, from the shared readers. Raises when the
     incident history, the availability, the categories or the inference's
     periods cannot be read: without any of them a quiet week and an unread
     one look alike. The upgrade markers and the watchdog's events are
     optional: missing, they only exclude less, which errs toward telling.
 
-    The episodes are what ``incident_history`` stored (``loss_incident``,
-    every half hour, INCIDENT_HISTORY_HOURS=0 turns it off): with it off,
-    the weekly sees no episode at all, only availability and windows."""
+    The episodes are the alerter's (``record``: ``state["episodes"]``) when
+    its record began before the week; otherwise what ``incident_history``
+    stored (``loss_incident``, every half hour, INCIDENT_HISTORY_HOURS=0
+    turns it off), judged by the same gate. With neither, the weekly sees
+    no episode at all, only availability and windows."""
     query = query or flux.query_influx
     bucket = influx_bucket()
-    incidents = incident_answers.history_between(query, bucket, start, stop)
+    alerter = (record is not None and record.get("since") is not None
+               and float(record["since"]) <= start)
+    incidents = ([] if alerter else
+                 incident_answers.history_between(query, bucket, start, stop))
     measured = _measured_bins(query, start, stop)
 
     upgrades = upgrade_spans(_optional(
@@ -341,9 +407,14 @@ def read_week(start: float, stop: float, query=None) -> dict:
         cause = CAUSE_OF_CLASS[inc["class"]]
         seconds = max(0.0, min(stop, inc["end_epoch"]) - max(start, inc["start_epoch"]))
         deaf_by_cause[cause] = deaf_by_cause.get(cause, 0.0) + seconds
+    if alerter:
+        own = _from_alerter(record.get("closed") or [], start, stop)
+        deaf, deaf_by_cause = own["deaf"], own["deaf_by_cause"]
     excluded = merge(deaf + upgrades + action_spans)
 
     episodes, repeating, minor = [], [], 0
+    if alerter:
+        episodes, repeating, minor = own["episodes"], own["repeating"], own["minor"]
     loss_queries = 0
     for inc in incidents:
         if inc["class"] in aggregates.MONITOR_CLASSES:
@@ -352,17 +423,23 @@ def read_week(start: float, stop: float, query=None) -> dict:
         # for its minutes inside it (the next week starts no new one).
         lo, hi = max(start, inc["start_epoch"]), min(stop, inc["end_epoch"])
         minutes = (hi - lo - overlap(lo, hi, excluded)) / 60.0
-        if minutes < definitions.MATERIAL_MIN_MINUTES:
-            continue
         reporting = int(inc.get("targets_reporting") or 0)
         affected = int(inc.get("targets_affected") or 0)
         share = 100.0 * affected / reporting if reporting else 0.0
-        kinds = {categories[t] for t in inc["targets"]
-                 if categories.get(t) and categories[t] != definitions.FIRST_HOP_CATEGORY}
-        broad = reporting >= definitions.MIN_BREADTH_TARGETS and (
-            share >= definitions.MATERIAL_BREADTH_PCT
-            or len(kinds) >= definitions.MATERIAL_MIN_CATEGORIES)
-        if not broad:
+        # The alerter's gate (common.definitions.materiality), on what the
+        # stored incident says; its loss is read only once the rest holds.
+        facts = {
+            "measurable": minutes > 0,
+            "breadth_pct": share if reporting >= definitions.MIN_BREADTH_TARGETS else 0.0,
+            "categories": (_category_breadth(inc["targets"], categories)
+                           if reporting >= definitions.MIN_BREADTH_TARGETS else 0),
+            "minutes": minutes,
+            "episodes_in_window": 1,
+        }
+        unmet = definitions.materiality(**facts, loss_pct=None)
+        if "persistence" in unmet or "measurable" in unmet:
+            continue
+        if "breadth" in unmet:
             minor += 1
             continue
         # Only loss the destinations shared repeats as a window: one flaky
@@ -382,7 +459,7 @@ def read_week(start: float, stop: float, query=None) -> dict:
             # The stored maximum bounds the mean from above: an episode it
             # cannot clear is not material, one it clears is told.
             loss = inc.get("max_loss_pct")
-        if loss is None or float(loss) < definitions.MATERIAL_LOSS_PCT:
+        if loss is None or not definitions.material(**facts, loss_pct=float(loss)):
             minor += 1
             continue
         episodes.append({
@@ -421,7 +498,12 @@ def read_week(start: float, stop: float, query=None) -> dict:
             log.warning("Weekly: a slowdown's latency could not be read; left out",
                         exc_info=True)
             continue
-        if now_ms and before_ms and now_ms >= definitions.MATERIAL_LATENCY_RATIO * before_ms:
+        # Shared by the whole connection (the inference's shared periods):
+        # breadth is all of it; the gate's latency arm decides.
+        if now_ms and before_ms and definitions.material(
+                measurable=True, breadth_pct=100.0, categories=0, minutes=minutes,
+                episodes_in_window=1, loss_pct=None,
+                latency_ratio=now_ms / before_ms):
             episodes.append({
                 "kind": "slow", "cause": "slow", "start": lo, "end": hi,
                 "minutes": round(minutes), "median_ms": now_ms,
@@ -683,13 +765,14 @@ def render(week: dict, before: dict, windows: list[dict], before_windows: list[d
     return "\n".join(lines)
 
 
-def build(slot: float, query=None) -> dict:
+def build(slot: float, query=None, record: dict | None = None) -> dict:
     """The week of ``slot`` read and judged: ``{"send": bool, "message":
-    ..., ...}``. Raises when the week cannot be read (see read_week)."""
+    ..., ...}``. Raises when the week cannot be read (see read_week).
+    ``record``: the alerter's episodes (``state["episodes"]``)."""
     tz = zone()
     prev, start, stop = week_bounds(slot, tz)
-    week = read_week(start, stop, query)
-    before = read_week(prev, start, query)
+    week = read_week(start, stop, query, record)
+    before = read_week(prev, start, query, record)
     windows = recurring(week["repeating"], start, stop, tz)
     before_windows = recurring(before["repeating"], prev, start, tz)
     gone = [w for w in before_windows if not any(_overlaps(w, x) for x in windows)]
@@ -767,7 +850,7 @@ def check(state: dict, now: float | None = None, query=None) -> bool:
         return False
 
     try:
-        payload = build(slot, query)
+        payload = build(slot, query, state.get("episodes"))
     except Exception:  # noqa: BLE001 - an unread week is never a quiet one
         log.warning("Weekly: the week could not be read (attempt %d/%d); nothing "
                     "sent", attempts + 1, MAX_ATTEMPTS, exc_info=True)

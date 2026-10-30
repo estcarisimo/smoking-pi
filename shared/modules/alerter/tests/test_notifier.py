@@ -43,10 +43,14 @@ def posts(monkeypatch):
 def _event(**overrides):
     event = {
         "type": "alert",
-        "rule": "target_down",
+        "rule": "episode",
+        "kind": "down",
+        "key": "episode:1",
         "severity": "critical",
-        "target": "google",
-        "message": "google down: 100% loss across all 5 probes in the window",
+        "target": None,
+        "message": "🔴 Internet down\nCause: your line (high confidence)\n"
+                   "Range: since 10:00",
+        "episode": {"key": "episode:1"},
         "state": {"notified_count": 1},
     }
     event.update(overrides)
@@ -55,15 +59,17 @@ def _event(**overrides):
 
 # --- formatting -------------------------------------------------------------
 
-def test_format_alert_has_severity_emoji():
+def test_format_an_episode_starts_with_its_light():
     text = notifier.format_message(_event())
     assert text.startswith("🔴")
-    assert "target_down" in text
+    assert "Internet down" in text and "your line" in text
 
 
-def test_format_warning_and_recovery():
-    assert notifier.format_message(_event(severity="warning")).startswith("🟡")
-    assert notifier.format_message(_event(type="recovery")).startswith("✅")
+def test_format_degradation_and_its_end():
+    degraded = _event(message="🟡 Internet degraded\nCause: your provider")
+    assert notifier.format_message(degraded).startswith("🟡")
+    over = _event(type="recovery", message="✅ Over\nRange: 10:00 to 10:20")
+    assert notifier.format_message(over).startswith("✅")
 
 
 def test_format_report_passes_message_through():
@@ -221,9 +227,9 @@ def test_webhook_payload_and_bearer(posts, monkeypatch):
     assert call["headers"]["Authorization"] == "Bearer hook-token"
     body = call["json"]
     assert body["type"] == "alert"
-    assert body["rule"] == "target_down"
+    assert body["rule"] == "episode"
     assert body["severity"] == "critical"
-    assert body["target"] == "google"
+    assert body["kind"] == "down" and body["episode"] == {"key": "episode:1"}
     assert body["state"] == {"notified_count": 1}
     assert "ts" in body
 
@@ -400,9 +406,9 @@ def test_image_rides_as_base64_with_the_text_as_caption(posts, openclaw):
     args = posts["calls"][0]["json"]["args"]
     assert base64.b64decode(args["buffer"]) == PNG
     assert args["mimeType"] == "image/png"
-    assert args["filename"].startswith("smokeping-google-")
+    assert args["filename"].startswith("smokeping-episode-")
     # Text belongs in the caption, never alongside it in `message`.
-    assert "google" in args["caption"]
+    assert "Internet down" in args["caption"]
     assert "message" not in args
 
 

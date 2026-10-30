@@ -609,6 +609,11 @@ def rule_microcut_burst(
                     f"over {loss_pct:g}% loss in the last 60m"
                 ),
                 "value": row["_value"],
+                # The confirmed cuts, for the episode: when, and how long.
+                "cuts": [{"start": c["start_epoch"],
+                          "end": c["start_epoch"] + c["seconds"],
+                          "seconds": c["seconds"]}
+                         for c in own if c["confirmed"]],
             }
         )
     return incidents
@@ -677,7 +682,7 @@ def rule_widespread(
     min_targets: int = WIDESPREAD_MIN_TARGETS,
     step_s: int = STEP_S,
     cadences: dict[str, cadence.Cadence] | None = None,
-    ongoing: Collection[str] = (),
+    outage_since: float | None = None,
     total_open: tuple[str, float] | None = None,
 ) -> list[dict]:
     """One incident for a loss that hit most targets in the same probe cycle.
@@ -697,9 +702,11 @@ def rule_widespread(
       nothing beyond it can be judged. Persists while that holds; the
       verdict names the Wi-Fi radio when wifi_link shows it hung.
     - ``outage`` (warning, transient): otherwise, a run of steps where
-      WIDESPREAD_PCT of targets were lossy. A brief cut of the link, keyed by
-      the run's first step so a second cut is a second incident. Transient:
-      it leaves the window on its own and there is nothing to "recover".
+      WIDESPREAD_PCT of targets were lossy. A brief cut of the link, one
+      key (``outage``) however long it lasts: which episode it belongs to
+      is alerter/episodes.py's to say, not the key's. ``since`` is the
+      run's first step. Only the newest run in the window carries the key;
+      an older one, already over, is emitted ``quiet``.
 
     Either one is the whole story; the per-target incidents it would have
     fanned out into are dropped by :func:`suppress_widespread`.
@@ -736,10 +743,15 @@ def rule_widespread(
     - the first hop answers otherwise: ``internet_down``, beyond the house.
       Before, all three read "this host's uplink is down".
     - A run that starts at the window's first cycle may have started before
-      it. When an outage was active in the previous evaluation (``ongoing``,
-      keys of open records not in their grace period), the run keeps that
-      key and its start, instead of a new key every time the first cycle
-      slides out of the window.
+      it. When an outage was active in the previous evaluation
+      (``outage_since``: its start, from the open record), the run keeps
+      that start instead of a new one every time the first cycle slides out
+      of the window.
+
+    Every incident carries ``start`` and ``end`` (epoch seconds: the span
+    its lossy cycles measured, a point standing for the step that ends at
+    its time), so an episode can say how long the loss itself lasted
+    rather than how long it stayed in the window.
     """
     if share_pct is None:
         share_pct = definitions.widespread_pct()
@@ -852,6 +864,8 @@ def rule_widespread(
                 "first_hop": seen,
                 "value": round(share(lost, step), 1),
                 "breadth": _breadth(lost[step], n_all),
+                "start": latest[0] - step_s,
+                "end": latest[-1],
             }
         ]
 
@@ -870,15 +884,9 @@ def rule_widespread(
 
     def continued(first: int) -> int:
         """The start of the outage this run continues, or ``first``."""
-        if first != steps[0]:
+        if first != steps[0] or outage_since is None:
             return first
-        earlier = [
-            int(key.split(":", 1)[1])
-            for key in ongoing
-            if key.startswith("outage:") and key.split(":", 1)[1].isdigit()
-        ]
-        earlier = [t for t in earlier if t < first]
-        return max(earlier) if earlier else first
+        return min(first, int(outage_since))
 
     incidents = []
     run: list[int] = []
@@ -906,7 +914,11 @@ def rule_widespread(
             incident = {
                 "rule": "outage",
                 "severity": "warning",
-                "key": f"outage:{start}",
+                "key": "outage",
+                "since": start,
+                "start": start - step_s,
+                "end": last,
+                "first_hop": first_hop(last),
                 "target": None,
                 "transient": True,
                 "message": (
@@ -936,6 +948,10 @@ def rule_widespread(
             run = []
         if step is not None and share(lossy, step) >= share_pct:
             run = [step]
+    # One key: a run already over when a newer one is in the window is that
+    # newer one's past, kept for the episode, never a record of its own.
+    for older in incidents[:-1]:
+        older["quiet"] = True
     return incidents
 
 
@@ -960,6 +976,119 @@ def suppress_widespread(incidents: list[dict], widespread: list[dict]) -> list[d
     if uplink_down:
         dropped.add("microcut_burst")
     return [i for i in incidents if i.get("rule") not in dropped]
+
+
+def step_stats(rows: list[dict], step_s: int = STEP_S) -> dict[int, dict]:
+    """Per probe cycle, how broad and how deep the loss was.
+
+    ``rows`` are the down window's raw loss points. For each step (epoch,
+    bucketed to ``step_s``): ``reporting`` destinations (the first hop is
+    evidence, not a destination), ``affected`` (sorted names of those that
+    lost anything), ``share_pct`` of them, ``lost_pct`` (the share that
+    lost everything), ``mean_loss_pct`` over every reporting destination,
+    ``categories`` in which common.definitions.MATERIAL_CATEGORY_SHARE of
+    the destinations lost, and ``first_hop``: "answers", "lost" or None.
+    The episodes (alerter/episodes.py) read breadth, persistence and
+    magnitude from these, never from a rule's own count.
+    """
+    per: dict[int, dict[str, list[float]]] = {}
+    category_of: dict[str, str] = {}
+    hop: dict[int, list[float]] = {}
+    for row in rows:
+        target, value = row.get("target"), row.get("_value")
+        step = _step_of(row.get("_time"), step_s)
+        if target is None or value is None or step is None:
+            continue
+        ratio = flux.clamp_loss_ratio(value)
+        if row.get("category") == FIRST_HOP_CATEGORY:
+            hop.setdefault(step, []).append(ratio)
+            continue
+        per.setdefault(step, {}).setdefault(target, []).append(ratio)
+        category_of.setdefault(target, row.get("category") or "")
+    out: dict[int, dict] = {}
+    for step, targets in per.items():
+        ratios = {t: sum(v) / len(v) for t, v in targets.items()}
+        affected = {t for t, r in ratios.items() if r > 0}
+        lost = {t for t, r in ratios.items() if r >= DOWN_LOSS_RATIO}
+        by_category: dict[str, list[int]] = {}
+        for target in ratios:
+            counts = by_category.setdefault(category_of[target], [0, 0])
+            counts[0] += 1
+            counts[1] += target in affected
+        mine = hop.get(step)
+        out[step] = {
+            "reporting": len(ratios),
+            "affected": sorted(affected),
+            "share_pct": round(100.0 * len(affected) / len(ratios), 1),
+            "lost_pct": round(100.0 * len(lost) / len(ratios), 1),
+            "mean_loss_pct": round(100.0 * sum(ratios.values()) / len(ratios), 2),
+            "categories": sorted(
+                c for c, (n, hit) in by_category.items()
+                if hit and 100.0 * hit / n >= definitions.MATERIAL_CATEGORY_SHARE),
+            "first_hop": (None if not mine else
+                          "lost" if min(mine) >= DOWN_LOSS_RATIO else "answers"),
+        }
+    return out
+
+
+def broad_step(stats: dict) -> bool:
+    """A cycle whose loss was broad enough to be material: enough
+    destinations reporting, and the material share of them, or the material
+    number of categories, lost (common.definitions)."""
+    return stats["reporting"] >= WIDESPREAD_MIN_TARGETS and (
+        stats["share_pct"] >= definitions.MATERIAL_BREADTH_PCT
+        or len(stats["categories"]) >= definitions.MATERIAL_MIN_CATEGORIES)
+
+
+def rule_degradation(rows: list[dict], step_s: int = STEP_S,
+                     widespread: list[dict] | None = None) -> list[dict]:
+    """warning: a broad, moderate loss no other rule sees.
+
+    ``high_loss`` needs one destination over HIGH_LOSS_PCT (20%) and
+    ``outage`` most of them over WIDESPREAD_LOSS_PCT (30%) in one cycle; a
+    provider dropping 2-8% on most destinations every evening (the reference
+    Pi, 30/08-06/10/2026, 19:30-23:00) reaches neither, and was never
+    reported. This is that shape: the newest cycle, or the one before it, a
+    :func:`broad_step` with a mean loss over the reporting destinations of
+    at least MATERIAL_LOSS_PCT. Whether it lasted, and whether it is
+    material, is the episode's to judge; nothing here is sent on its own.
+    Not emitted while a widespread incident is open: it is that one's story.
+    """
+    if widespread:
+        return []
+    stats = step_stats(rows, step_s)
+    if not stats:
+        return []
+
+    def degraded(step: int) -> bool:
+        s = stats.get(step)
+        return bool(s) and broad_step(s) and (
+            s["mean_loss_pct"] >= definitions.MATERIAL_LOSS_PCT)
+
+    newest = max(stats)
+    last = next((s for s in (newest, newest - step_s) if degraded(s)), None)
+    if last is None:
+        return []
+    first = last
+    while degraded(first - step_s):
+        first -= step_s
+    s = stats[last]
+    return [{
+        "rule": "degradation",
+        "severity": "warning",
+        "key": "degradation",
+        "target": None,
+        "transient": True,
+        "start": first - step_s,
+        "end": last,
+        "message": (
+            f"{len(s['affected'])} of {s['reporting']} destinations lost "
+            f"packets in the same cycle at {_hhmm(last)}, mean loss "
+            f"{s['mean_loss_pct']:.1f}%"
+        ),
+        "value": s["mean_loss_pct"],
+        "breadth": _breadth(set(s["affected"]), s["reporting"]),
+    }]
 
 
 def _is_ipv6_target(target: str, category: str | None) -> bool:
@@ -1148,10 +1277,9 @@ def evaluate_with_context(
             microcuts.attribute(microcuts.fold_cuts(micro_rows), deaf_rows)),
         micro_rows,
     )
-    ongoing = [
-        key for key, record in records.items()
-        if record.get("missing_since") is None
-    ]
+    outage = records.get("outage") or {}
+    outage_since = (outage.get("since")
+                    if outage and outage.get("missing_since") is None else None)
     # The targets that vote on breadth only. Optional like the Wi-Fi
     # evidence: a failed query leaves the breadth to the targets that
     # always vote, never the cycle without its rules.
@@ -1166,7 +1294,7 @@ def evaluate_with_context(
     widespread = rule_widespread(
         down_rows + breadth_rows, step_s=windows["step"],
         cadences={**breadth_cadences, **cadences},
-        ongoing=ongoing,
+        outage_since=outage_since,
         total_open=_total_open(records),
     )
     incidents = widespread + suppress_widespread(incidents, widespread)
@@ -1186,6 +1314,8 @@ def evaluate_with_context(
     if not stale and "exporter_stale" not in open_keys:
         incidents += _measurements_stale(windows["stale"], open_keys)
     incidents += rule_ipv6_down(mean_rows, windows["mean"])
+    incidents += rule_degradation(down_rows, step_s=windows["step"],
+                                  widespread=widespread)
     context = {
         "down_rows": down_rows,
         "mean_rows": mean_rows,
@@ -1198,6 +1328,9 @@ def evaluate_with_context(
         "windows": windows,
         "cadences": cadences,
         "judged": judged_targets(down_rows),
+        # This host's deaf Wi-Fi samples (common.microcuts.uplink_flux):
+        # the episodes' blind spans.
+        "deaf_rows": deaf_rows,
     }
     return incidents, context
 

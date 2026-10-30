@@ -6,8 +6,10 @@ of one microcut alert in one second (10/09), and twice an outage arriving as
 a pair of identical messages one minute apart, minutes after the outbox
 summary that had already told it (10/18, 10/28).
 
-The real ``main.run_iteration`` runs once a minute, with the evaluator
-scripted, the state file round-tripped through JSON, and the real notifier
+The real ``main.run_iteration`` runs once a minute, with what the push
+policy decides scripted (since front 8 the messages are episodes'; which
+ones is test_october.py's to prove), the state file round-tripped through
+JSON, and the real notifier
 talking to a fake OpenClaw gateway that keeps every request it receives in
 its own durable queue and replays it later -- as the real one does, which is
 where every copy came from.
@@ -95,12 +97,10 @@ class Gateway:
 
 
 class Loop:
-    """run_iteration once a minute over a script of incidents."""
+    """run_iteration once a minute over a script of what the policy says."""
 
-    def __init__(self, monkeypatch, tmp_path, incidents, reachable,
-                 watchdog=None, start=T0):
-        self.incidents = incidents
-        self.watchdog = watchdog or (lambda minute: [])
+    def __init__(self, monkeypatch, tmp_path, messages, reachable, start=T0):
+        self.messages = messages
         self.start = start
         self.minute = 0
         monkeypatch.setenv("ALERT_STATE_FILE", str(tmp_path / "state.json"))
@@ -108,13 +108,11 @@ class Loop:
         monkeypatch.setenv("OPENCLAW_GATEWAY_TOKEN", "t")
         monkeypatch.setenv("OPENCLAW_TO", "telegram:1")
         monkeypatch.setattr(main.evaluator, "evaluate_with_context", self.evaluate)
-        monkeypatch.setattr(main.verdict, "classify", lambda *a, **k: {})
-        monkeypatch.setattr(main.alert_diagnosis, "run", lambda cadences: None)
-        monkeypatch.setattr(
-            main, "_chart_for",
-            lambda event, peers: PNG if event.get("target") else None)
-        monkeypatch.setattr(main.watchdog_events, "collect",
-                            lambda current, query: self.watchdog(self.minute))
+        monkeypatch.setattr(main.evaluator, "_query", lambda src: [])
+        monkeypatch.setattr(main.policy, "decide",
+                            lambda state, events, now: [
+                                dict(m) for m in self.messages(self.minute)])
+        monkeypatch.setattr(main.alert_diagnosis, "run", lambda *a, **k: None)
         monkeypatch.setattr(main.notifier, "reachable",
                             lambda: reachable(self.minute))
         monkeypatch.setattr(main.time, "time", lambda: self.now)
@@ -129,12 +127,11 @@ class Loop:
         return (self.start + timedelta(minutes=self.minute)).timestamp()
 
     def evaluate(self, **_):
-        incidents = [dict(i) for i in self.incidents(self.minute)]
-        return incidents, {
-            "mean_rows": [], "micro_rows": [], "wifi_rows": {},
+        return [], {
+            "mean_rows": [], "micro_rows": [], "wifi_rows": {}, "down_rows": [],
             "uplink_changes": [], "cadences": {},
             "windows": {"mean": 900, "step": 300, "stale": 1200},
-            "judged": {"NYT", "136.25.220.1"},
+            "judged": {"NYT"},
         }
 
     def run(self, minutes, gateway):
@@ -144,30 +141,29 @@ class Loop:
             main.run_iteration()
 
 
+def _message(n, text, kind="down", type="alert", silent=False):
+    """One message of episode ``n``, as policy.py makes it."""
+    return {"type": type, "rule": "episode", "kind": kind, "key": f"episode:{n}",
+            "target": None, "severity": "critical" if kind == "down" else "info",
+            "silent": silent, "message": text, "episode": {"key": f"episode:{n}"},
+            "state": {"first_seen": 1_790_000_000.0 + n, "notified_count": 1}}
+
+
 def told(phone, message):
     """How many messages on the phone say ``message``, alone or in a summary."""
     return sum(1 for _, text in phone if message in text)
 
 
-def _outage(key, message):
-    return {"rule": "outage", "severity": "warning", "key": key, "target": None,
-            "transient": True, "message": message, "value": 10}
-
-
 # --- 2026-10-09: six copies of one alert in one second ----------------------
 
 def test_a_stalled_gateway_gets_one_copy_not_six(monkeypatch, tmp_path):
-    """The microcut alert went out with its chart while the gateway could
-    not reach Telegram and answered after the alerter's timeout. Before:
-    three attempts with the chart, then three text-only, each one kept in
-    the gateway's queue -- six identical messages the moment it drained
-    it, and the outbox's own copy after them."""
-    message = "CPE 136.25.220.1: 14 cuts over 50% loss in 15 min"
-    microcut = {"rule": "microcut_burst", "severity": "warning",
-                "key": "microcut_burst:136.25.220.1/ipv4",
-                "target": "136.25.220.1", "message": message, "value": 14}
+    """An alert went out while the gateway could not reach Telegram and
+    answered after the alerter's timeout. Before: every attempt kept in the
+    gateway's queue -- six identical messages the moment it drained it,
+    and the outbox's own copy after them."""
+    message = "Internet down: your line, since 13:02"
     loop = Loop(monkeypatch, tmp_path,
-                incidents=lambda m: [microcut] if 2 <= m < 60 else [],
+                messages=lambda m: [_message(1, message)] if m == 2 else [],
                 reachable=lambda m: not 2 <= m < 30)
     gateway = Gateway(monkeypatch,
                       mode=lambda m: "stalled" if m < 30 else "up",
@@ -190,26 +186,16 @@ def test_a_summary_then_nothing_it_or_the_gateway_already_told(monkeypatch, tmp_
     Then a new outage, sent while the gateway delivered and still answered
     ok:false: before, the outbox sent it again a minute later -- the same
     pair, identical text, consecutive messages one minute apart."""
-    first = "10 of 10 targets lost every packet in the same 10-minute span at 18:06"
-    second = "9 of 10 targets lost packets in the same 5-minute span at 18:18"
-    later = "8 of 10 targets lost packets in the same 5-minute span at 18:40"
-    reload = "the watchdog on this host, at 18:22 UTC: wifi: driver reloaded"
+    first = "Internet down: your line, since 18:06"
+    second = "Internet down: your provider, since 18:18"
+    later = "Internet down: your line, since 18:40"
+    reload = "Could not measure: this Pi's radio, the watchdog reloaded the driver"
 
-    def incidents(m):
-        out = []
-        if 6 <= m < 16:
-            out.append(_outage("outage:1", first))
-        if 18 <= m < 25:
-            out.append(_outage("outage:2", second))
-        if 40 <= m < 45:
-            out.append(_outage("outage:3", later))
-        return out
-
-    def watchdog(m):
-        if m != 23:
-            return []
-        return [{"type": "alert", "rule": "watchdog", "severity": "info",
-                 "key": "watchdog:wifi:1", "target": None, "message": reload}]
+    def messages(m):
+        return {6: [_message(1, first)], 18: [_message(2, second)],
+                23: [_message(3, reload, kind="monitor", type="recovery",
+                              silent=True)],
+                40: [_message(4, later)]}.get(m, [])
 
     def mode(m):
         if 5 <= m < 31:
@@ -218,8 +204,8 @@ def test_a_summary_then_nothing_it_or_the_gateway_already_told(monkeypatch, tmp_
             return "flaky"
         return "up"
 
-    loop = Loop(monkeypatch, tmp_path, incidents,
-                reachable=lambda m: not 5 <= m < 31, watchdog=watchdog)
+    loop = Loop(monkeypatch, tmp_path, messages,
+                reachable=lambda m: not 5 <= m < 31)
     gateway = Gateway(monkeypatch, mode, replay_at=(36, 37))
     loop.run(60, gateway)
 
@@ -233,20 +219,22 @@ def test_a_summary_then_nothing_it_or_the_gateway_already_told(monkeypatch, tmp_
 # --- a plain recovery after a held alert --------------------------------------
 
 def test_a_recovery_after_a_held_alert_arrives_once(monkeypatch, tmp_path):
-    """NYT goes down at night: held, and hourly re-notifications held with
-    it. The morning summary tells it. NYT answers again after 07:00: the
-    recovery of an incident told only in a summary still goes, once --
+    """A message that would sound at night is held; the morning summary
+    tells it. The end of that episode, after 07:00, still goes, once --
     even when the gateway delivers it and answers ok:false."""
     monkeypatch.setenv("QUIET_FROM", "23:00")
     monkeypatch.setenv("QUIET_UNTIL", "07:00")
     monkeypatch.setenv("DIGEST_TZ", "UTC")
     start = datetime(2026, 10, 18, 22, 50, tzinfo=timezone.utc)
-    down = {"rule": "target_down", "severity": "critical", "key": "target_down:NYT",
-            "target": "NYT", "message": "NYT down: 100% loss in 3 cycles", "value": 1.0}
+    down = _message(1, "Internet down: your line, since 23:30")
     back = 8 * 60 + 15  # 07:05
+    recovery_at = back + 15
+    over = _message(1, "✅ Over: 23:30 to 07:05", kind="recovery",
+                    type="recovery", silent=True)
 
     loop = Loop(monkeypatch, tmp_path,
-                incidents=lambda m: [down] if 40 <= m < back else [],
+                messages=lambda m: ([down] if m == 40 else
+                                    [over] if m == recovery_at else []),
                 reachable=lambda m: True, start=start)
     recovery_minute = []
 
@@ -262,7 +250,7 @@ def test_a_recovery_after_a_held_alert_arrives_once(monkeypatch, tmp_path):
         main.run_iteration()
 
     summaries = [t for _, t in gateway.phone if "Quiet hours" in t]
-    assert len(summaries) == 1 and down["message"] in summaries[0]
+    assert len(summaries) == 1 and "your line, since 23:30" in summaries[0]
     recoveries = [t for _, t in gateway.phone if t.startswith("✅")]
     assert len(recoveries) == 1, gateway.phone
     assert len(gateway.phone) == 2
@@ -270,4 +258,5 @@ def test_a_recovery_after_a_held_alert_arrives_once(monkeypatch, tmp_path):
 
 @pytest.fixture(autouse=True)
 def _no_mutes(monkeypatch):
-    monkeypatch.setattr(main.state.mutes, "load", lambda: [])
+    from common import mutes
+    monkeypatch.setattr(mutes, "load", lambda: [])

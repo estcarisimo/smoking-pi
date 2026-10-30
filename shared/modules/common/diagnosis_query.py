@@ -2,8 +2,8 @@
 
 The MCP tool ``diagnose_loss`` asked these questions of InfluxDB on its own,
 so only an assistant could say what an episode was. The alerter answered
-the same question with a cruder rule set of its own (alerter/verdict.py),
-and the two could disagree about the same minutes. Both now fetch through
+the same question with a cruder rule set of its own (alerter/verdict.py,
+retired in front 8), and the two could disagree about the same minutes. Both now fetch through
 here: the queries, the context and the result are one code path.
 
 ``query`` is the caller's InfluxDB query function (each container has its

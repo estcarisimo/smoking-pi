@@ -1,11 +1,20 @@
 """Entry point for the alerting engine.
 
-Loop: every ALERT_INTERVAL seconds (default 60) run
-evaluator -> state reconcile -> notifier, then the reports watcher.
-Exceptions are logged per iteration and never crash the loop. Pass
-``--once`` to run a single iteration (handy for testing rules and
-notification wiring). With NOTIFY_MODE=off the engine still evaluates and
-logs incidents — visibility without spam.
+Loop: every ALERT_INTERVAL seconds (default 60) one cycle, an explicit
+pipeline:
+
+    signals (evaluator, watchdog_events, the monitor's own health)
+      -> episode (episodes.update: one per physical fact, blind spans
+         subtracted)
+      -> classification (common.diagnosis.classify_episode)
+      -> materiality (common.definitions.materiality)
+      -> policy (policy.decide: what is said, and how loud)
+      -> delivery (_deliver: quiet hours, outbox, notifier)
+
+then the reports watcher, the incident history and the weekly summary. Exceptions
+are logged per iteration and never crash the loop. Pass ``--once`` to run a
+single iteration. With NOTIFY_MODE=off the engine still evaluates and logs
+episodes -- visibility without spam.
 """
 
 from __future__ import annotations
@@ -17,9 +26,9 @@ import sys
 import time
 
 import alert_diagnosis
-import charts
 import clock
 import dead_man
+import episodes
 import evaluator
 import flux
 import incident_history
@@ -27,13 +36,12 @@ import ledger
 import notifications
 import notifier
 import outbox
+import policy
 import quiet
 import reports_watcher
 import state
-import verdict
 import watchdog_events
 import weekly
-from common import links
 
 DEFAULT_INTERVAL = 60  # seconds; ALERT_INTERVAL
 # How long InfluxDB may be unreadable before that is itself an alert: five
@@ -56,105 +64,7 @@ def _influx_error(exc: Exception) -> bool:
     return module.split(".")[0] in ("influxdb_client", "urllib3", "httpx",
                                     "httpcore", "reactivex")
 
-# Which measurement a rule's target is charted in, so the link
-# points at the right dashboard. Unknown rules fall back to the
-# default inside links.target_links.
-_MEASUREMENT_BY_RULE = {
-    "microcut_burst": "cpe_latency",
-}
-
 log = logging.getLogger("alerter")
-
-
-def _links_for(incident: dict) -> dict:
-    """Deep links for the incident's target, or {} when unconfigured.
-
-    Never raises: a link failure must not cost the alert that carries it.
-    """
-    target = incident.get("target")
-    if not target:
-        return {}
-    try:
-        return links.target_links(
-            name=target,
-            measurement=_MEASUREMENT_BY_RULE.get(incident.get("rule", "")),
-        )
-    except Exception:  # noqa: BLE001 - links are decoration, never a gate
-        log.warning("Could not build links for %s", target, exc_info=True)
-        return {}
-
-
-def _peers_by_target(mean_rows: list[dict]) -> dict[str, list[str]]:
-    """Same-category siblings for each target, for chart context lines."""
-    by_category: dict[str, list[str]] = {}
-    category_of: dict[str, str] = {}
-    for row in mean_rows:
-        target, category = row.get("target"), row.get("category")
-        if not target or not category:
-            continue
-        category_of.setdefault(target, category)
-        siblings = by_category.setdefault(category, [])
-        if target not in siblings:
-            siblings.append(target)
-    return {
-        target: [s for s in by_category.get(category, []) if s != target]
-        for target, category in category_of.items()
-    }
-
-
-def _chart_for(incident: dict, peers: dict[str, list[str]]) -> bytes | None:
-    """Render the incident's chart, or None. Never raises.
-
-    This DOES block: it queries Influx and renders through matplotlib inline,
-    so a slow query holds up the evaluation loop. That is tolerable because
-    it runs only for incidents actually being notified, and both the query and
-    the render are bounded -- but it is not a background job, and treating it
-    as one is how a chart timeout would turn into a stalled alerter.
-    """
-    if not _env_bool("ALERT_CHARTS", True):
-        return None
-    target = incident.get("target")
-    if not target:
-        return None  # global incidents (exporter_stale) have nothing to plot
-    return charts.render_incident_chart(
-        target,
-        measurement=_MEASUREMENT_BY_RULE.get(incident.get("rule", ""), "latency"),
-        hours=_env_int("CHART_HOURS", 6),
-        first_seen=incident.get("state", {}).get("first_seen"),
-        severity=str(incident.get("severity") or "warning"),
-        peers=peers.get(target, []),
-    )
-
-
-def _duration_of(event: dict) -> float | None:
-    """How long the incident lasted, for the recovery message: from its
-    first alert to the cycle the rule stopped firing (``ended_at``), not to
-    the end of the resolve grace period. A record saved by an older version
-    has no ``ended_at`` and falls back to ``cleared_at``.
-
-    templates renders "was down 23 min" from this; without it that clause
-    silently never appears.
-    """
-    snapshot = event.get("state") or {}
-    first_seen = snapshot.get("first_seen")
-    ended = snapshot.get("ended_at") or snapshot.get("cleared_at")
-    if not first_seen or not ended:
-        return None
-    return float(ended) - float(first_seen)
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = (os.environ.get(name) or "").strip().lower()
-    if not raw:
-        return default
-    return raw in ("1", "true", "yes", "on")
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, "") or default)
-    except ValueError:
-        return default
 
 
 def _deliver(current: dict, payload: dict, image: bytes | None = None,
@@ -212,13 +122,14 @@ def _deliver(current: dict, payload: dict, image: bytes | None = None,
 
 
 def _unreadable(current: dict, exc: Exception, now: float) -> None:
-    """InfluxDB could not be read: no rule ran, so say so, and know nothing.
+    """InfluxDB could not be read: no rule ran, so know nothing.
 
-    Before, the iteration failed into the log every minute and nothing was
-    sent -- not even that the alerter had gone blind. After
-    UNREADABLE_AFTER_S of failures this is a critical of its own, and every
-    other open incident is held exactly as it was (``blind``): neither
-    recovered nor re-sent, because there is nothing to judge it on.
+    The span is the monitor's blind time: it joins the open episode (or
+    opens one, after UNREADABLE_AFTER_S) as a ``database`` blind span, and
+    every open signal record is held exactly as it was (``blind``). Nothing
+    is pushed while it lasts -- the dead-man check-in says so, outside --
+    and an episode that was all blind for MONITOR_BLIND_MIN_MINUTES is told
+    once, silently, when the database answers again (policy.py).
     """
     monitor = current.setdefault("monitor", {})
     since = float(monitor.setdefault("unreadable_since", now))
@@ -229,9 +140,8 @@ def _unreadable(current: dict, exc: Exception, now: float) -> None:
               type(exc).__name__,
               time.strftime("%H:%M:%S UTC", time.gmtime(since)),
               exc_info=not database)
-    incidents = []
+    signals = []
     if now - since >= UNREADABLE_AFTER_S:
-        at = clock.at(since, now)
         # Same blindness, two causes: the database, or a bug here. A bug must
         # not be reported as the database (review of #334).
         rule, what = (
@@ -240,23 +150,24 @@ def _unreadable(current: dict, exc: Exception, now: float) -> None:
             ("evaluation_failed", "the alerter's rules fail with an error "
              "of their own (see its log)")
         )
-        incidents.append({
+        signals.append({
             "rule": rule,
             "severity": "critical",
             "key": rule,
             "target": None,
-            "message": (
-                f"{what} (since {at}, {type(exc).__name__}): no rule can be "
-                "evaluated, so no alert from here on means nothing"
-            ),
+            "message": f"{what} (since {clock.at(since, now)}, {type(exc).__name__})",
             "value": 0,
+            "start": since,
+            "end": now,
         })
-    actions = state.reconcile(current, incidents, now=now, blind=True)
-    for event in actions["alerts"]:
-        _deliver(current, {**event, "type": "alert"}, now=now)
-    for event in actions["recoveries"]:
-        _deliver(current, {**event, "type": "recovery",
-                           "duration_s": _duration_of(event)}, now=now)
+    state.track(current, signals, now=now, blind=True)
+    # The monitor's own episode: blind from ``since``, nothing pushed while
+    # it lasts (policy.py); told once, silently, when it can read again.
+    cycle = {"now": now, "step": evaluator.STEP_S,
+             "signals": episodes.signals(signals, {}, now),
+             "rows": [], "blind": [[since, now, "database"]],
+             "blind_cycle": True}
+    _push(current, episodes.update(current, cycle), now)
     quiet.release(current, now, lambda event: _deliver(current, event, now=now))
     outbox.flush(current, now, send=notifier.send, reachable=notifier.reachable)
     # The weekly summary, the reports and the incident history are skipped:
@@ -299,8 +210,62 @@ def _after_blindness(current: dict, incidents: list[dict], now: float,
             if i.get("rule") not in _STALE_RULES or i.get("key") in records]
 
 
+def _cycle(current: dict, incidents: list[dict], context: dict,
+           watched: list[dict], now: float) -> dict:
+    """This cycle's input to the episodes: signals, rows and blind spans."""
+    step = int(context["windows"]["step"])
+    blind = (episodes.deaf_spans(context.get("deaf_rows") or [])
+             + episodes.route_spans(context.get("uplink_changes") or [], now))
+    # Optional like the Wi-Fi evidence: without the markers an upgrade's
+    # gap is judged on what the other spans say.
+    try:
+        blind += episodes.upgrade_spans(evaluator._query(episodes.upgrade_flux()), now)
+    except Exception:  # influx client raises many exception types
+        log.warning("upgrade markers could not be read", exc_info=True)
+    if any(i.get("rule") == "exporter_stale" for i in incidents):
+        blind.append([now - context["windows"].get("stale", 1200), now, "exporter"])
+    wifi_rows = context.get("wifi_rows") or {}
+    has_wifi = any(wifi_rows.get(name) for name in ("uplink", "signal", "rx"))
+    return {
+        "now": now,
+        "step": step,
+        "signals": episodes.signals(incidents, context, now, extra=watched,
+                                    records=current.get("incidents")),
+        "rows": context.get("down_rows") or [],
+        "blind": blind,
+        "wifi": "receiving" if has_wifi else None,
+    }
+
+
+def _push(current: dict, events: list[dict], now: float,
+          cadences: dict | None = None, step: int = evaluator.STEP_S) -> None:
+    """The policy's notifications for these episode events, delivered.
+    A failure in the policy costs this cycle's messages, never its state."""
+    try:
+        payloads = policy.decide(current, events, now)
+    except Exception:  # noqa: BLE001 - must never cost the cycle's state
+        log.exception("Push policy failed")
+        return
+    # An episode that closed with nothing pushed is recorded in the ledger
+    # all the same, with why: "why was I not told?" has an answer there too.
+    for event in events:
+        ep = event["episode"]
+        if event["event"] == "closed" and not (ep.get("policy") or {}).get("sent"):
+            notifications.record(policy.recorded(ep), "recorded", now)
+    for payload in payloads:
+        if payload.get("kind") in ("down", "degradation"):
+            # The last hours diagnosed, as the MCP tool does: its reading
+            # beside the episode's, never instead of it.
+            found = alert_diagnosis.for_event(
+                {"rule": "outage", "target": None},
+                alert_diagnosis.run(cadences), step, now=now)
+            if found:
+                payload["diagnosis"] = found
+        _deliver(current, payload, now=now)
+
+
 def run_iteration() -> None:
-    # Loaded first: which incidents are open changes what exporter_stale
+    # Loaded first: which signals are open changes what exporter_stale
     # may conclude from an empty window (evaluator.rule_exporter_stale).
     current = state.load_state()
     try:
@@ -310,79 +275,33 @@ def run_iteration() -> None:
     except Exception as exc:  # influx client raises many exception types
         _unreadable(current, exc, time.time())
         return
-    incidents = _after_blindness(current, incidents, time.time(),
+    now = time.time()
+    incidents = _after_blindness(current, incidents, now,
                                  context["windows"].get("stale", 1200))
     if incidents:
-        log.info("%d active incident(s):", len(incidents))
+        log.info("%d active signal(s):", len(incidents))
         for incident in incidents:
-            log.info(
-                "  [%s/%s]%s %s",
-                incident["severity"],
-                incident["rule"],
-                " (quiet: tail of a total loss)" if incident.get("quiet") else "",
-                incident["message"],
-            )
+            log.info("  [%s/%s]%s %s", incident["severity"], incident["rule"],
+                     " (quiet)" if incident.get("quiet") else "",
+                     incident["message"])
     else:
-        log.info("No active incidents")
-
-    # Classified BEFORE reconcile so the verdict describes the same moment the
-    # incidents were measured in, and from records that still hold first_seen
-    # for anything reconcile is about to clear.
-    # Text for the message, never a gate: a verdict that fails costs its
-    # line, not the alerts (before, an exception here silenced them all).
-    try:
-        call = verdict.classify(
-            incidents,
-            context["mean_rows"] + context.get("breadth_mean_rows", []),
-            context["micro_rows"],
-            records=current.get("incidents", {}),
-            wifi_rows=context.get("wifi_rows"),
-            uplink_changes=context.get("uplink_changes"),
-            mean_window=evaluator._format_window(context["windows"]["mean"]),
-        )
-    except Exception:  # noqa: BLE001 - decoration, never a gate
-        log.exception("Verdict failed; alerts go without it")
-        call = {}
-    actions = state.reconcile(
-        current,
-        incidents,
-        min_resolve_after=evaluator.MEAN_STEPS * context["windows"]["step"],
-        judged=context.get("judged"),
-    )
-    peers = _peers_by_target(context["mean_rows"])
-    # Diagnosed once per iteration, and only when a loss alert is going
-    # out: the queries are diagnose_loss's, and a quiet minute needs none.
-    diagnosed = None
-    if any(e.get("rule") in alert_diagnosis.LOSS_RULES for e in actions["alerts"]):
-        diagnosed = alert_diagnosis.run(context.get("cadences"))
-    for event in actions["alerts"]:
-        payload = {
-            **event, "type": "alert", "verdict": call,
-            "links": _links_for(event),
-        }
-        found = alert_diagnosis.for_event(event, diagnosed, context["windows"]["step"])
-        if found:
-            payload["diagnosis"] = found
-        # No chart while the outbox holds anything: it would not be sent.
-        image = None if outbox.pending(current) else _chart_for(event, peers)
-        _deliver(current, payload, image=image)
-    for event in actions["recoveries"]:
-        # No chart on a recovery: the news IS the recovery, and a second image
-        # per incident doubles the render cost for no added answer.
-        payload = {
-            **event,
-            "type": "recovery",
-            "links": _links_for(event),
-            "duration_s": _duration_of(event),
-        }
-        _deliver(current, payload)
+        log.info("No active signals")
+    step = int(context["windows"]["step"])
+    state.track(current, incidents, now=now,
+                min_resolve_after=evaluator.MEAN_STEPS * step,
+                judged=context.get("judged"))
     # What the host's watchdog did since the last look (a reload, a reboot,
-    # a SmokePing restart): once each, through the outbox like any alert.
+    # a SmokePing restart): signals, and spans the monitor could not hear.
+    watched = watchdog_events.collect(current, evaluator._query, now)
+    # Guarded like the policy: a bug here costs this cycle's episode, never
+    # the state save, the outbox or the check-in below (review of #436).
     try:
-        for payload in watchdog_events.collect(current, evaluator._query):
-            _deliver(current, payload)
+        events = episodes.update(current, _cycle(current, incidents, context,
+                                                 watched, now))
     except Exception:  # noqa: BLE001 - must never cost the cycle's state
-        log.exception("Watchdog events failed")
+        log.exception("Episode update failed")
+        events = []
+    _push(current, events, now, context.get("cadences"), step)
     # What quiet hours held, as one message, once they are over.
     quiet.release(current, time.time(), lambda event: _deliver(current, event))
     # Whatever is waiting, as one message, once delivery works again.

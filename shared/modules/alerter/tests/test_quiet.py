@@ -88,33 +88,37 @@ def test_the_night_is_held_and_the_morning_gets_one_message(overnight, sent):
     assert "held" not in current
 
 
-def test_a_total_loss_or_a_blind_monitor_is_never_held(overnight, sent):
-    """From the moment the monitor cannot judge, no alert means nothing: a
-    quiet night would prove nothing (review of #343)."""
+def test_nothing_sounds_and_only_silent_messages_pass(overnight, sent):
+    """Front 8: no rule passes quiet hours any more, total loss included
+    (policy.py alerts it at the end if it is still going on). A silent
+    message -- the end of an episode told by day, the monitor's one message
+    -- wakes nobody and goes as it is; the night's material episodes wait
+    for the one summary."""
     current = {}
-    rules = ("uplink_down", "internet_down", "monitor_dns", "influx_unreadable",
-             "evaluation_failed", "exporter_stale", "measurement_stale")
-    for rule in rules:
+    for rule in ("uplink_down", "internet_down", "influx_unreadable"):
         main._deliver(current, _alert(key=rule, rule=rule, severity="critical",
                                       target=None), now=NIGHT)
-    assert tuple(p["rule"] for p in sent) == rules
-    assert "held" not in current
-    main._deliver(current, _alert(key="target_down:x", rule="target_down",
-                                  severity="critical"), now=NIGHT)
-    assert len(current["held"]["items"]) == 1
+    assert sent == []
+    assert len(current["held"]["items"]) == 3
+    over = {**_alert(key="episode:1", rule="episode", type="recovery",
+                     target=None), "silent": True, "kind": "recovery"}
+    main._deliver(current, over, now=NIGHT)
+    assert [p["key"] for p in sent] == ["episode:1"]
+    night = {**over, "key": "episode:2", "kind": "night"}
+    main._deliver(current, night, now=NIGHT)
+    assert len(current["held"]["items"]) == 4
 
 
-def test_an_incident_renotified_all_night_is_one_line(overnight):
-    current = {"incidents": {"high_loss:Google": {"rule": "high_loss",
-                                                  "severity": "warning",
-                                                  "target": "Google",
-                                                  "first_seen": NIGHT}}}
-    for i in range(8):
-        quiet.hold(current, _alert(message=f"mean loss {30 + i}%"), NIGHT + 3600 * i)
+def test_an_episode_held_twice_is_one_line(overnight):
+    current = {"episodes": {"open": {"key": "episode:3", "start": NIGHT,
+                                     "judgment": {"cause": "your line"}}}}
+    for i in range(3):
+        quiet.hold(current, _alert(key="episode:3", rule="episode", target=None,
+                                   message=f"line {i}"), NIGHT + 3600 * i)
     text = quiet.build(current, MORNING)["message"]
-    assert text.count("high_loss Google ·") == 1
-    assert "mean loss 37%" in text
-    assert "Now open" in text
+    assert text.count("episode ·") == 1
+    assert "line 2" in text
+    assert "Now open: your line" in text
 
 
 def test_the_summary_reads_in_the_local_zone(monkeypatch):

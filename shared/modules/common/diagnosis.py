@@ -1,7 +1,8 @@
 """What each loss episode was, with the evidence and how sure we are.
 
-The alerter's verdict (alerter/verdict.py) answers "is it me or the
-internet?" for the last few minutes, and only when an alert fires. Most
+The alerter's verdict (alerter/verdict.py, retired in front 8) answered "is
+it me or the internet?" for the last few minutes, and only when an alert
+fired. Most
 questions come later, through an assistant: "what happened last night?". It
 had raw loss events, microcuts and Wi-Fi numbers, and had to assemble a
 cause from them on its own -- which is how a hung radio was reported as an
@@ -722,3 +723,188 @@ def diagnose(events: list[dict], ctx: dict, window_steps: int) -> dict:
     for inc in incidents:
         by_class[inc["class"]] = by_class.get(inc["class"], 0) + 1
     return {"incidents": incidents, "by_class": by_class, "chronic": chronic}
+
+
+# ---------------------------------------------------------------------------
+# Episodes (the alerter's push policy)
+# ---------------------------------------------------------------------------
+
+# One cause per alerter episode (alerter/episodes.py): the same reading as
+# the classes above, from what the alerter knows in the minute, in the words
+# a notification uses. ``monitor`` is every way this Pi itself could not
+# measure -- never the Internet.
+EPISODE_CLASSES = ("monitor", "local_link", "upstream", "destination",
+                   "undetermined")
+_MONITOR_CAUSE = {
+    "radio": "this Pi's radio (monitor blind)",
+    "watchdog": "this Pi's radio (monitor blind)",
+    "route": "this Pi (it lost its own default route)",
+    "database": "this Pi's monitor (its database could not be read)",
+    "exporter": "this Pi's monitor (its measurements stopped arriving)",
+    "upgrade": "an upgrade of this Pi's software",
+    "dns": "this Pi's own DNS",
+}
+LINE_CAUSE = "your line (the modem or the line to the ISP)"
+UPSTREAM_CAUSE = "your provider, beyond the modem"
+UNDETERMINED_CAUSE = "undetermined"
+# Signals about the network, as opposed to the monitor's own health.
+NETWORK_KINDS = frozenset({"outage", "uplink_down", "internet_down",
+                           "monitor_dns", "high_loss", "target_down",
+                           "microcut_burst", "ipv6_down", "degradation"})
+MONITOR_KINDS = {"exporter_stale": "exporter", "measurement_stale": "exporter",
+                 "influx_unreadable": "database", "evaluation_failed": "database",
+                 "watchdog": "watchdog"}
+
+
+def monitor_cause(facts: dict) -> str:
+    """Why the monitor could not hear, in a message's words: the reason
+    that blinded it longest (``facts`` as :func:`classify_episode`)."""
+    reasons = {k: float(v) for k, v in (facts.get("blind") or {}).items()}
+    for kind in facts.get("monitor_kinds") or ():
+        if MONITOR_KINDS.get(kind):
+            reasons.setdefault(MONITOR_KINDS[kind], 0.0)
+    if not reasons:
+        return UNDETERMINED_CAUSE
+    return _MONITOR_CAUSE[max(reasons, key=lambda r: (reasons[r], r != "watchdog"))]
+
+
+def classify_episode(facts: dict) -> dict:
+    """One cause for an alerter episode, with a confidence and evidence.
+
+    ``facts`` (alerter/episodes.py builds them over the minutes the monitor
+    could hear; blind ones are already subtracted):
+
+    - ``blind`` {reason: seconds}: the monitor's own blind spans in the
+      episode (``radio``, ``route``, ``database``, ``exporter``,
+      ``upgrade``, ``watchdog``);
+    - ``kinds``: the kinds of the signals heard (outside those spans);
+    - ``monitor_kinds``: the monitor's own signals (stale, unreadable,
+      watchdog), wherever they fell;
+    - ``lossy_steps`` / ``total_steps``: heard probe cycles in which
+      destinations lost / nearly all lost everything;
+    - ``first_hop``: "answers", "lost" or None (the ISP gateway unmeasured);
+    - ``line_cut``: the first-hop probe cut out (a link cut, not this
+      Pi's deaf radio) in heard minutes;
+    - ``wifi``: "receiving", or None without Wi-Fi telemetry (a wired Pi);
+    - ``breadth_pct`` / ``categories``: the widest heard cycle;
+    - ``sites``: the destinations named by per-destination signals;
+    - ``reporting``: destinations reporting in the widest cycle.
+
+    Returns ``class`` (EPISODE_CLASSES), ``detail``, ``cause`` (words for
+    a message), ``confidence`` and ``evidence``/``against``. Below medium
+    confidence the class is ``undetermined`` and ``suspected`` keeps the
+    reading that did not make it.
+    """
+    kinds = set(facts.get("kinds") or ())
+    blind = {k: float(v) for k, v in (facts.get("blind") or {}).items() if v}
+    heard_network = kinds & NETWORK_KINDS
+    lossy = int(facts.get("lossy_steps") or 0)
+    total = int(facts.get("total_steps") or 0)
+    first_hop = facts.get("first_hop")
+    wifi = facts.get("wifi")
+    breadth = float(facts.get("breadth_pct") or 0.0)
+    categories = int(facts.get("categories") or 0)
+    evidence: list[str] = []
+    against: list[str] = []
+
+    def done(cls: str, detail: str | None, cause: str) -> dict:
+        confidence = _confidence(evidence, against)
+        out = {"class": cls, "detail": detail, "cause": cause,
+               "confidence": confidence, "evidence": list(evidence),
+               "against": list(against)}
+        if confidence == "low":
+            out.update({"class": "undetermined", "cause": UNDETERMINED_CAUSE,
+                        "suspected": cls})
+        return out
+
+    # 1. Nothing heard about the network: the monitor's own episode. An
+    #    episode entirely inside its blind spans is never an internet one.
+    if not heard_network and not lossy and not total:
+        reasons = dict(blind)
+        for kind in facts.get("monitor_kinds") or ():
+            reason = MONITOR_KINDS.get(kind)
+            if reason:
+                reasons.setdefault(reason, 0.0)
+        if reasons:
+            reason = max(reasons, key=lambda r: (reasons[r], r != "watchdog"))
+            cause = monitor_cause(facts)
+            if blind:
+                evidence.append(
+                    f"the monitor could not hear for {_minutes(sum(blind.values()))} "
+                    "min of it (" + ", ".join(sorted(blind)) + ")")
+            evidence.append("no loss was measured while it could hear")
+            return done("monitor", reason, cause)
+        return done("undetermined", None, UNDETERMINED_CAUSE)
+
+    # 2. This Pi's own name resolution.
+    if "monitor_dns" in kinds:
+        evidence.append("every named destination failed while the first hop "
+                        "and the DNS resolvers answered by address")
+        evidence.append("resolution, not reachability")
+        return done("monitor", "dns", _MONITOR_CAUSE["dns"])
+
+    if wifi == "receiving":
+        evidence_wifi = "this Pi's radio was receiving the whole time"
+    else:
+        evidence_wifi = None
+
+    # 3. Everything lost: the line, or beyond it, by the first hop.
+    if total or kinds & {"uplink_down", "internet_down"}:
+        evidence.append(f"nearly every destination lost everything for {total} "
+                        f"probe cycle{'s' if total != 1 else ''}")
+        if first_hop == "answers" or "internet_down" in kinds:
+            evidence.append("the first hop (the ISP gateway) kept answering")
+            if evidence_wifi:
+                evidence.append(evidence_wifi)
+            return done("upstream", "down", UPSTREAM_CAUSE)
+        if first_hop == "lost":
+            evidence[-1:] = [evidence[-1] + ", the first hop (the ISP gateway) "
+                             "included"]
+            if evidence_wifi:
+                evidence.append(evidence_wifi)
+            return done("local_link", "down", LINE_CAUSE)
+        against.append("the first hop is not measured: the line and what is "
+                       "beyond it cannot be told apart")
+        return done("local_link", "down", LINE_CAUSE)
+
+    # 4. The first hop cut out, with or without the destinations.
+    if facts.get("line_cut"):
+        evidence.append("the first hop (the ISP gateway) cut out")
+        if lossy:
+            evidence.append(f"{breadth:.0f}% of the destinations lost with it")
+        if evidence_wifi:
+            evidence.append(evidence_wifi)
+        return done("local_link", "cut", LINE_CAUSE)
+
+    # 5. Broad loss with the first hop clean: beyond the modem.
+    if lossy and (breadth >= definitions.MATERIAL_BREADTH_PCT
+                  or categories >= definitions.MATERIAL_MIN_CATEGORIES):
+        evidence.append(f"{breadth:.0f}% of the destinations, in {categories} "
+                        f"categor{'ies' if categories != 1 else 'y'}, lost together")
+        if first_hop == "answers":
+            evidence.append("the first hop (the ISP gateway) answered and "
+                            "never cut out")
+            if evidence_wifi:
+                evidence.append(evidence_wifi)
+            return done("upstream", "degraded", UPSTREAM_CAUSE)
+        against.append("the first hop is not measured: the line cannot be "
+                       "ruled out")
+        return done("upstream", "degraded", UPSTREAM_CAUSE)
+
+    # 6. One or a few destinations.
+    if "ipv6_down" in kinds:
+        evidence.append("every IPv6 destination lost everything while IPv4 "
+                        "was healthy")
+        return done("destination", "ipv6", "IPv6 only")
+    sites = sorted({s for s in facts.get("sites") or () if s})
+    if sites:
+        evidence.append(f"{', '.join(sites[:3])}"
+                        f"{f' and {len(sites) - 3} more' if len(sites) > 3 else ''} "
+                        "lost packets")
+        reporting = int(facts.get("reporting") or 0)
+        if reporting >= MIN_TARGETS + len(sites):
+            evidence.append(f"the other {reporting - len(sites)} destinations "
+                            "were fine")
+        return done("destination", None, "just " + ", ".join(sites[:3]))
+    against.append("no reading fits the signals")
+    return done("undetermined", None, UNDETERMINED_CAUSE)

@@ -6,8 +6,12 @@ cannot. It acts exactly when the network is down, so until now its actions
 reached its own log and the journal and nobody else: a reboot at 3 a.m.
 left no trace a person would see. It now also writes each event into
 InfluxDB (``watchdog_event``: tag ``area``, field ``message``), and this
-module turns the new ones into notifications. They go through the outbox
-like any alert, so a reboot is told once the Pi is back.
+module turns the new ones into signals for the episodes (episodes.py): an
+action is a span in which the monitor could not hear (a driver reload
+drops the link for seconds; the cut it makes is the reload's, not the
+line's), and an episode that is all monitor-blind is told once, silently,
+when it lasted 15 minutes or more. An action resolved sooner is recorded,
+never pushed (decision of 2026-10-30).
 """
 
 from __future__ import annotations
@@ -18,8 +22,6 @@ from datetime import datetime, timezone
 
 import clock
 import flux
-from common import mutes
-
 log = logging.getLogger("alerter.watchdog_events")
 
 MEASUREMENT = "watchdog_event"
@@ -76,7 +78,8 @@ def _key(row: dict, at: float) -> str:
 
 
 def collect(state: dict, query, now: float | None = None) -> list[dict]:
-    """New watchdog events as alert payloads. Never raises.
+    """New watchdog events as signals (``rule`` "watchdog", ``at`` the
+    event's time). Never raises.
 
     The first look only marks where to start: events from before the
     alerter knew about them are history, not news. After that, every event
@@ -106,7 +109,6 @@ def _collect(state: dict, query, now: float) -> list[dict]:
     except Exception:  # influx client raises many exception types
         log.warning("Watchdog events query failed; read next cycle", exc_info=True)
         return []
-    entries = mutes.load()
     payloads = []
     for row in rows:
         at = _epoch(row.get("_time"))
@@ -120,22 +122,19 @@ def _collect(state: dict, query, now: float) -> list[dict]:
         level = severity(message)
         if level is None:
             continue
-        payload = {
-            "type": "alert",
+        payloads.append({
             "rule": "watchdog",
             "severity": level,
             "key": key,
             "target": None,
+            "at": at,
+            "area": row.get("area") or "watchdog",
             "message": (
                 "the watchdog on this host, at "
                 f"{clock.at(at, now)}: "
                 f"{message}"
             ),
-        }
-        if mutes.find(entries, payload, now) is not None:
-            log.info("Watchdog event %s muted", key)
-            continue
-        payloads.append(payload)
+        })
     # Remembered as long as the query can return them, then forgotten.
     for key in [k for k, t in told.items() if now - float(t) > LOOKBACK_S + 3600]:
         del told[key]

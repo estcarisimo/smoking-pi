@@ -81,18 +81,22 @@ def breadth_voters(rows: list[dict], cadences: dict[str, Cadence]) -> set[str]:
             if clean.get(t, 0) >= BREADTH_CLEAN_SHARE * n}
 
 
-# What makes an episode material: worth a line in the weekly summary, and
-# the reason one is sent at all (decision of 2026-10-30, front 8). October's
-# daily digest said "all clear" 10 times in 16 days and carried one new fact
-# in all of them; these are the bar that keeps a message for the weeks that
-# had one. Measured outside the monitor's own deaf spans, the upgrade
-# windows and the watchdog's actions, which are the monitor's, not the
-# network's. Breadth counts only when MIN_BREADTH_TARGETS report, as
-# everywhere.
+# What makes an episode material: the reason a notification is sent at
+# all, and a line in the weekly summary (decision of 2026-10-30, front 8).
+# October on the reference Pi sent 72 messages for about 11 real events, two
+# of them actionable; these are the bar the rest did not clear. Constants,
+# not settings: the alerter, the weekly summary and the MCP tools must
+# agree on what was material, and a per-install knob would split them.
 MATERIAL_BREADTH_PCT = 30.0  # share of the reporting destinations...
 MATERIAL_MIN_CATEGORIES = 2  # ...or destinations in this many categories
-MATERIAL_MIN_MINUTES = 15  # three 5-minute probe cycles
-MATERIAL_LOSS_PCT = 5.0  # mean loss over the episode's destinations
+# A category counts toward MATERIAL_MIN_CATEGORIES when at least this share
+# of its own reporting destinations lost: one site in each of two categories
+# (a university's web server and its name server) is still one site.
+MATERIAL_CATEGORY_SHARE = 50.0
+MATERIAL_MIN_MINUTES = 15  # three 5-minute probe cycles in a row...
+MATERIAL_MIN_EPISODES = 2  # ...or this many episodes...
+MATERIAL_EPISODES_WINDOW_S = 3600  # ...in this span
+MATERIAL_LOSS_PCT = 5.0  # mean loss over the episode's degraded cycles
 # Median latency over the episode against the same hours a week before.
 MATERIAL_LATENCY_RATIO = 2.0
 # Below this share of the week measured, the monitor's own availability is
@@ -103,6 +107,71 @@ MATERIAL_AVAILABILITY_PCT = 99.0
 # window (the weekly's own rule; the Quality dashboard only draws a band
 # someone chose, docs/connectivity-quality.md).
 RECURRING_MIN_DAYS = 3
+# The monitor blind (a deaf radio, its database unreadable, its exporter
+# stalled) for at least this long is told once, silently, when it can
+# measure again; shorter is recorded only. healthchecks.io (the dead-man
+# check-in) covers the meantime.
+MONITOR_BLIND_MIN_MINUTES = 15
+# A cut of the line shorter than this is a microcut: recorded for the
+# weekly summary, never pushed.
+MICROCUT_MAX_S = 60
+
+
+def materiality(
+    *,
+    measurable: bool,
+    breadth_pct: float,
+    categories: int,
+    minutes: float,
+    episodes_in_window: int,
+    loss_pct: float | None,
+    latency_ratio: float | None = None,
+    novel: bool = True,
+) -> list[str]:
+    """The conditions an episode misses to be material; empty when it is.
+
+    All five must hold (decision of 2026-10-30):
+
+    - ``measurable``: judged on minutes the monitor could hear -- outside
+      its own deaf spans, the ``upgrade`` windows and the watchdog's
+      actions, with one probe cycle of margin. The caller subtracts them.
+    - ``breadth``: ``breadth_pct`` (of the reporting destinations) at least
+      MATERIAL_BREADTH_PCT, or ``categories`` (each with
+      MATERIAL_CATEGORY_SHARE of its destinations) at least
+      MATERIAL_MIN_CATEGORIES.
+    - ``persistence``: ``minutes`` covered by consecutive degraded probe
+      cycles at least MATERIAL_MIN_MINUTES (three 5-minute cycles), or MATERIAL_MIN_EPISODES episodes within
+      MATERIAL_EPISODES_WINDOW_S (``episodes_in_window``, this one
+      included).
+    - ``magnitude``: mean loss ``loss_pct`` at least MATERIAL_LOSS_PCT, or
+      median latency at least MATERIAL_LATENCY_RATIO times the same hours
+      a week before (``latency_ratio``; None when not measured).
+    - ``novelty``: not explained by an open episode or a known pattern.
+
+    The names in the list are the conditions, for the record and the MCP.
+    """
+    unmet = []
+    if not measurable:
+        unmet.append("measurable")
+    if breadth_pct < MATERIAL_BREADTH_PCT and categories < MATERIAL_MIN_CATEGORIES:
+        unmet.append("breadth")
+    if (minutes < MATERIAL_MIN_MINUTES
+            and episodes_in_window < MATERIAL_MIN_EPISODES):
+        unmet.append("persistence")
+    if ((loss_pct is None or loss_pct < MATERIAL_LOSS_PCT)
+            and (latency_ratio is None or latency_ratio < MATERIAL_LATENCY_RATIO)):
+        unmet.append("magnitude")
+    if not novel:
+        unmet.append("novelty")
+    return unmet
+
+
+def material(**facts) -> bool:
+    """Whether an episode is material: the single gate, shared by the
+    alerter's push policy, the weekly summary and the MCP tools. See
+    :func:`materiality` for the conditions and their arguments."""
+    return not materiality(**facts)
+
 
 # Total loss, by what still answers: one incident at a time.
 TOTAL_RULES = ("uplink_down", "internet_down", "monitor_dns")

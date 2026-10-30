@@ -546,8 +546,8 @@ output.
 
 - [Upgrading](upgrades.md) — `apt upgrade && sudo smoking-pi upgrade`, and
   the two majors that are a data migration.
-- [Alerting](alerting.md) — alerts that lead with a verdict: is it me or the
-  internet?
+- [Alerting](alerting.md) — one message per episode, only when it matters,
+  with its cause: is it me or the internet?
 - [Instrumentation doctor](doctor.md) — what each check proves.
 - [Packaging](packaging.md) — the layout, the supported hosts, and the
   lifecycle end to end.

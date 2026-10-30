@@ -138,7 +138,13 @@ def test_kinds():
     assert notifications.kind_of(_alert()) == "alert"
     assert notifications.kind_of(_alert(type="recovery")) == "recovery"
     assert notifications.kind_of(_alert(rule="watchdog")) == "watchdog"
-    assert notifications.kind_of(_alert(rule="influx_unreadable")) == "monitor"
+    episode = {"type": "recovery", "rule": "episode"}
+    assert notifications.kind_of({**episode, "kind": "monitor"}) == "monitor"
+    assert notifications.kind_of({**episode, "kind": "night"}) == "recovery"
+    assert notifications.kind_of({**episode, "type": "alert", "kind": "update"}) == "update"
+    assert notifications.kind_of({**episode, "type": "alert", "kind": "down"}) == "alert"
+    assert notifications.kind_of({**episode, "type": "episode",
+                                  "kind": "recorded"}) == "episode"
     assert notifications.kind_of({"type": "held"}) == "quiet_bundle"
     assert notifications.kind_of({"type": "undelivered"}) == "outbox_summary"
     assert notifications.kind_of({"type": "digest"}) == "digest"
@@ -393,3 +399,26 @@ def test_handed_to_the_gateway_is_its_own_outcome(monkeypatch):
     assert entry["outcome"] == "handed" and entry["transport"] == "openclaw"
     assert entry["delivered_at"] == NOON
     assert payload["delivery"] == "handed"
+
+
+def test_an_episode_closed_unsaid_is_recorded_with_why(state_file, monkeypatch):
+    """Front 8: every decision is in the ledger, including "not sent"."""
+    import episodes
+    import policy
+
+    monkeypatch.setattr(main.policy, "decide", lambda state, events, now: [])
+    ep = {"key": "episode:4", "id": 4, "opened_at": NOON, "start": NOON,
+          "end": NOON + 600, "loss_start": NOON, "loss_end": NOON + 600,
+          "signals": {"high_loss": {"count": 3}}, "blind": [], "watchdog": [],
+          "policy": {}, "material": False, "microcut": False,
+          "judgment": {"class": "destination", "cause": "just UBA",
+                       "confidence": "high", "evidence": []},
+          "facts": {"breadth_pct": 4.0, "categories": 0, "sites": ["UBA"]},
+          "materiality": {"unmet": ["breadth", "magnitude"]}}
+    assert episodes.summary(ep)["sites"] == ["UBA"]
+    main._push({}, [{"event": "closed", "episode": ep}], NOON + 1500)
+    [entry] = _entries()
+    assert (entry["kind"], entry["outcome"]) == ("episode", "recorded")
+    assert entry["targets"] == ["UBA"]
+    assert "not material: breadth, magnitude" in entry["text"]
+    assert policy.recorded(ep)["type"] == "episode"

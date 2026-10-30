@@ -265,10 +265,19 @@ so and point to the Smoking Pi web admin.
   was set. Read back the scope and the expiry ("muted amazon for 2 hours,
   until 16:40"), never just "done".
 - **Prefer `ack_incident`** when the person reacts to an alert they just
-  got: it silences that one incident until it clears, and a different
-  problem on the same target still alerts. Keys come from
-  `list_alert_state`, which also shows active mutes -- call it before muting
-  something a second time, and when someone asks why they were not told.
+  got: given the episode's key (`episode:<id>`) it says nothing more about
+  that episode, its end included, and the next one still alerts. Keys come
+  from `list_alert_state`, which also shows active mutes -- call it before
+  muting something a second time, and when someone asks why they were not
+  told.
+- **Why was I not told?** The alerter pushes only the home's Internet down,
+  a material degradation (broad, lasting, deep, new), their end, and the
+  monitor blind for 15 minutes or more -- one message per episode, nothing
+  that sounds in quiet hours. One site's loss, a line cut under a minute,
+  the watchdog's quick fixes and upgrades are recorded, not sent:
+  `list_alert_state` shows each recent episode with what was pushed and,
+  when nothing was, the conditions it missed (`unmet`). Say that, rather
+  than calling it a failure to alert.
 - **Never mute to make a complaint go away.** "Stop telling me about amazon"
   is a mute; "amazon keeps dropping" is a question. Ask when it is unclear.
   `unmute_alerts` lifts a mute early.

@@ -19,7 +19,7 @@ Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps [
 - 🌐 **HTTP/1.1 vs 2 vs 3**: a HEAD request over each version by separate probes, version enforced, with the bare TCP handshake underneath as the floor — see [docs/http-probes.md](docs/http-probes.md)
 - 🎚️ **Three editions, one setup script**: Basic (YAML), Standard (web admin + PostgreSQL + REST API), Pro (everything + Grafana + InfluxDB/ClickHouse)
 - 📊 **Grafana dashboards**: per-target detail with every individual ping, side-by-side comparisons, percentiles, CPE microcut detection sampled every 10 s, and the Wi-Fi uplink itself (signal, bitrate, throughput, disconnects) when the Pi is on wireless
-- 🚨 **Alerts that say what they mean**: every alert leads with a verdict — *is it me or the internet?* — carries the chart, and can be muted by asking in chat
+- 🚨 **Alerts only when it matters**: one message per episode, sent only for the Internet down or materially degraded, its end, and the monitor blind for 15 min — each with its cause (*your line*, *your provider*, *this Pi*) and how sure — and mutable by asking in chat
 - 🤖 **MCP server + agent skill**: ask an AI assistant about last night's outage; answers come with deep links into the exact Grafana view
 - 🖼️ **Charts you can forward**: `get_chart` renders a PNG of any target — median with the spread of individual pings — for someone with no login here
 - 🩺 **Instrumentation doctor**: static and live checks that the dashboards, exporters, containers and DNS actually agree with each other
@@ -144,7 +144,7 @@ Tools: `diagnose_loss` (what each loss episode was, with evidence and confidence
 sudo smoking-pi alerts --telegram --test     # or --openclaw, --webhook; see docs/alerting.md
 ```
 
-Rules: target down, high loss, CPE microcut bursts, exporter stale. Each alert leads with a verdict (*🌐 not you — 12 of 16 destinations affected but your local link is clean*), attaches the chart, and links home and from-anywhere. A weekly summary, sent only when the week had something worth telling, says what it added up to; a dead man's switch says when the monitor itself goes silent. Muting is done by asking the assistant, capped at 24 h, and read back to you. See [docs/alerting.md](docs/alerting.md).
+Rules: target down, high loss, CPE microcut bursts, exporter stale. The rules' findings are folded into one episode per physical fact, classified (*your line*, *your provider, beyond the modem*, *this Pi's radio*) and pushed only when material: the Internet down, a broad lasting degradation, their end, the monitor blind for 15 min. One site's loss, short line cuts and the watchdog's quick fixes are recorded, not sent. A weekly summary, sent only when the week had something worth telling, says what it added up to; a dead man's switch says when the monitor itself goes silent. Muting is done by asking the assistant, capped at 24 h, and read back to you. See [docs/alerting.md](docs/alerting.md).
 
 ### Remote Access
 
@@ -203,7 +203,7 @@ Working on the code from a clone, rebuilding one service by hand is still
 | `WEB_ADMIN_USERNAME`, `WEB_ADMIN_PASSWORD_HASH` | Web admin login |
 | `PUBLIC_BASE_HOST`, `TUNNEL_BASE_HOST` | Where readers reach Grafana/web-admin; enables deep links (at home / from anywhere) |
 | `NOTIFY_MODE`, `TELEGRAM_*`, `OPENCLAW_*`, `ALERT_WEBHOOK_URL` | Alert delivery |
-| `ALERT_CHARTS`, `CHART_THEME`, `CHART_HOURS` | Charts attached to alerts |
+| `CHART_THEME` | The theme of the charts `get_chart` sends |
 | `IPV6_MODE` | `auto` (gate on real global IPv6), `force`, or `off` |
 | `ANTHROPIC_API_KEY` | AI reports and the web-admin assistant |
 
@@ -234,7 +234,7 @@ smoking-pi/
 │   │   ├── web-admin/         # Flask UI: targets, sources, countries, AI assistant
 │   │   ├── grafana/           # Custom image with provisioned dashboards
 │   │   ├── smokeping-exporters/  # RRD → InfluxDB / ClickHouse, CPE microcut detector, Wi-Fi link collector
-│   │   ├── alerter/           # Rules, verdict, charts, weekly summary, delivery
+│   │   ├── alerter/           # Rules → episodes → push policy, weekly summary, delivery
 │   │   ├── mcp-server/        # MCP tools over the config API and InfluxDB
 │   │   ├── ai-insights/       # Periodic AI health reports
 │   │   ├── dns-observer/      # AdGuard Home + the DNS wizard: what the house resolves
@@ -334,7 +334,7 @@ Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](ht
 | [AGENTS.md](AGENTS.md) | Guidance for AI coding agents working in this repo |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting, scope, and what this stack assumes about your network |
-| [docs/alerting.md](docs/alerting.md) | Rules, the verdict, charts, the weekly summary, muting, delivery, flap damping |
+| [docs/alerting.md](docs/alerting.md) | Rules, episodes and the push policy, materiality, quiet hours, the weekly summary, muting, delivery |
 | [docs/mcp-server.md](docs/mcp-server.md) | MCP tools, deep links, on-request charts |
 | [docs/openclaw-integration.md](docs/openclaw-integration.md) | Registering the MCP server and installing the skill for a chat assistant |
 | [docs/remote-openclaw.md](docs/remote-openclaw.md) | OpenClaw on another machine: SSH tunnel, Tailscale/WireGuard, or Cloudflare Access — ranked by exposure |

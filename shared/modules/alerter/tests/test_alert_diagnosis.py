@@ -112,7 +112,7 @@ def test_a_failed_diagnosis_is_none_and_logged(monkeypatch, caplog):
         raise RuntimeError("influx down")
     monkeypatch.setattr(alert_diagnosis.flux, "query_influx", boom)
     assert alert_diagnosis.run({}) is None
-    assert "sending the verdict alone" in caplog.text
+    assert "sending the alert without it" in caplog.text
 
 
 def test_a_slow_diagnosis_is_abandoned_within_its_budget(monkeypatch, caplog):
@@ -148,141 +148,58 @@ def test_the_window_is_configurable_and_zero_turns_it_off(monkeypatch, raw, hour
 # --- rendering ---------------------------------------------------------------
 
 
-def _alert(diag=None, scope="isp_upstream"):
-    event = {"type": "alert", "rule": "high_loss", "severity": "warning",
-             "target": "google", "message": "google: mean loss 22% over 15m",
-             "verdict": {"scope": scope, "line": "Not you: upstream.",
-                         "affected": 12, "total": 16, "cpe_cutting": []}}
+def _alert(diag=None):
+    """An episode's alert (policy.py), with the last hours' diagnosis."""
+    event = {"type": "alert", "rule": "episode", "kind": "degradation",
+             "severity": "warning", "key": "episode:1",
+             "message": "🟡 Internet degraded\nCause: your provider, beyond "
+                        "the modem (high confidence)\nRange: since 19:30",
+             "episode": {"key": "episode:1"}}
     if diag:
         event["diagnosis"] = diag
     return event
 
 
-def _diag(conf="high", cls="local_wifi", against=()):
-    return {"class": cls, "detail": "deaf", "confidence": conf,
-            "summary": "This host's own Wi-Fi, not the line.",
-            "evidence": ["this host's Wi-Fi heard nothing for 300 s"],
+def _diag(conf="high", cls="upstream", against=()):
+    return {"class": cls, "detail": "spread", "confidence": conf,
+            "summary": "Beyond your line.",
+            "evidence": ["most destinations at once"],
             "against": list(against), "minutes": 5}
 
 
-def test_a_confident_diagnosis_replaces_the_verdict_line_and_shows_why():
+def test_a_confident_diagnosis_rides_under_the_episode():
     text = templates.format_message(_alert(_diag()))
-    assert "📶 This host's own Wi-Fi, not the line." in text
-    assert "(high confidence)" in text
-    assert "Why: this host's Wi-Fi heard nothing for 300 s." in text
-    assert "Not you: upstream." not in text
+    assert "Cause: your provider, beyond the modem" in text
+    assert "Diagnosis of the last hours: Beyond your line. (high confidence)" in text
 
 
-def test_when_the_diagnosis_leads_the_context_line_does_not_contradict_it():
-    event = {**_alert(_diag()), "rule": "outage", "target": None,
-             "breadth": {"affected": 12, "total": 16, "targets": []}}
-    event["verdict"]["cpe_cutting"] = ["CPE_IPv4"]
-    text = templates.format_message(event)
-    assert "outage · 12 of 16 affected" in text
-    assert "local link" not in text
-    # Without a leading diagnosis the verdict's reading stays.
-    assert "local link cutting out" in templates.format_message(
-        {**event, "diagnosis": None})
-
-
-def test_an_unclear_diagnosis_never_replaces_the_verdict():
-    text = templates.format_message(_alert(_diag(cls="unclear")))
-    assert "Not you: upstream." in text and "Why:" not in text
-
-
-def test_the_docs_example_is_what_the_template_renders(monkeypatch):
-    """docs/alerting.md shows a rendered alert; it must be one."""
-    import re
-    from pathlib import Path
-
-    from common import diagnosis
-    monkeypatch.setenv("ALERT_MARKUP", "plain")
-    doc = (Path(__file__).resolve().parents[4] / "docs" / "alerting.md").read_text()
-    block = re.search(r"### The diagnosis.*?```text\n(.*?)```", doc, re.S).group(1)
-    event = {"type": "alert", "rule": "target_down", "severity": "critical",
-             "target": "google", "message": "google: 100% loss across all 4 probes",
-             "verdict": {"scope": "local_link", "line": "Your line.", "affected": 18,
-                         "total": 18, "cpe_cutting": ["CPE_IPv4"]},
-             "diagnosis": {"class": "local_wifi", "detail": "deaf", "confidence": "high",
-                           "summary": diagnosis.summary({"class": "local_wifi",
-                                                         "detail": "deaf"}),
-                           "evidence": ["this host's Wi-Fi heard nothing for 312 s (deaf)",
-                                        "the first-hop probe lost everything for "
-                                        "exactly that span"],
-                           "against": []}}
-    assert templates.format_message(event).strip() == block.strip()
-
-
-def test_under_any_budget_the_why_goes_before_the_summary():
-    """The summary is priority 0, the evidence 2: no budget keeps the Why
-    and drops the claim it supports."""
-    full = templates.format_message(_alert(_diag()))
-    dropped_why = False
-    for limit in range(60, len(full) + 1):
-        text = templates.format_message(_alert(_diag()), limit)
-        if "Why:" in text:
-            assert "This host's own Wi-Fi" in text
-        elif "This host's own Wi-Fi" in text:
-            dropped_why = True
-    assert dropped_why  # some budget keeps the summary and drops the Why
-
-
-def test_a_low_confidence_diagnosis_leaves_the_verdict():
+def test_a_low_confidence_diagnosis_is_left_out():
     text = templates.format_message(_alert(_diag(conf="low", against=["no Wi-Fi data"])))
-    assert "Not you: upstream." in text
-    assert "Why:" not in text and "But:" not in text
-
-
-def test_no_measurements_arriving_outranks_the_diagnosis():
-    text = templates.format_message(_alert(_diag(), scope="monitoring"))
-    assert "Not you: upstream." in text and "Why:" not in text
-
-
-def test_the_diagnosis_line_survives_a_caption_budget():
-    caption = templates.format_message(_alert(_diag()), templates.TG_CAPTION_LIMIT)
-    assert "This host's own Wi-Fi" in caption
-    tight = templates.format_message(_alert(_diag()), 160)
-    assert "This host's own Wi-Fi" in tight
+    assert "Diagnosis" not in text
 
 
 def test_diagnosis_text_is_escaped():
     d = _diag()
     d["summary"] = "a<b> & c"
-    d["evidence"] = ["<script>"]
     text = templates.format_message(_alert(d))
-    assert "<script>" not in text and "a&lt;b&gt; &amp; c" in text
+    assert "a&lt;b&gt; &amp; c" in text
 
 
-# --- the loop ----------------------------------------------------------------
+def test_the_loop_diagnoses_only_an_alert_that_goes_out(monkeypatch):
+    """The diagnosis costs about ten queries: only for an alert of the
+    Internet down or degraded, never for an end or the monitor's message."""
+    import main
 
-
-def test_the_loop_diagnoses_once_and_only_when_a_loss_alert_goes_out(monkeypatch, tmp_path):
-    monkeypatch.setenv("ALERT_STATE_FILE", str(tmp_path / "state.json"))
-    sent, runs = [], []
-    incident = {"key": "high_loss:google", "rule": "high_loss", "severity": "warning",
-                "target": "google", "message": "google: loss"}
-    context = {"mean_rows": [], "micro_rows": [], "wifi_rows": None,
-               "uplink_changes": [], "windows": {"mean": 900, "step": STEP},
-               "cadences": {}}
-    monkeypatch.setattr(main.evaluator, "evaluate_with_context",
-                        lambda **_: ([incident], context))
-    monkeypatch.setattr(main.alert_diagnosis, "run",
-                        lambda cadences: runs.append(cadences) or _result(
-                            _inc("destination", ["google"], 0)))
-    monkeypatch.setattr(main.notifier, "send",
-                        lambda payload, image=None: sent.append(payload) or "sent")
-    monkeypatch.setattr(main, "_chart_for", lambda event, peers: None)
-    monkeypatch.setattr(main.alert_diagnosis.time, "time", lambda: NOW)
-    main.run_iteration()
-    assert len(runs) == 1
-    [payload] = [p for p in sent if p.get("type") == "alert"]
-    assert payload["diagnosis"]["class"] == "destination"
-    # The same incident again: cooldown, no alert, no diagnosis.
-    main.run_iteration()
-    assert len(runs) == 1
-
-
-# --- the shared query path, from the alerter's side ----------------------------
+    calls = []
+    monkeypatch.setattr(alert_diagnosis, "run",
+                        lambda cadences, budget_s=None: calls.append(1) or None)
+    monkeypatch.setattr(main, "_deliver", lambda current, payload, **kw: None)
+    for kind, expected in (("degradation", 1), ("recovery", 0), ("monitor", 0)):
+        calls.clear()
+        monkeypatch.setattr(main.policy, "decide",
+                            lambda state, events, now, kind=kind: [{"kind": kind}])
+        main._push({}, [], 0.0)
+        assert len(calls) == expected
 
 
 def test_diagnosis_query_runs_on_fake_rows_and_survives_a_failing_optional_query():
@@ -312,24 +229,6 @@ def test_diagnosis_query_runs_on_fake_rows_and_survives_a_failing_optional_query
     assert any("range(start: -3h)" in f for f in seen)
 
 
-def test_one_cause_per_message_when_the_diagnosis_leads():
-    """Front-8 audit: the rule's line said "this host's uplink is down"
-    under a diagnosis saying the line was at fault. Leading, the diagnosis
-    keeps the rule's numbers and drops its reading of the cause."""
-    event = {**_alert(_diag(cls="upstream")), "rule": "internet_down", "target": None,
-             "message": "10 of 10 targets at 100% loss for 3 consecutive probe "
-                        "cycles, while the ISP gateway (first hop) answers — the "
-                        "Internet beyond the house is down",
-             "observation": "10 of 10 targets at 100% loss for 3 consecutive "
-                            "probe cycles, while the ISP gateway (first hop) answers"}
-    text = templates.format_message(event)
-    assert "10 of 10 targets at 100% loss" in text
-    assert "the Internet beyond the house is down" not in text
-    # Without a leading diagnosis the rule states its cause.
-    assert "the Internet beyond the house is down" in templates.format_message(
-        {**event, "diagnosis": None})
-
-
 def test_internet_down_is_diagnosed_like_any_outage():
     assert "internet_down" in alert_diagnosis.LOSS_RULES
     assert "internet_down" in alert_diagnosis.UNTARGETED_RULES
@@ -347,4 +246,3 @@ def test_monitor_dns_gets_only_the_same_reading():
     found = alert_diagnosis.for_event({"rule": "monitor_dns", "target": None},
                                       result, 300, now=now)
     assert found["class"] == "monitor"
-    assert "monitor" in templates.DIAGNOSIS_EMOJI
