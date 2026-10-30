@@ -178,8 +178,18 @@ def test_below_the_bar_is_not_material(change, why):
 
 
 def test_two_categories_are_broad_enough():
-    inc = _incident(_t(28, 20), 31, affected=2, targets=["t0", "t1"])
+    """The shared gate (common.definitions.materiality): a category counts
+    when half its destinations lost. Eight of fifteen in each of two, under
+    30 % of everything reporting, is broad."""
+    both = [f"t{i}" for i in range(16)]  # 8 even (dns), 8 odd (topsites)
+    inc = _incident(_t(28, 20), 31, affected=16, reporting=100, targets=both)
     assert weekly.build(SLOT, Influx(incidents=[inc]))["send"] is True
+
+
+def test_one_site_in_each_of_two_categories_is_not():
+    """A university's web server and its name server are still one site."""
+    inc = _incident(_t(28, 20), 31, affected=2, targets=["t0", "t1"])
+    assert weekly.build(SLOT, Influx(incidents=[inc]))["send"] is False
 
 
 def test_low_mean_loss_is_not_material_and_a_failed_read_uses_the_maximum():
@@ -501,3 +511,48 @@ def test_the_thresholds_live_in_common_definitions():
     assert definitions.MATERIAL_LOSS_PCT == 5.0
     assert definitions.MATERIAL_LATENCY_RATIO == 2.0
     assert definitions.MATERIAL_AVAILABILITY_PCT == 99.0
+
+
+# --- the alerter's episodes (front 8, #436) -------------------------------------
+
+
+def _record(*episodes, since=None):
+    return {"since": START - 86400 if since is None else since, "open": None,
+            "closed": list(episodes)}
+
+
+def _episode(start, minutes, cls="upstream", material=True, **extra):
+    lo = start.timestamp()
+    return {"key": "episode:1", "start": lo, "end": lo + minutes * 60, "class": cls,
+            "detail": extra.pop("detail", None), "material": material,
+            "broad_cycles": extra.pop("broad_cycles", 3), "affected": 20,
+            "reporting": 30, "loss_pct": 6.7, **extra}
+
+
+def test_the_weekly_tells_the_alerters_material_episodes():
+    """Its episodes are the ones the alerter judged: told when material,
+    counted below the bar when not, and the incident history not read."""
+    record = _record(_episode(_t(28, 19, 30), 210),
+                     _episode(_t(29, 16), 10, cls="destination", material=False,
+                              broad_cycles=0))
+    influx = Influx(incidents=[_incident(_t(27, 9), 60)])
+    week = weekly.read_week(START, STOP, influx, record)
+    assert [(e["cause"], e["minutes"]) for e in week["episodes"]] == [("provider", 210)]
+    assert week["minor"] == 1
+    out = weekly.build(SLOT, influx, record)
+    assert out["send"] is True and "your provider" in out["message"]
+
+
+def test_a_monitor_episode_is_the_monitors_availability():
+    record = _record(_episode(_t(27, 3, 40), 655, cls="monitor", detail="radio",
+                              material=False))
+    week = weekly.read_week(START, STOP, Influx(), record)
+    assert week["episodes"] == []
+    assert week["deaf_minutes"] == {"wifi": 655}
+
+
+def test_a_record_younger_than_the_week_falls_back_to_the_history():
+    record = _record(_episode(_t(28, 19, 30), 210), since=START + 3600)
+    influx = Influx(incidents=[_incident(_t(27, 9), 60)])
+    week = weekly.read_week(START, STOP, influx, record)
+    assert [e["cause"] for e in week["episodes"]] == ["line"]

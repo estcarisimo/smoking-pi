@@ -27,12 +27,12 @@ import pytest
 
 import alert_diagnosis
 import dead_man
-import digest
 import incident_history
 import main
 import notifier
 import reports_watcher
 import state
+import weekly
 
 CHI = ZoneInfo("America/Chicago")
 STEP = 300
@@ -185,7 +185,7 @@ def replay(monkeypatch):
                                 (pi.now, dict(payload))) or notifier.SENT)
         monkeypatch.setattr(notifier, "reachable", lambda: True)
         monkeypatch.setattr(alert_diagnosis, "run", lambda *a, **k: None)
-        for module, name in ((dead_man, "check_in"), (digest, "check"),
+        for module, name in ((dead_man, "check_in"), (weekly, "check"),
                              (reports_watcher, "check"),
                              (incident_history, "maybe_record"),
                              (incident_history, "merge")):

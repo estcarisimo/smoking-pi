@@ -911,12 +911,12 @@ its state (`weekly.last_skipped`):
 INFO alerter.weekly: Weekly for 26 Oct – 1 Nov not sent: no material episode, no recurring window, the monitor measured 100.0 % of the week
 ```
 
-**Material** is defined once, in `common/definitions.py` (`MATERIAL_*`),
-for every reader:
+**Material** is the alerter's own gate, `common/definitions.material()`
+(see [What is material](#what-is-material)), for every reader:
 
 | What | Bar |
 |---|---|
-| Breadth | ≥ 30 % of the reporting destinations, or destinations in ≥ 2 categories; never with fewer than 3 reporting |
+| Breadth | ≥ 30 % of the reporting destinations, or ≥ 2 categories each with half its destinations; never with fewer than 3 reporting |
 | Duration | ≥ 15 min (three 5-minute cycles), counted outside the monitor's deaf spans, the upgrades and the watchdog's actions |
 | Size | mean loss ≥ 5 % over the episode's destinations, or, for a slowdown, median latency ≥ 2× the same hours a week before |
 | The monitor | measured < 99 % of the week |
@@ -953,9 +953,14 @@ recorded as fired **without sending**. Both DST transitions are covered by
 tests. At most 3 tries per slot (reading the week, then delivering it), 30
 minutes apart, then it waits for the next week.
 
-The episodes come from the [incident history](#incident-history), which
-the alerter writes every half hour: with `INCIDENT_HISTORY_HOURS=0` the
-weekly sees no episode at all, only the monitor's availability and the
+The episodes are the alerter's own ([One episode, one
+message](#one-episode-one-message)): the ones it pushed or recorded in the
+week, already judged, the monitor's blind spans already subtracted; a
+`monitor` episode counts against the monitor's availability. For a week the
+alerter's record does not cover whole (the first week after an upgrade, a
+lost state file), the [incident history](#incident-history) stands in,
+judged by the same gate: with `INCIDENT_HISTORY_HOURS=0` too, the weekly
+sees no episode at all, only the monitor's availability and the
 inference's windows. Recurring windows count only episodes the destinations
 shared (the breadth bar); one flaky site at the same hour every evening is
 that site's, in *Destinations*.

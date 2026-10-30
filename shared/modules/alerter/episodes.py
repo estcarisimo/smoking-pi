@@ -345,6 +345,9 @@ def update(state: dict, cycle: dict) -> list[dict]:
     """
     box = book(state)
     now = float(cycle["now"])
+    # Since when the record is whole: the weekly summary reads these
+    # episodes for a week only when it began before that week.
+    box.setdefault("since", now)
     step = int(cycle.get("step") or evaluator.STEP_S)
     close_after = max(state_mod.resolve_after(), 3 * step)
     # A signal speaks for its evidence, not for its rule's window: a cut
@@ -494,6 +497,7 @@ def judge(ep: dict, box: dict, now: float, step: int) -> None:
         "categories": len(widest["categories"]) if widest and broad else 0,
         "sites": sites,
         "reporting": widest["reporting"] if widest else 0,
+        "affected": len(widest["affected"]) if widest and broad else 0,
     }
     judgment = diagnosis.classify_episode(facts)
     longest_cut = max((c[1] - c[0] for c in cuts), default=0.0)
@@ -575,6 +579,8 @@ def summary(ep: dict) -> dict:
         "blind_s": ep.get("blind_s", 0),
         "broad_cycles": ep.get("broad_cycles", 0),
         "breadth_pct": (ep.get("facts") or {}).get("breadth_pct", 0.0),
+        "affected": (ep.get("facts") or {}).get("affected", 0),
+        "reporting": (ep.get("facts") or {}).get("reporting", 0),
         "categories": (ep.get("facts") or {}).get("categories", 0),
         "signals": {k: v["count"] for k, v in ep["signals"].items()},
         "sites": (ep.get("facts") or {}).get("sites", []),
