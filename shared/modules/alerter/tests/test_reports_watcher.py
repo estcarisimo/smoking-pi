@@ -14,9 +14,9 @@ def delivered(monkeypatch):
 
     def fake_notify(event):
         events.append(event)
-        return True
+        return notifier.SENT
 
-    monkeypatch.setattr(notifier, "notify", fake_notify)
+    monkeypatch.setattr(notifier, "send", fake_notify)
     return events
 
 
@@ -113,8 +113,21 @@ def test_truncation_never_exceeds_the_budget_at_any_size(
 
 
 def test_failed_delivery_not_marked_delivered(reports_dir, monkeypatch):
-    monkeypatch.setattr(notifier, "notify", lambda event: False)
+    monkeypatch.setattr(notifier, "send", lambda event: notifier.FAILED)
     _write_report(reports_dir, "report-a.md", "a", mtime=100)
     state = {}
     assert reports_watcher.check(state, now=1000.0) is False
     assert state["reports"] == {}
+
+
+def test_a_report_the_gateway_holds_is_not_sent_again(monkeypatch, reports_dir):
+    """Handed to the OpenClaw gateway: it delivers it from its own queue,
+    and another send would be a second copy there."""
+    sends = []
+    monkeypatch.setattr(notifier, "send",
+                        lambda event: sends.append(event) or notifier.HANDED)
+    _write_report(reports_dir, "report-a.md", "a report", mtime=100)
+    state = {}
+    assert reports_watcher.check(state, now=1000.0) is True
+    assert reports_watcher.check(state, now=1000.0 + 86400) is False
+    assert len(sends) == 1

@@ -280,13 +280,17 @@ both at startup:
 
 - It answers **HTTP 200 with `{"ok": false}`** when the tool itself fails.
   Trusting the status code alone would count a refused send as a delivered
-  alert, so the body is inspected, and a failure counts as undelivered. It
-  is **not retried**: once the gateway has answered it may hold the message
-  in its own durable delivery queue, and replay it when it can. Each retry
-  was another copy: after the 12/10/2026 hang, the same stale alert arrived
-  twice. Only a request that got no answer at all is retried. One replayed
-  copy can still arrive next to the alerter's own summary of the same
-  stretch (below): the alerter cannot see into the gateway's queue.
+  alert, so the body is inspected. A failure is **not sent again**, by any
+  path: once the gateway has the request it holds the message in its own
+  durable delivery queue and replays it when it can, and each new attempt
+  was one more copy (2026-10-09: six of one alert in one second). The same
+  goes for a request it received and did not answer within the 10 s
+  timeout, and for an HTTP 500. Only a request that never reached it (the
+  connection refused, a request not written whole, or a proxy in front of a
+  remote gateway answering 502, 503 or 504) waits in the outbox for another
+  try; only one it
+  refused outright (HTTP 4xx) gets the text-only retry a refused chart
+  gets.
 - It answers `Tool not available: message` when tool policy filters the tool
   out, rather than when it is missing. The preflight distinguishes that from
   a bad token (401) and an unreachable gateway.
@@ -322,9 +326,10 @@ POSTs JSON to `ALERT_WEBHOOK_URL`, optionally with
 `type` is `alert`, `recovery`, `report`, `digest`, or `undelivered` (see
 below).
 
-Delivery (both HTTP modes): 10 s timeout, 3 attempts with exponential
-backoff (OpenClaw: only when the gateway did not answer). Failures are
-logged, never crash the loop.
+Delivery (both HTTP modes): 10 s timeout. The webhook gets 3 attempts with
+exponential backoff; the OpenClaw gateway gets one request per message, and
+the outbox tries again next cycle when that request never reached it.
+Failures are logged, never crash the loop.
 
 ### When delivery fails: the outbox
 
@@ -350,7 +355,8 @@ outbox, not dropped. While anything waits there:
 The outbox holds at most 100 notifications (the oldest go first, and the
 summary counts them). `list_alert_state` shows what is waiting
 (`undelivered`), and the history the digest reads records each
-notification's `delivery`: `sent` or `queued`.
+notification's `delivery`: `sent`, `queued` (in the outbox), `handed` (to the
+OpenClaw gateway) or `held`.
 
 Before, a failed alert waited for the next hourly cooldown, a failed
 `outage` was never retried, and a failed recovery was lost. During the
@@ -359,6 +365,36 @@ nothing afterwards said what had happened.
 
 One limit remains: the state file is written once per cycle, after the
 sends. A crash between a send and that write sends it again on restart.
+
+### Said once: what delivery guarantees
+
+Every alert, re-notification and recovery has an idempotency key: the
+incident (its key and when it was first seen) and the kind of message (the
+first alert, the n-th hourly re-notification, the recovery). The state file
+records, for seven days, what became of each: `sent`; `queued`, when the
+OpenClaw gateway answered or may have received it, and delivers it from its
+own queue; `told`, by an outbox or quiet-hours summary; `held`; or waiting
+in the outbox. A key that was sent, queued or told is never handed to a
+transport again, whether a direct send, an outbox resend or the end of
+quiet hours tries it. A summary that is delivered marks everything it
+carries as told, and drops what still waits elsewhere about the same
+incident and kind: an outbox summary during quiet hours takes the held
+re-notification of the same alert with it. A recovery is its own kind: an
+incident told only in a summary still recovers, once.
+
+A message the gateway answered with a failure keeps the outbox shut until
+the next check finds delivery reachable, so what follows meanwhile waits
+there and arrives as one summary; it is neither resent nor listed in that
+summary: the gateway delivers it. The daily report counts the same way. If the gateway drops a
+message it answered with a failure, the alerter does not know; the next
+summary's "Now open" line still shows the incident while it is open.
+
+Before (2026-10-18 and 10-28), an outage alert that opened the outbox had
+two copies in the gateway (the attempt that timed out, and the retry it
+answered with `ok: false`): the outbox summary told the outage, and 4 to 5
+minutes later the gateway replayed both copies, identical, one minute
+apart. A send the gateway delivered but answered with a failure was also
+sent again by the outbox a minute later, as it was.
 
 ### Times in messages
 

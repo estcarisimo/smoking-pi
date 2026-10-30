@@ -21,6 +21,12 @@ So a notification that cannot be delivered goes here instead (``state
   whole stretch -- each incident once, when it started, whether it
   recovered -- and what is open now. Ten stale messages in a row would
   describe the past in the voice of the present.
+
+Nothing is said twice (ledger.py). A notification the OpenClaw gateway
+answered, or may have received, is with the gateway, which delivers it from
+its own queue: it is kept here only to hold the queue shut while delivery
+is down (``handed``), and is neither resent nor summarized. A summary that
+is delivered marks everything it told as told.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ import logging
 import time
 
 import clock
+import ledger
 import templates
 
 log = logging.getLogger("alerter.outbox")
@@ -56,9 +63,11 @@ def plain(payload: dict) -> dict:
     return json.loads(json.dumps(payload, default=str))
 
 
-def enqueue(state: dict, payload: dict, now: float | None = None) -> None:
+def enqueue(state: dict, payload: dict, now: float | None = None,
+            handed: bool = False) -> None:
     """Keep ``payload`` for later. The chart is not kept: a summary has none,
-    and a resend as-is goes out as text."""
+    and a resend as-is goes out as text. ``handed``: the gateway has it, and
+    delivers it itself; kept only so what follows waits too."""
     if now is None:
         now = time.time()
     box = state.setdefault("outbox", {})
@@ -67,13 +76,22 @@ def enqueue(state: dict, payload: dict, now: float | None = None) -> None:
         # try, and an immediate second one would only fail the same way.
         box.update({"items": [], "since": now, "attempts": 0,
                     "next_try": now + RETRY_MIN_S, "dropped": 0})
-    box["items"].append({"queued_at": now, "payload": plain(payload)})
+    item = {"queued_at": now, "payload": plain(payload)}
+    if handed:
+        item["handed"] = True
+    box["items"].append(item)
     overflow = len(box["items"]) - MAX_ITEMS
     if overflow > 0:
         del box["items"][:overflow]
         box["dropped"] = int(box.get("dropped", 0)) + overflow
     log.warning("Notification %s (%s) not delivered; %d waiting in the outbox",
                 payload.get("key"), payload.get("type"), len(box["items"]))
+
+
+def _to_tell(box: dict) -> list[dict]:
+    """The items this outbox still has to deliver: not those the gateway
+    holds."""
+    return [item for item in box.get("items", []) if not item.get("handed")]
 
 
 def due(state: dict, now: float) -> bool:
@@ -206,7 +224,7 @@ def build(state: dict, now: float) -> dict:
     and a message over budget is cut from the end.
     """
     box = state["outbox"]
-    items = box["items"]
+    items = _to_tell(box)
     age = now - items[0]["queued_at"]
     # A negative age is a clock that went back (no RTC on a Pi): not fresh.
     if len(items) == 1 and not box.get("dropped") and 0 <= age < RESEND_AS_IS_S:
@@ -239,7 +257,7 @@ def fallback(state: dict, now: float) -> dict:
     """
     box = state["outbox"]
     since = float(box.get("since", now))
-    waiting = len(box["items"]) + int(box.get("dropped", 0))
+    waiting = len(_to_tell(box)) + int(box.get("dropped", 0))
     still_open = sorted({(r.get("rule") or "incident")
                          for r in (state.get("incidents") or {}).values()
                          if not r.get("transient")})
@@ -258,9 +276,11 @@ def fallback(state: dict, now: float) -> dict:
 def flush(state: dict, now: float, send, reachable) -> bool | None:
     """Try to deliver what is waiting, if it is time. Never raises.
 
-    ``send(event) -> bool`` and ``reachable() -> bool`` are the notifier's;
-    passed in so this module needs no network. Returns True when the outbox
-    was emptied, False when a try failed, None when nothing was tried.
+    ``send(event)`` and ``reachable() -> bool`` are the notifier's; passed
+    in so this module needs no network. ``send`` returns True/False, or the
+    notifier's outcome: "sent", "handed" (the gateway has it: never sent
+    again) or "failed". Returns True when the outbox was emptied by a
+    message, False when a try failed, None when nothing was sent.
     """
     if not due(state, now):
         return None
@@ -272,11 +292,30 @@ def flush(state: dict, now: float, send, reachable) -> bool | None:
                      "next try in %ds", len(box["items"]),
                      int(box["next_try"] - now))
             return False
+        # What another path already said (a quiet-hours summary that told
+        # the same incident) is not said again here.
+        box["items"] = [item for item in box["items"] if item.get("handed")
+                        or not ledger.done(state, ledger.key_of(item["payload"]))]
+        items = _to_tell(box)
+        if not items:
+            # Only what the gateway holds: it delivers that itself.
+            log.info("Delivery is back; the gateway holds what was waiting")
+            clear(state)
+            return None
         refused = int(box.get("refused", 0))
         event = build(state, now) if refused < FALLBACK_AFTER else fallback(state, now)
-        if send(event):
+        outcome = send(event)
+        if outcome is True or outcome in (ledger.SENT, "handed"):
             log.info("Delivered %d waiting notification(s) as one %s",
-                     len(box["items"]), event.get("type"))
+                     len(items), event.get("type"))
+            if event.get("type") in ("undelivered", "held"):
+                # A summary: built here, or a quiet-hours one that waited
+                # here and went as it was. Either told what it carries.
+                ledger.told(state, items, now)
+            else:  # the one item, as it was
+                ledger.record(state, ledger.key_of(event),
+                              ledger.QUEUED if outcome == "handed" else ledger.SENT,
+                              now)
             clear(state)
             return True
         # Reachable, and still refused: the channel or the message itself.

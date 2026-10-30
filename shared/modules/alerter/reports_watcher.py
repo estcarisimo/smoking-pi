@@ -87,7 +87,9 @@ def check(state: dict, now: float | None = None) -> bool:
         [templates.Section(0, HEADER + content)], max_chars
     )
 
-    delivered = notifier.notify(
+    # Handed to the gateway counts: it delivers it, and a resend would be
+    # a second copy in its queue.
+    delivered = notifier.send(
         {
             "type": "report",
             "rule": "daily_report",
@@ -95,7 +97,7 @@ def check(state: dict, now: float | None = None) -> bool:
             "target": None,
             "message": body,
         }
-    )
+    ) != notifier.FAILED
     if delivered:
         rstate["last_delivered_ts"] = now
         rstate["last_delivered_mtime"] = mtime

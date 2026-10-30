@@ -75,8 +75,8 @@ def test_the_loop_delivers_a_reboot_through_the_outbox(monkeypatch, state_file):
              "judged": set()}))
     monkeypatch.setattr(main.evaluator, "_query", lambda src: [
         _row(120, "wifi: no packet received for 15 min; rebooting")])
-    monkeypatch.setattr(main.notifier, "notify",
-                        lambda payload, image=None: sent.append(payload) or True)
+    monkeypatch.setattr(main.notifier, "send",
+                        lambda payload, image=None: sent.append(payload) or "sent")
     monkeypatch.setattr(main.watchdog_events.time, "time", lambda: NOW)
     main.run_iteration()          # first look: marks the start
     assert sent == []

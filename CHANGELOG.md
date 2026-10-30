@@ -11,6 +11,31 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **An alert is said once.** October's Telegram messages from the reference
+  Pi held duplicates of three kinds. On 10/09 one microcut alert arrived six
+  times in one second: the OpenClaw gateway could not reach Telegram and
+  answered after the alerter's 10 s timeout, the alerter tried three times
+  with the chart and three times without, and the gateway kept every
+  request in its durable queue and replayed all six when it was back. On
+  10/18 and 10/28 the outbox summary told the outages of a deaf-radio
+  stretch, and 4 to 5 minutes later the first of them arrived again, twice,
+  identical, one minute apart (Telegram messages 1859/1860 and 1878/1879):
+  the gateway had kept the attempt that opened the outbox and the in-cycle
+  retry it answered with `ok: false`. And a send the gateway delivered but
+  answered with a failure went into the outbox and was sent again, as it
+  was, a minute later. Each time the phone said the same thing twice or six
+  times, in the stretch when it most needed to be believed. Now the gateway
+  gets one request per message and nothing is sent to it again once it has
+  the request (it answered anything but a 4xx, or did not answer in time);
+  every alert, re-notification and recovery has an idempotency key (the
+  incident and the kind of message), and the state file records for seven
+  days what became of each, so no path (a direct send, an outbox resend,
+  the end of quiet hours) hands a key over twice. A delivered outbox or
+  quiet-hours summary marks what it told, and drops what still waits
+  elsewhere about the same incident and kind; a recovery of an incident told
+  only in a summary still goes, once. Message texts and when rules fire are
+  unchanged. `docs/alerting.md`, *Said once*.
+
 - **Every time the alerter prints is in one zone, the digest's.** October's
   Telegram chat read three clocks at once: outage alerts, the "not delivered"
   summary and the watchdog's actions printed UTC, quiet-hours bundles printed

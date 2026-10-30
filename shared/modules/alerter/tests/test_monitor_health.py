@@ -191,8 +191,8 @@ def _loop(monkeypatch, state_file, readable):
                     "cadences": {}, "judged": {"google"}}
 
     monkeypatch.setattr(main.evaluator, "evaluate_with_context", evaluate)
-    monkeypatch.setattr(main.notifier, "notify",
-                        lambda payload, image=None: sent.append(payload) or True)
+    monkeypatch.setattr(main.notifier, "send",
+                        lambda payload, image=None: sent.append(payload) or "sent")
     monkeypatch.setattr(main.notifier, "reachable", lambda: True)
     monkeypatch.setattr(main.time, "time", lambda: clock["now"])
     for module in (main.incident_history, main.digest, main.reports_watcher):
@@ -320,8 +320,8 @@ def test_a_failing_verdict_costs_its_line_not_the_alert(monkeypatch, state_file)
         raise KeyError("boom")
 
     monkeypatch.setattr(main.verdict, "classify", broken)
-    monkeypatch.setattr(main.notifier, "notify",
-                        lambda payload, image=None: sent.append(payload) or True)
+    monkeypatch.setattr(main.notifier, "send",
+                        lambda payload, image=None: sent.append(payload) or "sent")
     monkeypatch.setattr(main, "_chart_for", lambda event, peers: None)
     main.run_iteration()
     assert [p["key"] for p in sent if p.get("type") == "alert"] == ["target_down:google"]
