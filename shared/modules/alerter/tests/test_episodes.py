@@ -206,7 +206,7 @@ def test_the_end_corrects_the_first_cause():
     ep["policy"]["updates"] = policy.MAX_UPDATES  # no update on the way
     [payload] = policy.decide(state, [{"event": "closed", "episode": ep}], 2000.0)
     assert payload["kind"] == "recovery" and payload["silent"]
-    assert "corrects the first message (your provider, beyond the modem)" in payload["message"]
+    assert "corrects what was said (your provider, beyond the modem)" in payload["message"]
 
 
 def test_the_ceiling_caps_alerts_across_episodes(monkeypatch):
@@ -220,3 +220,57 @@ def test_a_monitor_episode_says_nothing_while_open():
     ep = _ep(judgment={"class": "monitor", "cause": "this Pi's radio (monitor blind)"},
              material=False, down=False)
     assert _decide({}, ep, 1000.0) == []
+
+
+# --- review of #436 ---------------------------------------------------------
+
+def test_a_destination_down_for_hours_does_not_hold_the_episode_open():
+    """A target that never answers ICMP fires target_down every cycle; past
+    CHRONIC_SIGNAL_S it is that target's state and stops counting, so the
+    episode closes and the next outage is an episode of its own."""
+    down = {"rule": "target_down", "key": "target_down:amazon", "target": "amazon",
+            "severity": "critical", "message": "down", "start": 0.0, "end": 0.0}
+    old = {"target_down:amazon": {"first_seen": 0.0}}
+    now = episodes.CHRONIC_SIGNAL_S + 60.0
+    assert episodes.signals([{**down, "end": now}], {}, now, records=old) == []
+    fresh = {"target_down:amazon": {"first_seen": now - 600}}
+    assert len(episodes.signals([{**down, "end": now}], {}, now, records=fresh)) == 1
+
+
+def test_a_quiet_retirement_is_no_evidence():
+    retired = {"rule": "measurement_stale", "key": "retired:measurement_stale:wifi_link",
+               "severity": "info", "message": "", "quiet": True,
+               "supersedes": ["measurement_stale:wifi_link"]}
+    assert episodes.signals([retired], {}, 1000.0) == []
+
+
+def test_an_episode_acknowledged_after_its_alert_ends_unsaid(mutes_file):
+    state, ep = {}, _ep()
+    assert _decide(state, ep, 1000.0) == ["degradation"]
+    mutes_file([{"key": "episode:1", "until": 9_999_999_999.0}])
+    assert policy.decide(state, [{"event": "closed", "episode": ep}], 2000.0) == []
+
+
+def test_a_material_night_episode_partly_blind_is_its_night_line():
+    ep = _ep(blind_s=1200)
+    ep["policy"] = {"night": "degradation"}
+    [payload] = policy.decide({}, [{"event": "closed", "episode": ep}], 2000.0)
+    assert payload["kind"] == "night"
+
+
+def test_the_night_bundle_names_the_episode_and_its_start(monkeypatch):
+    import outbox
+    import quiet
+    monkeypatch.setenv("QUIET_FROM", "23:00")
+    monkeypatch.setenv("QUIET_UNTIL", "07:00")
+    monkeypatch.setenv("DIGEST_TZ", "UTC")
+    day = 1_791_763_200.0  # 2026-10-12 00:00 UTC
+    ep = _ep(start=day + 2 * 3600, end=day + 2 * 3600 + 2400, down=True,
+             loss_start=day + 2 * 3600, loss_end=day + 2 * 3600 + 2400)
+    ep["policy"] = {"night": "down"}
+    [payload] = policy.decide({}, [{"event": "closed", "episode": ep}], day + 3 * 3600)
+    state = {}
+    quiet.hold(state, payload, day + 3 * 3600)
+    lines = outbox.summary_lines(state, state["held"]["items"], day + 7 * 3600)
+    assert lines[0].startswith("🔵 🌙 In the night your provider, beyond the modem · 02:00")
+    assert "Range: 02:00 to 02:40" in lines[0]

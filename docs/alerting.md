@@ -90,9 +90,16 @@ Pushed, and only this:
 |---|---|---|
 | **The home's Internet down**: nearly every destination (`WIDESPREAD_PCT`) lost everything for three heard probe cycles in a row, and not because the monitor could not hear | `🔴 Internet down` | sounds |
 | **Material degradation** (below) | `🟡 Internet degraded` | sounds by day |
-| **The end of either** | `✅ Over`: the real duration (the loss itself, not the window), the scope, and the final cause -- which may correct the first (*"corrects the first message (…)"*) | silent |
+| **The end of either** | `✅ Over`: the real duration (the loss itself, not the window), the scope, and the final cause -- which may correct what was said (*"corrects what was said (…)"*) | silent |
 | **The monitor blind for 15 minutes or more** (`MONITOR_BLIND_MIN_MINUTES`) | `🛠 Could not measure`: from when to when, the cause, what the watchdog did, and that what happened on the network meanwhile is unknown. ONE message, once it can measure again; nothing while blind -- the [dead man's switch](#when-this-host-goes-silent-the-dead-mans-switch) covers that | silent |
 | **A class change, or a jump in breadth** (`MATERIAL_BREADTH_PCT` points or more) of an episode already told | `🔁 Update`: the same episode, at most two | silent; sounds when it escalates to the Internet down |
+
+A per-destination signal that has been active for six hours
+(`CHRONIC_SIGNAL_S`: a host that never answers ICMP, IPv6 on a host
+without it) is that destination's state, not an event, and stops counting:
+otherwise it would keep the one open episode open forever. The watchdog's
+warnings (it could not act) are recorded in the episode, not pushed: the
+monitor message tells what it did when the monitor was blind long enough.
 
 Everything else is **recorded and never pushed, its end included**: loss at
 one or two destinations, a cut of the line under a minute
@@ -1099,9 +1106,10 @@ So every mitigation lives here rather than being left to operator discipline:
 - **`list_alert_state` lists active mutes**; with the weekly, the 24-hour
   cap is what keeps a forgotten mute from lasting.
 - **An episode muted from its first message produces no end either.**
-  Announcing the end of something nobody heard about is just noise; an
-  episode already told is always told when it ends, unless it was
-  acknowledged afterwards.
+  Announcing the end of something nobody heard about is just noise. One
+  acknowledged after it was told (`ack_incident("episode:<id>")`) says
+  nothing more, its end included; a mute by target or rule keeps that
+  signal out, and the episode's end is still told.
 - **An ack ends when its incident recovers.** `ack_incident` writes the
   time it was made (`created_at`); the alerter, which may not write the
   mutes file, applies it only to an occurrence first seen before then. The

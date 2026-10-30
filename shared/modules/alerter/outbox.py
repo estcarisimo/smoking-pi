@@ -144,17 +144,25 @@ def _incidents(items: list[dict]) -> list[dict]:
     for item in flat:
         payload = item["payload"]
         key = payload.get("key") or payload.get("type") or "?"
+        episode = payload.get("episode") or {}
         if key not in by_key:
             started = item["queued_at"]
-            if payload.get("type") == "recovery":
+            if episode.get("start") is not None:
+                # An episode's message (policy.py) knows when it began.
+                started = float(episode["start"])
+            elif payload.get("type") == "recovery":
                 duration = payload.get("duration_s")
                 started = started - float(duration) if duration else None
+            lines = str(payload.get("message") or "").split("\n")
             by_key[key] = {
                 "key": key,
-                "rule": payload.get("rule"),
+                # An episode is named by its head ("Internet down") and its
+                # cause, not the word "episode" (review of #436).
+                "rule": lines[0] if episode else payload.get("rule"),
                 "severity": payload.get("severity"),
-                "target": payload.get("target"),
-                "message": payload.get("message"),
+                "target": episode.get("cause") if episode else payload.get("target"),
+                "message": (" · ".join(lines[1:3]) if episode
+                            else payload.get("message")),
                 "started": started,
                 "order": item["queued_at"],
                 "recovered": None,
@@ -165,7 +173,9 @@ def _incidents(items: list[dict]) -> list[dict]:
         else:
             # A re-notification carries the newer numbers; a later alert
             # after a recovery means it came back.
-            entry["message"] = payload.get("message") or entry["message"]
+            entry["message"] = (" · ".join(str(payload.get("message") or "")
+                                           .split("\n")[1:3])
+                                if episode else payload.get("message")) or entry["message"]
             entry["severity"] = payload.get("severity") or entry["severity"]
             entry["recovered"] = None
     return sorted(by_key.values(),

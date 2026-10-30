@@ -1,7 +1,8 @@
 """What each loss episode was, with the evidence and how sure we are.
 
-The alerter's verdict (alerter/verdict.py) answers "is it me or the
-internet?" for the last few minutes, and only when an alert fires. Most
+The alerter's verdict (alerter/verdict.py, retired in front 8) answered "is
+it me or the internet?" for the last few minutes, and only when an alert
+fired. Most
 questions come later, through an assistant: "what happened last night?". It
 had raw loss events, microcuts and Wi-Fi numbers, and had to assemble a
 cause from them on its own -- which is how a hung radio was reported as an

@@ -293,8 +293,14 @@ def run_iteration() -> None:
     # What the host's watchdog did since the last look (a reload, a reboot,
     # a SmokePing restart): signals, and spans the monitor could not hear.
     watched = watchdog_events.collect(current, evaluator._query, now)
-    events = episodes.update(current, _cycle(current, incidents, context,
-                                             watched, now))
+    # Guarded like the policy: a bug here costs this cycle's episode, never
+    # the state save, the outbox or the check-in below (review of #436).
+    try:
+        events = episodes.update(current, _cycle(current, incidents, context,
+                                                 watched, now))
+    except Exception:  # noqa: BLE001 - must never cost the cycle's state
+        log.exception("Episode update failed")
+        events = []
     _push(current, events, now, context.get("cadences"), step)
     # What quiet hours held, as one message, once they are over.
     quiet.release(current, time.time(), lambda event: _deliver(current, event))

@@ -112,7 +112,7 @@ def test_a_failed_diagnosis_is_none_and_logged(monkeypatch, caplog):
         raise RuntimeError("influx down")
     monkeypatch.setattr(alert_diagnosis.flux, "query_influx", boom)
     assert alert_diagnosis.run({}) is None
-    assert "sending the verdict alone" in caplog.text
+    assert "sending the alert without it" in caplog.text
 
 
 def test_a_slow_diagnosis_is_abandoned_within_its_budget(monkeypatch, caplog):

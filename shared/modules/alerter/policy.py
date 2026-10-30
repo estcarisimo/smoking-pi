@@ -136,18 +136,19 @@ def _open(state: dict, ep: dict, pol: dict, now: float, night: bool) -> list[dic
 
 def _closed(state: dict, ep: dict, pol: dict, now: float) -> list[dict]:
     record = episodes.summary(ep)
-    if pol.get("sent_kind"):
-        return [_payload(state, ep, pol, "recovery", now, record=record)]
+    # Acknowledged (ack_incident): nothing more, its end included.
     if pol.get("muted"):
         return []
+    if pol.get("sent_kind"):
+        return [_payload(state, ep, pol, "recovery", now, record=record)]
+    if pol.get("night"):
+        # Material, and over before quiet hours ended: one line of their
+        # summary, silent -- a partly blind one included (review of #436).
+        return [_payload(state, ep, pol, "night", now, record=record)]
     # Blind long enough, and nothing else about it said: what the network
     # did in those minutes is unknown, and that is the news.
     if float(ep.get("blind_s") or 0) >= definitions.MONITOR_BLIND_MIN_MINUTES * 60:
         return [_payload(state, ep, pol, "monitor", now, record=record)]
-    if pol.get("night"):
-        # Material, and over before quiet hours ended: one line of their
-        # summary, silent.
-        return [_payload(state, ep, pol, "night", now, record=record)]
     return []
 
 
@@ -213,7 +214,9 @@ def _payload(state: dict, ep: dict, pol: dict, kind: str, now: float,
     if kind in ("down", "degradation", "update"):
         state.setdefault("pushes", []).append(now)
     pol.setdefault("sent", []).append({"kind": kind, "at": now})
-    if kind in ("down", "degradation"):
+    if kind in ("down", "degradation", "update"):
+        # The cause last told: an update corrects it, so the end compares
+        # with that, not with the first message (review of #436).
         pol["sent_cause"] = judgment.get("cause")
     log.info("Episode %s: %s", ep["key"], kind)
     return payload
@@ -251,7 +254,7 @@ def _body(kind: str, ep: dict, pol: dict, record: dict, now: float) -> list[str]
     lines.append(f"Cause: {cause}"
                  + (f" ({confidence} confidence)" if confidence and
                     judgment.get("class") != "undetermined" else "")
-                 + (f" — corrects the first message ({pol['sent_cause']})"
+                 + (f" — corrects what was said ({pol['sent_cause']})"
                     if corrected else ""))
     lines.append(f"Range: {_range(record, now, open_)}")
     scope = f"Scope: {record['breadth_pct']:.0f}% of the destinations"

@@ -1,7 +1,8 @@
 """Which diagnosed incident an alert belongs to, with its evidence.
 
-The verdict (verdict.py) answers "is it me or the internet?" from the last
-few minutes' rows the rules already fetched. ``diagnose_loss``
+The per-alert verdict (verdict.py, retired in front 8) answered "is it me
+or the internet?" from the last few minutes' rows the rules already
+fetched; an episode's own cause (common.diagnosis.classify_episode) does now. ``diagnose_loss``
 (common/diagnosis.py) answers the same question with more: the first hop's
 own loss against its usual level, whether this host's radio was deaf, the
 app-layer siblings, and a confidence. Only an assistant asked for it, so an
@@ -14,7 +15,7 @@ carries the incident that covers it. Only when one fires: the queries are
 the tool's, about ten, and a quiet minute should cost none of them.
 
 Never a reason to lose an alert: any failure here leaves the alert as it
-was, with the verdict alone.
+was, with the episode's cause alone.
 """
 
 from __future__ import annotations
@@ -75,17 +76,17 @@ def run(cadences: dict | None, budget_s: float | None = None) -> dict | None:
     if window == 0:
         return None
     if _pending is not None and not _pending.done():
-        log.warning("the previous diagnosis is still running; sending the verdict alone")
+        log.warning("the previous diagnosis is still running; sending the alert without it")
         return None
     _pending = _pool.submit(diagnosis_query.run, flux.query_influx, window, cadences)
     try:
         return _pending.result(timeout=BUDGET_S if budget_s is None else budget_s)
     except concurrent.futures.TimeoutError:
-        log.warning("diagnosis took longer than %.0f s; sending the verdict alone",
+        log.warning("diagnosis took longer than %.0f s; sending the alert without it",
                     BUDGET_S if budget_s is None else budget_s)
         return None
     except Exception:  # noqa: BLE001 -- a diagnosis must never cost an alert
-        log.warning("diagnosis for the alert failed; sending the verdict alone",
+        log.warning("diagnosis for the alert failed; sending the alert without it",
                     exc_info=True)
         return None
 

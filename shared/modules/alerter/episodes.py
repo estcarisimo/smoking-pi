@@ -41,8 +41,7 @@ the record of the last HISTORY_DAYS, newest last, read by the MCP server's
 from __future__ import annotations
 
 import logging
-import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 import evaluator
 import flux
@@ -58,6 +57,12 @@ STEPS_MAX = 600
 # The signals about one destination; the rest are about everything.
 PER_TARGET_KINDS = frozenset({"high_loss", "target_down"})
 TOTAL_KINDS = frozenset(definitions.TOTAL_RULES)
+# A per-destination signal active for this long is the destination's state,
+# not an event: a target that never answers ICMP (bare amazon.com), or IPv6
+# on a host without it, would otherwise keep the one open episode open
+# forever, and every later outage would join it unsaid (review of #436).
+CHRONIC_SIGNAL_S = 6 * 3600
+CHRONIC_KINDS = PER_TARGET_KINDS | {"ipv6_down"}
 # An ``upgrade`` start marker with no end closes after this (as inference).
 UPGRADE_MAX_S = 1800
 UPGRADE_LOOKBACK_S = 2 * 3600
@@ -216,7 +221,9 @@ def signals(incidents: list[dict], context: dict, now: float,
     (common.mutes, written by the MCP server) is dropped here, before it
     can open or extend an episode. ``records`` (state.track's) give each
     key's ``first_seen``, so an acknowledgement covers the occurrence it
-    acknowledged and no later one."""
+    acknowledged and no later one; a per-destination signal whose record
+    is older than CHRONIC_SIGNAL_S is that destination's state and is left
+    out, as is a ``quiet`` record retirement with no evidence of its own."""
     records = records or {}
     step = int(context.get("windows", {}).get("step") or evaluator.STEP_S)
     stats = evaluator.step_stats(context.get("down_rows") or [], step)
@@ -229,6 +236,12 @@ def signals(incidents: list[dict], context: dict, now: float,
     for incident in list(incidents) + list(extra):
         signal = dict(incident)
         kind = signal.get("rule")
+        if signal.get("quiet") and signal.get("start") is None:
+            continue  # a retirement (measurement_stale past its lookback)
+        record = records.get(signal.get("key") or "") or {}
+        if (kind in CHRONIC_KINDS and record.get("first_seen") is not None
+                and now - float(record["first_seen"]) > CHRONIC_SIGNAL_S):
+            continue
         if kind in PER_TARGET_KINDS:
             seen = last_lossy.get(signal.get("target") or "")
             signal.setdefault("start", seen[0] - step if seen else now - step)
@@ -245,8 +258,8 @@ def signals(incidents: list[dict], context: dict, now: float,
             signal.setdefault("end", now)
         signal.setdefault("start", now - step)
         signal.setdefault("end", now)
-        first_seen = (records.get(signal.get("key") or "") or {}).get("first_seen")
-        if mutes.find(entries, signal, now, first_seen=first_seen) is not None:
+        if mutes.find(entries, signal, now,
+                      first_seen=record.get("first_seen")) is not None:
             log.info("Signal %s muted; not part of any episode", signal.get("key"))
             continue
         out.append(signal)
@@ -569,10 +582,3 @@ def summary(ep: dict) -> dict:
         "pushed": list((ep.get("policy") or {}).get("sent", [])),
     }
 
-
-def now_epoch() -> float:
-    return time.time()
-
-
-def utc(epoch: float) -> str:
-    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

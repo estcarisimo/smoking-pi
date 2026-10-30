@@ -123,7 +123,9 @@ version gets a matching GitHub release and git tag.
   takes an episode key; a webhook gets the episode's record beside the text.
   Messages are minimal and structured (cause, range, scope, signals); their
   wording is the next change's. The state file's per-incident records stay
-  readable; an upgrade starts with no episode open.
+  readable; an upgrade starts with no episode open, so an incident alerted
+  by the previous version and still open then gets no end message, and if
+  it is still material it is alerted once more as an episode.
 
 ### Fixed
 
