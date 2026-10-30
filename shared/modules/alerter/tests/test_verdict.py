@@ -436,6 +436,7 @@ def test_enough_possible_cuts_count_and_the_bar_is_env_tunable(monkeypatch):
 from common import aggregates  # noqa: E402
 
 _T = "2026-09-24T13:02:00+00:00"
+_NOW = 1_790_258_400.0  # 2026-09-24 14:00 UTC
 
 
 @pytest.fixture
@@ -444,6 +445,9 @@ def utc(monkeypatch):
     outlives monkeypatch's env undo."""
     monkeypatch.setenv("TZ", "UTC")
     time.tzset()
+    # The note prints in the digest's zone (clock.py), on _T's day.
+    monkeypatch.setenv("DIGEST_TZ", "UTC")
+    monkeypatch.setattr(time, "time", lambda: _NOW)
     yield
     monkeypatch.undo()
     time.tzset()

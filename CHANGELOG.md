@@ -24,7 +24,10 @@ version gets a matching GitHub release and git tag.
   logged once), and every message time goes through it: `20:40` today,
   `28 Oct 20:40` another day (`Wed 28 Oct 20:40` in the digest, which already
   showed the weekday), and the zone's abbreviation after the time when
-  `DIGEST_TZ` is not the zone in effect. The messages say nothing else new;
+  `DIGEST_TZ` is not the zone in effect. That includes the uplink and resolver
+  change lines (the digest's "Local link" and an alert's "Also: this host's
+  uplink moved…"), whose shared wording in `common/aggregates.py` now takes the
+  alerter's formatter; the MCP server keeps its own. The messages say nothing else new;
   the state file and InfluxDB keep UTC.
 
 - **The service taxonomy agrees with its sources again, and `hbo.com` is Max.**

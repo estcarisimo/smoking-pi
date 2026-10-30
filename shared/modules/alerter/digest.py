@@ -357,7 +357,8 @@ def render(
             lines.append("")
             lines.append(b("Local link"))
         for change in reversed(changes[-3:]):  # newest first, then the count of older ones
-            text = aggregates.describe_uplink_change(change)
+            text = aggregates.describe_uplink_change(
+                change, fmt=lambda when: clock.at(when, now))
             lines.append(f"{watch} {esc(text[0].upper() + text[1:])}.")
         if len(changes) > 3:
             lines.append(f"{watch} …and {_plural(len(changes) - 3, 'earlier change', 'earlier changes')}.")
@@ -371,7 +372,8 @@ def render(
             lines.append("")
             lines.append(b("Local link"))
         for change in reversed(resolver_changes[-3:]):
-            text = aggregates.describe_resolver_change(change)
+            text = aggregates.describe_resolver_change(
+                change, fmt=lambda when: clock.at(when, now))
             lines.append(f"{watch} {esc(text[0].upper() + text[1:])}.")
         if len(resolver_changes) > 3:
             lines.append(f"{watch} …and {_plural(len(resolver_changes) - 3, 'earlier change', 'earlier changes')}.")
