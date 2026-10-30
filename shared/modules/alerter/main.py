@@ -28,6 +28,7 @@ import sys
 import time
 
 import alert_diagnosis
+import charts
 import clock
 import dead_man
 import episodes
@@ -42,6 +43,7 @@ import policy
 import quiet
 import reports_watcher
 import state
+import templates
 import watchdog_events
 import weekly
 from common import patterns
@@ -229,6 +231,10 @@ def _cycle(current: dict, incidents: list[dict], context: dict,
         blind.append([now - context["windows"].get("stale", 1200), now, "exporter"])
     wifi_rows = context.get("wifi_rows") or {}
     has_wifi = any(wifi_rows.get(name) for name in ("uplink", "signal", "rx"))
+    # The weakest signal of the last hour and how many samples were weak,
+    # for the message's "this Pi's Wi-Fi was stable (-50 dBm)".
+    signal = [r for r in wifi_rows.get("signal") or ()
+              if r.get("min") is not None and int(r.get("n") or 0) > 0]
     return {
         "now": now,
         "step": step,
@@ -237,6 +243,8 @@ def _cycle(current: dict, incidents: list[dict], context: dict,
         "rows": context.get("down_rows") or [],
         "blind": blind,
         "wifi": "receiving" if has_wifi else None,
+        "wifi_dbm": min((float(r["min"]) for r in signal), default=None),
+        "wifi_weak": sum(int(r.get("weak") or 0) for r in signal),
     }
 
 
@@ -256,15 +264,57 @@ def _push(current: dict, events: list[dict], now: float,
         if event["event"] == "closed" and not (ep.get("policy") or {}).get("sent"):
             notifications.record(policy.recorded(ep), "recorded", now)
     for payload in payloads:
+        image = None
         if payload.get("kind") in ("down", "degradation"):
-            # The last hours diagnosed, as the MCP tool does: its reading
-            # beside the episode's, never instead of it.
+            # The last hours diagnosed, as the MCP tool does: a second
+            # reading that disagrees is the message's contrary signal
+            # (templates.choose), never a second cause.
             found = alert_diagnosis.for_event(
                 {"rule": "outage", "target": None},
                 alert_diagnosis.run(cadences), step, now=now)
             if found:
                 payload["diagnosis"] = found
-        _deliver(current, payload, now=now)
+                payload["message"] = templates.plain(payload)
+            # The one chart: on the opening message of a material episode.
+            # Not while the outbox holds anything: it would not be sent.
+            if not outbox.pending(current):
+                image = _chart_for(current, payload, now)
+        _deliver(current, payload, image=image, now=now)
+
+
+def _chart_for(current: dict, payload: dict, now: float) -> bytes | None:
+    """The opening message's chart: the destination that lost most, with
+    the others of its category as context, from a cycle before the episode
+    to now. None when there is nothing to draw. Never raises -- and it
+    blocks (a query and a render), which is why only an opening message
+    gets one."""
+    try:
+        record = payload.get("episode") or {}
+        ep = (current.get("episodes") or {}).get("open") or {}
+        category_of = ep.get("category_of") or {}
+        worst = (record.get("measures") or {}).get("worst") or []
+        target = worst[0][0] if worst else next(iter(record.get("sites") or ()), None)
+        if not target:
+            target = next((t for t, c in sorted(category_of.items())
+                           if c != evaluator.FIRST_HOP_CATEGORY), None)
+        if not target:
+            return None
+        category = category_of.get(target)
+        peers = sorted(t for t, c in category_of.items()
+                       if c == category and t != target)
+        hours = max(1, min(6, int((now - float(record.get("start") or now)) // 3600) + 2))
+        return charts.render_incident_chart(
+            target,
+            measurement="dns_latency" if category == "dns" else "latency",
+            hours=hours,
+            first_seen=record.get("start"),
+            severity=str(payload.get("severity") or "warning"),
+            peers=peers,
+        )
+    except Exception:  # noqa: BLE001 - a chart never costs the alert
+        log.warning("Chart for %s failed; sending text only", payload.get("key"),
+                    exc_info=True)
+        return None
 
 
 def _patterns(current: dict, cycle: dict | None, now: float, step: int) -> list[dict]:

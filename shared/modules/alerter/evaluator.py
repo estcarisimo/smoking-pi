@@ -988,6 +988,9 @@ def step_stats(rows: list[dict], step_s: int = STEP_S) -> dict[int, dict]:
     lost everything), ``mean_loss_pct`` over every reporting destination,
     ``categories`` in which common.definitions.MATERIAL_CATEGORY_SHARE of
     the destinations lost, and ``first_hop``: "answers", "lost" or None.
+    For the messages' numbers (templates.py): ``hop_loss_pct`` (the first
+    hop's own loss, None unmeasured), ``by_category`` {category: [reporting,
+    lost anything]} and ``loss_by_target`` {affected destination: loss %}.
     The episodes (alerter/episodes.py) read breadth, persistence and
     magnitude from these, never from a rule's own count.
     """
@@ -1027,6 +1030,11 @@ def step_stats(rows: list[dict], step_s: int = STEP_S) -> dict[int, dict]:
                 if hit and 100.0 * hit / n >= definitions.MATERIAL_CATEGORY_SHARE),
             "first_hop": (None if not mine else
                           "lost" if min(mine) >= DOWN_LOSS_RATIO else "answers"),
+            "hop_loss_pct": (None if not mine else
+                             round(100.0 * sum(mine) / len(mine), 1)),
+            "by_category": {c: list(v) for c, v in sorted(by_category.items())},
+            "loss_by_target": {t: round(100.0 * ratios[t], 1)
+                               for t in sorted(affected)},
         }
     return out
 

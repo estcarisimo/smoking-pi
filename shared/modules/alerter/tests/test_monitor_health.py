@@ -236,7 +236,7 @@ def test_an_unreadable_influx_is_told_once_when_it_reads_again(
     readable[0] = True
     _run(clock, range(40, 80))
     assert [(p["kind"], p["silent"]) for p in sent] == [("monitor", True)]
-    assert "its database could not be read" in sent[0]["message"]
+    assert "this Pi's database could not be read" in sent[0]["message"]
     assert "unknown" in sent[0]["message"]
 
 

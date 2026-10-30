@@ -67,6 +67,9 @@ CHRONIC_KINDS = PER_TARGET_KINDS | {"ipv6_down"}
 # An ``upgrade`` start marker with no end closes after this (as inference).
 UPGRADE_MAX_S = 1800
 UPGRADE_LOOKBACK_S = 2 * 3600
+# Cycles before an episode that give the first hop's usual loss (its ICMP
+# rate-limit floor): as many as the down window holds, at most this.
+HOP_USUAL_STEPS = 12
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +298,13 @@ def _new(box: dict, now: float, start: float) -> dict:
         "cuts": [],
         "watchdog": [],
         "wifi": None,
+        # For the messages' numbers (templates.py): each destination's
+        # category, the first hop's loss in the cycles before the episode
+        # (its usual level), and this Pi's weakest Wi-Fi signal meanwhile.
+        "category_of": {},
+        "hop_before": {},
+        "wifi_dbm": None,
+        "wifi_weak": 0,
         "policy": {},
     }
 
@@ -329,6 +339,7 @@ def _absorb(ep: dict, signal: dict, now: float) -> None:
         if signal.get("at") not in told:
             ep["watchdog"].append({"at": signal.get("at"),
                                    "message": signal.get("message"),
+                                   "text": signal.get("text"),
                                    "severity": signal.get("severity")})
     ep["start"] = min(ep["start"], span[0])
     ep["end"] = max(ep["end"], span[1])
@@ -368,6 +379,7 @@ def update(state: dict, cycle: dict) -> list[dict]:
         _prune(box, now)
         return events
 
+    ep["step"] = step
     for signal in sigs:
         _absorb(ep, signal, now)
     if sigs:
@@ -375,14 +387,25 @@ def update(state: dict, cycle: dict) -> list[dict]:
                                 max(float(s["end"]) for s in sigs))
     if cycle.get("wifi"):
         ep["wifi"] = cycle["wifi"]
+    if cycle.get("wifi_dbm") is not None:
+        dbm = float(cycle["wifi_dbm"])
+        ep["wifi_dbm"] = dbm if ep.get("wifi_dbm") is None else min(ep["wifi_dbm"], dbm)
+        ep["wifi_weak"] = max(int(ep.get("wifi_weak") or 0),
+                              int(cycle.get("wifi_weak") or 0))
+    for row in cycle.get("rows") or ():
+        if row.get("target") and row.get("category"):
+            ep.setdefault("category_of", {})[row["target"]] = row["category"]
     margin = step
     blind = [list(s) for s in cycle.get("blind") or ()
              if s[1] >= ep["start"] - margin and s[0] <= now + margin]
     blind += watchdog_spans(sigs, step)
     ep["blind"] = _merge(ep["blind"] + blind)
+    before = ep.setdefault("hop_before", {})
     for at, stats in evaluator.step_stats(cycle.get("rows") or [], step).items():
         if at > ep["start"] - step:
             ep["steps"][str(at)] = stats
+        elif stats.get("hop_loss_pct") is not None and len(before) < HOP_USUAL_STEPS:
+            before[str(at)] = stats["hop_loss_pct"]
     if len(ep["steps"]) > STEPS_MAX:
         for key in sorted(ep["steps"], key=float)[:-STEPS_MAX]:
             del ep["steps"][key]
@@ -548,6 +571,7 @@ def judge(ep: dict, box: dict, now: float, step: int,
     if judgment["class"] == "monitor":
         unmet = sorted(set(unmet) | {"measurable"})
     ep["facts"] = facts
+    ep["measures"] = _measures(ep, heard, broad, blind_by, longest_cut)
     ep["judgment"] = judgment
     ep["materiality"] = {"unmet": unmet, "loss_pct": None if loss is None
                          else round(loss, 2), "cycles": run}
@@ -570,6 +594,50 @@ def judge(ep: dict, box: dict, now: float, step: int,
         unmet = sorted(set(unmet) | {"novelty"})
         ep["materiality"]["unmet"] = unmet
         ep["material"] = False
+
+
+def _median(values: list[float]) -> float | None:
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2] if ordered else None
+
+
+def _measures(ep: dict, heard: list, broad: list, blind_by: dict,
+              longest_cut: float) -> dict:
+    """The numbers a message states (templates.py), over the heard cycles
+    in which something was lost: how many destinations, whether ever all at
+    once, the first hop's loss against its usual, the resolvers, the worst
+    destination, this Pi's radio."""
+    lossy = [s for _, s in heard if s["affected"]] or [s for _, s in heard]
+    widest = max(lossy, default=None,
+                 key=lambda s: (len(s["affected"]), s["share_pct"]))
+    hop = [s["hop_loss_pct"] for s in lossy if s.get("hop_loss_pct") is not None]
+    dns = [s.get("by_category", {}).get("dns") for s in lossy]
+    dns = [d for d in dns if d]
+    per_target: dict[str, list[float]] = {}
+    for s in lossy:
+        for target, pct in (s.get("loss_by_target") or {}).items():
+            per_target.setdefault(target, []).append(float(pct))
+    # A destination's loss over the cycles it lost in, worst first.
+    worst = sorted(((t, round(sum(v) / len(v), 1)) for t, v in per_target.items() if v),
+                   key=lambda x: (-x[1], x[0]))[:3]
+    cat = ep.get("category_of") or {}
+    return {
+        "affected": len(widest["affected"]) if widest else 0,
+        "reporting": widest["reporting"] if widest else 0,
+        "all_at_once": any(s["share_pct"] >= 100.0 for s in lossy),
+        "lost_all_cycles": sum(1 for s in lossy if s["lost_pct"] >= 100.0),
+        "hop_loss_pct": round(sum(hop) / len(hop), 1) if hop else None,
+        "hop_usual_pct": _median(list((ep.get("hop_before") or {}).values())),
+        "dns": ([max(d[1] for d in dns), max(d[0] for d in dns)] if dns else None),
+        "worst": [[t, pct, cat.get(t)] for t, pct in worst],
+        "wifi": ep.get("wifi"),
+        "wifi_dbm": ep.get("wifi_dbm"),
+        "wifi_weak": int(ep.get("wifi_weak") or 0),
+        "radio_blind_s": round(blind_by.get("radio", 0.0) + blind_by.get("route", 0.0)),
+        "longest_cut_s": round(longest_cut),
+        "broad_steps": len(broad),
+        "site_categories": {t: cat.get(t) for t in (ep.get("facts") or {}).get("sites", [])},
+    }
 
 
 def blind_range(ep: dict) -> tuple[float, float] | None:
@@ -617,6 +685,18 @@ def summary(ep: dict) -> dict:
         "signals": {k: v["count"] for k, v in ep["signals"].items()},
         "sites": (ep.get("facts") or {}).get("sites", []),
         "watchdog": [w.get("message") for w in ep.get("watchdog", [])][:5],
+        # What the messages say (templates.py): the reading below medium
+        # confidence, the strongest contrary evidence, the numbers, and the
+        # watchdog's own words with when.
+        "suspected": judgment.get("suspected"),
+        "against": judgment.get("against", [])[:2],
+        "measures": ep.get("measures") or {},
+        "watchdog_actions": [[w.get("at"), w.get("text") or w.get("message")]
+                             for w in ep.get("watchdog", [])
+                             if w.get("severity") == "info"][:3],
+        "blind_range": list(blind_range(ep) or []) or None,
+        "blind_by": (ep.get("facts") or {}).get("blind", {}),
+        "step": ep.get("step"),
         "pushed": list((ep.get("policy") or {}).get("sent", [])),
     }
 

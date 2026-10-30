@@ -206,7 +206,8 @@ def test_the_end_corrects_the_first_cause():
     ep["policy"]["updates"] = policy.MAX_UPDATES  # no update on the way
     [payload] = policy.decide(state, [{"event": "closed", "episode": ep}], 2000.0)
     assert payload["kind"] == "recovery" and payload["silent"]
-    assert "corrects what was said (your provider, beyond the modem)" in payload["message"]
+    assert ("This corrects the first message, which said your provider, beyond "
+            "the modem." in payload["message"])
 
 
 def test_the_ceiling_caps_alerts_across_episodes(monkeypatch):
@@ -272,5 +273,5 @@ def test_the_night_bundle_names_the_episode_and_its_start(monkeypatch):
     state = {}
     quiet.hold(state, payload, day + 3 * 3600)
     lines = outbox.summary_lines(state, state["held"]["items"], day + 7 * 3600)
-    assert lines[0].startswith("🔵 🌙 In the night your provider, beyond the modem · 02:00")
-    assert "Range: 02:00 to 02:40" in lines[0]
+    assert lines == ["🔴 Internet down · 02:00 → ✅ 02:40 — probable cause: "
+                     "your provider, beyond the modem"]
