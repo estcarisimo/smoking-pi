@@ -410,6 +410,13 @@ def test_microsoft_catch_all_yields_to_its_services(tx):
     assert tx.resolve("W_x", "delivery.mp.microsoft.com", "dns_wizard")["service"] == "Windows Update"
 
 
+def test_hbo_com_is_max(tx):
+    # The week's read on 2026-10-30: the reference Pi's W_hbo_com_* targets
+    # were the only unknown ones besides tzm.protechts.net.
+    label = tx.resolve("W_hbo_com_icmp", "hbo.com", "dns_wizard")
+    assert (label["service"], label["categories"]) == ("Max", ["video"])
+
+
 @pytest.mark.parametrize("host", sorted(STILL_UNKNOWN))
 def test_hosts_left_unknown_on_purpose(tx, host):
     assert tx.resolve(_wizard_name(host), host, "dns_wizard")["categories"] == [

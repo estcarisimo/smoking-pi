@@ -187,12 +187,12 @@ rules:
     source: adguard
     confidence: high
     since: 2026-10-22
-  - match: {host_suffix: [hbomax.com, max.com]}
+  - match: {host_suffix: [hbomax.com, max.com, hbo.com]}
     service: Max
     categories: [video]
     source: adguard
     confidence: medium
-    since: 2026-10-22
+    since: 2026-10-30
   - match: {host_suffix: [hulu.com, hulustream.com]}
     service: Hulu
     categories: [video]
@@ -247,9 +247,9 @@ rules:
   - match: {host_suffix: [playstation.com, playstation.net, sonyentertainmentnetwork.com]}
     service: PlayStation
     categories: [gaming]
-    source: adguard
+    source: ndpi
     confidence: high
-    since: 2026-10-22
+    since: 2026-10-30
   - match: {host_suffix: [nintendo.com, nintendo.net]}
     service: Nintendo
     categories: [gaming]
@@ -273,9 +273,10 @@ rules:
   - match: {host_suffix: [zoom.us, zoom.com]}
     service: Zoom
     categories: [realtime_comms]
-    source: ndpi
+    source: manual
     confidence: high
-    since: 2026-10-22
+    since: 2026-10-30
+    note: Kept as our vocabulary on 2026-10-30; nDPI files zoom.us under video; the question it answers is a call.
   - match: {host_suffix: [teams.microsoft.com, teams.live.com]}
     service: Microsoft Teams
     categories: [realtime_comms, messaging]
@@ -285,9 +286,10 @@ rules:
   - match: {host_suffix: [meet.google.com]}
     service: Google Meet
     categories: [realtime_comms]
-    source: ndpi
+    source: manual
     confidence: high
-    since: 2026-10-22
+    since: 2026-10-30
+    note: Kept as our vocabulary on 2026-10-30; nDPI files meet.google.com under chat; the question it answers is a call.
   - match: {host_suffix: [webex.com]}
     service: Webex
     categories: [realtime_comms]
@@ -297,9 +299,10 @@ rules:
   - match: {host_suffix: [discord.com, discord.gg, discordapp.com, discordapp.net]}
     service: Discord
     categories: [messaging, realtime_comms, gaming]
-    source: adguard
+    source: manual
     confidence: medium
-    since: 2026-10-22
+    since: 2026-10-30
+    note: Kept as our vocabulary on 2026-10-30; AdGuard files Discord under social networks; it is chat, voice and gaming.
   - match: {host_suffix: [whatsapp.com, whatsapp.net, wa.me]}
     service: WhatsApp
     categories: [messaging, realtime_comms]
@@ -321,16 +324,17 @@ rules:
   - match: {host_suffix: [push.apple.com]}
     service: Apple Push (iMessage, FaceTime)
     categories: [messaging]
-    source: ndpi
+    source: manual
     confidence: medium
-    since: 2026-10-22
-    note: The push service iMessage and FaceTime ring through, not the messages themselves.
+    since: 2026-10-30
+    note: The push service iMessage and FaceTime ring through, not the messages themselves. Kept as our vocabulary on 2026-10-30; nDPI files push.apple.com under cloud.
   - match: {host_suffix: [messenger.com]}
     service: Messenger
     categories: [messaging, realtime_comms]
-    source: adguard
+    source: manual
     confidence: medium
-    since: 2026-10-22
+    since: 2026-10-30
+    note: Kept as our vocabulary on 2026-10-30; AdGuard files messenger.com under Facebook; it is chat and calls.
   - match: {host_suffix: [gmail.com]}
     service: Gmail
     categories: [messaging, cloud_saas]
@@ -476,9 +480,10 @@ rules:
   - match: {host_suffix: [office.com, office365.com, outlook.com, microsoftonline.com, sharepoint.com, onedrive.com]}
     service: Microsoft 365
     categories: [cloud_saas]
-    source: ndpi
+    source: manual
     confidence: high
-    since: 2026-10-22
+    since: 2026-10-30
+    note: Checked 2026-10-30; the Microsoft 365 domains; nDPI's host_match no longer lists them.
   - match: {host_suffix: [icloud.com, icloud-content.com]}
     service: iCloud
     categories: [cloud_saas]
@@ -500,9 +505,10 @@ rules:
   - match: {host_suffix: [github.com, githubusercontent.com]}
     service: GitHub
     categories: [cloud_saas]
-    source: ndpi
+    source: manual
     confidence: high
-    since: 2026-10-22
+    since: 2026-10-30
+    note: Checked 2026-10-30; GitHub's own domains; nDPI's host_match no longer lists them.
   - match: {host_suffix: [slack.com, slack-edge.com, slackb.com]}
     service: Slack
     categories: [messaging, cloud_saas]
@@ -582,9 +588,10 @@ rules:
   - match: {host_suffix: [swcdn.apple.com, swdist.apple.com, mesu.apple.com, updates.cdn-apple.com]}
     service: Apple Software Update
     categories: [software_update]
-    source: ndpi
+    source: manual
     confidence: high
-    since: 2026-10-22
+    since: 2026-10-30
+    note: Checked 2026-10-30; Apple's software update hosts; nDPI's host_match no longer lists them.
   - match: {host_suffix: [dl.google.com, gvt1.com]}
     service: Google Updates
     categories: [software_update]
@@ -654,10 +661,10 @@ rules:
   - match: {host_suffix: [aaplimg.com, apple-dns.net]}
     service: Apple edge
     categories: [cdn]
-    source: ndpi
+    source: manual
     confidence: medium
-    since: 2026-10-23
-    note: Apple's own CDN and traffic-steering names; nDPI lists both as Apple. Longer suffixes (ls.v.aaplimg.com, mask.apple-dns.net) win.
+    since: 2026-10-30
+    note: Apple's own CDN and traffic-steering names; nDPI lists both as Apple. Longer suffixes (ls.v.aaplimg.com, mask.apple-dns.net) win. Kept as our vocabulary on 2026-10-30; nDPI files aaplimg.com under software updates; it is Apple's edge for every service.
   - match: {host_suffix: [gstatic.com, fonts.googleapis.com]}
     service: Google static content
     categories: [cdn]
