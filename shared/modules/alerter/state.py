@@ -1,52 +1,36 @@
-"""Incident lifecycle + dedup state, persisted as a small JSON file.
+"""The alerter's persisted state, and the bookkeeping of its signals.
 
-Lifecycle per incident key:
+Every rule (evaluator.py) now produces a **signal**, never a notification:
+episodes.py folds the signals into one episode per physical fact, and
+policy.py decides what of an episode is said. This module keeps, per signal
+key, what the rules themselves need to remember between cycles (which
+outage was already running and since when, which target is inside a
+target_down, which total loss is still in the window) and what the MCP
+server's ``list_alert_state`` shows as open:
 
-- first seen           -> record it, fire an "alert" notification
-- still active, within ALERT_COOLDOWN of the last notification -> silent
-- still active, cooldown elapsed -> fire again (re-notify)
-- stops being reported -> enter a "missing" grace period, notify nothing
-- missing for ALERT_RESOLVE_AFTER seconds -> fire a "recovery" and drop it
-  (a ``transient`` incident -- a brief cut that has already ended by the
-  time it is reported -- is dropped silently: there is nothing to recover)
-- reappears while missing -> it never recovered; clear the grace timer and
-                             stay silent (the cooldown still governs re-alerts)
+- first seen           -> recorded (``first_seen``, ``last_seen``)
+- still active         -> ``last_seen`` refreshed
+- stops being reported -> a "missing" grace period (``missing_since``)
+- missing for ALERT_RESOLVE_AFTER seconds -> dropped
+- reappears while missing -> it never ended; the grace timer is cleared
 - absent because its target has no data -> held open, neither missing nor
-  recovered (``judged``): silence is not health. Dropped without a notice
-  after HOLD_MAX_S of no data (a removed or renamed target). A hold keeps
-  any ``missing_since`` it found: data had already shown the target fine,
-  so once data returns the grace period it started can complete at once
-- superseded by a worse incident about the same thing (``supersedes``: a
-  target_down retiring the high_loss it grew out of) -> dropped silently;
-  the worse incident's own alert is the news
-- ``quiet`` incidents (the tail of a total loss still in the window) are
-  never recorded: they exist only to suppress the per-target fan-out. One
-  that ``continues`` an open incident keeps it from recovering until the
-  tail is gone, so the "recovered" does not precede the last of the event
+  ended (``judged``): silence is not health. Dropped after HOLD_MAX_S of
+  no data (a removed or renamed target)
+- superseded by a worse signal about the same thing (``supersedes``) ->
+  dropped at once
+- ``quiet`` signals (the tail of a total loss still in the window, an older
+  outage run) are never recorded; one that ``continues`` an open record
+  keeps it from ending until the tail is gone
 
-The grace period exists because an incident that oscillates used to produce
-an unbounded stream of notifications. Recovery deleted the record outright,
-so the next appearance looked brand new, took the first-seen path, and
-alerted immediately — meaning ALERT_COOLDOWN only ever suppressed
-*continuously* active incidents and did nothing in the one case where it
-matters most. A `target_down` incident flapping on a five-minute cycle sent
-roughly fifty messages an hour, indefinitely.
+Until front 8 (2026-10-30) this was also where a rule became a message:
+each key alerted on its own, re-alerted every ALERT_COOLDOWN and recovered
+on its own, which is how one radio hang reached the phone as ten messages
+and October as 72 messages for about eleven events. That path is gone.
 
-ALERT_MAX_PER_HOUR is a second, independent backstop: a hard ceiling on
-notifications per key per rolling hour, so a future lifecycle bug cannot
-reach a person's phone at that volume again.
-
-Mutes (``common.mutes``, written by the mcp-server) suppress the *send* only.
-They are consulted after the cooldown and after the rate limit, and never call
-``_record_notification()`` — see :func:`_apply_mute` for why each of those
-positions is load-bearing.
-
-Per-incident bookkeeping: first_seen, last_seen, last_notified,
-notified_count, missing_since, recent_notifications (all epoch seconds).
-
-The state file also carries the reports_watcher bookkeeping (``reports``
-key) so the whole service has a single persisted file. Writes are atomic
-(tmp file + os.replace). Path: ``ALERT_STATE_FILE`` env, default
+The state file also carries the episodes (``episodes``), the outbox, the
+quiet-hours box and the reports_watcher bookkeeping (``reports``), so the
+whole service has a single persisted file. Writes are atomic (tmp file +
+os.replace). Path: ``ALERT_STATE_FILE`` env, default
 ``/var/lib/alerter/state.json``, falling back to ``/tmp/alerter-state.json``
 when the default directory is not writable.
 """
@@ -59,24 +43,17 @@ import os
 import tempfile
 import time
 
-from common import mutes
-
 log = logging.getLogger("alerter.state")
 
 DEFAULT_STATE_FILE = "/var/lib/alerter/state.json"
 FALLBACK_STATE_FILE = "/tmp/alerter-state.json"  # noqa: S108 (documented fallback)
-DEFAULT_COOLDOWN = 3600  # seconds; ALERT_COOLDOWN
-# How long an incident must stay absent before it counts as recovered.
+# How long a signal must stay absent before it counts as over, and an
+# episode clean before it closes (episodes.py).
 # Must exceed the widest rule window's point spacing, or a rule sitting near
 # its minimum-points threshold will drop out and "recover" on ordinary window
 # jitter. 900 s covers three 300 s SmokePing steps; on a slower step the
 # caller passes min_resolve_after so it still covers three.
 DEFAULT_RESOLVE_AFTER = 900  # seconds; ALERT_RESOLVE_AFTER
-# Hard ceiling on notifications per incident key per rolling hour. This is a
-# blast-radius limit, not a tuning knob: it is meant to be unreachable in
-# normal operation and to cap the damage when something else is wrong.
-DEFAULT_MAX_PER_HOUR = 6  # ALERT_MAX_PER_HOUR
-_HOUR_S = 3600.0
 # How long an incident whose target has no data is held open before it is
 # dropped without a notice. A stalled probe comes back well inside this; a
 # removed or renamed target never does, and must not stay open forever.
@@ -152,80 +129,8 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _cooldown() -> int:
-    return _env_int("ALERT_COOLDOWN", DEFAULT_COOLDOWN)
-
-
-def _resolve_after() -> int:
+def resolve_after() -> int:
     return _env_int("ALERT_RESOLVE_AFTER", DEFAULT_RESOLVE_AFTER)
-
-
-def _max_per_hour() -> int:
-    return _env_int("ALERT_MAX_PER_HOUR", DEFAULT_MAX_PER_HOUR)
-
-
-def _rate_limited(record: dict, now: float, limit: int) -> bool:
-    """Trim the rolling-hour window and report whether the key is over budget.
-
-    Deliberately independent of the cooldown and the grace period: those are
-    lifecycle logic and can be defeated by a lifecycle bug. This is a plain
-    count of what was actually sent.
-    """
-    if limit <= 0:
-        return False
-    recent = [
-        float(ts)
-        for ts in record.get("recent_notifications", [])
-        if now - float(ts) < _HOUR_S
-    ]
-    record["recent_notifications"] = recent
-    return len(recent) >= limit
-
-
-def _record_notification(record: dict, now: float) -> None:
-    record.setdefault("recent_notifications", []).append(now)
-    record["last_notified"] = now
-    record["notified_count"] = int(record.get("notified_count", 0)) + 1
-
-
-def _apply_mute(record: dict, incident: dict, entries: list[dict],
-                key: str, now: float) -> bool:
-    """Record that a mute suppressed this send. True means "do not notify".
-
-    Both call sites invoke this at exactly one point, and each half of that
-    position is load-bearing:
-
-    - **After ``_rate_limited()``**, so an alert the ceiling already blocked
-      is not also counted as one the mute suppressed. This is an accounting
-      guarantee rather than a delivery one -- either order stops the send, and
-      the rolling-hour trim is idempotent for a given ``now``, so a later
-      unmuted cycle re-trims correctly either way. What breaks under the other
-      order is ``muted_suppressed_count``, the one number a user reads to
-      judge how much a mute is hiding.
-    - **Before ``_record_notification()``**, because the budget counts what
-      was actually *sent*. A muted incident consumes nothing.
-    - **Inside the incident loop**, so ``last_seen``, the ``missing_since``
-      clearing and the severity/message refresh have already run by the time
-      we get here. Skipping the rest of the loop body instead would leave the
-      incident looking brand new when the mute lifts: it would take the
-      first-seen path and alert immediately, which is precisely the flapping
-      behavior PR #34 fixed.
-
-    There is deliberately **no catch-up on unmute**. A still-active incident
-    re-alerts once on the normal cooldown path. One that resolved while muted
-    has ``notified_count == 0``, and the recovery branch already gates on
-    ``notified_count > 0``, so no recovery fires for an alert nobody saw.
-    """
-    mute = mutes.find(entries, incident, now, first_seen=record.get("first_seen"))
-    if mute is None:
-        return False
-    record["muted_suppressed_count"] = int(
-        record.get("muted_suppressed_count", 0)) + 1
-    record["muted_until"] = mute.get("until")
-    log.info("Incident %s is muted until %s (%d suppressed so far); "
-             "not notifying", key, mute.get("until"),
-             record["muted_suppressed_count"])
-    return True
 
 
 def _no_data(record: dict, judged, blind: bool = False) -> bool:
@@ -242,48 +147,35 @@ def _no_data(record: dict, judged, blind: bool = False) -> bool:
     return False
 
 
-def reconcile(
+def track(
     state: dict,
     incidents: list[dict],
     now: float | None = None,
     min_resolve_after: int = 0,
     judged=None,
     blind: bool = False,
-) -> dict:
-    """Fold current incidents into ``state`` and return notification actions.
+) -> list[str]:
+    """Fold this cycle's signals into ``state["incidents"]``; return the
+    keys that ended this cycle (dropped after their grace period).
 
     ``min_resolve_after`` floors ALERT_RESOLVE_AFTER: three of the slowest
-    target's steps, so a slow probe's ordinary gap is not a recovery.
-
+    target's steps, so a slow probe's ordinary gap is not an end.
     ``judged`` is the set of targets the per-target rules had enough points
     to judge this cycle (evaluator.judged_targets), or None when unknown. An
-    absent incident whose target is not in it is held, not recovered.
-
+    absent signal whose target is not in it is held, not ended.
     ``blind``: no rule could be evaluated this cycle (InfluxDB unreadable);
-    ``incidents`` holds only the monitor's own, and every other open
-    incident is held as it is -- nothing is known about it either way.
+    every open record is held as it is.
 
-    Mutates ``state`` in place. Returns
-    ``{"alerts": [event, ...], "recoveries": [event, ...]}`` where each
-    event carries the incident fields plus a ``state`` snapshot for the
-    notifier payload.
+    Nothing here notifies: episodes.py and policy.py do.
     """
     if now is None:
         now = time.time()
-    cooldown = _cooldown()
-    resolve_after = max(_resolve_after(), min_resolve_after)
-    limit = _max_per_hour()
+    resolve = max(resolve_after(), min_resolve_after)
     records: dict = state.setdefault("incidents", {})
-    # Read once per cycle, never written here: the mcp-server owns this file
-    # and the alerter's bind mount is read-only. load() returns [] rather than
-    # raising, so an unreadable mutes file means everything alerts.
-    mute_entries = mutes.load()
-
-    alerts: list[dict] = []
-    recoveries: list[dict] = []
     active_keys = set()
     superseded: set[str] = set()
     continued: set[str] = set()
+    ended: list[str] = []
 
     for incident in incidents:
         superseded.update(incident.get("supersedes") or ())
@@ -295,61 +187,30 @@ def reconcile(
         active_keys.add(key)
         record = records.get(key)
         if record is None:
-            record = {
-                "rule": incident["rule"],
-                "severity": incident["severity"],
-                "target": incident.get("target"),
-                "message": incident["message"],
-                "value": incident.get("value"),
-                "first_seen": now,
-                "last_seen": now,
-                "notified_count": 0,
-                "recent_notifications": [],
-            }
-            if incident.get("transient"):
-                record["transient"] = True
-            records[key] = record
-            if _rate_limited(record, now, limit):  # pragma: no cover - new key
-                continue
-            if _apply_mute(record, incident, mute_entries, key, now):
-                continue
-            _record_notification(record, now)
-            alerts.append({**incident, "state": _snapshot(record)})
-            continue
-
-        # Back inside the grace period: this incident never recovered, so it
-        # must not re-announce itself. Silently clear the timer.
+            record = records[key] = {"first_seen": now}
         record.pop("held_since", None)
         if record.pop("missing_since", None) is not None:
-            log.info("Incident %s reappeared within the resolve grace period; "
-                     "treating it as continuously active", key)
-
-        record["last_seen"] = now
-        record["message"] = incident["message"]
-        record["value"] = incident.get("value")
-        record["severity"] = incident["severity"]
+            log.info("Signal %s reappeared within the grace period; "
+                     "treated as continuously active", key)
+        record.update({
+            "rule": incident["rule"],
+            "severity": incident["severity"],
+            "target": incident.get("target"),
+            "message": incident["message"],
+            "value": incident.get("value"),
+            "last_seen": now,
+        })
+        if incident.get("since") is not None:
+            record["since"] = incident["since"]
         if incident.get("transient"):
             record["transient"] = True
         else:
             record.pop("transient", None)
-        if now - float(record.get("last_notified", 0)) < cooldown:
-            continue
-        if _rate_limited(record, now, limit):
-            log.warning(
-                "Incident %s hit the notification ceiling (%d/hour); "
-                "suppressing until the rolling hour clears", key, limit)
-            continue
-        if _apply_mute(record, incident, mute_entries, key, now):
-            continue
-        _record_notification(record, now)
-        alerts.append({**incident, "state": _snapshot(record)})
 
     for key in sorted(set(records) - active_keys):
         record = records[key]
         if key in superseded:
             records.pop(key)
-            log.info("Incident %s superseded by a worse incident about the "
-                     "same target; retired without a recovery", key)
             continue
         if _no_data(record, judged, blind):
             if blind:
@@ -359,50 +220,16 @@ def reconcile(
             held_since = float(record.setdefault("held_since", now))
             if now - held_since >= HOLD_MAX_S:
                 records.pop(key)
-                log.warning("Incident %s had no data for %d h; dropped "
-                            "without a recovery notice", key, HOLD_MAX_S // 3600)
+                log.warning("Signal %s had no data for %d h; dropped",
+                            key, HOLD_MAX_S // 3600)
             continue
         record.pop("held_since", None)
         missing_since = record.get("missing_since")
         if missing_since is None:
-            # Start the grace period rather than declaring recovery. A rule
-            # sitting near its minimum-points threshold drops out on ordinary
-            # window jitter, and calling that a recovery is what turned one
-            # flapping target into a notification firehose.
             record["missing_since"] = now
             continue
-        if now - float(missing_since) < resolve_after or key in continued:
+        if now - float(missing_since) < resolve or key in continued:
             continue
-
         records.pop(key)
-        if int(record.get("notified_count", 0)) > 0 and not record.get("transient"):
-            recoveries.append(
-                {
-                    "rule": record.get("rule"),
-                    "severity": record.get("severity"),
-                    "key": key,
-                    "target": record.get("target"),
-                    "message": record.get("message"),
-                    "value": record.get("value"),
-                    "state": _snapshot(record, cleared_at=now),
-                }
-            )
-
-    return {"alerts": alerts, "recoveries": recoveries}
-
-
-def _snapshot(record: dict, cleared_at: float | None = None) -> dict:
-    snap = {
-        "first_seen": record.get("first_seen"),
-        "last_seen": record.get("last_seen"),
-        "last_notified": record.get("last_notified"),
-        "notified_count": record.get("notified_count"),
-    }
-    if cleared_at is not None:
-        snap["cleared_at"] = cleared_at
-        # The first cycle the rule no longer fired: the end of the problem,
-        # to within one step. cleared_at is that plus the resolve grace
-        # period, which is the alert's bookkeeping, not the outage.
-        if record.get("missing_since") is not None:
-            snap["ended_at"] = record["missing_since"]
-    return snap
+        ended.append(key)
+    return ended

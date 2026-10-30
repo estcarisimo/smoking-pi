@@ -72,6 +72,59 @@ version gets a matching GitHub release and git tag.
   `state["history"]`, whose only reader it was; the notification ledger
   records each weekly (kind `weekly`).
 
+- **One episode, one message: the alerter pushes only what is worth a
+  phone, and says what caused it.** October on the reference Pi sent 72
+  Telegram messages for about eleven real events, two of them actionable
+  (front 8 audit, 2026-10-30). Every rule spoke alone: one radio hang
+  arrived as three `outage`s (keyed per 5-minute bucket), an `uplink_down`,
+  an `exporter_stale`, a microcut and two recoveries; loss at one far
+  destination paged like an outage (UBA in Buenos Aires four times, one
+  Netflix cache three); 15 of 18 recoveries repeated alerts nobody needed;
+  and the cause was often wrong -- "the line to the ISP" when the Pi had
+  lost its own default route for 30 s, "not a clear pattern" for a deaf
+  radio the watchdog had just reloaded, "just that site" for the 10 s cut
+  that reload makes. Meanwhile the one recurring degradation of the month
+  (most destinations losing 2-8 % every evening, 19:30-23:00) reached no
+  rule at all. The cost was a channel that trained its reader to ignore it.
+  The cycle is now an explicit pipeline -- signals → episode →
+  classification → materiality → policy → delivery
+  (`alerter/episodes.py`, `alerter/policy.py`): every rule keeps its
+  detection and produces a signal; the signals of one physical fact are one
+  episode; the monitor's own blind spans (a deaf radio, a lost default
+  route, an `upgrade` window, a watchdog action, its database unreadable,
+  its exporter stalled) are subtracted before anything is judged, and an
+  episode that is all blind is the monitor's, never the Internet's; one
+  cause per episode with a confidence (`common/diagnosis.classify_episode`;
+  "undetermined" below medium, and the message says so); and one
+  materiality gate shared with the weekly summary and the MCP tools
+  (`common/definitions.materiality()`/`material()`: measurable, ≥ 30 % of
+  the destinations or 2 categories, ≥ 15 min or 2 episodes in an hour,
+  ≥ 5 % loss, new). Pushed, and only this, as decided on 2026-10-30: the home's
+  Internet down (sounds), material degradation (sounds by day), the end of
+  either (silent, with the real duration and the final cause, which may
+  correct the first), the monitor blind ≥ 15 min (one silent message when
+  it can measure again), and one update when an open episode changes cause
+  or widens. Everything else -- one site's loss, line cuts under a minute,
+  the watchdog's quick fixes, upgrades -- is recorded in `state.json` with
+  the conditions it missed, and shown by the MCP `list_alert_state`. Quiet
+  hours now let nothing sound, a total loss included: still open at their
+  end, it is alerted then; begun and ended in the night, it is in one
+  silent message. Replayed through the whole cycle, the audited October
+  cases send 6 messages where they sent dozens
+  (`alerter/tests/test_october.py`). A new `degradation` signal catches the
+  evening shape. Removed with the per-rule path: re-notifications and
+  `ALERT_COOLDOWN`; the per-alert verdict (`verdict.py`) and
+  `VERDICT_MIN_TARGETS`, `VERDICT_IMPAIRED_LOSS_PCT`,
+  `VERDICT_STALE_DOWN_HOURS`; the chart on alerts, and with it
+  `ALERT_CHARTS` and `CHART_HOURS` (the daily digest, their other reader,
+  went with the weekly summary); all ignored if left in an env file
+  ([Upgrades](docs/upgrades.md#settings-retired-or-renamed)). `ALERT_RESOLVE_AFTER` now closes an episode, and
+  `ALERT_MAX_PER_HOUR` caps alerts across every episode. `ack_incident`
+  takes an episode key; a webhook gets the episode's record beside the text.
+  Messages are minimal and structured (cause, range, scope, signals); their
+  wording is the next change's. The state file's per-incident records stay
+  readable; an upgrade starts with no episode open.
+
 ### Fixed
 
 - **An alert is said once.** October's Telegram messages from the reference

@@ -7,8 +7,8 @@
 Continuous network monitoring for your home or lab, in a box. Smoking Pi wraps
 [SmokePing](https://oss.oetiker.ch/smokeping/) in Docker Compose and grows with
 you: from a single container reading a YAML file, to a full stack with a web
-admin, Grafana dashboards, a time-series database, alerting that leads with a
-verdict, and an MCP server so an AI assistant can answer *"how's my internet?"*
+admin, Grafana dashboards, a time-series database, alerting that speaks only
+when it matters, and an MCP server so an AI assistant can answer *"how's my internet?"*
 from months of recorded history instead of a live `ping`. Built for a
 Raspberry Pi (ARM64); runs anywhere Docker does.
 
@@ -66,10 +66,11 @@ did, and is the way to run an unreleased branch.
 
 ## What happens with it
 
-- **Alerts that say what they mean.** Every alert leads with a verdict — *is
-  it me or the internet?* — carries the chart, links into the exact Grafana
-  view, and can be muted by asking in chat. A weekly summary, sent only when
-  the week had something worth telling, says what it added up to
+- **Alerts only when it matters.** One message per episode -- the Internet
+  down, a material degradation, their end, the monitor blind for 15 minutes
+  -- each saying the cause (*your line*, *your provider*, *this Pi*) and how
+  sure, and mutable by asking in chat. A weekly summary, sent only when the
+  week had something worth telling, says what it added up to
   ([Alerting](alerting.md)).
 - **An assistant that has read the history.** The MCP server exposes latency,
   loss, microcut and Wi-Fi statistics, system status and on-request charts to

@@ -420,6 +420,11 @@ def _notify_webhook(event: dict, text: str) -> bool:
         "state": event.get("state"),
         "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
+    # An episode's message (policy.py): which one, and its record -- cause,
+    # confidence, range, scope -- for a receiver that wants fields, not text.
+    if event.get("episode") is not None:
+        payload["kind"] = event.get("kind")
+        payload["episode"] = event["episode"]
     headers = {}
     _handed(text, "webhook")
     token = os.environ.get("ALERT_WEBHOOK_TOKEN", "")

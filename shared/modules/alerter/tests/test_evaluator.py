@@ -335,7 +335,9 @@ def test_outage_is_one_transient_warning_for_a_blink_that_hit_everyone():
     assert inc["severity"] == "warning"
     assert inc["transient"] is True
     step = int((STEP0 + timedelta(seconds=300)).timestamp())
-    assert inc["key"] == f"outage:{step}"
+    assert inc["key"] == "outage"
+    assert inc["since"] == step
+    assert (inc["start"], inc["end"]) == (step - 300, step)
     assert "10 of 10 targets lost packets in the same 5-minute span at 20 Sep 01:45 UTC" in inc["message"]
 
 
@@ -365,10 +367,14 @@ def test_a_two_cycle_outage_needs_both_cycles_total_to_say_every_packet():
     assert "lost every packet" in evaluator.rule_widespread(rows)[0]["message"]
 
 
-def test_two_separate_blinks_are_two_outages():
+def test_two_separate_blinks_are_two_runs_and_one_key():
+    """One key: the older run, already over, rides quiet -- which episode
+    each belongs to is the episodes' to say."""
     rows = _everyone([0.9, 0.0, 0.9, 0.0])
-    keys = [i["key"] for i in evaluator.rule_widespread(rows)]
-    assert len(keys) == 2 and keys[0] != keys[1]
+    runs = evaluator.rule_widespread(rows)
+    assert [i["key"] for i in runs] == ["outage", "outage"]
+    assert runs[0]["quiet"] is True and not runs[1].get("quiet")
+    assert runs[0]["since"] < runs[1]["since"]
 
 
 def test_uplink_down_needs_the_latest_cycles_to_be_consecutive_in_time():
@@ -386,19 +392,19 @@ def test_an_outage_longer_than_the_window_keeps_its_key_and_start():
     previous evaluation is the same one, not a new incident."""
     rows = _everyone([0.5, 0.5, 0.5, 0.5])
     earlier = int(STEP0.timestamp()) - 900
-    inc = evaluator.rule_widespread(rows, ongoing=[f"outage:{earlier}"])[0]
-    assert inc["key"] == f"outage:{earlier}"
+    inc = evaluator.rule_widespread(rows, outage_since=earlier)[0]
+    assert inc["key"] == "outage" and inc["since"] == earlier
     assert "together since 20 Sep 01:25 UTC (35 minutes)" in inc["message"]
     assert "brief" not in inc["message"]
     # Without one active, the window's first cycle is the start, as before.
-    assert evaluator.rule_widespread(rows)[0]["key"] == f"outage:{int(STEP0.timestamp())}"
+    assert evaluator.rule_widespread(rows)[0]["since"] == int(STEP0.timestamp())
 
 
 def test_a_new_outage_inside_the_window_is_not_a_continuation():
     rows = _everyone([0.0, 0.0, 0.5, 0.5])
     earlier = int(STEP0.timestamp()) - 900
-    inc = evaluator.rule_widespread(rows, ongoing=[f"outage:{earlier}"])[0]
-    assert inc["key"] == f"outage:{int(STEP0.timestamp()) + 600}"
+    inc = evaluator.rule_widespread(rows, outage_since=earlier)[0]
+    assert inc["since"] == int(STEP0.timestamp()) + 600
 
 
 def test_the_tail_of_an_uplink_down_is_quiet_but_still_suppresses():
@@ -597,7 +603,7 @@ def test_evaluate_an_open_stall_is_never_reconsidered_as_never_measured(monkeypa
 
 
 def test_an_open_stall_across_a_restart_sends_no_false_recovery(monkeypatch):
-    """Reconcile, fed what evaluate returns, keeps an open stall open."""
+    """state.track, fed what evaluate returns, keeps an open stall open."""
     import state
 
     _stale_scenario(monkeypatch, ever_rows=[])
@@ -607,12 +613,11 @@ def test_an_open_stall_across_a_restart_sends_no_false_recovery(monkeypatch):
     # Opened earlier by a stack that did measure, then the alerter restarts
     # (state persists) and retention has since emptied the bucket.
     stall = evaluator.rule_exporter_stale([], window_s=1200)
-    state.reconcile(current, stall, now=1000.0)
+    state.track(current, stall, now=1000.0)
     for now in (2000.0, 3000.0, 5000.0):
         incidents, _ = evaluator.evaluate_with_context(
             open_keys=current["incidents"].keys())
-        actions = state.reconcile(current, incidents, now=now)
-        assert actions["recoveries"] == []
+        assert state.track(current, incidents, now=now) == []
     assert "exporter_stale" in current["incidents"]
 
 

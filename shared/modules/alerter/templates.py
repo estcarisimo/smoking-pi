@@ -27,6 +27,8 @@ from dataclasses import dataclass
 # Telegram's two limits. A caption is a quarter of a message.
 TG_TEXT_LIMIT = 4096
 TG_CAPTION_LIMIT = 1024
+# An episode's head line (policy.py) is a few words; this bounds a broken one.
+HEAD_MAX = 200
 
 # One traffic light, used everywhere a state is stated -- alerts here, and the
 # summaries the agent writes from the MCP tools (see the OpenClaw skill). A
@@ -39,19 +41,6 @@ SEVERITY_EMOJI = {
     "warning": STATUS_EMOJI["watch"],
     "info": "🔵",
 }
-
-SCOPE_EMOJI = {
-    "monitoring": "🛠",
-    "monitor_uplink": "🔌",
-    "wifi": "📶",
-    "local_link": "🏠",
-    "isp_upstream": "🌐",
-    "ipv6": "6️⃣",
-    "dns": "🔤",
-    "remote_target": "🎯",
-    "unclear": "❔",
-}
-
 
 @dataclass(frozen=True)
 class Section:
@@ -133,17 +122,6 @@ def assemble(sections: list[Section], limit: int) -> str:
     return (trimmed + "…")[:limit]
 
 
-# Recoveries: rules where the target or the link answered nothing say "was
-# down"; they need every cycle in their window lost, so they clear on the
-# first good one and their end is exact. A windowed rule keeps firing while
-# its event is inside the window (microcut_burst: any cut in 60 min;
-# high_loss: a 15 min mean), so a 5 min burst would read as 15 min or an
-# hour: it gets no duration. A rule in neither set says "lasted".
-DOWN_RULES = frozenset({"target_down", "uplink_down", "internet_down",
-                        "monitor_dns", "ipv6_down", "exporter_stale"})
-WINDOWED_RULES = frozenset({"microcut_burst", "high_loss"})
-
-
 def _duration(seconds: float | None) -> str | None:
     if not seconds or seconds < 0:
         return None
@@ -201,149 +179,6 @@ def _link_line(links: dict | None) -> str:
     return " · ".join(parts)
 
 
-# One per diagnosis class (common/diagnosis.py), in the verdict's scheme.
-DIAGNOSIS_EMOJI = {
-    "local_wifi": "📶",
-    "local_link": "🏠",
-    "monitor": "🛠",
-    "destination": "🎯",
-    "upstream": "🌐",
-    "unclear": "❔",
-}
-
-
-def _diagnosis_leads(diag: dict, verdict: dict) -> bool:
-    """Whether the diagnosis, not the verdict, heads the message: it has a
-    class worth stating and is at least medium-confident, and the monitor
-    is not the one at fault (no measurements arriving outranks everything,
-    as in verdict.py)."""
-    return bool(
-        diag.get("summary")
-        # "No single cause fits" says less than the verdict it would replace.
-        and diag.get("class") not in (None, "probe_miss", "unclear")
-        and diag.get("confidence") in ("high", "medium")
-        and verdict.get("scope") != "monitoring"
-    )
-
-
-def alert_sections(event: dict) -> list[Section]:
-    """Build the prioritized blocks for one alert or recovery."""
-    etype = event.get("type", "alert")
-    severity = str(event.get("severity") or "warning")
-    target = event.get("target")
-    verdict = event.get("verdict") or {}
-    links = event.get("links") or {}
-
-    sections: list[Section] = []
-
-    if etype == "recovery":
-        head = f"✅ {_b('recovered')}"
-        if target:
-            head += f" — {esc(target)}"
-        sections.append(Section(0, head))
-        duration = _duration(event.get("duration_s"))
-        detail = esc(event.get("message", ""))
-        rule = event.get("rule")
-        if rule in WINDOWED_RULES:
-            # The rule kept firing while the event was inside its window, so
-            # the alert's open time is the window, not the problem. The
-            # message already says what was measured.
-            duration = None
-        verb = "was down" if rule in DOWN_RULES or not rule else "lasted"
-        sections.append(
-            Section(0, f"{verb} {duration} · {detail}" if duration else detail)
-        )
-        if event.get("rule"):
-            sections.append(Section(2, _i(esc(str(event["rule"])))))
-        sections.append(Section(1, _link_line(links)))
-        return sections
-
-    emoji = SEVERITY_EMOJI.get(severity, STATUS_EMOJI["watch"])
-    head = f"{emoji} {_b(esc(severity))}"
-    if target:
-        head += f" — {esc(target)}"
-    sections.append(Section(0, head))
-
-    diag = event.get("diagnosis") or {}
-    leads = _diagnosis_leads(diag, verdict)
-    if leads:
-        # The diagnosis replaces the verdict line: it saw the same minutes
-        # with more evidence (the first hop's usual loss, a deaf radio, the
-        # app layer) and says how sure it is. Two answers would read as two
-        # opinions.
-        emoji = DIAGNOSIS_EMOJI.get(str(diag.get("class")), "")
-        sections.append(Section(0, f"{emoji} {esc(diag['summary'])} "
-                                   f"{_i(esc('(' + str(diag['confidence']) + ' confidence)'))}"
-                                .strip()))
-    elif verdict.get("line") and not _mean_saw_nothing(verdict):
-        scope_emoji = SCOPE_EMOJI.get(verdict.get("scope", ""), "")
-        line = f"{scope_emoji} {esc(verdict['line'])}".strip()
-        sections.append(Section(0, line))
-
-    # One cause per message: when the diagnosis leads, the rule's line gives
-    # its numbers (``observation``) without its own reading of the cause.
-    body = event.get("observation") if leads and event.get("observation") else None
-    sections.append(Section(0, esc(body or event.get("message", ""))))
-
-    # The evidence behind the diagnosis: what a reader checks before
-    # believing it. Below the numbers, above the context line.
-    if leads and diag.get("evidence"):
-        sections.append(Section(2, "Why: " + esc("; ".join(diag["evidence"])) + "."))
-    if leads and diag.get("against"):
-        sections.append(Section(2, "But: " + esc("; ".join(diag["against"])) + "."))
-
-    # Context line: the rule name (for correlating with `docker logs` and for
-    # `mute rule:<name>`) plus breadth. Low priority -- it is the first thing
-    # dropped when a caption budget bites.
-    context = []
-    if event.get("rule"):
-        context.append(str(event["rule"]))
-    # The count is the incident's own: the targets the rule counted, out of
-    # those reporting. Only the rules that fire on breadth (outage,
-    # uplink_down) carry one. The verdict's count is over 15-minute means and
-    # can describe a different set: "1 of 16 affected" under a target_down
-    # about another target, or under an outage whose message says 12 (#286).
-    breadth = event.get("breadth") or {}
-    if breadth.get("affected") and breadth.get("total"):
-        context.append(f"{breadth['affected']} of {breadth['total']} affected")
-    # The verdict's reading of the line; when the diagnosis leads it has
-    # already said where the fault is, and "local link cutting out" next
-    # to "this host's Wi-Fi, not the line" reads as a contradiction.
-    if verdict.get("total") and not leads:
-        context.append(
-            "local link cutting out"
-            if verdict.get("cpe_cutting")
-            else "local link clean"
-        )
-    # The Wi-Fi hop, whenever it was checked: a reader should see that a
-    # "your line" verdict was reached with the wireless link in view.
-    wifi = verdict.get("wifi") or {}
-    if wifi.get("min_dbm") is not None:
-        wifi_note = f"wi-fi min {wifi['min_dbm']:.0f} dBm"
-        if wifi.get("disconnects"):
-            wifi_note += f", {wifi['disconnects']} drop{'s' if wifi['disconnects'] != 1 else ''}"
-        context.append(wifi_note)
-    if context:
-        sections.append(Section(2, _i(esc(" · ".join(context)))))
-
-    sections.append(Section(1, _link_line(links)))
-
-    if target:
-        sections.append(
-            Section(3, esc(f'mute: say "mute {target} for 2h"'))
-        )
-    return sections
-
-
-def _mean_saw_nothing(verdict: dict) -> bool:
-    """The verdict compared every target's 15-minute mean and found none
-    impaired. Under an alert that fired on a shorter span (a brief cut, one
-    target's lost cycles), "no target is above 5% mean loss" reads as
-    "nothing happened"; the alert's own message is the better account."""
-    return (verdict.get("scope") == "unclear" and bool(verdict.get("total"))
-            and not verdict.get("affected"))
-
-
 def format_message(event: dict, limit: int = TG_TEXT_LIMIT) -> str:
     """Render one event to the text that will be delivered."""
     if event.get("type") in ("report", "undelivered", "held"):
@@ -362,4 +197,31 @@ def format_message(event: dict, limit: int = TG_TEXT_LIMIT) -> str:
             ],
             limit,
         )
-    return assemble(alert_sections(event), limit)
+    return assemble(episode_sections(event), limit)
+
+
+def episode_sections(event: dict) -> list[Section]:
+    """An episode's notification (policy.py): its first line as the head,
+    the structured lines below it (cause, range, scope, signals), and the
+    last hours' diagnosis when one ran. Minimal on purpose: the wording is
+    the next change's. Every line is escaped -- target names are
+    user-editable."""
+    lines = str(event.get("message", "")).split("\n")
+    # The head is bold; one too long for a caption is cut before the markup
+    # goes on, never inside it.
+    head = lines[0] if len(lines[0]) <= HEAD_MAX else lines[0][:HEAD_MAX - 1] + "…"
+    # The light first, as every message here: "🔴 <b>Internet down</b>".
+    light, _, words = head.partition(" ")
+    if words and not light.isalnum():
+        sections = [Section(0, f"{esc(light)} {_b(esc(words))}")]
+    else:
+        sections = [Section(0, _b(esc(head)))]
+    sections += [Section(0 if i < 3 else 2, esc(line))
+                 for i, line in enumerate(lines[1:]) if line]
+    diag = event.get("diagnosis") or {}
+    if diag.get("summary") and diag.get("confidence") in ("high", "medium"):
+        sections.append(Section(2, _i(esc(
+            f"Diagnosis of the last hours: {diag['summary']} "
+            f"({diag['confidence']} confidence)"))))
+    sections.append(Section(1, _link_line(event.get("links"))))
+    return sections

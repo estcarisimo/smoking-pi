@@ -75,11 +75,12 @@ def kind_of(payload: dict) -> str:
         return "outbox_summary"
     if kind == "alert" and rule == "watchdog":
         return "watchdog"
-    # Imported here: quiet imports outbox, which writes here.
-    import quiet
-
-    if kind == "alert" and rule in quiet.MONITOR_RULES:
-        return "monitor"
+    if rule == "episode":
+        # An episode's message (policy.py), by what it says.
+        return {"down": "alert", "degradation": "alert", "update": "update",
+                "recovery": "recovery", "night": "recovery",
+                "monitor": "monitor", "recorded": "episode"}.get(
+                    payload.get("kind"), "alert")
     return kind if kind in notification_ledger.KINDS else "alert"
 
 

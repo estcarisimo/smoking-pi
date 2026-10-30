@@ -2299,7 +2299,8 @@ alerts_history_setup() {
     grep -qx 'QUIET_UNTIL=07:00' "$SMOKING_PI_ENV_FILE"
     grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
     [[ "$output" == *"23:00 to 07:00 America/Chicago"* ]]
-    [[ "$output" == *"never held"* ]]
+    [[ "$output" == *"nothing sounds, the Internet down included"* ]]
+    [[ "$output" == *"alerted then"* ]]
     run "$CLI" alerts --quiet off
     [ "$status" -eq 0 ]
     if grep -qE '^QUIET_(FROM|UNTIL)=.+' "$SMOKING_PI_ENV_FILE"; then false; fi

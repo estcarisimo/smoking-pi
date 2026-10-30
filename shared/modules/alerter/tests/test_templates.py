@@ -18,21 +18,22 @@ def html_mode(monkeypatch):
     monkeypatch.delenv("ALERT_MARKUP", raising=False)
 
 
-def _alert(**over):
+def _alert(target="Cloudflare", **over):
+    """An episode's notification (policy.py) naming one destination."""
     event = {
         "type": "alert",
-        "rule": "target_down",
-        "severity": "critical",
-        "target": "Cloudflare",
-        "message": "Cloudflare down: 100% loss across all 4 probes",
-        "verdict": {
-            "scope": "isp_upstream",
-            "line": "Not you — 12 of 16 destinations affected but your local "
-                    "link is clean, so this is upstream.",
-            "affected": 12,
-            "total": 16,
-            "cpe_cutting": [],
-        },
+        "rule": "episode",
+        "kind": "degradation",
+        "severity": "warning",
+        "key": "episode:1",
+        "message": "\n".join([
+            "🟡 Internet degraded",
+            f"Cause: just {target} (high confidence)",
+            "Range: since 19:30",
+            "Scope: 70% of the destinations, 3 categories, mean loss 6.7%",
+            f"Signals: {target} lost packets; the other 22 destinations were fine",
+        ]),
+        "episode": {"key": "episode:1"},
         "links": {
             "graph": "http://h:3000/d/x?var-target=Cloudflare",
             "compare_with_peers": "http://h:3000/d/z",
@@ -81,54 +82,26 @@ def test_only_the_graph_gets_an_anywhere_twin():
     assert links["edit_tunnel"] not in text
 
 
-def test_the_headline_and_verdict_always_survive():
+def test_the_head_and_the_cause_always_survive():
     """Priority 0 is never dropped, however tight the budget."""
     text = templates.format_message(_alert(), 120)
+    assert "Internet degraded" in text
     assert "Cloudflare" in text
-    assert "critical" in text
 
 
-def _budget_for(event, keep_priorities):
-    """Exact budget that fits priority-0 plus the given optional sections."""
-    sections = [
-        s
-        for s in templates.alert_sections(event)
-        if s.priority == 0 or s.priority in keep_priorities
-    ]
-    return len("\n".join(s.text for s in sections))
-
-
-def test_sections_are_dropped_in_priority_order():
-    """Mute hint goes first, then the breadth recap; links outlive both.
-
-    A caption cannot be explored, so the link out of it is worth more than a
-    recap of a number the verdict line already gave. Budgets are derived
-    from the rendered sections rather than hardcoded, so rewording a line
-    cannot silently turn this into a test of nothing.
-    """
+def test_the_signals_line_goes_before_the_links():
     event = _alert()
     full = templates.format_message(event)
-    assert "mute:" in full and "graph" in full and "target_down" in full
-
-    # Room for links + breadth but not the mute hint.
-    text = templates.format_message(event, _budget_for(event, {1, 2}))
-    assert "mute:" not in text
-    assert "graph" in text and "target_down" in text
-
-    # Room for links only.
-    text = templates.format_message(event, _budget_for(event, {1}))
-    assert "mute:" not in text and "target_down" not in text
-    assert "graph" in text
-
-    # Room for the head only.
-    text = templates.format_message(event, _budget_for(event, set()))
-    assert "graph" not in text
-    assert "Cloudflare" in text and "critical" in text
+    assert "Signals:" in full and "graph" in full
+    head = "\n".join(s.text for s in templates.episode_sections(event)
+                     if s.priority == 0)
+    text = templates.format_message(event, len(head) + 2)
+    assert "Signals:" not in text and "Internet degraded" in text
 
 
 def test_a_huge_message_is_truncated_on_a_line_boundary():
     """A tag cut in half makes Telegram reject the whole message with a 400."""
-    event = _alert(message="x" * 5000, verdict={}, links={})
+    event = _alert(message="x" * 5000, links={})
     text = templates.format_message(event, templates.TG_CAPTION_LIMIT)
     assert len(text) <= templates.TG_CAPTION_LIMIT
     assert _tags_balanced(text)
@@ -161,7 +134,7 @@ def test_tags_stay_balanced_at_every_budget():
 
 def test_target_names_are_escaped():
     """`a<b&c` is a legal target name today."""
-    text = templates.format_message(_alert(target="a<b&c", links={}, verdict={}))
+    text = templates.format_message(_alert(target="a<b&c", links={}))
     assert "a&lt;b&amp;c" in text
     assert "<b" not in text.replace("<b>", "")
 
@@ -186,35 +159,11 @@ def test_plain_mode_emits_no_markup(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_the_rule_name_survives_somewhere():
-    """Needed to correlate with docker logs and to target a mute."""
-    assert "target_down" in templates.format_message(_alert())
-
-
-def test_recovery_reports_how_long_it_was_down():
-    text = templates.format_message(
-        {
-            "type": "recovery",
-            "rule": "target_down",
-            "target": "Cloudflare",
-            "message": "cleared",
-            "duration_s": 1_380,
-        }
-    )
-    assert "recovered" in text
-    assert "23 min" in text
-
-
 def test_report_events_pass_through_untouched():
     text = templates.format_message(
         {"type": "report", "message": "Daily digest:\n\nall good"}
     )
     assert text.startswith("Daily digest:")
-
-
-def test_no_verdict_still_renders():
-    text = templates.format_message(_alert(verdict={}))
-    assert "Cloudflare" in text
 
 
 def test_assemble_keeps_everything_when_it_fits():
@@ -241,7 +190,7 @@ def test_only_one_anywhere_link_even_if_both_keys_are_present():
         "grafana_overview": "http://h/o",
         "grafana_overview_tunnel": "https://t/o",
     }
-    text = templates.format_message(_alert(links=links, verdict={}))
+    text = templates.format_message(_alert(links=links))
     assert text.count("🌐 anywhere") == 1
 
 
@@ -254,104 +203,10 @@ def test_wifi_entry_point_renders_and_its_tunnel_twin_does_not():
         "grafana_wifi_link_tunnel": "https://t/d/wifi-link-v1",
         "grafana_overview_tunnel": "https://t/o",
     }
-    text = templates.format_message(_alert(links=links, verdict={}))
+    text = templates.format_message(_alert(links=links))
     assert 'href="http://h/d/wifi-link-v1">wi-fi</a>' in text
     assert "https://t/d/wifi-link-v1" not in text
     assert text.count("🌐 anywhere") == 1
     assert 'href="https://t/o">🌐 anywhere</a>' in text
 
 
-def test_wifi_scope_has_its_own_light_and_the_context_line_shows_the_hop():
-    verdict = {
-        "scope": "wifi",
-        "line": "Your Wi-Fi — the first hop is cutting out and the signal fell to -78 dBm; "
-                "the router or the air, not the ISP.",
-        "affected": 12, "total": 16, "cpe_cutting": ["CPE/ipv4"],
-        "wifi": {"interface": "wlan0", "uplink": True, "samples": 360, "weak_samples": 9,
-                 "min_dbm": -78.0, "disconnects": 2, "degraded": True},
-    }
-    text = templates.format_message(_alert(verdict=verdict))
-    assert "📶" in text
-    assert "wi-fi min -78 dBm, 2 drops" in text
-
-
-def test_a_checked_but_healthy_wifi_still_appears_in_the_context_line():
-    verdict = dict(_alert()["verdict"])
-    verdict["wifi"] = {"interface": "wlan0", "uplink": True, "samples": 360,
-                       "weak_samples": 0, "min_dbm": -54.0, "disconnects": 0,
-                       "degraded": False}
-    text = templates.format_message(_alert(verdict=verdict))
-    assert "local link clean · wi-fi min -54 dBm" in text
-    assert "drop" not in text
-
-
-def test_no_wifi_means_no_wifi_words():
-    text = templates.format_message(_alert())
-    assert "wi-fi" not in text.lower()
-
-
-def test_monitor_uplink_scope_has_its_own_light_and_no_mute_hint():
-    event = _alert(verdict={
-        "scope": "monitor_uplink",
-        "line": "This host's Wi-Fi (wlan0) — still associated at -49 dBm but it has "
-                "received nothing for the whole window: the radio is hung, not the network.",
-        "affected": 10, "total": 10, "cpe_cutting": ["CPE/ipv4"],
-        "wifi": {"interface": "wlan0", "uplink": True, "samples": 120, "weak_samples": 0,
-                 "min_dbm": -49.0, "disconnects": 0, "degraded": False, "rx_packets": 0},
-    })
-    event["rule"] = "uplink_down"
-    event["target"] = None
-    event["message"] = "10 of 10 targets at 100% loss for 4 consecutive probe cycles"
-    text = templates.format_message(event)
-    assert "🔌" in text
-    assert "radio is hung" in text
-    assert "mute:" not in text
-
-
-def test_a_zero_breadth_count_is_not_printed_under_an_alert():
-    """#273: the rule fired (one target's lost cycles, a brief cut) while no
-    target's 15 min mean crossed the impaired threshold. "0 of 16 affected"
-    under that alert reads as "nothing happened"; the link note stays."""
-    verdict = {
-        "scope": "unclear",
-        "line": "No target is above 5% mean loss over 15m.",
-        "affected": 0,
-        "total": 16,
-        "cpe_cutting": [],
-    }
-    for rule, target in (("target_down", "Cloudflare"), ("outage", None)):
-        text = templates.format_message(
-            _alert(rule=rule, target=target, verdict=verdict))
-        assert "0 of 16" not in text
-        assert "affected" not in text
-        assert f"{rule} · local link clean" in text
-        # The verdict line said the same thing in other words.
-        assert "mean loss" not in text
-        assert "Cloudflare down: 100% loss across all 4 probes" in text
-
-
-def test_a_verdict_with_no_measurements_still_says_so():
-    """Unclear for want of data (total 0) is information, not a contradiction."""
-    verdict = {"scope": "unclear", "line": "No comparable measurements in the last 15m.",
-               "affected": 0, "total": 0, "cpe_cutting": []}
-    text = templates.format_message(_alert(verdict=verdict))
-    assert "No comparable measurements in the last 15m." in text
-
-
-def test_the_count_is_the_incidents_own_not_the_verdicts():
-    """#286: the verdict's count is over 15-minute means and can describe a
-    different set -- "1 of 16 affected" under an outage whose message said
-    12, or under a target_down about another target. The rule's own count is
-    printed; a per-target rule prints none (its message names the target)."""
-    verdict = {"scope": "unclear", "line": "Just that site.", "affected": 1,
-               "total": 16, "cpe_cutting": []}
-    outage = _alert(rule="outage", target=None, verdict=verdict,
-                    message="12 of 16 targets lost packets in the same 5-minute span",
-                    breadth={"affected": 12, "total": 16, "targets": []})
-    text = templates.format_message(outage)
-    assert "outage · 12 of 16 affected · local link clean" in text
-    assert "1 of 16" not in text
-
-    text = templates.format_message(_alert(verdict=verdict))
-    assert "target_down · local link clean" in text
-    assert "1 of 16" not in text

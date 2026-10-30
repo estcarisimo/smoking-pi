@@ -38,8 +38,8 @@ signed in with a pairing code and limited to the read tools
 | `get_chart(target, hours, with_peers, deliver)` | **On request only:** a PNG of one target's latency (median + spread of individual pings) over its loss — see [On-request charts](#on-request-charts) |
 | `mute_alerts(target, rule, hours, reason)` | Stop *sending* alerts for a target and/or rule for a while (default 2 h, capped at 24; `target="*"` mutes everything). Incidents are still tracked, counted and shown by `list_alert_state` |
 | `unmute_alerts(target, rule, all)` | Lift a mute early. Nothing is replayed, so unmuting never produces a burst of catch-up messages |
-| `ack_incident(key, hours)` | Silence exactly one active incident until it recovers — narrower than a mute, and the recovery notice still arrives. The key comes from `list_alert_state()` |
-| `list_alert_state()` | Active incidents and active mutes: what is wrong, what is quiet, and how many alerts each mute has actually swallowed |
+| `ack_incident(key, hours)` | Say nothing more about one open episode (`episode:<id>`: no update, no end message) or keep one signal out of every episode until it ends — narrower than a mute. The key comes from `list_alert_state()` |
+| `list_alert_state()` | The open episode (cause, confidence, material or the conditions it missed, what was pushed), the episodes of the last day, the active signals and the active mutes: what is wrong, what was said, and what is quiet |
 
 The last four are the alert-control surface, and they exist for one reason:
 muting a noisy target should be something you say in the chat where the

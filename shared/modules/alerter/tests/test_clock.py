@@ -138,8 +138,7 @@ def test_without_digest_tz_the_schedules_zone_is_named(monkeypatch):
 
 def test_uplink_and_resolver_changes_read_the_digest_zone(chicago):
     """The shared describers (common/aggregates.py) print the host's clock
-    by default; the digest and the alert's uplink note pass the alerter's."""
-    import verdict
+    by default; the digest passes the alerter's."""
     from common import aggregates
 
     change = {"time": "2026-10-29T01:40:00+00:00", "previous": "wlan0",
@@ -151,5 +150,3 @@ def test_uplink_and_resolver_changes_read_the_digest_zone(chicago):
                 "previous": "AS15169", "owner": "AS19281"}
     assert aggregates.describe_resolver_change(
         resolver, fmt=lambda when: clock.at(when, MORNING)).endswith("at 28 Oct 20:40")
-    call = verdict.classify([], [], [], uplink_changes=[change], now=MORNING)
-    assert "eth0 (wired) at 28 Oct 20:40" in call["line"]

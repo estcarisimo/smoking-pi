@@ -120,15 +120,15 @@ alerts_set_quiet() {
     if [ "$1" = off ]; then
         env_set QUIET_FROM ""
         env_set QUIET_UNTIL ""
-        echo "Quiet hours off: every alert is sent when it happens."
+        echo "Quiet hours off: an alert sounds whenever it happens."
         return 0
     fi
     env_set QUIET_FROM "${1%-*}"
     env_set QUIET_UNTIL "${1#*-}"
     local zone
     zone="$(alerts_zone)"
-    echo "Quiet hours ${1%-*} to ${1#*-} $zone: alerts are held and sent as one message when they end."
-    echo "A total loss (the uplink, the Internet, this host's DNS) is never held."
+    echo "Quiet hours ${1%-*} to ${1#*-} $zone: nothing sounds, the Internet down included."
+    echo "Still going on at ${1#*-}, it is alerted then; over by then, it is in one silent message at ${1#*-}."
 }
 
 # HH:MM, or H:MM made HH:MM (as the alerter reads it); empty when neither.
@@ -277,8 +277,8 @@ alerts_history() {
         echo "--days takes 1 to 30: the ledger keeps 30 days." >&2; return 2
     fi
     case "$kind" in
-        ""|alert|recovery|superseded|update|outbox_summary|quiet_bundle|weekly|digest|watchdog|monitor|report) ;;
-        *) echo "--kind takes alert, recovery, monitor, watchdog, outbox_summary, quiet_bundle, weekly, digest (before the weekly) or report." >&2; return 2 ;;
+        ""|alert|recovery|superseded|update|outbox_summary|quiet_bundle|weekly|digest|watchdog|monitor|report|episode) ;;
+        *) echo "--kind takes alert, recovery, update, monitor, episode, watchdog, outbox_summary, quiet_bundle, weekly, digest (before the weekly) or report." >&2; return 2 ;;
     esac
     need_edition
     if ! grep -q '^  alerter:' "$EDITION_DIR/docker-compose.yml"; then

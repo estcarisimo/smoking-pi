@@ -60,14 +60,22 @@ def test_a_long_gap_reads_at_most_a_day_back():
     assert "range(start: 2026-10-12T14:00:00Z)" in asked[0]
 
 
-def test_a_muted_watchdog_says_nothing(mutes_file):
+def test_a_muted_watchdog_is_in_no_episode(mutes_file):
+    import episodes
+
     mutes_file([{"rule": "watchdog", "until": 9_999_999_999.0}])
     state = {"watchdog": {"since": NOW - 3600}}
     rows = [_row(900, "wifi: no packet received for 15 min; rebooting")]
-    assert watchdog_events.collect(state, lambda src: rows, now=NOW) == []
+    found = watchdog_events.collect(state, lambda src: rows, now=NOW)
+    assert [e["rule"] for e in found] == ["watchdog"]
+    assert episodes.signals([], {}, NOW, extra=found) == []
 
 
-def test_the_loop_delivers_a_reboot_through_the_outbox(monkeypatch, state_file):
+def test_the_loop_records_a_reboot_in_an_episode_and_says_nothing(
+        monkeypatch, state_file):
+    """Front 8: an action of the watchdog is the monitor's, recorded in the
+    episode (and a blind span); resolved within 15 minutes it is never
+    pushed."""
     sent = []
     monkeypatch.setattr(main.evaluator, "evaluate_with_context", lambda **_: (
         [], {"mean_rows": [], "micro_rows": [], "wifi_rows": {}, "uplink_changes": [],
@@ -77,14 +85,16 @@ def test_the_loop_delivers_a_reboot_through_the_outbox(monkeypatch, state_file):
         _row(120, "wifi: no packet received for 15 min; rebooting")])
     monkeypatch.setattr(main.notifier, "send",
                         lambda payload, image=None: sent.append(payload) or "sent")
-    monkeypatch.setattr(main.watchdog_events.time, "time", lambda: NOW)
+    monkeypatch.setattr(main.time, "time", lambda: NOW)
     main.run_iteration()          # first look: marks the start
-    assert sent == []
     main.state.save_state({**main.state.load_state(),
                            "watchdog": {"since": NOW - 600}})
     main.run_iteration()
-    assert [p["rule"] for p in sent] == ["watchdog"]
-    assert "rebooting" in sent[0]["message"]
+    assert sent == []
+    episode = main.state.load_state()["episodes"]["open"]
+    assert episode["signals"]["watchdog"]["count"] == 1
+    assert "rebooting" in episode["watchdog"][0]["message"]
+    assert [s[2] for s in episode["blind"]] == ["watchdog"]
 
 
 # --- review of #335 ------------------------------------------------------------

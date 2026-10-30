@@ -72,11 +72,8 @@ def test_one_old_notification_becomes_a_summary():
 def test_the_summary_tells_each_incident_once_and_ends_on_now():
     """The 12/10 hang: hourly re-notifications of one critical, an outage,
     the recovery -- all undelivered. One message, each incident once."""
-    state = {"incidents": {
-        "microcut_burst:136.25.220.1/ipv4": {
-            "rule": "microcut_burst", "severity": "warning",
-            "target": "136.25.220.1", "first_seen": T + 19800},
-    }}
+    state = {"episodes": {"open": {"key": "episode:9", "start": T + 19800,
+                              "judgment": {"cause": "your line"}}}}
     outbox.enqueue(state, _alert(key="outage:1", rule="outage",
                                  severity="warning", message="a brief cut"), now=T)
     for hour in range(6):
@@ -87,7 +84,7 @@ def test_the_summary_tells_each_incident_once_and_ends_on_now():
     assert "Not delivered from 15:15 to 20:48 (5h 33m)" in lines[0]
     assert len(lines) == 4
     # What is open now comes first: a message over budget is cut at the end.
-    assert lines[1] == "Now open: 🟡 microcut_burst 136.25.220.1 (since 20:45)"
+    assert lines[1] == "Now open: your line (since 20:45)"
     assert lines[2].startswith("🟡 outage · 15:15 (over)")
     assert lines[3].startswith("🔴 uplink_down · 15:25 → ✅ 20:45")
     assert "hour 5" in lines[3]  # the newest numbers, not the first
@@ -188,7 +185,8 @@ def test_a_recovery_for_an_alert_already_sent_does_not_invent_a_start():
 def test_a_refused_summary_becomes_a_plain_fallback_and_never_blocks():
     """A summary the receiver keeps refusing with the network up (a revoked
     token, or text it rejects) must not hold later alerts forever."""
-    state = {"incidents": {"uplink_down": {"rule": "uplink_down", "first_seen": T}}}
+    state = {"episodes": {"open": {"key": "episode:9", "start": T + 19800,
+                              "judgment": {"cause": "your line"}}}}
     for i in range(3):
         outbox.enqueue(state, _alert(key=f"target_down:<b{i}>",
                                      target=f"<b{i}>"), now=T)
@@ -205,22 +203,21 @@ def test_a_refused_summary_becomes_a_plain_fallback_and_never_blocks():
     assert [e["message"].startswith("Smoking Pi:") for e in sent] == [
         False, False, False, True]
     assert "3 notification(s)" in sent[-1]["message"]
-    assert "open now: uplink_down" in sent[-1]["message"]
+    assert "an episode is open now" in sent[-1]["message"]
     assert "<" not in sent[-1]["message"]
 
 
 def test_a_long_summary_keeps_what_is_open_now(monkeypatch):
     import templates
 
-    state = {"incidents": {"uplink_down": {"rule": "uplink_down",
-                                           "severity": "critical",
-                                           "first_seen": T}}}
+    state = {"episodes": {"open": {"key": "episode:9", "start": T + 19800,
+                              "judgment": {"cause": "your line"}}}}
     for i in range(30):
         outbox.enqueue(state, _alert(key=f"k{i}", message="x" * 400), now=T + i)
     event = outbox.build(state, T + 5000)
     text = templates.format_message(event)
     assert len(text) <= templates.TG_TEXT_LIMIT
-    assert "Now open: 🔴 uplink_down" in text
+    assert "Now open: your line" in text
 
 
 def test_a_clock_that_went_back_neither_stalls_nor_counts_as_fresh():

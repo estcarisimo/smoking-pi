@@ -1,21 +1,22 @@
-"""Quiet hours: what is held overnight, and the one message that replaces it.
+"""Quiet hours: nothing sounds, and the one message that replaces the night.
 
 Between QUIET_FROM and QUIET_UNTIL (HH:MM, in the digest's zone: DIGEST_TZ,
-then TZ, then UTC) an alert, a recovery or a watchdog event is held instead
-of sent, and when quiet hours end everything held goes out as ONE message:
-each incident once, when it started, whether it recovered, and what is open
-now -- the outbox's summary (outbox.py), under its own header. Ten messages
-at 07:00 describing the night in the voice of the present would be the
-burst quiet hours exist to avoid.
+then TZ, then UTC) nothing sounds (decision of 2026-10-30, front 8): the
+push policy (policy.py) keeps an episode that becomes material in the night
+for the end of quiet hours -- still open then, it is alerted as by day --
+and a material episode that began and ended in the night is held here,
+with anything else that would sound. A silent message (the end of an
+episode told by day, the monitor's one message) wakes nobody and is sent
+as it is. When quiet hours end everything held goes out as ONE silent
+message: each episode once, when it started, whether it is over, and what
+is open now -- the outbox's summary (outbox.py), under its own header.
 
-Never held: a total loss (common.definitions.TOTAL_RULES: the uplink, the
-Internet beyond the house, this host's own DNS), the one thing worth waking
-up for; and the monitor going blind or deaf (``MONITOR_RULES``), because
-from then on no alert means nothing and a quiet night proves nothing
-(review of #343). When one cannot be delivered either, the outbox keeps it
-as it keeps any alert. Everything else is held: per-target alerts, brief
-outages, microcuts, recoveries, the watchdog's actions. The outbox is not
-held: a notification already late for a failed delivery goes when it can.
+Until front 8 a total loss and the monitor going blind passed through
+(``TOTAL_RULES``, ``MONITOR_RULES``); now nothing does: a total loss in the
+night is alerted at the end of quiet hours if it is still going on, and the
+dead-man check-in (healthchecks.io) is what covers the monitor going blind.
+The outbox is not held: a notification already late for a failed delivery
+goes when it can.
 
 Off unless both times are set and differ. A time that does not read as
 HH:MM turns quiet hours off with a warning, never the alert loop.
@@ -33,15 +34,8 @@ import notifications
 import outbox
 import schedule
 import templates
-from common import definitions
-
 log = logging.getLogger("alerter.quiet")
 
-# The alerter cannot judge (InfluxDB unreadable, its own rules failing),
-# or the measurements it judges stopped coming.
-MONITOR_RULES = ("influx_unreadable", "evaluation_failed", "exporter_stale",
-                 "measurement_stale")
-PASS_RULES = frozenset(definitions.TOTAL_RULES) | frozenset(MONITOR_RULES)
 # As the outbox: a held queue nobody empties must not grow the state file.
 MAX_ITEMS = outbox.MAX_ITEMS
 
@@ -79,8 +73,14 @@ def active(now: float) -> bool:
 
 
 def holds(payload: dict, now: float) -> bool:
-    """Whether this notification waits for the end of quiet hours."""
-    return payload.get("rule") not in PASS_RULES and active(now)
+    """Whether this notification waits for the end of quiet hours: any that
+    would sound, and the night's material episodes (policy.py ``night``),
+    which are told together at the end. A silent one (the end of an
+    episode told by day, the monitor's one message) goes as it is: it
+    wakes nobody."""
+    if not active(now):
+        return False
+    return not payload.get("silent") or payload.get("kind") == "night"
 
 
 def hold(state: dict, payload: dict, now: float) -> None:

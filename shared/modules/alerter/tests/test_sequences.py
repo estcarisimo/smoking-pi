@@ -1,18 +1,22 @@
-"""Whole incidents, replayed minute by minute through evaluate + reconcile.
+"""Whole events, replayed minute by minute through the cycle's pipeline.
 
 The rules and the lifecycle each have their own unit tests; what broke in
 production was the sequence. After the Pi's radio hung on 12/10/2026, one
 event reached Telegram as ten messages in 72 minutes, and a target going
 down announced "recovered" while it was still down. These tests drive the
 real ``evaluate_with_context`` (InfluxDB faked, one point per target per
-300 s step) and ``state.reconcile`` once a minute, and count what would have
-been sent.
+300 s step), ``state.track``, ``episodes.update`` and ``policy.decide`` once
+a minute, and count what the policy would have sent. The October cases
+from the audit are test_october.py; these are the synthetic shapes.
 """
 
 import re
 from datetime import datetime, timedelta, timezone
 
+import episodes
 import evaluator
+import main
+import policy
 import state
 
 STEP = 300
@@ -71,19 +75,25 @@ class Replay:
                     for t, v in by_target.items()]
         return self.points(seconds)  # the raw down-window points
 
-    def run(self, minutes):
-        """Evaluate once a minute; return what would have been sent."""
+    def run(self, minutes, deliver=None):
+        """Evaluate once a minute; return what the policy would have sent,
+        as (minute, kind), and the state."""
         current = {"incidents": {}}
         sent = []
         for minute in range(minutes):
             self.now = T0 + timedelta(minutes=minute)
+            now = self.now.timestamp()
             incidents, context = evaluator.evaluate_with_context(
                 records=current["incidents"])
-            actions = state.reconcile(
-                current, incidents, now=self.now.timestamp(),
-                min_resolve_after=900, judged=context["judged"])
-            sent += [(minute, "alert", e["key"]) for e in actions["alerts"]]
-            sent += [(minute, "recovery", e["key"]) for e in actions["recoveries"]]
+            state.track(current, incidents, now=now, min_resolve_after=900,
+                        judged=context["judged"])
+            events = episodes.update(
+                current, main._cycle(current, incidents, context, [], now))
+            for payload in policy.decide(current, events, now):
+                sent.append((minute, payload["kind"]))
+                if deliver:
+                    deliver(current, payload, minute, now)
+        self.current = current
         return sent
 
 
@@ -91,139 +101,102 @@ def everyone(loss, targets=TARGETS):
     return {t: loss for t in targets}
 
 
-def test_a_long_hang_is_one_critical_and_one_recovery(monkeypatch):
-    """The 12/10 shape: every target at 100% for an hour, then back.
+def test_a_long_hang_is_one_alert_and_one_recovery(monkeypatch):
+    """The 12/10 shape: every target at 100% for an hour, then back, with no
+    Wi-Fi telemetry and no first hop to tell the monitor from the line.
 
-    Before: after the return, every cycle that slid out of the window opened
-    a new ``outage`` warning -- "a brief cut of the link, not a site
-    problem" -- just as delivery worked again.
+    Before: an outage warning, the critical, re-notifications, and after
+    the return a new ``outage`` every cycle that slid out of the window.
+    Now: one episode. Nothing says the monitor could not hear, so it is the
+    Internet down -- with its cause undetermined, as the alert says.
     """
     def loss(i):
         return 1.0 if 3 <= i < 15 else 0.0
 
-    sent = Replay(monkeypatch, everyone(loss)).run(140)
-    onset = int((T0 + timedelta(seconds=3 * STEP)).timestamp())
-    # A warning at the first lost cycle, the critical at the third, and the
-    # recovery 15 minutes after the uplink returned (minute 75) -- once the
-    # tail has left the window, and nothing in between.
-    assert sent == [
-        (15, "alert", f"outage:{onset}"),
-        (25, "alert", "uplink_down"),
-        (90, "recovery", "uplink_down"),
-    ]
+    replay = Replay(monkeypatch, everyone(loss))
+    sent = replay.run(140)
+    assert [kind for _, kind in sent] == ["down", "recovery"]
+    assert sent[0][0] == 25  # the third lost cycle
+    [episode] = replay.current["episodes"]["closed"]
+    assert episode["cause"] == "undetermined"
+    assert episode["duration_s"] == 60 * 60
 
 
-def test_a_link_that_comes_back_lossy_is_still_reported(monkeypatch):
+def test_a_link_that_comes_back_lossy_is_one_episode(monkeypatch):
     """Review of #332: the hang ends, but the link stays lossy for two hours.
-
-    The uplink_down must recover and the loss that follows must alert: a
-    tail that never ends would have kept both silent.
-    """
+    The loss that follows is the same episode; its end is told once, when
+    the loss is over."""
     def loss(i):
         return 1.0 if 3 <= i < 15 else 0.4 if 15 <= i < 39 else 0.0
 
-    sent = Replay(monkeypatch, everyone(loss)).run(240)
-    kinds = [(kind, key.split(":")[0]) for _, kind, key in sent]
-    assert ("alert", "uplink_down") in kinds
-    assert ("recovery", "uplink_down") in kinds
-    after = [s for s in sent if s[0] > 75 and s[1] == "alert"]
-    assert after and after[0][2].startswith("outage:")
+    replay = Replay(monkeypatch, everyone(loss))
+    sent = replay.run(240)
+    assert [kind for _, kind in sent] == ["down", "recovery"]
+    assert sent[-1][0] > 39 * 5
+    [episode] = replay.current["episodes"]["closed"]
+    assert episode["duration_s"] == 36 * 300
 
 
-def test_a_lossy_hour_everywhere_is_one_outage(monkeypatch):
+def test_a_lossy_hour_everywhere_is_one_degradation(monkeypatch):
     """Widespread loss that is not total, longer than the 20-minute window.
 
-    Before: the outage was keyed by its first cycle still inside the window,
-    so a new key -- and a new warning -- every five minutes.
+    Before: a new outage key -- and a new warning -- every five minutes,
+    then an hourly re-notification. Now: one alert, one recovery.
     """
     def loss(i):
         return 0.5 if 3 <= i < 15 else 0.0
 
     sent = Replay(monkeypatch, everyone(loss)).run(110)
-    onset = int((T0 + timedelta(seconds=3 * STEP)).timestamp())
-    # One key throughout; the second message is the hourly re-notification
-    # of a still-active incident (ALERT_COOLDOWN), not a new incident.
-    # Transient: no recovery; per-target high_loss stays suppressed.
-    assert sent == [
-        (15, "alert", f"outage:{onset}"),
-        (75, "alert", f"outage:{onset}"),
-    ]
+    assert [kind for _, kind in sent] == ["degradation", "recovery"]
 
 
-def test_a_target_going_down_escalates_without_a_false_recovery(monkeypatch):
-    """high_loss, then target_down: one problem growing worse.
-
-    Before: once the target was down, high_loss was excluded, went missing,
-    and announced "recovered" fifteen minutes into the outage.
-    """
+def test_a_target_going_down_is_one_destination_and_not_pushed(monkeypatch):
+    """high_loss, then target_down: one problem growing worse -- about one
+    destination, which is recorded and never pushed."""
     timeline = everyone(lambda i: 0.0)
     timeline["NYT"] = lambda i: (0.5 if 2 <= i < 4 else 1.0 if 4 <= i < 14 else 0.0)
 
-    sent = Replay(monkeypatch, timeline).run(110)
-    assert [(kind, key) for _, kind, key in sent] == [
-        ("alert", "high_loss:NYT"),
-        ("alert", "target_down:NYT"),
-        ("recovery", "target_down:NYT"),
-    ]
-    recovered = sent[-1][0]
-    assert recovered >= 14 * 5  # after the target answered again, not before
+    replay = Replay(monkeypatch, timeline)
+    assert replay.run(110) == []
+    [episode] = replay.current["episodes"]["closed"]
+    assert episode["class"] == "destination"
+    assert episode["sites"] == ["NYT"]
+    assert set(episode["signals"]) == {"high_loss", "target_down"}
 
 
-def test_no_data_is_not_a_recovery(monkeypatch):
+def test_no_data_is_not_an_end(monkeypatch):
     """A target is down; then the exporter stalls for an hour.
 
-    Before: the down target's points left the window, the incident went
-    missing, and "recovered" went out with no data behind it.
+    Before: the stall was its own critical and its own recovery. Now the
+    stall is the monitor's blind span inside the same episode; the target
+    is held, not called fine, while there is no data.
     """
     timeline = everyone(lambda i: None if 6 <= i < 18 else 0.0)
     timeline["NYT"] = lambda i: None if 6 <= i < 18 else (1.0 if i < 18 else 0.0)
 
-    sent = Replay(monkeypatch, timeline).run(130)
-    # Data stops at minute 30 and returns at minute 90 with NYT answering.
-    # NYT is held open through the stall; it recovers once three points
-    # show it up (minute 100) and the grace period has passed.
-    assert sent == [
-        (5, "alert", "high_loss:NYT"),
-        (10, "alert", "target_down:NYT"),
-        (45, "alert", "exporter_stale"),
-        (105, "recovery", "exporter_stale"),
-        (115, "recovery", "target_down:NYT"),
-    ]
-
-
-def test_an_incident_with_no_data_for_a_day_is_dropped_silently():
-    current = {"incidents": {}}
-    incident = {"rule": "target_down", "severity": "critical",
-                "key": "target_down:old", "target": "old", "message": "old down"}
-    state.reconcile(current, [incident], now=0.0, judged={"old"})
-    for now in (60.0, 3600.0, 23 * 3600.0):
-        actions = state.reconcile(current, [], now=now, judged=set())
-        assert actions == {"alerts": [], "recoveries": []}
-        assert "target_down:old" in current["incidents"]
-    actions = state.reconcile(current, [], now=60.0 + 24 * 3600.0, judged=set())
-    assert actions == {"alerts": [], "recoveries": []}
-    assert current["incidents"] == {}
+    replay = Replay(monkeypatch, timeline)
+    sent = replay.run(130)
+    # One episode: NYT, the stall inside it. The NYT loss is one site's and
+    # never pushed; the hour the monitor could not measure is told once.
+    assert [kind for _, kind in sent] == ["monitor"]
+    [episode] = replay.current["episodes"]["closed"]
+    assert episode["signals"].get("exporter_stale")
+    assert episode["class"] == "destination"
+    assert episode["blind_s"] >= 1200
 
 
 def test_a_hang_the_alerter_could_not_report_arrives_as_one_summary(monkeypatch):
-    """12/10/2026 as it happened: the radio is deaf, so the alerter (which
-    still evaluates from the local InfluxDB) cannot deliver anything.
-
-    Before: every alert decided in the dark was lost, and the return
-    delivered whatever was decided at that moment. Now the critical waits in
-    the outbox, nothing is tried while the network is down, and once it is
-    back a single summary says what happened and what is open.
-    """
-    import main
+    """The alert decided while delivery is down waits in the outbox; once
+    the network is back a single summary says what happened and what is
+    open, and nothing is tried into the dead link meanwhile."""
     import outbox
 
     def loss(i):
         return 1.0 if 3 <= i < 15 else 0.0
 
     def online(minute):
-        return not 16 <= minute < 76  # deaf from just after the first cut
+        return not 20 <= minute < 76
 
-    replay = Replay(monkeypatch, everyone(loss))
     delivered, attempts = [], []
     clock = {"minute": 0}
 
@@ -235,51 +208,36 @@ def test_a_hang_the_alerter_could_not_report_arrives_as_one_summary(monkeypatch)
         return "failed"
 
     monkeypatch.setattr(main.notifier, "send", notify)
-    current = {"incidents": {}}
-    for minute in range(120):
+
+    def deliver(current, payload, minute, now):
         clock["minute"] = minute
-        replay.now = T0 + timedelta(minutes=minute)
-        now = replay.now.timestamp()
-        incidents, context = evaluator.evaluate_with_context(
-            records=current["incidents"])
-        actions = state.reconcile(current, incidents, now=now,
-                                  min_resolve_after=900, judged=context["judged"])
-        for event in actions["alerts"]:
-            main._deliver(current, {**event, "type": "alert"}, now=now)
-        for event in actions["recoveries"]:
-            main._deliver(current, {**event, "type": "recovery"}, now=now)
-        outbox.flush(current, now, send=notify,
-                     reachable=lambda: online(clock["minute"]))
+        main._deliver(current, payload, now=now)
 
-    kinds = [(m, p.get("type"), p.get("key")) for m, p in delivered]
-    # The onset warning went out while the link still worked; the critical
-    # failed once (minute 25) and was never sent into the dead link again.
+    replay = Replay(monkeypatch, everyone(loss))
+    replay.run(76, deliver=deliver)
+    for minute in range(76, 90):
+        clock["minute"] = minute
+        outbox.flush(replay.current, (T0 + timedelta(minutes=minute)).timestamp(),
+                     send=notify, reachable=lambda: online(clock["minute"]))
+    # The alert (minute 25) failed once and was never sent into the dead
+    # link again; it arrives once the link is back, as itself or summarized.
     assert attempts.count(25) == 1 and not any(26 <= m < 76 for m in attempts)
-    assert kinds[0][1:] == ("alert", f"outage:{int((T0 + timedelta(seconds=900)).timestamp())}")
-    summary = [p for _, p in delivered if p.get("type") == "undelivered"]
-    assert len(summary) == 1
-    assert "uplink_down" in summary[0]["message"]
-    assert "Now open: 🔴 uplink_down" in summary[0]["message"]
-    # Back at minute 76; the summary within one backoff step (10 min).
-    assert 76 <= next(m for m, p in delivered if p.get("type") == "undelivered") <= 86
-    # The recovery, decided after the return, is sent as itself.
-    assert kinds[-1][1:] == ("recovery", "uplink_down")
-    assert len(delivered) == 3
-
+    assert len(delivered) == 1 and 76 <= delivered[0][0] <= 86
+    assert "Internet down" in delivered[0][1]["message"]
 
 
 def test_an_isp_outage_is_named_as_one_and_ends_as_one(monkeypatch):
     """Every destination lost for an hour while the ISP gateway answers.
 
-    Before: "this host's uplink is down", for a fault past the house.
+    Before: "this host's uplink is down", for a fault past the house, and
+    an outage warning before it.
     """
     timeline = everyone(lambda i: 1.0 if 3 <= i < 15 else 0.0,
                         targets=[t for t in TARGETS if t != "CPE_IPv4"])
     timeline["CPE_IPv4"] = lambda i: 0.1  # its rate-limit floor; it answers
-    sent = Replay(monkeypatch, timeline, categories={"CPE_IPv4": "cpe"}).run(140)
-    onset = int((T0 + timedelta(seconds=3 * STEP)).timestamp())
-    assert sent == [
-        (15, "alert", f"outage:{onset}"),
-        (25, "alert", "internet_down"),
-        (90, "recovery", "internet_down"),
-    ]
+    replay = Replay(monkeypatch, timeline, categories={"CPE_IPv4": "cpe"})
+    sent = replay.run(140)
+    assert [kind for _, kind in sent] == ["down", "recovery"]
+    [episode] = replay.current["episodes"]["closed"]
+    assert episode["class"] == "upstream"
+    assert episode["cause"] == "your provider, beyond the modem"

@@ -98,9 +98,9 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      at HH:MM, sent only when the week had something worth
                      telling; alone or with the rest. --digest-tz: the zone
                      of every message, its schedule and quiet hours (else TZ).
-                     --quiet: hold alerts between the two times (that zone)
-                     and send them as one message after; a total loss is
-                     never held. status: what is set.
+                     --quiet: nothing sounds between the two times (that
+                     zone); what is still going on is alerted after, what
+                     is over is one silent message. status: what is set.
                      --deadman: check in with an outside service
                      (healthchecks.io) that says when this host goes
                      silent; asks for its ping URL (hidden, or on stdin).

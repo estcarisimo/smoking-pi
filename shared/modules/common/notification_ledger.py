@@ -38,14 +38,17 @@ MAX_DAYS = RETAIN_DAYS
 # One answer's worth; the newest first when there are more.
 MAX_ENTRIES_ANSWER = 200
 
-# superseded and update are named for the notifications the front-8 rebuild
-# adds (an incident replaced by a worse one, a follow-up on an open one);
-# nothing sends either yet.
+# update: a follow-up on an open episode (alerter/policy.py); episode: an
+# episode that closed with nothing pushed, recorded with why (outcome
+# ``recorded``). superseded is named for a notification nothing sends.
 KINDS = ("alert", "recovery", "superseded", "update", "outbox_summary",
-         "quiet_bundle", "weekly", "digest", "watchdog", "monitor", "report")
+         "quiet_bundle", "weekly", "digest", "watchdog", "monitor", "report",
+         "episode")
 # handed: the OpenClaw gateway has it and delivers it from its own queue;
-# skipped-duplicate: already said (alerter/ledger.py), not handed again.
-OUTCOMES = ("sent", "handed", "queued", "held", "failed", "skipped-duplicate")
+# skipped-duplicate: already said (alerter/ledger.py), not handed again;
+# recorded: decided not to push (the push policy), kept for the record.
+OUTCOMES = ("sent", "handed", "queued", "held", "failed", "skipped-duplicate",
+            "recorded")
 
 
 def path(state_file: str | None = None) -> str:
