@@ -43,7 +43,7 @@ version gets a matching GitHub release and git tag.
   2026-09-28 -> 2026-10-09 (`alerter/tests/test_patterns.py`): alert and
   silent end on 09-28 and 09-29, the pattern on 09-30, nothing on
   10-01...10-06, its end on 10-09, and the weekly of 28 Sep naming it
-  with 7 evenings of 7. Docs: [alerting](docs/alerting.md#recurring-patterns).
+  with 7 evenings of 7. Docs: [alerting](alerting.md#recurring-patterns).
 
 - **A 30-day ledger of every notification the alerter decided, and three
   ways to read it.** The project could not tell what it had told the user:
