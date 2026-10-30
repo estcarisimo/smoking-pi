@@ -170,6 +170,8 @@ def _link_line(links: dict | None) -> str:
         ("grafana_overview_tunnel", "🌐 anywhere"),
         # The weekly summary's one link: its week, exactly.
         ("grafana_week", "the week in Grafana"),
+        # A recurring loss window's message (policy.py): its last occurrence.
+        ("last_window", "see the last one"),
     )
     parts: list[str] = []
     seen_labels: set[str] = set()

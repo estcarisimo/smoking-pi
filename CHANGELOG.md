@@ -101,7 +101,9 @@ version gets a matching GitHub release and git tag.
   chart again; nothing else does. A webhook, or an OpenClaw channel other
   than Telegram, gets plain text instead of Telegram's HTML. With OpenClaw
   connected, an alert ends with how to silence it (*Reply "ack" to the
-  assistant*). `tests/test_messages.py` replays October (the 10-06
+  assistant*). The recurring-window messages (#437) speak the same way:
+  *Probable cause:*, the evidence as signals, no pattern id in the ledger's
+  line. `tests/test_messages.py` replays October (the 10-06
   evening, the 10-11/10-12/10-18 monitor messages, the 10-15 microcut,
   an invented line-down, a night bundle) and asserts each exact text;
   `docs/alerting.md` shows them.

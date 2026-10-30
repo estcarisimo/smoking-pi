@@ -298,28 +298,29 @@ def _ordinal(n: int) -> str:
 
 
 def _cause_line(pattern: dict) -> str:
+    """The pattern's probable cause in the episodes' words (templates.py)."""
     cls = pattern["class"]
-    what = {"upstream": "your provider", "local_link":
-            "your line (the modem or the line to the ISP)",
-            "destination": "the destinations themselves"}[cls]
+    what = (templates.CAUSE_WORDS.get(cls) if cls != "destination"
+            else "the destinations themselves")
     if cls == "upstream" and patterns.peak_hour(pattern):
-        what += " at peak hour"
+        what += ", at peak hour"
     confidence = pattern.get("confidence")
-    return f"Looks like {what}" + (f" ({confidence} confidence)." if confidence else ".")
+    return (f"Probable cause: {what}"
+            + (f" ({confidence} confidence)." if confidence else "."))
 
 
-def _loss(pattern: dict) -> str:
+def _loss(pattern: dict) -> str | None:
     lo, hi = pattern.get("loss_min"), pattern.get("loss_max")
     if lo is None:
-        return "loss"
+        return None
     if round(lo) == round(hi):
-        return f"about {lo:.0f} % loss"
-    return f"{lo:.0f}–{hi:.0f} % loss"
+        return f"about {lo:.0f}%"
+    return f"{lo:.0f}–{hi:.0f}%"
 
 
 def pattern_message(pattern: dict, event: str, now: float) -> str:
     """The words of a pattern's one message: when it appears, or when it
-    is gone. Informative: what it is, how sure, the evidence."""
+    is gone -- what it is, how sure, the evidence, as an episode's."""
     part = pattern["part"]
     hours = f"from {pattern['from']} to {pattern['to']}"
     if event == "gone":
@@ -327,10 +328,10 @@ def pattern_message(pattern: dict, event: str, now: float) -> str:
         when = (datetime.fromtimestamp(float(last), tz=clock.zone()).strftime("%A")
                 if last else "never")
         return "\n".join([
-            f"✅ The {part} loss window did not appear in "
-            f"{patterns.absent_days(pattern)} days; last seen {when}.",
-            f"{pattern['from']} to {pattern['to']}, seen on {pattern['days_seen']} "
-            f"of {pattern['days_observed']} {part}s while it lasted."])
+            f"✅ The {part} packet loss ({pattern['from']} to {pattern['to']}) did not "
+            f"come back for {patterns.absent_days(pattern)} days; last seen {when}.",
+            f"It was there on {pattern['days_seen']} of {pattern['days_observed']} "
+            f"{part}s while it lasted."])
     today = datetime.fromtimestamp(now, tz=clock.zone()).date()
     seen, heard = patterns.recent_counts(pattern, today)
     run = patterns.streak(pattern)
@@ -339,16 +340,17 @@ def pattern_message(pattern: dict, event: str, now: float) -> str:
             else "many destinations")
     head = (f"🔁 For the {_ordinal(run)} {part} in a row, " if run >= seen
             else f"🔁 On {seen} of the last {heard} {part}s, ")
+    loss = _loss(pattern)
     lines = [head + f"packet loss on {many} {hours}.",
              _cause_line(pattern),
-             f"{seen} of {heard} {part}s, {affected} of {reporting} destinations, "
-             f"{_loss(pattern)}."]
+             f"• {seen} of the last {heard} {part}s",
+             f"• {affected} of {reporting} destinations lost packets"
+             + (f", {loss}" if loss else "")]
     if pattern.get("inference_days"):
-        lines.append(f"The inference found it too on {pattern['inference_days']} of them.")
+        lines.append(f"• the congestion detector found it too on "
+                     f"{pattern['inference_days']} of them")
     if pattern["class"] in ("upstream", "local_link"):
-        lines.append("With this you can complain to your provider"
-                     + (" → the last one is the graph link." if _last_link(pattern)
-                        else "."))
+        lines.append("This is evidence you can show your provider.")
     return "\n".join(lines)
 
 
@@ -381,7 +383,7 @@ def _pattern_payload(pattern: dict, event: str, now: float) -> dict:
         "state": {"first_seen": pattern.get("created_at"), "notified_count": 1},
     }
     if link:
-        payload["links"] = {"graph": link}
+        payload["links"] = {"last_window": link}
     log.info("Pattern %s: %s", pattern["id"], event)
     return payload
 

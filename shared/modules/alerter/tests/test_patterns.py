@@ -131,19 +131,21 @@ def test_the_nightly_window_is_two_alerts_one_pattern_and_its_end(replay):
     ]
     new = sent[4][1]
     assert new["type"] == "alert" and new["rule"] == "pattern"
-    text = new["message"]
-    assert text.startswith("🔁 For the 3rd evening in a row, packet loss on most "
-                           "destinations from 19:30 to 23:00.")
-    assert "Looks like your provider at peak hour (high confidence)." in text
-    assert "3 of 3 evenings, 14 of 18 destinations" in text
-    assert "5–6 % loss." in text
-    assert "With this you can complain to your provider" in text
+    assert new["message"] == (
+        "🔁 For the 3rd evening in a row, packet loss on most destinations from "
+        "19:30 to 23:00.\n"
+        "Probable cause: your provider, beyond the modem, at peak hour "
+        "(high confidence).\n"
+        "• 3 of the last 3 evenings\n"
+        "• 14 of 18 destinations lost packets, 5–6%\n"
+        "This is evidence you can show your provider.")
     # Announced when the third evening became material, as an alert would.
     assert when(9, 30, "19:40") <= sent[4][0] <= when(9, 30, "19:50")
     gone = sent[5][1]
-    assert gone["message"].startswith(
-        "✅ The evening loss window did not appear in 3 days; last seen Tuesday.")
-    assert "seen on 9 of 12 evenings" in gone["message"]
+    assert gone["message"] == (
+        "✅ The evening packet loss (19:30 to 23:00) did not come back for 3 days; "
+        "last seen Tuesday.\n"
+        "It was there on 9 of 12 evenings while it lasted.")
     assert sent[5][0] > when(10, 9, "23:00")
 
 
@@ -173,7 +175,10 @@ def test_the_ledger_says_why_an_evening_was_not_sent(replay, monkeypatch):
                                                            "cause": ep["cause"]},
                             "pattern": ep["pattern"], "signals": {},
                             "policy": {}, "materiality": {"unmet": ["novelty"]}})
-    assert "part of pattern 1930-2300-upstream" in line["message"]
+    assert line["message"].startswith(
+        "📝 Recorded, not sent (part of a recurring loss window, already told): "
+        "Internet with packet loss, ")
+    assert "1930-2300" not in line["message"]
 
 
 def test_the_weekly_of_0928_names_the_pattern_with_its_count(replay, monkeypatch):

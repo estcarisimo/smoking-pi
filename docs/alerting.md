@@ -261,12 +261,20 @@ waits for the next day):
 
 | When | Message |
 |---|---|
-| A band reaches 3 days -- on the third evening, at the minute it would have been alerted | *For the 3rd evening in a row, packet loss on most destinations from 19:30 to 23:00. Looks like your provider at peak hour (high confidence). 3 of 3 evenings, 14 of 18 destinations, 5–6 % loss. With this you can complain to your provider*, and the last occurrence in the Connection quality dashboard when links are configured |
-| 3 observed days in a row without it | *The evening loss window did not appear in 3 days; last seen Tuesday.* with its days seen of days observed |
+| A band reaches 3 days -- on the third evening, at the minute it would have been alerted | the window, its probable cause and its evidence, in the episodes' words (below), with the last occurrence in the Connection quality dashboard when links are configured |
+| 3 observed days in a row without it | *✅ The evening packet loss (19:30 to 23:00) did not come back for 3 days; last seen Tuesday. It was there on 9 of 12 evenings while it lasted.* |
+
+```text
+🔁 For the 3rd evening in a row, packet loss on most destinations from 19:30 to 23:00.
+Probable cause: your provider, beyond the modem, at peak hour (high confidence).
+• 3 of the last 3 evenings
+• 14 of 18 destinations lost packets, 5–6%
+This is evidence you can show your provider.
+```
 
 In between, its episodes are recorded, never pushed (`smoking-pi alerts
-history` shows each as `recorded` with *part of pattern
-1930-2300-upstream*), and its counters advance. The weekly summary's
+history` shows each as `recorded` with *part of a recurring loss window,
+already told*; the record keeps the pattern id), and its counters advance. The weekly summary's
 *Recurring* section reads the pattern objects -- *19:30–23:00: packet
 loss on most destinations, 5 evenings of 7 (your provider; 17 evenings of
 21 since 28 Sep)* -- and says a pattern gone that week once. MCP
