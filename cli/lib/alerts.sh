@@ -277,8 +277,8 @@ alerts_history() {
         echo "--days takes 1 to 30: the ledger keeps 30 days." >&2; return 2
     fi
     case "$kind" in
-        ""|alert|recovery|superseded|update|outbox_summary|quiet_bundle|weekly|digest|watchdog|monitor|report|episode) ;;
-        *) echo "--kind takes alert, recovery, update, monitor, episode, watchdog, outbox_summary, quiet_bundle, weekly, digest (before the weekly) or report." >&2; return 2 ;;
+        ""|alert|recovery|superseded|update|outbox_summary|quiet_bundle|weekly|digest|watchdog|monitor|report|episode|pattern) ;;
+        *) echo "--kind takes alert, recovery, update, monitor, episode, pattern, watchdog, outbox_summary, quiet_bundle, weekly, digest (before the weekly) or report." >&2; return 2 ;;
     esac
     need_edition
     if ! grep -q '^  alerter:' "$EDITION_DIR/docker-compose.yml"; then

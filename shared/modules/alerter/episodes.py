@@ -43,10 +43,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+import clock
 import evaluator
 import flux
 import state as state_mod
-from common import definitions, diagnosis, microcuts, mutes
+from common import definitions, diagnosis, microcuts, mutes, patterns
 
 log = logging.getLogger("alerter.episodes")
 
@@ -386,7 +387,7 @@ def update(state: dict, cycle: dict) -> list[dict]:
         for key in sorted(ep["steps"], key=float)[:-STEPS_MAX]:
             del ep["steps"][key]
 
-    judge(ep, box, now, step)
+    judge(ep, box, now, step, state.get("patterns"))
     if not events:
         events.append({"event": "active", "episode": ep})
 
@@ -395,11 +396,7 @@ def update(state: dict, cycle: dict) -> list[dict]:
     # as a second one when the next rule fires.
     # Nor while no destination has reported for two cycles: no data is not
     # clean (the stall itself becomes exporter_stale only later).
-    newest = max((t for t in (_epoch(r.get("_time")) for r in cycle.get("rows") or ())
-                  if t is not None), default=None)
-    blind_now = (any(float(s[1]) >= now - step for s in cycle.get("blind") or ())
-                 or newest is None or newest <= now - 2 * step)
-    if (not sigs and not cycle.get("blind_cycle") and not blind_now
+    if (not sigs and not cycle.get("blind_cycle") and heard_now(cycle)
             and now - float(ep["last_active"]) >= close_after):
         ep["closed_at"] = now
         box["open"] = None
@@ -409,6 +406,27 @@ def update(state: dict, cycle: dict) -> list[dict]:
                  ep["judgment"]["class"], ep["judgment"]["cause"])
     _prune(box, now)
     return events
+
+
+def heard_now(cycle: dict) -> bool:
+    """Whether the monitor could hear this cycle: not blind now, and some
+    destination reported within two probe cycles."""
+    if cycle.get("blind_cycle"):
+        return False
+    now = float(cycle["now"])
+    step = int(cycle.get("step") or evaluator.STEP_S)
+    newest = max((t for t in (_epoch(r.get("_time")) for r in cycle.get("rows") or ())
+                  if t is not None), default=None)
+    return not (any(float(s[1]) >= now - step for s in cycle.get("blind") or ())
+                or newest is None or newest <= now - 2 * step)
+
+
+def rejudge(state: dict, now: float, step: int) -> None:
+    """Judge the open episode again, after the patterns changed: one that
+    just made a pattern of the evenings before it is no longer news."""
+    box = book(state)
+    if box["open"] is not None:
+        judge(box["open"], box, now, step, state.get("patterns"))
 
 
 def _prune(box: dict, now: float) -> None:
@@ -446,8 +464,11 @@ def _longest_run(steps: list[int], step: int) -> int:
     return best
 
 
-def judge(ep: dict, box: dict, now: float, step: int) -> None:
-    """Classify the episode and judge its materiality, on heard minutes."""
+def judge(ep: dict, box: dict, now: float, step: int,
+          known: dict | None = None) -> None:
+    """Classify the episode and judge its materiality, on heard minutes.
+    ``known``: ``state["patterns"]`` (common.patterns); an episode in the
+    hours of one of them, of its class, is not novel."""
     blind = ep["blind"]
     heard = _heard_steps(ep, step)
     broad = [(at, s) for at, s in heard if evaluator.broad_step(s)]
@@ -520,8 +541,7 @@ def judge(ep: dict, box: dict, now: float, step: int) -> None:
         # No rule measures latency against last week's same hours yet:
         # the condition is in the gate, and nothing feeds it.
         latency_ratio=None,
-        # Known patterns (a recurring evening window) come with the
-        # recurring-pattern notification; until then every episode is new.
+        # Novelty is decided below, once the loss span is known.
         novel=True,
     )
     if judgment["class"] == "monitor":
@@ -539,6 +559,15 @@ def judge(ep: dict, box: dict, now: float, step: int) -> None:
     heard_lossy = [at for at, s in heard if s["affected"]]
     ep["loss_start"] = heard_lossy[0] - step if heard_lossy else None
     ep["loss_end"] = heard_lossy[-1] if heard_lossy else None
+    # A known pattern (a recurring window, common.patterns) explains an
+    # episode of its class in its hours: recorded as part of it, not news.
+    ep["pattern"] = (patterns.explaining(known, {
+        "class": judgment["class"], "start": ep["loss_start"],
+        "end": ep["loss_end"]}, clock.zone()) if heard_lossy else None)
+    if ep["pattern"]:
+        unmet = sorted(set(unmet) | {"novelty"})
+        ep["materiality"]["unmet"] = unmet
+        ep["material"] = False
 
 
 def blind_range(ep: dict) -> tuple[float, float] | None:
@@ -572,6 +601,7 @@ def summary(ep: dict) -> dict:
         "evidence": judgment.get("evidence", [])[:3],
         "material": bool(ep.get("material")),
         "unmet": (ep.get("materiality") or {}).get("unmet", []),
+        "pattern": ep.get("pattern"),
         "loss_pct": (ep.get("materiality") or {}).get("loss_pct"),
         "down": bool(ep.get("down")),
         "microcut": bool(ep.get("microcut")),

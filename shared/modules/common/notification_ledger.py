@@ -43,7 +43,7 @@ MAX_ENTRIES_ANSWER = 200
 # ``recorded``). superseded is named for a notification nothing sends.
 KINDS = ("alert", "recovery", "superseded", "update", "outbox_summary",
          "quiet_bundle", "weekly", "digest", "watchdog", "monitor", "report",
-         "episode")
+         "episode", "pattern")
 # handed: the OpenClaw gateway has it and delivers it from its own queue;
 # skipped-duplicate: already said (alerter/ledger.py), not handed again;
 # recorded: decided not to push (the push policy), kept for the record.

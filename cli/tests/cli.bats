@@ -2169,6 +2169,13 @@ alerts_history_setup() {
     grep -q 'notifications.py show --days 30 --kind weekly --json' "$DOCKER_LOG"
 }
 
+@test "alerts history takes --kind pattern, the recurring windows' messages" {
+    alerts_history_setup
+    run "$CLI" alerts history --kind pattern
+    [ "$status" -eq 0 ]
+    grep -q 'notifications.py show --days 7 --kind pattern' "$DOCKER_LOG"
+}
+
 @test "alerts history refuses a window past the ledger or an unknown kind, before docker" {
     alerts_history_setup
     for bad in 0 31 x 1.5; do

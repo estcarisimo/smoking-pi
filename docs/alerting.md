@@ -151,12 +151,71 @@ monitor could hear:
 | **Breadth** | `MATERIAL_BREADTH_PCT` (30 %) of the reporting destinations lost in the same cycle, or `MATERIAL_MIN_CATEGORIES` (2) categories each with `MATERIAL_CATEGORY_SHARE` (50 %) of its own destinations lost -- one site in each of two categories (a university's web server and its name server) is still one site |
 | **Persistence** | `MATERIAL_MIN_MINUTES` (15) of consecutive broad cycles -- three 5-minute cycles -- or `MATERIAL_MIN_EPISODES` (2) broad episodes within `MATERIAL_EPISODES_WINDOW_S` (an hour) |
 | **Magnitude** | Mean loss over every reporting destination, across the broad cycles, at least `MATERIAL_LOSS_PCT` (5 %); or median latency at least `MATERIAL_LATENCY_RATIO` (2×) the same hours a week before. No rule measures latency against last week yet: the condition is in the gate, and nothing feeds it |
-| **Novelty** | Not explained by an open episode (its consequences join it) or a known pattern. Known patterns arrive with the recurring-pattern notification; until then every episode is new |
+| **Novelty** | Not explained by an open episode (its consequences join it) or a known pattern: an episode of a [recurring window](#recurring-patterns)'s class in its hours is recorded as part of it (`unmet: ["novelty"]`, `pattern: <id>`), not pushed, its end included. An episode outside every window's hours is judged as before |
 
 These are constants, not settings, on purpose: the alerter, the weekly
 summary and the MCP tools must agree on what was material, and a
 per-install knob would split them. The rule windows and thresholds that
 make the signals (below) stay tunable.
+
+### Recurring patterns
+
+From 2026-08-30 to 2026-10-06 most destinations on the reference Pi lost
+2-8 % of their pings from 19:30 to 23:00 every evening -- the provider at
+peak hour, 38 evenings. No message named it: none on 10-01...10-05, then
+12 per-destination ones on 10-06. With the episodes alone each evening
+would have been its own alert, the 38th as loud as the first. A window
+that comes back is one fact, said once when it appears and once when it
+is gone (decision of 2026-10-30); in between, the weekly summary counts it.
+
+**What makes one** (`common/patterns.py`, shared by the alerter, the
+weekly summary and the MCP server): the closed episodes of the last 7 days
+that are material in everything but novelty, of a network class
+(`upstream`, `local_link`, `destination`; never the monitor's own), and
+whose loss spans fall in the same **band** -- the span in `DIGEST_TZ`,
+widened to the half hour, an episode in it when at least 50 % of its span
+is -- on at least 3 of those days (`RECURRING_MIN_DAYS`). The band is the
+members' median start and end; a band past midnight belongs to the day it
+starts. Its id is band and class, `1930-2300-upstream`.
+
+**Only what the monitor heard counts, either way.** Each cycle the
+alerter could judge marks its half hour heard. A day whose band was heard
+for less than half its length -- the radio deaf, the Pi off, the database
+unreadable, before the record began -- is *blind* for that pattern:
+neither a day seen nor a day without it. So a pattern cannot form from
+days nobody measured, nor end because of them.
+
+**What it says**, both silent, at most one such message a day (a second
+waits for the next day):
+
+| When | Message |
+|---|---|
+| A band reaches 3 days -- on the third evening, at the minute it would have been alerted | *For the 3rd evening in a row, packet loss on most destinations from 19:30 to 23:00. Looks like your provider at peak hour (high confidence). 3 of 3 evenings, 14 of 18 destinations, 5–6 % loss. With this you can complain to them*, and the last occurrence in the Connection quality dashboard when links are configured |
+| 3 observed days in a row without it | *The evening loss window did not appear in 3 days; last seen Tuesday.* with its days seen of days observed |
+
+In between, its episodes are recorded, never pushed (`smoking-pi alerts
+history` shows each as `recorded` with *part of pattern
+1930-2300-upstream*), and its counters advance. The weekly summary's
+*Recurring* section reads the pattern objects -- *19:30–23:00: packet
+loss on most destinations, 5 evenings of 7 (your provider; 17 evenings of
+21 since 28 Sep)* -- and says a pattern gone that week once. MCP
+`list_alert_state` lists them (`patterns`: hours, state `new` / `active`
+/ `gone`, days seen of days observed, typical breadth and loss, evidence
+episode keys), so an assistant can answer "is this normal for this hour?".
+
+The inference's shared degradation periods (profile `inference`) are
+supporting evidence only: counted on a new pattern (`inference_days`) when
+they can be read, never needed for one. An Internet down inside a
+pattern's hours is still pushed: that is never "the usual".
+
+State: `state.json["patterns"]` -- at most 20 patterns, a gone one kept 30
+days, 90 days of day marks each, 14 days of heard half hours.
+`shared/modules/alerter/tests/test_patterns.py` replays 2026-09-28 ->
+2026-10-09 with the window every evening to 10-06: an alert and a silent
+end on 09-28 and 09-29 (two days are not a pattern), the pattern's message
+on 09-30 at 19:45 instead of a third alert, nothing on 10-01...10-06 (each
+recorded as part of it), its end on 10-09 after 23:00, and the weekly of
+28 Sep naming it, 7 evenings of 7.
 
 ### Quiet hours
 
@@ -764,7 +823,8 @@ notification the alerter decides on is one entry in a ledger, kept 30 days.
 - **What an entry holds.** An `id`; the incident or alert `key`; the
   `kind` (`alert`, `update`, `recovery`, `monitor` — the monitor blind
   for 15 minutes or more —, `episode` — an episode that closed with nothing
-  pushed, recorded with why —, `watchdog`, `outbox_summary`,
+  pushed, recorded with why —, `pattern` — a recurring window appearing
+  or gone —, `watchdog`, `outbox_summary`,
   `quiet_bundle`, `weekly`, `report`; `digest` on entries from before the
   weekly replaced it); the `rule`, `severity` and the `targets` it named; the
   `text` exactly as handed to the transport (with its markup: HTML unless
@@ -862,9 +922,13 @@ name in the headline, every time in `DIGEST_TZ`, text only:
    cause, then the week's material episodes, the longest three: when, how
    long, how many destinations, how much loss. Smaller episodes are
    counted, not listed: they stay in the [incident history](#incident-history).
-2. **Recurring windows**: hours of the day in which loss or slowdowns the
-   destinations shared came back on at least 3 days of the week
-   (`RECURRING_MIN_DAYS`), from the inference's shared periods
+2. **Recurring windows**: the alerter's [recurring
+   patterns](#recurring-patterns), each with its days this week of the
+   days observed and, for an older one, since when ("17 evenings of 21
+   since 28 Sep"), and a pattern gone that week once. For a week the
+   alerter's record does not cover whole: hours of the day in which loss
+   or slowdowns the destinations shared came back on at least 3 days of
+   the week (`RECURRING_MIN_DAYS`), from the inference's shared periods
    (`shared_degradation`, `shared_congestion`; none when the `inference`
    profile is off) and the incident history's broad episodes, and whether the week before
    had them too. A window of the week before that did not come back is

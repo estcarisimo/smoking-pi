@@ -11,6 +11,40 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **A recurring degradation window is one fact: announced once when it
+  appears, counted while it lasts, announced once when it is gone.** The
+  most relevant event of the autumn for a home user -- packet loss on most
+  destinations from 19:30 to 23:00 every evening, 2026-08-30 to 2026-10-06,
+  the provider at peak hour -- was never named as a pattern: no message on
+  10-01...10-05, then 12 per-destination ones on 10-06. With #436's
+  episodes alone each of the 38 evenings would have been its own alert, the
+  last as loud as the first, and the evidence for a complaint to the
+  provider was nowhere. Now `common/patterns.py` (shared by the alerter,
+  the weekly summary and the MCP server) finds a band -- the episodes' loss
+  span in `DIGEST_TZ`, aligned to the half hour, ≥ 50 % overlap -- with a
+  material episode of one network class on 3 of the last 7 days, and keeps
+  it in `state.json["patterns"]` (bounded) with its days seen of days
+  observed: a day the monitor did not hear that band counts neither way,
+  so a pattern neither forms nor ends on blind days. Its appearance is one
+  silent message ("For the 3rd evening in a row, packet loss on most
+  destinations from 19:30 to 23:00. Looks like your provider at peak hour
+  … With this you can complain to them"), its end another after 3 observed
+  days without it, at most one a day. The novelty condition of
+  `definitions.materiality()` is now real: an episode of a pattern's class
+  in its hours is recorded as "part of pattern <id>", not pushed, its end
+  included; one outside every band is judged as before; an Internet down
+  is still pushed. The weekly's *Recurring* section reads the patterns
+  ("17 evenings of 21 since 28 Sep"), and those evenings are no longer
+  counted as smaller episodes. MCP `list_alert_state` lists `patterns`
+  (the guide says how to answer "is this normal for this hour?"; OpenClaw
+  skill regenerated); the ledger, `smoking-pi alerts history --kind` and
+  `get_notification_history` have the kind `pattern`. The inference's
+  shared degradation periods are supporting evidence only. Replayed
+  2026-09-28 -> 2026-10-09 (`alerter/tests/test_patterns.py`): alert and
+  silent end on 09-28 and 09-29, the pattern on 09-30, nothing on
+  10-01...10-06, its end on 10-09, and the weekly of 28 Sep naming it
+  with 7 evenings of 7. Docs: [alerting](docs/alerting.md#recurring-patterns).
+
 - **A 30-day ledger of every notification the alerter decided, and three
   ways to read it.** The project could not tell what it had told the user:
   the digest's `state["history"]` kept 48 hours of bare keys, the alerter's
