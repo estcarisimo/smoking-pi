@@ -285,8 +285,10 @@ both at startup:
   durable delivery queue and replays it when it can, and each new attempt
   was one more copy (2026-10-09: six of one alert in one second). The same
   goes for a request it received and did not answer within the 10 s
-  timeout, and for an HTTP 5xx. Only a request that never reached it (the
-  connection refused) waits in the outbox for another try; only one it
+  timeout, and for an HTTP 500. Only a request that never reached it (the
+  connection refused, a request not written whole, or a proxy in front of a
+  remote gateway answering 502, 503 or 504) waits in the outbox for another
+  try; only one it
   refused outright (HTTP 4xx) gets the text-only retry a refused chart
   gets.
 - It answers `Tool not available: message` when tool policy filters the tool
@@ -380,9 +382,10 @@ incident and kind: an outbox summary during quiet hours takes the held
 re-notification of the same alert with it. A recovery is its own kind: an
 incident told only in a summary still recovers, once.
 
-A message the gateway answered with a failure keeps the outbox shut, so what
-follows waits there and arrives as one summary, but it is neither resent
-nor listed in that summary: the gateway delivers it. If the gateway drops a
+A message the gateway answered with a failure keeps the outbox shut until
+the next check finds delivery reachable, so what follows meanwhile waits
+there and arrives as one summary; it is neither resent nor listed in that
+summary: the gateway delivers it. The daily report counts the same way. If the gateway drops a
 message it answered with a failure, the alerter does not know; the next
 summary's "Now open" line still shows the incident while it is open.
 

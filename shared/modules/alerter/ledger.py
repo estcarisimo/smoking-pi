@@ -75,9 +75,10 @@ def family(idem: str) -> str:
 
 
 def outcome(state: dict, idem: str | None) -> str | None:
-    if idem is None:
+    book = state.get("delivered")
+    if idem is None or not isinstance(book, dict):
         return None
-    entry = (state.get("delivered") or {}).get(idem)
+    entry = book.get(idem)
     return entry.get("outcome") if isinstance(entry, dict) else None
 
 

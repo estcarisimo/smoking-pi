@@ -313,8 +313,13 @@ def _notify_openclaw(
     return _post_openclaw(url, payload, headers)
 
 
-# The request never reached the gateway: nothing of it is queued there.
-_NOT_REACHED = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+# The request never reached the gateway, or not whole: nothing of it is
+# queued there.
+_NOT_REACHED = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout,
+                httpx.WriteError, httpx.WriteTimeout, httpx.ProxyError)
+# A proxy or tunnel in front of a remote gateway (docs/remote-openclaw.md)
+# answering for a gateway it could not reach.
+_PROXY_STATUSES = frozenset({502, 503, 504})
 
 
 def _post_openclaw(url: str, payload: dict, headers: dict) -> tuple[str, bool]:
@@ -344,6 +349,10 @@ def _post_openclaw(url: str, payload: dict, headers: dict) -> tuple[str, bool]:
                     "the gateway holds it in its queue, so it is not sent "
                     "again", url, response.status_code, error)
         return HANDED, False
+    if response.status_code in _PROXY_STATUSES:
+        log.warning("Notification to %s answered HTTP %s: the gateway was not "
+                    "reached", url, response.status_code)
+        return FAILED, False
     if response.status_code >= 500:
         log.warning("Notification to %s answered HTTP %s; the gateway may hold "
                     "it, so it is not sent again", url, response.status_code)

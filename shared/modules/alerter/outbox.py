@@ -308,7 +308,9 @@ def flush(state: dict, now: float, send, reachable) -> bool | None:
         if outcome is True or outcome in (ledger.SENT, "handed"):
             log.info("Delivered %d waiting notification(s) as one %s",
                      len(items), event.get("type"))
-            if event.get("type") == "undelivered":
+            if event.get("type") in ("undelivered", "held"):
+                # A summary: built here, or a quiet-hours one that waited
+                # here and went as it was. Either told what it carries.
                 ledger.told(state, items, now)
             else:  # the one item, as it was
                 ledger.record(state, ledger.key_of(event),

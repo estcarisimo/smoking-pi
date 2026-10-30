@@ -121,3 +121,25 @@ def test_an_outbox_summary_tells_what_quiet_hours_still_hold(monkeypatch):
             for i in current["held"]["items"]]
     assert held == [("target_down:NYT", "recovery"), ("microcut_burst:CPE", "alert")]
     assert ledger.done(current, ledger.key_of(_alert(first_seen=first, count=2)))
+
+
+def test_a_quiet_summary_that_waited_in_the_outbox_tells_what_it_carries(monkeypatch):
+    """Review of #433: quiet hours ended with the network down, so their
+    summary waited in the outbox, and went as it was. It told NYT: the
+    hourly re-notification is still a new message, but the held alert
+    itself is never sent again."""
+    current = {}
+    held_item = {"queued_at": T, "payload": _alert()}
+    summary = {"type": "held", "key": "held", "severity": "info",
+               "message": "held overnight", "items": [held_item]}
+    outbox.enqueue(current, summary, now=T)
+    assert outbox.flush(current, T + 60, send=lambda e: "sent",
+                        reachable=lambda: True) is True
+    assert ledger.outcome(current, ledger.key_of(_alert())) == ledger.TOLD
+
+
+def test_a_corrupt_ledger_costs_nothing():
+    state = {"delivered": ["not", "a", "dict"]}
+    assert not ledger.done(state, "k|alert")
+    ledger.prune(state, T)
+    assert "delivered" not in state

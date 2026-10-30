@@ -176,9 +176,22 @@ def test_a_request_the_gateway_got_is_never_sent_again(posts, openclaw):
     assert notifier.send(_event(), image=PNG) == notifier.HANDED
     assert len(posts["calls"]) == 1
     posts["calls"].clear()
-    posts["responses"][:] = [FakeResponse(502)] * 3
+    posts["responses"][:] = [FakeResponse(500)] * 3
     assert notifier.send(_event()) == notifier.HANDED
     assert len(posts["calls"]) == 1
+
+
+def test_a_request_that_never_reached_the_gateway_is_failed(posts, openclaw):
+    """Review of #433: a proxy or tunnel answering 502-504 for a remote
+    gateway, or a request that was not written whole, left nothing in the
+    gateway's queue: the outbox must try it again, not count it handed."""
+    for answer in (FakeResponse(502), FakeResponse(503), FakeResponse(504),
+                   httpx.WriteError("broken pipe"), httpx.WriteTimeout("slow"),
+                   httpx.ProxyError("no tunnel")):
+        posts["calls"].clear()
+        posts["responses"][:] = [answer]
+        assert notifier.send(_event()) == notifier.FAILED, answer
+        assert len(posts["calls"]) == 1
 
 
 def test_non_json_body_does_not_break_delivery(posts, openclaw):
