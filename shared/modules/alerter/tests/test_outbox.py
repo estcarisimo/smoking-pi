@@ -1,10 +1,18 @@
 """The outbox: undelivered notifications, delivered later as one message."""
 
+import pytest
+
 import digest
 import main
 import outbox
 
 T = 1_791_818_100.0  # 2026-10-12 15:15 UTC
+
+
+@pytest.fixture(autouse=True)
+def utc_digest(monkeypatch):
+    """Times print in DIGEST_TZ (clock.py); UTC keeps these readable."""
+    monkeypatch.setenv("DIGEST_TZ", "UTC")
 
 
 def _alert(key="uplink_down", rule="uplink_down", severity="critical",
@@ -77,7 +85,7 @@ def test_the_summary_tells_each_incident_once_and_ends_on_now():
     outbox.enqueue(state, _alert(type="recovery"), now=T + 19800)
     text = outbox.build(state, T + 20000)["message"]
     lines = text.split("\n")
-    assert "Not delivered from 15:15 to 20:48 UTC (5h 33m)" in lines[0]
+    assert "Not delivered from 15:15 to 20:48 (5h 33m)" in lines[0]
     assert len(lines) == 4
     # What is open now comes first: a message over budget is cut at the end.
     assert lines[1] == "Now open: 🟡 microcut_burst 136.25.220.1 (since 20:45)"

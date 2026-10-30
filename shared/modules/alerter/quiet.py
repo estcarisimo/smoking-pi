@@ -27,6 +27,7 @@ import logging
 import os
 from datetime import datetime
 
+import clock
 import outbox
 import schedule
 import templates
@@ -58,7 +59,7 @@ def window() -> tuple[tuple[int, int], tuple[int, int]] | None:
 
 
 def _zone():
-    return schedule.resolve_zone(os.environ.get("DIGEST_TZ") or os.environ.get("TZ"))
+    return clock.zone()
 
 
 def active(now: float) -> bool:
@@ -73,15 +74,6 @@ def active(now: float) -> bool:
     if start < end:
         return start <= minute < end
     return minute >= start or minute < end
-
-
-def clock(ts: float, now: float) -> str:
-    """A time in the quiet hours' own zone, with its abbreviation: the
-    hours are local, and a summary in UTC would not read as the night."""
-    zone = _zone()
-    at = datetime.fromtimestamp(ts, tz=zone)
-    today = datetime.fromtimestamp(now, tz=zone).date()
-    return at.strftime("%H:%M %Z" if at.date() == today else "%d/%m %H:%M %Z")
 
 
 def holds(payload: dict, now: float) -> bool:
@@ -112,11 +104,10 @@ def build(state: dict, now: float) -> dict:
     items = box["items"]
     since = float(box.get("since", items[0]["queued_at"]))
     lines = [
-        templates._b(f"🌙 Quiet hours, {clock(since, now)} to {clock(now, now)}")
+        templates._b(f"🌙 Quiet hours, {clock.at(since, now)} to {clock.at(now, now)}")
         + " — held overnight:",
-        outbox.now_line(state, now, clock),
-        *outbox.summary_lines(state, items, now, int(box.get("dropped", 0)),
-                              clock),
+        outbox.now_line(state, now),
+        *outbox.summary_lines(state, items, now, int(box.get("dropped", 0))),
     ]
     return {
         "type": "held",

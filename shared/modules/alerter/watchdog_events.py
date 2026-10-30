@@ -16,6 +16,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
+import clock
 import flux
 from common import mutes
 
@@ -127,7 +128,7 @@ def _collect(state: dict, query, now: float) -> list[dict]:
             "target": None,
             "message": (
                 "the watchdog on this host, at "
-                f"{datetime.fromtimestamp(at, tz=timezone.utc):%H:%M UTC}: "
+                f"{clock.at(at, now)}: "
                 f"{message}"
             ),
         }

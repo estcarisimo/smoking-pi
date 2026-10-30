@@ -459,20 +459,26 @@ def parse_uplink_changes(rows: list[dict]) -> list[dict]:
     return out
 
 
-def _clock(iso: str | None) -> str:
-    """HH:MM in the host's local time (the containers mount /etc/localtime)."""
+def _clock(iso: str | None, fmt=None) -> str:
+    """HH:MM in the host's local time (the containers mount /etc/localtime),
+    or ``fmt(when)`` for a caller with a zone of its own (the alerter prints
+    every time in the digest's zone: alerter/clock.py). A naive ISO is UTC."""
     if not iso:
         return "?"
     try:
-        return datetime.fromisoformat(iso).astimezone().strftime("%H:%M")
+        when = datetime.fromisoformat(iso)
     except ValueError:
         return iso
+    if fmt is None:
+        return when.astimezone().strftime("%H:%M")
+    return fmt(when if when.tzinfo else when.replace(tzinfo=timezone.utc))
 
 
-def describe_uplink_change(change: dict, with_time: bool = True) -> str:
+def describe_uplink_change(change: dict, with_time: bool = True, fmt=None) -> str:
     """One change in words, e.g. "this host's uplink moved from wlan0 to
-    eth0 (wired) at 14:02". Shared so every surface says it the same way."""
-    at = f" at {_clock(change.get('time'))}" if with_time else ""
+    eth0 (wired) at 14:02". Shared so every surface says it the same way;
+    ``fmt`` formats the time (see :func:`_clock`)."""
+    at = f" at {_clock(change.get('time'), fmt)}" if with_time else ""
     prev, new, kind = change.get("previous"), change.get("interface"), change.get("kind")
     if not new:
         return f"this host lost its default route (it was on {prev}){at}"
@@ -517,11 +523,12 @@ def parse_resolver_changes(rows: list[dict]) -> list[dict]:
     return out
 
 
-def describe_resolver_change(change: dict, with_time: bool = True) -> str:
+def describe_resolver_change(change: dict, with_time: bool = True, fmt=None) -> str:
     """One change in words, e.g. "the resolver answering through the router
     changed from AS15169 GOOGLE - Google LLC, US to AS19281 QUAD9-AS-1, US at
-    14:02". Shared so every surface says it the same way."""
-    at = f" at {_clock(change.get('time'))}" if with_time else ""
+    14:02". Shared so every surface says it the same way; ``fmt`` formats the
+    time (see :func:`_clock`)."""
+    at = f" at {_clock(change.get('time'), fmt)}" if with_time else ""
     where = RESOLVER_PATHS.get(change.get("path") or "", f"via {change.get('path')}")
     return (f"the resolver answering {where} changed from {change.get('previous')} "
             f"to {change.get('owner') or 'unknown'}{at}")

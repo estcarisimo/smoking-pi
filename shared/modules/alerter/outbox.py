@@ -28,8 +28,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime, timezone
 
+import clock
 import templates
 
 log = logging.getLogger("alerter.outbox")
@@ -97,12 +97,6 @@ def clear(state: dict) -> None:
     state.pop("outbox", None)
 
 
-def _clock(ts: float, now: float) -> str:
-    at = datetime.fromtimestamp(ts, tz=timezone.utc)
-    today = datetime.fromtimestamp(now, tz=timezone.utc).date()
-    return at.strftime("%H:%M" if at.date() == today else "%d/%m %H:%M")
-
-
 def _span(seconds: float) -> str:
     minutes = int(seconds // 60)
     if minutes < 60:
@@ -158,8 +152,7 @@ def _incidents(items: list[dict]) -> list[dict]:
                   key=lambda e: e["started"] if e["started"] is not None else e["order"])
 
 
-def now_line(state: dict, now: float, clock=None) -> str:
-    clock = clock or _clock
+def now_line(state: dict, now: float) -> str:
     esc = templates.esc
     still_open = sorted(
         (record.get("first_seen") or 0, key, record)
@@ -172,18 +165,16 @@ def now_line(state: dict, now: float, clock=None) -> str:
         f"{templates.SEVERITY_EMOJI.get(r.get('severity'), '•')} "
         f"{esc(r.get('rule') or key)}"
         f"{' ' + esc(r['target']) if r.get('target') else ''}"
-        f" (since {clock(first, now)})"
+        f" (since {clock.at(first, now)})"
         for first, key, r in still_open
     )
 
 
-def summary_lines(state: dict, items: list[dict], now: float, dropped: int = 0,
-                  clock=None) -> list[str]:
+def summary_lines(state: dict, items: list[dict], now: float,
+                  dropped: int = 0) -> list[str]:
     """One line per incident in ``items`` (each once, when it started,
     whether it recovered), then "…and N more". Shared by this summary and
-    the quiet-hours one (quiet.py); ``clock(ts, now)`` formats a time
-    (default: UTC, as the header says)."""
-    clock = clock or _clock
+    the quiet-hours one (quiet.py), times in the digest's zone (clock.py)."""
     esc = templates.esc
     open_keys = set(state.get("incidents") or {})
     lines = []
@@ -193,11 +184,11 @@ def summary_lines(state: dict, items: list[dict], now: float, dropped: int = 0,
         name = entry["rule"] or entry["key"]
         if entry["target"]:
             name = f"{name} {entry['target']}"
-        when = clock(entry["started"], now) if entry["started"] is not None else ""
+        when = clock.at(entry["started"], now) if entry["started"] is not None else ""
         if entry["recovered"] is not None:
-            when = f"{when} → ✅ {clock(entry['recovered'], now)}".strip(" →")
+            when = f"{when} → ✅ {clock.at(entry['recovered'], now)}".strip(" →")
             if entry["started"] is None:
-                when = f"✅ {clock(entry['recovered'], now)}"
+                when = f"✅ {clock.at(entry['recovered'], now)}"
         elif entry["key"] not in open_keys:
             when += " (over)"
         lines.append(f"{emoji} {esc(name)} · {when} — {esc(entry['message'] or '')}")
@@ -223,8 +214,8 @@ def build(state: dict, now: float) -> dict:
 
     since = float(box.get("since", items[0]["queued_at"]))
     lines = [
-        templates._b(f"📭 Not delivered from {_clock(since, now)} to "
-                     f"{_clock(now, now)} UTC ({_span(max(0.0, now - since))})")
+        templates._b(f"📭 Not delivered from {clock.at(since, now)} to "
+                     f"{clock.at(now, now)} ({_span(max(0.0, now - since))})")
         + " — this is what happened meanwhile:",
         now_line(state, now),
     ]
@@ -258,7 +249,7 @@ def fallback(state: dict, now: float) -> dict:
         "key": "undelivered",
         "severity": "info",
         "message": (f"Smoking Pi: {waiting} notification(s) since "
-                    f"{_clock(since, now)} UTC could not be delivered; "
+                    f"{clock.at(since, now)} could not be delivered; "
                     f"{now_part}. Ask the assistant for list_alert_state "
                     "or the incident history for the details."),
     }

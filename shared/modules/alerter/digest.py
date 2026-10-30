@@ -25,9 +25,10 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import charts
+import clock
 import notifier
 import schedule
 import templates
@@ -201,7 +202,7 @@ def build(
             len(active), active_mutes, suppressed, wifi=data.get("wifi") or {},
             uplink=data.get("uplink") or {},
             resolver=data.get("resolver") or {},
-            incidents=incidents,
+            incidents=incidents, now=now,
         ),
         "links": links.entry_point_links(hours=hours),
     }
@@ -221,6 +222,7 @@ def render(
     uplink: dict | None = None,
     resolver: dict | None = None,
     incidents: dict | None = None,
+    now: float | None = None,
 ) -> str:
     """The digest text, in the same shape as everything else this bot sends.
 
@@ -284,7 +286,7 @@ def render(
     elif listed:
         for incident in listed[:5]:
             minutes = int(incident.get("minutes") or 0)
-            when = _clock(incident.get("start"))
+            when = _clock(incident.get("start"), now)
             lines.append(
                 f"{watch} {esc(when)}, {_duration(minutes)}: "
                 f"{esc(incident.get('summary') or incident['class'])}")
@@ -355,7 +357,8 @@ def render(
             lines.append("")
             lines.append(b("Local link"))
         for change in reversed(changes[-3:]):  # newest first, then the count of older ones
-            text = aggregates.describe_uplink_change(change)
+            text = aggregates.describe_uplink_change(
+                change, fmt=lambda when: clock.at(when, now))
             lines.append(f"{watch} {esc(text[0].upper() + text[1:])}.")
         if len(changes) > 3:
             lines.append(f"{watch} …and {_plural(len(changes) - 3, 'earlier change', 'earlier changes')}.")
@@ -369,7 +372,8 @@ def render(
             lines.append("")
             lines.append(b("Local link"))
         for change in reversed(resolver_changes[-3:]):
-            text = aggregates.describe_resolver_change(change)
+            text = aggregates.describe_resolver_change(
+                change, fmt=lambda when: clock.at(when, now))
             lines.append(f"{watch} {esc(text[0].upper() + text[1:])}.")
         if len(resolver_changes) > 3:
             lines.append(f"{watch} …and {_plural(len(resolver_changes) - 3, 'earlier change', 'earlier changes')}.")
@@ -408,12 +412,16 @@ def _duration(minutes: int) -> str:
     return f"{hours} h {rest} min" if rest else f"{hours} h"
 
 
-def _clock(iso: str | None) -> str:
-    """``Mon 14:05`` in the host's time zone, from an ISO timestamp."""
+def _clock(iso: str | None, now: float | None = None) -> str:
+    """An ISO timestamp in the digest's zone (clock.py), the weekday kept:
+    ``14:05`` today, ``Mon 26 Oct 14:05`` before."""
     if not iso:
         return "?"
     try:
-        return datetime.fromisoformat(iso).astimezone().strftime("%a %H:%M")
+        when = datetime.fromisoformat(iso)
+        if when.tzinfo is None:  # state is UTC; never the container's clock
+            when = when.replace(tzinfo=timezone.utc)
+        return clock.at(when, now, weekday=True)
     except ValueError:
         return iso
 

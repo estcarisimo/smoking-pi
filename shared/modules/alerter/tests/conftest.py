@@ -75,6 +75,9 @@ SCRUB_ENV_VARS = [
     "QUIET_FROM",
     "QUIET_UNTIL",
     "DIGEST_TZ",
+    # Read by clock.py when DIGEST_TZ is unset: a developer's own TZ must
+    # not change what the tests print.
+    "TZ",
     # A real URL here would make the suite check in with a real service.
     "ALERT_DEADMAN_URL",
 ]

@@ -18,6 +18,7 @@ import time
 
 import alert_diagnosis
 import charts
+import clock
 import dead_man
 import digest
 import evaluator
@@ -198,7 +199,7 @@ def _unreadable(current: dict, exc: Exception, now: float) -> None:
               exc_info=not database)
     incidents = []
     if now - since >= UNREADABLE_AFTER_S:
-        at = time.strftime("%H:%M UTC", time.gmtime(since))
+        at = clock.at(since, now)
         # Same blindness, two causes: the database, or a bug here. A bug must
         # not be reported as the database (review of #334).
         rule, what = (

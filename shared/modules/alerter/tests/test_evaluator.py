@@ -336,7 +336,7 @@ def test_outage_is_one_transient_warning_for_a_blink_that_hit_everyone():
     assert inc["transient"] is True
     step = int((STEP0 + timedelta(seconds=300)).timestamp())
     assert inc["key"] == f"outage:{step}"
-    assert "10 of 10 targets lost packets in the same 5-minute span at 01:45 UTC" in inc["message"]
+    assert "10 of 10 targets lost packets in the same 5-minute span at 20 Sep 01:45 UTC" in inc["message"]
 
 
 def test_outage_spans_consecutive_cycles_as_one_incident():
@@ -388,7 +388,7 @@ def test_an_outage_longer_than_the_window_keeps_its_key_and_start():
     earlier = int(STEP0.timestamp()) - 900
     inc = evaluator.rule_widespread(rows, ongoing=[f"outage:{earlier}"])[0]
     assert inc["key"] == f"outage:{earlier}"
-    assert "together since 01:25 UTC (35 minutes)" in inc["message"]
+    assert "together since 20 Sep 01:25 UTC (35 minutes)" in inc["message"]
     assert "brief" not in inc["message"]
     # Without one active, the window's first cycle is the start, as before.
     assert evaluator.rule_widespread(rows)[0]["key"] == f"outage:{int(STEP0.timestamp())}"

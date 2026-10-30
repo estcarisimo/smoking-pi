@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 
+import clock
 from common import aggregates, definitions
 from evaluator import DEFAULT_MICROCUT_BURST_N, _is_ipv6_target
 
@@ -234,7 +235,8 @@ def classify(
     if uplink_changes:
         latest = uplink_changes[-1]
         more = len(uplink_changes) - 1
-        note = (" Also: " + aggregates.describe_uplink_change(latest)
+        note = (" Also: " + aggregates.describe_uplink_change(
+                    latest, fmt=lambda when: clock.at(when, now))
                 + (f" ({more} more change{'s' if more != 1 else ''} this hour)" if more else "")
                 + ", so the measurements before and after crossed different links.")
     # Logged every iteration: a wrong verdict must be diagnosable from
