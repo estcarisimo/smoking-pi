@@ -9,6 +9,24 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.51.0] — 2026-10-31
+
+The alerter is rebuilt around what a home user needs to hear. In October
+the reference Pi sent 72 messages, 78 % of them noise: a daily digest
+nobody wanted, the same outage said again on every retry and every
+cooldown, times in three zones, and the one real story of the autumn (loss
+every evening at peak hour) never named. Now the signals of one physical
+fact are one episode, classified by the shared diagnosis and pushed only
+when it is material and the policy allows it: once when it opens, at most
+one update if it changes cause or widens, and once when it ends, in plain
+sentences with their evidence. A recurring evening
+window is announced once when it appears and once when it is gone. The
+daily digest is replaced by a weekly summary sent only when the week has
+news, and every notification decided is kept for 30 days in a ledger that
+`smoking-pi alerts history`, the MCP server and the web chat can read. All
+times are in `DIGEST_TZ`, and delivery is idempotent. The service taxonomy
+agrees with its sources again.
+
 ### Added
 
 - **A recurring degradation window is one fact: announced once when it
