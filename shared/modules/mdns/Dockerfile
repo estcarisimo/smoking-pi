@@ -1,6 +1,6 @@
 # The .local name responder (main.py): the standard library only, on the
 # host network, so it hears and answers the LAN's multicast DNS.
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 WORKDIR /app
 

@@ -3,7 +3,7 @@
 # official image at a pinned version (bump adguard.SCHEMA_VERSION with it).
 FROM adguard/adguardhome:v0.107.79 AS adguard
 
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 WORKDIR /app
 
