@@ -7,7 +7,7 @@
 # separation, which chroots the process that parses replies into /var/empty
 # and runs it as nobody. scamper has no switch to skip that, and it is the
 # part that reads what the network sends back, so it is kept.
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends scamper \

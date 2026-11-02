@@ -2,7 +2,7 @@
 # loop. Runs as root with CAP_NET_ADMIN only (compose drops every other
 # capability): nft needs it in the host's network namespace, and nothing
 # else here needs privilege.
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends nftables \
