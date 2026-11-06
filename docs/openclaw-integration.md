@@ -8,7 +8,9 @@ Two independent integrations, useful separately:
 2. **Be told about the network** — have the alerter push incidents into a chat.
    This works against a stock gateway too, via its `POST /tools/invoke`
    endpoint; it needs the Gateway token and the `message` tool permitted by
-   tool policy. See [Alert delivery](#2-alert-delivery).
+   tool policy. See [Alert delivery](#2-alert-delivery). With OpenClaw 2026.10
+   or later the agent can write the message itself, so you can reply to it:
+   [Push through the agent](#push-through-the-agent).
 
 ## The short way
 
@@ -22,14 +24,15 @@ smoking-pi openclaw
 It generates `MCP_API_TOKEN` if there is none, records the `mcp` profile in
 the env file, starts the server, checks that the port refuses an
 unauthenticated request, registers `smokeping` with OpenClaw and installs the
-skill. Then, after you start a **new** chat session:
+skill. It also sets up [the push through the agent](#push-through-the-agent).
+Then, after you start a **new** chat session:
 
 ```bash
 smoking-pi openclaw --check
 ```
 
-which asks the agent a question and reads the MCP server's log — not the
-answer. See [Verify with evidence](#verify-with-evidence-not-with-the-answer)
+which asks the agent a question, reads the MCP server's log — not the
+answer — and says which way alerts go. See [Verify with evidence](#verify-with-evidence-not-with-the-answer)
 for why that distinction is the whole point.
 
 On a package install, run both with `sudo`: the env file is root's. The
@@ -254,14 +257,17 @@ always enabled, plus the OpenAI-compatible `/v1/*` routes. Verified on
 
 > **This document previously claimed the gateway was WebSocket-only and served
 > no HTTP at all.** That was wrong, and it cost the alerting engine a week of
-> being unable to deliver. The claim came from probing `/hooks/agent` — a path
-> that exists on no OpenClaw build — getting a 404, and generalising from one
-> missing route to the entire surface. The correct conclusion from a single 404
-> is that one path is absent, not that a protocol is.
+> being unable to deliver. The claim came from probing `/hooks/agent` on
+> 2026.7.1-2, getting a 404, and generalizing from one missing route to the
+> entire surface. The correct conclusion from a single 404 is that one path is
+> absent, not that a protocol is. It was absent only then, or only unconfigured:
+> disabled hooks fall through to the gateway's other routes and answer 404, and
+> current versions have [`/hooks/agent`](#push-through-the-agent). This page
+> also said for a while that the path exists on no build, which is wrong now.
 >
 > `openclaw hooks` really does manage *internal agent lifecycle hooks*
-> (`boot-md`, `command-logger`, …) and has nothing to do with inbound HTTP —
-> that part was right, and is what made the wrong inference look plausible.
+> (`boot-md`, `command-logger`, …) and has nothing to do with inbound HTTP.
+> Inbound hooks are the `hooks` block of `openclaw.json`.
 
 `NOTIFY_MODE=openclaw` sends by invoking the `message` tool:
 
@@ -314,6 +320,141 @@ Note the endpoint answers **HTTP 200 with `{"ok": false}`** when a tool fails.
 A notifier that trusts the status code alone counts every refused send as a
 delivered alert, so the alerter inspects the body and retries on `ok: false`.
 
+### Push through the agent
+
+With the relay above the agent never sees what was sent: it is a fixed text
+going through a tool. Ask it "what was that?" in Telegram and it has no idea.
+`OPENCLAW_PUSH=agent` hands an opening episode to the agent instead, and the
+agent writes the message:
+
+```bash
+sudo smoking-pi openclaw --push agent     # sudo on a package install
+```
+
+Plain `smoking-pi openclaw` does the same unless you chose the relay. It needs
+OpenClaw 2026.10 or later. It adds to `hooks` in your `openclaw.json`
+(`enabled`, a generated `token` of its own, `allowRequestSessionKey` and
+`allowedSessionKeyPrefixes` for your conversation's key alone, `allowedAgentIds`
+when you had no hooks yet), restarts
+the gateway, writes `OPENCLAW_HOOKS_TOKEN` and `OPENCLAW_PUSH` to the env file,
+and recreates the alerter. `--push message` goes back, and later runs of
+`smoking-pi openclaw` respect that.
+
+Hooks you already use keep working: your token and lists are kept and added to.
+If your prefix list was empty, which means unrestricted, it becomes `hook:` plus
+your default key plus this conversation's key, so a mapping with a static session
+key outside those would need adding by hand. A token that is a reference to a
+secret is not readable here: the command says so and alerts stay on the relay
+until you give the value with `smoking-pi config set OPENCLAW_HOOKS_TOKEN`.
+
+```bash
+sudo smoking-pi openclaw --check
+# Alert push: agent (hooks accepted)
+# Alert push: message relay (hooks: not enabled on the gateway, 404)
+```
+
+**What it sends.** `POST {OPENCLAW_URL}/hooks/agent`, with
+`Authorization: Bearer {OPENCLAW_HOOKS_TOKEN}` and an `Idempotency-Key` that is
+the delivery's key in the ledger (the incident and which of its messages):
+
+```json
+{
+  "message": "<the facts, then the task>",
+  "name": "Smoking Pi degradation",
+  "agentId": "main",
+  "sessionMode": "persistent",
+  "sessionKey": "agent:main:main",
+  "deliver": true,
+  "channel": "telegram",
+  "to": "<chat id>",
+  "waitForCompletion": true,
+  "timeoutSeconds": 150,
+  "wakeMode": "next-heartbeat"
+}
+```
+
+The facts are the episode's: what kind of message, since and until when, the
+probable cause and its confidence, up to three signals and the strongest one
+against, how many destinations, what the watchdog did, a link to the range, and
+the zone they are all in. The task is short: tell the person in 2 to 5
+sentences, without jargon, using the tools if it needs more and inventing
+nothing. The alerter still decides what is worth saying
+([what is pushed](alerting.md#what-is-pushed-and-what-is-recorded)); the agent
+only says it.
+
+**Why that session.** A hook runs in a fresh session by default, and a follow-up
+in Telegram would have no context. Direct messages all share the main session
+under OpenClaw's default `session.dmScope`, so the push runs there, as
+`agent:main:main`. With another `dmScope` your chat has a key of its own, and
+`smoking-pi openclaw` warns: name it with
+`smoking-pi config set OPENCLAW_SESSION KEY`, then run
+`smoking-pi openclaw --push agent`, which allows that key.
+
+**Why it waits.** An HTTP 200 from the hook only says the turn was admitted, not
+that the model answered: an agent whose model refuses every turn would lose
+every alert in silence. So the request stays open until the turn settles, at
+most 150 s for the turn itself, and the alerter reads the result.
+
+**When an opening fails, the relay delivers.** A hook that is not set up (404), a
+rejected token (401), any other refusal, no answer, a failed turn, a failed
+delivery, or a turn that ended without saying anything: the same delivery goes
+through the `message` relay, once, as the fixed text. If the request itself
+times out, the agent may still answer later, so that one case can show you the
+same event twice; losing an alert would be worse. The log says which path it
+was, and so does `transport` in `smoking-pi alerts history --json`
+(`openclaw-agent` or `openclaw`):
+
+```
+INFO alerter.notifier: Delivery path: agent, degradation (run 0f3c…)
+WARNING alerter.notifier: Agent push failed (HTTP 404: Not Found); delivering through the message relay
+INFO alerter.notifier: Delivery path: message relay (sent), after the agent push failed
+```
+
+**What goes which way.** What the agent delivers makes a sound, because the hook
+has no silent option. [The push policy](alerting.md#what-is-pushed-and-what-is-recorded)
+lets only an opening sound, so:
+
+| Message | By day | In quiet hours |
+| --- | --- | --- |
+| Internet down, material degradation (opening) | the agent writes and delivers it | the relay |
+| An update, an end, the monitor's message, a recurring window | the relay, with its own `silent`; the agent gets an undelivered note | the relay |
+| The weekly summary, reports, outbox and quiet-hours summaries | the relay | the relay |
+
+The note carries the same facts with `deliver: false` in the same session, and
+tells the agent to send nothing and reply `NO_REPLY`. That is why a question like
+"is it over?" finds it knows, and also why each of those messages costs one
+model turn nobody sees. The note goes after the relay and only when the relay
+delivered; if it fails, the log says so and the person has been told all the
+same. In quiet hours the agent gets no note, so it does not know of what
+happened during them unless it looks it up with its tools.
+
+`wakeMode: "next-heartbeat"` is there for failed turns. OpenClaw leaves a
+`Hook ... (error)` event in the session when a turn fails, and the default would
+run a new turn on it at once, which could answer in the chat. This way it waits
+for the next heartbeat, and the skill tells the agent not to bring it up.
+
+The hook takes no attachment, so the chart of a newly opened episode follows
+through the relay, as one image with a short caption of its own.
+
+**The preflight** posts an empty body at startup. The gateway checks the token
+first and the body after, so an accepted token answers `400 message required`
+and no turn runs:
+
+```
+INFO alerter.notifier: Delivery preflight: http://127.0.0.1:18789/hooks/agent
+accepts the hooks token; openings go through the agent, the rest through the relay
+(message relay ready as the fallback)
+```
+
+`smoking-pi alerts --openclaw --test` goes the same way, and through the agent it can take
+a minute or two: a real turn runs.
+
+**The skill has a part to play.** OpenClaw marks hook content as external data
+whose instructions carry no authority, which is right for an inbox and is a
+problem here. The installed skill says that a turn named `Smoking Pi ...` is the
+owner's own alerter and how to treat each kind, so re-run `smoking-pi openclaw` if yours
+is older (`smoking-pi upgrade` refreshes it too).
+
 ### The portable alternative
 
 `NOTIFY_MODE=webhook` posts a documented JSON payload to any endpoint, with an
@@ -333,7 +474,8 @@ See [docs/alerting.md](alerting.md) for the payload shape and the rule set.
 ## Security notes
 
 - **Separate tokens.** `MCP_API_TOKEN`, `CONFIG_API_TOKEN`, any alert-delivery
-  token, and OpenClaw's own `gateway.auth.token` should all be different
+  token, `OPENCLAW_HOOKS_TOKEN` and OpenClaw's own `gateway.auth.token` should
+  all be different
   values. Never reuse the gateway token for an application integration: it is
   the credential for the gateway's full control surface, and a token that
   leaks from one place should not compromise the others.
