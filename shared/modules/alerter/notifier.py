@@ -22,6 +22,13 @@
   tool is filtered out by tool policy rather than missing. :func:`preflight`
   distinguishes bad token, blocked tool, and unreachable gateway at
   startup, instead of letting every incident quietly exhaust its retries.
+
+  ``OPENCLAW_PUSH=agent`` hands an episode to the agent instead
+  (``POST {OPENCLAW_URL}/hooks/agent``, its own ``OPENCLAW_HOOKS_TOKEN``):
+  the agent writes the message in the Telegram conversation where the person
+  will reply, so a follow-up has the context. On any failure the same
+  delivery falls back to the relay above, once. ``/hooks/agent`` did not
+  exist on 2026.7.1-2, as above; verified against 2026.11.1.
 - ``telegram``: straight to the owner's own Telegram bot
   (``TELEGRAM_BOT_TOKEN``, ``TELEGRAM_CHAT_ID``), no OpenClaw: see
   telegram.py, which also keeps the token (part of every Bot API URL) out
@@ -51,6 +58,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+import ledger
 import telegram
 import templates
 from common import openclaw
@@ -65,6 +73,22 @@ DEFAULT_OPENCLAW_HOOK_PATH = "/tools/invoke"
 OPENCLAW_TOOL = "message"
 DEFAULT_OPENCLAW_CHANNEL = "telegram"
 TIMEOUT_S = 10.0
+# OPENCLAW_PUSH=agent: the hook, and the conversation it lands in. Every direct
+# message the agent gets shares this session under OpenClaw's default
+# session.dmScope; OPENCLAW_SESSION says otherwise for any other scope.
+PUSH_AGENT, PUSH_MESSAGE = "agent", "message"
+HOOKS_AGENT_PATH = "/hooks/agent"
+DEFAULT_AGENT_ID = "main"
+DEFAULT_SESSION_KEY = "agent:main:main"
+# waitForCompletion: HTTP 200 alone only says the turn was admitted, and a
+# model that refuses every turn (the reference Pi, 40 times on 2026-11-06)
+# would then lose every alert in silence. So the request stays open until the
+# turn settles: OpenClaw ends the turn first, and the HTTP timeout is only for
+# a gateway that never answers. Blocks the alerter's loop for that long, on
+# the few messages a month the policy sends.
+AGENT_TURN_S = 150
+AGENT_HTTP_TIMEOUT = httpx.Timeout(AGENT_TURN_S + 30.0, connect=5.0)
+TRANSPORT_AGENT = "openclaw-agent"
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 1.0
 
@@ -129,19 +153,16 @@ def send(event: dict, image: bytes | None = None) -> str:
     text = format_message(event, limit)
 
     if mode == "openclaw":
-        # `event` matters on both calls: it carries the message's own
-        # `silent` flag, and without it a quiet digest buzzes.
-        outcome, refused = _notify_openclaw(text, image=image, event=event)
-        if image is None or not refused:
-            return outcome
-        # A chart failure must never cost the alert -- but only a gateway
-        # that refused the request outright (HTTP 4xx) has not queued it.
-        # One that answered anything else may replay it, and a text-only
-        # copy beside it is the same alert twice.
-        log.warning("Image delivery refused; retrying text-only (chart_dropped=1)")
-        return _notify_openclaw(
-            format_message(event, templates.TG_TEXT_LIMIT), event=event
-        )[0]
+        if push_mode() == PUSH_AGENT and _through_agent(event):
+            why = _notify_agent(templates.agent_message(event), ledger.key_of(event),
+                                event.get("kind"))
+            if why is None:
+                _chart_after_agent(event, image)
+                _handed(format_message(event, templates.TG_TEXT_LIMIT),
+                        TRANSPORT_AGENT)
+                return SENT
+            return _fallback(why, lambda: _relay(event, text, image))
+        return _relay(event, text, image)
     if mode == "telegram":
         silent = _silent(event)
         if image is None:
@@ -161,6 +182,31 @@ def send(event: dict, image: bytes | None = None) -> str:
     _handed(text, mode)
     log.info("NOTIFY (%s)%s %s", mode, " [+chart]" if image else "", text)
     return SENT
+
+
+def _relay(event: dict, text: str, image: bytes | None) -> str:
+    """The ``message`` tool: the fixed text, verbatim."""
+    # `event` matters on both calls: it carries the message's own
+    # `silent` flag, and without it a quiet digest buzzes.
+    outcome, refused = _notify_openclaw(text, image=image, event=event)
+    if image is None or not refused:
+        return outcome
+    # A chart failure must never cost the alert -- but only a gateway
+    # that refused the request outright (HTTP 4xx) has not queued it.
+    # One that answered anything else may replay it, and a text-only
+    # copy beside it is the same alert twice.
+    log.warning("Image delivery refused; retrying text-only (chart_dropped=1)")
+    return _notify_openclaw(
+        format_message(event, templates.TG_TEXT_LIMIT), event=event
+    )[0]
+
+
+def _fallback(why: str, relay) -> str:
+    """The agent did not deliver: the relay, once, and which path it was."""
+    log.warning("Agent push failed (%s); delivering through the message relay", why)
+    outcome = relay()
+    log.info("Delivery path: message relay (%s), after the agent push failed", outcome)
+    return outcome
 
 
 def _telegram(text: str, **kwargs) -> bool:
@@ -206,7 +252,15 @@ def send_test() -> bool:
     """
     mode = notify_mode()
     if mode == "openclaw":
-        return _notify_openclaw(TEST_MESSAGE)[0] == SENT
+        def relay() -> str:
+            return _notify_openclaw(TEST_MESSAGE)[0]
+
+        if push_mode() != PUSH_AGENT:
+            return relay() == SENT
+        # Its own key each time: a test is asked for again and must run again.
+        why = _notify_agent(templates.agent_test_message(),
+                            f"test@{int(time.time())}", "test")
+        return why is None or _fallback(why, relay) == SENT
     if mode == "telegram":
         return telegram.send(TEST_MESSAGE)
     if mode == "webhook":
@@ -295,6 +349,147 @@ def openclaw_invoke_payload(
     the same values it uses.
     """
     return openclaw.invoke_payload(text, image, filename, silent)
+
+
+def push_mode() -> str:
+    """OPENCLAW_PUSH: anything but ``agent`` is the relay."""
+    return (os.environ.get("OPENCLAW_PUSH") or PUSH_MESSAGE).strip().lower()
+
+
+def hooks_token() -> str:
+    """Not the Gateway token: OpenClaw wants a dedicated one for the hooks."""
+    return (os.environ.get("OPENCLAW_HOOKS_TOKEN") or "").strip()
+
+
+def hooks_url() -> str:
+    base = (os.environ.get("OPENCLAW_URL") or DEFAULT_OPENCLAW_URL).rstrip("/")
+    return base + HOOKS_AGENT_PATH
+
+
+def _through_agent(event: dict) -> bool:
+    """An episode or a recurring window: what has facts to narrate. Summaries,
+    the weekly and the reports are text already and stay on the relay.
+
+    The hook has no ``silent``, so what must wake nobody in quiet hours stays
+    on the relay too (policy.py: a silent message goes as it is, at any hour).
+    """
+    if event.get("rule") not in ("episode", "pattern"):
+        return False
+    import quiet  # late: quiet -> notifications -> notifier
+
+    return not (event.get("silent") and quiet.active(time.time()))
+
+
+def agent_payload(message: str, kind: str | None = None) -> dict:
+    """The /hooks/agent body: one turn in the conversation the person replies
+    in, announced to their chat when it ends."""
+    channel = (os.environ.get("OPENCLAW_CHANNEL")
+               or DEFAULT_OPENCLAW_CHANNEL).strip()
+    to = (os.environ.get("OPENCLAW_TO")
+          or os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+    # OpenClaw's address form is for the message tool; the hook has the channel.
+    to = to.removeprefix(f"{channel}:")
+    return {
+        "message": message,
+        "name": f"Smoking Pi {kind}" if kind else "Smoking Pi",
+        "agentId": DEFAULT_AGENT_ID,
+        "sessionMode": "persistent",
+        "sessionKey": (os.environ.get("OPENCLAW_SESSION")
+                       or DEFAULT_SESSION_KEY).strip(),
+        "deliver": True,
+        "channel": channel,
+        "to": to,
+        "waitForCompletion": True,
+        "timeoutSeconds": AGENT_TURN_S,
+    }
+
+
+def _completion_failure(completion: object) -> str | None:
+    """Why a settled turn did not tell the person, or None when it did.
+
+    ``delivered: false`` alone proves nothing: a turn that sent through the
+    message tool satisfies delivery without it. A failed run, a failed
+    delivery and a turn with nothing to say are what is known to be nothing
+    in the chat -- and "the agent chose silence" is not its call to make:
+    the policy has already decided this is worth saying.
+    """
+    if not isinstance(completion, dict):
+        return None  # admitted, and this gateway says no more
+    status = completion.get("status")
+    if status != "ok":
+        return f"the turn ended {status}"
+    if completion.get("deliveryError"):
+        return f"delivery failed ({completion['deliveryError']})"
+    if completion.get("delivered") is not True and (
+            completion.get("replyDisposition") in ("silent", "empty")
+            or completion.get("deliverySuppressionReason")):
+        return "the agent said nothing"
+    return None
+
+
+def _notify_agent(message: str, idem: str | None, kind: str | None) -> str | None:
+    """One request to the hook. None when the person was told; otherwise why
+    not, for the log, and the caller falls back to the relay."""
+    token = hooks_token()
+    if not token:
+        return "no OPENCLAW_HOOKS_TOKEN; 'smoking-pi openclaw' sets it"
+    payload = agent_payload(message, kind)
+    if not payload["to"]:
+        return "no recipient (OPENCLAW_TO is unset)"
+    headers = {"Authorization": f"Bearer {token}"}
+    if idem:
+        headers["Idempotency-Key"] = idem[:256]
+    try:
+        response = httpx.post(hooks_url(), json=payload, headers=headers,
+                              timeout=AGENT_HTTP_TIMEOUT)
+    except httpx.TimeoutException as exc:
+        return f"timeout, the agent may still answer ({type(exc).__name__})"
+    except httpx.HTTPError as exc:
+        return f"gateway not reached ({type(exc).__name__})"
+    if not 200 <= response.status_code < 300:
+        return f"HTTP {response.status_code}{_hook_error(response)}"
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    if body.get("ok") is False:
+        return f"refused{_hook_error(response)}"
+    why = _completion_failure(body.get("completion"))
+    if why is None:
+        log.info("Delivery path: agent, %s (run %s)", kind or "message",
+                 body.get("runId") or "?")
+    return why
+
+
+def _hook_error(response) -> str:
+    """The hook's own ``error``, when it gave one: its 400s are worded (a
+    session policy, a recipient) and say what to fix."""
+    try:
+        body = response.json()
+    except ValueError:
+        return ""
+    error = body.get("error") if isinstance(body, dict) else None
+    return f": {error}" if isinstance(error, str) and error else ""
+
+
+def _chart_after_agent(event: dict, image: bytes | None) -> None:
+    """The hook takes no attachment: the chart of a newly opened episode goes
+    through the relay, under what the agent just wrote. Its caption says
+    what it is and nothing of the message. Never costs the alert."""
+    if image is None or event.get("kind") not in ("down", "degradation"):
+        return
+    token = openclaw_token()
+    if not token or not os.environ.get("OPENCLAW_TO"):
+        log.warning("No Gateway token or recipient for the chart (chart_dropped=1)")
+        return
+    payload = openclaw_invoke_payload(
+        "📈 The chart of this episode", image, _chart_filename(event),
+        silent=event.get("silent"))
+    outcome, _ = _post_openclaw(openclaw_hook_url(), payload,
+                                {"Authorization": f"Bearer {token}"})
+    if outcome == FAILED:
+        log.warning("The chart was not delivered (chart_dropped=1)")
 
 
 def _silent(event: dict) -> bool:
@@ -501,6 +696,50 @@ def _preflight_openclaw() -> bool:
     return True
 
 
+def _preflight_hooks() -> str | None:
+    """Whether the hook is there and takes the token, without running a turn;
+    None when it is, else why not.
+
+    An empty body: OpenClaw checks the token first and the body after, so an
+    accepted token answers 400 ``message required`` and nothing runs. 401 is
+    the token, 404 is hooks not enabled -- disabled hooks fall through to the
+    rest of the gateway's routes.
+    """
+    if not hooks_token():
+        return "no OPENCLAW_HOOKS_TOKEN"
+    try:
+        response = httpx.post(hooks_url(), json={},
+                              headers={"Authorization": f"Bearer {hooks_token()}"},
+                              timeout=TIMEOUT_S)
+    except httpx.HTTPError as exc:
+        return f"the gateway did not answer ({type(exc).__name__})"
+    if response.status_code == 400:
+        return None
+    if response.status_code == 401:
+        return "the hooks token was rejected (401); it must match hooks.token"
+    if response.status_code == 404:
+        return "hooks are not enabled on the gateway (404)"
+    return f"unexpected HTTP {response.status_code}"
+
+
+def _preflight_agent() -> bool:
+    """The hook, then the relay it falls back to. Delivery works if either
+    does. The hook's verdict comes last when it passed and first when it did
+    not: `smoking-pi alerts` shows the last line, which is the path alerts
+    will take."""
+    url, why = hooks_url(), _preflight_hooks()
+    if why is not None:
+        log.warning("Agent push unavailable at %s: %s; alerts go through the "
+                    "message relay. 'smoking-pi openclaw --push agent' sets it "
+                    "up.", url, why)
+        return _preflight_openclaw()
+    relay = _preflight_openclaw()
+    log.info("Delivery preflight: %s accepts the hooks token; alerts go through "
+             "the agent (message relay %s)", url,
+             "ready as the fallback" if relay else "NOT ready, no fallback")
+    return True
+
+
 def preflight() -> bool:
     """Check the configured delivery endpoint once, at startup.
 
@@ -513,7 +752,7 @@ def preflight() -> bool:
         return True
 
     if mode == "openclaw":
-        return _preflight_openclaw()
+        return _preflight_agent() if push_mode() == PUSH_AGENT else _preflight_openclaw()
 
     if mode == "telegram":
         return telegram.preflight()

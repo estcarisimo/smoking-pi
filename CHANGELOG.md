@@ -9,6 +9,25 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Alerts through the OpenClaw agent, so you can reply to them**
+  (`OPENCLAW_PUSH=agent`, `smoking-pi openclaw --push agent|message`). The
+  alerter relayed a fixed text through OpenClaw's `message` tool and the agent
+  never saw it: a follow-up in Telegram had no context, nobody asked the
+  assistant anything (0 real MCP calls in 30 days on the reference Pi), and the
+  one conversation that could explain an outage knew nothing about it. Now an
+  episode goes to `POST /hooks/agent` with its facts and a short task, runs in
+  the session your Telegram messages share, and the agent writes the message.
+  The alerter still decides what is said. The request waits for the turn to
+  settle, because a 200 only means admitted and a refused model would lose every
+  alert in silence; on any failure the same delivery goes through the relay,
+  once, and the ledger's `transport` says which. `smoking-pi openclaw` sets up
+  the hooks with a token of their own, and `--check` says which way alerts go.
+  The default stays `message`, so nothing changes until you run it. By day,
+  messages the policy marks silent make the usual sound through the agent: the
+  hook has no silent flag (in quiet hours they stay on the relay).
+
 ## [2.51.0] — 2026-10-31
 
 The alerter is rebuilt around what a home user needs to hear. In October

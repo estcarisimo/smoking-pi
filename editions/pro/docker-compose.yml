@@ -567,6 +567,11 @@ services:
       - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN:-}
       - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-telegram}
       - OPENCLAW_TO=${OPENCLAW_TO:-}
+      # agent: episodes go to the OpenClaw agent (/hooks/agent, its own token),
+      # which writes them in your chat; message: the fixed text, relayed.
+      - OPENCLAW_PUSH=${OPENCLAW_PUSH:-message}
+      - OPENCLAW_HOOKS_TOKEN=${OPENCLAW_HOOKS_TOKEN:-}
+      - OPENCLAW_SESSION=${OPENCLAW_SESSION:-agent:main:main}
       - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
       - ALERT_WEBHOOK_TOKEN=${ALERT_WEBHOOK_TOKEN:-}
       # Cadence / report delivery (seconds)

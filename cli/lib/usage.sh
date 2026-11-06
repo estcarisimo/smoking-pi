@@ -133,12 +133,16 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      --check: whether NAME has called a tool since it signed
                      in, the only proof it uses your measurements.
   disconnect NAME    Sign a remote assistant out; the others keep working.
-  openclaw [--check]
+  openclaw [--check] [--push agent|message]
                      Connect this stack to an OpenClaw gateway on this machine:
                      the MCP token, the mcp profile, registration and the skill.
                      --check asks the agent a question and reads the MCP
                      server's log, which is the only thing that proves the
-                     agent is using your history instead of its own shell.
+                     agent is using your history instead of its own shell,
+                     and says which way alerts go.
+                     --push agent: the agent writes each alert in your chat,
+                     so you can reply to it (sets up its hooks); --push
+                     message: the alerter's fixed text, relayed.
                      Pro only; OpenClaw elsewhere: docs/remote-openclaw.md.
   budget [--json]
                      What the configured measurements cost (Standard, Pro):

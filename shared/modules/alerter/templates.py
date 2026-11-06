@@ -726,6 +726,79 @@ def plain(event: dict) -> str:
     return "\n".join(lines)
 
 
+# OPENCLAW_PUSH=agent (notifier.py): what the agent gets instead of a text to
+# relay. It decides how to say it, never whether: the policy has decided.
+AGENT_TASK = (
+    "Tell the person in this Telegram chat what happened, in English, in 2 to 5 "
+    "sentences, with no jargon. Use the Smoking Pi tools if you need more. Do not "
+    "invent anything that neither these facts nor the tools say. Do not say "
+    '"all clear". Keep the link as it is, if there is one.'
+)
+_AGENT_KINDS = {
+    "down": "opened: the home's Internet is down",
+    "degradation": "opened: packet loss worth telling",
+    "update": "updated: an episode already told changed",
+    "recovery": "closed: an episode already told is over",
+    "night": "closed: it began and ended during quiet hours",
+    "monitor": "monitor blind: this Pi could not measure",
+    "pattern_new": "pattern: a recurring window appeared",
+    "pattern_gone": "pattern: a recurring window is gone",
+}
+
+
+def agent_test_message() -> str:
+    """What `smoking-pi alerts --test` hands the agent."""
+    return "\n".join([
+        "Smoking Pi test, on request by `smoking-pi alerts`.",
+        "Nothing is wrong with the network.",
+        "",
+        "Task: tell the person in this Telegram chat, in one sentence in English, "
+        "that alerts now reach them through you.",
+    ])
+
+
+def agent_message(event: dict) -> str:
+    """The facts of one notification and the task, for the agent: what the
+    renderers say, plus the range, the scope and the zone. The same event
+    always gives the same text (``render.now`` is the decision's, not this
+    call's): OpenClaw replays an Idempotency-Key only for an identical body.
+    """
+    kind = str(event.get("kind") or "")
+    lines = ["Smoking Pi, the network monitor on this home's Raspberry Pi, "
+             "decided the person should hear this.",
+             f"Kind: {_AGENT_KINDS.get(kind, kind or 'notification')}"]
+    record, context = event.get("episode"), event.get("render")
+    rendered = render(event)
+    if rendered is not None:
+        now = float(context["now"])
+        lines.append(f"What: {rendered['head']}")
+        lines.append(f"Since: {clock.at(float(record['start']), now)}")
+        if kind in ("recovery", "night", "monitor"):
+            lines.append(f"Until: {clock.at(float(record['end']), now)}")
+        lines += rendered["lines"]
+        if kind != "monitor":
+            lines.append(f"Scope: {_affected(record, context)}")
+            lines += _agent_watchdog(record, now)
+        link = rendered.get("link")
+        if link:
+            lines.append(f"Link to this range ({link[0]}): {link[1]}")
+        lines.append(f"Episode id: {record.get('id')}")
+    else:
+        # A recurring window: its message says it all (policy.pattern_message).
+        lines.append(str(event.get("message", "")))
+        for url in (event.get("links") or {}).values():
+            lines.append(f"Link: {url}")
+    lines += [f"All times are in {clock.zone().key}.", "", f"Task: {AGENT_TASK}"]
+    return "\n".join(lines)
+
+
+def _agent_watchdog(record: dict, now: float) -> list[str]:
+    actions = [(at, _watchdog_did(str(text)))
+               for at, text in record.get("watchdog_actions") or () if text]
+    return [f"The watchdog {did}" + (f" at {clock.at(float(at), now)}." if at is not None
+                                     else ".") for at, did in actions[:2]]
+
+
 def summary_entry(payload: dict) -> dict:
     """An episode's line in a bundled summary (the outbox's, quiet hours'):
     what happened as its name, the cause as its text, and the marker of
