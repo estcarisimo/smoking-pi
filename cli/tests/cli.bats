@@ -1596,6 +1596,45 @@ openclaw_json() {
     if grep -q 'hooks.allowedAgentIds' "$DOCKER_LOG"; then false; fi
 }
 
+@test "openclaw keeps hooks that were open to every session key open to their own" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{"hooks":{"enabled":true,"token":"mine"}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q 'hooks.allowedSessionKeyPrefixes \["hook:", "agent:main:main"\] --strict-json' "$DOCKER_LOG"
+}
+
+@test "openclaw does not override an agent list that denies every agent" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{"hooks":{"enabled":true,"token":"mine","allowedAgentIds":[]}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    if grep -q 'hooks.allowedAgentIds' "$DOCKER_LOG"; then false; fi
+}
+
+@test "openclaw does not write over a hooks token that is a reference" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    for ref in '"${HOOKS_TOKEN}"' '{"source":"env","id":"HOOKS_TOKEN"}'; do
+        : > "$DOCKER_LOG"
+        openclaw_json '{"hooks":{"enabled":true,"token":'"$ref"'}}'
+        stub_openclaw
+        run "$CLI" openclaw
+        [ "$status" -eq 0 ]
+        [[ "$output" == *"is a reference to a secret"* ]]
+        if grep -q 'config set hooks' "$DOCKER_LOG"; then false; fi
+        if grep -q '^OPENCLAW_HOOKS_TOKEN=' "$SMOKING_PI_ENV_FILE"; then false; fi
+    done
+    # With its value given by hand, the rest is set up around it.
+    printf 'OPENCLAW_HOOKS_TOKEN=by-hand\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" openclaw --push agent
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_HOOKS_TOKEN=by-hand' "$SMOKING_PI_ENV_FILE"
+    grep -q 'config set hooks.enabled true' "$DOCKER_LOG"
+    if grep -q 'config set hooks.token' "$DOCKER_LOG"; then false; fi
+}
+
 @test "openclaw leaves a relay chosen with --push message alone" {
     printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\nOPENCLAW_PUSH=message\n' > "$SMOKING_PI_ENV_FILE"
     openclaw_json '{}'

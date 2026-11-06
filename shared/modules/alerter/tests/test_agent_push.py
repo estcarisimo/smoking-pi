@@ -138,10 +138,9 @@ def test_the_idempotency_key_is_the_ledgers(agent_mode, posts):
     assert ledger.key_of(event).endswith("|alert")
 
 
-def test_an_end_has_its_own_idempotency_key(agent_mode, posts):
-    event = _episode("recovery")
-    event["silent"] = False
-    notifier.send(event)
+def test_an_end_has_its_own_idempotency_key(agent_mode, posts, monkeypatch):
+    monkeypatch.setattr(quiet, "active", lambda now: False)
+    notifier.send(_episode("recovery"))
     assert _hooks(posts)[0]["headers"]["Idempotency-Key"].endswith("|recovery")
 
 
@@ -169,6 +168,13 @@ def test_the_message_carries_the_facts_and_the_task(agent_mode):
     assert "in English, in 2 to 5 sentences" in text
     assert '"all clear"' in text
     assert "<b>" not in text  # facts, not a rendered Telegram message
+
+
+def test_a_note_is_the_same_facts_with_another_task(agent_mode):
+    event = _episode("recovery")
+    told, noted = templates.agent_message(event), templates.agent_message(event, noted=True)
+    assert told.split("Task:")[0] == noted.split("Task:")[0]
+    assert "2 to 5 sentences" not in noted
 
 
 def test_a_closed_episode_has_its_end(agent_mode):
@@ -218,18 +224,99 @@ def test_what_is_already_text_stays_on_the_relay(agent_mode, posts, payload):
     assert len(_relays(posts)) == 1
 
 
-def test_a_silent_message_in_quiet_hours_stays_on_the_relay(agent_mode, posts, monkeypatch):
-    # The hook has no silent flag, and an end at 3 a.m. wakes nobody.
-    monkeypatch.setattr(quiet, "active", lambda now: True)
+def _pattern() -> dict:
+    return {"type": "alert", "rule": "pattern", "kind": "pattern_new",
+            "key": "pattern:x", "silent": True, "message": "a recurring window",
+            "state": {"first_seen": NOON, "notified_count": 1}}
+
+
+NEVER_SOUND = [
+    pytest.param(lambda: _episode("recovery"), id="end"),
+    pytest.param(lambda: _episode("monitor"), id="monitor"),
+    pytest.param(lambda: _episode("night"), id="night"),
+    pytest.param(_pattern, id="pattern"),
+]
+
+
+@pytest.mark.parametrize("make", NEVER_SOUND)
+def test_what_never_sounds_goes_silent_and_the_agent_only_gets_a_note(agent_mode, posts, monkeypatch, make):
+    # The push policy of 2026-10-30: only an opening sounds. The hook has no
+    # silent flag, so these must not be delivered by it, day or night.
+    monkeypatch.setattr(quiet, "active", lambda now: False)
+    assert notifier.send(make()) == notifier.SENT
+    (relay,) = _relays(posts)
+    assert relay["json"]["args"]["silent"] is True
+    (note,) = _hooks(posts)
+    assert note["json"]["deliver"] is False
+    assert "channel" not in note["json"] and "to" not in note["json"]
+    assert "waitForCompletion" not in note["json"]
+    assert note["json"]["sessionKey"] == "agent:main:main"
+    assert "Do not send anything" in note["json"]["message"]
+    assert "NO_REPLY" in note["json"]["message"]
+    # Told first: the note can fail, and nothing rides on it.
+    assert posts["calls"].index(relay) < posts["calls"].index(note)
+    assert notifier.take_receipt()["mode"] == "openclaw"
+
+
+def test_an_update_keeps_the_relay_and_its_own_sound(agent_mode, posts, monkeypatch):
+    monkeypatch.setattr(quiet, "active", lambda now: False)
+    event = _episode("update")
+    event["silent"] = False  # escalated: now the Internet is down
+    assert notifier.send(event) == notifier.SENT
+    assert "silent" not in _relays(posts)[0]["json"]["args"]
+    assert _hooks(posts)[0]["json"]["deliver"] is False
+
+
+@pytest.mark.parametrize("answer", [
+    FakeResponse(404, {"error": "Not Found"}),
+    FakeResponse(503, _NOT_JSON),
+    httpx.ReadTimeout("slow"),
+    httpx.ConnectError("refused"),
+], ids=["404", "503", "timeout", "unreachable"])
+def test_a_note_that_fails_costs_nothing_and_is_not_retried(agent_mode, posts, monkeypatch, answer, caplog):
+    monkeypatch.setattr(quiet, "active", lambda now: False)
+    posts["hook"].append(answer)
+    assert notifier.send(_episode("recovery")) == notifier.SENT
+    assert len(_relays(posts)) == 1  # not a fallback: it was already told
+    assert len(_hooks(posts)) == 1
+    assert "The agent was not told" in caplog.text
+
+
+def test_no_note_for_what_nobody_was_told(agent_mode, posts, monkeypatch):
+    # It waits in the outbox, and is noted when it goes.
+    monkeypatch.setattr(quiet, "active", lambda now: False)
+    posts["relay"].append(httpx.ConnectError("refused"))
+    assert notifier.send(_episode("recovery")) == notifier.FAILED
+    assert not _hooks(posts)
+
+
+def test_no_note_without_a_token_and_the_message_still_goes(agent_mode, posts, monkeypatch, caplog):
+    monkeypatch.setattr(quiet, "active", lambda now: False)
+    monkeypatch.delenv("OPENCLAW_HOOKS_TOKEN")
     assert notifier.send(_episode("recovery")) == notifier.SENT
     assert not _hooks(posts)
-    assert _relays(posts)[0]["json"]["args"]["silent"] is True
+    assert "will not know" in caplog.text
 
 
-def test_a_silent_message_by_day_goes_through_the_agent(agent_mode, posts, monkeypatch):
-    monkeypatch.setattr(quiet, "active", lambda now: False)
-    assert notifier.send(_episode("recovery")) == notifier.SENT
-    assert len(_hooks(posts)) == 1
+@pytest.mark.parametrize("make", [
+    *NEVER_SOUND, pytest.param(_episode, id="opening"),
+    pytest.param(lambda: _episode("down"), id="down"),
+])
+def test_quiet_hours_are_the_relay_alone(agent_mode, posts, monkeypatch, make):
+    monkeypatch.setattr(quiet, "active", lambda now: True)
+    assert notifier.send(make()) == notifier.SENT
+    assert not _hooks(posts)
+    assert len(_relays(posts)) == 1
+
+
+def test_the_facts_that_cannot_be_written_do_not_cost_the_alert(agent_mode, posts, monkeypatch):
+    def broken(*a, **k):
+        raise KeyError("start")
+
+    monkeypatch.setattr(templates, "agent_message", broken)
+    posts["hook"].append(FakeResponse(400, {"ok": False, "error": "message required"}))
+    assert notifier.send(_episode()) == notifier.SENT
+    assert len(_relays(posts)) == 1
 
 
 # --- fallback: no failure costs the alert ---------------------------------------
@@ -362,10 +449,11 @@ def test_an_opened_episode_sends_one_chart_after_the_agent(agent_mode, posts):
 
 
 @pytest.mark.parametrize("kind", ["update", "recovery", "monitor"])
-def test_only_an_opening_sends_a_chart(agent_mode, posts, kind, monkeypatch):
+def test_any_other_chart_stays_with_the_relays_one_message(agent_mode, posts, kind, monkeypatch):
     monkeypatch.setattr(quiet, "active", lambda now: False)
     assert notifier.send(_episode(kind), image=PNG) == notifier.SENT
-    assert not _relays(posts)
+    (relay,) = _relays(posts)
+    assert relay["json"]["args"]["caption"] != "📈 The chart of this episode"
 
 
 def test_a_failed_chart_does_not_cost_the_alert(agent_mode, posts):
@@ -417,7 +505,7 @@ def test_preflight_a_400_is_the_token_accepted_and_no_turn_ran(agent_mode, posts
     assert call["headers"]["Authorization"] == "Bearer hooks-tok"
     # The last line is what `smoking-pi alerts` shows: the path taken.
     last = [r.getMessage() for r in caplog.records][-1]
-    assert "accepts the hooks token; alerts go through the agent" in last
+    assert "accepts the hooks token; openings go through the agent" in last
     assert "ready as the fallback" in last
 
 

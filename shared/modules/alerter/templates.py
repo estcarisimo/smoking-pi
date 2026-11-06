@@ -734,6 +734,11 @@ AGENT_TASK = (
     "invent anything that neither these facts nor the tools say. Do not say "
     '"all clear". Keep the link as it is, if there is one.'
 )
+AGENT_NOTE = (
+    "The alerter has already told the person this in their Telegram chat, quietly, "
+    "and it must not sound. Do not send anything and do not use the message tool. "
+    "Keep it in mind so you can answer if they ask, and reply NO_REPLY."
+)
 _AGENT_KINDS = {
     "down": "opened: the home's Internet is down",
     "degradation": "opened: packet loss worth telling",
@@ -757,11 +762,12 @@ def agent_test_message() -> str:
     ])
 
 
-def agent_message(event: dict) -> str:
+def agent_message(event: dict, noted: bool = False) -> str:
     """The facts of one notification and the task, for the agent: what the
     renderers say, plus the range, the scope and the zone. The same event
     always gives the same text (``render.now`` is the decision's, not this
     call's): OpenClaw replays an Idempotency-Key only for an identical body.
+    ``noted``: the relay has told the person, and the agent only has to know.
     """
     kind = str(event.get("kind") or "")
     lines = ["Smoking Pi, the network monitor on this home's Raspberry Pi, "
@@ -788,7 +794,8 @@ def agent_message(event: dict) -> str:
         lines.append(str(event.get("message", "")))
         for url in (event.get("links") or {}).values():
             lines.append(f"Link: {url}")
-    lines += [f"All times are in {clock.zone().key}.", "", f"Task: {AGENT_TASK}"]
+    lines += [f"All times are in {clock.zone().key}.", "",
+              f"Task: {AGENT_NOTE if noted else AGENT_TASK}"]
     return "\n".join(lines)
 
 

@@ -23,12 +23,13 @@
   distinguishes bad token, blocked tool, and unreachable gateway at
   startup, instead of letting every incident quietly exhaust its retries.
 
-  ``OPENCLAW_PUSH=agent`` hands an episode to the agent instead
+  ``OPENCLAW_PUSH=agent`` hands an opening episode to the agent instead
   (``POST {OPENCLAW_URL}/hooks/agent``, its own ``OPENCLAW_HOOKS_TOKEN``):
   the agent writes the message in the Telegram conversation where the person
   will reply, so a follow-up has the context. On any failure the same
-  delivery falls back to the relay above, once. ``/hooks/agent`` did not
-  exist on 2026.7.1-2, as above; verified against 2026.11.1.
+  delivery falls back to the relay above, once. What must not sound stays on
+  the relay, and the agent gets it as an undelivered note (:func:`_agent_route`).
+  ``/hooks/agent`` did not exist on 2026.7.1-2, as above; read from 2026.11.1.
 - ``telegram``: straight to the owner's own Telegram bot
   (``TELEGRAM_BOT_TOKEN``, ``TELEGRAM_CHAT_ID``), no OpenClaw: see
   telegram.py, which also keeps the token (part of every Bot API URL) out
@@ -88,6 +89,8 @@ DEFAULT_SESSION_KEY = "agent:main:main"
 # the few messages a month the policy sends.
 AGENT_TURN_S = 150
 AGENT_HTTP_TIMEOUT = httpx.Timeout(AGENT_TURN_S + 30.0, connect=5.0)
+# A note waits only for admission, which OpenClaw bounds at 15 s.
+AGENT_NOTE_TIMEOUT_S = 20.0
 TRANSPORT_AGENT = "openclaw-agent"
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 1.0
@@ -153,8 +156,9 @@ def send(event: dict, image: bytes | None = None) -> str:
     text = format_message(event, limit)
 
     if mode == "openclaw":
-        if push_mode() == PUSH_AGENT and _through_agent(event):
-            why = _notify_agent(templates.agent_message(event), ledger.key_of(event),
+        route = _agent_route(event)
+        if route == _AGENT_TELLS:
+            why = _notify_agent(_agent_text(event), ledger.key_of(event),
                                 event.get("kind"))
             if why is None:
                 _chart_after_agent(event, image)
@@ -162,7 +166,11 @@ def send(event: dict, image: bytes | None = None) -> str:
                         TRANSPORT_AGENT)
                 return SENT
             return _fallback(why, lambda: _relay(event, text, image))
-        return _relay(event, text, image)
+        outcome = _relay(event, text, image)
+        # Still waiting in the outbox it is told later, and noted then.
+        if route == _AGENT_NOTED and outcome != FAILED:
+            _note_to_agent(event)
+        return outcome
     if mode == "telegram":
         silent = _silent(event)
         if image is None:
@@ -366,42 +374,64 @@ def hooks_url() -> str:
     return base + HOOKS_AGENT_PATH
 
 
-def _through_agent(event: dict) -> bool:
-    """An episode or a recurring window: what has facts to narrate. Summaries,
-    the weekly and the reports are text already and stay on the relay.
+# What the agent does with an event (:func:`_agent_route`).
+_AGENT_TELLS, _AGENT_NOTED = "tells", "noted"
 
-    The hook has no ``silent``, so what must wake nobody in quiet hours stays
-    on the relay too (policy.py: a silent message goes as it is, at any hour).
+
+def _agent_route(event: dict) -> str | None:
+    """The agent's part in this event, or None for the relay alone.
+
+    The hook has no ``silent``, and what the agent delivers makes a sound. By
+    the push policy (policy.py) only an opening sounds, and only by day, so
+    only that is the agent's to deliver. The rest of an episode's messages and
+    a recurring window's keep the relay and their own ``silent``; the agent
+    gets them as a note, delivered to nobody, so a question in the chat finds
+    it knows. In quiet hours nothing reaches the agent. Summaries, the weekly
+    and the reports are text already and have no part here.
     """
-    if event.get("rule") not in ("episode", "pattern"):
-        return False
+    if push_mode() != PUSH_AGENT or event.get("rule") not in ("episode", "pattern"):
+        return None
     import quiet  # late: quiet -> notifications -> notifier
 
-    return not (event.get("silent") and quiet.active(time.time()))
+    if quiet.active(time.time()):
+        return None
+    return _AGENT_TELLS if event.get("kind") in ("down", "degradation") else _AGENT_NOTED
 
 
-def agent_payload(message: str, kind: str | None = None) -> dict:
+def _agent_text(event: dict, noted: bool = False) -> str:
+    """The facts for the agent. An event the renderers cannot read must not
+    cost the alert: the hook then refuses an empty message and the relay,
+    which has its own fallback for that, delivers."""
+    try:
+        return templates.agent_message(event, noted)
+    except Exception:  # noqa: BLE001
+        log.exception("Could not write the facts of %s for the agent", event.get("key"))
+        return ""
+
+
+def agent_payload(message: str, kind: str | None = None, deliver: bool = True) -> dict:
     """The /hooks/agent body: one turn in the conversation the person replies
-    in, announced to their chat when it ends."""
+    in, announced to their chat when it ends, or to nobody with ``deliver``
+    false, which also has nothing to wait for."""
     channel = (os.environ.get("OPENCLAW_CHANNEL")
                or DEFAULT_OPENCLAW_CHANNEL).strip()
     to = (os.environ.get("OPENCLAW_TO")
           or os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
     # OpenClaw's address form is for the message tool; the hook has the channel.
     to = to.removeprefix(f"{channel}:")
-    return {
+    payload = {
         "message": message,
         "name": f"Smoking Pi {kind}" if kind else "Smoking Pi",
         "agentId": DEFAULT_AGENT_ID,
         "sessionMode": "persistent",
         "sessionKey": (os.environ.get("OPENCLAW_SESSION")
                        or DEFAULT_SESSION_KEY).strip(),
-        "deliver": True,
-        "channel": channel,
-        "to": to,
-        "waitForCompletion": True,
+        "deliver": deliver,
         "timeoutSeconds": AGENT_TURN_S,
     }
+    if deliver:
+        payload.update({"channel": channel, "to": to, "waitForCompletion": True})
+    return payload
 
 
 def _completion_failure(completion: object) -> str | None:
@@ -445,7 +475,7 @@ def _notify_agent(message: str, idem: str | None, kind: str | None) -> str | Non
     except httpx.TimeoutException as exc:
         return f"timeout, the agent may still answer ({type(exc).__name__})"
     except httpx.HTTPError as exc:
-        return f"gateway not reached ({type(exc).__name__})"
+        return f"no answer from the gateway ({type(exc).__name__})"
     if not 200 <= response.status_code < 300:
         return f"HTTP {response.status_code}{_hook_error(response)}"
     try:
@@ -460,6 +490,36 @@ def _notify_agent(message: str, idem: str | None, kind: str | None) -> str | Non
         log.info("Delivery path: agent, %s (run %s)", kind or "message",
                  body.get("runId") or "?")
     return why
+
+
+def _note_to_agent(event: dict) -> None:
+    """What the relay just said, for the agent's memory of the conversation.
+    It delivers nothing and waits only for admission. The person has been told
+    whatever happens here, so a failure costs a follow-up its context, no more.
+    Never raises."""
+    token, kind = hooks_token(), event.get("kind")
+    if not token:
+        log.warning("No OPENCLAW_HOOKS_TOKEN: the agent will not know of this %s", kind)
+        return
+    headers = {"Authorization": f"Bearer {token}"}
+    idem = ledger.key_of(event)
+    if idem:
+        headers["Idempotency-Key"] = idem[:256]
+    try:
+        response = httpx.post(
+            hooks_url(), json=agent_payload(_agent_text(event, noted=True), kind,
+                                            deliver=False),
+            headers=headers, timeout=AGENT_NOTE_TIMEOUT_S)
+    except httpx.HTTPError as exc:
+        log.warning("The agent was not told of this %s (%s); the message went "
+                    "through the relay all the same", kind, type(exc).__name__)
+        return
+    if 200 <= response.status_code < 300:
+        log.info("Delivery path: message relay, and the agent has it as a note (%s)", kind)
+    else:
+        log.warning("The agent was not told of this %s (HTTP %s%s); the message "
+                    "went through the relay all the same", kind,
+                    response.status_code, _hook_error(response))
 
 
 def _hook_error(response) -> str:
@@ -734,8 +794,8 @@ def _preflight_agent() -> bool:
                     "up.", url, why)
         return _preflight_openclaw()
     relay = _preflight_openclaw()
-    log.info("Delivery preflight: %s accepts the hooks token; alerts go through "
-             "the agent (message relay %s)", url,
+    log.info("Delivery preflight: %s accepts the hooks token; openings go through "
+             "the agent, the rest through the relay (message relay %s)", url,
              "ready as the fallback" if relay else "NOT ready, no fallback")
     return True
 

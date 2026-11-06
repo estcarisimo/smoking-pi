@@ -173,11 +173,14 @@ openclaw_refresh_skill() {
     echo "Start a NEW chat session: an open one keeps the skill it started with."
 }
 
-# What of hooks.* is in the user's openclaw.json, one field a line: the token;
+# What of hooks.* is in the user's openclaw.json, one field a line: the token
+# (empty when there is none or it is a reference to a secret elsewhere);
 # "current" when the gateway is already set up for session key $1, else
-# "stale"; the prefix allowlist with that key in it; the agent allowlist to
-# write (empty: leave it as it is); session.dmScope. A person's own hooks
-# (a Gmail mapping, say) keep working: the lists are added to, not replaced.
+# "stale"; "ref" when the token is such a reference, else "plain"; the prefix
+# allowlist with that key in it; the agent allowlist to write (empty: leave it
+# as it is); session.dmScope. A person's own hooks keep working, so what they
+# allowed stays allowed (config-hooks: an empty prefix list allows everything,
+# and an empty agent list denies everything, on purpose).
 openclaw_hooks_read() {
     local user home="$HOME" f
     user="$(openclaw_user)"
@@ -191,26 +194,35 @@ try:
 except (OSError, ValueError):
     config = {}
 key, hooks = sys.argv[2], config.get("hooks") or {}
+token = hooks.get("token")
+plain = isinstance(token, str) and not token.startswith("${")
 prefixes = [p for p in hooks.get("allowedSessionKeyPrefixes") or [] if p]
 agents = hooks.get("allowedAgentIds")
 allowed = any(key.lower().startswith(p.lower()) for p in prefixes)
-current = (hooks.get("enabled") is True and hooks.get("token")
-           and hooks.get("allowRequestSessionKey") is True and allowed
-           and (agents is None or "main" in agents or "*" in agents))
+current = (hooks.get("enabled") is True and token
+           and hooks.get("allowRequestSessionKey") is True and allowed)
 if not allowed:
+    if hooks.get("enabled") and not prefixes:
+        # Unrestricted until now: a first entry would refuse the hook: keys
+        # their own callers are given.
+        prefixes.append("hook:")
+        if hooks.get("defaultSessionKey"):
+            prefixes.append(hooks["defaultSessionKey"])
     prefixes.append(key)
 if agents is None:
     # Nothing allowed yet: only ours. Hooks already on with no list are the
     # person's, and narrowing them could break what they run.
-    agents = None if hooks.get("enabled") else ["main"]
-elif "main" not in agents and "*" not in agents:
-    agents = [*agents, "main"]
+    write_agents = None if hooks.get("enabled") else ["main"]
+elif agents and "main" not in agents and "*" not in agents:
+    write_agents = [*agents, "main"]
+    current = False
 else:
-    agents = None
-print(hooks.get("token") or "")
+    write_agents = None
+print(token if plain else "")
 print("current" if current else "stale")
+print("ref" if token and not plain else "plain")
 print(json.dumps(prefixes))
-print(json.dumps(agents) if agents else "")
+print(json.dumps(write_agents) if write_agents else "")
 print((config.get("session") or {}).get("dmScope") or "main")
 PY
 }
@@ -245,7 +257,7 @@ openclaw_push_status() {
 # Set up the hooks block and point the alerter at it. The token goes through
 # a 0600 file, as the MCP registration does: sudo logs the command it runs.
 openclaw_enable_hooks() {
-    local key out token state prefixes agents scope spec user failed=0
+    local key out token state kind prefixes agents scope spec user failed=0
     key="$(env_get OPENCLAW_SESSION)"; key="${key:-agent:main:main}"
     if ! [[ "$key" =~ ^[A-Za-z0-9:._-]+$ ]]; then
         echo "OPENCLAW_SESSION has characters a session key cannot have." >&2
@@ -255,8 +267,8 @@ openclaw_enable_hooks() {
         echo "Could not read the OpenClaw config (python3 is needed for this step)." >&2
         return 1
     fi
-    { IFS= read -r token; IFS= read -r state; IFS= read -r prefixes
-      IFS= read -r agents; IFS= read -r scope; } <<< "$out"
+    { IFS= read -r token; IFS= read -r state; IFS= read -r kind
+      IFS= read -r prefixes; IFS= read -r agents; IFS= read -r scope; } <<< "$out"
     if [ "$scope" != main ] && [ -z "$(env_get OPENCLAW_SESSION)" ]; then
         echo "WARNING: session.dmScope is $scope, so your chat is not agent:main:main and a" >&2
         echo "         follow-up will not see a push. Find your chat's session key with" >&2
@@ -264,15 +276,26 @@ openclaw_enable_hooks() {
         echo "         and $(cli_name) openclaw --push agent" >&2
     fi
     [ -n "$token" ] || token="$(env_get OPENCLAW_HOOKS_TOKEN)"
+    if [ "$kind" = ref ] && [ -z "$token" ]; then
+        # Its value lives somewhere this command cannot read, and writing a
+        # new one over the reference would break whoever else uses it.
+        echo "hooks.token in your OpenClaw config is a reference to a secret, so its value" >&2
+        echo "is not readable here; alerts stay on the message relay. Give it to the alerter:" >&2
+        echo "  $(cli_name) config set OPENCLAW_HOOKS_TOKEN" >&2
+        echo "then: $(cli_name) openclaw --push agent" >&2
+        return 1
+    fi
     [ -n "$token" ] || token="$(openssl rand -hex 32)"
     if [ "$state" != current ]; then
-        spec="$(mktemp)"
-        printf '%s' "$token" > "$spec"
-        user="$(openclaw_user)"
-        [ -z "$user" ] || chown "$user" "$spec" 2>/dev/null || true
-        as_openclaw_user sh -c 'exec "$0" config set hooks.token "$(cat "$1")"' "$OPENCLAW_BIN" "$spec" \
-            >/dev/null 2>&1 || failed=1
-        rm -f "$spec"
+        if [ "$kind" != ref ]; then
+            spec="$(mktemp)"
+            printf '%s' "$token" > "$spec"
+            user="$(openclaw_user)"
+            [ -z "$user" ] || chown "$user" "$spec" 2>/dev/null || true
+            as_openclaw_user sh -c 'exec "$0" config set hooks.token "$(cat "$1")"' "$OPENCLAW_BIN" "$spec" \
+                >/dev/null 2>&1 || failed=1
+            rm -f "$spec"
+        fi
         [ "$failed" = 1 ] || as_openclaw_user "$OPENCLAW_BIN" config set hooks.enabled true --strict-json >/dev/null 2>&1 || failed=1
         [ "$failed" = 1 ] || as_openclaw_user "$OPENCLAW_BIN" config set hooks.allowRequestSessionKey true --strict-json >/dev/null 2>&1 || failed=1
         [ "$failed" = 1 ] || as_openclaw_user "$OPENCLAW_BIN" config set hooks.allowedSessionKeyPrefixes "$prefixes" --strict-json >/dev/null 2>&1 || failed=1

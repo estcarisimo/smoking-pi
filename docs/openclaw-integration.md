@@ -324,8 +324,8 @@ delivered alert, so the alerter inspects the body and retries on `ok: false`.
 
 With the relay above the agent never sees what was sent: it is a fixed text
 going through a tool. Ask it "what was that?" in Telegram and it has no idea.
-`OPENCLAW_PUSH=agent` hands each episode to the agent instead, and the agent
-writes the message:
+`OPENCLAW_PUSH=agent` hands an opening episode to the agent instead, and the
+agent writes the message:
 
 ```bash
 sudo smoking-pi openclaw --push agent     # sudo on a package install
@@ -335,10 +335,17 @@ Plain `smoking-pi openclaw` does the same unless you chose the relay. It needs
 OpenClaw 2026.10 or later. It adds to `hooks` in your `openclaw.json`
 (`enabled`, a generated `token` of its own, `allowRequestSessionKey` and
 `allowedSessionKeyPrefixes` for your conversation's key alone, `allowedAgentIds`
-when you had no hooks yet; a token or lists you already have are kept), restarts
+when you had no hooks yet), restarts
 the gateway, writes `OPENCLAW_HOOKS_TOKEN` and `OPENCLAW_PUSH` to the env file,
 and recreates the alerter. `--push message` goes back, and later runs of
 `smoking-pi openclaw` respect that.
+
+Hooks you already use keep working: your token and lists are kept and added to.
+If your prefix list was empty, which means unrestricted, it becomes `hook:` plus
+your default key plus this conversation's key, so a mapping with a static session
+key outside those would need adding by hand. A token that is a reference to a
+secret is not readable here: the command says so and alerts stay on the relay
+until you give the value with `smoking-pi config set OPENCLAW_HOOKS_TOKEN`.
 
 ```bash
 sudo smoking-pi openclaw --check
@@ -387,7 +394,7 @@ that the model answered: an agent whose model refuses every turn would lose
 every alert in silence. So the request stays open until the turn settles, at
 most 150 s for the turn itself, and the alerter reads the result.
 
-**When it fails, the relay delivers.** A hook that is not set up (404), a
+**When an opening fails, the relay delivers.** A hook that is not set up (404), a
 rejected token (401), any other refusal, no answer, a failed turn, a failed
 delivery, or a turn that ended without saying anything: the same delivery goes
 through the `message` relay, once, as the fixed text. If the request itself
@@ -402,11 +409,24 @@ WARNING alerter.notifier: Agent push failed (HTTP 404: Not Found); delivering th
 INFO alerter.notifier: Delivery path: message relay (sent), after the agent push failed
 ```
 
-**What stays on the relay.** The weekly summary, reports, and the summaries of
-the outbox and of quiet hours are already written. A silent message in quiet
-hours stays too, because the hook has no way to send silently and an end at
-3 a.m. must not wake you. **By day, a message the policy marks silent (an end,
-a monitor message, a recurring window) makes the usual sound through the agent.**
+**What goes which way.** What the agent delivers makes a sound, because the hook
+has no silent option. [The push policy](alerting.md#what-is-pushed-and-what-is-recorded)
+lets only an opening sound, so:
+
+| Message | By day | In quiet hours |
+| --- | --- | --- |
+| Internet down, material degradation (opening) | the agent writes and delivers it | the relay |
+| An update, an end, the monitor's message, a recurring window | the relay, with its own `silent`; the agent gets an undelivered note | the relay |
+| The weekly summary, reports, outbox and quiet-hours summaries | the relay | the relay |
+
+The note carries the same facts with `deliver: false` in the same session, and
+tells the agent to send nothing and reply `NO_REPLY`. That is why a question like
+"is it over?" finds it knows, and also why each of those messages costs one
+model turn nobody sees. The note goes after the relay and only when the relay
+delivered; if it fails, the log says so and the person has been told all the
+same. In quiet hours the agent gets no note, so it does not know of what
+happened during them unless it looks it up with its tools.
+
 The hook takes no attachment, so the chart of a newly opened episode follows
 through the relay, as one image with a short caption of its own.
 
@@ -416,7 +436,8 @@ and no turn runs:
 
 ```
 INFO alerter.notifier: Delivery preflight: http://127.0.0.1:18789/hooks/agent
-accepts the hooks token; alerts go through the agent (message relay ready as the fallback)
+accepts the hooks token; openings go through the agent, the rest through the relay
+(message relay ready as the fallback)
 ```
 
 `smoking-pi alerts --openclaw --test` goes the same way, and through the agent it can take
@@ -425,7 +446,7 @@ a minute or two: a real turn runs.
 **The skill has a part to play.** OpenClaw marks hook content as external data
 whose instructions carry no authority, which is right for an inbox and is a
 problem here. The installed skill says that a turn named `Smoking Pi ...` is the
-owner's own alerter and should be told, so re-run `smoking-pi openclaw` if yours
+owner's own alerter and how to treat each kind, so re-run `smoking-pi openclaw` if yours
 is older (`smoking-pi upgrade` refreshes it too).
 
 ### The portable alternative
