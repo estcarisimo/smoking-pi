@@ -1635,6 +1635,18 @@ openclaw_json() {
     if grep -q 'config set hooks.token' "$DOCKER_LOG"; then false; fi
 }
 
+@test "openclaw does not take a config it cannot read for one with no hooks" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{ // JSON5
+  hooks: {enabled: true, token: "mine"}, }'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"as plain JSON"* ]]
+    if grep -q 'config set hooks' "$DOCKER_LOG"; then false; fi
+    if grep -q '^OPENCLAW_HOOKS_TOKEN=' "$SMOKING_PI_ENV_FILE"; then false; fi
+}
+
 @test "openclaw leaves a relay chosen with --push message alone" {
     printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\nOPENCLAW_PUSH=message\n' > "$SMOKING_PI_ENV_FILE"
     openclaw_json '{}'

@@ -191,8 +191,12 @@ openclaw_hooks_read() {
 import json, sys
 try:
     config = json.load(open(sys.argv[1]))
-except (OSError, ValueError):
+except FileNotFoundError:
     config = {}
+except (OSError, ValueError):
+    # Not read is not "no hooks": taken for that, it would replace the token
+    # and the lists of a file with comments in it (OpenClaw's is JSON5).
+    sys.exit(1)
 key, hooks = sys.argv[2], config.get("hooks") or {}
 token = hooks.get("token")
 plain = isinstance(token, str) and not token.startswith("${")
@@ -264,7 +268,9 @@ openclaw_enable_hooks() {
         return 1
     fi
     if ! out="$(openclaw_hooks_read "$key")" || [ -z "$out" ]; then
-        echo "Could not read the OpenClaw config (python3 is needed for this step)." >&2
+        echo "Could not read ~/.openclaw/openclaw.json as plain JSON (comments or trailing" >&2
+        echo "commas?), or python3 is missing, so alerts stay on the message relay." >&2
+        echo "Set up its hooks by hand: docs/openclaw-integration.md, 'Push through the agent'." >&2
         return 1
     fi
     { IFS= read -r token; IFS= read -r state; IFS= read -r kind
@@ -286,6 +292,7 @@ openclaw_enable_hooks() {
         return 1
     fi
     [ -n "$token" ] || token="$(openssl rand -hex 32)"
+    [ -n "$token" ] || { echo "Could not generate a hooks token (openssl)." >&2; return 1; }
     if [ "$state" != current ]; then
         if [ "$kind" != ref ]; then
             spec="$(mktemp)"

@@ -125,6 +125,17 @@ def test_the_turn_lands_in_the_conversation_and_is_delivered_to_the_chat(agent_m
     assert not _relays(posts)
 
 
+@pytest.mark.parametrize("make", [
+    pytest.param(_episode, id="opening"),
+    pytest.param(lambda: _episode("recovery"), id="note"),
+])
+def test_a_failed_turn_does_not_start_another_that_speaks(agent_mode, posts, monkeypatch, make):
+    # "now" would run a turn on OpenClaw's "Hook ... (error)" event at once.
+    monkeypatch.setattr(quiet, "active", lambda now: False)
+    notifier.send(make())
+    assert _hooks(posts)[0]["json"]["wakeMode"] == "next-heartbeat"
+
+
 def test_the_session_key_can_be_another(agent_mode, posts, monkeypatch):
     monkeypatch.setenv("OPENCLAW_SESSION", "agent:main:telegram:direct:12345")
     notifier.send(_episode())
@@ -445,6 +456,7 @@ def test_an_opened_episode_sends_one_chart_after_the_agent(agent_mode, posts):
     assert args["buffer"]
     # The chart, not the alert a second time.
     assert args["caption"] == "📈 The chart of this episode"
+    assert args["silent"] is True  # one sound for one alert
     assert notifier.take_receipt()["mode"] == "openclaw-agent"
 
 

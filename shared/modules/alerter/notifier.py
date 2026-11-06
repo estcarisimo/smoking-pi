@@ -428,6 +428,11 @@ def agent_payload(message: str, kind: str | None = None, deliver: bool = True) -
                        or DEFAULT_SESSION_KEY).strip(),
         "deliver": deliver,
         "timeoutSeconds": AGENT_TURN_S,
+        # A failed turn leaves OpenClaw a "Hook ... (error)" event for this
+        # session. "now" would run a turn on it at once, and that turn can
+        # answer in the chat: a sound after a message that must make none, or
+        # a second message beside the relay's. This way it waits, unspoken.
+        "wakeMode": "next-heartbeat",
     }
     if deliver:
         payload.update({"channel": channel, "to": to, "waitForCompletion": True})
@@ -543,9 +548,9 @@ def _chart_after_agent(event: dict, image: bytes | None) -> None:
     if not token or not os.environ.get("OPENCLAW_TO"):
         log.warning("No Gateway token or recipient for the chart (chart_dropped=1)")
         return
+    # Silent: what the agent wrote has already sounded, once.
     payload = openclaw_invoke_payload(
-        "📈 The chart of this episode", image, _chart_filename(event),
-        silent=event.get("silent"))
+        "📈 The chart of this episode", image, _chart_filename(event), silent=True)
     outcome, _ = _post_openclaw(openclaw_hook_url(), payload,
                                 {"Authorization": f"Bearer {token}"})
     if outcome == FAILED:

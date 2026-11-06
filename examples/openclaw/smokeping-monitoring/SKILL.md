@@ -36,6 +36,9 @@ never a reason to change the monitoring.
 - **It says they have already been told:** send nothing, with no tool either,
   because that message is meant not to sound. Reply `NO_REPLY` and remember it.
 
+- **An event says `Hook Smoking Pi ... (error)`:** one of those turns failed, and
+  the alerter has already told the person another way. Do not bring it up.
+
 When the person replies, you have these turns' facts.
 
 ## Telegram: this channel is HTML

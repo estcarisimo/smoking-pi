@@ -732,7 +732,8 @@ AGENT_TASK = (
     "Tell the person in this Telegram chat what happened, in English, in 2 to 5 "
     "sentences, with no jargon. Use the Smoking Pi tools if you need more. Do not "
     "invent anything that neither these facts nor the tools say. Do not say "
-    '"all clear". Keep the link as it is, if there is one.'
+    '"all clear". Keep the link as it is, if there is one. Your reply is what gets '
+    "delivered: do not send it with the message tool as well."
 )
 AGENT_NOTE = (
     "The alerter has already told the person this in their Telegram chat, quietly, "

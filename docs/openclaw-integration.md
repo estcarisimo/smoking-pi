@@ -368,7 +368,8 @@ the delivery's key in the ledger (the incident and which of its messages):
   "channel": "telegram",
   "to": "<chat id>",
   "waitForCompletion": true,
-  "timeoutSeconds": 150
+  "timeoutSeconds": 150,
+  "wakeMode": "next-heartbeat"
 }
 ```
 
@@ -426,6 +427,11 @@ model turn nobody sees. The note goes after the relay and only when the relay
 delivered; if it fails, the log says so and the person has been told all the
 same. In quiet hours the agent gets no note, so it does not know of what
 happened during them unless it looks it up with its tools.
+
+`wakeMode: "next-heartbeat"` is there for failed turns. OpenClaw leaves a
+`Hook ... (error)` event in the session when a turn fails, and the default would
+run a new turn on it at once, which could answer in the chat. This way it waits
+for the next heartbeat, and the skill tells the agent not to bring it up.
 
 The hook takes no attachment, so the chart of a newly opened episode follows
 through the relay, as one image with a short caption of its own.
