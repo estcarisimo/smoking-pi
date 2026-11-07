@@ -88,8 +88,10 @@ the alerter already told the person, or is about to -- do not repeat it.
 `worth_mentioning`: one short message about what `reasons` names (a
 recurring window that appeared or went away, a cluster of small episodes,
 the monitor blind and unreported, a material episode nothing was pushed
-about). Never re-tell anything in `already_pushed`, and outside an
-incident send at most one unprompted message a day.
+about). Never re-tell anything in `already_pushed`. `worth_mentioning` permits
+a message, it does not require one: outside an incident send at most one
+unprompted message a day, and when that one is spent, keep the rest for
+the next day or the weekly.
 
 For "how was my week?" or a weekly narration, call `get_weekly_summary`:
 the week the alerter's weekly message judges (`verdict` good, mixed or bad

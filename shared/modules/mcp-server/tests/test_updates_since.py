@@ -308,3 +308,38 @@ def test_the_verdict_vocabulary_is_closed():
     assert updates.verdict([], True) == "material_pushed_already"
     assert updates.verdict(["pattern_change"], True) == "worth_mentioning"
     assert updates.clusters([0, 100, 3500, 3700, 9000]) == 3
+
+
+# --- review of #444 ------------------------------------------------------------
+
+
+def test_a_material_episode_muted_then_is_not_unreported_after_the_mute_expired(files):
+    # The ack lasted an hour and is gone from the mutes file; the record
+    # keeps that the episode was muted (alerter episodes.summary).
+    files(_episodes(_closed(8, 0.4, muted=True)))
+    out = server.get_updates_since(since="1h")
+    assert out["material"][0]["muted"] is True
+    assert out["verdict"] == "nothing_new"
+
+
+def test_a_material_episode_ended_in_quiet_hours_is_the_nights_summarys(files):
+    files(_episodes(_closed(8, 0.4, night="degradation")))
+    out = server.get_updates_since(since="1h")
+    assert out["material"][0]["reported"] is True
+    assert out["verdict"] == "material_pushed_already"
+
+
+def test_no_alerter_record_is_an_error_not_nothing_new(monkeypatch, tmp_path):
+    monkeypatch.setenv("ALERT_STATE_FILE", str(tmp_path / "missing.json"))
+    out = server.get_updates_since(since="1h")
+    assert set(out) == {"error"} and "could not be read" in out["error"]
+
+
+def test_as_of_is_to_the_second_for_the_next_since(files):
+    files()
+    out = server.get_updates_since(since="1h")
+    as_of = datetime.fromisoformat(out["as_of"])
+    assert abs(as_of.timestamp() - NOW) < 120 and as_of.second == int(as_of.second)
+    assert out["as_of"].count(":") == 3  # HH:MM:SS and the offset's
+    again, problem = updates.parse_since(out["as_of"], NOW + 60, CHI)
+    assert problem is None and abs(again - as_of.timestamp()) < 1

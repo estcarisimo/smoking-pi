@@ -34,8 +34,17 @@ No InfluxDB query at all: an hourly call costs two file reads.
      episode that closed with nothing pushed about it
      (``monitor_blind_unreported``);
   4. a material episode closed with nothing pushed, held or queued about it
-     and no mute covering it (``material_unreported``: a push the alerter
-     decided against, for example its hourly ceiling).
+     and no mute covering it, then or now (``material_unreported``: a push
+     the alerter decided against, for example its hourly ceiling). An
+     episode still open is left to the alerter, which pushes a material
+     one as it opens; it counts once it closes.
+
+  A cluster split across two calls is not seen as one: the caller's
+  ``since`` (the previous ``as_of``) is what keeps the windows apart.
+
+  A ``failed`` delivery counts as said: the alerter's outbox sends it as
+  one summary once delivery works, so the agent repeating it would say it
+  twice.
 - ``material_pushed_already`` when none of those holds but the window had
   material episodes, pattern changes or monitor blindness, every one of
   them already pushed (or held or queued by the alerter, which will deliver
@@ -89,7 +98,7 @@ def parse_since(text, now: float, tz: ZoneInfo) -> tuple[float | None, str | Non
         since = now - float(match.group(1)) * _UNIT_S[match.group(2).lower()]
     else:
         try:
-            when = datetime.fromisoformat(raw.replace("Z", "+00:00").replace("z", "+00:00"))
+            when = datetime.fromisoformat(raw.upper() if raw.endswith("z") else raw)
         except ValueError:
             return None, ("since must be an ISO-8601 time (2026-11-07T08:00:00-06:00) "
                           "or a span like 90m, 1h, 24h or 2d.")
@@ -284,7 +293,7 @@ def answer(state: dict, ledger: list[dict], since: float, now: float, tz: ZoneIn
               and "material_unreported" not in reasons):
             reasons.append("material_unreported")
 
-    patterns_out, pattern_reported = _patterns(state, said, since, tz)
+    patterns_out, pattern_reported = _patterns(state, said, since, now, tz)
     if any(p["change"] in ("appeared", "disappeared") and not p["reported"]
            and not p.get("queued") for p in patterns_out):
         reasons.insert(0, "pattern_change")
@@ -320,7 +329,11 @@ def answer(state: dict, ledger: list[dict], since: float, now: float, tz: ZoneIn
                             "headline": _headline(e)})
     record_from = box.get("since")
     out = {
-        "since": _iso(since, tz), "as_of": _iso(now, tz), "tz": tz.key,
+        # To the second: the next heartbeat's ``since``, so two windows meet
+        # without overlapping.
+        "since": _iso(since, tz),
+        "as_of": datetime.fromtimestamp(now, tz=tz).isoformat(timespec="seconds"),
+        "tz": tz.key,
         "verdict": verdict(reasons, reported_any),
         "reasons": reasons,
         "material": material[-MAX_MATERIAL:],
@@ -338,7 +351,8 @@ def answer(state: dict, ledger: list[dict], since: float, now: float, tz: ZoneIn
     return out
 
 
-def _patterns(state: dict, said: dict, since: float, tz: ZoneInfo) -> tuple[list[dict], bool]:
+def _patterns(state: dict, said: dict, since: float, now: float,
+              tz: ZoneInfo) -> tuple[list[dict], bool]:
     """Recurring windows that appeared, came back or disappeared in the
     window; whether any change was already said."""
     box = state.get("patterns") or {}
@@ -354,7 +368,7 @@ def _patterns(state: dict, said: dict, since: float, tz: ZoneInfo) -> tuple[list
         else:
             continue
         try:
-            v = _pattern_view(p, since, tz)
+            v = _pattern_view(p, now, tz)
         except (KeyError, TypeError, ValueError):
             continue
         item = {"change": change, "hours": v["hours"], "class": v["class"],

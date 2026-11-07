@@ -701,5 +701,10 @@ def summary(ep: dict) -> dict:
         "blind_by": (ep.get("facts") or {}).get("blind", {}),
         "step": ep.get("step"),
         "pushed": list((ep.get("policy") or {}).get("sent", [])),
+        # Why nothing may have been pushed: a mute or ack the user set (it
+        # may have expired since), or quiet hours (the night's summary
+        # carries it). MCP get_updates_since must not call either unreported.
+        "muted": bool((ep.get("policy") or {}).get("muted")),
+        "night": (ep.get("policy") or {}).get("night"),
     }
 

@@ -170,6 +170,33 @@ def test_a_finished_week_is_cached_and_the_current_one_is_not(pi):
     assert len(influx.asked) > asked
 
 
+def test_the_cache_keeps_the_reading_but_not_what_the_alerter_did(pi, tmp_path):
+    influx, last, write = pi
+    write()
+    assert server.get_weekly_summary()["weekly_message"] is None
+    asked = len(influx.asked)
+    write(ledger=[{"id": "w2", "kind": "weekly", "type": "weekly", "outcome": "queued",
+                   "decided_at": last["stop"] + 3600, "text": "🟡 Mixed week"}])
+    out = server.get_weekly_summary()
+    assert len(influx.asked) == asked
+    assert out["weekly_message"]["sent"] is False
+    assert out["weekly_message"]["pending"] is True
+
+
+def test_a_week_whose_destinations_were_unread_is_not_cached(pi, monkeypatch):
+    influx, _, write = pi
+    write()
+
+    def down(*a, **k):
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(aggregates, "target_stats", down)
+    assert server.get_weekly_summary()["destinations"] is None
+    asked = len(influx.asked)
+    server.get_weekly_summary()
+    assert len(influx.asked) > asked
+
+
 def test_an_unread_week_is_an_error_with_an_id_and_no_detail(pi, monkeypatch):
     _, _, write = pi
     write()

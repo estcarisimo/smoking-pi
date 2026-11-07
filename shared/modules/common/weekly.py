@@ -650,10 +650,14 @@ def select(spec: str | None, now: float, tz: ZoneInfo,
             "prev_stop": _week_before(cut, tz), "complete": False}, None
 
 
-def _iso(epoch: float | None, tz: ZoneInfo) -> str | None:
+def iso(epoch: float | None, tz: ZoneInfo) -> str | None:
+    """An epoch as ISO-8601 to the minute, in ``tz``; None for None."""
     if epoch is None:
         return None
     return datetime.fromtimestamp(float(epoch), tz=tz).isoformat(timespec="minutes")
+
+
+_iso = iso
 
 
 def _hours(w: dict) -> str:

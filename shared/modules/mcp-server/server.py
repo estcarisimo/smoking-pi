@@ -1273,6 +1273,12 @@ def get_updates_since(since: str = "1h", include_non_material: bool = True) -> d
     if problem:
         return {"error": problem}
     state = _read_alerter_state()
+    if not isinstance(state.get("episodes"), dict):
+        # No record is not a quiet record: "nothing_new" would tell a
+        # heartbeat to stay silent while nothing is being judged at all.
+        return {"error": "The alerter's episode record could not be read (is the "
+                         "alerts service running, and its state volume mounted?). "
+                         "Nothing can be said about what changed."}
     try:
         entries, _ = notification_ledger.read()
     except OSError as exc:
@@ -1304,8 +1310,10 @@ def _weekly_message(start: float, stop: float, tz) -> dict | None:
         decided = float(e.get("decided_at") or 0)
         if e.get("kind") == "weekly" and stop <= decided < stop + 2 * 86400:
             return {"sent": e.get("outcome") in ("sent", "handed"),
+                    # Queued or held: the alerter still delivers it.
+                    "pending": e.get("outcome") in ("queued", "held", "failed"),
                     "outcome": e.get("outcome"),
-                    "decided": weekly._iso(decided, tz)}
+                    "decided": weekly.iso(decided, tz)}
     skipped = (_read_alerter_state().get("weekly") or {}).get("last_skipped") or {}
     if skipped and float(skipped.get("week_start") or 0) == start:
         return {"sent": False, "outcome": "skipped: nothing material"}
@@ -1347,7 +1355,10 @@ def get_weekly_summary(week: str = "last") -> dict:
     key = (chosen["start"], chosen["stop"])
     cached = _weekly_cache.get(key)
     if chosen["complete"] and cached and cached[0] > now:
-        return cached[1]
+        # The week's reading is cached; what the alerter did with its
+        # message can change any minute on its day, so it is read fresh.
+        return {**cached[1], "weekly_message": _weekly_message(
+            chosen["start"], chosen["stop"], tz)}
     state = _read_alerter_state()
 
     def query(flux: str) -> list[dict]:
@@ -1364,7 +1375,8 @@ def get_weekly_summary(week: str = "last") -> dict:
     data["week"]["complete"] = chosen["complete"]
     data["weekly_message"] = (_weekly_message(chosen["start"], chosen["stop"], tz)
                               if chosen["complete"] else None)
-    if chosen["complete"]:
+    if chosen["complete"] and data["destinations"] is not None:
+        # Not a reading with an unread part: the next call tries again.
         _weekly_cache.clear()
         _weekly_cache[key] = (now + WEEKLY_CACHE_S, data)
     return data

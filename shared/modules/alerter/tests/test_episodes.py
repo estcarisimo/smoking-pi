@@ -275,3 +275,15 @@ def test_the_night_bundle_names_the_episode_and_its_start(monkeypatch):
     lines = outbox.summary_lines(state, state["held"]["items"], day + 7 * 3600)
     assert lines == ["🔴 Internet down · 02:00 → ✅ 02:40 — probable cause: "
                      "your provider, beyond the modem"]
+
+
+def test_the_closed_record_keeps_a_mute_and_the_night():
+    """MCP get_updates_since reads the closed record: a mute that has
+    since expired, or quiet hours, is why nothing was pushed (review of
+    #444), not a missed push."""
+    ep = {"id": 4, "key": "episode:4", "start": 1000.0, "end": 2000.0, "signals": {},
+          "policy": {"muted": True, "night": "degradation"}}
+    record = episodes.summary(ep)
+    assert record["muted"] is True and record["night"] == "degradation"
+    plain = episodes.summary({**ep, "policy": {}})
+    assert plain["muted"] is False and plain["night"] is None
