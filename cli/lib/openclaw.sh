@@ -173,15 +173,240 @@ openclaw_refresh_skill() {
     echo "Start a NEW chat session: an open one keeps the skill it started with."
 }
 
+# What of hooks.* is in the user's openclaw.json, one field a line: the token
+# (empty when there is none or it is a reference to a secret elsewhere);
+# "current" when the gateway is already set up for session key $1, else
+# "stale"; "ref" when the token is such a reference, else "plain"; the prefix
+# allowlist with that key in it; the agent allowlist to write (empty: leave it
+# as it is); session.dmScope. A person's own hooks keep working, so what they
+# allowed stays allowed (config-hooks: an empty prefix list allows everything,
+# and an empty agent list denies everything, on purpose).
+openclaw_hooks_read() {
+    local user home="$HOME" f
+    user="$(openclaw_user)"
+    [ -z "$user" ] || home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6)"
+    f="$home/.openclaw/openclaw.json"
+    command -v python3 >/dev/null || return 1
+    python3 - "$f" "$1" <<'PY' 2>/dev/null
+import json, sys
+try:
+    config = json.load(open(sys.argv[1]))
+except FileNotFoundError:
+    config = {}
+except (OSError, ValueError):
+    # Not read is not "no hooks": taken for that, it would replace the token
+    # and the lists of a file with comments in it (OpenClaw's is JSON5).
+    sys.exit(1)
+key, hooks = sys.argv[2], config.get("hooks") or {}
+token = hooks.get("token")
+plain = isinstance(token, str) and not token.startswith("${")
+prefixes = [p for p in hooks.get("allowedSessionKeyPrefixes") or [] if p]
+agents = hooks.get("allowedAgentIds")
+def covers(k):
+    return any(k.lower().startswith(p.lower()) for p in prefixes)
+
+
+# The gateway refuses to START with a prefix list that does not admit the
+# key it generates when none is given: `hook:`, or defaultSessionKey when
+# set (2026.11.1; staging's gateway crash-looped on ["agent:main:main"]).
+default = hooks.get("defaultSessionKey") or ""
+own = default if default else "hook:"
+fits = covers(key) and (covers(own) if default else "hook:" in [p.lower() for p in prefixes])
+current = (hooks.get("enabled") is True and token
+           and hooks.get("allowRequestSessionKey") is True and fits)
+if not fits:
+    for needed in (own, key):
+        if needed == "hook:" and "hook:" not in [p.lower() for p in prefixes]:
+            prefixes.append("hook:")
+        elif needed != "hook:" and not covers(needed):
+            prefixes.append(needed)
+if agents is None:
+    # Nothing allowed yet: only ours. Hooks already on with no list are the
+    # person's, and narrowing them could break what they run.
+    write_agents = None if hooks.get("enabled") else ["main"]
+elif agents and "main" not in agents and "*" not in agents:
+    write_agents = [*agents, "main"]
+    current = False
+else:
+    write_agents = None
+print(token if plain else "")
+print("current" if current else "stale")
+print("ref" if token and not plain else "plain")
+print(json.dumps(prefixes))
+print(json.dumps(write_agents) if write_agents else "")
+print((config.get("session") or {}).get("dmScope") or "main")
+PY
+}
+
+# Which way an alert goes now, in words. The probe runs no turn: the gateway
+# checks the token first and the body after, so an accepted token gets 400.
+openclaw_push_status() {
+    local push token url code
+    push="$(env_get OPENCLAW_PUSH)"
+    if [ "$push" != agent ]; then
+        echo "message relay (hooks: not asked for, OPENCLAW_PUSH=${push:-message})"
+        return 0
+    fi
+    token="$(env_get OPENCLAW_HOOKS_TOKEN)"
+    if [ -z "$token" ]; then
+        echo "message relay (hooks: no OPENCLAW_HOOKS_TOKEN)"
+        return 0
+    fi
+    url="$(env_get OPENCLAW_URL)"
+    code="$(printf 'url = "%s"\nrequest = "POST"\nsilent\nmax-time = 10\noutput = "/dev/null"\nwrite-out = "%%{http_code}"\ndata = "{}"\nheader = "Content-Type: application/json"\nheader = "Authorization: Bearer %s"\n' \
+        "${url:-http://127.0.0.1:18789}/hooks/agent" "$(curl_cfg_quote "$token")" \
+        | curl -K - 2>/dev/null || echo 000)"
+    case "$code" in
+        400) echo "agent (hooks accepted)" ;;
+        401) echo "message relay (hooks: the token was rejected, 401)" ;;
+        404) echo "message relay (hooks: not enabled on the gateway, 404)" ;;
+        000*) echo "message relay (hooks: the gateway did not answer)" ;;
+        *) echo "message relay (hooks: unexpected HTTP $code)" ;;
+    esac
+}
+
+# Set up the hooks block and point the alerter at it. The token goes through
+# a 0600 file, as the MCP registration does: sudo logs the command it runs.
+openclaw_enable_hooks() {
+    local key out token state kind prefixes agents scope spec user failed=0
+    key="$(env_get OPENCLAW_SESSION)"; key="${key:-agent:main:main}"
+    if ! [[ "$key" =~ ^[A-Za-z0-9:._-]+$ ]]; then
+        echo "OPENCLAW_SESSION has characters a session key cannot have." >&2
+        return 1
+    fi
+    if ! out="$(openclaw_hooks_read "$key")" || [ -z "$out" ]; then
+        echo "Could not read ~/.openclaw/openclaw.json as plain JSON (comments or trailing" >&2
+        echo "commas?), or python3 is missing, so alerts stay on the message relay." >&2
+        echo "Set up its hooks by hand: docs/openclaw-integration.md, 'Push through the agent'." >&2
+        return 1
+    fi
+    { IFS= read -r token; IFS= read -r state; IFS= read -r kind
+      IFS= read -r prefixes; IFS= read -r agents; IFS= read -r scope; } <<< "$out"
+    if [ "$scope" != main ] && [ -z "$(env_get OPENCLAW_SESSION)" ]; then
+        echo "WARNING: session.dmScope is $scope, so your chat is not agent:main:main and a" >&2
+        echo "         follow-up will not see a push. Find your chat's session key with" >&2
+        echo "         'openclaw sessions', then: $(cli_name) config set OPENCLAW_SESSION KEY" >&2
+        echo "         and $(cli_name) openclaw --push agent" >&2
+    fi
+    [ -n "$token" ] || token="$(env_get OPENCLAW_HOOKS_TOKEN)"
+    if [ "$kind" = ref ] && [ -z "$token" ]; then
+        # Its value lives somewhere this command cannot read, and writing a
+        # new one over the reference would break whoever else uses it.
+        echo "hooks.token in your OpenClaw config is a reference to a secret, so its value" >&2
+        echo "is not readable here; alerts stay on the message relay. Give it to the alerter:" >&2
+        echo "  $(cli_name) config set OPENCLAW_HOOKS_TOKEN" >&2
+        echo "then: $(cli_name) openclaw --push agent" >&2
+        return 1
+    fi
+    [ -n "$token" ] || token="$(openssl rand -hex 32)"
+    [ -n "$token" ] || { echo "Could not generate a hooks token (openssl)." >&2; return 1; }
+    if [ "$state" != current ]; then
+        # One `config patch`, not a `config set` per key: each write goes
+        # through the running gateway, which may reload on it, and the next
+        # one then finds it gone (2026.11.1 on staging). The token is in the
+        # 0600 file, never in an argv: sudo logs the command, ps shows it.
+        local said
+        spec="$(mktemp)"
+        printf '%s' "$token" | python3 -c '
+import json, sys
+token, kind, prefixes, agents = sys.stdin.read(), sys.argv[1], sys.argv[2], sys.argv[3]
+hooks = {"enabled": True, "allowRequestSessionKey": True,
+         "allowedSessionKeyPrefixes": json.loads(prefixes)}
+if kind != "ref":
+    hooks["token"] = token
+if agents:
+    hooks["allowedAgentIds"] = json.loads(agents)
+print(json.dumps({"hooks": hooks}))' "$kind" "$prefixes" "$agents" > "$spec" || failed=1
+        user="$(openclaw_user)"
+        [ -z "$user" ] || chown "$user" "$spec" 2>/dev/null || true
+        if [ "$failed" = 0 ]; then
+            said="$(as_openclaw_user "$OPENCLAW_BIN" config patch --file "$spec" 2>&1)" || failed=1
+        fi
+        rm -f "$spec"
+        # Saved, but a busy gateway did not take it (2026.11.1 under load on
+        # staging): the file has the hooks, the gateway needs a restart to
+        # read them, and the alerter needs the token that is now in the file.
+        case "$said" in
+            *"persisted but was not applied"*)
+                failed=0
+                said="Restart the gateway to apply. ($said)" ;;
+        esac
+        if [ "$failed" = 1 ]; then
+            echo "'openclaw config patch' of hooks failed; alerts stay on the message relay." >&2
+            echo "OpenClaw 2026.10 or later has these hooks: 'openclaw --version' says which is here." >&2
+            said="${said//"$token"/<hooks token>}"
+            printf '%s\n' "${said:-}" | tail -3 | sed 's/^/  | /' >&2
+            return 1
+        fi
+        # `hooks` hot-reloads: restart only when OpenClaw says this one did
+        # not. On a 4 GB Pi a 2026.11 gateway restart is the heavy step: two
+        # close together stalled staging past its hardware watchdog (11-07).
+        case "$said" in
+            *"Restart the gateway to apply"*)
+                as_openclaw_user "$OPENCLAW_BIN" gateway restart >/dev/null 2>&1 \
+                    || echo "WARNING: 'openclaw gateway restart' failed; restart the gateway however you run it." >&2 ;;
+        esac
+    fi
+    env_set OPENCLAW_HOOKS_TOKEN "$token"
+    env_set OPENCLAW_PUSH agent
+}
+
+# The alerter reads these at start: recreate it if it runs here at all.
+openclaw_recreate_alerter() {
+    case ",$(profiles)," in
+        *,alerts,*) ;;
+        *) echo "The alerter is not enabled; '$(cli_name) alerts --openclaw' turns it on with this path."
+           return 0 ;;
+    esac
+    compose up -d --no-deps alerter >/dev/null 2>&1 \
+        || echo "WARNING: the alerter was not recreated: $(cli_name) logs alerter" >&2
+    [ "$(env_get NOTIFY_MODE)" = openclaw ] \
+        || echo "NOTIFY_MODE is not openclaw, so alerts do not use this yet: $(cli_name) alerts --openclaw"
+}
+
+# A gateway just restarted takes a moment: ask a few times before saying the
+# hooks do not answer.
+openclaw_report_push() {
+    local status i
+    for i in 1 2 3 4 5 6 7 8; do
+        status="$(openclaw_push_status)"
+        case "$status" in *"did not answer"*) sleep "${OPENCLAW_PROBE_SLEEP:-2}" ;; *) break ;; esac
+    done
+    echo "Alert push: $status"
+}
+
+# `--push agent|message`: which way alerts go, without pairing again.
+openclaw_switch_push() {
+    case "$1" in
+        agent)
+            OPENCLAW_BIN="$(openclaw_bin)"
+            if [ -z "$OPENCLAW_BIN" ]; then
+                echo "No 'openclaw' command on this machine, so the hooks cannot be set up here." >&2
+                return 1
+            fi
+            openclaw_enable_hooks || return 1 ;;
+        message) env_set OPENCLAW_PUSH message ;;
+        *) echo "--push takes agent or message" >&2; return 2 ;;
+    esac
+    openclaw_recreate_alerter
+    openclaw_report_push
+}
+
 cmd_openclaw() {
-    local check=0
+    local check=0 push=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --check) check=1; shift ;;
+            --push)
+                [ $# -ge 2 ] || { echo "--push takes agent or message" >&2; return 2; }
+                push="$2"; shift 2 ;;
             -h|--help)
-                echo "smoking-pi openclaw [--check]"
+                echo "smoking-pi openclaw [--check] [--push agent|message]"
                 echo "  Connect this stack to an OpenClaw gateway on this machine, or say"
-                echo "  exactly why it is not connected. --check only runs the verification."
+                echo "  exactly why it is not connected. --check only runs the verification,"
+                echo "  and says which way alerts go. --push switches that without pairing"
+                echo "  again. agent: the agent writes each alert in your chat, so you can"
+                echo "  reply to it; message: the alerter's fixed text, relayed."
                 return 0 ;;
             *) echo "unknown option $1" >&2; return 2 ;;
         esac
@@ -198,7 +423,14 @@ cmd_openclaw() {
     fi
     [ -f "$ENV_FILE" ] || { echo "no env file at $ENV_FILE: run 'smoking-pi install' first" >&2; return 1; }
 
-    [ "$check" = 1 ] && { openclaw_evidence; return $?; }
+    if [ "$check" = 1 ]; then
+        local check_rc=0
+        openclaw_evidence || check_rc=$?
+        echo
+        openclaw_report_push
+        return "$check_rc"
+    fi
+    [ -z "$push" ] || { openclaw_switch_push "$push"; return $?; }
 
     OPENCLAW_BIN="$(openclaw_bin)"
     if [ -z "$OPENCLAW_BIN" ]; then
@@ -295,7 +527,13 @@ cmd_openclaw() {
     # A failed chown surfaces below as a failed registration, not here.
     [ -z "$user" ] || chown "$user" "$spec" 2>/dev/null || true
     as_openclaw_user sh -c 'exec "$0" mcp set smokeping "$(cat "$1")"' "$OPENCLAW_BIN" "$spec" \
-        >/dev/null && registered=1
+        >/dev/null 2>&1 && registered=1
+    # OpenClaw 2026.11 refuses `mcp set` while its gateway runs ("requires
+    # exclusive offline state ownership"). It only writes mcp.servers, and a
+    # `config set` of the same entry goes through the running gateway.
+    [ "$registered" = 1 ] || as_openclaw_user sh -c \
+        'exec "$0" config set mcp.servers.smokeping "$(cat "$1")" --strict-json' "$OPENCLAW_BIN" "$spec" \
+        >/dev/null 2>&1 && registered=1
     rm -f "$spec"
     if [ "$registered" = 1 ]; then
         echo "4/5  Registered as 'smokeping' with OpenClaw."
@@ -303,6 +541,15 @@ cmd_openclaw() {
         echo "4/5  'openclaw mcp set' failed. Run it by hand from" >&2
         echo "     docs/openclaw-integration.md and re-run this." >&2
         return 1
+    fi
+
+    # The hooks before the skill: its --reload restarts the gateway, and that
+    # one restart is all both need. Alerts through the agent, so a reply has
+    # the context. Not a failure of the connection if they cannot: alerts keep
+    # the relay. A person who chose the relay with --push message keeps it.
+    local hooks_ok=0
+    if [ "$(env_get OPENCLAW_PUSH)" != message ] && openclaw_enable_hooks; then
+        hooks_ok=1
     fi
 
     if [ -x "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" ]; then
@@ -323,6 +570,14 @@ cmd_openclaw() {
     else
         echo "5/5  WARNING: install-openclaw-skill.sh not found; the agent will answer" >&2
         echo "     from its own shell until the skill is installed." >&2
+    fi
+
+    echo
+    if [ "$(env_get OPENCLAW_PUSH)" = message ] && [ "$hooks_ok" = 0 ]; then
+        echo "Alert push: message relay (your choice; $(cli_name) openclaw --push agent changes it)."
+    else
+        [ "$hooks_ok" = 0 ] || openclaw_recreate_alerter
+        openclaw_report_push
     fi
 
     echo

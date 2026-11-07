@@ -43,6 +43,9 @@ SCRUB_ENV_VARS = [
     # developer's own shell. Anything the alerter reads belongs here.
     "OPENCLAW_GATEWAY_TOKEN",
     "OPENCLAW_HOOK_PATH",
+    "OPENCLAW_PUSH",
+    "OPENCLAW_HOOKS_TOKEN",
+    "OPENCLAW_SESSION",
     "ALERT_RESOLVE_AFTER",
     "ALERT_MAX_PER_HOUR",
     "STALE_WINDOW",

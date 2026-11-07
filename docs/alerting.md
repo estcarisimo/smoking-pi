@@ -630,6 +630,11 @@ INFO alerter.notifier: Delivery preflight: http://127.0.0.1:18789/tools/invoke
 reachable, 'message' tool permitted (HTTP 200)
 ```
 
+`OPENCLAW_PUSH=agent` (`smoking-pi openclaw --push agent`) hands an opening episode
+to the agent, which writes it in the conversation where you will reply, with this
+relay as the fallback. What must not sound stays on this relay, and the agent gets
+it as an undelivered note: [Push through the agent](openclaw-integration.md#push-through-the-agent).
+
 Use `telegram` mode above, or `webhook` below, if you want something with no OpenClaw version
 dependency. Full recipe, including MCP registration:
 [docs/openclaw-integration.md](openclaw-integration.md).
@@ -803,6 +808,9 @@ checks in once per iteration, so set the check's period to match.
 | `OPENCLAW_GATEWAY_TOKEN` | — | Gateway token (`gateway.auth.token` in `openclaw.json`) |
 | `OPENCLAW_HOOK_TOKEN` | — | Legacy alias for the above; `OPENCLAW_GATEWAY_TOKEN` wins |
 | `OPENCLAW_CHANNEL` | `telegram` | Delivery channel |
+| `OPENCLAW_PUSH` | `message` | `agent`: an opening goes to the agent, which writes it in your chat, with the relay as the fallback, and what must not sound stays on the relay with a note to the agent; `message`: the fixed text, relayed. Set with `smoking-pi openclaw --push` |
+| `OPENCLAW_HOOKS_TOKEN` | — | `hooks.token` in `openclaw.json`, not the Gateway token; `smoking-pi openclaw` generates it |
+| `OPENCLAW_SESSION` | `agent:main:main` | The session an agent push lands in; change it only with a `session.dmScope` other than `main` |
 | `OPENCLAW_TO` | — | Recipient in OpenClaw's address form, e.g. `telegram:123456789` — a bare chat id will not deliver. Find it with `openclaw gateway call sessions-list` |
 | `ALERT_WEBHOOK_URL` | — | Generic webhook endpoint |
 | `ALERT_WEBHOOK_TOKEN` | — | Optional bearer token for the webhook |

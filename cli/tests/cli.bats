@@ -1227,14 +1227,15 @@ install_on_a_tty() {
 # A stubbed gateway plus a stubbed skill installer: the real one writes into
 # ~/.openclaw, which a test must not touch.
 stub_openclaw() {
-    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\nexit %s\n' "$DOCKER_LOG" "${1:-0}" \
+    # A hooks patch is a file: logged as one PATCH line, as the gateway reads it.
+    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\n[ "$1 $2 $3" = "config patch --file" ] && { printf "PATCH "; cat "$4"; } >> "%s"\nexit %s\n' "$DOCKER_LOG" "$DOCKER_LOG" "${1:-0}" \
         > "$BATS_TEST_TMPDIR/bin/openclaw"
     # Records argv AND the config curl reads on stdin, so a test can tell
     # "the credential is not on the command line" from "the credential
     # never arrived" -- which look identical if you only assert an absence.
     # The config curl reads on stdin is multi-line; flatten it to one log
     # line so a test can assert on it.
-    printf '#!/bin/sh\necho "CURL $*" >> "%s"\nif [ "$1" = "-K" ]; then cfg=$(cat | tr "\\n" " "); echo "CURLCFG $cfg" >> "%s"; case "$cfg" in *Authorization*) echo 200 ;; *) echo 401 ;; esac; else echo 401; fi\n' \
+    printf '#!/bin/sh\necho "CURL $*" >> "%s"\nif [ "$1" = "-K" ]; then cfg=$(cat | tr "\\n" " "); echo "CURLCFG $cfg" >> "%s"; case "$cfg" in *hooks/agent*) echo "${STUB_HOOK_CODE:-400}" ;; *Authorization*) echo 200 ;; *) echo 401 ;; esac; else echo 401; fi\n' \
         "$DOCKER_LOG" "$DOCKER_LOG" > "$BATS_TEST_TMPDIR/bin/curl"
     mkdir -p "$STUB_HOME/shared/scripts"
     printf '#!/bin/sh\necho "SKILL $*" >> "%s"\nexit "${STUB_SKILL_RC:-0}"\n' "$DOCKER_LOG" \
@@ -1339,6 +1340,19 @@ STUB
     if grep -q 'require-rpc' "$DOCKER_LOG"; then false; fi
 }
 
+@test "openclaw registers through config set when the gateway refuses mcp set (2026.11)" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\ncase "$*" in "mcp set"*) echo "requires exclusive offline state ownership" >&2; exit 1 ;; esac\n' "$DOCKER_LOG" \
+        > "$BATS_TEST_TMPDIR/bin/openclaw"
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q 'openclaw config set mcp.servers.smokeping' "$DOCKER_LOG"
+    grep -q -- '--strict-json' "$DOCKER_LOG"
+    [[ "$output" == *"4/5  Registered as 'smokeping'"* ]]
+    [[ "$output" != *"offline state ownership"* ]]
+}
+
 @test "openclaw keeps an existing token and does not duplicate the mcp profile" {
     printf 'COMPOSE_PROFILES=influxdb,mcp\nMCP_API_TOKEN=keepme\n' > "$SMOKING_PI_ENV_FILE"
     stub_openclaw
@@ -1354,7 +1368,7 @@ STUB
 stub_nvm_openclaw() {
     local d="$1/.nvm/versions/node/$2/bin"
     mkdir -p "$d"
-    printf '#!/bin/sh\necho "nvm-%s openclaw $*" >> "%s"\n' "$2" "$DOCKER_LOG" > "$d/openclaw"
+    printf '#!/bin/sh\necho "nvm-%s openclaw $*" >> "%s"\n[ "$1 $2 $3" = "config patch --file" ] && { printf "PATCH "; cat "$4"; } >> "%s"\nexit 0\n' "$2" "$DOCKER_LOG" "$DOCKER_LOG" > "$d/openclaw"
     chmod +x "$d/openclaw"
 }
 
@@ -1432,8 +1446,15 @@ stub_nvm_openclaw() {
     [ ! -e "$(sed -n 's/^CHOWN alice //p' "$DOCKER_LOG")" ]
     grep -q 'nvm-v24.18.0 openclaw mcp set smokeping' "$DOCKER_LOG"
     # The skill goes into alice's ~/.openclaw too, not root's.
-    [ "$(grep -c 'SUDO -u alice -H' "$DOCKER_LOG")" -eq 2 ]
+    [ "$(grep -cE 'SUDO -u alice -H.*(mcp set|install-openclaw-skill)' "$DOCKER_LOG")" -eq 2 ]
     grep -q 'SKILL --reload' "$DOCKER_LOG"
+    # The hooks too, with the token never on sudo's command line either.
+    token="$(sed -n 's/^OPENCLAW_HOOKS_TOKEN=//p' "$SMOKING_PI_ENV_FILE")"
+    [ -n "$token" ]
+    grep -q 'SUDO -u alice -H.*config patch --file' "$DOCKER_LOG"
+    grep -q "^PATCH .*\"token\": \"$token\"" "$DOCKER_LOG"
+    if grep -q "openclaw .*$token" "$DOCKER_LOG"; then false; fi
+    if grep -q "^SUDO .*$token" "$DOCKER_LOG"; then false; fi
 }
 
 # The trap the whole verification exists for: the agent answers fluently
@@ -1534,6 +1555,284 @@ STUB
     # ...and curl was driven from stdin, with the header actually present.
     grep -q '^CURL -K -' "$DOCKER_LOG"
     grep -q 'CURLCFG .*Authorization: Bearer tok123deadbeef' "$DOCKER_LOG"
+}
+
+# --- Alerts through the agent (OPENCLAW_PUSH) -------------------------------
+
+openclaw_json() {
+    mkdir -p "$HOME/.openclaw"
+    printf '%s' "$1" > "$HOME/.openclaw/openclaw.json"
+}
+
+@test "openclaw sets up the hooks, keeps the token out of its output and recreates the alerter" {
+    printf 'COMPOSE_PROFILES=alerts,mcp\nNOTIFY_MODE=openclaw\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^OPENCLAW_HOOKS_TOKEN=[0-9a-f]\{64\}$' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'OPENCLAW_PUSH=agent' "$SMOKING_PI_ENV_FILE"
+    token="$(sed -n 's/^OPENCLAW_HOOKS_TOKEN=//p' "$SMOKING_PI_ENV_FILE")"
+    [[ "$output" != *"$token"* ]]
+    # One patch, the token in its file and in no command line.
+    [ "$(grep -c '^openclaw config patch --file' "$DOCKER_LOG")" -eq 1 ]
+    if grep -q "^openclaw .*$token" "$DOCKER_LOG"; then false; fi
+    grep -q "^PATCH .*\"token\": \"$token\"" "$DOCKER_LOG"
+    grep -q '^PATCH .*"enabled": true' "$DOCKER_LOG"
+    grep -q '^PATCH .*"allowRequestSessionKey": true' "$DOCKER_LOG"
+    # Only the one conversation may be named by a caller, and only one agent.
+    grep -q '^PATCH .*"allowedSessionKeyPrefixes": \["hook:", "agent:main:main"\]' "$DOCKER_LOG"
+    grep -q '^PATCH .*"allowedAgentIds": \["main"\]' "$DOCKER_LOG"
+    # hooks hot-reload: no restart of its own, and the patch comes before
+    # the skill's reload, whose one restart is all both need.
+    if grep -q 'openclaw gateway restart' "$DOCKER_LOG"; then false; fi
+    [ "$(grep -n 'config patch' "$DOCKER_LOG" | cut -d: -f1)" -lt "$(grep -n 'SKILL --reload' "$DOCKER_LOG" | cut -d: -f1)" ]
+    grep -q 'up -d --no-deps alerter' "$DOCKER_LOG"
+    [[ "$output" == *"Alert push: agent (hooks accepted)"* ]]
+}
+
+@test "openclaw: hooks saved but not taken by a busy gateway are kept and the gateway restarted" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{}'
+    stub_openclaw
+    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\ncase "$*" in "config patch"*) echo "config.patch persisted but was not applied to the active Gateway (failed) | UNAVAILABLE" >&2; exit 1 ;; esac\n' "$DOCKER_LOG" \
+        > "$BATS_TEST_TMPDIR/bin/openclaw"
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^OPENCLAW_HOOKS_TOKEN=.' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'OPENCLAW_PUSH=agent' "$SMOKING_PI_ENV_FILE"
+    [ "$(grep -c 'openclaw gateway restart' "$DOCKER_LOG")" -eq 1 ]
+}
+
+@test "openclaw restarts the gateway for the hooks only when OpenClaw says so" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{}'
+    stub_openclaw
+    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\ncase "$*" in "config patch"*) echo "Restart the gateway to apply." ;; esac\n' "$DOCKER_LOG" \
+        > "$BATS_TEST_TMPDIR/bin/openclaw"
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'openclaw gateway restart' "$DOCKER_LOG")" -eq 1 ]
+}
+
+@test "openclaw keeps the token and the gateway running when the hooks are already set up" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{"hooks":{"enabled":true,"token":"existing-hooks-token","allowRequestSessionKey":true,"allowedSessionKeyPrefixes":["hook:","agent:main:main"]}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_HOOKS_TOKEN=existing-hooks-token' "$SMOKING_PI_ENV_FILE"
+    if grep -q 'config patch' "$DOCKER_LOG"; then false; fi
+    if grep -q 'openclaw gateway restart' "$DOCKER_LOG"; then false; fi
+    [[ "$output" == *"'smoking-pi alerts --openclaw' turns it on"* ]]
+}
+
+@test "openclaw reuses a token already in openclaw.json and adds to a person's own lists" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{"hooks":{"enabled":true,"token":"mine","allowedAgentIds":["reader"],"allowedSessionKeyPrefixes":["hook:gmail:"]}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_HOOKS_TOKEN=mine' "$SMOKING_PI_ENV_FILE"
+    grep -q '^PATCH .*"allowedSessionKeyPrefixes": \["hook:gmail:", "hook:", "agent:main:main"\]' "$DOCKER_LOG"
+    grep -q '^PATCH .*"allowedAgentIds": \["reader", "main"\]' "$DOCKER_LOG"
+}
+
+@test "openclaw does not narrow hooks a person left open to every agent" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{"hooks":{"enabled":true,"token":"mine"}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^PATCH ' "$DOCKER_LOG"
+    if grep -q 'allowedAgentIds' "$DOCKER_LOG"; then false; fi
+}
+
+@test "openclaw keeps hooks that were open to every session key open to their own" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{"hooks":{"enabled":true,"token":"mine"}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^PATCH .*"allowedSessionKeyPrefixes": \["hook:", "agent:main:main"\]' "$DOCKER_LOG"
+}
+
+@test "openclaw never writes a prefix list the gateway refuses to start with" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    # What staging had after the first version of this: the gateway would not start.
+    openclaw_json '{"hooks":{"enabled":true,"token":"t","allowRequestSessionKey":true,"allowedSessionKeyPrefixes":["agent:main:main"]}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^PATCH .*"allowedSessionKeyPrefixes": \["agent:main:main", "hook:"\]' "$DOCKER_LOG"
+    # With a default key of its own, that key is what must be admitted.
+    : > "$DOCKER_LOG"
+    openclaw_json '{"hooks":{"enabled":true,"token":"t","defaultSessionKey":"ops:inbox","allowedSessionKeyPrefixes":["ops:"]}}'
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^PATCH .*"allowedSessionKeyPrefixes": \["ops:", "agent:main:main"\]' "$DOCKER_LOG"
+}
+
+@test "openclaw does not override an agent list that denies every agent" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{"hooks":{"enabled":true,"token":"mine","allowedAgentIds":[]}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^PATCH ' "$DOCKER_LOG"
+    if grep -q 'allowedAgentIds' "$DOCKER_LOG"; then false; fi
+}
+
+@test "openclaw does not write over a hooks token that is a reference" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    for ref in '"${HOOKS_TOKEN}"' '{"source":"env","id":"HOOKS_TOKEN"}'; do
+        : > "$DOCKER_LOG"
+        openclaw_json '{"hooks":{"enabled":true,"token":'"$ref"'}}'
+        stub_openclaw
+        run "$CLI" openclaw
+        [ "$status" -eq 0 ]
+        [[ "$output" == *"is a reference to a secret"* ]]
+        if grep -q 'config patch' "$DOCKER_LOG"; then false; fi
+        if grep -q '^OPENCLAW_HOOKS_TOKEN=' "$SMOKING_PI_ENV_FILE"; then false; fi
+    done
+    # With its value given by hand, the rest is set up around it.
+    printf 'OPENCLAW_HOOKS_TOKEN=by-hand\n' >> "$SMOKING_PI_ENV_FILE"
+    run "$CLI" openclaw --push agent
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_HOOKS_TOKEN=by-hand' "$SMOKING_PI_ENV_FILE"
+    grep -q '^PATCH .*"enabled": true' "$DOCKER_LOG"
+    if grep -q '"token"' "$DOCKER_LOG"; then false; fi
+}
+
+@test "openclaw does not take a config it cannot read for one with no hooks" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{ // JSON5
+  hooks: {enabled: true, token: "mine"}, }'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"as plain JSON"* ]]
+    if grep -q 'config patch' "$DOCKER_LOG"; then false; fi
+    if grep -q '^OPENCLAW_HOOKS_TOKEN=' "$SMOKING_PI_ENV_FILE"; then false; fi
+}
+
+@test "openclaw leaves a relay chosen with --push message alone" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\nOPENCLAW_PUSH=message\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_PUSH=message' "$SMOKING_PI_ENV_FILE"
+    if grep -q 'config patch' "$DOCKER_LOG"; then false; fi
+    [[ "$output" == *"Alert push: message relay (your choice"* ]]
+}
+
+@test "openclaw warns when direct messages are not in the main session" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{"session":{"dmScope":"per-channel-peer"}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"session.dmScope is per-channel-peer"* ]]
+    [[ "$output" == *"smoking-pi config set OPENCLAW_SESSION"* ]]
+}
+
+@test "openclaw allows the session key that was asked for" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\nOPENCLAW_SESSION=agent:main:telegram:direct:1\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{"session":{"dmScope":"per-channel-peer"}}'
+    stub_openclaw
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    grep -q '^PATCH .*"allowedSessionKeyPrefixes": \["hook:", "agent:main:telegram:direct:1"\]' "$DOCKER_LOG"
+    [[ "$output" != *"session.dmScope is"* ]]
+}
+
+@test "openclaw: hooks that cannot be set leave alerts on the relay, and the connection stands" {
+    printf 'COMPOSE_PROFILES=mcp\nMCP_API_TOKEN=abc\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{}'
+    stub_openclaw
+    printf '#!/bin/sh\necho "openclaw $*" >> "%s"\ncase "$*" in "config patch"*) echo "schema refused" >&2; exit 1 ;; esac\n' "$DOCKER_LOG" \
+        > "$BATS_TEST_TMPDIR/bin/openclaw"
+    run "$CLI" openclaw
+    [ "$status" -eq 0 ]
+    if grep -q '^OPENCLAW_PUSH=' "$SMOKING_PI_ENV_FILE"; then false; fi
+    if grep -q '^OPENCLAW_HOOKS_TOKEN=' "$SMOKING_PI_ENV_FILE"; then false; fi
+    [[ "$output" == *"alerts stay on the message relay"* ]]
+    [[ "$output" == *"| schema refused"* ]]
+    [[ "$output" == *"Alert push: message relay"* ]]
+    if grep -q 'openclaw gateway restart' "$DOCKER_LOG"; then false; fi
+}
+
+@test "openclaw --push agent switches without pairing again" {
+    printf 'COMPOSE_PROFILES=alerts,mcp\nNOTIFY_MODE=openclaw\nMCP_API_TOKEN=abc\nOPENCLAW_PUSH=message\n' > "$SMOKING_PI_ENV_FILE"
+    openclaw_json '{}'
+    stub_openclaw
+    run "$CLI" openclaw --push agent
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_PUSH=agent' "$SMOKING_PI_ENV_FILE"
+    if grep -q 'openclaw mcp set' "$DOCKER_LOG"; then false; fi
+    if grep -q 'SKILL' "$DOCKER_LOG"; then false; fi
+    grep -q 'up -d --no-deps alerter' "$DOCKER_LOG"
+    [[ "$output" == *"Alert push: agent (hooks accepted)"* ]]
+}
+
+@test "openclaw --push message switches back and leaves the gateway alone" {
+    printf 'COMPOSE_PROFILES=alerts,mcp\nNOTIFY_MODE=openclaw\nOPENCLAW_PUSH=agent\nOPENCLAW_HOOKS_TOKEN=t\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw --push message
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_PUSH=message' "$SMOKING_PI_ENV_FILE"
+    if grep -q '^openclaw ' "$DOCKER_LOG"; then false; fi
+    grep -q 'up -d --no-deps alerter' "$DOCKER_LOG"
+    [[ "$output" == *"Alert push: message relay (hooks: not asked for, OPENCLAW_PUSH=message)"* ]]
+}
+
+@test "openclaw --push takes agent or message" {
+    printf 'COMPOSE_PROFILES=mcp\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw --push sideways
+    [ "$status" -eq 2 ]
+    run "$CLI" openclaw --push
+    [ "$status" -eq 2 ]
+}
+
+@test "openclaw --push agent with no openclaw here changes nothing" {
+    printf 'COMPOSE_PROFILES=alerts,mcp\nOPENCLAW_PUSH=message\n' > "$SMOKING_PI_ENV_FILE"
+    PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/empty" run "$CLI" openclaw --push agent
+    [ "$status" -eq 1 ]
+    grep -qx 'OPENCLAW_PUSH=message' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"No 'openclaw' command"* ]]
+}
+
+@test "openclaw --check says which way alerts go, in every state of the hooks" {
+    printf 'COMPOSE_PROFILES=mcp\nOPENCLAW_PUSH=agent\nOPENCLAW_HOOKS_TOKEN=secret-hook\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw --check
+    [[ "$output" == *"Alert push: agent (hooks accepted)"* ]]
+    # Sent on stdin to curl, never in argv, and never shown.
+    if grep -q '^CURL .*secret-hook' "$DOCKER_LOG"; then false; fi
+    grep -q 'CURLCFG .*hooks/agent.*Authorization: Bearer secret-hook' "$DOCKER_LOG"
+    [[ "$output" != *"secret-hook"* ]]
+    STUB_HOOK_CODE=404 run "$CLI" openclaw --check
+    [[ "$output" == *"Alert push: message relay (hooks: not enabled on the gateway, 404)"* ]]
+    STUB_HOOK_CODE=401 run "$CLI" openclaw --check
+    [[ "$output" == *"Alert push: message relay (hooks: the token was rejected, 401)"* ]]
+    OPENCLAW_PROBE_SLEEP=0 STUB_HOOK_CODE=000 run "$CLI" openclaw --check
+    [[ "$output" == *"Alert push: message relay (hooks: the gateway did not answer)"* ]]
+    printf 'COMPOSE_PROFILES=mcp\nOPENCLAW_PUSH=agent\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" openclaw --check
+    [[ "$output" == *"Alert push: message relay (hooks: no OPENCLAW_HOOKS_TOKEN)"* ]]
+    printf 'COMPOSE_PROFILES=mcp\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" openclaw --check
+    [[ "$output" == *"Alert push: message relay (hooks: not asked for, OPENCLAW_PUSH=message)"* ]]
+}
+
+@test "openclaw --check keeps its verdict, whichever way alerts go" {
+    printf 'COMPOSE_PROFILES=mcp\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw --check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"NOT connected"* ]]
 }
 
 # The token is interpolated into the JSON handed to `openclaw mcp set`. A
