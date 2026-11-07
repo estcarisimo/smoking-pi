@@ -125,6 +125,11 @@ cmd_services() {
             pathmeter) echo "The first paths arrive about two minutes after start; what they cost shows in '$(cli_name) budget' after the first cycle." ;;
         esac
     done
+    # The OpenClaw automations' checks call the MCP server: without it, every
+    # one of their runs would be an error.
+    if [ "$action" = disable ] && [[ " ${changed[*]} " == *" mcp "* ]]; then
+        openclaw_automations_cleanup || true
+    fi
     [ "$action" = enable ] || echo "Their data stays in the volumes until '$(cli_name) purge'."
 }
 

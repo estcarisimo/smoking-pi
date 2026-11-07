@@ -991,6 +991,17 @@ switch.
 | `WEEKLY_SILENT` | `true` | Deliver without a notification sound |
 | `DIGEST_ENABLED`, `DIGEST_AT` | *(unset)* | The retired daily digest's, read only to map an upgraded install: `DIGEST_ENABLED=true` with no `WEEKLY_ENABLED` turns the weekly on, at `DIGEST_AT` when `WEEKLY_AT` is unset ([Upgrades](upgrades.md#settings-retired-or-renamed)) |
 
+### Who sends it
+
+| Delivery | The weekly |
+| --- | --- |
+| `NOTIFY_MODE=openclaw`, `OPENCLAW_PUSH=agent` | The OpenClaw agent, from the `Smoking Pi weekly` automation that `smoking-pi openclaw` sets up: it reads the same week with `get_weekly_summary` and narrates it, only when the week has news. The alerter does not send it, and logs `Weekly for slot ... handed to the agent automation (OPENCLAW_PUSH=agent): not sent by the alerter` ([openclaw-integration.md](openclaw-integration.md#heartbeat-and-weekly-through-the-agent)) |
+| `NOTIFY_MODE=openclaw` with the relay (`OPENCLAW_PUSH=message`, the default), `telegram`, `webhook` | The alerter, as described here |
+
+Both read and judge the week with the same code (`common/weekly.py`), so "is
+it news?" has one answer. `smoking-pi openclaw --push message` hands the
+weekly back to the alerter and removes the automation.
+
 ### The week
 
 The week is the seven calendar days before 00:00 of the slot's day, in

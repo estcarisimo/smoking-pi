@@ -11,6 +11,31 @@ version gets a matching GitHub release and git tag.
 
 ### Added
 
+- **The OpenClaw agent's heartbeat and weekly now come from the Pi**
+  (`smoking-pi openclaw automations [--interval 1h|3h|6h] [--disable]
+  [--disable-builtin-heartbeat]`, also run by `smoking-pi openclaw`). The
+  agent's only scheduled turn was OpenClaw's own heartbeat, a model turn
+  every 30 minutes that read `HEARTBEAT.md` and never looked at the Pi: 48
+  turns a day of the ChatGPT quota prod runs on, for nothing. The weekly was
+  the alerter's fixed text, which the agent never saw, so "what about that
+  Tuesday?" had no context; and what the alerter does not push (a recurring
+  window appearing, a cluster of short losses, the monitor blind with
+  nothing said) reached nobody. Now two OpenClaw automations post to
+  `OPENCLAW_TO`: `Smoking Pi heartbeat`, every hour by day in `DIGEST_TZ`, and
+  `Smoking Pi weekly`, on `WEEKLY_DAY` at `WEEKLY_AT`. Each is a condition
+  script first: the gateway calls `get_updates_since` or
+  `get_weekly_summary` before any model turn and wakes the agent only on
+  `worth_mentioning` or a week with `has_material`, so a quiet day costs no
+  model turn (one turn is about 15,000 tokens). The script's saved state, not
+  a prompt, is what prevents a repeat: a cursor where its last look ended,
+  and the day it last spoke, so the heartbeat says at most one unsolicited
+  thing a day, and nothing between the quiet hours (23:00–07:00 by default),
+  where it does not even run. The command leaves a job that already matches
+  untouched, because an edit resets that state. `--check` reports both, their
+  delivery, last run and the check's last verdict; `disable mcp` and `purge`
+  remove them; `--disable-builtin-heartbeat` turns OpenClaw's own heartbeat
+  off, only when asked. docs/openclaw-integration.md, "Heartbeat and weekly
+  through the agent", has both prompts verbatim and the quota math.
 - **Alerts through the OpenClaw agent, so you can reply to them**
   (`OPENCLAW_PUSH=agent`, `smoking-pi openclaw --push agent|message`). The
   alerter relayed a fixed text through OpenClaw's `message` tool and the agent
@@ -54,6 +79,13 @@ version gets a matching GitHub release and git tag.
   both on a heartbeat.
 
 ### Changed
+
+- **With `OPENCLAW_PUSH=agent` the alerter no longer sends the weekly
+  summary**: the `Smoking Pi weekly` automation narrates the same week, read
+  by the same code, and both sending would say the week twice. The alerter
+  logs `Weekly for slot ... handed to the agent automation` and does not read
+  the week at all; with the relay, Telegram or a webhook it sends it as
+  before. `smoking-pi openclaw --push message` hands it back.
 
 - **The weekly summary's reading and judging moved to
   `common/weekly.py`**, so the alerter's message and the MCP server's

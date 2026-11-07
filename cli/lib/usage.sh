@@ -143,7 +143,19 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      --push agent: the agent writes each alert in your chat,
                      so you can reply to it (sets up its hooks); --push
                      message: the alerter's fixed text, relayed.
+                     It also sets up the heartbeat and the weekly (below);
+                     --check reports them.
                      Pro only; OpenClaw elsewhere: docs/remote-openclaw.md.
+  openclaw automations [--interval 1h|3h|6h] [--disable] [--disable-builtin-heartbeat]
+                     Two OpenClaw automations posting to OPENCLAW_TO: the
+                     heartbeat (get_updates_since; at most one message a day,
+                     never at night) and, with --push agent and the weekly on,
+                     the weekly (get_weekly_summary; only a week with news).
+                     A look that finds nothing costs no model turn.
+                     --interval: how often the heartbeat looks (default 1h).
+                     --disable removes both; --disable-builtin-heartbeat turns
+                     off OpenClaw's own heartbeat, a model turn every 30-60
+                     min that never looks at this Pi.
   budget [--json]
                      What the configured measurements cost (Standard, Pro):
                      samples per hour and approximate MB per day per probe,

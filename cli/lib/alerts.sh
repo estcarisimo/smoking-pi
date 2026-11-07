@@ -377,6 +377,8 @@ cmd_alerts() {
         [ -z "$week_day" ] || alerts_set_weekly "$week_day" "$week_at"
         [ -z "$quiet" ] || alerts_set_quiet "$quiet"
         config_apply WEEKLY_AT
+        # The OpenClaw automations run on the same schedule, night and zone.
+        [ "$SMOKING_PI_EDITION" != pro ] || openclaw_automations_follow
         return 0
     fi
     if [ -z "$mode" ]; then
@@ -464,6 +466,8 @@ cmd_alerts() {
     started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     # shellcheck disable=SC2086  # one word per service
     compose up -d $services
+    # The weekly is the OpenClaw automation's only with NOTIFY_MODE=openclaw.
+    [ "$SMOKING_PI_EDITION" != pro ] || openclaw_automations_follow
     [ "$mode" = off ] && return 0
 
     local line; line="$(alerter_preflight_line "$started")"

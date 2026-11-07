@@ -53,7 +53,7 @@ merge: CI proves it builds, the Pi proves it runs.
 | `editions/{basic,standard,pro}/` | Compose files, `setup.sh`, `.env.template`, per-edition config |
 | `shared/modules/config-manager/` | Flask API; YAML ↔ PostgreSQL ↔ generated SmokePing `Targets`/`Probes` |
 | `shared/modules/web-admin/` | Flask UI; talks to config-manager and PostgreSQL |
-| `shared/modules/alerter/` | Rules → verdict → chart → delivery (OpenClaw / webhook), daily digest |
+| `shared/modules/alerter/` | Rules → verdict → chart → delivery (OpenClaw / webhook), weekly summary — with `OPENCLAW_PUSH=agent` the weekly is the OpenClaw automation's (`smoking-pi openclaw automations`), never both |
 | `shared/modules/mcp-server/` | MCP tools over the config API and InfluxDB; deep links |
 | `shared/modules/smokeping-exporters/` | RRD → InfluxDB/ClickHouse; CPE microcut detector |
 | `shared/modules/doctor/` | Static + live checks that the pieces agree |

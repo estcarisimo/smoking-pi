@@ -390,10 +390,496 @@ openclaw_switch_push() {
     esac
     openclaw_recreate_alerter
     openclaw_report_push
+    openclaw_automations_follow
+}
+
+# After --push: the weekly is the agent's with agent, the alerter's with
+# message, so automations already set up follow. None set up: none created.
+openclaw_automations_follow() {
+    OPENCLAW_BIN="${OPENCLAW_BIN:-$(openclaw_bin)}"
+    [ -n "$OPENCLAW_BIN" ] && command -v python3 >/dev/null || return 0
+    OC_JOBS="$(openclaw_jobs)" || return 0
+    [ -n "$(openclaw_job_field heartbeat 2)$(openclaw_job_field weekly 2)" ] || return 0
+    echo
+    openclaw_automations_sync "" || true
+}
+
+# --- Automations: the heartbeat and the weekly, through the agent ------------
+# docs/openclaw-integration.md, "Heartbeat and weekly through the agent".
+# Two OpenClaw automations, each behind a condition script the gateway runs
+# before any model turn. The script asks the MCP server (get_updates_since,
+# get_weekly_summary) and wakes the agent only when the tool says there is
+# something to say, so a quiet hour is one MCP call and no model quota. The
+# script's saved state (OpenClaw's trigger.state) is the memory between runs:
+# where the last look ended, and the day the heartbeat last spoke. A note in a
+# prompt is not state, and an isolated turn remembers nothing.
+
+OPENCLAW_HEARTBEAT_NAME="Smoking Pi heartbeat"
+OPENCLAW_WEEKLY_NAME="Smoking Pi weekly"
+OPENCLAW_MANAGED="Managed by smoking-pi openclaw automations"
+# What each turn may call: only what it reads. The gate scripts reach the MCP
+# server only through tools named here (server__tool).
+OPENCLAW_HEARTBEAT_TOOLS="smokeping__get_updates_since,smokeping__get_notification_history"
+OPENCLAW_WEEKLY_TOOLS="smokeping__get_weekly_summary"
+
+# Minutes since midnight of an HH:MM; empty when it is not one.
+hhmm_minutes() {
+    [[ "${1:-}" =~ ^([01]?[0-9]|2[0-3]):([0-5][0-9])$ ]] || return 0
+    echo $(( 10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]} ))
+}
+
+minutes_hhmm() { printf '%02d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
+
+# The night, as "FROM UNTIL" in minutes: the alerter's quiet hours when both
+# are set, else 23:00-07:00 (the notification policy's night).
+openclaw_night() {
+    local from until
+    from="$(hhmm_minutes "$(env_get QUIET_FROM)")"
+    until="$(hhmm_minutes "$(env_get QUIET_UNTIL)")"
+    if [ -z "$from" ] || [ -z "$until" ] || [ "$from" = "$until" ]; then
+        from=1380 until=420
+    fi
+    echo "$from $until"
+}
+
+# The zone the automations' crons run in: the messages' (DIGEST_TZ, then TZ).
+# Empty: the gateway host's own, which is what OpenClaw uses without --tz.
+openclaw_zone() {
+    local tz; tz="$(env_get DIGEST_TZ)"
+    [ -n "$tz" ] || tz="$(env_get TZ)"
+    [[ "$tz" =~ ^[A-Za-z0-9_+/-]+$ ]] && echo "$tz" || true
+}
+
+# The heartbeat's hours, comma-separated in numeric order: every $1th whole
+# hour of the day, counted from the first one after the night ($2 $3).
+openclaw_day_hours() {
+    local step=$1 from=$2 until=$3 start k h m i=0 out=()
+    start=$(( (until + 59) / 60 ))
+    for ((k = 0; k < 24; k++)); do
+        h=$(( (start + k) % 24 )); m=$(( h * 60 ))
+        if (( from > until )); then
+            (( m >= from || m < until )) && continue
+        else
+            (( m >= from && m < until )) && continue
+        fi
+        (( i % step == 0 )) && out+=("$h")
+        i=$(( i + 1 ))
+    done
+    # Runs of three or more as cron ranges: 7-22, not 7,8,...,22.
+    printf '%s\n' "${out[@]}" | sort -n | awk '
+        function flush() { if (n == "") return
+            s = (n == p) ? n : (p == n + 1) ? n "," p : n "-" p
+            o = o (o == "" ? "" : ",") s }
+        { if (n != "" && $1 == p + 1) { p = $1; next } flush(); n = p = $1 }
+        END { flush(); print o }'
+}
+
+openclaw_heartbeat_gate() {
+    # $1 zone, $2 night from, $3 night until (minutes), $4 first window.
+    cat <<JS
+// The Smoking Pi heartbeat's gate, written by \`smoking-pi openclaw automations\`.
+// It wakes the agent only when get_updates_since says worth_mentioning, at
+// most once a day, never at night. trigger.state keeps the cursor (where the
+// last look ended) and the day it last spoke.
+const TZ = "$1";
+const NIGHT = [$2, $3];
+const FIRST = "$4";
+const s = trigger.state || {};
+const now = Date.now();
+const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+  timeZone: TZ || undefined, year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+}).formatToParts(new Date(now)).map((x) => [x.type, x.value]));
+const day = p.year + "-" + p.month + "-" + p.day;
+const minute = Number(p.hour) * 60 + Number(p.minute);
+const night = NIGHT[0] > NIGHT[1]
+  ? minute >= NIGHT[0] || minute < NIGHT[1]
+  : minute >= NIGHT[0] && minute < NIGHT[1];
+// At night nothing is read, so the morning's first look covers the night.
+if (night) return { fire: false, state: s };
+const since = s.cursor && now - Date.parse(s.cursor) < 86400000 ? s.cursor : FIRST;
+const res = await MCP.smokeping.getUpdatesSince({ since, include_non_material: false });
+const text = res && res.content && res.content[0] && res.content[0].text;
+if (!text || res.isError) throw new Error("get_updates_since failed: " + String(text).slice(0, 200));
+const u = JSON.parse(text);
+if (u.error) throw new Error("get_updates_since: " + u.error);
+const last = { at: u.as_of, verdict: u.verdict, reasons: u.reasons || [] };
+const next = { cursor: new Date(now).toISOString(), spoke_on: s.spoke_on, last };
+if (u.verdict !== "worth_mentioning") return { fire: false, state: next };
+// One unsolicited message a day: the next one waits for tomorrow's window.
+if (s.spoke_on === day) return { fire: false, state: { ...next, last: { ...last, held: "spoke today" } } };
+return {
+  fire: true,
+  state: { ...next, spoke_on: day },
+  message: "\n\nWindow: since=\"" + since + "\". The check saw verdict worth_mentioning ("
+    + last.reasons.join(", ") + ").",
+};
+JS
+}
+
+openclaw_weekly_gate() {
+    cat <<'JS'
+// The Smoking Pi weekly's gate, written by `smoking-pi openclaw automations`.
+// It wakes the agent only when the last week had something material, once
+// per week; trigger.state keeps the week it last narrated.
+const s = trigger.state || {};
+const res = await MCP.smokeping.getWeeklySummary({ week: "last" });
+const text = res && res.content && res.content[0] && res.content[0].text;
+if (!text || res.isError) throw new Error("get_weekly_summary failed: " + String(text).slice(0, 200));
+const w = JSON.parse(text);
+if (w.error) throw new Error("get_weekly_summary: " + w.error);
+const week = (w.week && w.week.start) || "";
+const last = { week, has_material: !!w.has_material, verdict: w.verdict };
+if (!w.has_material || s.narrated === week) return { fire: false, state: { narrated: s.narrated, last } };
+return {
+  fire: true,
+  state: { narrated: week, last },
+  message: "\n\nThe week: " + ((w.week && w.week.label) || week) + ".",
+};
+JS
+}
+
+# The prompts. docs/openclaw-integration.md quotes both verbatim; a test keeps
+# them in step.
+openclaw_heartbeat_prompt() {
+    # $1 first window, $2 night from, $3 night until (HH:MM), $4 zone words.
+    cat <<EOF
+You are the Smoking Pi heartbeat: an unattended check of this home's internet monitor. Your final reply is posted to the owner's chat exactly as you write it.
+1. Call smokeping__get_updates_since with since set to the window given at the end of this message (if none is given, since="$1") and include_non_material=true.
+2. If the call fails, or its verdict is nothing_new or material_pushed_already, reply exactly NO_REPLY.
+3. If the local time in its as_of is between $2 and $3 ($4), reply exactly NO_REPLY: nothing unsolicited at night.
+4. Otherwise the verdict is worth_mentioning: write 1 to 3 short sentences in plain English about what its reasons point to (a recurring loss window that appeared or went away, a cluster of short losses and where they were, the monitor blind with nothing said, or an episode nobody was told about). Say where in the tool's words: your Wi-Fi, your line, your provider, or the destinations it names. Give times as the tool prints them, and end with the episode's link when it has one.
+Never say that all is well, never repeat anything listed in already_pushed, never give a cause the tool did not give. No greeting, no headings, no lists.
+EOF
+}
+
+openclaw_weekly_prompt() {
+    cat <<'EOF'
+You are the Smoking Pi weekly: an unattended look back at this home's internet over the last week. Your final reply is posted to the owner's chat exactly as you write it.
+1. Call smokeping__get_weekly_summary with week="last".
+2. If the call fails or has_material is false, reply exactly NO_REPLY.
+3. Otherwise narrate the week in 6 to 10 sentences of plain English prose, without bullet points, headings or jargon. Say whether it was a good, fair or bad week (verdict good, mixed or bad) against the week before, by cause in the words of each by_cause cause_text (your Wi-Fi, your line, your provider, specific destinations), with minutes this week and the week before. Name the recurring patterns that are still active, with their hours and days. Say how much of the week the monitor measured (monitor.measured_pct), why it was blind when it was, and what the watchdog did. Name at most 3 destinations with the most loss of their own. End with links.grafana_week when there is one.
+Give times as the tool prints them. Never invent a number the tool did not give.
+EOF
+}
+
+# The jobs this command manages, and OpenClaw's own heartbeat, one per line:
+# role, id, enabled, schedule, zone, delivery (ours|other|none), the run
+# history's last (time, status, delivery), the gate's last look, and the
+# description. Fails when the list cannot be read.
+openclaw_jobs() {
+    local json
+    json="$(as_openclaw_user "$OPENCLAW_BIN" automations list --all --json 2>/dev/null)" || return 1
+    [ -n "$json" ] || return 1
+    OC_TO="$(env_get OPENCLAW_TO)" OC_HB="$OPENCLAW_HEARTBEAT_NAME" OC_WK="$OPENCLAW_WEEKLY_NAME" \
+    python3 -c '
+import json, os, sys
+from datetime import datetime
+try:
+    jobs = json.loads(sys.stdin.read()).get("jobs") or []
+except ValueError:
+    sys.exit(1)
+roles = {os.environ["OC_HB"]: "heartbeat", os.environ["OC_WK"]: "weekly"}
+def when(ms):
+    return datetime.fromtimestamp(ms / 1000).astimezone().strftime("%Y-%m-%d %H:%M %Z") if ms else "-"
+def clean(v):
+    return str(v if v is not None else "-").replace("\t", " ").replace("\n", " ") or "-"
+for j in jobs:
+    role = roles.get(j.get("name"))
+    if role is None and str(j.get("declarationKey") or "").startswith("heartbeat:") \
+            and (j.get("payload") or {}).get("kind") == "heartbeat":
+        role = "builtin"
+    if role is None:
+        continue
+    sched = j.get("schedule") or {}
+    expr = sched.get("expr") or ("every %dm" % (sched.get("everyMs", 0) // 60000))
+    to = (j.get("delivery") or {}).get("to")
+    dest = "none" if not to else ("ours" if to == os.environ.get("OC_TO") else "other")
+    st = j.get("state") or {}
+    run = st.get("lastRunStatus") or "-"
+    deliv = st.get("lastDeliveryStatus") or "-"
+    if st.get("lastDeliverySuppressionReason") or st.get("deliverySuppressionReason"):
+        deliv = "suppressed"
+    gate = st.get("triggerState") or {}
+    look = gate.get("last") or {}
+    seen = "-"
+    if look:
+        seen = "%s at %s" % (look.get("verdict") or ("material" if look.get("has_material") else "nothing material"),
+                             look.get("at") or look.get("week") or "-")
+        if look.get("held"):
+            seen += " (held: " + look["held"] + ")"
+    print("\t".join(clean(v) for v in (role, j.get("id"), "on" if j.get("enabled") else "off",
+          expr, sched.get("tz"), dest, when(st.get("lastRunAtMs")), run, deliv,
+          when(st.get("lastTriggerEvalAtMs")), seen, j.get("description"))))
+' <<< "$json"
+}
+
+# Field $2 (1-based) of role $1's line in $OC_JOBS.
+openclaw_job_field() {
+    printf '%s\n' "$OC_JOBS" | awk -F'\t' -v r="$1" -v f="$2" '$1 == r { print $f; exit }'
+}
+
+# Create or update one job: $1 role, $2 name, $3 cron, $4 zone, $5 prompt,
+# $6 gate script, $7 tools, $8 what the description says about it. A job that
+# already matches is left alone: an edit of the gate resets its saved state
+# (2026.11.1), which would forget the cursor and the day it last spoke.
+openclaw_put_job() {
+    local role=$1 name=$2 cron=$3 tz=$4 prompt=$5 gate=$6 tools=$7 what=$8
+    local to channel id desc sum gatefile user said rc=0 args=()
+    to="$(env_get OPENCLAW_TO)"
+    channel="$(env_get OPENCLAW_CHANNEL)"; channel="${channel:-telegram}"
+    sum="$(printf '%s\n' "$cron" "$tz" "$prompt" "$gate" "$tools" "$to" "$channel" \
+        | sha256sum | cut -c1-12)"
+    desc="$OPENCLAW_MANAGED ($what; spec $sum)"
+    id="$(openclaw_job_field "$role" 2)"
+    if [ -n "$id" ] && [ "$(openclaw_job_field "$role" 12)" = "$desc" ] \
+        && [ "$(openclaw_job_field "$role" 3)" = on ]; then
+        echo "  $name: up to date ($what)."
+        return 0
+    fi
+    gatefile="$(mktemp)"
+    printf '%s\n' "$gate" > "$gatefile"
+    user="$(openclaw_user)"
+    [ -z "$user" ] || chown "$user" "$gatefile" 2>/dev/null || true
+    chmod 644 "$gatefile"
+    args=(--name "$name" --description "$desc" --cron "$cron" --session isolated
+          --agent main --message "$prompt" --trigger-script "$gatefile" --tools "$tools"
+          --light-context --announce --channel "$channel" --to "$to")
+    [ -z "$tz" ] || args+=(--tz "$tz")
+    if [ -n "$id" ]; then
+        said="$(as_openclaw_user "$OPENCLAW_BIN" automations edit "$id" "${args[@]}" --enable 2>&1)" || rc=$?
+    else
+        said="$(as_openclaw_user "$OPENCLAW_BIN" automations add "${args[@]}" --json 2>&1)" || rc=$?
+    fi
+    rm -f "$gatefile"
+    if [ "$rc" != 0 ]; then
+        echo "  WARNING: '$name' could not be $([ -n "$id" ] && echo updated || echo created). OpenClaw said:" >&2
+        said="${said//"$to"/<chat>}"
+        printf '%s\n' "${said:-(nothing)}" | tail -3 | sed 's/^/    | /' >&2
+        return 1
+    fi
+    echo "  $name: $([ -n "$id" ] && echo updated || echo created) ($what)."
+}
+
+openclaw_rm_job() {
+    # $1 role, $2 name, $3 why (words).
+    local id
+    id="$(openclaw_job_field "$1" 2)"
+    [ -n "$id" ] || return 0
+    if as_openclaw_user "$OPENCLAW_BIN" automations rm "$id" >/dev/null 2>&1; then
+        echo "  $2: removed ($3)."
+    else
+        echo "  WARNING: '$2' could not be removed: openclaw automations list, then rm it." >&2
+        return 1
+    fi
+}
+
+# Create, update or remove the two automations to match the env file.
+# $1: the heartbeat's interval in hours (1, 3, 6), or empty for the one it has.
+openclaw_automations_sync() {
+    local hours=${1:-} tz night from until day_hours zone_words weekly_on failed=0
+    local wday wat wmin cron
+    if [ -z "$(env_get OPENCLAW_TO)" ]; then
+        echo "Automations: none, because OPENCLAW_TO (the chat they post to) is not set:"
+        echo "  $(cli_name) alerts --openclaw --to RECIPIENT, then $(cli_name) openclaw automations"
+        return 1
+    fi
+    if ! OC_JOBS="$(openclaw_jobs)"; then
+        echo "WARNING: 'openclaw automations list' did not answer, so the heartbeat and the" >&2
+        echo "weekly were not set up. OpenClaw 2026.11 or later has them; is the gateway running?" >&2
+        return 1
+    fi
+    if [ -z "$hours" ]; then
+        hours="$(openclaw_job_field heartbeat 12 | sed -n 's/.*every \([0-9]*\)h.*/\1/p')"
+        hours="${hours:-1}"
+    fi
+    tz="$(openclaw_zone)"
+    zone_words="${tz:-the gateway host time}"
+    night="$(openclaw_night)"; from="${night% *}"; until="${night#* }"
+    day_hours="$(openclaw_day_hours "$hours" "$from" "$until")"
+    echo "Automations (in $zone_words; night $(minutes_hhmm "$from")-$(minutes_hhmm "$until")):"
+    openclaw_put_job heartbeat "$OPENCLAW_HEARTBEAT_NAME" "0 $day_hours * * *" "$tz" \
+        "$(openclaw_heartbeat_prompt "${hours}h" "$(minutes_hhmm "$from")" "$(minutes_hhmm "$until")" \
+            "$zone_words")" \
+        "$(openclaw_heartbeat_gate "$tz" "$from" "$until" "${hours}h")" \
+        "$OPENCLAW_HEARTBEAT_TOOLS" "every ${hours}h, at $day_hours" || failed=1
+
+    # The weekly is the agent's only with the agent push: otherwise the alerter
+    # sends its own (alerter/weekly.py), and both would say the week.
+    weekly_on=0
+    [ "$(env_get NOTIFY_MODE)" = openclaw ] && [ "$(env_get OPENCLAW_PUSH)" = agent ] \
+        && [ "$(env_get WEEKLY_ENABLED)" = true ] && weekly_on=1
+    if [ "$weekly_on" = 1 ]; then
+        wday="$(env_get WEEKLY_DAY)"; wday="${wday:-mon}"
+        case "$wday" in sun) wday=0 ;; mon) wday=1 ;; tue) wday=2 ;; wed) wday=3 ;;
+                        thu) wday=4 ;; fri) wday=5 ;; sat) wday=6 ;; *) wday=1 ;; esac
+        wat="$(env_get WEEKLY_AT)"; wmin="$(hhmm_minutes "${wat:-08:00}")"; wmin="${wmin:-480}"
+        cron="$((wmin % 60)) $((wmin / 60)) * * $wday"
+        openclaw_put_job weekly "$OPENCLAW_WEEKLY_NAME" "$cron" "$tz" "$(openclaw_weekly_prompt)" \
+            "$(openclaw_weekly_gate)" "$OPENCLAW_WEEKLY_TOOLS" \
+            "$(env_get WEEKLY_DAY | sed 's/^$/mon/') at ${wat:-08:00}" || failed=1
+    elif [ -n "$(openclaw_job_field weekly 2)" ]; then
+        openclaw_rm_job weekly "$OPENCLAW_WEEKLY_NAME" \
+            "the alerter sends the weekly without OPENCLAW_PUSH=agent, or it is off" || failed=1
+    else
+        if [ "$(env_get WEEKLY_ENABLED)" != true ]; then
+            echo "  $OPENCLAW_WEEKLY_NAME: not set up, the weekly is off ($(cli_name) alerts --weekly mon 08:00)."
+        else
+            echo "  $OPENCLAW_WEEKLY_NAME: not set up; the alerter sends the weekly (OPENCLAW_PUSH is not agent)."
+        fi
+    fi
+    if [ "$(openclaw_job_field builtin 3)" = on ]; then
+        echo "  OpenClaw's own 'Heartbeat (main)' still runs a model turn $(openclaw_job_field builtin 4) without"
+        echo "  looking at this Pi. To save quota: $(cli_name) openclaw automations --disable-builtin-heartbeat"
+    fi
+    return "$failed"
+}
+
+openclaw_automations_remove() {
+    local failed=0
+    if ! OC_JOBS="$(openclaw_jobs)"; then
+        echo "WARNING: 'openclaw automations list' did not answer; nothing was removed." >&2
+        return 1
+    fi
+    if [ -z "$(openclaw_job_field heartbeat 2)$(openclaw_job_field weekly 2)" ]; then
+        echo "No Smoking Pi automations in OpenClaw."
+        return 0
+    fi
+    openclaw_rm_job heartbeat "$OPENCLAW_HEARTBEAT_NAME" "asked to" || failed=1
+    openclaw_rm_job weekly "$OPENCLAW_WEEKLY_NAME" "asked to" || failed=1
+    if [ "$(env_get NOTIFY_MODE)" = openclaw ] && [ "$(env_get OPENCLAW_PUSH)" = agent ]; then
+        echo "With OPENCLAW_PUSH=agent the alerter leaves the weekly to the automation, so there"
+        echo "is no weekly now. '$(cli_name) openclaw --push message' gives it back to the alerter."
+    fi
+    return "$failed"
+}
+
+# For `disable mcp` and `purge`: the gates call the MCP server, so without it
+# every run would fail. Quiet when there is no openclaw or nothing to remove.
+openclaw_automations_cleanup() {
+    OPENCLAW_BIN="$(openclaw_bin)"
+    [ -n "$OPENCLAW_BIN" ] || return 0
+    OC_JOBS="$(openclaw_jobs)" || return 0
+    [ -n "$(openclaw_job_field heartbeat 2)$(openclaw_job_field weekly 2)" ] || return 0
+    echo "Removing the Smoking Pi automations from OpenClaw (they read the MCP server):"
+    openclaw_rm_job heartbeat "$OPENCLAW_HEARTBEAT_NAME" "no MCP server" || true
+    openclaw_rm_job weekly "$OPENCLAW_WEEKLY_NAME" "no MCP server" || true
+}
+
+# OpenClaw's own heartbeat is a model turn every 30 min or hour that reads
+# HEARTBEAT.md, not this Pi. Its job is the gateway's (`automations rm` would
+# be recreated); 0m is OpenClaw's documented off switch, kept across restarts.
+openclaw_disable_builtin_heartbeat() {
+    local said
+    if said="$(as_openclaw_user "$OPENCLAW_BIN" config set agents.defaults.heartbeat.every 0m 2>&1)"; then
+        echo "OpenClaw's own heartbeat is off (agents.defaults.heartbeat.every = 0m)."
+        echo "'openclaw config unset agents.defaults.heartbeat.every' turns it back on."
+    else
+        echo "WARNING: 'openclaw config set agents.defaults.heartbeat.every 0m' failed:" >&2
+        printf '%s\n' "${said:-(nothing)}" | tail -3 | sed 's/^/  | /' >&2
+        return 1
+    fi
+}
+
+# What --check says about them.
+openclaw_automations_report() {
+    local role name line
+    OPENCLAW_BIN="${OPENCLAW_BIN:-$(openclaw_bin)}"
+    if [ -z "$OPENCLAW_BIN" ]; then
+        echo "Automations: no openclaw command here to ask."
+        return 0
+    fi
+    if ! OC_JOBS="$(openclaw_jobs)"; then
+        echo "Automations: 'openclaw automations list' did not answer."
+        return 0
+    fi
+    echo "Automations:"
+    for role in heartbeat weekly builtin; do
+        case "$role" in
+            heartbeat) name="$OPENCLAW_HEARTBEAT_NAME" ;;
+            weekly) name="$OPENCLAW_WEEKLY_NAME" ;;
+            builtin) name="OpenClaw's own Heartbeat (main)" ;;
+        esac
+        line="$(printf '%s\n' "$OC_JOBS" | awk -F'\t' -v r="$role" '$1 == r { print; exit }')"
+        if [ -z "$line" ]; then
+            [ "$role" = builtin ] || echo "  $name: missing ($(cli_name) openclaw automations)"
+            continue
+        fi
+        IFS=$'\t' read -r _ _ on sched zone dest ran status deliv looked seen _ <<< "$line"
+        if [ "$role" = builtin ]; then
+            echo "  $name: $on, $sched, a model turn each time that does not look at this Pi"
+            continue
+        fi
+        case "$dest" in
+            ours) dest="to the alerts' chat (OPENCLAW_TO)" ;;
+            other) dest="to ANOTHER chat than OPENCLAW_TO: $(cli_name) openclaw automations" ;;
+            *) dest="delivering nowhere: $(cli_name) openclaw automations" ;;
+        esac
+        [ "$zone" = - ] && zone="gateway time"
+        echo "  $name: $on, '$sched' ($zone), $dest"
+        if [ "$ran" = - ]; then
+            echo "    last run: none yet (the agent runs only when the check finds something)"
+        else
+            echo "    last run: $ran, $status, delivery $deliv"
+        fi
+        [ "$looked" = - ] || echo "    last check: $looked, $seen"
+    done
+}
+
+cmd_openclaw_automations() {
+    local hours="" disable=0 builtin=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --interval)
+                [ $# -ge 2 ] || { echo "--interval takes 1h, 3h or 6h" >&2; return 2; }
+                case "$2" in 1h|3h|6h) hours="${2%h}" ;;
+                    *) echo "--interval takes 1h, 3h or 6h" >&2; return 2 ;; esac
+                shift 2 ;;
+            --disable) disable=1; shift ;;
+            --disable-builtin-heartbeat) builtin=1; shift ;;
+            -h|--help)
+                echo "smoking-pi openclaw automations [--interval 1h|3h|6h] [--disable] [--disable-builtin-heartbeat]"
+                echo "  The heartbeat (anything new? at most one message a day, never at night)"
+                echo "  and, with --push agent, the weekly, as OpenClaw automations posting to"
+                echo "  OPENCLAW_TO. --interval: how often the heartbeat looks (default 1h, or"
+                echo "  the one it has); a look that finds nothing costs no model turn."
+                echo "  --disable removes both. --disable-builtin-heartbeat turns off OpenClaw's"
+                echo "  own heartbeat, a model turn every 30-60 min that never looks at this Pi."
+                return 0 ;;
+            *) echo "unknown option $1" >&2; return 2 ;;
+        esac
+    done
+    if [ "$disable" = 1 ] && [ -n "$hours" ]; then
+        echo "--disable and --interval do not go together" >&2; return 2
+    fi
+    OPENCLAW_BIN="$(openclaw_bin)"
+    if [ -z "$OPENCLAW_BIN" ]; then
+        echo "No 'openclaw' command on this machine, so there are no automations to set up." >&2
+        return 1
+    fi
+    command -v python3 >/dev/null || { echo "python3 is needed to read OpenClaw's automations." >&2; return 1; }
+    local rc=0
+    if [ "$disable" = 1 ]; then
+        openclaw_automations_remove || rc=1
+    else
+        openclaw_automations_sync "$hours" || rc=1
+    fi
+    if [ "$builtin" = 1 ]; then
+        openclaw_disable_builtin_heartbeat || rc=1
+    fi
+    return "$rc"
 }
 
 cmd_openclaw() {
     local check=0 push=""
+    case "${1:-}" in
+        automations) shift; need_edition
+            if [ "$SMOKING_PI_EDITION" != pro ]; then
+                echo "The MCP server is a Pro service; the $SMOKING_PI_EDITION edition has no automations." >&2
+                return 1
+            fi
+            cmd_openclaw_automations "$@"; return $? ;;
+    esac
     while [ $# -gt 0 ]; do
         case "$1" in
             --check) check=1; shift ;;
@@ -402,11 +888,14 @@ cmd_openclaw() {
                 push="$2"; shift 2 ;;
             -h|--help)
                 echo "smoking-pi openclaw [--check] [--push agent|message]"
+                echo "smoking-pi openclaw automations [--interval 1h|3h|6h] [--disable] [--disable-builtin-heartbeat]"
                 echo "  Connect this stack to an OpenClaw gateway on this machine, or say"
                 echo "  exactly why it is not connected. --check only runs the verification,"
                 echo "  and says which way alerts go. --push switches that without pairing"
                 echo "  again. agent: the agent writes each alert in your chat, so you can"
                 echo "  reply to it; message: the alerter's fixed text, relayed."
+                echo "  It also sets up the heartbeat and the weekly as OpenClaw automations:"
+                echo "  smoking-pi openclaw automations --help."
                 return 0 ;;
             *) echo "unknown option $1" >&2; return 2 ;;
         esac
@@ -428,6 +917,8 @@ cmd_openclaw() {
         openclaw_evidence || check_rc=$?
         echo
         openclaw_report_push
+        echo
+        openclaw_automations_report
         return "$check_rc"
     fi
     [ -z "$push" ] || { openclaw_switch_push "$push"; return $?; }
@@ -578,6 +1069,15 @@ cmd_openclaw() {
     else
         [ "$hooks_ok" = 0 ] || openclaw_recreate_alerter
         openclaw_report_push
+    fi
+
+    # The heartbeat and the weekly. Not a failure of the connection if they
+    # cannot be set up: what is missing, it says.
+    echo
+    if command -v python3 >/dev/null; then
+        openclaw_automations_sync "" || true
+    else
+        echo "Automations: not set up (python3 is needed to read OpenClaw's list)."
     fi
 
     echo
