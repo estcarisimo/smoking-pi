@@ -28,7 +28,7 @@ version gets a matching GitHub release and git tag.
   `smoking-pi purge`, as every volume does, and `/ai/reports` now goes to the
   chat. **The web admin's assistant chat stays**, with `ANTHROPIC_API_KEY` and
   `AI_MODEL`; it never needed the `ai` profile, whatever its page said. Its
-  guide moved to [Web admin assistant](docs/web-assistant.md).
+  guide moved to `docs/web-assistant.md`.
 
 ## [2.51.0] — 2026-10-31
 
