@@ -41,7 +41,6 @@ import notifier
 import outbox
 import policy
 import quiet
-import reports_watcher
 import state
 import templates
 import watchdog_events
@@ -380,7 +379,6 @@ def run_iteration() -> None:
     outbox.flush(current, time.time(), send=notifier.send,
                  reachable=notifier.reachable)
 
-    reports_watcher.check(current)
     # Every half hour, in the background: the incidents that are over, into
     # InfluxDB (loss_incident). Never in the way of the alerts above.
     try:

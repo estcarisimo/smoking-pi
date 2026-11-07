@@ -10,7 +10,7 @@ where they overlap, this file wins.
 A Docker Compose network-monitoring stack around SmokePing, in three editions
 (Basic, Standard, Pro), built for a Raspberry Pi. Pro adds a web admin,
 PostgreSQL as the config source of truth, Grafana over InfluxDB or ClickHouse,
-an alerting engine, an MCP server, AI reports, and an instrumentation doctor.
+an alerting engine, an MCP server, and an instrumentation doctor.
 It is a *measurement* system: much of its value is months of continuous
 recorded history, which constrains what may be changed casually.
 
@@ -40,7 +40,7 @@ tests, the strict docs build, CodeQL, and **every image built for arm64 and
 amd64** (not pushed; `Images build (all)` is the required check). All must be
 green; CodeQL on a PR is diff-only, so "0 results" on a PR means *no new
 alerts*, not "fixed". The release adds what only a release can prove:
-`release.yml` publishes the fourteen images to GHCR from the tag, builds the
+`release.yml` publishes the thirteen images to GHCR from the tag, builds the
 `.deb` and installs it across the OS matrix, and `docs.yml` deploys the site.
 Where each image builds from is `packaging/image-context.sh`, read by both
 workflows. A Dockerfile change is still deployed on the reference Pi before
@@ -92,7 +92,7 @@ setting a person changes by editing it is a missing command.
 
 **Containers cannot import across each other.** Shared code goes in
 `shared/modules/common/`, which each Dockerfile copies in. Build context for
-those images (alerter, ai-insights, dns-observer, inference, mcp-server,
+those images (alerter, dns-observer, inference, mcp-server,
 pathmeter, web-admin) and for smokeping (which bakes in
 `shared/modules/smokeping-exporters`) is `shared/` in every edition's
 compose file, and `packaging/image-context.sh` says so to both CI's
@@ -199,7 +199,7 @@ checks they match); merge; a candidate tag `vX.Y.Z-rc.N` with a GitHub
 section + the Validation section). Tags other than `vX.Y.Z`,
 `vX.Y.Z-rc.N` (N from 1) and `test-*` are refused
 (`packaging/release-version.sh`, tested in `release-version.bats`). The tag
-triggers `release.yml` — fourteen images × two architectures to
+triggers `release.yml` — thirteen images × two architectures to
 `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` (it refuses a tag that
 disagrees with `CITATION.cff`), then the `.deb` built from the tagged tree
 and installed with each supported host's own `apt` (Ubuntu 22.04/24.04

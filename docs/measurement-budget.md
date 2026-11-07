@@ -197,7 +197,7 @@ counters keyed on each container:
   that sends or receives. A connection's first packet also stamps it (one
   byte of the conntrack mark, bits 24-30, clear of Tailscale's), so the
   replies, ICMP echo replies included, count for the same service.
-- **Bridged containers** (Grafana, the web admin, ai-insights, InfluxDB,
+- **Bridged containers** (Grafana, the web admin, InfluxDB,
   PostgreSQL, config-manager) by their address, where their traffic is
   forwarded to the uplink.
 - **host**: everything else on the uplink that no container sent or

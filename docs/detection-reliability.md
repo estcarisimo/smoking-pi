@@ -94,8 +94,7 @@ per target, plus a background counted as events.**
 - `outage` is *transient*: the state machine alerts once and drops it
   without a recovery.
 
-**Assistant** (`get_loss_events`, and `common.aggregates.LOSS_EVENT_PCT`
-which the AI report uses):
+**Assistant** (`get_loss_events`):
 
 - Default `min_loss_pct` 5 → 15: two or more lost pings, or any lost DNS
   query. The excluded single-ping points are returned as
@@ -219,9 +218,6 @@ cadence, `GAP_S` = 70), its duration first-to-last plus the window; it is
   windows) possible ones. Its message names the cut: *"1 cut of 2 min 40 s
   (6 windows, all at 100%)"*. The verdict's "first hop cutting" signal
   applies the same bar.
-- The AI report's CPE summary (`common.aggregates`) carry
-  the fields; the report template explains the floor before listing
-  cuts.
 - The OpenClaw skill's *Reading the numbers* describes cuts, possible cuts
   and the floor in those words.
 
@@ -237,13 +233,13 @@ cadence, `GAP_S` = 70), its duration first-to-last plus the window; it is
 The last row is the tool run against the Pi's InfluxDB before the change
 was merged; the others are tests that replay the rows
 (`mcp-server/tests/test_tools.py`, `alerter/tests/test_evaluator.py`,
-`test_verdict.py`, `ai-insights/tests/test_collector.py`).
+`test_verdict.py`, `common/tests/test_aggregates.py`).
 
 **The web-admin assistant reads the same definition.** Its `get_microcut_stats`
 (`web-admin/app/services/ai_tools.py`) was a separate copy that still counted
 windows with any loss and always returned a top-5, so the in-UI chat kept
 saying "strong microcuts" after the MCP tool had stopped. The web-admin image
-now builds from `shared/` like the alerter, ai-insights and mcp-server
+now builds from `shared/` like the alerter and mcp-server
 images, copies `common/` in, and the tool calls `common.microcuts` for the
 cut windows, the folding and the threshold; its `get_loss_events` default
 rose from 5% to the shared `LOSS_EVENT_PCT` (15%; now `EVENT_LOST_PINGS`) for the reason given under

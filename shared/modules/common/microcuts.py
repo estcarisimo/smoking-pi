@@ -9,7 +9,7 @@ raw windows on a quiet day is the floor's tail dressed as an event -- which
 is exactly how the assistant came to report "strong microcuts, worst 82%"
 for weeks (docs/detection-reliability.md).
 
-The definitions every consumer (MCP tool, alerter rule, digest, AI report)
+The definitions every consumer (MCP tool, alerter rule, web chat)
 now shares:
 
 - A **cut window** is a window whose loss exceeds ``MICROCUT_LOSS_PCT``

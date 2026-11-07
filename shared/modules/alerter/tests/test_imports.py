@@ -9,7 +9,7 @@ import importlib
 
 
 def test_import_all_modules_without_env():
-    for name in ("flux", "evaluator", "state", "notifier", "reports_watcher", "main"):
+    for name in ("flux", "evaluator", "state", "notifier", "main"):
         module = importlib.import_module(name)
         assert module is not None
 

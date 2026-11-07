@@ -405,7 +405,7 @@ def read_week(start: float, stop: float, query=None, record: dict | None = None)
 
     monitor = [i for i in incidents if i["class"] in aggregates.MONITOR_CLASSES]
     # A point stamped t measured the step before it: the step after a deaf
-    # span still heard it (common.aggregates._collect_incidents).
+    # span still heard it.
     deaf = merge([(max(start, i["start_epoch"]), min(stop, i["end_epoch"] + STEP_S))
                   for i in monitor])
     deaf_by_cause: dict[str, float] = {}

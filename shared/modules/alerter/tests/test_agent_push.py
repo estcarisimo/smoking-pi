@@ -227,7 +227,6 @@ def test_a_pattern_is_its_message_and_its_link(agent_mode):
 
 @pytest.mark.parametrize("payload", [
     {"type": "weekly", "message": "the week"},
-    {"type": "report", "message": "a report"},
     {"type": "held", "message": "the night"},
     {"type": "undelivered", "message": "while offline"},
 ])

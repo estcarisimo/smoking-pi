@@ -386,8 +386,8 @@ def _agent_route(event: dict) -> str | None:
     only that is the agent's to deliver. The rest of an episode's messages and
     a recurring window's keep the relay and their own ``silent``; the agent
     gets them as a note, delivered to nobody, so a question in the chat finds
-    it knows. In quiet hours nothing reaches the agent. Summaries, the weekly
-    and the reports are text already and have no part here.
+    it knows. In quiet hours nothing reaches the agent. Summaries and the weekly
+    are text already and have no part here.
     """
     if push_mode() != PUSH_AGENT or event.get("rule") not in ("episode", "pattern"):
         return None

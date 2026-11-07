@@ -39,9 +39,6 @@ SCRUB_ENV_VARS = [
     "WIDESPREAD_PCT",
     "WIDESPREAD_LOSS_PCT",
     "MICROCUT_BURST_N",
-    "REPORTS_DIR",
-    "REPORT_DELIVERY_INTERVAL",
-    "REPORT_MAX_CHARS",
     # These were missing, which made the tests that read them depend on the
     # developer's own shell. Anything the alerter reads belongs here.
     "OPENCLAW_GATEWAY_TOKEN",

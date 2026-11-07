@@ -72,6 +72,8 @@ case "$*" in
     # upgrade's image cleanup: what any container references (STUB_USED) and
     # the registry's images as "repo:tag id size" (STUB_IMAGES).
     "ps -a --format {{.Image}}") printf '%b' "${STUB_USED:-}" ;;
+    # (STUB_RETIRED_IMAGES: a retired service's, as "repo:tag id".)
+    *"image ls --filter reference="*"/ai-insights "*) printf '%b' "${STUB_RETIRED_IMAGES:-}" ;;
     *"image ls --filter reference="*) printf '%b' "${STUB_IMAGES:-}" ;;
     # cloudflared logs its own API endpoint too (on a failed request).
     "logs "*tunnel-*) printf 'INF https://old-one.trycloudflare.com\nINF https://%s-now.trycloudflare.com\nERR POST https://api.trycloudflare.com/tunnel\n' "${2##*-}" ;;
@@ -798,6 +800,16 @@ make_backup_dir() {
     if grep -q ' up -d$' "$DOCKER_LOG"; then false; fi
 }
 
+@test "restore of a backup from before a retirement drops the retired profile from the env file" {
+    make_backup_dir
+    sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=influxdb,ai,alerts/' "$BATS_TEST_TMPDIR/bk/env"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --force --no-start --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,alerts' "$SMOKING_PI_ENV_FILE"
+    grep -q FROM=backup "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"Removed retired profile(s)"* ]]
+}
+
 @test "restore says to connect OpenClaw again only when it brought back another MCP token" {
     make_backup_dir
     printf 'COMPOSE_PROFILES=influxdb,mcp\nMCP_API_TOKEN=frombackup\n' > "$BATS_TEST_TMPDIR/bk/env"
@@ -957,13 +969,12 @@ STUB
 @test "install menus: Pro is preselected, and the services chosen are set up or listed, never 'edit the env file'" {
     rm -f "$SMOKING_PI_ENV_FILE"
     stub_whiptail
-    STUB_PICKS='"alerts" "ai"' run "$CLI" install
+    STUB_PICKS='"alerts"' run "$CLI" install
     [ "$status" -eq 0 ]
     grep -q 'whiptail .*--default-item pro --menu Which edition?' "$DOCKER_LOG"
-    grep -qx 'COMPOSE_PROFILES=influxdb,alerts,ai' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,alerts' "$SMOKING_PI_ENV_FILE"
     # No terminal here (bats pipes stdin), so nothing is asked: listed.
     [[ "$output" == *"alerts: smoking-pi alerts"* ]]
-    [[ "$output" == *"AI reports: smoking-pi config set ANTHROPIC_API_KEY"* ]]
     [[ "$output" != *"in $SMOKING_PI_ENV_FILE"* ]]
     [[ "$output" != *"NOTIFY_MODE"* ]]
 }
@@ -1037,28 +1048,24 @@ install_on_a_tty() {
     printf '%b' "$1" | SHELL=/bin/bash timeout 60 script -qec "$CLI install" /dev/null | tr -d '\r'
 }
 
-@test "install on a terminal asks each follow-up: alerts nowhere, AI key declined" {
+@test "install on a terminal asks the alerts follow-up once" {
     rm -f "$SMOKING_PI_ENV_FILE"
     stub_whiptail
-    export STUB_PICKS='"alerts" "ai"'
-    run install_on_a_tty '4\nn\n'
+    export STUB_PICKS='"alerts"'
+    run install_on_a_tty '4\n'
     [[ "$output" == *"Where should alerts go?"* ]]
-    [[ "$output" == *"Enter it now?"* ]]
-    # Answered, so not left to do; declined, so listed.
+    # Answered, so not left to do.
     [[ "$output" != *"alerts: smoking-pi alerts"* ]]
-    [[ "$output" == *"AI reports: smoking-pi config set ANTHROPIC_API_KEY"* ]]
     grep -qx 'NOTIFY_MODE=off' "$SMOKING_PI_ENV_FILE"
     # One question, not a heading and then the question.
     [ "$(printf '%s' "$output" | grep -c 'alerts go')" -eq 1 ]
 }
 
-@test "install on a terminal: end of input at the AI key prompt is a no, not the default yes" {
+@test "install refuses the retired ai profile and names the ones there are" {
     rm -f "$SMOKING_PI_ENV_FILE"
-    stub_whiptail
-    export STUB_PICKS='"ai"'
-    run install_on_a_tty ''
-    [[ "$output" == *"AI reports: smoking-pi config set ANTHROPIC_API_KEY"* ]]
-    [[ "$output" != *"ANTHROPIC_API_KEY:"* ]]
+    run "$CLI" install --edition pro --profiles ai --yes
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown profile: ai (mcp, alerts, dns)"* ]]
 }
 
 @test "install with the dns profile starts the observer and says what to set on the router" {
@@ -2655,8 +2662,38 @@ alerts_history_setup() {
     [[ "$output" == *"logged, not sent"* ]]
 }
 
+@test "upgrade drops a retired profile from COMPOSE_PROFILES before Compose reads it, and keeps the others" {
+    sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=influxdb,ai,mcp/' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"Removed retired profile(s) from COMPOSE_PROFILES: now 'influxdb,mcp'."* ]]
+    run "$CLI" upgrade --skip-doctor
+    [[ "$output" != *"retired profile"* ]]
+}
+
+@test "upgrade removes a retired service's image whatever its tag, and only that" {
+    # The tag the upgrade keeps counts too (on a clone that is :dev), the
+    # one remove_old_images never touches.
+    export STUB_RETIRED_IMAGES="$REG/ai-insights:2.12.0 aaa111\n$REG/ai-insights:<none> bbb222\n"
+    SMOKING_PI_VERSION=2.12.0 run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    grep -qx "docker image rm $REG/ai-insights:2.12.0" "$DOCKER_LOG"
+    grep -qx "docker image rm bbb222" "$DOCKER_LOG"
+    grep -q "image ls --filter reference=$REG/ai-insights " "$DOCKER_LOG"
+    [[ "$output" == *"Removed image(s) of retired services:"* ]]
+}
+
+@test "upgrade reports a retired image docker refuses to remove, and does not fail" {
+    export STUB_RETIRED_IMAGES="$REG/ai-insights:old aaa111\n"
+    fail_docker_on "image rm $REG/ai-insights:old"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Could not remove retired image(s): $REG/ai-insights:old"* ]]
+}
+
 @test "upgrade stops and removes the containers of a service whose profile is off, after the up, and keeps the rest" {
-    # The rc.3 acceptance: ai-insights (profile `ai` off) is defined, so not
+    # The rc.3 acceptance: a service whose profile is off is defined, so not
     # an orphan to --remove-orphans, and kept running on its old image.
     export STUB_CONTAINERS='postgres pro-postgres-1\nai-insights pro-ai-insights-1\ngrafana pro-grafana-1\nalerter pro-alerter-1\n'
     run "$CLI" upgrade --skip-doctor
@@ -3001,13 +3038,18 @@ stub_clone() {
 }
 
 @test "enable records the profile once and applies the whole stack" {
-    run "$CLI" enable alerts ai
+    run "$CLI" enable alerts pathmeter
     [ "$status" -eq 0 ]
-    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,alerts,ai' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,alerts,pathmeter' "$SMOKING_PI_ENV_FILE"
     compose_calls | grep -q 'up -d --remove-orphans'
     # Where alerts go is its own command; the profile alone sends nothing.
     [[ "$output" == *"smoking-pi alerts --telegram"* ]]
-    [[ "$output" == *"config set ANTHROPIC_API_KEY"* ]]
+}
+
+@test "enable refuses the retired ai service" {
+    run "$CLI" enable ai
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown service: ai"* ]]
 }
 
 @test "disable removes only that profile; nothing to do changes nothing" {

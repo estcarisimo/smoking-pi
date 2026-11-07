@@ -1,7 +1,7 @@
 # Dependabot version updates.
 #
 # This repo has three ecosystems and many places they live: the Python
-# modules, fourteen Dockerfiles, and the Actions workflow. One entry per directory
+# modules, thirteen Dockerfiles, and the Actions workflow. One entry per directory
 # would open a PR per directory a week at a solo maintainer, which is how Dependabot
 # gets muted and then ignored. So: `directories` globs instead of one block
 # each, groups so a week's updates arrive as one PR per ecosystem, and a low
@@ -25,7 +25,7 @@ updates:
     commit-message:
       prefix: "chore(ci)"
 
-  # Python modules: alerter, ai-insights, config-manager, doctor, mcp-server,
+  # Python modules: alerter, config-manager, doctor, mcp-server,
   # smokeping-exporters, web-admin.
   - package-ecosystem: pip
     directories:
@@ -59,7 +59,6 @@ updates:
     # Python held at 3.13, and a glob cannot leave one directory out. A new
     # module with a Dockerfile must be added here by hand.
     directories:
-      - "/shared/modules/ai-insights"
       - "/shared/modules/alerter"
       - "/shared/modules/config-manager"
       - "/shared/modules/dns-observer"

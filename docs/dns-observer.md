@@ -554,7 +554,7 @@ through. Status says "network DNS only", and that is what it is.
 - Names stay on the Pi, in AdGuard's query log inside the `dns-observer-work`
   volume, for `DNS_RETENTION_DAYS` (7), and in the DNS wizard's summary
   (`wizard.json`, the top services) on the `dns-observer-state` volume. They
-  are never sent to the AI reports or put in alerts. They reach InfluxDB,
+  are never put in alerts. They reach InfluxDB,
   and so Grafana, only if you set `DNS_EXPORT_NAMES=1` for the
   [DNS wizard](#the-dns-wizard)'s table. The wizard's numbers carry no
   names and always go.

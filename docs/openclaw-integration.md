@@ -422,7 +422,7 @@ lets only an opening sound, so:
 | --- | --- | --- |
 | Internet down, material degradation (opening) | the agent writes and delivers it | the relay |
 | An update, an end, the monitor's message, a recurring window | the relay, with its own `silent`; the agent gets an undelivered note | the relay |
-| The weekly summary, reports, outbox and quiet-hours summaries | the relay | the relay |
+| The weekly summary, outbox and quiet-hours summaries | the relay | the relay |
 
 The note carries the same facts with `deliver: false` in the same session, and
 tells the agent to send nothing and reply `NO_REPLY`. That is why a question like

@@ -157,7 +157,7 @@ cat <<EOF
 - Data: <all enabled probes writing; Wi-Fi panel live; no radio hang since boot>
 - Detections: <get_loss_events / get_microcut_stats agree with the alerter; events that day>
 - Stability: $hours h since the oldest running container started, restarts $restarts${odd:+; NOT on :$main_tag: ${odd[*]}}
-- Untested this release: <clean install on Raspberry Pi OS; Basic/Standard on a Pi; ClickHouse; ai profile>
+- Untested this release: <clean install on Raspberry Pi OS; Basic/Standard on a Pi; ClickHouse>
 - Known limitations: <anything found and deferred, with the issue link>
 - Backup used: <path>; rollback path: <which>
 EOF

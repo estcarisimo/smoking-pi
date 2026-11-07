@@ -2,7 +2,7 @@
 
 Every path the web-admin builds from request data goes through here: the
 CrUX and Cloudflare cache files are named after a ``country`` query
-parameter, and the AI reports page takes a ``file`` parameter. Each caller
+parameter. Each caller
 already allow-lists the value with a regex, but a regex is a promise about
 the *string*; this is a check on the *path* -- normalize, then require that
 the result still sits inside the base directory. It is also the shape CodeQL

@@ -40,7 +40,7 @@ nav:
       - OpenClaw integration: openclaw-integration.md
       - OpenClaw on another machine: remote-openclaw.md
       - Connecting any assistant: remote-connector.md
-      - AI health reports: ai-insights.md
+      - Web admin assistant: web-assistant.md
   - Remote access:
       - The Pi's name on the network: mdns.md
       - Quick tunnels: quick-tunnels.md

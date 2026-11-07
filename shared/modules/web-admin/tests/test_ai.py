@@ -73,62 +73,31 @@ def ai_disabled(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Reports page
+# The page
 # ---------------------------------------------------------------------------
 
 
-def test_reports_empty_state(client, monkeypatch, tmp_path, ai_disabled):
-    monkeypatch.setenv('REPORTS_DIR', str(tmp_path / 'missing'))
+def test_the_reports_url_goes_to_the_chat(client):
     login(client)
-    resp = client.get('/ai/reports')
-    assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    assert 'No reports yet' in body
-    assert 'ANTHROPIC_API_KEY' in body  # not-configured explanation
+    resp = client.get('/ai/reports?file=report-20260728-040000.md')
+    assert resp.status_code == 302
+    assert resp.headers['Location'].endswith('/ai/chat')
 
 
-def test_reports_render_markdown_escaped(client, monkeypatch, tmp_path, ai_enabled):
-    monkeypatch.setenv('REPORTS_DIR', str(tmp_path))
-    (tmp_path / 'report-20260728-040000.md').write_text(
-        '# Health\n\n- **loss** on `google_dns`\n\n<script>alert(1)</script>\n',
-        encoding='utf-8',
-    )
+def test_not_configured_says_which_key_and_no_profile(client, ai_disabled):
     login(client)
-    resp = client.get('/ai/reports')
-    body = resp.get_data(as_text=True)
-    assert resp.status_code == 200
-    assert 'report-20260728-040000.md' in body
-    assert '<strong>loss</strong>' in body
-    assert '<code>google_dns</code>' in body
-    # raw HTML in the report must be escaped, never rendered
-    assert '<script>alert(1)</script>' not in body
-    assert '&lt;script&gt;' in body
+    body = client.get('/ai/chat').get_data(as_text=True)
+    assert 'ANTHROPIC_API_KEY' in body
+    assert 'COMPOSE_PROFILES' not in body
+    assert 'id="chat-input"' in body and 'disabled' in body
 
 
-def test_reports_rejects_traversal(client, monkeypatch, tmp_path, ai_enabled):
-    monkeypatch.setenv('REPORTS_DIR', str(tmp_path))
+def test_nav_links_the_chat(client, ai_enabled):
     login(client)
-    resp = client.get('/ai/reports?file=../../etc/passwd')
-    assert resp.status_code == 200
-    assert 'passwd' not in resp.get_data(as_text=True)
-
-
-def test_nav_has_ai_link(client, monkeypatch, tmp_path, ai_disabled):
-    monkeypatch.setenv('REPORTS_DIR', str(tmp_path))
-    login(client)
-    body = client.get('/ai/reports').get_data(as_text=True)
-    assert '/ai/reports' in body
+    body = client.get('/ai/chat').get_data(as_text=True)
+    assert 'href="/ai/chat"' in body
+    assert '/ai/reports' not in body
     assert 'bi-stars' in body  # AI nav entry icon present in base template
-
-
-def test_markdown_helper_covers_lists_and_headers():
-    html = str(ai_module.markdown_to_html(
-        '# Title\n\n- one\n- two\n\n```\ncode <tag>\n```\n*em* text'
-    ))
-    assert '<h2>Title</h2>' in html
-    assert '<ul>' in html and '<li>one</li>' in html
-    assert '<pre><code>' in html and 'code &lt;tag&gt;' in html
-    assert '<em>em</em>' in html
 
 
 # ---------------------------------------------------------------------------

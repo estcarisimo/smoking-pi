@@ -53,7 +53,6 @@ The module directories with tests, and what they are:
 | `mcp-server` | MCP tools over the config API and InfluxDB | ~135 |
 | `smokeping-exporters` | RRD → InfluxDB/ClickHouse, CPE microcut detector | ~40 |
 | `doctor` | Static + live instrumentation checks | ~55 |
-| `ai-insights` | Periodic AI health reports | ~10 |
 | `common` | Code two containers share (Flux, charts, links, mutes, OpenClaw) | tested through its users |
 
 ## Development workflow

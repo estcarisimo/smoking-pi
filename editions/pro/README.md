@@ -5,7 +5,7 @@ IPv6 gating; the web admin and PostgreSQL as the configuration's source of
 truth; Grafana over InfluxDB (the default) or ClickHouse; Wi-Fi and uplink
 statistics; the instrumentation doctor. Optional services, off until you
 turn them on: the MCP server for assistants (`mcp`), alerting and a daily
-digest (`alerts`), AI reports (`ai`), the experimental congestion inference
+digest (`alerts`), the experimental congestion inference
 (`inference`) and the DNS observer (`dns`). [Getting started](../../docs/getting-started.md),
 step 3, compares the editions.
 
