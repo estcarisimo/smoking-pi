@@ -28,6 +28,8 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from common import localtime
+
 log = logging.getLogger("alerter.schedule")
 
 # Four hours. Long enough to cover a reboot, a slow start, or a laptop lid;
@@ -80,30 +82,14 @@ def resolve_zone(tzname: str | None) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
-def _slot_on(day: datetime, hour: int, minute: int, zone: ZoneInfo) -> datetime:
-    """The scheduled instant on ``day``'s calendar date.
-
-    Spring-forward can make the wall time nonexistent (02:30 where 02:00 jumps
-    to 03:00) and autumn can make it ambiguous (01:30 happens twice). ``fold=0``
-    picks the first of an ambiguous pair deterministically; a nonexistent time
-    is normalized by the round-trip through UTC below, which lands it just
-    after the gap. Either way the slot is stable across ticks, which is the
-    property the idempotence depends on.
-    """
-    naive = datetime(day.year, day.month, day.day, hour, minute, fold=0)
-    local = naive.replace(tzinfo=zone)
-    # Round-tripping through UTC normalizes a nonexistent wall time onto a real
-    # instant, so two ticks either side of the gap agree on the slot.
-    return datetime.fromtimestamp(local.timestamp(), tz=zone)
+# The calendar-day math is common.localtime's: the MCP server's weekly
+# summary reads the same week, so there is one copy of the DST handling.
+_slot_on = localtime.slot_on
+midnight_before = localtime.midnight_before
 
 
-WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-
-
-def parse_weekday(value: str | None) -> int | None:
-    """``mon``..``sun`` (or the full name, any case) as 0..6, else None."""
-    text = str(value or "").strip().lower()[:3]
-    return WEEKDAYS.index(text) if text in WEEKDAYS else None
+WEEKDAYS = localtime.WEEKDAYS
+parse_weekday = localtime.parse_weekday
 
 
 def previous_slot(now: datetime, hour: int, minute: int, zone: ZoneInfo,
@@ -119,15 +105,6 @@ def previous_slot(now: datetime, hour: int, minute: int, zone: ZoneInfo,
         back = 7 if weekday is not None else 1
         candidate = _slot_on(day - timedelta(days=back), hour, minute, zone)
     return candidate
-
-
-def midnight_before(slot: datetime, zone: ZoneInfo, days_back: int = 0) -> datetime:
-    """00:00 of ``slot``'s calendar day in ``zone``, ``days_back`` calendar
-    days earlier: a week is seven calendar days, which is 167 or 169 hours
-    across a DST change, never ``slot - 7 * 86400``."""
-    local = slot.astimezone(zone)
-    day = (local - timedelta(days=days_back)).date()
-    return _slot_on(datetime(day.year, day.month, day.day), 0, 0, zone)
 
 
 def due_slot(

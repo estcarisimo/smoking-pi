@@ -22,18 +22,19 @@ from datetime import datetime, timezone
 
 import clock
 import flux
+from common import watchdog_actions
+
 log = logging.getLogger("alerter.watchdog_events")
 
 MEASUREMENT = "watchdog_event"
 # How far back a first look, or a long outage, reads.
 LOOKBACK_S = 24 * 3600
 
-# The watchdog's own bookkeeping, and the start of an episode that its
-# action (or the uplink alert) will report: not news on their own.
-_SKIP = ("watchdog enabled", "watchdog disabled", "; watching", "nothing to watch")
-# It could not act, or what it found will not be fixed by acting.
-_WARN = ("failed", "not rebooting", "not restarting", "keeps restarting",
-         "cannot read", "nothing to reload")
+# What each event is (news, a failure, bookkeeping) is common's: the MCP
+# server's weekly summary and get_updates_since count the same actions.
+_SKIP = watchdog_actions.SKIP
+_WARN = watchdog_actions.WARN
+severity = watchdog_actions.severity
 
 
 def events_flux(since: float) -> str:
@@ -48,16 +49,6 @@ def events_flux(since: float) -> str:
         '|> sort(columns: ["_time"]) '
         '|> keep(columns: ["_time", "_value", "area"])'
     )
-
-
-def severity(message: str) -> str | None:
-    """info, warning, or None for an event that is not news."""
-    text = message.lower()
-    if any(s in text for s in _SKIP):
-        return None
-    if any(w in text for w in _WARN):
-        return "warning"
-    return "info"
 
 
 def _epoch(value) -> float | None:

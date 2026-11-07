@@ -1,0 +1,63 @@
+{
+ "line_cut": {
+  "send": true,
+  "message": "🔴 Bad week, 26 Oct – 1 Nov: your line worse (31 min; the week before: none).\n\n<b>What happened</b>\n🟡 Wed 28 Oct 20:40, 31 min: your line — 18 of 30 destinations, 25 % loss.\n\n<b>The monitor</b>\n🟢 It measured 100.0 % of the week.\n🟢 The watchdog had nothing to do.",
+  "links": {
+   "grafana_week": "http://192.168.1.10:3000/d/connectivity-quality-v1?from=1792990800000&to=1793599200000"
+  }
+ },
+ "quiet": {
+  "send": false,
+  "message": null,
+  "links": null
+ },
+ "deaf_and_no_data": {
+  "send": true,
+  "message": "🔴 Bad week, 26 Oct – 1 Nov: the Pi's Wi-Fi worse (5 h 40 min deaf; the week before: none).\n\n<b>The monitor</b>\n🟡 It measured 94.8 % of the week: 5 h 40 min the Pi's Wi-Fi heard nothing, 3 h with no measurement at all.\n🟡 The watchdog reloaded the Wi-Fi driver once, rebooted the Pi once, restarted SmokePing once.\n🟢 1 upgrade, left out of the above.",
+  "links": {
+   "grafana_week": "http://192.168.1.10:3000/d/connectivity-quality-v1?from=1792990800000&to=1793599200000"
+  }
+ },
+ "recurring_new": {
+  "send": true,
+  "message": "🟢 Good week, 26 Oct – 1 Nov: no episode worth telling, as the week before.\n\n<b>Recurring</b>\n🟡 20:00–22:00: loss or slowdowns on 4 of 7 days (new: not the week before).\n\n<b>The monitor</b>\n🟢 It measured 100.0 % of the week.\n🟢 The watchdog had nothing to do.",
+  "links": {
+   "grafana_week": "http://192.168.1.10:3000/d/connectivity-quality-v1?from=1792990800000&to=1793599200000"
+  }
+ },
+ "recurring_gone": {
+  "send": true,
+  "message": "🟢 Good week, 26 Oct – 1 Nov: your line better (none; the week before: 4 h).\n\n<b>Recurring</b>\n🟢 20:00–21:00, 4 days the week before, did not come back.\n\n<b>The monitor</b>\n🟢 It measured 100.0 % of the week.\n🟢 The watchdog had nothing to do.",
+  "links": {
+   "grafana_week": "http://192.168.1.10:3000/d/connectivity-quality-v1?from=1792990800000&to=1793599200000"
+  }
+ },
+ "slowdown_and_tops": {
+  "send": true,
+  "message": "🟡 Mixed week, 26 Oct – 1 Nov: your line worse (18 min; the week before: none); slowdowns across the connection worse (1 h; the week before: none); individual destinations worse (20 min; the week before: none); episodes with no single cause worse (40 min; the week before: none); your provider better (1 h 35 min; the week before: 5 h).\n\n<b>What happened</b>\n🔴 Thu 29 Oct 09:00, 1 h 35 min: your provider — 25 of 30 destinations, 25 % loss.\n🔴 Wed 28 Oct 19:00, 1 h: slowdowns across the connection — latency 50 ms, 2.5× the same hours a week before.\n🟡 Fri 30 Oct 15:00, 40 min: episodes with no single cause — 10 of 30 destinations, 25 % loss.\n🟡 …and 2 more.\n\n<b>The monitor</b>\n🟢 It measured 100.0 % of the week.\n🟢 The watchdog had nothing to do.\n\n<b>Destinations</b>\n🟡 uba_ar: 12.5 % loss of its own.\n🟡 Netflix: 7.2 % loss of its own.",
+  "links": {
+   "grafana_week": "http://192.168.1.10:3000/d/connectivity-quality-v1?from=1792990800000&to=1793599200000"
+  }
+ },
+ "alerter_record": {
+  "send": true,
+  "message": "🔴 Bad week, 26 Oct – 1 Nov: the Pi's Wi-Fi worse (1 h 5 min deaf; the week before: none); your line worse (40 min; the week before: none); your provider worse (3 h 30 min; the week before: none).\n\n<b>What happened</b>\n🔴 Wed 28 Oct 19:30, 3 h 30 min: your provider — 20 of 30 destinations, 7 % loss.\n🟡 Fri 30 Oct 12:00, 40 min: your line — 20 of 30 destinations, 11 % loss.\n🟢 1 smaller episode below the bar, in the record.\n\n<b>The monitor</b>\n🟢 It measured 99.4 % of the week: 1 h 5 min the Pi's Wi-Fi heard nothing.\n🟢 The watchdog had nothing to do.",
+  "links": {
+   "grafana_week": "http://192.168.1.10:3000/d/connectivity-quality-v1?from=1792990800000&to=1793599200000"
+  }
+ },
+ "pattern_active": {
+  "send": true,
+  "message": "🟢 Good week, 26 Oct – 1 Nov: no episode worth telling, as the week before.\n\n<b>Recurring</b>\n🟡 19:30–23:00: packet loss on most destinations, 4 evenings of 6 (your provider; 17 evenings of 21 since 12 Oct).\n\n<b>The monitor</b>\n🟢 It measured 100.0 % of the week.\n🟢 The watchdog had nothing to do.",
+  "links": {
+   "grafana_week": "http://192.168.1.10:3000/d/connectivity-quality-v1?from=1792990800000&to=1793599200000"
+  }
+ },
+ "pattern_gone": {
+  "send": true,
+  "message": "🟢 Good week, 26 Oct – 1 Nov: no episode worth telling, as the week before.\n\n<b>Recurring</b>\n🟢 19:30–23:00, the evening loss window: gone (17 of 21 while it lasted; last seen Fri 30 Oct 22:00).\n\n<b>The monitor</b>\n🟢 It measured 100.0 % of the week.\n🟢 The watchdog had nothing to do.",
+  "links": {
+   "grafana_week": "http://192.168.1.10:3000/d/connectivity-quality-v1?from=1792990800000&to=1793599200000"
+  }
+ }
+}

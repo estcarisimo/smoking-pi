@@ -44,6 +44,12 @@ cannot be read, nothing is sent -- neither a summary nor a "skipped" -- and
 the read is tried again RETRY_S later, MAX_ATTEMPTS times, before the slot
 is retired with ``last_error``.
 
+**The week itself is common.weekly's**: reading it, judging it, comparing
+it by cause. The MCP server's ``get_weekly_summary`` returns the same week
+as data (front 10), so this module keeps only the schedule, the message and
+its delivery; the message is pinned byte for byte
+(tests/test_weekly_golden.py).
+
 Scheduling is ``schedule.py``'s: one slot a week, idempotent on the
 persisted slot, at most ``MAX_ATTEMPTS`` tries ``RETRY_S`` apart, a slot
 more than a day late retired without sending.
@@ -54,7 +60,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import clock
@@ -63,9 +69,9 @@ import notifications
 import notifier
 import schedule
 import templates
-import watchdog_events
-from common import aggregates, definitions, incident_answers, links
-from common.tsdb import CLAMP_LOSS_RATIO, base_flux, flux_str, influx_bucket
+# aggregates: the destinations' reader, which the tests replace in place.
+from common import aggregates, definitions, links  # noqa: F401
+from common import weekly as shared
 
 log = logging.getLogger("alerter.weekly")
 
@@ -80,50 +86,36 @@ DEFAULT_MAX_LATENESS_S = 24 * 3600
 # itself on each.
 MAX_ATTEMPTS = 3
 RETRY_S = 1800
-WEEK_DAYS = 7
-MAX_EPISODES = 3
-MAX_DESTINATIONS = 3
-# Episodes whose loss is read (one short query each); the rest of a very
-# bad week is judged on the stored maximum.
-MAX_LOSS_QUERIES = 30
-# The probe step every availability bin and span tail is counted in.
-STEP_S = 300
-# Around a watchdog action, the minutes that are the action's, not the
-# network's: a driver reload or a reboot takes the probes down with it.
-WATCHDOG_BEFORE_S = 300
-WATCHDOG_AFTER_S = 900
-# An upgrade start with no end closes after this, as in inference/shared.py.
-UPGRADE_MAX_S = 1800
+# The week's reading and judging are common.weekly's: the MCP server's
+# get_weekly_summary returns the same week as data. Re-exported here so the
+# alerter's call sites and tests read as they did.
+WEEK_DAYS = shared.WEEK_DAYS
+MAX_EPISODES = shared.MAX_EPISODES
+MAX_DESTINATIONS = shared.MAX_DESTINATIONS
+MAX_LOSS_QUERIES = shared.MAX_LOSS_QUERIES
+STEP_S = shared.STEP_S
+WATCHDOG_BEFORE_S = shared.WATCHDOG_BEFORE_S
+WATCHDOG_AFTER_S = shared.WATCHDOG_AFTER_S
+UPGRADE_MAX_S = shared.UPGRADE_MAX_S
+CAUSE_OF_CLASS = shared.CAUSE_OF_CLASS
+CAUSE_TEXT = shared.CAUSE_TEXT
+CAUSE_ORDER = shared.CAUSE_ORDER
+CAUSE_OF_EPISODE = shared.CAUSE_OF_EPISODE
+MONITOR_CAUSE_OF_DETAIL = shared.MONITOR_CAUSE_OF_DETAIL
 
-# What each stored class is, in the reader's words. local_wifi and monitor
-# are the Pi's own (common.aggregates.MONITOR_CLASSES): they count against
-# its availability, never as the network's episodes.
-CAUSE_OF_CLASS = {
-    "local_wifi": "wifi",
-    "monitor": "dns",
-    "local_link": "line",
-    "upstream": "provider",
-    "destination": "destinations",
-    "unclear": "unclear",
-}
-CAUSE_TEXT = {
-    "monitor": "the Pi itself",
-    "wifi": "the Pi's Wi-Fi",
-    "dns": "the Pi's own DNS",
-    "line": "your line",
-    "provider": "your provider",
-    "destinations": "individual destinations",
-    "unclear": "episodes with no single cause",
-    "slow": "slowdowns across the connection",
-}
-CAUSE_ORDER = ("wifi", "dns", "monitor", "line", "provider", "slow", "destinations",
-               "unclear")
-# The alerter's episode classes (common.diagnosis.EPISODE_CLASSES) in the
-# weekly's causes; a monitor episode by what blinded it.
-CAUSE_OF_EPISODE = {"local_link": "line", "upstream": "provider",
-                    "destination": "destinations", "undetermined": "unclear"}
-MONITOR_CAUSE_OF_DETAIL = {"radio": "wifi", "watchdog": "wifi", "route": "wifi",
-                           "dns": "dns"}
+week_bounds = shared.week_bounds
+_rfc3339 = shared._rfc3339
+merge = shared.merge
+overlap = shared.overlap
+upgrade_spans = shared.upgrade_spans
+watchdog_action = shared.watchdog_action
+recurring = shared.recurring
+pattern_windows = shared.pattern_windows
+material = shared.material
+compare = shared.compare
+_overlaps = shared._overlaps
+_week_label = shared._week_label
+_minutes_by_cause = shared._minutes_by_cause
 
 _legacy_logged = False
 
@@ -176,425 +168,19 @@ def zone() -> ZoneInfo:
 
 
 # ---------------------------------------------------------------------------
-# The week
+# The week (common.weekly)
 # ---------------------------------------------------------------------------
 
 
-def week_bounds(slot: float, tz: ZoneInfo) -> tuple[float, float, float]:
-    """(previous week's start, this week's start, its stop), epoch seconds:
-    00:00 of the slot's day, and seven and fourteen calendar days before it,
-    in ``tz``."""
-    at = datetime.fromtimestamp(slot, tz=tz)
-    stop = schedule.midnight_before(at, tz, 0).timestamp()
-    start = schedule.midnight_before(at, tz, WEEK_DAYS).timestamp()
-    prev = schedule.midnight_before(at, tz, 2 * WEEK_DAYS).timestamp()
-    return prev, start, stop
-
-
-def _rfc3339(epoch: float) -> str:
-    return datetime.fromtimestamp(int(epoch), tz=ZoneInfo("UTC")).strftime(
-        "%Y-%m-%dT%H:%M:%SZ")
-
-
-def _epoch(value) -> float | None:
-    if value is None:
-        return None
-    if hasattr(value, "timestamp"):
-        return float(value.timestamp())
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _range(start: float, stop: float) -> str:
-    return (f"from(bucket: {flux_str(influx_bucket())}) "
-            f"|> range(start: {_rfc3339(start)}, stop: {_rfc3339(stop)}) ")
-
-
-def _destinations(start: float, stop: float, measurements=("latency", "dns_latency")) -> str:
-    """The destinations' series over a range: the ISP first hop is
-    evidence about the line, not a destination (common.definitions)."""
-    return (base_flux(list(measurements), _rfc3339(start), range_stop=_rfc3339(stop))
-            + '|> filter(fn: (r) => not exists r.category or r.category != '
-            + flux_str(definitions.FIRST_HOP_CATEGORY) + ") ")
-
-
-def merge(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
-    return aggregates.merge_spans([(lo, hi) for lo, hi in spans if hi > lo])
-
-
-def overlap(lo: float, hi: float, spans: list[tuple[float, float]]) -> float:
-    """Seconds of ``[lo, hi)`` inside the merged ``spans``."""
-    return sum(max(0.0, min(hi, b) - max(lo, a)) for a, b in spans)
-
-
-def upgrade_spans(rows: list[dict]) -> list[tuple[float, float]]:
-    """``smoking-pi upgrade``'s markers as spans, paired as the inference
-    pairs them (inference/shared.upgrade_bins): a start closes at the first
-    end within UPGRADE_MAX_S, else UPGRADE_MAX_S after it."""
-    events = sorted((t, str(r.get("phase"))) for r in rows
-                    if (t := _epoch(r.get("_time"))) is not None)
-    spans, opened = [], None
-    for when, phase in events:
-        if phase == "start":
-            if opened is not None:
-                spans.append((opened, min(when, opened + UPGRADE_MAX_S)))
-            opened = when
-        elif phase == "end":
-            if opened is not None and when - opened <= UPGRADE_MAX_S:
-                spans.append((opened, when))
-            elif opened is not None:
-                spans.append((opened, opened + UPGRADE_MAX_S))
-            opened = None
-    if opened is not None:
-        spans.append((opened, opened + UPGRADE_MAX_S))
-    return spans
-
-
-def watchdog_action(message: str) -> str | None:
-    """reload, reboot or restart for an action the watchdog took; None for
-    its bookkeeping, a dry run, a refusal or a failure (which is no action)."""
-    text = message.lower()
-    if watchdog_events.severity(message) != "info" or "would " in text:
-        return None
-    if "reloading the" in text:
-        return "reload"
-    if text.endswith("rebooting") or "; rebooting" in text:
-        return "reboot"
-    if "restarting it" in text:
-        return "restart"
-    return None
-
-
-def _optional(query, flux_src: str, what: str) -> list[dict]:
-    try:
-        return query(flux_src)
-    except Exception:  # influx client raises many exception types
-        log.warning("Weekly: %s could not be read; left out", what, exc_info=True)
-        return []
-
-
-def _mean_loss_pct(query, targets: list[str], lo: float, hi: float) -> float | None:
-    """Mean loss, in percent, of ``targets`` over ``[lo, hi + STEP_S)``: a
-    point stamped t measured the step before it."""
-    if not targets:
-        return None
-    names = ", ".join(flux_str(t) for t in sorted(set(targets)))
-    rows = query(_destinations(lo, hi + STEP_S)
-                 + '|> filter(fn: (r) => r._field == "loss") ' + CLAMP_LOSS_RATIO
-                 + f"|> filter(fn: (r) => contains(value: r.target, set: [{names}])) "
-                 + "|> group() |> mean()")
-    values = [float(r["_value"]) for r in rows if r.get("_value") is not None]
-    return round(values[0] * 100.0, 2) if values else None
-
-
-def _median_ms(query, lo: float, hi: float) -> float | None:
-    rows = query(_destinations(lo, hi, ("latency",))
-                 + '|> filter(fn: (r) => r._field == "median") |> group() |> median()')
-    values = [float(r["_value"]) for r in rows if r.get("_value") is not None]
-    return values[0] * 1000.0 if values else None
-
-
-def _measured_bins(query, start: float, stop: float) -> list[tuple[float, float]]:
-    """The STEP_S bins of the week in which any destination wrote a point,
-    as spans. aggregateWindow stamps a bin at its end."""
-    rows = query(_destinations(start, stop)
-                 + '|> filter(fn: (r) => r._field == "loss") |> group() '
-                 + f"|> aggregateWindow(every: {STEP_S}s, fn: count, createEmpty: false) "
-                 + '|> keep(columns: ["_time", "_value"])')
-    ends = {t for r in rows if (r.get("_value") or 0) and (t := _epoch(r.get("_time")))}
-    return merge([(max(start, t - STEP_S), min(stop, t)) for t in ends])
-
-
-def _category_breadth(targets: list[str], categories: dict[str, str]) -> int:
-    """Categories in which MATERIAL_CATEGORY_SHARE of the destinations were
-    among ``targets``: the gate's second breadth (common.definitions)."""
-    total: dict[str, int] = {}
-    for target, category in categories.items():
-        if category and category != definitions.FIRST_HOP_CATEGORY:
-            total[category] = total.get(category, 0) + 1
-    hit: dict[str, int] = {}
-    for target in set(targets):
-        category = categories.get(target)
-        if category in total:
-            hit[category] = hit.get(category, 0) + 1
-    return sum(1 for c, n in hit.items()
-               if 100.0 * n / total[c] >= definitions.MATERIAL_CATEGORY_SHARE)
-
-
-def _from_alerter(closed: list[dict], start: float, stop: float) -> dict:
-    """The week's episodes as the alerter recorded and judged them
-    (episodes.summary): material ones told, the rest counted, monitor ones
-    as the time the monitor could not hear."""
-    episodes, repeating, deaf, deaf_by_cause, minor = [], [], [], {}, 0
-    for ep in closed:
-        lo, hi = max(start, float(ep["start"])), min(stop, float(ep["end"]))
-        if hi <= lo:
-            continue
-        if ep.get("class") == "monitor":
-            cause = MONITOR_CAUSE_OF_DETAIL.get(ep.get("detail"), "monitor")
-            deaf.append((lo, hi))
-            deaf_by_cause[cause] = deaf_by_cause.get(cause, 0.0) + (hi - lo)
-            continue
-        if ep.get("broad_cycles"):
-            repeating.append((lo, hi))
-        if ep.get("pattern"):
-            # Part of a recurring window: counted there, not as minor.
-            continue
-        if not ep.get("material"):
-            minor += 1
-            continue
-        episodes.append({
-            "kind": "loss", "cause": CAUSE_OF_EPISODE.get(ep.get("class"), "unclear"),
-            "start": lo, "end": hi, "minutes": round((hi - lo) / 60.0),
-            "affected": int(ep.get("affected") or 0),
-            "reporting": int(ep.get("reporting") or 0),
-            "loss_pct": float(ep.get("loss_pct") or 0.0),
-        })
-    return {"episodes": episodes, "repeating": repeating, "deaf": merge(deaf),
-            "deaf_by_cause": deaf_by_cause, "minor": minor}
-
-
 def read_week(start: float, stop: float, query=None, record: dict | None = None) -> dict:
-    """Everything one week says, from the shared readers. Raises when the
-    incident history, the availability, the categories or the inference's
-    periods cannot be read: without any of them a quiet week and an unread
-    one look alike. The upgrade markers and the watchdog's events are
-    optional: missing, they only exclude less, which errs toward telling.
-
-    The episodes are the alerter's (``record``: ``state["episodes"]``) when
-    its record began before the week; otherwise what ``incident_history``
-    stored (``loss_incident``, every half hour, INCIDENT_HISTORY_HOURS=0
-    turns it off), judged by the same gate. With neither, the weekly sees
-    no episode at all, only availability and windows."""
-    query = query or flux.query_influx
-    bucket = influx_bucket()
-    alerter = (record is not None and record.get("since") is not None
-               and float(record["since"]) <= start)
-    incidents = ([] if alerter else
-                 incident_answers.history_between(query, bucket, start, stop))
-    measured = _measured_bins(query, start, stop)
-
-    upgrades = upgrade_spans(_optional(
-        query, _range(start - UPGRADE_MAX_S, stop)
-        + '|> filter(fn: (r) => r._measurement == "upgrade" and r._field == "value") '
-        + '|> keep(columns: ["_time", "phase"])', "the upgrade markers"))
-    actions: dict[str, int] = {}
-    action_spans = []
-    for row in _optional(query, _range(start, stop)
-                         + '|> filter(fn: (r) => r._measurement == "watchdog_event" '
-                         + 'and r._field == "message") |> group() '
-                         + '|> keep(columns: ["_time", "_value", "area"])',
-                         "the watchdog's events"):
-        kind = watchdog_action(str(row.get("_value") or ""))
-        at = _epoch(row.get("_time"))
-        if kind and at is not None:
-            actions[kind] = actions.get(kind, 0) + 1
-            action_spans.append((at - WATCHDOG_BEFORE_S, at + WATCHDOG_AFTER_S))
-    # Required, like the incidents: without the categories an episode on
-    # two of them under 30 % of the destinations would read as minor, and
-    # a week told as quiet that was not.
-    categories = {
-        r["target"]: r.get("category") or ""
-        for r in query(_destinations(start, stop)
-                       + '|> filter(fn: (r) => r._field == "loss") '
-                       + '|> group(columns: ["target", "category"]) |> last() '
-                       + '|> keep(columns: ["target", "category"])')
-        if r.get("target")}
-
-    monitor = [i for i in incidents if i["class"] in aggregates.MONITOR_CLASSES]
-    # A point stamped t measured the step before it: the step after a deaf
-    # span still heard it.
-    deaf = merge([(max(start, i["start_epoch"]), min(stop, i["end_epoch"] + STEP_S))
-                  for i in monitor])
-    deaf_by_cause: dict[str, float] = {}
-    for inc in monitor:
-        cause = CAUSE_OF_CLASS[inc["class"]]
-        seconds = max(0.0, min(stop, inc["end_epoch"]) - max(start, inc["start_epoch"]))
-        deaf_by_cause[cause] = deaf_by_cause.get(cause, 0.0) + seconds
-    if alerter:
-        own = _from_alerter(record.get("closed") or [], start, stop)
-        deaf, deaf_by_cause = own["deaf"], own["deaf_by_cause"]
-    excluded = merge(deaf + upgrades + action_spans)
-
-    episodes, repeating, minor = [], [], 0
-    if alerter:
-        episodes, repeating, minor = own["episodes"], own["repeating"], own["minor"]
-    loss_queries = 0
-    for inc in incidents:
-        if inc["class"] in aggregates.MONITOR_CLASSES:
-            continue
-        # Clipped to the week: one that runs past Monday 00:00 is counted
-        # for its minutes inside it (the next week starts no new one).
-        lo, hi = max(start, inc["start_epoch"]), min(stop, inc["end_epoch"])
-        minutes = (hi - lo - overlap(lo, hi, excluded)) / 60.0
-        reporting = int(inc.get("targets_reporting") or 0)
-        affected = int(inc.get("targets_affected") or 0)
-        share = 100.0 * affected / reporting if reporting else 0.0
-        # The alerter's gate (common.definitions.materiality), on what the
-        # stored incident says; its loss is read only once the rest holds.
-        facts = {
-            "measurable": minutes > 0,
-            "breadth_pct": share if reporting >= definitions.MIN_BREADTH_TARGETS else 0.0,
-            "categories": (_category_breadth(inc["targets"], categories)
-                           if reporting >= definitions.MIN_BREADTH_TARGETS else 0),
-            "minutes": minutes,
-            "episodes_in_window": 1,
-        }
-        unmet = definitions.materiality(**facts, loss_pct=None)
-        if "persistence" in unmet or "measurable" in unmet:
-            continue
-        if "breadth" in unmet:
-            minor += 1
-            continue
-        # Only loss the destinations shared repeats as a window: one flaky
-        # site at the same hour every day is that site's (section 4), not
-        # the connection's. Below the loss bar it still counts: a nightly
-        # low-grade loss on every path is exactly a recurring window.
-        repeating.append((lo, hi))
-        loss = None
-        if loss_queries < MAX_LOSS_QUERIES:
-            loss_queries += 1
-            try:
-                loss = _mean_loss_pct(query, inc["targets"], lo, hi)
-            except Exception:  # influx client raises many exception types
-                log.warning("Weekly: an episode's loss could not be read; "
-                            "judged on its maximum", exc_info=True)
-        if loss is None:
-            # The stored maximum bounds the mean from above: an episode it
-            # cannot clear is not material, one it clears is told.
-            loss = inc.get("max_loss_pct")
-        if loss is None or not definitions.material(**facts, loss_pct=float(loss)):
-            minor += 1
-            continue
-        episodes.append({
-            "kind": "loss", "cause": CAUSE_OF_CLASS.get(inc["class"], "unclear"),
-            "start": lo, "end": hi, "minutes": round(minutes),
-            "affected": affected, "reporting": reporting,
-            "loss_pct": float(loss),
-        })
-
-    # Shared periods from the inference (profile `inference`; none when it
-    # is off): loss the whole connection shared, and congestion.
-    # Required: with the `inference` profile off the query is simply empty,
-    # so a failure here is a failure, not "no periods".
-    shared = query(
-        _range(start, stop)
-        + '|> filter(fn: (r) => (r._measurement == "shared_degradation" or '
-        + 'r._measurement == "shared_congestion") and '
-        + '(r._field == "end" or r._field == "class")) '
-        + '|> pivot(rowKey: ["_time", "_measurement"], columnKey: ["_field"], '
-        + 'valueColumn: "_value") |> group() |> sort(columns: ["_time"])')
-    for row in shared:
-        lo, hi = _epoch(row.get("_time")), _epoch(row.get("end"))
-        if lo is None or hi is None or row.get("class") == "monitor_deaf":
-            continue
-        lo, hi = max(start, lo), min(stop, hi)
-        minutes = (hi - lo - overlap(lo, hi, excluded)) / 60.0
-        if minutes < definitions.MATERIAL_MIN_MINUTES:
-            continue
-        repeating.append((lo, hi))
-        if row.get("_measurement") != "shared_congestion":
-            continue
-        try:
-            now_ms = _median_ms(query, lo, hi)
-            before_ms = _median_ms(query, _week_before(lo), _week_before(hi))
-        except Exception:  # influx client raises many exception types
-            log.warning("Weekly: a slowdown's latency could not be read; left out",
-                        exc_info=True)
-            continue
-        # Shared by the whole connection (the inference's shared periods):
-        # breadth is all of it; the gate's latency arm decides.
-        if now_ms and before_ms and definitions.material(
-                measurable=True, breadth_pct=100.0, categories=0, minutes=minutes,
-                episodes_in_window=1, loss_pct=None,
-                latency_ratio=now_ms / before_ms):
-            episodes.append({
-                "kind": "slow", "cause": "slow", "start": lo, "end": hi,
-                "minutes": round(minutes), "median_ms": now_ms,
-                "before_ms": before_ms,
-            })
-
-    week_s = stop - start
-    # Measured: a bin with a point, outside the monitor's deaf spans. The
-    # gaps and the deaf spans overlap (a reboot while the radio was deaf),
-    # so the time lost is their union, never their sum.
-    measured_s = sum((hi - lo) - overlap(lo, hi, deaf) for lo, hi in measured)
-    no_data_s = week_s - sum(hi - lo for lo, hi in measured)
-    return {
-        "start": start,
-        "stop": stop,
-        "episodes": sorted(episodes, key=lambda e: e["start"]),
-        "minor": minor,
-        "repeating": repeating,
-        "deaf_minutes": {c: round(s / 60) for c, s in deaf_by_cause.items()},
-        "no_data_minutes": round(max(0.0, no_data_s) / 60),
-        "measured_pct": round(100.0 * measured_s / week_s, 1) if week_s else 0.0,
-        "watchdog": actions,
-        "upgrades": len(upgrades),
-        "excluded": excluded,
-    }
+    """common.weekly.read_week in the messages' zone."""
+    return shared.read_week(start, stop, query or flux.query_influx, record, zone())
 
 
-def _week_before(epoch: float) -> float:
-    """The same wall-clock time seven calendar days before, in the
-    messages' zone: an hour off across a DST change otherwise."""
-    tz = zone()
-    local = datetime.fromtimestamp(epoch, tz=tz).replace(tzinfo=None)
-    return (local - timedelta(days=WEEK_DAYS)).replace(tzinfo=tz).timestamp()
-
-
-def recurring(spans: list[tuple[float, float]], start: float, stop: float,
-              tz: ZoneInfo) -> list[dict]:
-    """Runs of hours of the day that ``spans`` touched on at least
-    RECURRING_MIN_DAYS days of ``[start, stop)``, in ``tz``: ``{"from": h,
-    "to": h + n, "days": d}``, ``days`` the days with a span in the run.
-    A run does not wrap past midnight."""
-    days_by_hour: dict[int, set] = {h: set() for h in range(24)}
-    for lo, hi in spans:
-        lo, hi = max(lo, start), min(hi, stop)
-        t = lo
-        while t < hi:
-            # Local hours, not UTC ones: a zone at a half-hour offset has
-            # its hours on the half hour of UTC.
-            local = datetime.fromtimestamp(t, tz=tz)
-            days_by_hour[local.hour].add(local.date())
-            top = local.replace(minute=0, second=0, microsecond=0)
-            t = max(t + 60, (top + timedelta(hours=1)).timestamp())
-    windows, run = [], []
-    for hour in range(25):
-        if hour < 24 and len(days_by_hour[hour]) >= definitions.RECURRING_MIN_DAYS:
-            run.append(hour)
-            continue
-        if run:
-            days = set().union(*(days_by_hour[h] for h in run))
-            windows.append({"from": run[0], "to": run[-1] + 1, "days": len(days)})
-            run = []
-    return windows
-
-
-def pattern_windows(box: dict | None, start: float, stop: float,
-                    tz: ZoneInfo) -> tuple[list[dict], list[dict]] | None:
-    """The week's recurring windows from the alerter's patterns: (seen this
-    week, gone this week). None when its record does not cover the week
-    whole, so the hours are counted the old way."""
-    if not box or box.get("since") is None or float(box["since"]) > start:
-        return None
-    first = datetime.fromtimestamp(start, tz=tz).date().isoformat()
-    last = datetime.fromtimestamp(stop - 1, tz=tz).date().isoformat()
-    windows, gone = [], []
-    for p in box.get("items") or ():
-        week = {k: v for k, v in (p.get("days") or {}).items() if first <= k <= last}
-        seen = sum(v == "seen" for v in week.values())
-        entry = {"pattern": p, "from": p["from"], "to": p["to"], "days": seen,
-                 "observed": sum(v in ("seen", "clear") for v in week.values()),
-                 "new": first <= str(p.get("created_day") or "") <= last}
-        if seen:
-            windows.append(entry)
-        if p.get("state") == "gone" and start <= float(p.get("gone_at") or 0) < stop:
-            gone.append(entry)
-    return windows, gone
+def destinations(start: float, stop: float, excluded: list[tuple[float, float]],
+                 query=None) -> list[dict] | None:
+    """common.weekly.destinations: at most three, worst first; None unread."""
+    return shared.destinations(start, stop, excluded, query or flux.query_influx)
 
 
 def _pattern_line(w: dict, stop: float) -> str:
@@ -619,50 +205,6 @@ def _gone_line(w: dict, stop: float) -> str:
             f"lasted; last seen {last}).")
 
 
-def _overlaps(a: dict, b: dict) -> bool:
-    return a["from"] < b["to"] and b["from"] < a["to"]
-
-
-def material(week: dict, windows: list[dict], gone: list[dict]) -> bool:
-    """Whether the week is news: a material episode, a recurring window
-    (this week's, or the week before's that is gone), or a monitor that
-    measured less than MATERIAL_AVAILABILITY_PCT of it."""
-    return bool(week["episodes"] or windows or gone
-                or week["measured_pct"] < definitions.MATERIAL_AVAILABILITY_PCT)
-
-
-def destinations(start: float, stop: float, excluded: list[tuple[float, float]],
-                 query=None) -> list[dict] | None:
-    """The destinations with the most loss of their own (outside
-    ``excluded``) at or above MATERIAL_LOSS_PCT, one per service, worst
-    first; None when they could not be read."""
-    query = query or flux.query_influx
-    try:
-        stats = aggregates.target_stats(start, stop, excluded)
-    except Exception:  # influx client raises many exception types
-        log.warning("Weekly: the destinations' loss could not be read", exc_info=True)
-        return None
-    labels = {r["target"]: str(r.get("_value") or "")
-              for r in _optional(query, f"from(bucket: {flux_str(influx_bucket())}) "
-                                 "|> range(start: 0) "
-                                 '|> filter(fn: (r) => r._measurement == "target_labels" '
-                                 'and r._field == "service") |> group(columns: ["target"]) '
-                                 '|> last() |> keep(columns: ["target", "_value"])',
-                                 "the service labels")
-              if r.get("target")}
-    best: dict[str, dict] = {}
-    for entry in stats:
-        own = entry.get("avg_loss_pct_measurable")
-        if own is None or float(own) < definitions.MATERIAL_LOSS_PCT:
-            continue
-        name = entry["target"]
-        label = labels.get(name) or links.target_base_name(name)
-        if label not in best or float(own) > best[label]["loss_pct"]:
-            best[label] = {"label": label, "loss_pct": float(own),
-                           "median_ms": entry.get("median_ms")}
-    return sorted(best.values(), key=lambda d: d["loss_pct"], reverse=True)[:MAX_DESTINATIONS]
-
-
 # ---------------------------------------------------------------------------
 # The message
 # ---------------------------------------------------------------------------
@@ -680,45 +222,6 @@ def _times(count: int) -> str:
     return {1: "once", 2: "twice"}.get(count, f"{count} times")
 
 
-
-
-def _week_label(start: float, stop: float, tz: ZoneInfo) -> str:
-    first = datetime.fromtimestamp(start, tz=tz)
-    last = datetime.fromtimestamp(stop - 1, tz=tz)
-    if first.month == last.month:
-        return f"{first.day}–{last.day} {last:%b}"
-    return f"{first.day} {first:%b} – {last.day} {last:%b}"
-
-
-def _minutes_by_cause(week: dict) -> dict[str, int]:
-    out = {c: m for c, m in week["deaf_minutes"].items()
-           if m >= definitions.MATERIAL_MIN_MINUTES}
-    for ep in week["episodes"]:
-        out[ep["cause"]] = out.get(ep["cause"], 0) + int(ep["minutes"])
-    return out
-
-
-def compare(week: dict, before: dict) -> tuple[str, list[tuple[str, int, int, str]]]:
-    """(``good``/``mixed``/``bad``, [(cause, minutes, minutes before,
-    ``worse``/``better``/``same``)]), causes in CAUSE_ORDER. A cause moves
-    when its minutes changed by at least MATERIAL_MIN_MINUTES."""
-    now, prev = _minutes_by_cause(week), _minutes_by_cause(before)
-    rows = []
-    for cause in CAUSE_ORDER:
-        a, b = now.get(cause, 0), prev.get(cause, 0)
-        if not a and not b:
-            continue
-        step = definitions.MATERIAL_MIN_MINUTES
-        trend = "worse" if a - b >= step else "better" if b - a >= step else "same"
-        rows.append((cause, a, b, trend))
-    trends = {r[3] for r in rows}
-    if "worse" in trends:
-        verdict = "mixed" if "better" in trends else "bad"
-    elif any(r[1] for r in rows):
-        verdict = "good" if "better" in trends else "mixed"
-    else:
-        verdict = "good"
-    return verdict, rows
 
 
 def _cause_part(cause: str, now: int, prev: int, trend: str) -> str:
@@ -835,29 +338,23 @@ def build(slot: float, query=None, record: dict | None = None,
     its recurring windows (``state["patterns"]``)."""
     tz = zone()
     prev, start, stop = week_bounds(slot, tz)
-    week = read_week(start, stop, query, record)
-    before = read_week(prev, start, query, record)
-    from_patterns = pattern_windows(known, start, stop, tz)
-    if from_patterns is not None:
-        (windows, gone), before_windows = from_patterns, []
-    else:
-        windows = recurring(week["repeating"], start, stop, tz)
-        before_windows = recurring(before["repeating"], prev, start, tz)
-        gone = [w for w in before_windows if not any(_overlaps(w, x) for x in windows)]
+    r = shared.assemble(start, stop, prev, query or flux.query_influx, record,
+                        known, tz)
+    week = r["week"]
     out = {"type": "weekly", "week_start": start, "week_stop": stop,
            "measured_pct": week["measured_pct"],
-           "episodes": len(week["episodes"]), "windows": len(windows)}
-    if not material(week, windows, gone):
+           "episodes": len(week["episodes"]), "windows": len(r["windows"])}
+    if not r["material"]:
         out["send"] = False
-        out["label"] = _week_label(start, stop, tz)
+        out["label"] = r["label"]
         return out
     # The Connection quality dashboard: the one that shows a week's patterns.
     link = links.week_link(start, stop)
     out.update({
         "send": True,
-        "message": render(week, before, windows, before_windows,
+        "message": render(week, r["before"], r["windows"], r["before_windows"],
                           destinations(start, stop, week["excluded"], query), tz,
-                          gone),
+                          r["gone"]),
         "links": {"grafana_week": link} if link else {},
     })
     return out

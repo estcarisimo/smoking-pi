@@ -42,12 +42,15 @@ from common import (
     diagnosis,
     diagnosis_query,
     incident_answers,
+    localtime,
     loss_events,
     microcuts,
     mutes,
     notification_ledger,
     openclaw,
     patterns,
+    updates,
+    weekly,
 )
 
 def _instructions() -> str:
@@ -114,6 +117,9 @@ def _summarize_result(result: Any) -> str:
     if isinstance(result, dict):
         if "error" in result:
             return f"error:{str(result['error'])[:60]}"
+        if isinstance(result.get("verdict"), str):
+            # get_updates_since / get_weekly_summary: what the heartbeat saw.
+            return f"verdict={result['verdict']}"
         for key in ("stats", "events", "targets"):
             if isinstance(result.get(key), list):
                 return f"{len(result[key])} {key}"
@@ -1203,6 +1209,177 @@ def get_notification_history(days: int = 7, kind: str | None = None) -> dict:
         return notification_ledger.answer(days, kind)
     except OSError as exc:
         return _tool_error("The notification ledger could not be read", exc)
+
+
+def _service_lookup():
+    """target -> its service label (config-manager's taxonomy), fetched at
+    most once per call and only when asked; None for every name when the
+    config API cannot be read (the caller falls back to the base name)."""
+    cache: dict[str, str] | None = None
+
+    def service_of(name: str) -> str | None:
+        nonlocal cache
+        if cache is None:
+            try:
+                cache = {t["name"]: str(t.get("service") or "")
+                         for t in _fetch_targets(backends.get_config_api())
+                         if t.get("name")}
+            except Exception as exc:  # deliberately broad: a label is garnish
+                log.warning("service labels unavailable: %s", type(exc).__name__)
+                cache = {}
+        return cache.get(name) or None
+
+    return service_of
+
+
+@mcp.tool()
+@logged_tool
+def get_updates_since(since: str = "1h", include_non_material: bool = True) -> dict:
+    """What changed since a moment, already checked against what the user
+    was told: for an assistant's heartbeat ("anything new since last
+    time?") and for "what happened while I was out?".
+
+    Call it on a heartbeat with the previous call's `as_of` as `since`
+    (or "1h"), and follow `verdict`:
+    - `nothing_new`: say nothing.
+    - `material_pushed_already`: the user already got (or is about to get)
+      every material message for this window; do not repeat it.
+    - `worth_mentioning`: something the alerter did not push is worth a
+      short message; `reasons` says what (`pattern_change`,
+      `non_material_cluster`, `monitor_blind_unreported`,
+      `material_unreported`).
+
+    Returns `material` episodes in the window (`state` opened / ongoing /
+    closed, `cause`, `confidence`, `scope` with destinations and services,
+    `minutes`, `loss_pct` in percent, what was `pushed`, `reported`, a
+    `link`); `non_material` counted by kind (`total`, `largest_cluster`,
+    `by_kind`, by the class the alerter judged, with a `text` such as "7
+    short packet-loss episodes on your line"); `patterns` (recurring windows that `appeared`,
+    `repeated` or `disappeared`, `reported` / `queued`); `monitor` (spans it
+    was blind and why -- deaf radio, upgrade, watchdog -- and the half
+    hours it `heard`); `already_pushed` (the ledger's messages in the
+    window: never re-tell them). Times are in the Pi's message zone
+    (DIGEST_TZ). Reads only the alerter's files: cheap, safe every hour.
+
+    Args:
+        since: An ISO-8601 time (one without an offset is in DIGEST_TZ) or
+            a span back from now: 90m, 1h, 24h, 2d. At most 7 days.
+        include_non_material: List the non-material episodes by kind
+            (counted for the verdict either way).
+    """
+    tz = localtime.digest_zone()
+    now = time.time()
+    when, problem = updates.parse_since(since, now, tz)
+    if problem:
+        return {"error": problem}
+    state = _read_alerter_state()
+    if not isinstance(state.get("episodes"), dict):
+        # No record is not a quiet record: "nothing_new" would tell a
+        # heartbeat to stay silent while nothing is being judged at all.
+        return {"error": "The alerter's episode record could not be read (is the "
+                         "alerts service running, and its state volume mounted?). "
+                         "Nothing can be said about what changed."}
+    try:
+        entries, _ = notification_ledger.read()
+    except OSError as exc:
+        return _tool_error("The notification ledger could not be read", exc)
+    live = mutes.active(mutes.load(), now)
+
+    def muted(key: str, start: Any) -> bool:
+        return mutes.find(live, {"key": key, "rule": "episode"}, now,
+                          first_seen=start) is not None
+
+    return updates.answer(state, entries, when, now, tz,
+                          include_non_material=bool(include_non_material),
+                          service_of=_service_lookup(), muted=muted)
+
+
+# A finished week does not change: the same answer for this long.
+WEEKLY_CACHE_S = 900
+_weekly_cache: dict[tuple[float, float], tuple[float, dict]] = {}
+
+
+def _weekly_message(start: float, stop: float, tz) -> dict | None:
+    """What the alerter did with this week's summary: the ledger's weekly
+    entry decided on the day after the week, or the skipped slot."""
+    try:
+        entries, _ = notification_ledger.read()
+    except OSError:
+        entries = []
+    for e in entries:
+        decided = float(e.get("decided_at") or 0)
+        if e.get("kind") == "weekly" and stop <= decided < stop + 2 * 86400:
+            return {"sent": e.get("outcome") in ("sent", "handed"),
+                    # Queued or held: the alerter still delivers it.
+                    "pending": e.get("outcome") in ("queued", "held", "failed"),
+                    "outcome": e.get("outcome"),
+                    "decided": weekly.iso(decided, tz)}
+    skipped = (_read_alerter_state().get("weekly") or {}).get("last_skipped") or {}
+    if skipped and float(skipped.get("week_start") or 0) == start:
+        return {"sent": False, "outcome": "skipped: nothing material"}
+    return None
+
+
+@mcp.tool()
+@logged_tool
+def get_weekly_summary(week: str = "last") -> dict:
+    """The weekly summary as data: for "how was my week?", and for a
+    Monday-morning narration of the week.
+
+    The same week, judged by the same code, as the message the alerter
+    sends on WEEKLY_DAY (Monday by default) -- only when it is news
+    (`has_material`). Fields: `verdict` (good / mixed / bad against the
+    week before) and `by_cause` (minutes per cause -- the Pi's Wi-Fi, your
+    line, your provider, slowdowns, individual destinations -- this week
+    and the week before, `trend`); `episodes` (the material ones, longest
+    first, at most 3, `more_episodes`), `smaller_episodes`; `patterns`
+    (recurring windows with their days this week and since they began,
+    `state` new / active / gone); `monitor` (`measured_pct` of the week,
+    `blind_minutes` by cause, `no_data_minutes`, `watchdog_actions`,
+    `upgrades`); `destinations` (at most 3 services with loss of their own
+    at or above 5 %, `null` when unreadable); `links.grafana_week`; and
+    `weekly_message`: whether the alerter sent this week's message.
+    Times in DIGEST_TZ; loss in percent; durations in minutes.
+
+    Args:
+        week: "last" (the last complete week, default), "current" (this
+            week so far, against the same span a week before) or an ISO
+            date (the week that contains it).
+    """
+    tz = localtime.digest_zone()
+    now = time.time()
+    weekday = localtime.parse_weekday(os.environ.get("WEEKLY_DAY") or "mon")
+    chosen, problem = weekly.select(week, now, tz, 0 if weekday is None else weekday)
+    if problem:
+        return {"error": problem}
+    key = (chosen["start"], chosen["stop"])
+    cached = _weekly_cache.get(key)
+    if chosen["complete"] and cached and cached[0] > now:
+        # The week's reading is cached; what the alerter did with its
+        # message can change any minute on its day, so it is read fresh.
+        return {**cached[1], "weekly_message": _weekly_message(
+            chosen["start"], chosen["stop"], tz)}
+    state = _read_alerter_state()
+
+    def query(flux: str) -> list[dict]:
+        return query_influx(flux)
+
+    try:
+        reading = weekly.assemble(chosen["start"], chosen["stop"], chosen["prev"],
+                                  query, state.get("episodes"), state.get("patterns"),
+                                  tz, chosen["prev_stop"])
+    except Exception as exc:  # the influx client raises many types
+        return _tool_error("InfluxDB query failed", exc)
+    data = weekly.as_data(reading, weekly.destinations(
+        chosen["start"], chosen["stop"], reading["week"]["excluded"], query))
+    data["week"]["complete"] = chosen["complete"]
+    data["weekly_message"] = (_weekly_message(chosen["start"], chosen["stop"], tz)
+                              if chosen["complete"] else None)
+    if chosen["complete"] and data["destinations"] is not None:
+        # Not a reading with an unread part: the next call tries again.
+        _weekly_cache.clear()
+        _weekly_cache[key] = (now + WEEKLY_CACHE_S, data)
+    return data
 
 
 @mcp.tool()

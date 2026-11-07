@@ -28,6 +28,43 @@ version gets a matching GitHub release and git tag.
   quiet hours are the relay alone. `smoking-pi openclaw` sets up the hooks with a
   token of their own, and `--check` says which way alerts go. The default stays
   `message`, so nothing changes until you run it.
+- **Two MCP tools for an assistant that speaks unprompted:
+  `get_updates_since` and `get_weekly_summary`.** Front 10 makes the
+  OpenClaw agent the voice of the monitor: an hourly heartbeat that says
+  something only when it is worth saying, and a Monday-morning narration of
+  the week. The tools could only answer per-tool questions (the loss in a
+  window, the incident history, the ledger), so a heartbeat had no cheap
+  way to learn what changed: it would either call five tools every hour and
+  judge the result itself -- re-telling alerts the user already got, about
+  eight non-material episodes a day on the reference Pi to choose from --
+  or stay silent and miss the one thing the alerter does not push (a
+  recurring window appearing, a cluster of small losses, the monitor blind
+  with nothing said). `get_updates_since(since)` answers from what the
+  alerter already wrote -- its episode record, its recurring windows and
+  the notification ledger, no InfluxDB query -- with the material episodes,
+  the non-material ones counted by kind, pattern changes, the monitor's
+  blind spans, what was already pushed, and a `verdict`
+  (`nothing_new`, `worth_mentioning`, `material_pushed_already`) whose rule
+  is code in `common/updates.py` and is documented in docs/mcp-server.md.
+  `get_weekly_summary(week)` returns the weekly message's week as data:
+  verdict by cause against the week before, episodes, patterns, the
+  monitor's availability and the watchdog's actions, the worst
+  destinations, the Grafana link, and whether the message was sent. The
+  guide (and so the OpenClaw skill and every MCP client) says how to use
+  both on a heartbeat.
+
+### Changed
+
+- **The weekly summary's reading and judging moved to
+  `common/weekly.py`**, so the alerter's message and the MCP server's
+  `get_weekly_summary` come from one piece of code and cannot disagree
+  about a week. The alerter keeps the schedule, the rendering and the
+  delivery; the message it sends is unchanged byte for byte, pinned by a
+  test over nine weeks rendered before the move. The calendar-day math
+  (`common/localtime.py`) and the reading of the watchdog's words
+  (`common/watchdog_actions.py`) moved with it. The MCP server now gets
+  `DIGEST_TZ` and `WEEKLY_DAY` from compose, so its times and weeks are
+  the alerter's.
 
 ### Removed
 

@@ -119,6 +119,23 @@ an alert about X?", "what was held overnight?"), call
 `get_notification_history`: every message the alerter decided on in the
 last 30 days, its text and whether it was sent, queued, held or failed.
 
+On a heartbeat or a scheduled check-in ("anything new since last time?"),
+call `get_updates_since` with the previous call's `as_of` (or "1h") and
+follow its `verdict`. `nothing_new`: say nothing at all. `material_pushed_already`:
+the alerter already told the person, or is about to -- do not repeat it.
+`worth_mentioning`: one short message about what `reasons` names (a
+recurring window that appeared or went away, a cluster of small episodes,
+the monitor blind and unreported, a material episode nothing was pushed
+about). Never re-tell anything in `already_pushed`. `worth_mentioning` permits
+a message, it does not require one: outside an incident send at most one
+unprompted message a day, and when that one is spent, keep the rest for
+the next day or the weekly.
+
+For "how was my week?" or a weekly narration, call `get_weekly_summary`:
+the week the alerter's weekly message judges (`verdict` good, mixed or bad
+against the week before, `by_cause`), as data. When `has_material` is
+false the week was quiet: say so in one line, or nothing on a scheduled run.
+
 `diagnose_loss` already reads the rest; when you go to `get_loss_events`
 yourself, read `widespread` first: a run with `all_lost: true` is one
 event, never each target failing. Its `reading` says where it was:
