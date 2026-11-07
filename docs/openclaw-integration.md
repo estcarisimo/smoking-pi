@@ -107,6 +107,8 @@ openclaw mcp set smokeping '{
   "requestTimeoutMs": 30000
 }'
 
+# OpenClaw 2026.11 refuses `mcp set` while the gateway runs; the same entry
+# through the gateway: openclaw config set mcp.servers.smokeping '{…}' --strict-json
 openclaw mcp doctor smokeping        # static config problems
 openclaw mcp probe smokeping         # connect and list capabilities
 openclaw mcp reload                  # pick up the new config
@@ -332,17 +334,19 @@ sudo smoking-pi openclaw --push agent     # sudo on a package install
 ```
 
 Plain `smoking-pi openclaw` does the same unless you chose the relay. It needs
-OpenClaw 2026.10 or later. It adds to `hooks` in your `openclaw.json`
+OpenClaw 2026.10 or later. With one `openclaw config patch`, it adds to `hooks` in your `openclaw.json`
 (`enabled`, a generated `token` of its own, `allowRequestSessionKey` and
 `allowedSessionKeyPrefixes` for your conversation's key alone, `allowedAgentIds`
 when you had no hooks yet), restarts
-the gateway, writes `OPENCLAW_HOOKS_TOKEN` and `OPENCLAW_PUSH` to the env file,
+the gateway only if OpenClaw says the change needs it (`hooks` reload without one), writes `OPENCLAW_HOOKS_TOKEN` and `OPENCLAW_PUSH` to the env file,
 and recreates the alerter. `--push message` goes back, and later runs of
 `smoking-pi openclaw` respect that.
 
 Hooks you already use keep working: your token and lists are kept and added to.
-If your prefix list was empty, which means unrestricted, it becomes `hook:` plus
-your default key plus this conversation's key, so a mapping with a static session
+OpenClaw refuses to start unless the prefix list admits the key it generates
+for a hook that names none (`hook:`, or your `defaultSessionKey`), so that is
+always in the list it writes. If your list was empty, which means unrestricted,
+it becomes that plus this conversation's key, so a mapping with a static session
 key outside those would need adding by hand. A token that is a reference to a
 secret is not readable here: the command says so and alerts stay on the relay
 until you give the value with `smoking-pi config set OPENCLAW_HOOKS_TOKEN`.

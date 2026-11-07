@@ -202,17 +202,24 @@ token = hooks.get("token")
 plain = isinstance(token, str) and not token.startswith("${")
 prefixes = [p for p in hooks.get("allowedSessionKeyPrefixes") or [] if p]
 agents = hooks.get("allowedAgentIds")
-allowed = any(key.lower().startswith(p.lower()) for p in prefixes)
+def covers(k):
+    return any(k.lower().startswith(p.lower()) for p in prefixes)
+
+
+# The gateway refuses to START with a prefix list that does not admit the
+# key it generates when none is given: `hook:`, or defaultSessionKey when
+# set (2026.11.1; staging's gateway crash-looped on ["agent:main:main"]).
+default = hooks.get("defaultSessionKey") or ""
+own = default if default else "hook:"
+fits = covers(key) and (covers(own) if default else "hook:" in [p.lower() for p in prefixes])
 current = (hooks.get("enabled") is True and token
-           and hooks.get("allowRequestSessionKey") is True and allowed)
-if not allowed:
-    if hooks.get("enabled") and not prefixes:
-        # Unrestricted until now: a first entry would refuse the hook: keys
-        # their own callers are given.
-        prefixes.append("hook:")
-        if hooks.get("defaultSessionKey"):
-            prefixes.append(hooks["defaultSessionKey"])
-    prefixes.append(key)
+           and hooks.get("allowRequestSessionKey") is True and fits)
+if not fits:
+    for needed in (own, key):
+        if needed == "hook:" and "hook:" not in [p.lower() for p in prefixes]:
+            prefixes.append("hook:")
+        elif needed != "hook:" and not covers(needed):
+            prefixes.append(needed)
 if agents is None:
     # Nothing allowed yet: only ours. Hooks already on with no list are the
     # person's, and narrowing them could break what they run.
@@ -294,26 +301,51 @@ openclaw_enable_hooks() {
     [ -n "$token" ] || token="$(openssl rand -hex 32)"
     [ -n "$token" ] || { echo "Could not generate a hooks token (openssl)." >&2; return 1; }
     if [ "$state" != current ]; then
-        if [ "$kind" != ref ]; then
-            spec="$(mktemp)"
-            printf '%s' "$token" > "$spec"
-            user="$(openclaw_user)"
-            [ -z "$user" ] || chown "$user" "$spec" 2>/dev/null || true
-            as_openclaw_user sh -c 'exec "$0" config set hooks.token "$(cat "$1")"' "$OPENCLAW_BIN" "$spec" \
-                >/dev/null 2>&1 || failed=1
-            rm -f "$spec"
+        # One `config patch`, not a `config set` per key: each write goes
+        # through the running gateway, which may reload on it, and the next
+        # one then finds it gone (2026.11.1 on staging). The token is in the
+        # 0600 file, never in an argv: sudo logs the command, ps shows it.
+        local said
+        spec="$(mktemp)"
+        printf '%s' "$token" | python3 -c '
+import json, sys
+token, kind, prefixes, agents = sys.stdin.read(), sys.argv[1], sys.argv[2], sys.argv[3]
+hooks = {"enabled": True, "allowRequestSessionKey": True,
+         "allowedSessionKeyPrefixes": json.loads(prefixes)}
+if kind != "ref":
+    hooks["token"] = token
+if agents:
+    hooks["allowedAgentIds"] = json.loads(agents)
+print(json.dumps({"hooks": hooks}))' "$kind" "$prefixes" "$agents" > "$spec" || failed=1
+        user="$(openclaw_user)"
+        [ -z "$user" ] || chown "$user" "$spec" 2>/dev/null || true
+        if [ "$failed" = 0 ]; then
+            said="$(as_openclaw_user "$OPENCLAW_BIN" config patch --file "$spec" 2>&1)" || failed=1
         fi
-        [ "$failed" = 1 ] || as_openclaw_user "$OPENCLAW_BIN" config set hooks.enabled true --strict-json >/dev/null 2>&1 || failed=1
-        [ "$failed" = 1 ] || as_openclaw_user "$OPENCLAW_BIN" config set hooks.allowRequestSessionKey true --strict-json >/dev/null 2>&1 || failed=1
-        [ "$failed" = 1 ] || as_openclaw_user "$OPENCLAW_BIN" config set hooks.allowedSessionKeyPrefixes "$prefixes" --strict-json >/dev/null 2>&1 || failed=1
-        [ "$failed" = 1 ] || [ -z "$agents" ] || as_openclaw_user "$OPENCLAW_BIN" config set hooks.allowedAgentIds "$agents" --strict-json >/dev/null 2>&1 || failed=1
+        rm -f "$spec"
+        # Saved, but a busy gateway did not take it (2026.11.1 under load on
+        # staging): the file has the hooks, the gateway needs a restart to
+        # read them, and the alerter needs the token that is now in the file.
+        case "$said" in
+            *"persisted but was not applied"*)
+                failed=0
+                said="Restart the gateway to apply. ($said)" ;;
+        esac
         if [ "$failed" = 1 ]; then
-            echo "'openclaw config set hooks.*' failed; alerts stay on the message relay." >&2
+            echo "'openclaw config patch' of hooks failed; alerts stay on the message relay." >&2
             echo "OpenClaw 2026.10 or later has these hooks: 'openclaw --version' says which is here." >&2
+            said="${said//"$token"/<hooks token>}"
+            printf '%s\n' "${said:-}" | tail -3 | sed 's/^/  | /' >&2
             return 1
         fi
-        as_openclaw_user "$OPENCLAW_BIN" gateway restart >/dev/null 2>&1 \
-            || echo "WARNING: 'openclaw gateway restart' failed; restart the gateway however you run it." >&2
+        # `hooks` hot-reloads: restart only when OpenClaw says this one did
+        # not. On a 4 GB Pi a 2026.11 gateway restart is the heavy step: two
+        # close together stalled staging past its hardware watchdog (11-07).
+        case "$said" in
+            *"Restart the gateway to apply"*)
+                as_openclaw_user "$OPENCLAW_BIN" gateway restart >/dev/null 2>&1 \
+                    || echo "WARNING: 'openclaw gateway restart' failed; restart the gateway however you run it." >&2 ;;
+        esac
     fi
     env_set OPENCLAW_HOOKS_TOKEN "$token"
     env_set OPENCLAW_PUSH agent
@@ -495,7 +527,13 @@ cmd_openclaw() {
     # A failed chown surfaces below as a failed registration, not here.
     [ -z "$user" ] || chown "$user" "$spec" 2>/dev/null || true
     as_openclaw_user sh -c 'exec "$0" mcp set smokeping "$(cat "$1")"' "$OPENCLAW_BIN" "$spec" \
-        >/dev/null && registered=1
+        >/dev/null 2>&1 && registered=1
+    # OpenClaw 2026.11 refuses `mcp set` while its gateway runs ("requires
+    # exclusive offline state ownership"). It only writes mcp.servers, and a
+    # `config set` of the same entry goes through the running gateway.
+    [ "$registered" = 1 ] || as_openclaw_user sh -c \
+        'exec "$0" config set mcp.servers.smokeping "$(cat "$1")" --strict-json' "$OPENCLAW_BIN" "$spec" \
+        >/dev/null 2>&1 && registered=1
     rm -f "$spec"
     if [ "$registered" = 1 ]; then
         echo "4/5  Registered as 'smokeping' with OpenClaw."
@@ -503,6 +541,15 @@ cmd_openclaw() {
         echo "4/5  'openclaw mcp set' failed. Run it by hand from" >&2
         echo "     docs/openclaw-integration.md and re-run this." >&2
         return 1
+    fi
+
+    # The hooks before the skill: its --reload restarts the gateway, and that
+    # one restart is all both need. Alerts through the agent, so a reply has
+    # the context. Not a failure of the connection if they cannot: alerts keep
+    # the relay. A person who chose the relay with --push message keeps it.
+    local hooks_ok=0
+    if [ "$(env_get OPENCLAW_PUSH)" != message ] && openclaw_enable_hooks; then
+        hooks_ok=1
     fi
 
     if [ -x "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" ]; then
@@ -525,16 +572,11 @@ cmd_openclaw() {
         echo "     from its own shell until the skill is installed." >&2
     fi
 
-    # Alerts through the agent, so a reply has the context. Not a failure of
-    # the connection if it cannot: alerts keep the relay. A person who chose
-    # the relay with --push message keeps it.
     echo
-    if [ "$(env_get OPENCLAW_PUSH)" = message ]; then
+    if [ "$(env_get OPENCLAW_PUSH)" = message ] && [ "$hooks_ok" = 0 ]; then
         echo "Alert push: message relay (your choice; $(cli_name) openclaw --push agent changes it)."
     else
-        if openclaw_enable_hooks; then
-            openclaw_recreate_alerter
-        fi
+        [ "$hooks_ok" = 0 ] || openclaw_recreate_alerter
         openclaw_report_push
     fi
 

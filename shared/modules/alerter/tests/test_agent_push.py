@@ -192,6 +192,8 @@ def test_a_closed_episode_has_its_end(agent_mode):
     text = templates.agent_message(_episode("recovery"))
     assert "Kind: closed" in text
     assert "Until: " in text
+    # Said once: the end's own "Affected:", not a "Scope:" beside it.
+    assert text.count("of 23 destinations") == 1
 
 
 def test_a_blind_monitor_says_what_the_watchdog_did(agent_mode):

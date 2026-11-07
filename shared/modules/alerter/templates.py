@@ -783,8 +783,10 @@ def agent_message(event: dict, noted: bool = False) -> str:
         if kind in ("recovery", "night", "monitor"):
             lines.append(f"Until: {clock.at(float(record['end']), now)}")
         lines += rendered["lines"]
-        if kind != "monitor":
+        if kind not in ("recovery", "monitor"):
+            # An end says "Affected:" itself (ending); the rest do not.
             lines.append(f"Scope: {_affected(record, context)}")
+        if kind != "monitor":
             lines += _agent_watchdog(record, now)
         link = rendered.get("link")
         if link:
