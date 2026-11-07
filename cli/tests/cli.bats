@@ -800,6 +800,16 @@ make_backup_dir() {
     if grep -q ' up -d$' "$DOCKER_LOG"; then false; fi
 }
 
+@test "restore of a backup from before a retirement drops the retired profile from the env file" {
+    make_backup_dir
+    sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=influxdb,ai,alerts/' "$BATS_TEST_TMPDIR/bk/env"
+    run "$CLI" restore "$BATS_TEST_TMPDIR/bk" --force --no-start --yes
+    [ "$status" -eq 0 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,alerts' "$SMOKING_PI_ENV_FILE"
+    grep -q FROM=backup "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"Removed retired profile(s)"* ]]
+}
+
 @test "restore says to connect OpenClaw again only when it brought back another MCP token" {
     make_backup_dir
     printf 'COMPOSE_PROFILES=influxdb,mcp\nMCP_API_TOKEN=frombackup\n' > "$BATS_TEST_TMPDIR/bk/env"

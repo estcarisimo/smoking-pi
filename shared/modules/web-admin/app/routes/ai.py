@@ -22,8 +22,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
-from pathlib import Path
 
 from app.errors import error_response
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for

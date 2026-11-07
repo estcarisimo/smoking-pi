@@ -159,7 +159,7 @@ clean install there is the missing half — until then the record says
   event, say so — do not fabricate one.
 - [ ] Every profile the Pi runs answers: the MCP server (`get_chart`, one
   question through OpenClaw), the alerter (`NOTIFY_MODE` as configured, a
-  dry-run notification if the mode allows), AI insights if enabled.
+  dry-run notification if the mode allows).
 - [ ] `smoking-pi openclaw` (with `sudo` on a package install) completes
   all five steps against the OpenClaw version the host really runs, and
   `openclaw mcp probe smokeping` lists the tools. The tests stub

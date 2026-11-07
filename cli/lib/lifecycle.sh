@@ -41,7 +41,8 @@ RETIRED_DASHBOARDS="smokeping-lat-pct-v28 smokeping-dns-resolvers-v4 smokeping-l
 # person's own dashboard, the ClickHouse tree's "SmokePing" parent -- stays.
 RETIRED_FOLDERS="home|overview|cpe|quality|wifi|side-by-side-pings|individual-pings|target-detail|http-by-version|dns-resolution-times|dns-wizard|SmokePing|Side-by-Side Pings|Individual Pings|DNS Resolution Times"
 
-# Profiles and images a release retired. An `ai` left in COMPOSE_PROFILES
+# Profiles and images a release retired (upgrade, and restore of an older
+# backup). An `ai` left in COMPOSE_PROFILES
 # starts nothing, but `config get` keeps showing a service that is gone. The
 # new release publishes no image of a retired service, and on a clone the
 # `dev` tag is the one remove_old_images always keeps, so its name is what
@@ -493,6 +494,8 @@ cmd_restore() {
             = "$(sed -n 's/^MCP_API_TOKEN=//p' "$dir/env" | tail -1)" ] && [ -f "$ENV_FILE" ] || token_changed=1
         mkdir -p "$(dirname "$ENV_FILE")" && install -m 0600 "$dir/env" "$ENV_FILE"
         echo "  env file restored to $ENV_FILE"
+        # A backup from before a retirement brings its profile back.
+        retire_profiles
     fi
     if [ -d "$dir/config" ]; then
         if [ -n "$(ls -A "$(config_dir)" 2>/dev/null)" ] && [ "$force" = 0 ]; then

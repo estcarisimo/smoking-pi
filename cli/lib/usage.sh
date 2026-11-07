@@ -22,7 +22,7 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      that Grafana's InfluxDB token still works. Other flags
                      go to docker compose (its own help: docker compose up --help).
   enable | disable [NAME...]
-                     The optional services (Pro): mcp, alerts, ai, inference,
+                     The optional services (Pro): mcp, alerts, inference,
                      pathmeter, dns. No NAME: which are on. Records them in
                      COMPOSE_PROFILES and starts or removes them -- the one
                      way to change that list, so a later 'up' or 'down'
