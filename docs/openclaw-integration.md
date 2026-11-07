@@ -501,9 +501,9 @@ shows them) and both turns are limited to the read-only tools they need
 (`--light-context`).
 
 **Why a repeat cannot happen.** The heartbeat's script keeps its own state in
-the gateway (OpenClaw's `trigger.state`): a cursor, where its last look ended,
-and the day it last spoke. Each look asks `get_updates_since` from the cursor,
-so a window is looked at once. The tool already leaves out what the alerter
+the gateway (OpenClaw's `trigger.state`): a cursor, the `as_of` of its last
+look, and the day it last spoke. Each look asks `get_updates_since` from the
+cursor, so windows meet without overlapping and each is looked at once. The tool already leaves out what the alerter
 pushed, held or queued (`already_pushed`, `material_pushed_already`), and what
 is worth mentioning is counted in the window it ended in. And once it has
 spoken on a day, it holds every other `worth_mentioning` until the next day
@@ -615,7 +615,7 @@ Automations:
 the tool's verdict. The MCP server's log has one line per look, whoever made it:
 
 ```
-INFO mcp.tools: tool=get_updates_since args=include_non_material=False since=2026-11-07T22:00:01.512Z -> verdict=nothing_new in 14ms
+INFO mcp.tools: tool=get_updates_since args=include_non_material=False since=2026-11-07T16:00:01-06:00 -> verdict=nothing_new in 14ms
 ```
 
 A check that fails (the MCP server down for an upgrade, say) is a failed run

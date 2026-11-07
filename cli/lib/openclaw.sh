@@ -505,7 +505,9 @@ if (!text || res.isError) throw new Error("get_updates_since failed: " + String(
 const u = JSON.parse(text);
 if (u.error) throw new Error("get_updates_since: " + u.error);
 const last = { at: u.as_of, verdict: u.verdict, reasons: u.reasons || [] };
-const next = { cursor: new Date(now).toISOString(), spoke_on: s.spoke_on, last };
+// The tool's own as_of, to the second, is the next since: windows meet
+// without overlapping (common/updates.py).
+const next = { cursor: u.as_of, spoke_on: s.spoke_on, last };
 if (u.verdict !== "worth_mentioning") return { fire: false, state: next };
 // One unsolicited message a day. What is held keeps the cursor where it was,
 // so tomorrow's first look still covers it.
