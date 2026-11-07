@@ -130,3 +130,34 @@ def test_the_cases_cover_every_section(monkeypatch):
                     "below the bar", "did not come back", "gone (",
                     "The watchdog reloaded", "upgrade", "with no measurement"):
         assert section in text, section
+
+
+def test_the_data_and_the_message_say_the_same_week(monkeypatch):
+    """get_weekly_summary (common.weekly.as_data) and the message are one
+    reading: same news or not, same verdict, same episodes and windows."""
+    from common import weekly as shared
+
+    monkeypatch.setenv("PUBLIC_BASE_HOST", "192.168.1.10")
+    want = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    tz = weekly.zone()
+    prev, start, stop = weekly.week_bounds(SLOT, tz)
+    for name, case in _cases().items():
+        monkeypatch.setattr(weekly.aggregates, "target_stats",
+                            _stats if case.get("stats") else (lambda *a, **k: []))
+        r = shared.assemble(start, stop, prev, case["query"], case.get("record"),
+                            case.get("known"), tz)
+        data = shared.as_data(r, shared.destinations(start, stop, r["week"]["excluded"],
+                                                     case["query"]))
+        message = want[name]["message"] or ""
+        assert data["has_material"] == want[name]["send"], name
+        if not message:
+            continue
+        assert message.split(" ", 2)[1].lower() == data["verdict"], name
+        assert data["links"] == want[name]["links"], name
+        assert ("What happened" in message) == bool(data["episodes"]), name
+        assert ("Recurring" in message) == bool(data["patterns"]), name
+        for ep in data["episodes"]:
+            assert ep["cause_text"] in message, name
+        for top in data["destinations"] or ():
+            assert f"{top['service']}: {top['loss_pct']:.1f} % loss" in message, name
+        assert f"It measured {data['monitor']['measured_pct']:.1f} %" in message, name

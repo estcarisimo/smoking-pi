@@ -464,6 +464,11 @@ services:
       - WIDESPREAD_LOSS_PCT=${WIDESPREAD_LOSS_PCT:-30}
       - VERDICT_BROAD_PCT=${VERDICT_BROAD_PCT:-60}
       - TZ=${TZ:-UTC}
+      # The alerter's message zone and weekly day: get_updates_since and
+      # get_weekly_summary print times in the zone every alert uses, and
+      # pick the same weeks as the weekly message.
+      - DIGEST_TZ=${DIGEST_TZ:-}
+      - WEEKLY_DAY=${WEEKLY_DAY:-mon}
     volumes:
       - alerter-mutes:/var/lib/alerter-mutes
       - alerter-state:/var/lib/alerter:ro

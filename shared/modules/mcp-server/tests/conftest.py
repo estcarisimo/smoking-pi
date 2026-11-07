@@ -34,3 +34,7 @@ def no_wifi_influx(monkeypatch):
     # The alerter's state file and the notification ledger beside it: an
     # exported value would read a real ledger.
     monkeypatch.delenv("ALERT_STATE_FILE", raising=False)
+    # The messages' zone and the weekly's day: get_updates_since and
+    # get_weekly_summary print times in it and pick weeks by it.
+    for name in ("DIGEST_TZ", "TZ", "WEEKLY_DAY"):
+        monkeypatch.delenv(name, raising=False)
