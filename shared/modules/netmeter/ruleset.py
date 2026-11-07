@@ -18,7 +18,7 @@ bridges never touches the uplink and is not counted.
   ICMP echo replies included, count for the same service on the way in.
   A connection that starts inbound (a LAN client asking the DNS observer)
   is matched by the receiving socket's cgroup.
-* **Bridged containers** (Grafana, the web admin, ai-insights...) reach
+* **Bridged containers** (Grafana, the web admin...) reach
   the uplink through the forward hook, by their own address.
 * **Internet only**: the same uplink, without the traffic whose other end
   is on the local network (private, link-local and multicast addresses:

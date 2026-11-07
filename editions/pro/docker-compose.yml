@@ -246,7 +246,6 @@ services:
       - ../../shared/modules/web-admin/app:/app/app
       # (/app/common is NOT mounted: a change to shared/modules/common needs
       # `docker compose build web-admin`, as for the other three images)
-      - reports:/reports:ro
       # The chat's get_notification_history reads the alerter's ledger
       # (ledger.jsonl beside state.json), read-only as the MCP server does.
       - alerter-state:/var/lib/alerter:ro
@@ -267,10 +266,9 @@ services:
       ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-true}
       # Optional shared API token for config-manager (empty = auth disabled)
       CONFIG_API_TOKEN: ${CONFIG_API_TOKEN:-}
-      # AI assistant/reports (optional; pages degrade gracefully when unset)
+      # The assistant chat (optional; the page says so when unset)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-claude-haiku-4-5-20251001}
-      REPORTS_DIR: /reports
       INFLUX_URL: http://influxdb:8086
       INFLUX_TOKEN: ${INFLUX_TOKEN}
       INFLUX_ORG: ${INFLUX_ORG:-smokeping}
@@ -475,49 +473,6 @@ services:
     depends_on:
       - config-manager
 
-  # AI health reports (opt-in: COMPOSE_PROFILES=ai; needs ANTHROPIC_API_KEY)
-  ai-insights:
-    build:
-      # Context is `shared/`, not the module dir, so the image can also
-      # copy in shared/modules/common (Flux helpers, aggregates, deep-link
-      # UID maps). Containers cannot import across each other.
-      context: ../../shared
-      dockerfile: modules/ai-insights/Dockerfile
-    image: ${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}/ai-insights:${SMOKING_PI_VERSION:-dev}
-    pull_policy: missing
-    restart: unless-stopped
-    logging: *default-logging
-    profiles:
-      - ai
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - AI_MODEL=${AI_MODEL:-claude-haiku-4-5-20251001}
-      - REPORT_INTERVAL=${REPORT_INTERVAL:-86400}
-      - AI_REPORTS_PER_DAY=${AI_REPORTS_PER_DAY:-8}
-      - AI_MAX_INPUT_CHARS=${AI_MAX_INPUT_CHARS:-20000}
-      - REPORTS_DIR=/reports
-      # The report reads CPE cuts against the same threshold as the alerter,
-      # and its incidents come from the shared diagnosis, which judges
-      # "weak", "broad" and "widespread" with the alerter's thresholds
-      # (WIDESPREAD_LOSS_PCT is get_loss_events', which the report does not
-      # call).
-      - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
-      - WIFI_WEAK_DBM=${WIFI_WEAK_DBM:--75}
-      - WIFI_WEAK_SAMPLES=${WIFI_WEAK_SAMPLES:-6}
-      - WIDESPREAD_PCT=${WIDESPREAD_PCT:-80}
-      - VERDICT_BROAD_PCT=${VERDICT_BROAD_PCT:-60}
-      - INFLUX_URL=http://influxdb:8086
-      - INFLUX_TOKEN=${INFLUX_TOKEN}
-      - INFLUX_ORG=${INFLUX_ORG:-smokeping}
-      - INFLUX_BUCKET=${INFLUX_BUCKET:-smokeping}
-      - TZ=${TZ:-UTC}
-    volumes:
-      - reports:/reports
-    depends_on:
-      influxdb:
-        condition: service_started
-        required: false
-
   # Alerting engine (opt-in: COMPOSE_PROFILES=alerts). Deterministic rules
   # over InfluxDB with Telegram / OpenClaw / generic-webhook delivery.
   # See docs/alerting.md. Uses network_mode: host (InfluxDB + the local
@@ -578,7 +533,6 @@ services:
       # Hard ceiling on alerts and updates per rolling hour, across every
       # episode. A blast-radius limit, unreachable in normal operation.
       - ALERT_MAX_PER_HOUR=${ALERT_MAX_PER_HOUR:-6}
-      - REPORT_DELIVERY_INTERVAL=${REPORT_DELIVERY_INTERVAL:-86400}
       # Rule thresholds (optional overrides; module defaults apply).
       # These defaults MUST track the DEFAULT_* constants in evaluator.py --
       # a value here silently overrides the module default, which is how the
@@ -608,7 +562,6 @@ services:
       - ALERT_DIAGNOSIS_HOURS=${ALERT_DIAGNOSIS_HOURS:-3}
       - INCIDENT_HISTORY_HOURS=${INCIDENT_HISTORY_HOURS:-12}
       - MICROCUT_LOSS_PCT=${MICROCUT_LOSS_PCT:-50}
-      - REPORT_MAX_CHARS=${REPORT_MAX_CHARS:-3500}
       # Message rendering: html (Telegram's default parse mode) | plain
       - ALERT_MARKUP=${ALERT_MARKUP:-html}
       # Charts. Rendered in-process and posted as base64, so nothing is
@@ -650,7 +603,6 @@ services:
       # everything alerts -- see shared/modules/common/mutes.py
       - ALERT_MUTES_FILE=${ALERT_MUTES_FILE:-/var/lib/alerter-mutes/mutes.json}
     volumes:
-      - reports:/reports:ro
       - alerter-state:/var/lib/alerter
       - alerter-mutes:/var/lib/alerter-mutes:ro
     depends_on:
@@ -909,7 +861,6 @@ volumes:
   influxdb-data:
   grafana-data:
   postgres-data:
-  reports:
   alerter-state:
   alerter-mutes:
   mcp-connector:

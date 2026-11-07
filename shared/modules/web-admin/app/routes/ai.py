@@ -1,6 +1,6 @@
-"""AI routes: generated health reports + the in-UI assistant chat.
+"""AI routes: the in-UI assistant chat.
 
-- GET  /ai/reports       list + render markdown reports from REPORTS_DIR
+- GET  /ai/reports       the page it replaced, for old bookmarks: to the chat
 - GET  /ai/chat          assistant chat page
 - POST /ai/chat          run one assistant turn (Anthropic tool-use loop)
 - POST /ai/chat/execute  execute (or decline) a confirmed mutating action
@@ -14,7 +14,7 @@ Design notes:
   chat loop. The loop stops and returns a ``pending_action``; the UI shows
   a confirm card and, on approval, POSTs /ai/chat/execute which runs the
   tool and resumes the conversation.
-- If ANTHROPIC_API_KEY is unset, pages render a "not configured" state and
+- If ANTHROPIC_API_KEY is unset, the page renders a "not configured" state and
   the JSON endpoints return 503 -- never a 500.
 """
 
@@ -26,12 +26,10 @@ import re
 from pathlib import Path
 
 from app.errors import error_response
-from flask import Blueprint, jsonify, render_template, request
-from markupsafe import Markup, escape
+from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
 from app.services import ai_tools
 from common import guide
-from app.services.safe_path import UnsafePath, confine
 
 ai_bp = Blueprint('ai', __name__)
 
@@ -74,9 +72,6 @@ def _system_prompt() -> str:
     return CHAT_HEADER + '\n\n' + zone + '\n\n' + guide.GUIDE
 
 
-_REPORT_NAME_RE = re.compile(r'^(report-\d{8}-\d{6}(-\d+)?|latest)\.md$')
-
-
 def _ai_configured() -> bool:
     return bool(os.environ.get('ANTHROPIC_API_KEY'))
 
@@ -85,131 +80,15 @@ def _model() -> str:
     return os.environ.get('AI_MODEL', DEFAULT_MODEL)
 
 
-def _reports_dir() -> Path:
-    return Path(os.environ.get('REPORTS_DIR', '/reports'))
-
-
-# ---------------------------------------------------------------------------
-# Minimal markdown -> safe HTML (headers / bold / italics / lists / code).
-# Deliberately tiny instead of pulling in a markdown dependency; ALL input
-# is HTML-escaped before any tags are added.
-# ---------------------------------------------------------------------------
-
-_INLINE_CODE_RE = re.compile(r'`([^`]+)`')
-_BOLD_RE = re.compile(r'\*\*(.+?)\*\*')
-_ITALIC_RE = re.compile(r'(?<!\*)\*([^*\n]+)\*(?!\*)')
-
-
-def _inline_md(text: str) -> str:
-    text = _INLINE_CODE_RE.sub(r'<code>\1</code>', text)
-    text = _BOLD_RE.sub(r'<strong>\1</strong>', text)
-    text = _ITALIC_RE.sub(r'<em>\1</em>', text)
-    return text
-
-
-def markdown_to_html(source: str) -> Markup:
-    """Convert a small markdown subset to HTML with all input escaped."""
-    out = []
-    in_code = False
-    in_list = False
-    for raw_line in source.splitlines():
-        line = str(escape(raw_line))
-        stripped = line.strip()
-        if stripped.startswith('```'):
-            if in_list:
-                out.append('</ul>')
-                in_list = False
-            out.append('<pre><code>' if not in_code else '</code></pre>')
-            in_code = not in_code
-            continue
-        if in_code:
-            out.append(line)
-            continue
-        heading = re.match(r'^(#{1,6})\s+(.*)$', stripped)
-        bullet = re.match(r'^[-*]\s+(.*)$', stripped)
-        if in_list and not bullet:
-            out.append('</ul>')
-            in_list = False
-        if not stripped:
-            continue
-        if heading:
-            level = min(len(heading.group(1)) + 1, 6)  # h1 -> h2 etc.
-            out.append(f'<h{level}>{_inline_md(heading.group(2))}</h{level}>')
-        elif bullet:
-            if not in_list:
-                out.append('<ul>')
-                in_list = True
-            out.append(f'<li>{_inline_md(bullet.group(1))}</li>')
-        else:
-            out.append(f'<p>{_inline_md(stripped)}</p>')
-    if in_code:
-        out.append('</code></pre>')
-    if in_list:
-        out.append('</ul>')
-    return Markup('\n'.join(out))
-
-
-# ---------------------------------------------------------------------------
-# Reports page
-# ---------------------------------------------------------------------------
-
-
-def _list_reports() -> list:
-    directory = _reports_dir()
-    if not directory.is_dir():
-        return []
-    reports = []
-    for path in directory.glob('report-*.md'):
-        if not _REPORT_NAME_RE.match(path.name):
-            continue
-        try:
-            stat = path.stat()
-        except OSError:
-            continue
-        reports.append({'name': path.name, 'mtime': stat.st_mtime})
-    reports.sort(key=lambda r: r['name'], reverse=True)
-    return reports
-
-
 @ai_bp.route('/reports')
 def reports():
-    """List generated reports and render the selected one."""
-    report_list = _list_reports()
-    selected = request.args.get('file') or (
-        report_list[0]['name'] if report_list else None
-    )
-    report_html = None
-    if selected:
-        # strict allow-list: prevents traversal and hides non-report files
-        if not _REPORT_NAME_RE.match(selected):
-            selected = None
-        else:
-            try:
-                path = confine(_reports_dir(), selected)
-                report_html = markdown_to_html(path.read_text(encoding='utf-8'))
-            except (UnsafePath, OSError):
-                report_html = None
-                selected = None
-    return render_template(
-        'ai/index.html',
-        active_tab='reports',
-        ai_configured=_ai_configured(),
-        reports=report_list,
-        selected_report=selected,
-        report_html=report_html,
-    )
+    """The retired reports page's URL: the nav and old bookmarks land on it."""
+    return redirect(url_for('ai.chat_page'))
 
 
 @ai_bp.route('/chat')
 def chat_page():
-    return render_template(
-        'ai/index.html',
-        active_tab='chat',
-        ai_configured=_ai_configured(),
-        reports=[],
-        selected_report=None,
-        report_html=None,
-    )
+    return render_template('ai/index.html', ai_configured=_ai_configured())
 
 
 # ---------------------------------------------------------------------------

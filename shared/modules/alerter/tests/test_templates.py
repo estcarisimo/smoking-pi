@@ -159,11 +159,11 @@ def test_plain_mode_emits_no_markup(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_report_events_pass_through_untouched():
+def test_prerendered_summaries_pass_through_untouched():
     text = templates.format_message(
-        {"type": "report", "message": "Daily digest:\n\nall good"}
+        {"type": "undelivered", "message": "Could not reach you:\n\ntwo alerts"}
     )
-    assert text.startswith("Daily digest:")
+    assert text.startswith("Could not reach you:")
 
 
 def test_assemble_keeps_everything_when_it_fits():

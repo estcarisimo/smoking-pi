@@ -25,20 +25,6 @@ install_followups() {
             echo "  alerts: $cli alerts   (until then they are evaluated and only logged)"
         fi
     fi
-    if [[ ",$profiles," == *,ai,* ]] && [ -z "$(env_get ANTHROPIC_API_KEY)" ]; then
-        local a=n
-        if [ "$interactive" = 1 ]; then
-            echo >&2
-            echo "AI reports need an Anthropic API key (console.anthropic.com, API keys)." >&2
-            # End of input is a no, not the default yes.
-            read -r -p "Enter it now? It is typed, not shown. [Y/n] " a && a="${a:-y}" || a=n
-        fi
-        case "$a" in
-            y|Y|yes) cmd_config set ANTHROPIC_API_KEY >&2 \
-                         || echo "  AI reports: $cli config set ANTHROPIC_API_KEY" ;;
-            *) echo "  AI reports: $cli config set ANTHROPIC_API_KEY   (until then no report is written)" ;;
-        esac
-    fi
     if [[ ",$profiles," == *,dns,* ]]; then
         # No question to ask: enable waits until the observer answers and
         # prints the router setting, which only the person can change.
@@ -89,7 +75,7 @@ cmd_install() {
     case "$database" in influxdb|clickhouse) ;; *) echo "unknown database: $database" >&2; exit 2 ;; esac
     local pr
     for pr in ${profiles//,/ }; do
-        case "$pr" in mcp|alerts|ai|dns) ;; *) echo "unknown profile: $pr (mcp, alerts, ai, dns)" >&2; exit 2 ;; esac
+        case "$pr" in mcp|alerts|dns) ;; *) echo "unknown profile: $pr (mcp, alerts, dns)" >&2; exit 2 ;; esac
     done
     if [ "$yes" = 0 ] && command -v whiptail >/dev/null; then
         # Pro preselected: the guide recommends it, and Enter should agree.
@@ -104,10 +90,9 @@ cmd_install() {
             # Each one chosen is set up after the stack starts, by the
             # command that owns it (install_followups): no env file to edit.
             profiles=$(whiptail --title "Smoking Pi" --checklist \
-                "Optional services. Space toggles; each one you pick is set up after the stack starts." 16 78 4 \
+                "Optional services. Space toggles; each one you pick is set up after the stack starts." 15 78 3 \
                 mcp "Assistant: a chat assistant can read your history" OFF \
                 alerts "Alerts: outages, microcuts, Wi-Fi (asks where to send)" ON \
-                ai "AI reports: written summaries (asks for an API key)" OFF \
                 dns "DNS observer: what this house uses (router change)" OFF 3>&1 1>&2 2>&3) || exit 1
             profiles=$(echo "$profiles" | tr -d '"' | tr ' ' ',')
         fi
@@ -147,12 +132,11 @@ cmd_install() {
         ( cd "$EDITION_DIR" && SMOKING_PI_INSTALL=1 ./setup.sh --database "$database" --env-file "$ENV_FILE" )
         if [ -n "$profiles" ]; then
             # setup.sh records the backend profile; append the optional ones
-            # and start them. `ai` and `alerts` need keys the env file does
-            # not have yet. Neither crash-loops without one -- ai-insights
-            # logs and exits 0, the alerter's NOTIFY_MODE defaults to `off`
-            # -- which is worse to leave unsaid, not better: the container
-            # stays up and healthy while nothing is ever delivered. So
-            # install_followups asks for them below, or lists them.
+            # and start them. `alerts` needs settings the env file does not
+            # have yet. It does not crash-loop without them -- NOTIFY_MODE
+            # defaults to `off` -- which is worse to leave unsaid, not
+            # better: the container stays up and healthy while nothing is
+            # ever delivered. So install_followups asks below, or lists them.
             sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$database,$profiles/" "$ENV_FILE"
             compose up -d
         fi

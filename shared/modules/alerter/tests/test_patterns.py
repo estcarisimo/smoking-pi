@@ -26,7 +26,6 @@ import dead_man
 import incident_history
 import main
 import notifier
-import reports_watcher
 import state
 import weekly
 from test_october import NETFLIX, STEP, TOPSITES, Case, Pi, _overlap
@@ -73,7 +72,7 @@ def replay(monkeypatch):
 
     def run(case: Case, start: float, end: float):
         pi = EveningPi(case)
-        current = {"incidents": {}, "reports": {}}
+        current = {"incidents": {}}
         sent = []
         monkeypatch.setattr(main.evaluator, "_query", pi.query)
         monkeypatch.setattr(time, "time", lambda: pi.now)
@@ -85,7 +84,6 @@ def replay(monkeypatch):
         monkeypatch.setattr(notifier, "reachable", lambda: True)
         monkeypatch.setattr(alert_diagnosis, "run", lambda *a, **k: None)
         for module, name in ((dead_man, "check_in"), (weekly, "check"),
-                             (reports_watcher, "check"),
                              (incident_history, "maybe_record"),
                              (incident_history, "merge")):
             monkeypatch.setattr(module, name, lambda *a, **k: None)

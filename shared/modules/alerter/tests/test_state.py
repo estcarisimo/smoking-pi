@@ -93,7 +93,16 @@ def test_state_roundtrip_is_atomic_json(state_file):
 def test_corrupt_state_file_starts_fresh(state_file):
     state_file.write_text("{not json")
     st = state.load_state()
-    assert st == {"incidents": {}, "reports": {}}
+    assert st == {"incidents": {}}
+
+
+def test_the_retired_report_bookkeeping_is_dropped_on_load(state_file):
+    state_file.write_text(json.dumps({
+        "incidents": {"k": {"rule": "x"}},
+        "reports": {"last_delivered_ts": 1.0},
+        "ledger_pending": {"ledger_failed": {"file": "report-a.md"}},
+    }))
+    assert state.load_state() == {"incidents": {"k": {"rule": "x"}}}
 
 
 def test_fallback_when_default_dir_unwritable(monkeypatch):

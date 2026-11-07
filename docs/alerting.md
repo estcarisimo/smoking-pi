@@ -791,16 +791,6 @@ checks in once per iteration, so set the check's period to match.
 |---|---|---|
 | `ALERT_DEADMAN_URL` | *(unset)* | The check-in URL; empty = off. A secret |
 
-## Daily report delivery
-
-If the `ai-insights` service (profile `ai`) is writing Markdown reports to
-the shared `reports` volume, the alerter delivers the newest `report-*.md`
-through the same notifier — at most one per `REPORT_DELIVERY_INTERVAL`
-(default 86400 s), prefixed with `Daily network health report:` and trimmed to
-`REPORT_MAX_CHARS` (default 3500, Telegram-friendly). The limit bounds the
-**whole** message including that header, and trims on a line boundary. A
-missing reports directory is skipped quietly.
-
 ## Environment reference
 
 | Variable | Default | Purpose |
@@ -828,9 +818,6 @@ missing reports directory is skipped quietly.
 | `WIDESPREAD_LOSS_PCT` | `30` | Loss percent a point needs to count toward `outage` — above the single-lost-ping background. A point must also have lost two or more pings, so a probe sending few pings cannot reach it on one lost ping, however low this is set |
 | `MICROCUT_BURST_N` | `3` | Possible cuts (isolated single windows above the threshold) per 60 min to flag a burst when there is no confirmed cut. Windows are ~30 s apart (`CPE_PROBE_WINDOW + CPE_PROBE_IDLE`); "consecutive" tolerates one missing window (`common/microcuts.py` `GAP_S`), rescale it if you change `CPE_PROBE_IDLE` |
 | `MICROCUT_LOSS_PCT` | `50` | Loss percent above which a 10 s CPE window counts as a microcut. CPE gateways rate-limit ICMP, giving a constant single-digit loss floor, so counting any loss at all would flag that floor permanently |
-| `REPORTS_DIR` | `/reports` | Where ai-insights reports are read from |
-| `REPORT_DELIVERY_INTERVAL` | `86400` | Min seconds between report deliveries |
-| `REPORT_MAX_CHARS` | `3500` | Truncation limit for a delivered report, **including** the header — it bounds the whole message, since that is what the channel budget applies to |
 | `ALERT_MARKUP` | `html` | `html` (Telegram's parse mode) or `plain` |
 | `CHART_THEME` | `light` | `light` or `dark`. A static image cannot follow the reader's theme, so one is chosen. Light is a paper-style figure: white, large type, sized to stay legible on a phone |
 | `CHART_MAX_BYTES` | `700000` | Cap before a chart is dropped rather than shrunk further (must stay inside the gateway's 2 MB invoke body once base64-encoded) |
@@ -1330,7 +1317,7 @@ one lost DNS query of five cleared it. It is 1.5 and not 2 because the RRD
 spreads each cycle's lost pings over two aligned steps, so loss values are
 not whole pings: on the reference Pi, seven days held values at every
 percent from 1 to 13. Persistence for `high_loss`, the `outage` floor and
-the loss events that `get_loss_events`, the weekly summary and the AI report count
+the loss events that `get_loss_events` and the weekly summary count
 all use this rule (`common.cadence.EVENT_LOST_PINGS`). The `high_loss` mean
 threshold (`HIGH_LOSS_PCT`) stays a percent: it is an average, not a count.
 

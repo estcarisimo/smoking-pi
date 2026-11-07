@@ -41,6 +41,48 @@ RETIRED_DASHBOARDS="smokeping-lat-pct-v28 smokeping-dns-resolvers-v4 smokeping-l
 # person's own dashboard, the ClickHouse tree's "SmokePing" parent -- stays.
 RETIRED_FOLDERS="home|overview|cpe|quality|wifi|side-by-side-pings|individual-pings|target-detail|http-by-version|dns-resolution-times|dns-wizard|SmokePing|Side-by-Side Pings|Individual Pings|DNS Resolution Times"
 
+# Profiles and images a release retired. An `ai` left in COMPOSE_PROFILES
+# starts nothing, but `config get` keeps showing a service that is gone. The
+# new release publishes no image of a retired service, and on a clone the
+# `dev` tag is the one remove_old_images always keeps, so its name is what
+# says it can go. The container went with `up --remove-orphans`. The service's
+# volume stays, as every volume does, until `purge` (which removes the
+# project's volumes by label, declared or not).
+RETIRED_PROFILES="ai"
+RETIRED_IMAGES="ai-insights"
+
+retire_profiles() {
+    local before next p
+    before="$(env_get COMPOSE_PROFILES)"; next="$before"
+    for p in $RETIRED_PROFILES; do
+        next="$(profiles_from "$next" remove "$p")"
+    done
+    [ "$next" != "$before" ] || return 0
+    env_set COMPOSE_PROFILES "$next"
+    echo "Removed retired profile(s) from COMPOSE_PROFILES: now '$next'."
+}
+
+retire_images() {
+    local registry="${SMOKING_PI_REGISTRY:-ghcr.io/estcarisimo/smoking-pi}"
+    local name images ref id removed="" kept=""
+    for name in $RETIRED_IMAGES; do
+        images="$(docker image ls --filter "reference=$registry/$name" \
+            --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null || true)"
+        while read -r ref id; do
+            [ -n "$ref" ] || continue
+            case "$ref" in *":<none>") ref="$id" ;; esac
+            if docker image rm "$ref" >/dev/null 2>&1; then
+                removed="$removed $ref"
+            else
+                kept="$kept $ref"
+            fi
+        done <<< "$images"
+    done
+    [ -z "$removed" ] || echo "Removed image(s) of retired services:$removed."
+    [ -z "$kept" ] || echo "Could not remove retired image(s):$kept (docker image rm refused; a container may still use them)." >&2
+    return 0
+}
+
 retire_dashboards() {
     has_service grafana || return 0
     local password user; password="$(env_get GF_SECURITY_ADMIN_PASSWORD)"
@@ -119,7 +161,7 @@ for f in json.load(sys.stdin):
 }
 
 # The images of releases this host no longer runs. Every `upgrade` pulls a
-# new set of fourteen images and left every previous set on disk: by
+# new set of thirteen images and left every previous set on disk: by
 # v2.38.2 the reference Pi carried 513 Smoking Pi images, 92 GB of a
 # 117 GB card, and the pull that filled it took PostgreSQL (crash loop on
 # postmaster.pid), Grafana (SQLite "database or disk is full") and
@@ -308,6 +350,7 @@ cmd_upgrade() {
     done
     need_edition
     [ -f "$ENV_FILE" ] || { echo "no env file at $ENV_FILE: nothing installed to upgrade" >&2; exit 1; }
+    retire_profiles
     echo "Upgrading the $SMOKING_PI_EDITION edition ($(installed_version))."
     echo "A PostgreSQL or InfluxDB major is a data migration: docs/upgrades.md, and 'smoking-pi backup' first."
     if [ -n "${SMOKING_PI_VERSION:-}" ]; then
@@ -341,6 +384,7 @@ cmd_upgrade() {
     publish_avahi
     # With the new release running: the images of every other one.
     remove_old_images
+    retire_images
     # A clone installed before setup.sh linked the command gets it here.
     link_cli --quiet
     # The new release's answering guide, to the assistant that already had

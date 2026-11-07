@@ -9,7 +9,7 @@ smoking-pi — SmokePing on a Raspberry Pi, with the trimmings
 Usage: smoking-pi <command> [args]   (no command: what is installed and running)
 
   install [--edition basic|standard|pro] [--database influxdb|clickhouse]
-          [--profiles mcp,alerts,ai,dns] [--yes]
+          [--profiles mcp,alerts,dns] [--yes]
                      First install only: generate secrets, choose the edition,
                      backend and optional profiles, start the stack, print what
                      to open. Interactive unless --yes. Refuses to run over an
