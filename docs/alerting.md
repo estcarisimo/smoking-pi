@@ -995,8 +995,8 @@ switch.
 
 | Delivery | The weekly |
 | --- | --- |
-| `NOTIFY_MODE=openclaw`, `OPENCLAW_PUSH=agent` | The OpenClaw agent, from the `Smoking Pi weekly` automation that `smoking-pi openclaw` sets up: it reads the same week with `get_weekly_summary` and narrates it, only when the week has news. The alerter does not send it, and logs `Weekly for slot ... handed to the agent automation (OPENCLAW_PUSH=agent): not sent by the alerter` ([openclaw-integration.md](openclaw-integration.md#heartbeat-and-weekly-through-the-agent)) |
-| `NOTIFY_MODE=openclaw` with the relay (`OPENCLAW_PUSH=message`, the default), `telegram`, `webhook` | The alerter, as described here |
+| `NOTIFY_MODE=openclaw`, `OPENCLAW_PUSH=agent`, `OPENCLAW_WEEKLY=agent` | The OpenClaw agent, from the `Smoking Pi weekly` automation that `smoking-pi openclaw` sets up (and that writes `OPENCLAW_WEEKLY=agent` when it does): it reads the same week with `get_weekly_summary` and narrates it, only when the week has news. The alerter does not send it, and logs `Weekly for slot ... handed to the agent automation (OPENCLAW_PUSH=agent, OPENCLAW_WEEKLY=agent): not sent by the alerter` ([openclaw-integration.md](openclaw-integration.md#heartbeat-and-weekly-through-the-agent)) |
+| Anything else: the relay (`OPENCLAW_PUSH=message`, the default), `telegram`, `webhook`, or the agent push with no automation made (`OPENCLAW_WEEKLY` empty or `alerter`) | The alerter, as described here |
 
 Both read and judge the week with the same code (`common/weekly.py`), so "is
 it news?" has one answer. `smoking-pi openclaw --push message` hands the

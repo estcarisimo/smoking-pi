@@ -442,12 +442,12 @@ openclaw_night() {
     echo "$from $until"
 }
 
-# The zone the automations' crons run in: the messages' (DIGEST_TZ, then TZ).
-# Empty: the gateway host's own, which is what OpenClaw uses without --tz.
+# The zone the automations' crons run in: the alerter's (DIGEST_TZ, then TZ,
+# then UTC), never the gateway host's, so the night and the week agree.
 openclaw_zone() {
     local tz; tz="$(env_get DIGEST_TZ)"
     [ -n "$tz" ] || tz="$(env_get TZ)"
-    [[ "$tz" =~ ^[A-Za-z0-9_+/-]+$ ]] && echo "$tz" || true
+    [[ "$tz" =~ ^[A-Za-z0-9_+/-]+$ ]] && echo "$tz" || echo UTC
 }
 
 # The heartbeat's hours, comma-separated in numeric order: every $1th whole
@@ -495,9 +495,10 @@ const minute = Number(p.hour) * 60 + Number(p.minute);
 const night = NIGHT[0] > NIGHT[1]
   ? minute >= NIGHT[0] || minute < NIGHT[1]
   : minute >= NIGHT[0] && minute < NIGHT[1];
-// At night nothing is read, so the morning's first look covers the night.
+// At night nothing is read, so the morning's first look covers the night
+// (at most two days back).
 if (night) return { fire: false, state: s };
-const since = s.cursor && now - Date.parse(s.cursor) < 86400000 ? s.cursor : FIRST;
+const since = s.cursor && now - Date.parse(s.cursor) < 172800000 ? s.cursor : FIRST;
 const res = await MCP.smokeping.getUpdatesSince({ since, include_non_material: false });
 const text = res && res.content && res.content[0] && res.content[0].text;
 if (!text || res.isError) throw new Error("get_updates_since failed: " + String(text).slice(0, 200));
@@ -506,8 +507,9 @@ if (u.error) throw new Error("get_updates_since: " + u.error);
 const last = { at: u.as_of, verdict: u.verdict, reasons: u.reasons || [] };
 const next = { cursor: new Date(now).toISOString(), spoke_on: s.spoke_on, last };
 if (u.verdict !== "worth_mentioning") return { fire: false, state: next };
-// One unsolicited message a day: the next one waits for tomorrow's window.
-if (s.spoke_on === day) return { fire: false, state: { ...next, last: { ...last, held: "spoke today" } } };
+// One unsolicited message a day. What is held keeps the cursor where it was,
+// so tomorrow's first look still covers it.
+if (s.spoke_on === day) return { fire: false, state: { cursor: s.cursor, spoke_on: s.spoke_on, last: { ...last, held: "spoke today" } } };
 return {
   fire: true,
   state: { ...next, spoke_on: day },
@@ -521,7 +523,8 @@ openclaw_weekly_gate() {
     cat <<'JS'
 // The Smoking Pi weekly's gate, written by `smoking-pi openclaw automations`.
 // It wakes the agent only when the last week had something material, once
-// per week; trigger.state keeps the week it last narrated.
+// per week; trigger.state keeps the week it last narrated. It runs three
+// hours in a row, so a failed look or turn is tried again the same morning.
 const s = trigger.state || {};
 const res = await MCP.smokeping.getWeeklySummary({ week: "last" });
 const text = res && res.content && res.content[0] && res.content[0].text;
@@ -569,7 +572,10 @@ EOF
 # description. Fails when the list cannot be read.
 openclaw_jobs() {
     local json
-    json="$(as_openclaw_user "$OPENCLAW_BIN" automations list --all --json 2>/dev/null)" || return 1
+    local bound=()
+    # Bounded: a gateway that is down must not hold `alerts` or `disable`.
+    command -v timeout >/dev/null 2>&1 && bound=(timeout 60)
+    json="$(as_openclaw_user ${bound[@]+"${bound[@]}"} "$OPENCLAW_BIN" automations list --all --json 2>/dev/null)" || return 1
     [ -n "$json" ] || return 1
     OC_TO="$(env_get OPENCLAW_TO)" OC_HB="$OPENCLAW_HEARTBEAT_NAME" OC_WK="$OPENCLAW_WEEKLY_NAME" \
     python3 -c '
@@ -697,6 +703,10 @@ openclaw_automations_sync() {
     zone_words="${tz:-the gateway host time}"
     night="$(openclaw_night)"; from="${night% *}"; until="${night#* }"
     day_hours="$(openclaw_day_hours "$hours" "$from" "$until")"
+    if [ -z "$day_hours" ]; then
+        echo "The quiet hours leave no whole hour of the day for the heartbeat: $(cli_name) alerts --quiet 23:00-07:00" >&2
+        return 1
+    fi
     echo "Automations (in $zone_words; night $(minutes_hhmm "$from")-$(minutes_hhmm "$until")):"
     openclaw_put_job heartbeat "$OPENCLAW_HEARTBEAT_NAME" "0 $day_hours * * *" "$tz" \
         "$(openclaw_heartbeat_prompt "${hours}h" "$(minutes_hhmm "$from")" "$(minutes_hhmm "$until")" \
@@ -710,18 +720,29 @@ openclaw_automations_sync() {
     [ "$(env_get NOTIFY_MODE)" = openclaw ] && [ "$(env_get OPENCLAW_PUSH)" = agent ] \
         && [ "$(env_get WEEKLY_ENABLED)" = true ] && weekly_on=1
     if [ "$weekly_on" = 1 ]; then
-        wday="$(env_get WEEKLY_DAY)"; wday="${wday:-mon}"
+        wday="$(env_get WEEKLY_DAY | tr '[:upper:]' '[:lower:]' | cut -c1-3)"; wday="${wday:-mon}"
         case "$wday" in sun) wday=0 ;; mon) wday=1 ;; tue) wday=2 ;; wed) wday=3 ;;
                         thu) wday=4 ;; fri) wday=5 ;; sat) wday=6 ;; *) wday=1 ;; esac
         wat="$(env_get WEEKLY_AT)"; wmin="$(hhmm_minutes "${wat:-08:00}")"; wmin="${wmin:-480}"
-        cron="$((wmin % 60)) $((wmin / 60)) * * $wday"
-        openclaw_put_job weekly "$OPENCLAW_WEEKLY_NAME" "$cron" "$tz" "$(openclaw_weekly_prompt)" \
+        # The slot and the two hours after it, before midnight: the gate
+        # narrates a week once, so the later two only retry a failed one.
+        local h=$((wmin / 60)) hs
+        hs="$h"; (( h + 1 < 24 )) && hs="$hs,$((h + 1))"; (( h + 2 < 24 )) && hs="$hs,$((h + 2))"
+        cron="$((wmin % 60)) $hs * * $wday"
+        if openclaw_put_job weekly "$OPENCLAW_WEEKLY_NAME" "$cron" "$tz" "$(openclaw_weekly_prompt)" \
             "$(openclaw_weekly_gate)" "$OPENCLAW_WEEKLY_TOOLS" \
-            "$(env_get WEEKLY_DAY | sed 's/^$/mon/') at ${wat:-08:00}" || failed=1
+            "$(env_get WEEKLY_DAY | sed 's/^$/mon/') at ${wat:-08:00}"; then
+            openclaw_weekly_owner agent
+        else
+            failed=1
+            openclaw_weekly_owner alerter
+        fi
     elif [ -n "$(openclaw_job_field weekly 2)" ]; then
         openclaw_rm_job weekly "$OPENCLAW_WEEKLY_NAME" \
             "the alerter sends the weekly without OPENCLAW_PUSH=agent, or it is off" || failed=1
+        openclaw_weekly_owner alerter
     else
+        openclaw_weekly_owner alerter
         if [ "$(env_get WEEKLY_ENABLED)" != true ]; then
             echo "  $OPENCLAW_WEEKLY_NAME: not set up, the weekly is off ($(cli_name) alerts --weekly mon 08:00)."
         else
@@ -746,10 +767,10 @@ openclaw_automations_remove() {
         return 0
     fi
     openclaw_rm_job heartbeat "$OPENCLAW_HEARTBEAT_NAME" "asked to" || failed=1
-    openclaw_rm_job weekly "$OPENCLAW_WEEKLY_NAME" "asked to" || failed=1
-    if [ "$(env_get NOTIFY_MODE)" = openclaw ] && [ "$(env_get OPENCLAW_PUSH)" = agent ]; then
-        echo "With OPENCLAW_PUSH=agent the alerter leaves the weekly to the automation, so there"
-        echo "is no weekly now. '$(cli_name) openclaw --push message' gives it back to the alerter."
+    if openclaw_rm_job weekly "$OPENCLAW_WEEKLY_NAME" "asked to"; then
+        openclaw_weekly_owner alerter
+    else
+        failed=1
     fi
     return "$failed"
 }
@@ -763,7 +784,28 @@ openclaw_automations_cleanup() {
     [ -n "$(openclaw_job_field heartbeat 2)$(openclaw_job_field weekly 2)" ] || return 0
     echo "Removing the Smoking Pi automations from OpenClaw (they read the MCP server):"
     openclaw_rm_job heartbeat "$OPENCLAW_HEARTBEAT_NAME" "no MCP server" || true
-    openclaw_rm_job weekly "$OPENCLAW_WEEKLY_NAME" "no MCP server" || true
+    if openclaw_rm_job weekly "$OPENCLAW_WEEKLY_NAME" "no MCP server" && [ "${1:-}" != purge ]; then
+        openclaw_weekly_owner alerter
+    fi
+}
+
+# OPENCLAW_WEEKLY: who sends the weekly with the agent push. The alerter
+# cannot see OpenClaw, so it skips its own weekly only on this, written here
+# when the automation exists: a weekly is never lost to an automation that
+# was never made (an old gateway, an install that did not run this).
+openclaw_weekly_owner() {
+    local now; now="$(env_get OPENCLAW_WEEKLY)"
+    [ "${now:-alerter}" = "$1" ] && return 0
+    env_set OPENCLAW_WEEKLY "$1"
+    case ",$(profiles)," in
+        *,alerts,*) compose up -d --no-deps alerter >/dev/null 2>&1 \
+            || echo "WARNING: the alerter was not recreated: $(cli_name) logs alerter" >&2 ;;
+    esac
+    if [ "$1" = agent ]; then
+        echo "  The weekly is the automation's now; the alerter no longer sends it."
+    else
+        echo "  The alerter sends the weekly again."
+    fi
 }
 
 # OpenClaw's own heartbeat is a model turn every 30 min or hour that reads

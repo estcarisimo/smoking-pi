@@ -80,12 +80,16 @@ version gets a matching GitHub release and git tag.
 
 ### Changed
 
-- **With `OPENCLAW_PUSH=agent` the alerter no longer sends the weekly
-  summary**: the `Smoking Pi weekly` automation narrates the same week, read
-  by the same code, and both sending would say the week twice. The alerter
-  logs `Weekly for slot ... handed to the agent automation` and does not read
-  the week at all; with the relay, Telegram or a webhook it sends it as
-  before. `smoking-pi openclaw --push message` hands it back.
+- **With `OPENCLAW_PUSH=agent` and the weekly automation made, the alerter
+  no longer sends the weekly summary**: the `Smoking Pi weekly` automation
+  narrates the same week, read by the same code, and both sending would say
+  the week twice. The command writes `OPENCLAW_WEEKLY=agent` when it has made
+  the automation and `alerter` when it removes it, and the alerter skips only
+  on `agent` (logging `Weekly for slot ... handed to the agent automation`),
+  so an install with the agent push and no automation (an older gateway, or
+  `smoking-pi openclaw` not run since the upgrade) keeps the alerter's weekly
+  rather than losing it. With the relay, Telegram or a webhook nothing
+  changes.
 
 - **The weekly summary's reading and judging moved to
   `common/weekly.py`**, so the alerter's message and the MCP server's

@@ -366,11 +366,15 @@ def build(slot: float, query=None, record: dict | None = None,
 
 
 def handed_to_agent() -> bool:
-    """With OpenClaw delivery and OPENCLAW_PUSH=agent, the agent's own
-    automation owns the weekly (docs/openclaw-integration.md, "Heartbeat
-    and weekly through the agent"); with the relay, the alerter sends it."""
+    """With OpenClaw delivery, OPENCLAW_PUSH=agent and OPENCLAW_WEEKLY=agent,
+    the agent's own automation owns the weekly (docs/openclaw-integration.md,
+    "Heartbeat and weekly through the agent"); otherwise the alerter sends it.
+    OPENCLAW_WEEKLY is written by `smoking-pi openclaw automations` when the
+    automation exists: the push alone would lose the weekly of an install
+    whose gateway never got one."""
     return (notifier.notify_mode() == "openclaw"
-            and notifier.push_mode() == notifier.PUSH_AGENT)
+            and notifier.push_mode() == notifier.PUSH_AGENT
+            and (os.environ.get("OPENCLAW_WEEKLY") or "").strip().lower() == "agent")
 
 
 def check(state: dict, now: float | None = None, query=None) -> bool:
@@ -408,7 +412,8 @@ def check(state: dict, now: float | None = None, query=None) -> bool:
         # narrates it. Both sending would say the week twice; the week is
         # not even read here, which spares InfluxDB the week's queries.
         log.info("Weekly for slot %s handed to the agent automation "
-                 "(OPENCLAW_PUSH=agent): not sent by the alerter", slot)
+                 "(OPENCLAW_PUSH=agent, OPENCLAW_WEEKLY=agent): not sent by the "
+                 "alerter", slot)
         record.update(last_fired_slot=slot, attempts=0, handed_to_agent_slot=slot)
         record.pop("last_error", None)
         record.pop("next_try", None)

@@ -603,7 +603,7 @@ cmd_purge() {
     fi
     # The OpenClaw automations live in the gateway, not in a volume, and would
     # go on calling an MCP server that is gone.
-    [ "$SMOKING_PI_EDITION" != pro ] || openclaw_automations_cleanup || true
+    [ "$SMOKING_PI_EDITION" != pro ] || openclaw_automations_cleanup purge || true
     compose down
     if [ -n "$vols" ]; then
         # Report and carry on to the --config cleanup: a volume still held

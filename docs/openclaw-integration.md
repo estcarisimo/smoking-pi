@@ -481,12 +481,12 @@ sudo smoking-pi openclaw --check                     # how they are, and their l
 | Automation | When (in `DIGEST_TZ`) | Reads | Speaks |
 | --- | --- | --- | --- |
 | `Smoking Pi heartbeat` | every hour from 07:00 to 22:00 (`--interval 3h`: 07, 10, 13, 16, 19, 22; `6h`: 07, 13, 19) | `get_updates_since` | only on `worth_mentioning`, at most once a day, never at night |
-| `Smoking Pi weekly` | `WEEKLY_DAY` at `WEEKLY_AT` (Monday 08:00) | `get_weekly_summary("last")` | only when the week has something material |
+| `Smoking Pi weekly` | `WEEKLY_DAY` at `WEEKLY_AT` (Monday 08:00), and the two hours after it as retries | `get_weekly_summary("last")` | only when the week has something material, once |
 
 The night is the alerter's quiet hours when both are set
 (`smoking-pi alerts --quiet 23:00-07:00`), else 23:00–07:00, and the crons
-are given to OpenClaw with `--tz` set to `DIGEST_TZ` (then `TZ`), so they do
-not depend on the gateway host's clock. `smoking-pi alerts --weekly`,
+are given to OpenClaw with `--tz` set to the alerter's zone (`DIGEST_TZ`, then
+`TZ`, then UTC), so they never follow the gateway host's clock. `smoking-pi alerts --weekly`,
 `--quiet` and `--digest-tz` update the automations when they exist, and so does
 `smoking-pi openclaw --push`.
 
@@ -506,22 +506,36 @@ and the day it last spoke. Each look asks `get_updates_since` from the cursor,
 so a window is looked at once. The tool already leaves out what the alerter
 pushed, held or queued (`already_pushed`, `material_pushed_already`), and what
 is worth mentioning is counted in the window it ended in. And once it has
-spoken on a day, it holds every other `worth_mentioning` until the next day;
-`--check` shows that as `held: spoke today`. The weekly's script remembers the
-week it narrated. None of this lives in a prompt, which an isolated turn would
-not remember. At night the script reads nothing and keeps its cursor, so the
-first look of the morning covers the night; at most a day back is looked at.
-Editing a job resets that state (OpenClaw 2026.11.1), so the command leaves a
-job alone when nothing about it changed, and `--check` says so.
+spoken on a day, it holds every other `worth_mentioning` until the next day
+without moving its cursor, so the next day's first look still covers what it
+held; `--check` shows that as `held: spoke today`. The weekly's script
+remembers the week it narrated, which is why its two later hours only retry a
+look or a turn that failed. None of this lives in a prompt, which an isolated
+turn would not remember. At night the script reads nothing and keeps its
+cursor, so the first look of the morning covers the night; at most two days
+back are looked at.
 
-**The weekly is the agent's or the alerter's, never both.** With
-`NOTIFY_MODE=openclaw` and `OPENCLAW_PUSH=agent`, the alerter does not send its
-weekly and logs `Weekly for slot ... handed to the agent automation
-(OPENCLAW_PUSH=agent): not sent by the alerter`; the `Smoking Pi weekly`
-automation exists only then, and only with `WEEKLY_ENABLED=true`.
-`smoking-pi openclaw --push message` removes it and the alerter sends the
-weekly again. `--disable` with the agent push leaves no weekly at all, and says
-so.
+Editing a job resets that state (OpenClaw 2026.11.1), so the command leaves a
+job alone when nothing about it changed. A real change (`--interval`, the
+quiet hours, the zone, `OPENCLAW_TO`) does edit it: the first look after that
+covers the last interval only, and the heartbeat may speak once more that day.
+
+Two limits, on purpose. A turn the check woke counts as the day's message even
+if the agent then replies `NO_REPLY` (it calls the tool again and the window
+may have changed), and a message lost in delivery is not sent again: both
+leave the day spent rather than risk saying a thing twice.
+
+**The weekly is the agent's or the alerter's, never both, and never
+neither.** The `Smoking Pi weekly` automation is made only with
+`NOTIFY_MODE=openclaw`, `OPENCLAW_PUSH=agent` and `WEEKLY_ENABLED=true`. When
+the command has made it, it writes `OPENCLAW_WEEKLY=agent` and recreates the
+alerter, which then does not send its own weekly and logs `Weekly for slot ...
+handed to the agent automation (OPENCLAW_PUSH=agent, OPENCLAW_WEEKLY=agent):
+not sent by the alerter`. Removing it (`--disable`, `--push message`, the
+weekly turned off, `disable mcp`) writes `OPENCLAW_WEEKLY=alerter` and the
+alerter sends it again. The alerter cannot see OpenClaw, so the push alone is
+not enough: an install with the agent push whose gateway never got the
+automation keeps the alerter's weekly.
 
 **OpenClaw's own heartbeat.** A stock gateway runs `Heartbeat (main)`, a model
 turn every 30 minutes (every hour with some providers) that reads
@@ -591,7 +605,7 @@ Automations:
   Smoking Pi heartbeat: on, '0 7-22 * * *' (America/Chicago), to the alerts' chat (OPENCLAW_TO)
     last run: none yet (the agent runs only when the check finds something)
     last check: 2026-11-07 17:00 CST, nothing_new at 2026-11-07T17:00-06:00
-  Smoking Pi weekly: on, '0 8 * * 1' (America/Chicago), to the alerts' chat (OPENCLAW_TO)
+  Smoking Pi weekly: on, '0 8,9,10 * * 1' (America/Chicago), to the alerts' chat (OPENCLAW_TO)
     last run: none yet (the agent runs only when the check finds something)
   OpenClaw's own Heartbeat (main): on, every 30m, a model turn each time that does not look at this Pi
 ```
@@ -603,6 +617,11 @@ the tool's verdict. The MCP server's log has one line per look, whoever made it:
 ```
 INFO mcp.tools: tool=get_updates_since args=include_non_material=False since=2026-11-07T22:00:01.512Z -> verdict=nothing_new in 14ms
 ```
+
+A check that fails (the MCP server down for an upgrade, say) is a failed run
+to OpenClaw, and its own failure policy applies: by default it tells the same
+chat after two failures in a row, once per incident, and says nothing more
+until a run succeeds. A check never fails quietly into "nothing to say".
 
 `smoking-pi disable mcp` and `smoking-pi purge` remove both automations: their
 checks call the MCP server, and every run would fail without it.

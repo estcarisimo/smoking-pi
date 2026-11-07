@@ -1922,6 +1922,9 @@ PY
     grep -q '^GATE .*const TZ = "America/Chicago"; const NIGHT = \[1380, 420\]; const FIRST = "1h";' "$DOCKER_LOG"
     grep -q '^GATE .*MCP.smokeping.getUpdatesSince' "$DOCKER_LOG"
     grep -q '^GATE .*s.spoke_on === day' "$DOCKER_LOG"
+    # What the cap holds keeps the cursor, so the next day's look covers it.
+    grep -q '^GATE .*held: "spoke today"' "$DOCKER_LOG"
+    grep -q '^GATE .*return { fire: false, state: { cursor: s.cursor, spoke_on: s.spoke_on' "$DOCKER_LOG"
     # The relay keeps the weekly: no automation for it.
     if grep -q 'add --name Smoking Pi weekly' "$DOCKER_LOG"; then false; fi
     [[ "$output" == *"Smoking Pi heartbeat: created (every 1h, at 7-22)."* ]]
@@ -1983,26 +1986,56 @@ PY
     stub_openclaw
     run "$CLI" openclaw automations
     [ "$status" -eq 0 ]
-    grep -q '^openclaw automations add --name Smoking Pi weekly .*--cron 0 8 \* \* 1 .*--message You are the Smoking Pi weekly.*--tools smokeping__get_weekly_summary --light-context --announce --channel telegram --to telegram:4242 --tz America/Chicago' "$DOCKER_LOG"
+    grep -q '^openclaw automations add --name Smoking Pi weekly .*--cron 0 8,9,10 \* \* 1 .*--message You are the Smoking Pi weekly.*--tools smokeping__get_weekly_summary --light-context --announce --channel telegram --to telegram:4242 --tz America/Chicago' "$DOCKER_LOG"
     grep -q '^GATE .*MCP.smokeping.getWeeklySummary({ week: "last" })' "$DOCKER_LOG"
     grep -q '^GATE .*!w.has_material' "$DOCKER_LOG"
     [[ "$output" == *"Smoking Pi weekly: created (mon at 08:00)"* ]]
+    # The alerter is told, and recreated to read it.
+    grep -qx 'OPENCLAW_WEEKLY=agent' "$SMOKING_PI_ENV_FILE"
+    grep -q 'up -d --no-deps alerter' "$DOCKER_LOG"
+    [[ "$output" == *"the alerter no longer sends it"* ]]
     # Off: none, and one already there is removed.
-    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=false\n'
+    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=false\nOPENCLAW_WEEKLY=agent\n'
     : > "$DOCKER_LOG"
     run "$CLI" openclaw automations
     grep -q '^openclaw automations rm job-2' "$DOCKER_LOG"
     [[ "$output" == *"Smoking Pi weekly: removed"* ]]
+    grep -qx 'OPENCLAW_WEEKLY=alerter' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "openclaw automations: a weekly that cannot be made leaves it with the alerter" {
+    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=true\nOPENCLAW_WEEKLY=agent\n'
+    stub_openclaw
+    STUB_ADD_FAILS=1 run "$CLI" openclaw automations
+    [ "$status" -eq 1 ]
+    grep -qx 'OPENCLAW_WEEKLY=alerter' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "openclaw automations: no DIGEST_TZ or TZ is UTC, as the alerter's; a night with no day is refused" {
+    printf 'COMPOSE_PROFILES=influxdb,alerts,mcp\nOPENCLAW_TO=telegram:4242\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw automations
+    [ "$status" -eq 0 ]
+    grep -q -- '--tz UTC' "$DOCKER_LOG"
+    grep -q '^GATE .*const TZ = "UTC";' "$DOCKER_LOG"
+    printf 'COMPOSE_PROFILES=influxdb,alerts,mcp\nOPENCLAW_TO=telegram:4242\nQUIET_FROM=00:00\nQUIET_UNTIL=23:59\n' > "$SMOKING_PI_ENV_FILE"
+    rm -f "$BATS_TEST_TMPDIR/automations.json"
+    : > "$DOCKER_LOG"
+    run "$CLI" openclaw automations
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"leave no whole hour"* ]]
+    if grep -q 'automations add' "$DOCKER_LOG"; then false; fi
 }
 
 @test "openclaw --push follows: message hands the weekly back to the alerter, agent takes it" {
-    oc_env 'OPENCLAW_PUSH=agent\nOPENCLAW_HOOKS_TOKEN=t\nWEEKLY_ENABLED=true\n'
+    oc_env 'OPENCLAW_PUSH=agent\nOPENCLAW_HOOKS_TOKEN=t\nWEEKLY_ENABLED=true\nOPENCLAW_WEEKLY=agent\n'
     stub_openclaw
     oc_job "Smoking Pi heartbeat" hb-1 "x" telegram:4242 on '{}'
     oc_job "Smoking Pi weekly" wk-1 "x" telegram:4242 on '{}'
     run "$CLI" openclaw --push message
     [ "$status" -eq 0 ]
     grep -q '^openclaw automations rm wk-1' "$DOCKER_LOG"
+    grep -qx 'OPENCLAW_WEEKLY=alerter' "$SMOKING_PI_ENV_FILE"
     if grep -q 'config patch' "$DOCKER_LOG"; then false; fi
     # No automation set up: --push creates none.
     rm "$BATS_TEST_TMPDIR/automations.json"
@@ -2012,7 +2045,7 @@ PY
 }
 
 @test "alerts --weekly and --quiet move the automations with the schedule; none set up, none created" {
-    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=false\n'
+    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=false\nOPENCLAW_WEEKLY=agent\n'
     stub_openclaw
     run "$CLI" alerts --weekly tue 09:30
     [ "$status" -eq 0 ]
@@ -2021,15 +2054,15 @@ PY
     : > "$DOCKER_LOG"
     run "$CLI" alerts --weekly tue 09:30
     [ "$status" -eq 0 ]
-    grep -q '^openclaw automations add --name Smoking Pi weekly .*--cron 30 9 \* \* 2 ' "$DOCKER_LOG"
+    grep -q '^openclaw automations add --name Smoking Pi weekly .*--cron 30 9,10,11 \* \* 2 ' "$DOCKER_LOG"
     : > "$DOCKER_LOG"
     run "$CLI" alerts --quiet 22:00-08:00
     [ "$status" -eq 0 ]
     grep -q '^openclaw automations edit hb-1 .*--cron 0 8-21 \* \* \* ' "$DOCKER_LOG"
 }
 
-@test "openclaw automations --disable removes both and says the weekly is gone with the agent push" {
-    oc_env 'OPENCLAW_PUSH=agent\n'
+@test "openclaw automations --disable removes both and gives the weekly back to the alerter" {
+    oc_env 'OPENCLAW_PUSH=agent\nOPENCLAW_WEEKLY=agent\n'
     stub_openclaw
     oc_job "Smoking Pi heartbeat" hb-1 "x" telegram:4242 on '{}'
     oc_job "Smoking Pi weekly" wk-1 "x" telegram:4242 on '{}'
@@ -2040,7 +2073,8 @@ PY
     grep -q '^openclaw automations rm wk-1' "$DOCKER_LOG"
     # OpenClaw's own heartbeat is not this command's to remove.
     if grep -q 'rm builtin-1' "$DOCKER_LOG"; then false; fi
-    [[ "$output" == *"there"*"is no weekly now"*"openclaw --push message"* ]]
+    grep -qx 'OPENCLAW_WEEKLY=alerter' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"The alerter sends the weekly again."* ]]
 }
 
 @test "openclaw automations --disable-builtin-heartbeat sets OpenClaw's cadence to 0m, only on request" {

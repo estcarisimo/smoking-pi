@@ -464,6 +464,7 @@ def test_with_the_agent_push_the_weekly_is_the_automations(on, monkeypatch, capl
     # week, so the alerter neither sends nor reads it, once per slot.
     monkeypatch.setenv("NOTIFY_MODE", "openclaw")
     monkeypatch.setenv("OPENCLAW_PUSH", "agent")
+    monkeypatch.setenv("OPENCLAW_WEEKLY", "agent")
     caplog.set_level("INFO", logger="alerter.weekly")
     state = {}
     down = Influx(fail=['"loss_incident"'], incidents=[_incident(_t(28, 20, 40), 31)])
@@ -479,13 +480,17 @@ def test_with_the_agent_push_the_weekly_is_the_automations(on, monkeypatch, capl
     assert len([r for r in caplog.records if "handed to the agent" in r.message]) == 1
 
 
-@pytest.mark.parametrize("mode,push", [("openclaw", "message"), ("openclaw", ""),
-                                       ("telegram", "agent")])
-def test_the_alerter_keeps_the_weekly_without_the_agent_push(on, monkeypatch,
-                                                             mode, push):
-    # The relay, or another channel with a left-over OPENCLAW_PUSH: as today.
+@pytest.mark.parametrize("mode,push,owner", [
+    ("openclaw", "message", "agent"), ("openclaw", "", "agent"),
+    ("telegram", "agent", "agent"),
+    # The agent push, but no automation was made (an old gateway, an install
+    # that never ran `smoking-pi openclaw`): the weekly is not lost.
+    ("openclaw", "agent", ""), ("openclaw", "agent", "alerter")])
+def test_the_alerter_keeps_the_weekly_unless_the_automation_has_it(on, monkeypatch,
+                                                                   mode, push, owner):
     monkeypatch.setenv("NOTIFY_MODE", mode)
     monkeypatch.setenv("OPENCLAW_PUSH", push)
+    monkeypatch.setenv("OPENCLAW_WEEKLY", owner)
     state = {}
     influx = Influx(incidents=[_incident(_t(28, 20, 40), 31)])
     assert weekly.check(state, now=SLOT + 60, query=influx) is True
