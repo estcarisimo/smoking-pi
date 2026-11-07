@@ -1228,8 +1228,49 @@ install_on_a_tty() {
 # ~/.openclaw, which a test must not touch.
 stub_openclaw() {
     # A hooks patch is a file: logged as one PATCH line, as the gateway reads it.
+    # The automations list is $BATS_TEST_TMPDIR/automations.json (none: an
+    # empty one); a gate script handed over is logged as one GATE line.
     printf '#!/bin/sh\necho "openclaw $*" >> "%s"\n[ "$1 $2 $3" = "config patch --file" ] && { printf "PATCH "; cat "$4"; } >> "%s"\nexit %s\n' "$DOCKER_LOG" "$DOCKER_LOG" "${1:-0}" \
-        > "$BATS_TEST_TMPDIR/bin/openclaw"
+        > "$BATS_TEST_TMPDIR/bin/openclaw.base"
+    cat > "$BATS_TEST_TMPDIR/bin/openclaw" <<'STUB'
+#!/bin/sh
+case "$1 $2" in
+    "automations list")
+        echo "openclaw $*" >> "$DOCKER_LOG"
+        [ -z "${STUB_LIST_FAILS:-}" ] || exit 1
+        cat "$BATS_TEST_TMPDIR/automations.json" 2>/dev/null || echo '{"jobs":[]}'
+        exit 0 ;;
+    "automations add"|"automations edit")
+        # One line, the prompt's newlines flattened, so one grep sees it all.
+        printf 'openclaw %s\n' "$*" | tr '\n' ' ' >> "$DOCKER_LOG"; echo >> "$DOCKER_LOG"
+        prev=""
+        for a in "$@"; do
+            [ "$prev" = "--trigger-script" ] && { printf "GATE "; tr '\n' ' ' < "$a"; echo; } >> "$DOCKER_LOG"
+            prev="$a"
+        done
+        [ -z "${STUB_ADD_FAILS:-}" ] || { echo "rejected: bad cron for telegram:4242" >&2; exit 1; }
+        # A job added is in the next list, as the gateway would have it.
+        [ "$2" != add ] || python3 - "$BATS_TEST_TMPDIR/automations.json" "$@" <<'PY'
+import json, sys
+f, a = sys.argv[1], sys.argv[2:]
+try:
+    d = json.load(open(f))
+except (OSError, ValueError):
+    d = {"jobs": []}
+get = lambda k: a[a.index(k) + 1] if k in a else None
+d["jobs"].append({"id": "job-%d" % (len(d["jobs"]) + 1), "name": get("--name"),
+                  "description": get("--description"), "enabled": True,
+                  "schedule": {"kind": "cron", "expr": get("--cron"), "tz": get("--tz")},
+                  "delivery": {"mode": "announce", "to": get("--to")}, "state": {}})
+json.dump(d, open(f, "w"))
+PY
+        echo '{"id":"new-job"}'
+        exit 0 ;;
+esac
+exec "$(dirname "$0")/openclaw.base" "$@"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/openclaw.base"
+    export BATS_TEST_TMPDIR
     # Records argv AND the config curl reads on stdin, so a test can tell
     # "the credential is not on the command line" from "the credential
     # never arrived" -- which look identical if you only assert an absence.
@@ -1782,7 +1823,8 @@ openclaw_json() {
     run "$CLI" openclaw --push message
     [ "$status" -eq 0 ]
     grep -qx 'OPENCLAW_PUSH=message' "$SMOKING_PI_ENV_FILE"
-    if grep -q '^openclaw ' "$DOCKER_LOG"; then false; fi
+    # Only a look at the automations, of which there are none to follow.
+    if grep '^openclaw ' "$DOCKER_LOG" | grep -qv '^openclaw automations list'; then false; fi
     grep -q 'up -d --no-deps alerter' "$DOCKER_LOG"
     [[ "$output" == *"Alert push: message relay (hooks: not asked for, OPENCLAW_PUSH=message)"* ]]
 }
@@ -1833,6 +1875,294 @@ openclaw_json() {
     run "$CLI" openclaw --check
     [ "$status" -eq 1 ]
     [[ "$output" == *"NOT connected"* ]]
+}
+
+# --- openclaw automations ---------------------------------------------------
+# The heartbeat and the weekly as OpenClaw automations. The stubbed gateway
+# keeps its list in $BATS_TEST_TMPDIR/automations.json.
+
+oc_env() {
+    printf 'COMPOSE_PROFILES=influxdb,alerts,mcp\nNOTIFY_MODE=openclaw\nOPENCLAW_TO=telegram:4242\nDIGEST_TZ=America/Chicago\n%b' "${1:-}" > "$SMOKING_PI_ENV_FILE"
+}
+
+# A job in the gateway's list: name, id, description, to, enabled, extra state.
+oc_job() {
+    python3 - "$BATS_TEST_TMPDIR/automations.json" "$@" <<'PY'
+import json, sys
+f, name, jid, desc, to, enabled, state = sys.argv[1:8]
+try:
+    d = json.load(open(f))
+except (OSError, ValueError):
+    d = {"jobs": []}
+job = {"id": jid, "name": name, "description": desc, "enabled": enabled == "on",
+       "schedule": {"kind": "cron", "expr": "0 7-22 * * *", "tz": "America/Chicago"},
+       "delivery": {"mode": "announce", "to": to}, "state": json.loads(state or "{}")}
+if name == "heartbeat-main":
+    job.update(declarationKey="heartbeat:main", payload={"kind": "heartbeat"},
+               schedule={"kind": "every", "everyMs": 1800000})
+d["jobs"].append(job)
+json.dump(d, open(f, "w"))
+PY
+}
+
+@test "openclaw automations: the heartbeat, hourly by day in DIGEST_TZ, to the alerts' chat" {
+    oc_env
+    stub_openclaw
+    run "$CLI" openclaw automations
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw automations add --name Smoking Pi heartbeat ' "$DOCKER_LOG"
+    # Every whole hour from 07:00 to 22:00 Chicago time: never at night.
+    grep -q -- '--cron 0 7-22 \* \* \* ' "$DOCKER_LOG"
+    grep -q -- '--tz America/Chicago' "$DOCKER_LOG"
+    grep -q -- '--session isolated --agent main ' "$DOCKER_LOG"
+    grep -q -- '--tools smokeping__get_updates_since,smokeping__get_notification_history --light-context --announce --channel telegram --to telegram:4242' "$DOCKER_LOG"
+    grep -q -- '--message You are the Smoking Pi heartbeat' "$DOCKER_LOG"
+    grep -q 'reply exactly NO_REPLY' "$DOCKER_LOG"
+    # The gate: the night in minutes, the first window, the tool, the daily cap.
+    grep -q '^GATE .*const TZ = "America/Chicago"; const NIGHT = \[1380, 420\]; const FIRST = "1h";' "$DOCKER_LOG"
+    grep -q '^GATE .*MCP.smokeping.getUpdatesSince' "$DOCKER_LOG"
+    grep -q '^GATE .*s.spoke_on === day' "$DOCKER_LOG"
+    # What the cap holds keeps the cursor, so the next day's look covers it.
+    grep -q '^GATE .*held: "spoke today"' "$DOCKER_LOG"
+    grep -q '^GATE .*return { fire: false, state: { cursor: s.cursor, spoke_on: s.spoke_on' "$DOCKER_LOG"
+    # The relay keeps the weekly: no automation for it.
+    if grep -q 'add --name Smoking Pi weekly' "$DOCKER_LOG"; then false; fi
+    [[ "$output" == *"Smoking Pi heartbeat: created (every 1h, at 7-22)."* ]]
+    [[ "$output" == *"the alerter sends the weekly"* || "$output" == *"the weekly is off"* ]]
+    [[ "$output" != *"4242"* ]]
+}
+
+@test "openclaw automations: a job that already matches is left alone, its saved state kept" {
+    oc_env
+    stub_openclaw
+    run "$CLI" openclaw automations
+    [ "$status" -eq 0 ]
+    : > "$DOCKER_LOG"
+    run "$CLI" openclaw automations
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Smoking Pi heartbeat: up to date (every 1h"* ]]
+    if grep -qE '^openclaw automations (add|edit)' "$DOCKER_LOG"; then false; fi
+}
+
+@test "openclaw automations --interval 3h: an existing heartbeat is edited, and keeps it on the next run" {
+    oc_env 'QUIET_FROM=22:00\nQUIET_UNTIL=06:30\n'
+    stub_openclaw
+    oc_job "Smoking Pi heartbeat" hb-1 "old" telegram:4242 on '{}'
+    run "$CLI" openclaw automations --interval 3h
+    [ "$status" -eq 0 ]
+    # The quiet hours are the night: the first whole hour after 06:30 is 07.
+    grep -q '^openclaw automations edit hb-1 .*--cron 0 7,10,13,16,19 \* \* \* .*--enable' "$DOCKER_LOG"
+    grep -q '^GATE .*const NIGHT = \[1320, 390\]; const FIRST = "3h";' "$DOCKER_LOG"
+    grep -q -- '--message .*between 22:00 and 06:30 (America/Chicago)' "$DOCKER_LOG"
+    [[ "$output" == *"Smoking Pi heartbeat: updated (every 3h, at 7,10,13,16,19)"* ]]
+    # The interval is the job's: a later plain run keeps 3h.
+    python3 - "$BATS_TEST_TMPDIR/automations.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["jobs"][0]["description"] = "Managed by smoking-pi openclaw automations (every 3h, at 7,10,13,16,19; spec x)"
+json.dump(d, open(sys.argv[1], "w"))
+PY
+    : > "$DOCKER_LOG"
+    run "$CLI" openclaw automations
+    grep -q '^openclaw automations edit hb-1 .*--cron 0 7,10,13,16,19 ' "$DOCKER_LOG"
+}
+
+@test "openclaw automations --interval takes 1h, 3h or 6h, and not with --disable" {
+    oc_env
+    stub_openclaw
+    run "$CLI" openclaw automations --interval 2h
+    [ "$status" -eq 2 ]
+    run "$CLI" openclaw automations --interval
+    [ "$status" -eq 2 ]
+    run "$CLI" openclaw automations --disable --interval 3h
+    [ "$status" -eq 2 ]
+    run "$CLI" openclaw automations --interval 6h
+    [ "$status" -eq 0 ]
+    grep -q -- '--cron 0 7,13,19 \* \* \* ' "$DOCKER_LOG"
+}
+
+@test "openclaw automations: with the agent push and the weekly on, the weekly is the agent's" {
+    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=true\nWEEKLY_DAY=mon\nWEEKLY_AT=08:00\n'
+    stub_openclaw
+    run "$CLI" openclaw automations
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw automations add --name Smoking Pi weekly .*--cron 0 8,9,10 \* \* 1 .*--message You are the Smoking Pi weekly.*--tools smokeping__get_weekly_summary --light-context --announce --channel telegram --to telegram:4242 --tz America/Chicago' "$DOCKER_LOG"
+    grep -q '^GATE .*MCP.smokeping.getWeeklySummary({ week: "last" })' "$DOCKER_LOG"
+    grep -q '^GATE .*!w.has_material' "$DOCKER_LOG"
+    [[ "$output" == *"Smoking Pi weekly: created (mon at 08:00)"* ]]
+    # The alerter is told, and recreated to read it.
+    grep -qx 'OPENCLAW_WEEKLY=agent' "$SMOKING_PI_ENV_FILE"
+    grep -q 'up -d --no-deps alerter' "$DOCKER_LOG"
+    [[ "$output" == *"the alerter no longer sends it"* ]]
+    # Off: none, and one already there is removed.
+    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=false\nOPENCLAW_WEEKLY=agent\n'
+    : > "$DOCKER_LOG"
+    run "$CLI" openclaw automations
+    grep -q '^openclaw automations rm job-2' "$DOCKER_LOG"
+    [[ "$output" == *"Smoking Pi weekly: removed"* ]]
+    grep -qx 'OPENCLAW_WEEKLY=alerter' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "openclaw automations: a weekly that cannot be made leaves it with the alerter" {
+    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=true\nOPENCLAW_WEEKLY=agent\n'
+    stub_openclaw
+    STUB_ADD_FAILS=1 run "$CLI" openclaw automations
+    [ "$status" -eq 1 ]
+    grep -qx 'OPENCLAW_WEEKLY=alerter' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "openclaw automations: no DIGEST_TZ or TZ is UTC, as the alerter's; a night with no day is refused" {
+    printf 'COMPOSE_PROFILES=influxdb,alerts,mcp\nOPENCLAW_TO=telegram:4242\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw automations
+    [ "$status" -eq 0 ]
+    grep -q -- '--tz UTC' "$DOCKER_LOG"
+    grep -q '^GATE .*const TZ = "UTC";' "$DOCKER_LOG"
+    printf 'COMPOSE_PROFILES=influxdb,alerts,mcp\nOPENCLAW_TO=telegram:4242\nQUIET_FROM=00:00\nQUIET_UNTIL=23:59\n' > "$SMOKING_PI_ENV_FILE"
+    rm -f "$BATS_TEST_TMPDIR/automations.json"
+    : > "$DOCKER_LOG"
+    run "$CLI" openclaw automations
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"leave no whole hour"* ]]
+    if grep -q 'automations add' "$DOCKER_LOG"; then false; fi
+}
+
+@test "openclaw --push follows: message hands the weekly back to the alerter, agent takes it" {
+    oc_env 'OPENCLAW_PUSH=agent\nOPENCLAW_HOOKS_TOKEN=t\nWEEKLY_ENABLED=true\nOPENCLAW_WEEKLY=agent\n'
+    stub_openclaw
+    oc_job "Smoking Pi heartbeat" hb-1 "x" telegram:4242 on '{}'
+    oc_job "Smoking Pi weekly" wk-1 "x" telegram:4242 on '{}'
+    run "$CLI" openclaw --push message
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw automations rm wk-1' "$DOCKER_LOG"
+    grep -qx 'OPENCLAW_WEEKLY=alerter' "$SMOKING_PI_ENV_FILE"
+    if grep -q 'config patch' "$DOCKER_LOG"; then false; fi
+    # No automation set up: --push creates none.
+    rm "$BATS_TEST_TMPDIR/automations.json"
+    : > "$DOCKER_LOG"
+    run "$CLI" openclaw --push message
+    if grep -qE '^openclaw automations (add|edit|rm)' "$DOCKER_LOG"; then false; fi
+}
+
+@test "alerts --weekly and --quiet move the automations with the schedule; none set up, none created" {
+    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=false\nOPENCLAW_WEEKLY=agent\n'
+    stub_openclaw
+    run "$CLI" alerts --weekly tue 09:30
+    [ "$status" -eq 0 ]
+    if grep -qE '^openclaw automations (add|edit|rm)' "$DOCKER_LOG"; then false; fi
+    oc_job "Smoking Pi heartbeat" hb-1 "x" telegram:4242 on '{}'
+    : > "$DOCKER_LOG"
+    run "$CLI" alerts --weekly tue 09:30
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw automations add --name Smoking Pi weekly .*--cron 30 9,10,11 \* \* 2 ' "$DOCKER_LOG"
+    : > "$DOCKER_LOG"
+    run "$CLI" alerts --quiet 22:00-08:00
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw automations edit hb-1 .*--cron 0 8-21 \* \* \* ' "$DOCKER_LOG"
+}
+
+@test "openclaw automations --disable removes both and gives the weekly back to the alerter" {
+    oc_env 'OPENCLAW_PUSH=agent\nOPENCLAW_WEEKLY=agent\n'
+    stub_openclaw
+    oc_job "Smoking Pi heartbeat" hb-1 "x" telegram:4242 on '{}'
+    oc_job "Smoking Pi weekly" wk-1 "x" telegram:4242 on '{}'
+    oc_job "heartbeat-main" builtin-1 "" "" on '{}'
+    run "$CLI" openclaw automations --disable
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw automations rm hb-1' "$DOCKER_LOG"
+    grep -q '^openclaw automations rm wk-1' "$DOCKER_LOG"
+    # OpenClaw's own heartbeat is not this command's to remove.
+    if grep -q 'rm builtin-1' "$DOCKER_LOG"; then false; fi
+    grep -qx 'OPENCLAW_WEEKLY=alerter' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"The alerter sends the weekly again."* ]]
+}
+
+@test "openclaw automations --disable-builtin-heartbeat sets OpenClaw's cadence to 0m, only on request" {
+    oc_env
+    stub_openclaw
+    oc_job "heartbeat-main" builtin-1 "" "" on '{}'
+    run "$CLI" openclaw automations
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"OpenClaw's own 'Heartbeat (main)' still runs a model turn every 30m"* ]]
+    if grep -q 'heartbeat.every' "$DOCKER_LOG"; then false; fi
+    run "$CLI" openclaw automations --disable-builtin-heartbeat
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw config set agents.defaults.heartbeat.every 0m' "$DOCKER_LOG"
+    if grep -q 'automations rm builtin-1' "$DOCKER_LOG"; then false; fi
+}
+
+@test "openclaw automations: no chat, no list, or a refusal: nothing half-done, no chat id shown" {
+    printf 'COMPOSE_PROFILES=alerts,mcp\n' > "$SMOKING_PI_ENV_FILE"
+    stub_openclaw
+    run "$CLI" openclaw automations
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"OPENCLAW_TO (the chat they post to) is not set"* ]]
+    if grep -q 'automations add' "$DOCKER_LOG"; then false; fi
+    oc_env
+    STUB_LIST_FAILS=1 run "$CLI" openclaw automations
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"'openclaw automations list' did not answer"* ]]
+    if grep -q 'automations add' "$DOCKER_LOG"; then false; fi
+    STUB_ADD_FAILS=1 run "$CLI" openclaw automations
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"'Smoking Pi heartbeat' could not be created"*"rejected: bad cron for <chat>"* ]]
+    [[ "$output" != *"4242"* ]]
+}
+
+@test "openclaw automations: none without openclaw, and none on an edition without the MCP server" {
+    oc_env
+    PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/empty" run "$CLI" openclaw automations
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"No 'openclaw' command"* ]]
+}
+
+@test "openclaw --check reports both automations, their delivery and the last check, never the chat" {
+    oc_env 'OPENCLAW_PUSH=agent\nOPENCLAW_HOOKS_TOKEN=t\n'
+    stub_openclaw
+    run "$CLI" openclaw --check
+    [[ "$output" == *"Smoking Pi heartbeat: missing (smoking-pi openclaw automations)"* ]]
+    oc_job "Smoking Pi heartbeat" hb-1 "x" telegram:4242 on \
+        '{"lastRunAtMs": 1794000000000, "lastRunStatus": "ok", "lastDeliveryStatus": "delivered", "lastTriggerEvalAtMs": 1794003600000, "triggerState": {"cursor": "c", "last": {"at": "2026-11-07T10:00-06:00", "verdict": "nothing_new", "reasons": []}}}'
+    oc_job "Smoking Pi weekly" wk-1 "x" telegram:999 on '{}'
+    oc_job "heartbeat-main" builtin-1 "" "" on '{}'
+    run "$CLI" openclaw --check
+    [[ "$output" == *"Smoking Pi heartbeat: on, '0 7-22 * * *' (America/Chicago), to the alerts' chat (OPENCLAW_TO)"* ]]
+    [[ "$output" == *"last run: "*", ok, delivery delivered"* ]]
+    [[ "$output" == *"last check: "*", nothing_new at 2026-11-07T10:00-06:00"* ]]
+    [[ "$output" == *"Smoking Pi weekly: on, '0 7-22 * * *' (America/Chicago), to ANOTHER chat than OPENCLAW_TO"* ]]
+    [[ "$output" == *"last run: none yet"* ]]
+    [[ "$output" == *"OpenClaw's own Heartbeat (main): on, every 30m"* ]]
+    [[ "$output" != *"4242"* && "$output" != *"999"* ]]
+}
+
+@test "disable mcp and purge remove the automations: their checks call the MCP server" {
+    oc_env
+    stub_openclaw
+    oc_job "Smoking Pi heartbeat" hb-1 "x" telegram:4242 on '{}'
+    run "$CLI" disable mcp
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw automations rm hb-1' "$DOCKER_LOG"
+    : > "$DOCKER_LOG"
+    run "$CLI" purge --yes
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw automations rm hb-1' "$DOCKER_LOG"
+    # Nothing of ours there: purge says nothing about OpenClaw.
+    rm "$BATS_TEST_TMPDIR/automations.json"
+    run "$CLI" purge --yes
+    [[ "$output" != *"OpenClaw"* ]]
+}
+
+@test "openclaw automations: the docs quote both prompts verbatim" {
+    # docs/openclaw-integration.md shows the prompts as the defaults write
+    # them (1h, 23:00-07:00, America/Chicago); a change to one is a change
+    # to the other.
+    doc="$REPO/docs/openclaw-integration.md"
+    got="$(bash -c 'source "$1"; openclaw_heartbeat_prompt 1h 23:00 07:00 America/Chicago' _ "$REPO/cli/lib/openclaw.sh")"
+    want="$(sed -n '/<!-- heartbeat-prompt -->/,/<!-- \/heartbeat-prompt -->/p' "$doc" | sed '1,2d;$d' | sed '$d')"
+    [ "$got" = "$want" ]
+    got="$(bash -c 'source "$1"; openclaw_weekly_prompt' _ "$REPO/cli/lib/openclaw.sh")"
+    want="$(sed -n '/<!-- weekly-prompt -->/,/<!-- \/weekly-prompt -->/p' "$doc" | sed '1,2d;$d' | sed '$d')"
+    [ "$got" = "$want" ]
 }
 
 # The token is interpolated into the JSON handed to `openclaw mcp set`. A

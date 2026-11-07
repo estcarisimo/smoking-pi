@@ -24,7 +24,9 @@ smoking-pi openclaw
 It generates `MCP_API_TOKEN` if there is none, records the `mcp` profile in
 the env file, starts the server, checks that the port refuses an
 unauthenticated request, registers `smokeping` with OpenClaw and installs the
-skill. It also sets up [the push through the agent](#push-through-the-agent).
+skill. It also sets up [the push through the agent](#push-through-the-agent),
+and [the heartbeat and the weekly](#heartbeat-and-weekly-through-the-agent) as
+OpenClaw automations.
 Then, after you start a **new** chat session:
 
 ```bash
@@ -422,7 +424,8 @@ lets only an opening sound, so:
 | --- | --- | --- |
 | Internet down, material degradation (opening) | the agent writes and delivers it | the relay |
 | An update, an end, the monitor's message, a recurring window | the relay, with its own `silent`; the agent gets an undelivered note | the relay |
-| The weekly summary, outbox and quiet-hours summaries | the relay | the relay |
+| The weekly summary | the `Smoking Pi weekly` automation, [below](#heartbeat-and-weekly-through-the-agent) | — |
+| Outbox and quiet-hours summaries | the relay | the relay |
 
 The note carries the same facts with `deliver: false` in the same session, and
 tells the agent to send nothing and reply `NO_REPLY`. That is why a question like
@@ -458,6 +461,170 @@ whose instructions carry no authority, which is right for an inbox and is a
 problem here. The installed skill says that a turn named `Smoking Pi ...` is the
 owner's own alerter and how to treat each kind, so re-run `smoking-pi openclaw` if yours
 is older (`smoking-pi upgrade` refreshes it too).
+
+### Heartbeat and weekly through the agent
+
+Pushes cover what the alerter decides to say. Two things are left: something
+worth a word that the alerter does not push (a recurring loss window that
+appeared or went away, a cluster of short losses, the monitor blind with
+nothing said), and the week. `smoking-pi openclaw` sets up both as OpenClaw
+automations (OpenClaw 2026.11 or later) that post to the chat the pushes use,
+`OPENCLAW_TO`:
+
+```bash
+sudo smoking-pi openclaw automations                 # create or update both
+sudo smoking-pi openclaw automations --interval 3h   # look every 3 hours by day
+sudo smoking-pi openclaw automations --disable       # remove both
+sudo smoking-pi openclaw --check                     # how they are, and their last look
+```
+
+| Automation | When (in `DIGEST_TZ`) | Reads | Speaks |
+| --- | --- | --- | --- |
+| `Smoking Pi heartbeat` | every hour from 07:00 to 22:00 (`--interval 3h`: 07, 10, 13, 16, 19, 22; `6h`: 07, 13, 19) | `get_updates_since` | only on `worth_mentioning`, at most once a day, never at night |
+| `Smoking Pi weekly` | `WEEKLY_DAY` at `WEEKLY_AT` (Monday 08:00), and the two hours after it as retries | `get_weekly_summary("last")` | only when the week has something material, once |
+
+The night is the alerter's quiet hours when both are set
+(`smoking-pi alerts --quiet 23:00-07:00`), else 23:00–07:00, and the crons
+are given to OpenClaw with `--tz` set to the alerter's zone (`DIGEST_TZ`, then
+`TZ`, then UTC), so they never follow the gateway host's clock. `smoking-pi alerts --weekly`,
+`--quiet` and `--digest-tz` update the automations when they exist, and so does
+`smoking-pi openclaw --push`.
+
+**Each one is a check first, and a model turn only when there is news.** An
+automation has a condition script that the gateway runs on schedule before any
+model call. The script calls the MCP tool itself and wakes the agent only when
+the tool says so; otherwise the run ends there, with no model turn and no
+message. The agent then calls the same tool, writes the message, and its reply
+is posted. Both scripts are stored in the job (`openclaw automations get <id>`
+shows them) and both turns are limited to the read-only tools they need
+(`--tools`) and run without the workspace's bootstrap files
+(`--light-context`).
+
+**Why a repeat cannot happen.** The heartbeat's script keeps its own state in
+the gateway (OpenClaw's `trigger.state`): a cursor, the `as_of` of its last
+look, and the day it last spoke. Each look asks `get_updates_since` from the
+cursor, so windows meet without overlapping and each is looked at once. The tool already leaves out what the alerter
+pushed, held or queued (`already_pushed`, `material_pushed_already`), and what
+is worth mentioning is counted in the window it ended in. And once it has
+spoken on a day, it holds every other `worth_mentioning` until the next day
+without moving its cursor, so the next day's first look still covers what it
+held; `--check` shows that as `held: spoke today`. The weekly's script
+remembers the week it narrated, which is why its two later hours only retry a
+look or a turn that failed. None of this lives in a prompt, which an isolated
+turn would not remember. At night the script reads nothing and keeps its
+cursor, so the first look of the morning covers the night; at most two days
+back are looked at.
+
+Editing a job resets that state (OpenClaw 2026.11.1), so the command leaves a
+job alone when nothing about it changed. A real change (`--interval`, the
+quiet hours, the zone, `OPENCLAW_TO`) does edit it: the first look after that
+covers the last interval only, and the heartbeat may speak once more that day.
+
+Two limits, on purpose. A turn the check woke counts as the day's message even
+if the agent then replies `NO_REPLY` (it calls the tool again and the window
+may have changed), and a message lost in delivery is not sent again: both
+leave the day spent rather than risk saying a thing twice.
+
+**The weekly is the agent's or the alerter's, never both, and never
+neither.** The `Smoking Pi weekly` automation is made only with
+`NOTIFY_MODE=openclaw`, `OPENCLAW_PUSH=agent` and `WEEKLY_ENABLED=true`. When
+the command has made it, it writes `OPENCLAW_WEEKLY=agent` and recreates the
+alerter, which then does not send its own weekly and logs `Weekly for slot ...
+handed to the agent automation (OPENCLAW_PUSH=agent, OPENCLAW_WEEKLY=agent):
+not sent by the alerter`. Removing it (`--disable`, `--push message`, the
+weekly turned off, `disable mcp`) writes `OPENCLAW_WEEKLY=alerter` and the
+alerter sends it again. The alerter cannot see OpenClaw, so the push alone is
+not enough: an install with the agent push whose gateway never got the
+automation keeps the alerter's weekly.
+
+**OpenClaw's own heartbeat.** A stock gateway runs `Heartbeat (main)`, a model
+turn every 30 minutes (every hour with some providers) that reads
+`HEARTBEAT.md`, not this Pi, and delivers nothing by default. It is OpenClaw's
+job, not this command's: the command leaves it alone and says that it runs. To
+save the quota it costs:
+
+```bash
+sudo smoking-pi openclaw automations --disable-builtin-heartbeat
+```
+
+which runs `openclaw config set agents.defaults.heartbeat.every 0m`, OpenClaw's
+documented off switch (`openclaw config unset agents.defaults.heartbeat.every`
+turns it back on). Deleting its job with `openclaw automations rm` does not
+last: the gateway creates it again.
+
+**Quota.** What a model turn costs was measured on the staging Pi with
+`gpt-6.1-sol`: about 15,000 tokens (7,500 of input, half of it served from
+cache, and 60 to 200 of output) for either automation. A look that finds
+nothing costs none.
+
+| | Looks a day | Model turns |
+| --- | --- | --- |
+| Heartbeat, `--interval 1h` (default) | 16 | 0 on a quiet day, at most 1 |
+| Heartbeat, `--interval 3h` | 6 | same |
+| Heartbeat, `--interval 6h` | 3 | same |
+| Weekly | 1 a week | 0 on a quiet week, at most 1 |
+| OpenClaw's `Heartbeat (main)` at 30 min | — | 48 a day, about 720,000 tokens |
+
+So the interval does not change the quota. It changes how soon something worth
+saying is said, and how often the gateway starts a check, which is a few
+seconds of work for the gateway and two file reads for the MCP server
+(`get_updates_since` queries no database; `get_weekly_summary` takes about 3
+seconds of InfluxDB a week). A forced run, `openclaw automations run <id>`,
+skips the check and always runs the model turn; the prompt then tells the agent
+to reply `NO_REPLY` itself when there is nothing.
+
+**The prompts**, as the command writes them with the defaults (the window, the
+night and the zone are filled in from the env file). The heartbeat's check
+appends the window it looked at, `Window: since="..."`, to the message:
+
+<!-- heartbeat-prompt -->
+```text
+You are the Smoking Pi heartbeat: an unattended check of this home's internet monitor. Your final reply is posted to the owner's chat exactly as you write it.
+1. Call smokeping__get_updates_since with since set to the window given at the end of this message (if none is given, since="1h") and include_non_material=true.
+2. If the call fails, or its verdict is nothing_new or material_pushed_already, reply exactly NO_REPLY.
+3. If the local time in its as_of is between 23:00 and 07:00 (America/Chicago), reply exactly NO_REPLY: nothing unsolicited at night.
+4. Otherwise the verdict is worth_mentioning: write 1 to 3 short sentences in plain English about what its reasons point to (a recurring loss window that appeared or went away, a cluster of short losses and where they were, the monitor blind with nothing said, or an episode nobody was told about). Say where in the tool's words: your Wi-Fi, your line, your provider, or the destinations it names. Give times as the tool prints them, and end with the episode's link when it has one.
+Never say that all is well, never repeat anything listed in already_pushed, never give a cause the tool did not give. No greeting, no headings, no lists.
+```
+<!-- /heartbeat-prompt -->
+
+<!-- weekly-prompt -->
+```text
+You are the Smoking Pi weekly: an unattended look back at this home's internet over the last week. Your final reply is posted to the owner's chat exactly as you write it.
+1. Call smokeping__get_weekly_summary with week="last".
+2. If the call fails or has_material is false, reply exactly NO_REPLY.
+3. Otherwise narrate the week in 6 to 10 sentences of plain English prose, without bullet points, headings or jargon. Say whether it was a good, fair or bad week (verdict good, mixed or bad) against the week before, by cause in the words of each by_cause cause_text (your Wi-Fi, your line, your provider, specific destinations), with minutes this week and the week before. Name the recurring patterns that are still active, with their hours and days. Say how much of the week the monitor measured (monitor.measured_pct), why it was blind when it was, and what the watchdog did. Name at most 3 destinations with the most loss of their own. End with links.grafana_week when there is one.
+Give times as the tool prints them. Never invent a number the tool did not give.
+```
+<!-- /weekly-prompt -->
+
+**Checking them.** `smoking-pi openclaw --check` ends with:
+
+```
+Automations:
+  Smoking Pi heartbeat: on, '0 7-22 * * *' (America/Chicago), to the alerts' chat (OPENCLAW_TO)
+    last run: none yet (the agent runs only when the check finds something)
+    last check: 2026-11-07 17:00 CST, nothing_new at 2026-11-07T17:00-06:00
+  Smoking Pi weekly: on, '0 8,9,10 * * 1' (America/Chicago), to the alerts' chat (OPENCLAW_TO)
+    last run: none yet (the agent runs only when the check finds something)
+  OpenClaw's own Heartbeat (main): on, every 30m, a model turn each time that does not look at this Pi
+```
+
+`last run` is a model turn and what became of its message (`delivered`, or
+`suppressed` for a `NO_REPLY`); `last check` is the check's latest look and
+the tool's verdict. The MCP server's log has one line per look, whoever made it:
+
+```
+INFO mcp.tools: tool=get_updates_since args=include_non_material=False since=2026-11-07T16:00:01-06:00 -> verdict=nothing_new in 14ms
+```
+
+A check that fails (the MCP server down for an upgrade, say) is a failed run
+to OpenClaw, and its own failure policy applies: by default it tells the same
+chat after two failures in a row, once per incident, and says nothing more
+until a run succeeds. A check never fails quietly into "nothing to say".
+
+`smoking-pi disable mcp` and `smoking-pi purge` remove both automations: their
+checks call the MCP server, and every run would fail without it.
 
 ### The portable alternative
 

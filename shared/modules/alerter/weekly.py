@@ -365,6 +365,18 @@ def build(slot: float, query=None, record: dict | None = None,
 # ---------------------------------------------------------------------------
 
 
+def handed_to_agent() -> bool:
+    """With OpenClaw delivery, OPENCLAW_PUSH=agent and OPENCLAW_WEEKLY=agent,
+    the agent's own automation owns the weekly (docs/openclaw-integration.md,
+    "Heartbeat and weekly through the agent"); otherwise the alerter sends it.
+    OPENCLAW_WEEKLY is written by `smoking-pi openclaw automations` when the
+    automation exists: the push alone would lose the weekly of an install
+    whose gateway never got one."""
+    return (notifier.notify_mode() == "openclaw"
+            and notifier.push_mode() == notifier.PUSH_AGENT
+            and (os.environ.get("OPENCLAW_WEEKLY") or "").strip().lower() == "agent")
+
+
 def check(state: dict, now: float | None = None, query=None) -> bool:
     """Send the weekly if its slot is due and the week is news. True when
     one was sent. Never raises: it runs inside the alert loop's iteration."""
@@ -393,6 +405,18 @@ def check(state: dict, now: float | None = None, query=None) -> bool:
         log.info("Weekly slot %s is past the lateness budget; retired without sending",
                  slot)
         record.update(last_fired_slot=slot, attempts=0)
+        return False
+    if handed_to_agent():
+        # `smoking-pi openclaw` keeps an OpenClaw automation, "Smoking Pi
+        # weekly", that reads this week through get_weekly_summary and
+        # narrates it. Both sending would say the week twice; the week is
+        # not even read here, which spares InfluxDB the week's queries.
+        log.info("Weekly for slot %s handed to the agent automation "
+                 "(OPENCLAW_PUSH=agent, OPENCLAW_WEEKLY=agent): not sent by the "
+                 "alerter", slot)
+        record.update(last_fired_slot=slot, attempts=0, handed_to_agent_slot=slot)
+        record.pop("last_error", None)
+        record.pop("next_try", None)
         return False
 
     if record.get("attempts_slot") != slot:

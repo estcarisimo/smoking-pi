@@ -459,6 +459,44 @@ def test_a_weekly_handed_to_the_gateway_is_not_sent_again(monkeypatch):
     assert tries == [1] and state["weekly"]["last_fired_slot"] == SLOT
 
 
+def test_with_the_agent_push_the_weekly_is_the_automations(on, monkeypatch, caplog):
+    # OPENCLAW_PUSH=agent: the "Smoking Pi weekly" automation narrates the
+    # week, so the alerter neither sends nor reads it, once per slot.
+    monkeypatch.setenv("NOTIFY_MODE", "openclaw")
+    monkeypatch.setenv("OPENCLAW_PUSH", "agent")
+    monkeypatch.setenv("OPENCLAW_WEEKLY", "agent")
+    caplog.set_level("INFO", logger="alerter.weekly")
+    state = {}
+    down = Influx(fail=['"loss_incident"'], incidents=[_incident(_t(28, 20, 40), 31)])
+    assert weekly.check(state, now=SLOT + 60, query=down) is False
+    assert on == []
+    record = state["weekly"]
+    assert record["last_fired_slot"] == SLOT
+    assert record["handed_to_agent_slot"] == SLOT
+    assert "last_error" not in record
+    [line] = [r.message for r in caplog.records if "handed to the agent" in r.message]
+    assert "OPENCLAW_PUSH=agent" in line
+    assert weekly.check(state, now=SLOT + 120, query=down) is False
+    assert len([r for r in caplog.records if "handed to the agent" in r.message]) == 1
+
+
+@pytest.mark.parametrize("mode,push,owner", [
+    ("openclaw", "message", "agent"), ("openclaw", "", "agent"),
+    ("telegram", "agent", "agent"),
+    # The agent push, but no automation was made (an old gateway, an install
+    # that never ran `smoking-pi openclaw`): the weekly is not lost.
+    ("openclaw", "agent", ""), ("openclaw", "agent", "alerter")])
+def test_the_alerter_keeps_the_weekly_unless_the_automation_has_it(on, monkeypatch,
+                                                                   mode, push, owner):
+    monkeypatch.setenv("NOTIFY_MODE", mode)
+    monkeypatch.setenv("OPENCLAW_PUSH", push)
+    monkeypatch.setenv("OPENCLAW_WEEKLY", owner)
+    state = {}
+    influx = Influx(incidents=[_incident(_t(28, 20, 40), 31)])
+    assert weekly.check(state, now=SLOT + 60, query=influx) is True
+    assert len(on) == 1 and "handed_to_agent_slot" not in state["weekly"]
+
+
 def test_a_late_slot_still_goes_out_the_same_day_and_a_stale_one_is_retired(on):
     influx = Influx(incidents=[_incident(_t(28, 20, 40), 31)])
     assert weekly.check({}, now=SLOT + 10 * 3600, query=influx) is True
