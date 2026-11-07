@@ -72,9 +72,9 @@ def test_format_degradation_and_its_end():
     assert notifier.format_message(over).startswith("✅")
 
 
-def test_format_report_passes_message_through():
-    text = notifier.format_message({"type": "report", "message": "Daily report"})
-    assert text == "Daily report"
+def test_format_a_prerendered_summary_passes_message_through():
+    text = notifier.format_message({"type": "held", "message": "While you slept"})
+    assert text == "While you slept"
 
 
 # --- off mode ---------------------------------------------------------------

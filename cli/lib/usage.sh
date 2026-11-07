@@ -9,7 +9,7 @@ smoking-pi — SmokePing on a Raspberry Pi, with the trimmings
 Usage: smoking-pi <command> [args]   (no command: what is installed and running)
 
   install [--edition basic|standard|pro] [--database influxdb|clickhouse]
-          [--profiles mcp,alerts,ai,dns] [--yes]
+          [--profiles mcp,alerts,dns] [--yes]
                      First install only: generate secrets, choose the edition,
                      backend and optional profiles, start the stack, print what
                      to open. Interactive unless --yes. Refuses to run over an
@@ -22,7 +22,7 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      that Grafana's InfluxDB token still works. Other flags
                      go to docker compose (its own help: docker compose up --help).
   enable | disable [NAME...]
-                     The optional services (Pro): mcp, alerts, ai, inference,
+                     The optional services (Pro): mcp, alerts, inference,
                      pathmeter, dns. No NAME: which are on. Records them in
                      COMPOSE_PROFILES and starts or removes them -- the one
                      way to change that list, so a later 'up' or 'down'

@@ -137,7 +137,6 @@ The same change is said everywhere else, in the same words:
   blind spans; an episode inside it is *this Pi (it lost its own default
   route)*, never the line
   ([One episode, one message](alerting.md#one-episode-one-message)).
-- **The AI report's prompt.**
 - **The MCP server:** `system_status` has an `uplink` block with the last
   change within a week, and `get_loss_events` has `uplink_changes` when one
   falls in its window.
@@ -238,9 +237,7 @@ into this dashboard zoomed to a moment.
   acted on. Details and the precedence table: [alerting.md](alerting.md).
 - **The weekly summary** counts the time the Pi's own Wi-Fi heard nothing
   against the monitor's availability, never as the network's episode, and
-  says what the watchdog did about it. The AI report's prompt carries the
-  median/min signal, bitrate, disconnects and roams; wired hosts see none
-  of it.
+  says what the watchdog did about it; wired hosts see none of it.
 
 ## Writing queries against it
 

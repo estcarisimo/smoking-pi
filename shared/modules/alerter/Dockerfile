@@ -10,8 +10,6 @@ COPY modules/common/*.py ./common/
 
 RUN pip install --no-cache-dir . && mkdir -p /var/lib/alerter
 
-ENV REPORTS_DIR=/reports
-
 # Incident/dedup state survives restarts via this volume.
 VOLUME ["/var/lib/alerter"]
 

@@ -7,10 +7,9 @@ transport, which keeps a notification from being said twice; this is the
 One entry per notification decision (common/notification_ledger.py says
 what a line holds and how it is read): an alert or a recovery, sent, queued
 in the outbox or held for quiet hours; the summary the outbox or quiet hours
-later sent in their place; the weekly summary; a report. The hooks are where a
+later sent in their place; the weekly summary. The hooks are where a
 message is handed to a transport and where its outcome is known
-(main._deliver, outbox.flush, quiet.release, weekly.check,
-reports_watcher.check); none of them changes what is sent or when, and
+(main._deliver, outbox.flush, quiet.release, weekly.check); none of them changes what is sent or when, and
 none of them can cost a notification: every function here logs and moves
 on.
 
@@ -51,7 +50,7 @@ MAX_ENTRIES = 5000
 MAX_BYTES = 8 * 1024 * 1024
 COMPACT_EVERY_S = 3600
 # The text is the message as sent, already within Telegram's 4096; the cap
-# is for a transport with no limit of its own (a webhook, a report).
+# is for a transport with no limit of its own (a webhook).
 MAX_TEXT = 8192
 
 _last_compact: float | None = None

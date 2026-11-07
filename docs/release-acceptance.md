@@ -159,7 +159,7 @@ clean install there is the missing half — until then the record says
   event, say so — do not fabricate one.
 - [ ] Every profile the Pi runs answers: the MCP server (`get_chart`, one
   question through OpenClaw), the alerter (`NOTIFY_MODE` as configured, a
-  dry-run notification if the mode allows), AI insights if enabled.
+  dry-run notification if the mode allows).
 - [ ] `smoking-pi openclaw` (with `sudo` on a package install) completes
   all five steps against the OpenClaw version the host really runs, and
   `openclaw mcp probe smokeping` lists the tools. The tests stub
@@ -179,7 +179,7 @@ clean install there is the missing half — until then the record says
 
 The reference Pi runs one combination (Pro, InfluxDB, `alerts,mcp`
 profiles). Everything else is **untested on a Pi** unless the record says
-otherwise: Basic and Standard, ClickHouse, the `ai` profile. The release
+otherwise: Basic and Standard, ClickHouse. The release
 workflow starts Basic on Ubuntu; Standard and Pro are rendered on every
 host but started only here. Write the combinations *not* exercised into
 the record — the reader should never infer coverage.
@@ -219,7 +219,7 @@ Every release gets a **Validation** section in its GitHub release notes
 - Data: all enabled probes writing; Wi-Fi panel live; no radio hang since boot
 - Detections: get_loss_events / get_microcut_stats agree with the alerter; events that day: <what>
 - Stability: <hours> on the Pi, restarts 0
-- Untested this release: clean install on Raspberry Pi OS; Basic/Standard on a Pi; ClickHouse; ai profile
+- Untested this release: clean install on Raspberry Pi OS; Basic/Standard on a Pi; ClickHouse
 - Known limitations: <anything found and deferred, with the issue link>
 - Backup used: <path>; rollback path: <which>
 ```

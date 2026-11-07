@@ -24,7 +24,7 @@ reference for what the stack does and why it is built the way it is.
 |---|---|---|
 | **Basic** | One box, one person | LinuxServer.io SmokePing, targets in a YAML file, the classic web UI, RRD storage |
 | **Standard** | A small team | + web admin with login, PostgreSQL as the source of truth, a REST API, bulk target management |
-| **Pro** | Everything | + Grafana dashboards, InfluxDB or ClickHouse, IPv6 and DNS probes, HTTP and TCP probes, Wi-Fi uplink stats, alerting, MCP server, AI reports, the doctor |
+| **Pro** | Everything | + Grafana dashboards, InfluxDB or ClickHouse, IPv6 and DNS probes, HTTP and TCP probes, Wi-Fi uplink stats, alerting, MCP server, the doctor |
 
 Since v2.12.0 Smoking Pi is a package: a signed apt repository, a `.deb`
 that manages the Compose deployment, a systemd unit, and one `smoking-pi`
@@ -77,8 +77,8 @@ did, and is the way to run an unreleased branch.
   any MCP client; the OpenClaw skill turns that into *"how was the line last
   night?"* ([MCP server](mcp-server.md), [OpenClaw integration](openclaw-integration.md),
   [OpenClaw on another machine](remote-openclaw.md)).
-- **Reports** written by a model from the same data, when you want prose
-  instead of a chart ([AI health reports](ai-insights.md)).
+- **A chat in the web admin** that answers from the same data, when you want
+  prose instead of a chart ([Web admin assistant](web-assistant.md)).
 - **An instrumentation doctor** that checks the dashboards, exporters,
   containers and DNS actually agree with each other, statically in CI and live
   on the box ([Instrumentation doctor](doctor.md)).

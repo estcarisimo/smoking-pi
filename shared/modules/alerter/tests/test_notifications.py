@@ -323,25 +323,6 @@ def test_a_summary_refused_every_retry_is_one_entry_with_attempts(notified):
                for e in _entries() if e["kind"] == "alert")
 
 
-def test_a_report_that_keeps_failing_is_one_entry(monkeypatch, tmp_path, notified):
-    import reports_watcher
-
-    (tmp_path / "reports").mkdir()
-    (tmp_path / "reports" / "report-20261012-120000.md").write_text("# Report\nfine")
-    monkeypatch.setenv("REPORTS_DIR", str(tmp_path / "reports"))
-    notified["ok"] = False
-    current = {"reports": {}}
-    for i in range(4):
-        reports_watcher.check(current, now=NOON + i * 300)
-    [entry] = _entries()
-    assert entry["kind"] == "report" and entry["outcome"] == "failed"
-    assert entry["attempts"] == 4
-    notified["ok"] = True
-    assert reports_watcher.check(current, now=NOON + 1500) is True
-    [entry] = _entries()
-    assert entry["outcome"] == "sent" and entry["delivered_at"] == NOON + 1500
-
-
 def test_compaction_also_bounds_the_size(monkeypatch):
     monkeypatch.setattr(notifications, "MAX_BYTES", 4000)
     for i in range(20):

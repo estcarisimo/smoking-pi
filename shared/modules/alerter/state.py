@@ -27,9 +27,8 @@ each key alerted on its own, re-alerted every ALERT_COOLDOWN and recovered
 on its own, which is how one radio hang reached the phone as ten messages
 and October as 72 messages for about eleven events. That path is gone.
 
-The state file also carries the episodes (``episodes``), the outbox, the
-quiet-hours box and the reports_watcher bookkeeping (``reports``), so the
-whole service has a single persisted file. Writes are atomic (tmp file +
+The state file also carries the episodes (``episodes``), the outbox and the
+quiet-hours box, so the whole service has a single persisted file. Writes are atomic (tmp file +
 os.replace). Path: ``ALERT_STATE_FILE`` env, default
 ``/var/lib/alerter/state.json``, falling back to ``/tmp/alerter-state.json``
 when the default directory is not writable.
@@ -64,7 +63,7 @@ _PER_TARGET_RULES = frozenset({"target_down", "high_loss"})
 _AGGREGATE_RULES = frozenset({"uplink_down", "internet_down", "monitor_dns",
                               "outage"})
 
-_EMPTY_STATE: dict = {"incidents": {}, "reports": {}}
+_EMPTY_STATE: dict = {"incidents": {}}
 
 
 def _dir_writable(path: str) -> bool:
@@ -99,7 +98,9 @@ def load_state() -> dict:
     if not isinstance(data, dict):
         return json.loads(json.dumps(_EMPTY_STATE))
     data.setdefault("incidents", {})
-    data.setdefault("reports", {})
+    # What the retired reports watcher kept here: nothing reads it now.
+    data.pop("reports", None)
+    data.pop("ledger_pending", None)
     return data
 
 

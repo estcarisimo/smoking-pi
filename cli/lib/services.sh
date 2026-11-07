@@ -15,7 +15,6 @@ optional_profiles() {
     cat <<'PROFILES'
 mcp        MCP server: the assistant tools (docs/mcp-server.md)
 alerts     alerting engine (docs/alerting.md; 'smoking-pi alerts' chooses where they go)
-ai         AI health reports (docs/ai-insights.md; needs ANTHROPIC_API_KEY)
 inference  EXPERIMENTAL congestion and degradation detectors (docs/inference.md)
 pathmeter  EXPERIMENTAL traceroute to every destination, hourly (docs/path.md)
 dns        DNS observer on port 53 (docs/dns-observer.md; same as 'smoking-pi dns enable')
@@ -24,7 +23,7 @@ PROFILES
 
 edition_has_profile() {
     # Whether this edition's compose files define a service under profile $1.
-    # Both spellings in use: `profiles: [mcp]` and a `- ai` list item.
+    # Both spellings in use: `profiles: [mcp]` and a `- alerts` list item.
     awk -v p="$1" '
         /^ +profiles: *\[/ { s = $0; gsub(/.*\[|\].*/, "", s); n = split(s, a, / *, */)
                               for (i = 1; i <= n; i++) if (a[i] == p) found = 1; next }
@@ -122,7 +121,6 @@ cmd_services() {
         [ "$action" = enable ] || continue
         case "$name" in
             alerts) [ -n "$(env_get NOTIFY_MODE)" ] || echo "Alerts are on but go nowhere yet: $(cli_name) alerts --telegram (or --openclaw, --webhook)." ;;
-            ai) [ -n "$(env_get ANTHROPIC_API_KEY)" ] || echo "AI reports need a key: $(cli_name) config set ANTHROPIC_API_KEY" ;;
             mcp) echo "Next: $(cli_name) connect (an assistant) or $(cli_name) openclaw (OpenClaw on this machine)." ;;
             pathmeter) echo "The first paths arrive about two minutes after start; what they cost shows in '$(cli_name) budget' after the first cycle." ;;
         esac

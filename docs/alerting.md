@@ -379,10 +379,10 @@ new.
 | `degradation` | warning | New in front 8: the newest probe cycle (or the one before) lost something on `MATERIAL_BREADTH_PCT` (30 %) of the reporting destinations, or on half of the destinations of `MATERIAL_MIN_CATEGORIES` (2) categories, with a mean loss over every reporting destination of at least `MATERIAL_LOSS_PCT` (5 %). A provider dropping 2-8 % on most destinations every evening reaches neither `high_loss` (one target over 20 %) nor `outage` (most over 30 % in one cycle), and was never reported (the reference Pi, 30/08-06/10/2026, 19:30-23:00). Not while anything widespread is active | the material thresholds below (constants) |
 | `target_down` | critical | ALL loss points for a target (`latency` + `dns_latency`) in the last window are >= 99.9% loss, with at least 3 points. Not sent while anything widespread is active | `DOWN_WINDOW` (1200 s) |
 | `high_loss` | warning | Mean loss for a target over 15 min exceeds the threshold **and** the loss persisted: at least `HIGH_LOSS_MIN_POINTS` probe cycles that lost two or more pings (see [Probe cadence](#probe-cadence)) within the same 15 minutes the mean covers. Targets already down are excluded; not sent while anything widespread is active | `HIGH_LOSS_PCT` (20 %), `HIGH_LOSS_MIN_POINTS` (2) |
-| `microcut_burst` | warning | Per target+protocol in `cpe_latency`, over the last 60 min: a **confirmed cut** — a run of two or more consecutive 10 s windows above `MICROCUT_LOSS_PCT`, or one window at 100% — or `MICROCUT_BURST_N` **possible cuts** (isolated single windows at 51–99%). The message names the cut and its duration (*"1 cut of 2 min 40 s (6 windows, all at 100%)"*). Definitions in `common/microcuts.py`, shared with the MCP tool, the weekly summary and the AI report | `MICROCUT_BURST_N` (3), `MICROCUT_LOSS_PCT` (50 %) |
+| `microcut_burst` | warning | Per target+protocol in `cpe_latency`, over the last 60 min: a **confirmed cut** — a run of two or more consecutive 10 s windows above `MICROCUT_LOSS_PCT`, or one window at 100% — or `MICROCUT_BURST_N` **possible cuts** (isolated single windows at 51–99%). The message names the cut and its duration (*"1 cut of 2 min 40 s (6 windows, all at 100%)"*). Definitions in `common/microcuts.py`, shared with the MCP tool and the weekly summary | `MICROCUT_BURST_N` (3), `MICROCUT_LOSS_PCT` (50 %) |
 | `exporter_stale` | critical | Zero `latency` points written in the last window (global — the RRD exporter is probably stalled). Not while the bucket holds no latency point at all: a new install has none before its first step, and has not stalled. An incident already open stays open | `STALE_WINDOW` (1200 s) |
 | `measurement_stale` | warning | One of the other writers stopped: no `dns_latency`, `http_latency`, `tcp_latency`, `cpe_latency` (gateway microcut probe) or `wifi_link` point in the window (or in four of that measurement's own steps, when longer), though it wrote within the last 24 hours. A host that never had one (wired: no `wifi_link`) is not expected to. Not while `exporter_stale` is open: that is one stall, one message. A writer silent for more than 24 hours is taken as removed on purpose (an Ethernet uplink, a disabled probe) and the incident is retired without a recovery; mute it to stop it sooner. Without it, a stopped microcut probe or Wi-Fi exporter silently took the evidence the diagnosis reads | `STALE_WINDOW` (1200 s) |
-| `influx_unreadable` | critical | The alerter could not read InfluxDB for five minutes: no rule ran. The whole unreadable spell is a `database` blind span of the episode, and every open signal record is held as it was until the database answers again; it counts as readable after three good cycles in a row. For one stale window after that, a new `exporter_stale` or `measurement_stale` is not raised: the writers could not write meanwhile. The weekly summary, the AI reports and the incident history are skipped while blind (each reads InfluxDB). The dead-man check-in reports it outside at once | — |
+| `influx_unreadable` | critical | The alerter could not read InfluxDB for five minutes: no rule ran. The whole unreadable spell is a `database` blind span of the episode, and every open signal record is held as it was until the database answers again; it counts as readable after three good cycles in a row. For one stale window after that, a new `exporter_stale` or `measurement_stale` is not raised: the writers could not write meanwhile. The weekly summary and the incident history are skipped while blind (each reads InfluxDB). The dead-man check-in reports it outside at once | — |
 | `evaluation_failed` | critical | The same blindness from a bug in the alerter's own rules rather than the database (any exception that is not a connection or InfluxDB client error). Treated as `influx_unreadable` is; the traceback is in the alerter's log | — |
 | `watchdog` | info / warning | What `smoking-pi watchdog` did on the host, read from `watchdog_event` in InfluxDB: a driver reload, a reboot, a SmokePing restart (an *action*: one probe cycle after it is a `watchdog` blind span), the network back (info); an action it could not take or a SmokePing crash loop (warning). Each event once; the first look after an upgrade skips older ones. See [watchdog.md](watchdog.md) | — |
 | `ipv6_down` | warning | Every IPv6 target (name ends in `6`, or an `fping6`-ish category) at 100% loss for 15 min while at least one IPv4 target is healthy; emits ONE aggregate incident | — |
@@ -791,16 +791,6 @@ checks in once per iteration, so set the check's period to match.
 |---|---|---|
 | `ALERT_DEADMAN_URL` | *(unset)* | The check-in URL; empty = off. A secret |
 
-## Daily report delivery
-
-If the `ai-insights` service (profile `ai`) is writing Markdown reports to
-the shared `reports` volume, the alerter delivers the newest `report-*.md`
-through the same notifier — at most one per `REPORT_DELIVERY_INTERVAL`
-(default 86400 s), prefixed with `Daily network health report:` and trimmed to
-`REPORT_MAX_CHARS` (default 3500, Telegram-friendly). The limit bounds the
-**whole** message including that header, and trims on a line boundary. A
-missing reports directory is skipped quietly.
-
 ## Environment reference
 
 | Variable | Default | Purpose |
@@ -828,9 +818,6 @@ missing reports directory is skipped quietly.
 | `WIDESPREAD_LOSS_PCT` | `30` | Loss percent a point needs to count toward `outage` — above the single-lost-ping background. A point must also have lost two or more pings, so a probe sending few pings cannot reach it on one lost ping, however low this is set |
 | `MICROCUT_BURST_N` | `3` | Possible cuts (isolated single windows above the threshold) per 60 min to flag a burst when there is no confirmed cut. Windows are ~30 s apart (`CPE_PROBE_WINDOW + CPE_PROBE_IDLE`); "consecutive" tolerates one missing window (`common/microcuts.py` `GAP_S`), rescale it if you change `CPE_PROBE_IDLE` |
 | `MICROCUT_LOSS_PCT` | `50` | Loss percent above which a 10 s CPE window counts as a microcut. CPE gateways rate-limit ICMP, giving a constant single-digit loss floor, so counting any loss at all would flag that floor permanently |
-| `REPORTS_DIR` | `/reports` | Where ai-insights reports are read from |
-| `REPORT_DELIVERY_INTERVAL` | `86400` | Min seconds between report deliveries |
-| `REPORT_MAX_CHARS` | `3500` | Truncation limit for a delivered report, **including** the header — it bounds the whole message, since that is what the channel budget applies to |
 | `ALERT_MARKUP` | `html` | `html` (Telegram's parse mode) or `plain` |
 | `CHART_THEME` | `light` | `light` or `dark`. A static image cannot follow the reader's theme, so one is chosen. Light is a paper-style figure: white, large type, sized to stay legible on a phone |
 | `CHART_MAX_BYTES` | `700000` | Cap before a chart is dropped rather than shrunk further (must stay inside the gateway's 2 MB invoke body once base64-encoded) |
@@ -1330,7 +1317,7 @@ one lost DNS query of five cleared it. It is 1.5 and not 2 because the RRD
 spreads each cycle's lost pings over two aligned steps, so loss values are
 not whole pings: on the reference Pi, seven days held values at every
 percent from 1 to 13. Persistence for `high_loss`, the `outage` floor and
-the loss events that `get_loss_events`, the weekly summary and the AI report count
+the loss events that `get_loss_events` and the weekly summary count
 all use this rule (`common.cadence.EVENT_LOST_PINGS`). The `high_loss` mean
 threshold (`HIGH_LOSS_PCT`) stays a percent: it is an average, not a count.
 

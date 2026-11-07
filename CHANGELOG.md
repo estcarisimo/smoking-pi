@@ -9,6 +9,27 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Removed
+
+- **The `ai-insights` daily report, and the watcher that delivered it.** One
+  Haiku call a day wrote a report with a prompt of its own, not the shared
+  answering guide, and the alerter pushed it once a day: noise 15 days of 16
+  in the front-8 audit, and a third voice beside the alerter and the
+  assistant. It cost a model call a day, an image to build and ship for two
+  architectures on every PR and release, and a key to manage. The assistant
+  answers from the MCP tools and the weekly summary is deterministic, so
+  nothing depended on it. Gone: the service and its image (thirteen images
+  now), the `ai` profile, the alerter's `reports_watcher`, the web admin's
+  Reports tab, and `REPORT_INTERVAL`, `AI_REPORTS_PER_DAY`,
+  `AI_MAX_INPUT_CHARS`, `REPORT_DELIVERY_INTERVAL` and `REPORT_MAX_CHARS`, with
+  the `common.aggregates` queries only the report read.
+  `smoking-pi upgrade` removes the container and every tag of the image and
+  takes `ai` out of `COMPOSE_PROFILES`. The `reports` volume stays until
+  `smoking-pi purge`, as every volume does, and `/ai/reports` now goes to the
+  chat. **The web admin's assistant chat stays**, with `ANTHROPIC_API_KEY` and
+  `AI_MODEL`; it never needed the `ai` profile, whatever its page said. Its
+  guide moved to `docs/web-assistant.md`.
+
 ## [2.51.0] — 2026-10-31
 
 The alerter is rebuilt around what a home user needs to hear. In October

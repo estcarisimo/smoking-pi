@@ -87,7 +87,7 @@ smoking-pi install
 |---|---|---|---|
 | 🟢 **[Basic](editions/basic/)** | Home users, one box | LinuxServer.io SmokePing, targets in a YAML file, classic web UI, RRD storage | 2 min |
 | 🟡 **[Standard](editions/standard/)** | Small teams | + web admin with login, PostgreSQL as the source of truth, REST API, bulk target management | 5 min |
-| 🔴 **[Pro](editions/pro/)** | Everything | + Grafana dashboards, InfluxDB or ClickHouse, IPv6 + DNS probes, alerting, MCP server, AI reports, doctor | 10 min |
+| 🔴 **[Pro](editions/pro/)** | Everything | + Grafana dashboards, InfluxDB or ClickHouse, IPv6 + DNS probes, alerting, MCP server, doctor | 10 min |
 
 Upgrade path is `Basic → Standard → Pro`: each edition keeps its own volumes, so moving up is a fresh `smoking-pi install --edition …` (see [docs/getting-started.md](docs/getting-started.md)).
 
@@ -174,7 +174,6 @@ Everything is Compose, run by `smoking-pi`. Optional services are behind profile
 | `clickhouse` | ClickHouse + its exporter and dashboards (`-f docker-compose.clickhouse.yml`) | see [docs/clickhouse.md](docs/clickhouse.md) |
 | `alerts` | The alerting engine and weekly summary | `smoking-pi alerts …` (where they go) |
 | `mcp` | MCP server on `127.0.0.1:8090` | `smoking-pi enable mcp`, then `connect` or `openclaw` |
-| `ai` | AI health reports | `smoking-pi config set ANTHROPIC_API_KEY`, `smoking-pi enable ai` |
 | `inference` | Experimental congestion and degradation detectors | `smoking-pi enable inference`; see [docs/inference.md](docs/inference.md) |
 | `pathmeter` | Experimental hourly traceroute to every destination, on Target Detail | `smoking-pi enable pathmeter`; see [docs/path.md](docs/path.md) |
 | `dns` | DNS observer (AdGuard Home) on port 53, for the router to forward the house's DNS to | `smoking-pi dns enable`; see [docs/dns-observer.md](docs/dns-observer.md) |
@@ -205,7 +204,7 @@ Working on the code from a clone, rebuilding one service by hand is still
 | `NOTIFY_MODE`, `TELEGRAM_*`, `OPENCLAW_*`, `ALERT_WEBHOOK_URL` | Alert delivery |
 | `CHART_THEME` | The theme of the charts `get_chart` sends |
 | `IPV6_MODE` | `auto` (gate on real global IPv6), `force`, or `off` |
-| `ANTHROPIC_API_KEY` | AI reports and the web-admin assistant |
+| `ANTHROPIC_API_KEY` | The web-admin assistant |
 
 ### Configuration Files
 
@@ -236,7 +235,6 @@ smoking-pi/
 │   │   ├── smokeping-exporters/  # RRD → InfluxDB / ClickHouse, CPE microcut detector, Wi-Fi link collector
 │   │   ├── alerter/           # Rules → episodes → push policy, weekly summary, delivery
 │   │   ├── mcp-server/        # MCP tools over the config API and InfluxDB
-│   │   ├── ai-insights/       # Periodic AI health reports
 │   │   ├── dns-observer/      # AdGuard Home + the DNS wizard: what the house resolves
 │   │   ├── mdns/              # answers for smoking-pi.local on the LAN (multicast DNS)
 │   │   ├── netmeter/          # uplink traffic per service: counter-only nftables table (Pro)
@@ -345,7 +343,7 @@ Everything under `docs/` is published at **[estcarisimo.github.io/smoking-pi](ht
 | [docs/doctor.md](docs/doctor.md) | The instrumentation doctor: static and live checks |
 | [docs/clickhouse.md](docs/clickhouse.md) | Running Pro on ClickHouse, and its traps |
 | [docs/ipv6-gating.md](docs/ipv6-gating.md) | Why IPv6 targets disappear when there is no global IPv6 |
-| [docs/ai-insights.md](docs/ai-insights.md) | AI health reports |
+| [docs/web-assistant.md](docs/web-assistant.md) | The web admin's assistant chat |
 | [docs/upgrades.md](docs/upgrades.md) | Upgrading between versions |
 | [docs/packaging.md](docs/packaging.md) | The package: the layout, the published images, the apt repository, the supported hosts, the lifecycle |
 | [docs/release-acceptance.md](docs/release-acceptance.md) | The checklist every release goes through on the reference Raspberry Pi |

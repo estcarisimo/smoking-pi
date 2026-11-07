@@ -176,7 +176,7 @@ how to read them.
 |---|---|---|
 | **basic** | One box, one person | SmokePing, targets in a YAML file, the classic web UI, RRD storage |
 | **standard** | A small team | + web admin with login, PostgreSQL as the source of truth, a REST API |
-| **pro** | Everything | + Grafana, InfluxDB or ClickHouse, HTTP/TCP/DNS/IPv6 probes, Wi-Fi stats, alerting, MCP server, AI reports, the doctor |
+| **pro** | Everything | + Grafana, InfluxDB or ClickHouse, HTTP/TCP/DNS/IPv6 probes, Wi-Fi stats, alerting, MCP server, the doctor |
 
 Pick **pro** unless you know you want less; this guide assumes it. Each
 edition has its own volumes, so moving up later is a new install of the
@@ -194,7 +194,6 @@ owns that service:
 |---|---|---|
 | `mcp` | An MCP server, so an assistant can query your history | which assistant: OpenClaw on this Pi, one on the Internet (Claude, ChatGPT, Grok...) or OpenClaw elsewhere; step 7 |
 | `alerts` | Downtime, microcut and Wi-Fi alerts | where they go: Telegram, OpenClaw, a webhook or nowhere (`smoking-pi alerts`, [Alerting](alerting.md)) |
-| `ai` | Written health reports | an Anthropic API key, typed, not shown ([AI reports](ai-insights.md)) |
 | `dns` | The DNS observer: what this house actually uses | nothing; it prints the DNS setting to change on your router ([DNS observer](dns-observer.md)) |
 
 Skip a question, or install with `--yes` (which asks nothing), and the end
@@ -530,7 +529,7 @@ The tools themselves, and what each one answers: [MCP server](mcp-server.md).
 | Every target at 100% loss | ICMP blocked upstream, or no route | `ping -c3 google.com` from the host; if that fails it is the network, not Smoking Pi |
 | Grafana rejects the password | Grafana keeps the first-boot password in its volume | `sudo smoking-pi restart grafana`, wait 30 s, try the password from `sudo smoking-pi passwords --show-secrets` again. If it still refuses, Grafana's volume predates that password — reset the account: `sudo docker compose exec -T grafana grafana cli admin reset-admin-password --password-from-stdin` |
 | SmokePing's port is already taken | Pro's SmokePing is on the host network, port 80 | Free port 80, or use Basic/Standard, which map a port you can change |
-| An optional service runs but does nothing | Its profile is on and its key is not set | `sudo smoking-pi alerts` (`alerts`: it sets the mode and its keys, and tests delivery) or `sudo smoking-pi config set ANTHROPIC_API_KEY` (`ai`). Neither crash-loops on a missing key — they log it and stay up, so `status` looks healthy while nothing is delivered |
+| An optional service runs but does nothing | Its profile is on and its settings are not there | `sudo smoking-pi alerts` (`alerts`: it sets the mode and its keys, and tests delivery). It does not crash-loop without them — it logs what it would have sent and stays up, so `status` looks healthy while nothing is delivered |
 | A container restarting in a loop | Its own logs say which | `sudo smoking-pi logs <service>` — read the last start, not the whole file |
 | The page loads on the Pi but not from your laptop | A firewall between the two, or the laptop is on another network (a guest Wi-Fi) | Tunnel through SSH, which already works: `ssh -L 8080:localhost:8080 <user>@<pi>`, then open `http://localhost:8080/` on the laptop. `sudo smoking-pi url` prints this line with your addresses filled in |
 | `smoking-pi` not found after `apt install` | A shell that cached its `PATH` | `hash -r`, or open a new shell |

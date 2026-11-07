@@ -194,10 +194,9 @@ def _link_line(links: dict | None) -> str:
 
 def format_message(event: dict, limit: int = TG_TEXT_LIMIT) -> str:
     """Render one event to the text that will be delivered."""
-    if event.get("type") in ("report", "undelivered", "held"):
-        # Pre-rendered: a report by ai-insights, an outbox summary by
-        # outbox.build, a quiet-hours one by quiet.build (already escaped
-        # for the markup).
+    if event.get("type") in ("undelivered", "held"):
+        # Pre-rendered: an outbox summary by outbox.build, a quiet-hours one
+        # by quiet.build (already escaped for the markup).
         return assemble([Section(0, str(event.get("message", "")))], limit)
     if event.get("type") == "weekly":
         # The body is pre-rendered by weekly.render(), which already builds

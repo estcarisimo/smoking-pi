@@ -39,14 +39,11 @@
 <path d="M913,620 L925.0,620.0 Q935,620 935.0,630.0 L935.0,840.0 Q935,850 945.0,850.0 L957,850" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
 <path d="M1257,380 L1203,380" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1257,530 L1203,530" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
-<path d="M1257,685 L1225.0,685.0 Q1215,685 1215.0,675.0 L1215.0,621.0 Q1215,615 1209.0,615.0 L1203,615" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1257,850 L1247.5,850.0 Q1238,850 1238.0,840.5 L1238.0,650.0 Q1238,640 1228.0,640.0 L1203,640" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1080,672 L1080,663" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
 <path d="M913,880 L938.0,880.0 Q948,880 948.0,870.0 L948.0,649.5 Q948,645 952.5,645.0 L957,645" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1563,530 L1647,530" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
-<path d="M1563,685 L1647,685" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1647,850 L1563,850" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-<path d="M1410,627 L1410,593" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M670,787 L670,663" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M427,850 L390.0,850.0 Q380,850 380.0,840.0 L380.0,630.0 Q380,620 370.0,620.0 L333,620" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
 <path d="M200,997 L200.0,985.0 Q200,975 210.0,975.0 L540.0,975.0 Q550,975 550.0,965.0 L550,913" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
@@ -75,10 +72,6 @@
 <text x="1698" y="501" font-size="17" font-weight="700" fill="#334155">Chat and webhooks</text>
 <text x="1668" y="527" font-size="14" fill="#1f2937">Telegram through OpenClaw,</text>
 <text x="1668" y="548" font-size="14" fill="#1f2937">Slack, webhooks</text>
-<rect x="1650" y="630" width="240" height="110" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
-<g transform="translate(1668,645) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 11a3.5 3.5 0 0 0 1 7z"/></g>
-<text x="1698" y="661" font-size="17" font-weight="700" fill="#334155">Anthropic API</text>
-<text x="1668" y="687" font-size="14" fill="#1f2937">writes the health reports</text>
 <rect x="1650" y="790" width="240" height="120" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
 <g transform="translate(1668,805) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16v12H4zM12 4v4M9 14h.1M15 14h.1"/></g>
 <text x="1698" y="821" font-size="17" font-weight="700" fill="#334155">AI assistants</text>
@@ -91,7 +84,7 @@
 <g transform="translate(206,420) scale(0.667)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0 4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0"/></g>
 <text x="264" y="432.5" text-anchor="middle" font-size="12" font-weight="600" fill="#ffffff">you · :8080</text>
 <text x="88" y="387" font-size="14" fill="#1f2937">Flask UI: targets, probes,</text>
-<text x="88" y="408" font-size="14" fill="#1f2937">the tour, the AI reports</text>
+<text x="88" y="408" font-size="14" fill="#1f2937">the tour, the chat</text>
 <rect x="70" y="530" width="260" height="120" rx="14" fill="#eff6ff" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow)"/>
 <g transform="translate(88,545) scale(0.833)" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6zM15 3v4h4M9 12h6M9 16h6"/></g>
 <text x="118" y="561" font-size="17" font-weight="700" fill="#1e40af">config-manager</text>
@@ -168,13 +161,7 @@
 <text x="1308" y="501" font-size="17" font-weight="700" fill="#c2410c">alerter</text>
 <rect x="1483" y="484" width="59" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1512" y="500" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">alerts</text>
 <text x="1278" y="527" font-size="14" fill="#1f2937">outages, microcuts, verdicts,</text>
-<text x="1278" y="548" font-size="14" fill="#1f2937">digests, the AI reports</text>
-<rect x="1260" y="630" width="300" height="110" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
-<g transform="translate(1278,645) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/></g>
-<text x="1308" y="661" font-size="17" font-weight="700" fill="#c2410c">ai-insights</text>
-<rect x="1512" y="644" width="30" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1527" y="660" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">ai</text>
-<text x="1278" y="687" font-size="14" fill="#1f2937">health reports, into</text>
-<text x="1278" y="708" font-size="14" fill="#1f2937">a volume web-admin shows</text>
+<text x="1278" y="548" font-size="14" fill="#1f2937">the weekly summary</text>
 <rect x="1260" y="790" width="300" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
 <g transform="translate(1278,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3"/></g>
 <text x="1308" y="821" font-size="17" font-weight="700" fill="#c2410c">mcp-server</text>
@@ -190,14 +177,11 @@
 <rect x="913" y="724" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="935" y="740" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">rows</text>
 <rect x="1208" y="354" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="370" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">Flux</text>
 <rect x="1204" y="504" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1230" y="520" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
-<rect x="1189" y="639" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1215" y="654" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
 <rect x="1212" y="767" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1238" y="782" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads</text>
 <rect x="1090" y="656" width="110" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1145" y="672" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reads, writes</text>
 <rect x="912" y="770" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="938" y="786" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">paths</text>
 <rect x="1579" y="504" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="520" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">sends</text>
-<rect x="1583" y="659" width="45" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="674" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">asks</text>
 <rect x="1586" y="824" width="38" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="840" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">MCP</text>
-<rect x="1420" y="599" width="66" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1453" y="614" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reports</text>
 <rect x="622" y="715" width="95" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="670" y="730" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json</text>
 <rect x="296" y="679" width="167" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="380" y="694" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json / Targets</text>
 <rect x="313" y="949" width="124" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="375" y="964" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">the house&#x27;s DNS</text>
