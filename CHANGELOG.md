@@ -9,6 +9,18 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.52.0] — 2026-11-08
+
+The assistant is now the OpenClaw agent, fed by the Pi, once you run
+`smoking-pi openclaw`: alerts go through the agent's own session, so a
+reply in Telegram has the outage in front of it (`--push agent`, opt-in;
+the relay stays the default), and an hourly heartbeat and the Monday
+weekly read the Pi through two new MCP tools and speak only when there is
+something to say. The `ai-insights` report, a third voice with a prompt of
+its own, is gone on upgrade (thirteen images now). A question bank of
+twenty measured the agent's answers: 15 of 20 before this release, 19 of
+20 after the guide fixes it found.
+
 ### Added
 
 - **The OpenClaw agent's heartbeat and weekly now come from the Pi**
@@ -60,13 +72,13 @@ version gets a matching GitHub release and git tag.
   the week. The tools could only answer per-tool questions (the loss in a
   window, the incident history, the ledger), so a heartbeat had no cheap
   way to learn what changed: it would either call five tools every hour and
-  judge the result itself -- re-telling alerts the user already got, about
-  eight non-material episodes a day on the reference Pi to choose from --
+  judge the result itself — re-telling alerts the user already got, about
+  eight non-material episodes a day on the reference Pi to choose from —
   or stay silent and miss the one thing the alerter does not push (a
   recurring window appearing, a cluster of small losses, the monitor blind
   with nothing said). `get_updates_since(since)` answers from what the
-  alerter already wrote -- its episode record, its recurring windows and
-  the notification ledger, no InfluxDB query -- with the material episodes,
+  alerter already wrote — its episode record, its recurring windows and
+  the notification ledger, no InfluxDB query — with the material episodes,
   the non-material ones counted by kind, pattern changes, the monitor's
   blind spans, what was already pushed, and a `verdict`
   (`nothing_new`, `worth_mentioning`, `material_pushed_already`) whose rule
