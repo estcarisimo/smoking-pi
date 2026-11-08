@@ -257,9 +257,13 @@ the alerter or the command says so once.
 | `ALERT_COOLDOWN` | v2.51.0 | Ignored: an episode is said once and its end once, with no re-notification ([One episode, one message](alerting.md#one-episode-one-message)) | nothing to set |
 | `VERDICT_MIN_TARGETS`, `VERDICT_IMPAIRED_LOSS_PCT`, `VERDICT_STALE_DOWN_HOURS` | v2.51.0 | Ignored: the per-alert verdict is retired; an episode's cause comes from the shared diagnosis | nothing to set |
 | `ALERT_CHARTS`, `CHART_HOURS` | v2.51.0 | Ignored: the opening message of a material episode always carries its one chart, nothing else does, and the daily digest that had one is gone | nothing to set |
+| `REPORT_INTERVAL`, `AI_REPORTS_PER_DAY`, `AI_MAX_INPUT_CHARS` | v2.52.0 | Ignored: the `ai-insights` daily report and its container are retired (the upgrade removes the container and its image); the OpenClaw agent's heartbeat and weekly say what is new ([OpenClaw integration](openclaw-integration.md)) | nothing to set; `smoking-pi openclaw` sets up the agent |
+| `REPORT_DELIVERY_INTERVAL`, `REPORT_MAX_CHARS` | v2.52.0 | Ignored: the alerter no longer relays the report that set them | nothing to set |
 
 `DIGEST_TZ` is not retired: it stays the zone of every message, the weekly
 summary's schedule and quiet hours (`smoking-pi alerts --digest-tz ZONE`).
+`ANTHROPIC_API_KEY` and `AI_MODEL` are not retired either: the web admin's
+assistant chat reads them.
 `smoking-pi alerts status` shows which settings are in effect, mapped ones
 included.
 

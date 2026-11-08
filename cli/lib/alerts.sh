@@ -79,10 +79,32 @@ alerts_set_zone() {
     echo "Every time a message prints, its schedule and quiet hours are in $1."
 }
 
+# Is the weekly on, and when: "DAY HH:MM" (mon..sun, 24-hour) on stdout and
+# 0 when the alerter would send it, 1 when not. The one answer every command
+# gives, as the alerter reads it (alerter/weekly.py): WEEKLY_* when set,
+# else the retired daily digest's DIGEST_ENABLED=true as Mondays at
+# DIGEST_AT (v2.51.0's upgrade rule). `alerts status` said yes on such an
+# install while `openclaw automations` said the weekly was off and never
+# made its automation (#450). A third word, "legacy", marks the fallback.
+alerts_weekly_schedule() {
+    local enabled day at legacy=""
+    enabled="$(env_get WEEKLY_ENABLED | tr '[:upper:]' '[:lower:]')"
+    day="$(env_get WEEKLY_DAY | tr '[:upper:]' '[:lower:]' | cut -c1-3)"
+    at="$(env_get WEEKLY_AT)"
+    if [ -z "$enabled" ]; then
+        case "$(env_get DIGEST_ENABLED | tr '[:upper:]' '[:lower:]')" in
+            1|true|yes|on) enabled=true; at="${at:-$(env_get DIGEST_AT)}"; legacy=" legacy" ;;
+        esac
+    fi
+    case "$enabled" in 1|true|yes|on) ;; *) return 1 ;; esac
+    case "$day" in mon|tue|wed|thu|fri|sat|sun) ;; *) day=mon ;; esac
+    echo "$day ${at:-08:00}$legacy"
+}
+
 alerts_status() {
     # What `alerts` has set, read from the env file: where they go, when the
     # weekly goes, quiet hours, the dead man's switch.
-    local mode weekly day at zone legacy=""
+    local mode weekly zone legacy=""
     mode="$(env_get NOTIFY_MODE)"; zone="$(alerts_zone)"
     case "${mode:-off}" in
         telegram) echo "Delivery:     Telegram chat $(env_get TELEGRAM_CHAT_ID)" ;;
@@ -90,16 +112,12 @@ alerts_status() {
         webhook) echo "Delivery:     a webhook" ;;
         *) echo "Delivery:     off (evaluated and logged, not sent)" ;;
     esac
-    weekly="$(env_get WEEKLY_ENABLED)"
-    day="$(env_get WEEKLY_DAY)"; day="${day:-mon}"
-    at="$(env_get WEEKLY_AT)"
-    if [ -z "$weekly" ] && [ "$(env_get DIGEST_ENABLED)" = true ]; then
-        # The alerter maps the retired daily digest the same way (weekly.py).
-        weekly=true; at="${at:-$(env_get DIGEST_AT)}"
-        legacy=" (from the retired daily digest's settings; $(cli_name) alerts --weekly sets it)"
-    fi
-    if [ "$weekly" = true ]; then
-        echo "Weekly:       $(alerts_day_name "$day")s at ${at:-08:00} $zone, only when the week is news$legacy"
+    if weekly="$(alerts_weekly_schedule)"; then
+        # shellcheck disable=SC2086  # three words: day, time, maybe "legacy"
+        set -- $weekly
+        [ "${3:-}" != legacy ] \
+            || legacy=" (from the retired daily digest's settings; $(cli_name) alerts --weekly sets it)"
+        echo "Weekly:       $(alerts_day_name "$1")s at $2 $zone, only when the week is news$legacy"
     else
         echo "Weekly:       off"
     fi
@@ -400,6 +418,13 @@ cmd_alerts() {
         openclaw)
             if [ -z "$(env_get OPENCLAW_GATEWAY_TOKEN)" ]; then
                 local token; token="$(openclaw_config_token)"
+                # Without a terminal there is nobody to answer: refuse,
+                # never block on the read (#448: over ssh without a tty it
+                # hung until killed). --yes is the answer.
+                if [ -n "$token" ] && [ "$yes" = 0 ] && [ ! -t 0 ]; then
+                    echo "No terminal to ask whether to use the gateway token from openclaw.json: --yes takes it." >&2
+                    return 2
+                fi
                 if [ -n "$token" ] && { [ "$yes" = 1 ] || { read -r -p "Use the gateway token from your openclaw.json? [Y/n] " a; [ "${a:-y}" != n ] && [ "${a:-y}" != N ]; }; }; then
                     env_set OPENCLAW_GATEWAY_TOKEN "$token"
                     echo "Gateway token: taken from openclaw.json."

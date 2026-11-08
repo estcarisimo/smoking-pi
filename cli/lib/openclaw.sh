@@ -127,6 +127,13 @@ openclaw_evidence() {
 # installer keeps it as SKILL.md.bak, and this says so, by path -- one
 # .bak only, so the next upgrade's would overwrite it. Never fails the
 # upgrade: what it cannot do, it names.
+# How long the installer waited for a restarted gateway, from its output
+# ("did not answer within 45 s"); "its wait" when the line is not there.
+openclaw_said_wait() {
+    local n; n="$(printf '%s\n' "$1" | sed -n 's/.*did not answer within \([0-9][0-9]*\) s.*/\1/p' | tail -1)"
+    [ -n "$n" ] && echo "$n s" || echo "its wait"
+}
+
 openclaw_refresh_skill() {
     local script="$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh"
     local source="$SMOKING_PI_HOME/examples/openclaw/smokeping-monitoring/SKILL.md"
@@ -147,10 +154,10 @@ openclaw_refresh_skill() {
     cmp -s "$source" "$dest" && return 0
     echo
     echo "The OpenClaw skill in $dest differs from this release's;"
-    echo "refreshing it and reloading the gateway (up to half a minute)..."
+    echo "refreshing it and reloading the gateway (a few minutes on a 4 GB Pi)..."
     OPENCLAW_BIN="$(openclaw_bin)"
     said="$(as_openclaw_user "$script" --reload 2>&1)" || rc=$?
-    if [ "$rc" != 0 ] && [ "$rc" != 3 ]; then
+    if [ "$rc" != 0 ] && [ "$rc" != 3 ] && [ "$rc" != 4 ]; then
         echo "WARNING: it could not be refreshed, so the assistant answers from the old" >&2
         echo "one. The installer said:" >&2
         printf '%s\n' "${said:-(nothing)}" | tail -3 | sed 's/^/  | /' >&2
@@ -162,6 +169,12 @@ openclaw_refresh_skill() {
     if [ "$rc" = 3 ]; then
         echo "Refreshed it. No gateway answered, so nothing reloaded: a gateway reads"
         echo "the new skill when it starts ('openclaw gateway status' says why)."
+    elif [ "$rc" = 4 ]; then
+        # The installer's "restarted, but not answering yet" (#449): the
+        # restart was issued and succeeded; a slow gateway is still starting.
+        echo "Refreshed it and restarted the gateway; its status probe did not answer"
+        echo "within $(openclaw_said_wait "$said"), so it is still starting (a 4 GB Pi takes a"
+        echo "while). It reads the new skill as it starts: 'openclaw gateway status'."
     elif [ -z "$OPENCLAW_BIN" ]; then
         echo "Refreshed it. No openclaw command here to reload the gateway with: unless"
         echo "it runs as a systemd user unit (restarted), restart it however you run it."
@@ -685,7 +698,7 @@ openclaw_rm_job() {
 # Create, update or remove the two automations to match the env file.
 # $1: the heartbeat's interval in hours (1, 3, 6), or empty for the one it has.
 openclaw_automations_sync() {
-    local hours=${1:-} tz night from until day_hours zone_words weekly_on failed=0
+    local hours=${1:-} tz night from until day_hours zone_words weekly_on schedule failed=0
     local wday wat wmin cron
     if [ -z "$(env_get OPENCLAW_TO)" ]; then
         echo "Automations: none, because OPENCLAW_TO (the chat they post to) is not set:"
@@ -717,15 +730,21 @@ openclaw_automations_sync() {
         "$OPENCLAW_HEARTBEAT_TOOLS" "every ${hours}h, at $day_hours" || failed=1
 
     # The weekly is the agent's only with the agent push: otherwise the alerter
-    # sends its own (alerter/weekly.py), and both would say the week.
-    weekly_on=0
-    [ "$(env_get NOTIFY_MODE)" = openclaw ] && [ "$(env_get OPENCLAW_PUSH)" = agent ] \
-        && [ "$(env_get WEEKLY_ENABLED)" = true ] && weekly_on=1
+    # sends its own (alerter/weekly.py), and both would say the week. Whether
+    # it is on, and when, is the alerter's reading (alerts_weekly_schedule:
+    # WEEKLY_*, or the retired daily digest's settings), not WEEKLY_ENABLED
+    # alone: on an install upgraded with DIGEST_ENABLED=true this said the
+    # weekly was off while the alerter sent it (#450).
+    weekly_on=0; schedule=""
+    if [ "$(env_get NOTIFY_MODE)" = openclaw ] && [ "$(env_get OPENCLAW_PUSH)" = agent ] \
+        && schedule="$(alerts_weekly_schedule)"; then
+        weekly_on=1
+    fi
     if [ "$weekly_on" = 1 ]; then
-        wday="$(env_get WEEKLY_DAY | tr '[:upper:]' '[:lower:]' | cut -c1-3)"; wday="${wday:-mon}"
+        wday="${schedule%% *}"; wat="${schedule#* }"; wat="${wat%% *}"
         case "$wday" in sun) wday=0 ;; mon) wday=1 ;; tue) wday=2 ;; wed) wday=3 ;;
                         thu) wday=4 ;; fri) wday=5 ;; sat) wday=6 ;; *) wday=1 ;; esac
-        wat="$(env_get WEEKLY_AT)"; wmin="$(hhmm_minutes "${wat:-08:00}")"; wmin="${wmin:-480}"
+        wmin="$(hhmm_minutes "$wat")"; wmin="${wmin:-480}"
         # The slot and the two hours after it, before midnight: the gate
         # narrates a week once, so the later two only retry a failed one.
         local h=$((wmin / 60)) hs
@@ -733,7 +752,7 @@ openclaw_automations_sync() {
         cron="$((wmin % 60)) $hs * * $wday"
         if openclaw_put_job weekly "$OPENCLAW_WEEKLY_NAME" "$cron" "$tz" "$(openclaw_weekly_prompt)" \
             "$(openclaw_weekly_gate)" "$OPENCLAW_WEEKLY_TOOLS" \
-            "$(env_get WEEKLY_DAY | sed 's/^$/mon/') at ${wat:-08:00}"; then
+            "${schedule%% *} at $wat"; then
             openclaw_weekly_owner agent
         else
             failed=1
@@ -745,7 +764,7 @@ openclaw_automations_sync() {
         openclaw_weekly_owner alerter
     else
         openclaw_weekly_owner alerter
-        if [ "$(env_get WEEKLY_ENABLED)" != true ]; then
+        if ! alerts_weekly_schedule >/dev/null; then
             echo "  $OPENCLAW_WEEKLY_NAME: not set up, the weekly is off ($(cli_name) alerts --weekly mon 08:00)."
         else
             echo "  $OPENCLAW_WEEKLY_NAME: not set up; the alerter sends the weekly (OPENCLAW_PUSH is not agent)."
@@ -846,7 +865,20 @@ openclaw_automations_report() {
         esac
         line="$(printf '%s\n' "$OC_JOBS" | awk -F'\t' -v r="$role" '$1 == r { print; exit }')"
         if [ -z "$line" ]; then
-            [ "$role" = builtin ] || echo "  $name: missing ($(cli_name) openclaw automations)"
+            case "$role" in
+                builtin) ;;
+                weekly)
+                    # Expected only with the agent push and the weekly on,
+                    # as the alerter reads it (DIGEST_ENABLED=true counts).
+                    if [ "$(env_get OPENCLAW_PUSH)" != agent ]; then
+                        echo "  $name: none; the alerter sends the weekly (OPENCLAW_PUSH is not agent)"
+                    elif ! alerts_weekly_schedule >/dev/null; then
+                        echo "  $name: none, the weekly is off ($(cli_name) alerts --weekly mon 08:00)"
+                    else
+                        echo "  $name: missing ($(cli_name) openclaw automations)"
+                    fi ;;
+                *) echo "  $name: missing ($(cli_name) openclaw automations)" ;;
+            esac
             continue
         fi
         IFS=$'\t' read -r _ _ on sched zone dest ran status deliv looked seen _ <<< "$line"
@@ -1088,12 +1120,16 @@ cmd_openclaw() {
     fi
 
     if [ -x "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" ]; then
-        local skill_rc=0
+        local skill_rc=0 skill_said
         echo "5/5  Installing the smokeping-monitoring skill and asking the gateway..."
-        as_openclaw_user "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" --reload >/dev/null 2>&1 \
+        skill_said="$(as_openclaw_user "$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh" --reload 2>&1)" \
             || skill_rc=$?
         case "$skill_rc" in
             0) echo "     Installed the skill and reloaded the gateway." ;;
+            4) # The script's "restarted, but not answering yet" (#449).
+               echo "     Installed the skill and restarted the gateway; it did not answer its"
+               echo "     status probe within $(openclaw_said_wait "$skill_said"), so it is still starting and reads"
+               echo "     the skill as it does. Give it a moment before the check below." ;;
             3) # The script's "installed, but no gateway answers".
                echo "     Installed the skill, but the gateway did not answer: it is not" >&2
                echo "     running, or refused the status probe, so nothing reloaded." >&2

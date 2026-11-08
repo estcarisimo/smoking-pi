@@ -98,6 +98,7 @@ echo -e "  ${CYAN}\$EDITOR ${DEST}${NC}"
 
 echo
 echo -e "${BOLD}Then reload — the gateway caches skills and tools per session${NC}"
+RESTARTED=0
 if [ "$RELOAD" = "1" ]; then
     if command -v openclaw >/dev/null 2>&1; then
         echo -e "  ${CYAN}openclaw mcp reload${NC}"
@@ -111,6 +112,7 @@ if [ "$RELOAD" = "1" ]; then
         # install still looks like it did nothing.
         if systemctl --user restart openclaw-gateway; then
             echo -e "${GREEN}✓ Gateway restarted${NC}"
+            RESTARTED=1
         else
             echo -e "${RED}✗ Gateway restart failed${NC} — the skill is"
             echo -e "  installed, but the gateway is still serving the old"
@@ -127,20 +129,34 @@ fi
 
 # Whether a gateway answers now. `openclaw mcp reload` exits 0 with no
 # gateway at all (it only drops the CLI's own cache), so "reloaded" said
-# nothing; the gateway's own probe does. A restart just above may need a
-# few seconds before it answers. An openclaw without --require-rpc cannot
-# say, and is not called stopped.
+# nothing; the gateway's own probe does. A gateway restarted just above
+# takes a while to answer (a 4 GB Pi with a 2026.11 gateway: over twenty
+# seconds, #449), so after a restart the probe asks six times instead of
+# three, and not answering by then is "still starting", not "nothing
+# reloaded": the restart happened, and the new skill is what it loads. The
+# wait reported is the one measured: each probe is an openclaw process of
+# its own, which on that Pi takes longer than its 5 s timeout (six probes
+# took about 160 s on the staging Pi). An openclaw without --require-rpc
+# cannot say, and is not called stopped.
 GATEWAY=unknown
+TRIES=3; [ "$RESTARTED" = 0 ] || TRIES=6
+PROBE_START=$SECONDS
 if [ "$RELOAD" = "1" ] && command -v openclaw >/dev/null 2>&1 \
         && grep -q -- --require-rpc <(openclaw gateway status --help 2>&1); then
-    for try in 1 2 3; do
+    for try in $(seq 1 "$TRIES"); do
         if openclaw gateway status --require-rpc --timeout 5000 >/dev/null 2>&1; then
             GATEWAY=up; break
         fi
         GATEWAY=down
-        [ "$try" = 3 ] || sleep 3
+        [ "$try" = "$TRIES" ] || sleep 3
     done
-    if [ "$GATEWAY" = down ]; then
+    WAITED=$(( SECONDS - PROBE_START ))
+    if [ "$GATEWAY" = down ] && [ "$RESTARTED" = 1 ]; then
+        GATEWAY=starting
+        echo -e "${YELLOW}! The gateway was restarted but did not answer within ${WAITED} s${NC} — it is"
+        echo -e "  still starting (or refused the probe). It reads the installed skill as it"
+        echo -e "  starts; ${CYAN}openclaw gateway status${NC} says when it is up."
+    elif [ "$GATEWAY" = down ]; then
         # Not answering covers a gateway that is down and one that refuses
         # the probe (auth, another URL); status tells them apart.
         echo -e "${RED}✗ The gateway did not answer${NC} — it is not running, or it refused"
@@ -160,5 +176,8 @@ if [ "$ALREADY" = "0" ]; then
     echo -e "Verify with: ${CYAN}openclaw skills list | grep smokeping${NC}"
 fi
 
-# Installed, but no gateway answered: the caller must not say "reloaded".
+# Installed, but no gateway answered: the caller must not say "reloaded"
+# (3); restarted, but not answering yet: the caller must not say "nothing
+# reloaded" (4).
 [ "$GATEWAY" != down ] || exit 3
+[ "$GATEWAY" != starting ] || exit 4

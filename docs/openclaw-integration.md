@@ -569,7 +569,10 @@ leave the day spent rather than risk saying a thing twice.
 
 **The weekly is the agent's or the alerter's, never both, and never
 neither.** The `Smoking Pi weekly` automation is made only with
-`NOTIFY_MODE=openclaw`, `OPENCLAW_PUSH=agent` and `WEEKLY_ENABLED=true`. When
+`NOTIFY_MODE=openclaw`, `OPENCLAW_PUSH=agent` and the weekly on as the alerter
+reads it: `WEEKLY_ENABLED=true`, or, on an install upgraded with the retired
+daily digest's `DIGEST_ENABLED=true` and no `WEEKLY_*` key, that
+([Upgrades](upgrades.md#settings-retired-or-renamed)). When
 the command has made it, it writes `OPENCLAW_WEEKLY=agent` and recreates the
 alerter, which then does not send its own weekly and logs `Weekly for slot ...
 handed to the agent automation (OPENCLAW_PUSH=agent, OPENCLAW_WEEKLY=agent):

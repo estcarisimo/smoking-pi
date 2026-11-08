@@ -625,6 +625,16 @@ stub_installed_skill() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"No gateway answered"* ]]
     [[ "$output" != *"reloaded the gateway"* ]]
+    # Restarted but not answering yet is not "nothing reloaded" (#449): the
+    # restart happened, and the installer's wait is quoted.
+    printf '#!/bin/sh\necho "SKILL $*" >> "%s"\necho "! The gateway was restarted but did not answer within 45 s"\nexit 4\n' "$DOCKER_LOG" \
+        > "$STUB_HOME/shared/scripts/install-openclaw-skill.sh"
+    run "$CLI" upgrade --skip-doctor
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Refreshed it and restarted the gateway; its status probe did not answer"* ]]
+    [[ "$output" == *"within 45 s, so it is still starting"* ]]
+    [[ "$output" != *"nothing reloaded"* ]]
+    [[ "$output" != *"No gateway answered"* ]]
 }
 
 @test "upgrade: no openclaw command found, the skill is still refreshed and the reload is left to the person" {
@@ -1336,6 +1346,10 @@ STUB
     [[ "$output" == *"WARNING: the skill did not install"* ]]
     STUB_SKILL_RC=0 run "$CLI" openclaw
     [[ "$output" == *"Installed the skill and reloaded the gateway."* ]]
+    STUB_SKILL_RC=4 run "$CLI" openclaw
+    [[ "$output" == *"Installed the skill and restarted the gateway; it did not answer its"* ]]
+    [[ "$output" == *"within its wait, so it is still starting"* ]]
+    [[ "$output" != *"nothing reloaded"* ]]
 }
 
 # The real skill installer, against a stubbed openclaw and systemctl and a
@@ -1371,6 +1385,30 @@ STUB
     STUB_GATEWAY_RC=1 run "$REPO/shared/scripts/install-openclaw-skill.sh"
     [ "$status" -eq 0 ]
     if grep -q 'require-rpc' "$DOCKER_LOG"; then false; fi
+}
+
+@test "install-openclaw-skill --reload: a gateway it restarted that does not answer yet is 'starting' (4), not 'none' (3) (#449)" {
+    skill_script_setup
+    # A user unit exists and restarts fine; the gateway is slow to answer.
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s"\ncase "$*" in *list-unit-files*) echo "openclaw-gateway.service enabled" ;; esac\n' "$DOCKER_LOG" \
+        > "$BATS_TEST_TMPDIR/bin/systemctl"
+    STUB_GATEWAY_RC=1 run "$REPO/shared/scripts/install-openclaw-skill.sh" --reload
+    [ "$status" -eq 4 ]
+    grep -q 'systemctl --user restart openclaw-gateway' "$DOCKER_LOG"
+    [[ "$output" == *"Gateway restarted"* ]]
+    [[ "$output" =~ "was restarted but did not answer within "[0-9]+" s" ]]
+    [[ "$output" != *"The gateway did not answer"* ]]
+    # Twice the patience after a restart: six probes, not three.
+    [ "$(grep -c 'gateway status --require-rpc' "$DOCKER_LOG")" = 6 ]
+    # A restart that fails is not "restarted": no gateway answered (3).
+    : > "$DOCKER_LOG"
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s"\ncase "$*" in *list-unit-files*) echo "openclaw-gateway.service enabled" ;; *restart*) exit 1 ;; esac\n' "$DOCKER_LOG" \
+        > "$BATS_TEST_TMPDIR/bin/systemctl"
+    STUB_GATEWAY_RC=1 run "$REPO/shared/scripts/install-openclaw-skill.sh" --reload
+    [ "$status" -eq 3 ]
+    [[ "$output" == *"Gateway restart failed"* ]]
+    [[ "$output" == *"The gateway did not answer"* ]]
+    [ "$(grep -c 'gateway status --require-rpc' "$DOCKER_LOG")" = 3 ]
 }
 
 @test "install-openclaw-skill --reload: an openclaw without --require-rpc is not called stopped" {
@@ -2003,6 +2041,35 @@ PY
     grep -qx 'OPENCLAW_WEEKLY=alerter' "$SMOKING_PI_ENV_FILE"
 }
 
+@test "openclaw automations: a weekly on through the retired daily digest's settings is the agent's too (#450)" {
+    # An install upgraded with DIGEST_ENABLED=true and no WEEKLY_* key: the
+    # alerter reads it as the weekly, Mondays at DIGEST_AT; so must this.
+    oc_env 'OPENCLAW_PUSH=agent\nDIGEST_ENABLED=true\nDIGEST_AT=08:30\n'
+    stub_openclaw
+    run "$CLI" openclaw automations
+    [ "$status" -eq 0 ]
+    grep -q '^openclaw automations add --name Smoking Pi weekly .*--cron 30 8,9,10 \* \* 1 ' "$DOCKER_LOG"
+    [[ "$output" == *"Smoking Pi weekly: created (mon at 08:30)"* ]]
+    [[ "$output" != *"the weekly is off"* ]]
+    grep -qx 'OPENCLAW_WEEKLY=agent' "$SMOKING_PI_ENV_FILE"
+    # --check agrees, and says why a missing weekly is not missing.
+    rm -f "$BATS_TEST_TMPDIR/automations.json"
+    oc_env 'OPENCLAW_PUSH=agent\nOPENCLAW_HOOKS_TOKEN=t\nDIGEST_ENABLED=true\n'
+    run "$CLI" openclaw --check
+    [[ "$output" == *"Smoking Pi weekly: missing (smoking-pi openclaw automations)"* ]]
+    oc_env 'OPENCLAW_PUSH=agent\nOPENCLAW_HOOKS_TOKEN=t\nDIGEST_ENABLED=false\n'
+    run "$CLI" openclaw --check
+    [[ "$output" == *"Smoking Pi weekly: none, the weekly is off (smoking-pi alerts --weekly mon 08:00)"* ]]
+    oc_env 'OPENCLAW_HOOKS_TOKEN=t\nWEEKLY_ENABLED=true\n'
+    run "$CLI" openclaw --check
+    [[ "$output" == *"Smoking Pi weekly: none; the alerter sends the weekly (OPENCLAW_PUSH is not agent)"* ]]
+    # WEEKLY_ENABLED, once set, wins over the digest's settings.
+    oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=false\nDIGEST_ENABLED=true\n'
+    run "$CLI" openclaw automations
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"the weekly is off"* ]]
+}
+
 @test "openclaw automations: a weekly that cannot be made leaves it with the alerter" {
     oc_env 'OPENCLAW_PUSH=agent\nWEEKLY_ENABLED=true\nOPENCLAW_WEEKLY=agent\n'
     stub_openclaw
@@ -2630,6 +2697,32 @@ STUB
     [ "$status" -eq 0 ]
     grep -qx 'OPENCLAW_GATEWAY_TOKEN=from-json' "$SMOKING_PI_ENV_FILE"
     [[ "$output" != *"from-json"* ]]
+}
+
+@test "alerts --openclaw without a terminal refuses to ask about the openclaw.json token, naming --yes (#448)" {
+    alerts_setup
+    printf 'COMPOSE_PROFILES=influxdb\n' > "$SMOKING_PI_ENV_FILE"
+    mkdir -p "$BATS_TEST_TMPDIR/u/.openclaw"
+    printf '{"gateway": {"auth": {"token": "from-json"}}}' > "$BATS_TEST_TMPDIR/u/.openclaw/openclaw.json"
+    # No tty and no --yes: it used to block on the y/N read until killed.
+    run env -u SUDO_USER USER=nobody-here HOME="$BATS_TEST_TMPDIR/u" \
+        timeout 20 "$CLI" alerts --openclaw --to telegram:1 </dev/null
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"No terminal to ask"*"--yes takes it"* ]]
+    if grep -q 'OPENCLAW_GATEWAY_TOKEN' "$SMOKING_PI_ENV_FILE"; then false; fi
+    if grep -q 'NOTIFY_MODE=openclaw' "$SMOKING_PI_ENV_FILE"; then false; fi
+    # --yes answers it (the test above), and so does a token already set.
+    run env -u SUDO_USER USER=nobody-here HOME="$BATS_TEST_TMPDIR/u" \
+        timeout 20 "$CLI" alerts --openclaw --to telegram:1 --yes </dev/null
+    [ "$status" -eq 0 ]
+    grep -qx 'OPENCLAW_GATEWAY_TOKEN=from-json' "$SMOKING_PI_ENV_FILE"
+    # No token anywhere and no tty: the same refusal as before, with the command.
+    printf 'COMPOSE_PROFILES=influxdb\n' > "$SMOKING_PI_ENV_FILE"
+    rm "$BATS_TEST_TMPDIR/u/.openclaw/openclaw.json"
+    run env -u SUDO_USER USER=nobody-here HOME="$BATS_TEST_TMPDIR/u" \
+        timeout 20 "$CLI" alerts --openclaw --to telegram:1 </dev/null
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"config set OPENCLAW_GATEWAY_TOKEN"* ]]
 }
 
 @test "alerts says delivery is not working when the preflight is not green" {
