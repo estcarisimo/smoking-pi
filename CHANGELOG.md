@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.52.0] — 2026-11-08
+
+The assistant is now the OpenClaw agent, fed by the Pi. Alerts go through
+the agent's own session, so a reply in Telegram has the outage in front of
+it; an hourly heartbeat and the Monday weekly read the Pi through two new
+MCP tools and speak only when there is something to say; the `ai-insights`
+report, a third voice with a prompt of its own, is gone (thirteen images
+now). A question bank of twenty measured the agent's answers, 15 of 20
+before this release and 19 of 20 after the guide fixes it found.
+
 ### Added
 
 - **The OpenClaw agent's heartbeat and weekly now come from the Pi**
