@@ -86,6 +86,8 @@ alerts_set_zone() {
 # DIGEST_AT (v2.51.0's upgrade rule). `alerts status` said yes on such an
 # install while `openclaw automations` said the weekly was off and never
 # made its automation (#450). A third word, "legacy", marks the fallback.
+# A WEEKLY_DAY that is not a day is off, as the alerter disables a weekly
+# it cannot read (and logs it); `config set` refuses such a value anyway.
 alerts_weekly_schedule() {
     local enabled day at legacy=""
     enabled="$(env_get WEEKLY_ENABLED | tr '[:upper:]' '[:lower:]')"
@@ -97,7 +99,8 @@ alerts_weekly_schedule() {
         esac
     fi
     case "$enabled" in 1|true|yes|on) ;; *) return 1 ;; esac
-    case "$day" in mon|tue|wed|thu|fri|sat|sun) ;; *) day=mon ;; esac
+    case "$day" in ""|mon|tue|wed|thu|fri|sat|sun) ;; *) return 1 ;; esac
+    day="${day:-mon}"
     echo "$day ${at:-08:00}$legacy"
 }
 

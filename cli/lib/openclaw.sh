@@ -116,6 +116,14 @@ openclaw_evidence() {
     return 1
 }
 
+# How long the installer waited for a restarted gateway, from its output
+# ("did not answer within 45 s"); "the time it waited" when the line is not
+# there.
+openclaw_said_wait() {
+    local n; n="$(printf '%s\n' "$1" | sed -n 's/.*did not answer within \([0-9][0-9]*\) s.*/\1/p' | tail -1)"
+    [ -n "$n" ] && echo "$n s" || echo "the time it waited"
+}
+
 # The skill is the release's answering guide (shared/modules/common/guide.py),
 # which changes in most releases, so an upgrade leaves the installed copy
 # behind: the agent goes on answering in the old shape and nothing says so
@@ -127,13 +135,6 @@ openclaw_evidence() {
 # installer keeps it as SKILL.md.bak, and this says so, by path -- one
 # .bak only, so the next upgrade's would overwrite it. Never fails the
 # upgrade: what it cannot do, it names.
-# How long the installer waited for a restarted gateway, from its output
-# ("did not answer within 45 s"); "its wait" when the line is not there.
-openclaw_said_wait() {
-    local n; n="$(printf '%s\n' "$1" | sed -n 's/.*did not answer within \([0-9][0-9]*\) s.*/\1/p' | tail -1)"
-    [ -n "$n" ] && echo "$n s" || echo "its wait"
-}
-
 openclaw_refresh_skill() {
     local script="$SMOKING_PI_HOME/shared/scripts/install-openclaw-skill.sh"
     local source="$SMOKING_PI_HOME/examples/openclaw/smokeping-monitoring/SKILL.md"

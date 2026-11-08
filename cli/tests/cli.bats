@@ -1348,7 +1348,7 @@ STUB
     [[ "$output" == *"Installed the skill and reloaded the gateway."* ]]
     STUB_SKILL_RC=4 run "$CLI" openclaw
     [[ "$output" == *"Installed the skill and restarted the gateway; it did not answer its"* ]]
-    [[ "$output" == *"within its wait, so it is still starting"* ]]
+    [[ "$output" == *"within the time it waited, so it is still starting"* ]]
     [[ "$output" != *"nothing reloaded"* ]]
 }
 
