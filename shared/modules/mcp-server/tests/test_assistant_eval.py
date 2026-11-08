@@ -218,3 +218,25 @@ def test_answered_tells_the_runner_whether_to_ask_again(tmp_path):
     assert report.main(["--answered", str(good)]) == 0
     assert report.main(["--answered", str(bad)]) == 1
     assert report.main(["--answered", str(tmp_path / "missing.json")]) == 1
+
+
+def test_a_zone_with_a_numeric_abbreviation_is_named_by_its_common_name():
+    zone = "America/Argentina/Buenos_Aires"
+    assert {"ART", "Buenos Aires"} <= report.zone_labels(zone)
+    assert report.score(Q_NETFLIX, "Netflix 18 ms; last blip 9:40 pm ART.", False,
+                        [_call("get_latency_stats")], zone) == []
+
+
+def test_mask_covers_prose_tokens_other_chat_ids_and_short_tailnet_hosts():
+    masked = report.mask("the token is abc123, chat id 123456789, group -4012345678, "
+                         "host tail1234.ts.net, Bearer xyz")
+    for secret in ("abc123", "123456789", "4012345678", "tail1234", "xyz"):
+        assert secret not in masked, (secret, masked)
+
+
+def test_an_error_reply_with_exit_zero_is_no_answer(tmp_path):
+    failed = json.dumps({"ok": False, "error": {"message": "tick timeout"}})
+    _write(tmp_path, "netflix-now", failed, [], rc=0)
+    result = report.collect([Q_NETFLIX], tmp_path, ZONE)[0]
+    assert result.unanswered and not result.passed
+    assert any(f.startswith("agent-failed") for f in result.failures)

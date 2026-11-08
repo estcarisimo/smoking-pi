@@ -122,13 +122,19 @@ def _is_error(text: str) -> bool:
 _MASKS = [
     # Tunnel hosts name the tailnet; Telegram chats and bot tokens; UUIDs
     # (session and run ids); anything that looks like a bearer or token.
-    (re.compile(r"\b[\w-]+\.[\w-]+\.ts\.net\b"), "<host>.<tailnet>.ts.net"),
+    (re.compile(r"\b(?:[\w-]+\.)?[\w-]+\.ts\.net\b"), "<host>.<tailnet>.ts.net"),
     # Email addresses, plain or URL-encoded (a mail link's authuser=).
     (re.compile(r"[\w.+-]+(?:@|%40)[\w-]+(?:\.[\w-]+)+"), "<email>"),
     (re.compile(r"\bbot\d+:[\w-]{20,}"), "bot<masked>"),
-    (re.compile(r"(?<![\d.])-100\d{6,}\b"), "<chat-id>"),
+    # Telegram chat ids: any negative id (groups, supergroups), and a
+    # positive one where it is called a chat id.
+    (re.compile(r"(?<![\w.])-\d{9,}\b"), "<chat-id>"),
+    (re.compile(r"(?i)(chat[ _-]?id\W{0,3})\d{5,}\b"), r"\1<chat-id>"),
     (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"), "<uuid>"),
-    (re.compile(r"(?i)\b(token|bearer|apikey|api_key|password)([=: ]+)\S+"), r"\1\2<masked>"),
+    # "token=x", "token: x", "Bearer x", "the token is x": the value, not
+    # the word after the keyword.
+    (re.compile(r"(?i)\b(token|bearer|apikey|api_key|password)"
+                r"(\s*[=:]\s*|\s+(?:is\s+|was\s+)?)[^\s,;.]+"), r"\1\2<masked>"),
 ]
 
 
@@ -175,11 +181,25 @@ _EN = {"the", "and", "of", "to", "is", "was", "with", "for", "on", "at", "it",
        "but", "were", "there", "from", "this", "that", "not", "yesterday"}
 
 
+# What people call zones whose tz database abbreviation is a number ("-03"):
+# the label a right answer uses, so it is neither unnamed nor "another zone".
+_NUMERIC_ZONE_NAMES = {
+    "America/Argentina/": {"ART"}, "America/Buenos_Aires": {"ART"},
+    "America/Sao_Paulo": {"BRT"}, "America/Montevideo": {"UYT"},
+    "America/Santiago": {"CLT", "CLST"}, "America/Bogota": {"COT"},
+    "America/Lima": {"PET"},
+}
+
+
 def zone_labels(zone: str) -> set[str]:
     """What names the zone in an answer: its abbreviations through the year,
-    the generic US form (CST/CDT -> CT), its city, and the key itself."""
+    the generic US form (CST/CDT -> CT), its city, and the key itself. A zone
+    whose abbreviation is a number gets the name people use for it."""
     tz = ZoneInfo(zone)
     labels = {zone, zone.split("/")[-1].replace("_", " ")}
+    for prefix, names in _NUMERIC_ZONE_NAMES.items():
+        if zone.startswith(prefix):
+            labels |= names
     for month in (1, 7):
         abbr = datetime(2026, month, 15, 12, tzinfo=tz).tzname() or ""
         if abbr and not abbr.startswith(("+", "-")):
@@ -225,7 +245,7 @@ class Result:
     def unanswered(self) -> bool:
         """The agent never answered (a gateway or model error): a fact about
         the host that run was on, not about the guide."""
-        return self.rc != 0 and not self.answer
+        return not self.answer
 
 
 def score(question: dict, answer: str, media: bool, calls: list[ToolCall],
@@ -239,6 +259,8 @@ def score(question: dict, answer: str, media: bool, calls: list[ToolCall],
 
     if rc != 0:
         fails.append(f"agent-failed: openclaw exited {rc}")
+    elif not answer:
+        fails.append("agent-failed: the reply had no answer in it")
     if not answer:
         fails.append("no-answer: the agent said nothing")
 

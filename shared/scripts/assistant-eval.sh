@@ -31,7 +31,12 @@
 # The Pi is small: before each question it waits for MemAvailable to reach
 # --min-free-mb (default 400), and it never starts a turn within four
 # minutes of :00 or :30, where the gateway's own heartbeats run and would
-# put their tool calls in the window.
+# put their tool calls in the window. A turn longer than four minutes can
+# still run into one: a tool list with a heartbeat's calls in it (say
+# get_updates_since) is that, not the agent.
+#
+# <out>/raw is the agent's replies as they came, unmasked: only the report
+# masks. Keep it on the Pi, and publish the report, never raw/.
 
 set -euo pipefail
 
@@ -111,6 +116,13 @@ clear_of_heartbeats() {
     fi
 }
 
+if [ -n "$ONLY" ]; then
+    known=",$(python3 "$EVALS/report.py" --bank "$BANK" --list | cut -f1 | paste -sd,),"
+    for id in ${ONLY//,/ }; do
+        [[ "$known" == *",$id,"* ]] || { echo "No question $id in the bank (--only)." >&2; exit 2; }
+    done
+fi
+
 asked=0
 while IFS=$'\t' read -r id ask; do
     if [ -n "$ONLY" ] && [[ ",$ONLY," != *",$id,"* ]]; then
@@ -127,7 +139,9 @@ while IFS=$'\t' read -r id ask; do
         timeout "$TIMEOUT" openclaw agent --agent "$AGENT" --session-key "$RUN-$id-$try" --json \
             --message "$ask" >"$OUT/raw/$id.answer.json" 2>"$OUT/raw/$id.stderr" || rc=$?
         end=$(( $(date +%s) + 1 ))
-        if grep -qi 'usage limit' "$OUT/raw/$id.answer.json"; then
+        # An error reply only: an answer may well mention a usage limit.
+        if grep -q '"ok": *false' "$OUT/raw/$id.answer.json" \
+            && grep -qi 'usage limit' "$OUT/raw/$id.answer.json"; then
             # The model's account is out of quota: every question after this
             # one would fail the same way and push the reset further out.
             echo "    the agent's model account hit its usage limit; stopping here:"
@@ -135,9 +149,10 @@ while IFS=$'\t' read -r id ask; do
             echo "start=$start end=$end rc=$rc" >"$OUT/raw/$id.meta"
             break 2
         fi
-        [ "$rc" != 0 ] && [ "$try" -lt "$RETRIES" ] || break
-        # Only a turn that never answered: its JSON has no payload text.
+        # Only a turn that never answered: its JSON has no payload text,
+        # whatever openclaw's exit code (it can exit 0 on {"ok": false}).
         python3 "$EVALS/report.py" --answered "$OUT/raw/$id.answer.json" && break
+        [ "$try" -lt "$RETRIES" ] || break
         try=$((try + 1))
         echo "    no answer (openclaw exited $rc); asking again in a minute"
         sleep 60

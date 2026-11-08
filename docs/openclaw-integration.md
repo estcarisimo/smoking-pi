@@ -265,12 +265,14 @@ shared/scripts/assistant-eval.sh --out ~/assistant-eval/run1
 ```
 
 Each question is its own agent session and is never delivered to a chat.
-The script waits for memory before each one, keeps clear of the gateway's
-heartbeats at :00 and :30, and reads the MCP server's `tool=` lines inside
+The script waits for memory before each one, starts no turn in the four
+minutes before the gateway's heartbeats at :00 and :30 (a turn longer than
+that can still overlap one), and reads the MCP server's `tool=` lines inside
 that turn as the evidence of what was called. The report
 (`<out>/report.md`) has a row per question: the tools called, pass or fail,
 and every check that failed, then each answer in full with ids, tokens and
-tunnel hosts masked. One question acts: `mute-cpe` mutes the gateway's
+tunnel hosts masked. Only the report is masked: `<out>/raw` holds the
+replies as they came, so it stays on the Pi. One question acts: `mute-cpe` mutes the gateway's
 alerts for two hours, and the run ends by saying so. `--only id,id` asks a
 few; re-scoring a run needs no agent:
 

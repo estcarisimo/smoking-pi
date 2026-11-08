@@ -278,6 +278,11 @@ def test_system_status_summary(api):
     assert "wifi" not in result            # wired host: nothing to say
 
 
+def test_system_status_names_the_messages_zone(api, monkeypatch):
+    monkeypatch.setenv("DIGEST_TZ", "America/Argentina/Buenos_Aires")
+    assert server.system_status()["tz"] == "America/Argentina/Buenos_Aires"
+
+
 def _wifi_last_rows(**over):
     """What group(columns:["_field"]) |> last() returns for an associated
     link: one row per field, tags riding along on each."""

@@ -254,8 +254,9 @@ numbers, units or links.
 
 **Every time in one zone, named**: the zone the alerter's messages use,
 which the server names and `system_status`, `get_updates_since` and
-`get_weekly_summary` return as `tz` -- never UTC, never the zone of a server you run on, never
-a second zone beside it. Add the weekday when the window is longer than a
+`get_weekly_summary` return as `tz` -- never UTC unless that is the zone
+it names, never the zone of a server you run on, never a second zone
+beside it. Add the weekday when the window is longer than a
 day ("Sunday 9 Aug, 3:20-4:55 pm CDT"). An ISO timestamp is not an answer
 to "when".
 
