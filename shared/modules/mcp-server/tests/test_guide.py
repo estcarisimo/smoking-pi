@@ -43,6 +43,17 @@ def test_the_timezone_line_names_the_pis_zone(monkeypatch):
     assert "set to America/Chicago" in server._instructions()
 
 
+def test_the_timezone_line_is_the_messages_zone(monkeypatch):
+    # DIGEST_TZ wins over TZ, as it does for every message the alerter
+    # sends: a follow-up answer in another zone than the alert it follows
+    # made two clocks out of one episode.
+    monkeypatch.setenv("TZ", "UTC")
+    monkeypatch.setenv("DIGEST_TZ", "America/Argentina/Buenos_Aires")
+    text = server._instructions()
+    assert "set to America/Argentina/Buenos_Aires" in text
+    assert "infer the reader" not in text
+
+
 def test_the_guide_names_only_tools_that_exist():
     registered = {name for name in dir(server) if not name.startswith("_")}
     named = set(re.findall(r"`((?:get|list|diagnose|system|add|remove|toggle|apply|mute|unmute|ack)_[a-z_]+)`", guide.GUIDE))

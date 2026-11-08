@@ -3,3 +3,4 @@ mcp>=1.2
 httpx
 influxdb-client
 pytest
+pyyaml
