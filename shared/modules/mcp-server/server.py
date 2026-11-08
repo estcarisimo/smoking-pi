@@ -55,15 +55,17 @@ from common import (
 
 def _instructions() -> str:
     """What every assistant is told when it connects: one guide for all of
-    them (guide.py), plus this Pi's timezone. Without it an agent that also
+    them (guide.py), plus the messages' timezone. Without it an agent that also
     has a shell answers "how is my internet?" with ping, which describes one
     instant; the point of this host is that the measurement already
     happened, continuously, and is still on disk."""
-    tz = (os.environ.get("TZ") or "").strip()
-    zone = (f"This Pi's clock is set to {tz}; it may not be where the reader "
-            "is -- ask or infer the reader's zone, and name it."
-            if tz and tz != "UTC" else
-            "This Pi's clock is UTC; give times in the reader's zone and name it.")
+    # One clock for every answer: the zone the alerter's messages use
+    # (DIGEST_TZ, then TZ). Telling the agent to "ask or infer the reader's
+    # zone" put a pushed message and the answer to its follow-up in two.
+    tz = localtime.digest_zone().key
+    zone = (f"This Pi's clock is set to {tz}, the zone of every message the "
+            "alerter sends: give every time in it, and name it "
+            "(\"9:40 pm CST\").")
     return (
         "# Smoking Pi\n\n"
         "A Raspberry Pi that has been continuously measuring a home network: "
@@ -678,9 +680,13 @@ def system_status() -> dict:
     running.
 
     This reports the health of the MONITORING SYSTEM, not of the network it
-    measures. For "how is my internet?" use get_latency_stats. Use this one
+    measures. For "how is my internet?" use diagnose_loss. Use this one
     when the monitoring itself looks wrong — no recent data, a target that
-    never appears, graphs that stopped updating.
+    never appears, graphs that stopped updating — and for "which DNS does
+    my house use?" (`resolver`, below).
+
+    `tz` is the zone of every message the alerter sends; give every time
+    in it, named.
 
     `uplink` names the interface every measurement crosses (`kind`:
     wireless, wired, virtual or none) and its `last_change` within a week:
@@ -710,6 +716,7 @@ def system_status() -> dict:
         return result
 
     result["status"] = status
+    result["tz"] = localtime.digest_zone().key
     database = status.get("database", {}) or {}
     smokeping = status.get("smokeping", {}) or {}
     parts = [

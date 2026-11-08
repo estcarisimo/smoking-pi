@@ -1,0 +1,257 @@
+# The assistant's question bank: what a person at home actually asks, and
+# what a good answer from the Smoking Pi tools looks like.
+#
+# Run on a Pi with the OpenClaw gateway:  shared/scripts/assistant-eval.sh
+# Scored by:                              shared/modules/mcp-server/evals/report.py
+# Docs:                                   docs/openclaw-integration.md, "Checking the assistant"
+#
+# Each question:
+#   id        short, stable; the report's row and the raw files are named by it
+#   lang      en | es -- the answer must be in this language
+#   ask       the message, exactly as sent
+#   tools     what the MCP server's log must show for this turn:
+#               any:  at least one of these was called
+#               all:  every one of these was called
+#               none: none of these was called (get_chart is in every
+#                     question's `none` unless the question names it)
+#               allow_no_call: true when the right answer needs no tool
+#   args      {tool: {arg: regex}}: some call of that tool had matching args
+#   must      [{name, re}]: the answer must match (case-insensitive)
+#   must_not  [{name, re}]: the answer must not match
+#   skip      global checks this question opts out of (see report.GLOBAL_CHECKS)
+#   Ask about the connection, not about "anything": the agent is a general
+#   assistant with the owner's mail and calendar, and an open question is
+#   answered from those (see away-week).
+#   facts     for the human reading the report: what a right answer says.
+#             Not scored -- the numbers come from live data -- but every
+#             failure is read against them before the guide is changed.
+#
+# Every question also gets the global checks (report.GLOBAL_CHECKS): a tool
+# was called, no internal target id, no ISO or epoch timestamp, a clock time
+# names the messages' zone (DIGEST_TZ) and no other, no "all clear" filler,
+# no image unless asked, no hand-drawn chart, the reader's language.
+
+questions:
+  - id: last-night
+    lang: en
+    ask: "How was my internet last night?"
+    tools:
+      any: [diagnose_loss, get_incident_history, get_loss_events]
+    must:
+      - {name: traffic-light verdict, re: "🟢|🟡|🔴"}
+    facts: >-
+      A report-shaped answer: one verdict with a traffic light, sections by
+      layer, last night's episodes with their times in the messages' zone,
+      or a one-line "quiet night" when there were none.
+
+  - id: netflix-now
+    lang: en
+    ask: "Is Netflix slow right now or is it me?"
+    tools:
+      any: [get_latency_stats, diagnose_loss, get_loss_events]
+    must:
+      - {name: latency in ms, re: "\\d+(\\.\\d+)?\\s?ms\\b"}
+    facts: >-
+      Netflix's recent latency in milliseconds against its usual, and
+      whether its peers moved too (yours vs theirs). Netflix by its service
+      name, never Netflix_1_DFW.
+
+  - id: away-week
+    lang: en
+    # "Did anything happen while I was away?" alone is a question about
+    # anything: on the first run a general assistant answered it from the
+    # owner's email. Asked about the internet, it is this bank's question.
+    ask: "Did anything happen with my internet while I was away this week?"
+    tools:
+      any: [get_weekly_summary, diagnose_loss, get_incident_history, get_updates_since]
+    facts: >-
+      The week's material episodes (or that there were none), when, and
+      their cause. Days with weekdays, times in the messages' zone.
+
+  - id: call-dropped
+    lang: en
+    ask: "Why did my video call drop at 9 last night?"
+    tools:
+      any: [diagnose_loss, get_loss_events, get_microcut_stats, get_incident_history]
+    facts: >-
+      What the record shows around 9 pm in the messages' zone: an episode
+      and its cause, or that nothing was measured then -- and then that the
+      cause was likely outside what the Pi sees (the app, the other end,
+      the laptop's own Wi-Fi), never an invented outage.
+
+  - id: wifi-or-isp
+    lang: en
+    ask: "Is it my Wi-Fi or my provider?"
+    tools:
+      any: [diagnose_loss, get_wifi_stats, get_microcut_stats]
+    must:
+      - {name: names Wi-Fi, re: "wi-?fi"}
+    facts: >-
+      Attribution from diagnose_loss (local_wifi vs local_link vs upstream)
+      and the Pi's own signal in dBm; says the Pi's Wi-Fi is not the
+      person's laptop's.
+
+  - id: which-dns
+    lang: en
+    ask: "Which DNS is my house using?"
+    tools:
+      any: [system_status]
+    must:
+      - {name: names the resolver operator, re: "\\bAS\\d+|google|cloudflare|quad9|router|isp|provider"}
+    facts: >-
+      Who answers the house's DNS on the Internet side (system_status
+      `resolver`): the operator and its AS, per path.
+
+  - id: chart-google
+    lang: en
+    ask: "Show me a chart of Google for the last 6 hours."
+    tools:
+      all: [get_chart]
+    args:
+      get_chart: {hours: "^6$", target: "^Google$"}
+    skip: [no-image]
+    facts: >-
+      One get_chart call for Google, hours=6; the PNG, with at most a
+      sentence of caption.
+
+  - id: told-yesterday
+    lang: en
+    ask: "What did you tell me yesterday?"
+    tools:
+      any: [get_notification_history, get_updates_since]
+    facts: >-
+      Read from the alerter's ledger: what was sent (or held, or decided
+      not to send) yesterday, with times, or "nothing was sent yesterday".
+      Never a reconstruction from the chat's memory.
+
+  - id: mute-cpe
+    lang: en
+    ask: "Mute the CPE alerts for 2 hours."
+    tools:
+      all: [mute_alerts]
+    must:
+      - {name: reads back the expiry, re: "until|expires|ends at"}
+    facts: >-
+      Mutes the gateway rule or target for 2 hours and reads back the scope
+      and the expiry time in the messages' zone. (Lift it afterwards:
+      the runner says how.)
+
+  - id: monitor-healthy
+    lang: en
+    ask: "Is the monitor itself healthy?"
+    tools:
+      any: [system_status]
+    facts: >-
+      The stack's state (SmokePing running, targets, config generated), the
+      uplink and its signal; not a report on the internet.
+
+  - id: data-per-day
+    lang: en
+    ask: "How much data does the monitoring use per day?"
+    tools:
+      allow_no_call: true
+    must:
+      - {name: says the tools do not have it / where to look, re: "can'?not|can't|don't have|no tool|not (available|in)|web admin|budget"}
+    must_not:
+      - {name: invented byte figure, re: "\\b\\d+(\\.\\d+)?\\s?(kb|mb|gb|mib|gib)\\b"}
+    facts: >-
+      No MCP tool reports the measurement budget: the right answer says so
+      and points to the web admin's budget (Probes page), without guessing a
+      figure.
+
+  - id: route-netflix
+    lang: en
+    ask: "What route does traffic to Netflix take?"
+    tools:
+      allow_no_call: true
+    must:
+      - {name: says the tools do not have it / where to look, re: "can'?not|can't|don't have|no tool|not (available|in)|grafana|target detail|path"}
+    must_not:
+      - {name: invented hop list, re: "\\b(\\d{1,3}\\.){3}\\d{1,3}\\b.*\\n.*\\b(\\d{1,3}\\.){3}\\d{1,3}\\b"}
+    facts: >-
+      No MCP tool returns traceroutes: the right answer says so and points
+      to Grafana's Target Detail (its Path row) instead of running
+      traceroute from a shell or inventing hops.
+
+  - id: why-not-told
+    lang: en
+    ask: "Why didn't you tell me about the loss this morning?"
+    tools:
+      any: [list_alert_state, get_notification_history]
+    facts: >-
+      From list_alert_state: this morning's episodes, what was pushed, and
+      the conditions an unpushed one missed (`unmet`) -- or that there was
+      no loss this morning. Never "a failure to alert" when policy held it.
+
+  - id: evening-normal
+    lang: en
+    ask: "Is the loss I get in the evenings normal for that time of day?"
+    tools:
+      any: [list_alert_state, diagnose_loss, get_incident_history]
+    facts: >-
+      Recurring windows from list_alert_state `patterns`: its hours, days
+      seen of days observed, likely cause; or that there is no known
+      evening window -- not "normal".
+
+  - id: gateway-loss
+    lang: en
+    ask: "Is my router dropping packets?"
+    tools:
+      any: [get_microcut_stats, diagnose_loss]
+    must:
+      - {name: loss in percent, re: "\\d+(\\.\\d+)?\\s?%"}
+    must_not:
+      - {name: gateway loss as a ratio, re: "\\b0\\.\\d+ (loss|of packets)"}
+    facts: >-
+      The gateway's loss floor (p50/p90 in percent) as normal rate limiting,
+      and any confirmed or possible cuts with their times; the gateway by
+      its IP or as "the router", never a microcut from one window.
+
+  - id: es-anoche
+    lang: es
+    ask: "¿Cómo anduvo internet anoche?"
+    tools:
+      any: [diagnose_loss, get_incident_history, get_loss_events]
+    must:
+      - {name: traffic-light verdict, re: "🟢|🟡|🔴"}
+    facts: >-
+      Same as last-night, in Spanish, headings included.
+
+  - id: es-netflix
+    lang: es
+    ask: "¿Netflix anda lento o es mi conexión?"
+    tools:
+      any: [get_latency_stats, diagnose_loss, get_loss_events]
+    must:
+      - {name: latency in ms, re: "\\d+(,|\\.)?\\d*\\s?ms\\b"}
+    facts: >-
+      Same as netflix-now, in Spanish.
+
+  - id: es-novedades
+    lang: es
+    ask: "¿Hay alguna novedad desde la última vez que hablamos?"
+    tools:
+      any: [get_updates_since, get_notification_history]
+    facts: >-
+      get_updates_since: what is new (or that nothing is), in one or two
+      sentences; never re-telling what was already pushed.
+
+  - id: es-wifi
+    lang: es
+    ask: "¿Cómo está la señal del Wi-Fi del Pi?"
+    tools:
+      any: [get_wifi_stats, system_status]
+    must:
+      - {name: signal in dBm, re: "dbm"}
+    facts: >-
+      Signal in dBm with its reading (excellent / comfortable / marginal /
+      weak), bitrate as negotiated rate, disconnects if any.
+
+  - id: es-semana
+    lang: es
+    ask: "¿Qué tal anduvo internet la semana pasada?"
+    tools:
+      any: [get_weekly_summary, get_incident_history, diagnose_loss]
+    facts: >-
+      get_weekly_summary for last week: good / mixed / bad against the week
+      before, by cause; a quiet week in one line.

@@ -246,6 +246,46 @@ tool called and when. Container logs start over when the container is
 recreated, so *Not used yet* means no call since the server last started,
 and the step shows that time.
 
+### Checking the assistant
+
+A connected agent can still answer badly: the wrong tool, a number it made
+up, loss as a ratio where the person reads percent, an internal name like
+`Netflix_1_DFW`, a time in a zone nobody lives in, a chart nobody asked for.
+The question bank measures that. It is twenty questions a person at home
+actually asks, five of them in Spanish, each with the tools a right answer
+needs, the facts it must contain and the anti-patterns that fail it
+(`shared/modules/mcp-server/evals/questions.yaml`; the file's header says
+how each question is written).
+
+`shared/scripts/assistant-eval.sh` asks them, on the Pi with the gateway,
+as the user that runs `openclaw` (its bin directory on `PATH`):
+
+```bash
+shared/scripts/assistant-eval.sh --out ~/assistant-eval/run1
+```
+
+Each question is its own agent session and is never delivered to a chat.
+The script waits for memory before each one, keeps clear of the gateway's
+heartbeats at :00 and :30, and reads the MCP server's `tool=` lines inside
+that turn as the evidence of what was called. The report
+(`<out>/report.md`) has a row per question: the tools called, pass or fail,
+and every check that failed, then each answer in full with ids, tokens and
+tunnel hosts masked. One question acts: `mute-cpe` mutes the gateway's
+alerts for two hours, and the run ends by saying so. `--only id,id` asks a
+few; re-scoring a run needs no agent:
+
+```bash
+python3 shared/modules/mcp-server/evals/report.py --raw ~/assistant-eval/run1/raw \
+  --zone America/Chicago --judgments judgments.yaml > report.md
+```
+
+The checks are mechanical and say why each failure failed; `--judgments`
+records a human verdict where a check is wrong about an answer, and the
+report marks that row *judged*. Run the bank after changing the answering
+guide (`shared/modules/common/guide.py`), a tool's description, the skill's
+header, or the agent's model, and fix what fails in those files, not in a
+prompt of one assistant's own.
+
 ---
 
 ## 2. Alert delivery

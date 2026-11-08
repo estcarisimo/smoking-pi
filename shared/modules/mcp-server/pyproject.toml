@@ -45,6 +45,8 @@ dependencies = [
 dev = [
     "pytest>=7.4.0",
     "ruff>=0.1.0",
+    # tests/test_assistant_eval.py: the question bank is YAML.
+    "pyyaml>=6",
 ]
 
 [build-system]
