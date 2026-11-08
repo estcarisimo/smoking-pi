@@ -1,6 +1,6 @@
 ---
 name: smokeping-monitoring
-description: Answer any question about the home internet connection, network health, latency, packet loss, outages, microcuts, or "how is my connection / cómo está mi conexión / qué onda la red" using the smokeping MCP tools, which hold this Pi's continuous measurement history. ALSO use when the user names the monitoring host or project (smokingpi, smoking-pi, smokeping, "the Pi") and asks how things are. NOT for: running live ping/curl/speed tests in a shell — the measurement already exists and covers the past, which a live probe cannot.
+description: Answer any question about the home internet connection, network health, latency, packet loss, outages, microcuts, or "how is my connection / cómo está mi conexión / qué onda la red" using the smokeping MCP tools, which hold this Pi's continuous measurement history. ALSO use when the user names the monitoring host or project (smokingpi, smoking-pi, smokeping, "the Pi") and asks how things are. ALSO use for what the alerter or this agent told the person and what is new since, as in "what did you tell me (yesterday)?", "anything new?", "why wasn't I told?", "qué me dijiste ayer", "alguna novedad", "por qué no me avisaste" — those are in the alerter's record, not in chat memory. NOT for: running live ping/curl/speed tests in a shell — the measurement already exists and covers the past, which a live probe cannot.
 ---
 
 # SmokePing Monitoring
