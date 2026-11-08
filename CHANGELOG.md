@@ -9,6 +9,51 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`smoking-pi alerts --openclaw` no longer hangs without a terminal.**
+  With `OPENCLAW_GATEWAY_TOKEN` empty and a token in `openclaw.json`, the
+  command asked "Use the gateway token from your openclaw.json? [Y/n]"
+  whatever its stdin was, so an agent, a script or
+  `ssh host sudo smoking-pi alerts --openclaw` blocked on the read until
+  killed (the v2.52.0 staging acceptance, #448). The other prompts in the
+  command were already guarded; this one was not. Without a terminal and
+  without `--yes` it now refuses in one line that names `--yes`, exit 2,
+  and changes nothing; `--yes` takes the token as before.
+- **The upgrade's skill refresh no longer says "nothing reloaded" after it
+  restarted the gateway.** `install-openclaw-skill.sh --reload` restarted
+  the gateway, then probed it three times over about 20 s; a 2026.11
+  gateway on a 4 GB Pi takes longer to come up, so the probe failed and
+  `upgrade` printed "No gateway answered, so nothing reloaded" about a
+  gateway that had just restarted and was loading the new skill (#449).
+  The installer now tells the cases apart: a restart it issued that does not
+  answer yet is "restarted but did not answer within N s" (exit 4, N the
+  time it measured, after six probes instead of three), and only a gateway
+  it could not restart is "did not answer" (exit 3). `upgrade` and
+  `openclaw` repeat the right one, with the installer's wait. On the
+  staging Pi the six probes were enough: the restarted gateway answered,
+  after about 160 s, and the refresh said "reloaded".
+- **`smoking-pi openclaw automations` sees a weekly that is on through the
+  retired daily digest's settings.** An install upgraded with
+  `DIGEST_ENABLED=true` and no `WEEKLY_*` key has the weekly on, Mondays at
+  `DIGEST_AT`: the alerter reads it so (v2.51.0) and `alerts status` showed
+  it, but the automations tested `WEEKLY_ENABLED=true` literally, printed
+  "the weekly is off" and never made the `Smoking Pi weekly` automation
+  with `--push agent`, so the two commands disagreed and the weekly stayed
+  the alerter's fixed text (the reference Pi after v2.52.0, #450). One
+  helper now answers "is the weekly on, and when" for `alerts status`, the
+  automations and `openclaw --check` (which also stops calling a weekly
+  that should not exist "missing": it says the weekly is off, or the
+  alerter's).
+
+### Changed
+
+- `docs/upgrades.md` lists the settings the retired `ai-insights` report
+  took with it in v2.52.0 (`REPORT_INTERVAL`, `AI_REPORTS_PER_DAY`,
+  `AI_MAX_INPUT_CHARS`, `REPORT_DELIVERY_INTERVAL`, `REPORT_MAX_CHARS`) under
+  *Settings retired or renamed*, and the Homebrew formula points at the
+  v2.52.0 tarball.
+
 ## [2.52.0] — 2026-11-08
 
 The assistant is now the OpenClaw agent, fed by the Pi, once you run
