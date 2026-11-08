@@ -117,6 +117,7 @@ def test_score_a_good_answer_passes():
 @pytest.mark.parametrize("answer, check", [
     ("Netflix_1_DFW is at 18 ms.", "no-raw-id"),
     ("18 ms; a topsites target. top_sites peers fine, 18 ms", "no-raw-id"),
+    ("uba_ar failed Thursday at 3:30 am CST; 18 ms.", "no-raw-id"),
     ("18 ms since 2026-11-07T09:00.", "no-iso-time"),
     ("18 ms since 1794000000.", "no-epoch"),
     ("18 ms; last blip at 9:40 pm.", "zone-named"),

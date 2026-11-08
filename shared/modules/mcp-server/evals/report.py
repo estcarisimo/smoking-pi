@@ -151,11 +151,11 @@ def prose(text: str) -> str:
 # Checks
 # ---------------------------------------------------------------------------
 
-# Internal ids the person never sees: the DNS wizard's sites, per-protocol
-# twins, the Netflix OCA servers, and the database's category keys.
-RAW_TARGET_ID = re.compile(
-    r"\bW_\w+|\b[A-Za-z]+_(?:h[123]|tcp\d*|icmp)\b|\bNetflix_\d+_[A-Z]{3}\b"
-    r"|\b(?:top_sites|dns_resolvers|netflix_oca|dns_wizard)\b")
+# Internal ids the person never sees: target names (uba_ar, Netflix_1_DFW,
+# W_netflix_com_h2), category keys (top_sites) and tool or field names. No
+# word a person reads has an underscore in it, so any snake_case word is one;
+# a list of known shapes missed `uba_ar` on the first after-run.
+RAW_TARGET_ID = re.compile(r"\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]*[A-Za-z0-9]\b")
 ISO_TIMESTAMP = re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
 EPOCH = re.compile(r"\b1\d{9}(?:\d{3})?\b")
 ALL_CLEAR = re.compile(r"(?i)\ball[ -]clear\b")

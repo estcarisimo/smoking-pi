@@ -62,7 +62,7 @@ version gets a matching GitHub release and git tag.
   tools a right answer needs and the anti-patterns that fail it, run one at
   a time through `openclaw agent`, scored against the MCP server's own log
   of that turn, and written up as a report with every answer. The baseline
-  on the staging Pi passed __BEFORE__. Asked which DNS the house
+  on the staging Pi passed 15 of 20. Asked which DNS the house
   uses, the agent read the Pi's `resolv.conf` and named the router; asked
   what it had told the person yesterday, it searched its own chat memory
   and gave up, never opening the alerter's ledger; asked how much data the
@@ -74,8 +74,12 @@ version gets a matching GitHub release and git tag.
   Every answer uses one zone, the alerter's (`DIGEST_TZ`): the server's
   instructions told agents to "ask or infer the reader's zone", which
   could put an alert and the answer to its follow-up on two clocks, and
-  `system_status` now returns that zone as `tz`. After the fixes:
-  __AFTER__.
+  `system_status` now returns that zone as `tz`. One cause was not in the
+  guide at all: OpenClaw loads the skill by its description, which named
+  only the connection, so "what did you tell me?" never reached it; the
+  description now names those questions. After the fixes: 19 of 20. The
+  one left named a target by its raw id (`uba_ar`) in a weekly answer,
+  which the check, widened to any snake_case word, now catches.
 
 ### Changed
 
