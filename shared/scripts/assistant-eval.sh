@@ -25,7 +25,8 @@
 # nothing about the guide) is asked again --retries times (default 1), a
 # minute later, in a new session; what is still unanswered is marked so in
 # the report. Asking again later with --only and the same --out replaces
-# just those questions.
+# just those questions. A model account out of quota stops the run at
+# that question, since every later one would fail the same way.
 #
 # The Pi is small: before each question it waits for MemAvailable to reach
 # --min-free-mb (default 400), and it never starts a turn within four
@@ -126,6 +127,14 @@ while IFS=$'\t' read -r id ask; do
         timeout "$TIMEOUT" openclaw agent --agent "$AGENT" --session-key "$RUN-$id-$try" --json \
             --message "$ask" >"$OUT/raw/$id.answer.json" 2>"$OUT/raw/$id.stderr" || rc=$?
         end=$(( $(date +%s) + 1 ))
+        if grep -qi 'usage limit' "$OUT/raw/$id.answer.json"; then
+            # The model's account is out of quota: every question after this
+            # one would fail the same way and push the reset further out.
+            echo "    the agent's model account hit its usage limit; stopping here:"
+            grep -oi '"message": *"[^"]*' "$OUT/raw/$id.answer.json" | head -1 | sed 's/^/    /'
+            echo "start=$start end=$end rc=$rc" >"$OUT/raw/$id.meta"
+            break 2
+        fi
         [ "$rc" != 0 ] && [ "$try" -lt "$RETRIES" ] || break
         # Only a turn that never answered: its JSON has no payload text.
         python3 "$EVALS/report.py" --answered "$OUT/raw/$id.answer.json" && break
