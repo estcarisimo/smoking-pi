@@ -9,6 +9,19 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.53.0] — 2026-11-09
+
+The inference front's second production read (2026-11-09) found the
+inference service erasing its own history at the window's edge and
+labeling a 12-minute radio hang as hours of loss on the destinations. This
+release keeps what a pass wrote once it has settled, labels a degradation
+by where its loss is rather than by how many of its bins were deaf, marks a
+single burst of loss as a burst and a congestion period on an anycast/CDN
+destination as a likely edge change, and makes Target Detail and
+Connectivity & Quality show the numbers the module stores. The detectors
+and their thresholds are unchanged; the history lost before this release is
+not restored.
+
 ### Changed
 
 - **Inference: a congestion period on a CDN destination now says it is
