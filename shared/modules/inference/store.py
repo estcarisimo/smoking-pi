@@ -94,7 +94,8 @@ def points(measurement: str, target: str, category: str, periods: list[dict],
               .time(int(p["start"]), WritePrecision.S)
               .field("end", int(p["end"]))
               .field("duration_s", int(p["end"] - p["start"])))
-        for key in ("confidence", "jump_ms", "ks_p", "mean_loss_pct", "coverage", "deaf_share"):
+        for key in ("confidence", "jump_ms", "ks_p", "mean_loss_pct", "coverage", "deaf_share",
+                    "deaf_loss_share"):
             if p.get(key) is not None:
                 pt = pt.field(key, float(p[key]))
         # "loss" or "monitor_deaf" (deaf.py): a field, like everything else

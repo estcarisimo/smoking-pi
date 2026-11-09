@@ -9,6 +9,23 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Inference: a short radio hang no longer turns into hours of "loss"
+  degradation.** Since the watchdog ends a hang in 11–12 minutes, a hang is
+  one deaf 15-minute bin, and hours later the change-point segmentation
+  merges it with the clean stretch around it. The `monitor_deaf` label
+  counted deaf *bins*, so the one deaf bin was diluted over the period: 7 of
+  the 11 degradation periods produced by the two short hangs since
+  mid-October on the reference Pi were labeled ordinary loss of 6–8 h at
+  2.1–2.6 %, although all their loss was in the deaf bin — blamed on the
+  destinations on Target Detail and counted as degradation on Connectivity
+  & Quality. The label now follows where the loss is: a period is
+  `monitor_deaf` when at least half of its loss (the sum of its per-bin mean
+  loss) fell in deaf bins, written as the new field `deaf_loss_share`;
+  `deaf_share` (the bin share) is still written and means what it did. The
+  detector is unchanged.
+
 ## [2.52.1] — 2026-11-09
 
 v2.52.0's acceptance on the staging Pi found three places where the new
