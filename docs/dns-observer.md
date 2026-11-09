@@ -9,7 +9,7 @@ different measurement: [DNS resolver probes](dns-probes.md).)
 
 It runs as one container with two pieces:
 
-- **[AdGuard Home](https://github.com/AdguardTeam/AdGuardHome)** (v0.107.79,
+- **[AdGuard Home](https://github.com/AdguardTeam/AdGuardHome)** (v0.107.80,
   filtering off) is the DNS server. It answers on port 53, forwards to
   encrypted upstreams (DNS over HTTPS by default), and keeps the query log.
   We reuse it rather than writing a DNS server. It already has what the

@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.52.1] — 2026-11-09
+
+v2.52.0's acceptance on the staging Pi found three places where the new
+OpenClaw setup said or did the wrong thing: `smoking-pi alerts --openclaw`
+hung on a question nobody could answer over ssh, the upgrade's skill refresh
+said "nothing reloaded" about a gateway it had just restarted, and
+`smoking-pi openclaw automations` called a weekly that `alerts status`
+showed as on "off". This patch fixes all three; the only other change is
+AdGuard Home v0.107.80 in the DNS observer image.
+
 ### Fixed
 
 - **`smoking-pi alerts --openclaw` no longer hangs without a terminal.**
@@ -53,6 +63,8 @@ version gets a matching GitHub release and git tag.
   `AI_MAX_INPUT_CHARS`, `REPORT_DELIVERY_INTERVAL`, `REPORT_MAX_CHARS`) under
   *Settings retired or renamed*, and the Homebrew formula points at the
   v2.52.0 tarball.
+- The DNS observer image is built on AdGuard Home v0.107.80 (was v0.107.79;
+  Dependabot #443).
 
 ## [2.52.0] — 2026-11-08
 
