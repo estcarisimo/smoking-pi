@@ -47,7 +47,7 @@ def test_each_detector_reads_only_its_own_window_and_writes_its_own_measurement(
         now=NOW, fetch=lambda t, s: (pings, loss),
         list_targets=lambda s: [("Google", "topsites")],
         find_congestion=congestion, find_degradation=degradation,
-        replace=lambda m, t, c, periods, start, now: written.append((m, t, start)))
+        replace=lambda m, t, c, periods, start, now, edge: written.append((m, t, start)))
     assert seen == {"c": [c_start + 10], "d": [d_start + 10]}
     assert written == [(store.CONGESTION, "Google", c_start),
                        (store.DEGRADATION, "Google", d_start)]
@@ -67,7 +67,7 @@ def test_a_target_that_fails_does_not_stop_the_others():
         now=NOW, fetch=fetch, list_targets=lambda s: [("bad", "c"), ("good", "c")],
         find_congestion=lambda p: {"periods": [], "change_points": 0},
         find_degradation=lambda lo: {"periods": [], "change_points": 0},
-        replace=lambda m, t, *a: done.append(t))
+        replace=lambda m, t, *a, **kw: done.append(t))
     assert report["errors"] == 1
     assert report["targets"]["bad"] == {"error": True}
     assert done == ["good", "good"]
@@ -112,7 +112,7 @@ def test_a_pass_labels_by_where_the_periods_loss_fell():
         find_degradation=lambda lo: {"periods": [{"start": b, "end": b + 28 * 900,
                                                   "mean_loss_pct": 65 / 28}],
                                      "change_points": 2},
-        replace=lambda m, t, c, periods, start, now: written.setdefault(m, periods),
+        replace=lambda m, t, c, periods, start, now, edge: written.setdefault(m, periods),
         read_deaf=lambda start, now: deaf.deaf_bins(deaf_rows),
         record_pass=lambda r, now: None)
     (period,) = written[store.DEGRADATION]
@@ -137,7 +137,7 @@ def test_a_pass_labels_deaf_periods_and_records_itself():
         list_targets=lambda s: [("Google", "topsites")],
         find_congestion=lambda p: {"periods": [], "change_points": 0},
         find_degradation=degradation,
-        replace=lambda m, t, c, periods, start, now: written.setdefault(m, periods),
+        replace=lambda m, t, c, periods, start, now, edge: written.setdefault(m, periods),
         read_deaf=lambda start, now: deaf.deaf_bins(deaf_rows),
         record_pass=lambda r, now: passes.append((r["seconds"], now)))
     (period,) = written[store.DEGRADATION]
@@ -159,7 +159,7 @@ def test_a_history_write_that_fails_does_not_fail_the_pass():
         list_targets=lambda s: [("Google", "topsites")],
         find_congestion=lambda p: {"periods": [], "change_points": 0},
         find_degradation=lambda lo: {"periods": [], "change_points": 0},
-        replace=lambda *a: None, read_deaf=lambda start, now: set(), record_pass=boom)
+        replace=lambda *a, **kw: None, read_deaf=lambda start, now: set(), record_pass=boom)
     assert report["errors"] == 0 and "last_ok" in report
 
 
@@ -170,7 +170,7 @@ def _quiet(**kw):
         list_targets=lambda s: [("Google", "topsites")],
         find_congestion=lambda p: {"periods": [], "change_points": 0},
         find_degradation=lambda lo: {"periods": [], "change_points": 0},
-        replace=lambda *a: None, read_deaf=lambda s, n: set(), record_pass=lambda r, n: None, **kw)
+        replace=lambda *a, **kw: None, read_deaf=lambda s, n: set(), record_pass=lambda r, n: None, **kw)
 
 
 def test_the_shared_detector_runs_once_on_the_loss_window():
@@ -179,7 +179,7 @@ def test_the_shared_detector_runs_once_on_the_loss_window():
     periods = [{"start": d_start + 900, "end": d_start + 9000, "scope": "shared"}]
     report = _quiet(shared_pass=lambda start, deaf: seen.append(start) or
                     {"periods": periods, "voters": 40},
-                    replace_shared=lambda p, start, now: written.append((len(p), start)))
+                    replace_shared=lambda p, start, now, edge: written.append((len(p), start)))
     assert seen == [d_start]
     assert written == [(1, d_start)]
     assert report["shared"]["periods"] == 1 and report["shared"]["shared"] == 1
@@ -189,7 +189,7 @@ def test_the_shared_detector_runs_once_on_the_loss_window():
 def test_too_few_voters_keep_the_earlier_shared_periods():
     written = []
     report = _quiet(shared_pass=lambda start, deaf: {"periods": [], "voters": 3},
-                    replace_shared=lambda *a: written.append(a))
+                    replace_shared=lambda *a, **kw: written.append(a))
     assert written == []
     assert report["shared"]["voters"] == 3
 
@@ -219,9 +219,9 @@ def test_jitterbug_on_the_aggregate_runs_after_the_shared_pass_with_its_voters()
         return {"periods": [{"start": c + 900, "end": c + 9000}], "cycles": 2000, "added": 12,
                 "since": c - 3600}
 
-    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None,
+    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a, **kw: None,
                     aggregate_pass=agg,
-                    replace_shared_congestion=lambda p, s, e: written.append((len(p), s, e)))
+                    replace_shared_congestion=lambda p, s, e, edge: written.append((len(p), s, e)))
     assert seen == [(["a"], c_start, d_start, NOW)]
     assert written == [(1, c_start, NOW)]
     assert report["shared_congestion"]["periods"] == 1
@@ -231,11 +231,11 @@ def test_jitterbug_on_the_aggregate_runs_after_the_shared_pass_with_its_voters()
 def test_no_aggregate_pass_without_enough_voters_or_an_empty_stream():
     calls, written = [], []
     _quiet(shared_pass=lambda s, d: {"periods": [], "voters": 3},
-           aggregate_pass=lambda *a: calls.append(a))
+           aggregate_pass=lambda *a, **kw: calls.append(a))
     assert calls == []
-    _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None,
-           aggregate_pass=lambda *a: {"periods": [], "cycles": 0, "added": 0},
-           replace_shared_congestion=lambda *a: written.append(a))
+    _quiet(shared_pass=_shared_ok, replace_shared=lambda *a, **kw: None,
+           aggregate_pass=lambda *a, **kw: {"periods": [], "cycles": 0, "added": 0},
+           replace_shared_congestion=lambda *a, **kw: written.append(a))
     assert written == []  # an empty stream keeps what earlier passes wrote
 
 
@@ -243,7 +243,7 @@ def test_a_failing_aggregate_pass_leaves_the_shared_result_standing():
     def boom(*a):
         raise RuntimeError("no state volume")
 
-    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None, aggregate_pass=boom)
+    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a, **kw: None, aggregate_pass=boom)
     assert report["shared_congestion"] == {"error": True}
     assert report["shared"]["voters"] == 40 and report["errors"] == 1
 
@@ -251,16 +251,16 @@ def test_a_failing_aggregate_pass_leaves_the_shared_result_standing():
 def test_a_stream_that_starts_late_replaces_periods_from_its_start_only():
     c_start, _ = main.windows(NOW)
     written = []
-    _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None,
-           aggregate_pass=lambda *a: {"periods": [], "cycles": 5, "added": 5,
+    _quiet(shared_pass=_shared_ok, replace_shared=lambda *a, **kw: None,
+           aggregate_pass=lambda *a, **kw: {"periods": [], "cycles": 5, "added": 5,
                                       "since": c_start + 7 * 86400},
-           replace_shared_congestion=lambda p, s, e: written.append(s))
+           replace_shared_congestion=lambda p, s, e, edge: written.append(s))
     assert written == [c_start + 7 * 86400]
 
 
 def test_an_aggregate_pass_without_a_shared_pass_is_never_run():
     calls = []
-    report = _quiet(aggregate_pass=lambda *a: calls.append(a))
+    report = _quiet(aggregate_pass=lambda *a, **kw: calls.append(a))
     assert calls == [] and "shared_congestion" not in report
 
 
@@ -273,8 +273,8 @@ def test_the_segments_pass_reads_the_shared_result_and_replaces_the_window():
         return [{"start": d_start + 900, "end": d_start + 9000, "confidence": "strong"},
                 {"start": d_start + 9900, "end": d_start + 12000, "confidence": "none"}]
 
-    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None,
-                    segments_pass=seg, replace_segments=lambda p, s, e: written.append((len(p), s, e)))
+    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a, **kw: None,
+                    segments_pass=seg, replace_segments=lambda p, s, e, edge: written.append((len(p), s, e)))
     assert seen == [40] and written == [(2, d_start, NOW)]
     assert report["shared_segment"] == {"periods": 2, "hypotheses": 1}
     assert report["errors"] == 0
@@ -289,6 +289,37 @@ def test_no_segments_pass_without_enough_voters_and_a_failure_is_isolated():
     def boom(s):
         raise RuntimeError("no path data")
 
-    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a: None, segments_pass=boom)
+    report = _quiet(shared_pass=_shared_ok, replace_shared=lambda *a, **kw: None, segments_pass=boom)
     assert report["shared_segment"] == {"error": True}
     assert report["shared"]["voters"] == 40 and report["errors"] == 1
+
+
+def test_every_writer_settles_from_the_sliding_edge_not_the_start_date(monkeypatch):
+    # INFERENCE_SINCE pins both windows' starts; the edge store.py settles
+    # from is where each window would start without it.
+    monkeypatch.setenv("INFERENCE_SINCE", "2026-09-25")
+    c_start, d_start = main.windows(NOW)
+    c_edge, d_edge = main.edges(NOW)
+    assert (c_edge, d_edge) == (NOW - 14 * DAY, NOW - 7 * DAY)
+    assert c_start > c_edge
+    edges = {}
+
+    def replace(m, t, c, periods, start, now, edge):
+        edges[m] = (start, edge)
+
+    main.run_once(
+        now=NOW, fetch=lambda t, s: (pd.DataFrame({"epoch": [], "values": []}),
+                                     pd.DataFrame({"epoch": [], "loss_pct": []})),
+        list_targets=lambda s: [("Google", "topsites")],
+        find_congestion=lambda p: {"periods": [], "change_points": 0},
+        find_degradation=lambda lo: {"periods": [], "change_points": 0},
+        replace=replace, read_deaf=lambda s, n: set(), record_pass=lambda r, n: None,
+        shared_pass=_shared_ok,
+        replace_shared=lambda p, s, e, edge: edges.__setitem__("shared", (s, edge)),
+        segments_pass=lambda s: [],
+        replace_segments=lambda p, s, e, edge: edges.__setitem__("segment", (s, edge)),
+        aggregate_pass=lambda *a: {"periods": [], "cycles": 5, "added": 5},
+        replace_shared_congestion=lambda p, s, e, edge: edges.__setitem__("agg", (s, edge)))
+    assert edges == {store.CONGESTION: (c_start, c_edge), store.DEGRADATION: (d_start, d_edge),
+                     "shared": (d_start, d_edge), "segment": (d_start, d_edge),
+                     "agg": (c_start, c_edge)}

@@ -7,7 +7,8 @@ Every ``INFERENCE_INTERVAL`` (3600 s), for each selected ICMP target:
 - loss degradation over the last ``INFERENCE_DEGRADATION_DAYS`` (7)
   (degradation.py);
 
-and their periods replace the window's earlier ones in InfluxDB (store.py).
+and their periods correct the window's earlier ones in InfluxDB, except
+near the window's start, where what earlier passes wrote is kept (store.py).
 Then, once per pass, shared degradation over the same window as the loss
 (shared.py): one series across every destination, for the whole connection;
 and Jitterbug, unchanged, on an aggregate stream of every voter's pings
@@ -72,11 +73,19 @@ def since() -> int | None:
     return int(day.timestamp())
 
 
+def edges(now: int) -> tuple[int, int]:
+    """(congestion, degradation) window starts before INFERENCE_SINCE bounds
+    them: where each window's edge is, and so where store.py settles what
+    earlier passes wrote. A window pinned at its start date does not move."""
+    c = now - _env_int("INFERENCE_CONGESTION_DAYS", DEFAULT_CONGESTION_DAYS) * DAY
+    d = now - _env_int("INFERENCE_DEGRADATION_DAYS", DEFAULT_DEGRADATION_DAYS) * DAY
+    return c, d
+
+
 def windows(now: int) -> tuple[int, int]:
     """(congestion start, degradation start), each bounded by INFERENCE_SINCE."""
     floor = since() or 0
-    c = now - _env_int("INFERENCE_CONGESTION_DAYS", DEFAULT_CONGESTION_DAYS) * DAY
-    d = now - _env_int("INFERENCE_DEGRADATION_DAYS", DEFAULT_DEGRADATION_DAYS) * DAY
+    c, d = edges(now)
     return max(c, floor), max(d, floor)
 
 
@@ -95,15 +104,16 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
     aggregate.run). ``segments_pass(shared_result)`` reads the paths behind
     the shared periods (main() passes segments.run)."""
     if replace_shared_congestion is None:
-        def replace_shared_congestion(periods, start, end):
-            return store.replace_shared(periods, start, end,
+        def replace_shared_congestion(periods, start, end, edge=None):
+            return store.replace_shared(periods, start, end, edge=edge,
                                         measurement=store.SHARED_CONGESTION)
     if replace_segments is None:
-        def replace_segments(periods, start, end):
-            return store.replace_shared(periods, start, end,
+        def replace_segments(periods, start, end, edge=None):
+            return store.replace_shared(periods, start, end, edge=edge,
                                         measurement=store.SHARED_SEGMENT)
     now = int(time.time()) if now is None else now
     c_start, d_start = windows(now)
+    c_edge, d_edge = edges(now)
     started = time.monotonic()
     report = {"at": now, "targets": {}, "errors": 0,
               "windows": {"congestion_start": c_start, "degradation_start": d_start}}
@@ -130,7 +140,8 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             deaf.coverage(c["periods"], c_pings["epoch"])
             row["congestion"] = {"periods": len(c["periods"]),
                                  "change_points": c["change_points"]}
-            replace(store.CONGESTION, target, category, c["periods"], c_start, now)
+            replace(store.CONGESTION, target, category, c["periods"], c_start, now,
+                    edge=c_edge)
             d_loss = loss[loss["epoch"] >= d_start]
             d = find_degradation(d_loss)
             deaf.coverage(d["periods"], d_loss["epoch"])
@@ -139,7 +150,8 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
                                   "change_points": d["change_points"],
                                   "monitor_deaf": sum(1 for p in d["periods"]
                                                       if p.get("class") == deaf.MONITOR_DEAF)}
-            replace(store.DEGRADATION, target, category, d["periods"], d_start, now)
+            replace(store.DEGRADATION, target, category, d["periods"], d_start, now,
+                    edge=d_edge)
         except Exception:  # noqa: BLE001 -- one target must not stop the others
             log.warning("inference failed for %s", target, exc_info=True)
             row["error"] = True
@@ -153,7 +165,7 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             # Too few voters says more about the data than about the network:
             # keep what earlier passes wrote rather than clear the window.
             if s["voters"] >= shared.MIN_VOTERS:
-                replace_shared(s["periods"], d_start, now)
+                replace_shared(s["periods"], d_start, now, edge=d_edge)
             report["shared"] = {"periods": len(s["periods"]), "voters": s["voters"],
                                 "shared": sum(1 for p in s["periods"] if p.get("scope") == "shared"),
                                 "upgrade_bins": s.get("upgrade_bins", 0),
@@ -165,7 +177,7 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
     if segments_pass is not None and s is not None and s["voters"] >= shared.MIN_VOTERS:
         try:
             h = segments_pass(s)
-            replace_segments(h, d_start, now)
+            replace_segments(h, d_start, now, edge=d_edge)
             report["shared_segment"] = {
                 "periods": len(h),
                 "hypotheses": sum(1 for x in h if x.get("confidence") != "none")}
@@ -179,7 +191,8 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             # An empty stream (the first pass found no cycle with a quorum)
             # says nothing: keep what earlier passes wrote.
             if a["cycles"]:
-                replace_shared_congestion(a["periods"], max(c_start, a.get("since") or 0), now)
+                replace_shared_congestion(a["periods"], max(c_start, a.get("since") or 0), now,
+                                          edge=c_edge)
             report["shared_congestion"] = {
                 "periods": len(a["periods"]), "cycles": a["cycles"], "added": a["added"],
                 "base_ms": a.get("base_ms"), "dropped": a.get("dropped"),
