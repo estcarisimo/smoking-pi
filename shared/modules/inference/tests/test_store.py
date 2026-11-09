@@ -332,6 +332,28 @@ def test_a_period_carries_its_class_coverage_and_both_deaf_shares():
     assert re.search(r"[ ,]deaf_loss_share=1[, ]", line)
 
 
+def test_a_period_carries_how_its_loss_was_spread():
+    """A burst: one bin of 31 % in a segment of 14. The counts and the
+    peak's epoch are integer fields, the peak a float."""
+    (pt,) = store.points(store.DEGRADATION, "UBA", "custom",
+                         [{"start": W0 + 900, "end": W0 + 900 + 14 * 900, "mean_loss_pct": 2.19,
+                           "bins": 14, "lossy_bins": 1, "peak_pct": 30.67,
+                           "peak_start": W0 + 4500, "burst": 1}], W0)
+    line = pt.to_line_protocol()
+    assert "lossy_bins=1i" in line and "burst=1i" in line
+    assert f"peak_start={W0 + 4500}i" in line
+    assert "peak_pct=30.67" in line
+    # ``bins`` stays the detector's own, as before: not a field.
+    assert not re.search(r"[ ,]bins=", line)
+
+
+def test_a_period_written_before_the_spread_existed_has_none_of_it():
+    (pt,) = store.points(store.DEGRADATION, "x", "c",
+                         [{"start": W0 + 900, "end": W0 + 4500, "mean_loss_pct": 4.2}], W0)
+    line = pt.to_line_protocol()
+    assert "lossy_bins" not in line and "peak" not in line and "burst" not in line
+
+
 def test_a_pass_becomes_one_point_with_its_cost_and_counts():
     report = {"seconds": 63.8, "errors": 1,
               "targets": {"a": {"congestion": {"periods": 1}, "degradation": {"periods": 2}},

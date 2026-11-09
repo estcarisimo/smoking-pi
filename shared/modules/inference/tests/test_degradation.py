@@ -108,3 +108,60 @@ def test_a_gap_in_the_data_is_not_degraded_time(monkeypatch):
     rows += [(base + (38 + i) * BIN, 0.0) for i in range(20)]
     loss = pd.DataFrame(rows, columns=["epoch", "loss_pct"])
     assert degradation.detect(loss, _probs_at(20, 22))["periods"] == []
+
+
+def test_one_bin_at_31_percent_in_14_is_a_burst():
+    """The reference Pi, UBA, 2026-11-09: BCP cut a segment of 14 bins around
+    one bin at 31 %; it reads as 3.5 h at 2.2 %. Detection is unchanged; the
+    period says the loss was one bin."""
+    series = [0.0] * 20 + [0.0] * 6 + [31.0] + [0.0] * 7 + [0.0] * 20
+    (p,) = degradation.detect(_loss(series), _probs_at(20, 34))["periods"]
+    base = (T0 // BIN) * BIN
+    assert (p["start"], p["end"], p["bins"]) == (base + 20 * BIN, base + 34 * BIN, 14)
+    assert round(p["mean_loss_pct"], 2) == 2.21
+    assert p["lossy_bins"] == 1
+    assert p["peak_pct"] == 31.0
+    assert p["peak_start"] == base + 26 * BIN
+    assert p["burst"] == 1
+
+
+def test_a_bin_at_15_percent_next_to_a_clean_one_is_a_burst():
+    series = [0.0] * 20 + [15.0, 0.0] + [0.0] * 20
+    (p,) = degradation.detect(_loss(series), _probs_at(20, 22))["periods"]
+    assert p["mean_loss_pct"] == 7.5 and p["bins"] == 2
+    assert (p["lossy_bins"], p["peak_pct"], p["burst"]) == (1, 15.0, 1)
+
+
+def test_loss_spread_over_the_period_is_not_a_burst():
+    series = [0.0] * 20 + [3.0, 4.0, 6.0, 4.0, 3.0, 0.0, 4.0, 4.0] + [0.0] * 20
+    (p,) = degradation.detect(_loss(series), _probs_at(20, 28))["periods"]
+    base = (T0 // BIN) * BIN
+    assert p["lossy_bins"] == 7
+    assert p["peak_pct"] == 6.0 and p["peak_start"] == base + 22 * BIN
+    assert p["burst"] == 0
+
+
+def test_a_tie_keeps_the_earliest_peak():
+    series = [0.0] * 20 + [5.0, 5.0, 5.0, 5.0] + [0.0] * 20
+    (p,) = degradation.detect(_loss(series), _probs_at(20, 24))["periods"]
+    assert p["peak_start"] == (T0 // BIN) * BIN + 20 * BIN
+
+
+def test_merged_segments_pool_the_spread():
+    """Two adjacent degraded segments become one period: the lossy bins add
+    up, the peak is the higher of the two with its own bin's start."""
+    series = [0.0] * 10 + [0.0, 9.0, 0.0, 0.0] + [3.0, 12.0, 0.0, 3.0] + [0.0] * 10
+    (p,) = degradation.detect(_loss(series), _probs_at(10, 14, 18))["periods"]
+    base = (T0 // BIN) * BIN
+    assert p["bins"] == 8 and p["mean_loss_pct"] == 3.375
+    assert p["lossy_bins"] == 4
+    assert (p["peak_pct"], p["peak_start"]) == (12.0, base + 15 * BIN)
+    assert p["burst"] == 0
+
+
+def test_merging_keeps_the_earlier_peak_on_a_tie():
+    series = [0.0] * 10 + [8.0, 0.0] + [8.0, 0.0] + [0.0] * 10
+    (p,) = degradation.detect(_loss(series), _probs_at(10, 12, 14))["periods"]
+    base = (T0 // BIN) * BIN
+    assert p["bins"] == 4 and p["lossy_bins"] == 2 and p["burst"] == 0
+    assert (p["peak_pct"], p["peak_start"]) == (8.0, base + 10 * BIN)
