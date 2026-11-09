@@ -94,7 +94,10 @@ still shows whatever history the name has.
 this Pi's own radio heard nothing: the alerter's incidents diagnosed
 `local_wifi` and the inference module's periods labeled `monitor_deaf`,
 taking, of the periods that start together, the shortest: the span every
-target labeled then shares. The loss tiles are the mean
+target labeled then shares. A period is the monitor's when most of its
+loss fell in deaf bins, and it can span clean hours around a short hang, so
+when no shorter period starts with it this tile counts those hours too.
+The loss tiles are the mean
 over the range with those minutes included, so a target that was fine while
 the monitor was deaf still shows loss; subtract the deaf minutes before
 blaming the destination. The *Monitor deaf* and *Loss incidents*

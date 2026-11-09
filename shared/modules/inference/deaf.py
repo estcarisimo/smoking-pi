@@ -116,8 +116,8 @@ def label(periods: list[dict], deaf: set[int], loss: pd.DataFrame) -> list[dict]
         total = sum(per_bin.get(b, 0.0) for b in span)
         p["deaf_share"] = share
         if total > 0:
-            p["deaf_loss_share"] = sum(per_bin.get(b, 0.0) for b in span if b in deaf) / total
-            decisive = p["deaf_loss_share"]
+            in_deaf = sum(per_bin.get(b, 0.0) for b in span if b in deaf)
+            p["deaf_loss_share"] = decisive = in_deaf / total
         else:
             p.pop("deaf_loss_share", None)
             decisive = share

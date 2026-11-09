@@ -342,7 +342,11 @@ other evidence and written beside each period, never fed back into it:
   every other period 0.00. `deaf_share`, the share of the period's bins
   that were deaf, is still written beside it and means what it did; a
   period with no loss at all (a detected one always has some) is classed
-  by it. Target Detail shades `monitor_deaf` periods gray
+  by it. The trade-off: a deaf bin carries up to 100 % loss, so a long, mild
+  real degradation that the segmentation merges with one is labeled the
+  monitor's when the deaf bin outweighs it (40 bins at 2.5 % beside one bin
+  at 100 % read 0.5). `deaf_share` and `mean_loss_pct` beside the class
+  show such a case. Target Detail shades `monitor_deaf` periods gray
   under *Monitor deaf (experimental)* and says so in the text; Connectivity
   & Quality draws them gray on the timeline and leaves them out of the
   degradation count. A wired host never has a deaf period.
