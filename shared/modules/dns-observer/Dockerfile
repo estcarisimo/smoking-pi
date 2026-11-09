@@ -1,7 +1,7 @@
 # AdGuard Home is the DNS server; the supervisor (main.py) is the fallback
 # around it. The binary is AdGuard's own static build, copied from the
 # official image at a pinned version (bump adguard.SCHEMA_VERSION with it).
-FROM adguard/adguardhome:v0.107.79 AS adguard
+FROM adguard/adguardhome:v0.107.80 AS adguard
 
 FROM python:3.15-slim
 
