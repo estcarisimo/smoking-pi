@@ -29,9 +29,9 @@ at 2.2 %, and a 15 % bin next to a clean one as 30 minutes at 7.5 %: the
 span is BCP's segment, not the loss's duration. ``lossy_bins`` counts the
 period's bins with any loss, ``peak_pct`` is its highest bin and
 ``peak_start`` that bin's start (the earliest, on a tie). A period whose
-loss fell in a single bin is a ``burst`` (1, else 0); adjacent segments
-are merged only when each is degraded, so each had loss, and a merged
-period is never one. On the reference Pi
+loss fell in a single bin is a ``burst`` (1, else 0), merged or not; with
+a loss floor above 0 every merged segment had loss, so a merged period has
+two lossy bins at least. On the reference Pi
 each of the periods read as a short burst on one destination between
 2026-10-13 and 2026-11-09 had exactly one lossy bin, and the gateway's
 longer ones had five or more, so no looser rule was needed.

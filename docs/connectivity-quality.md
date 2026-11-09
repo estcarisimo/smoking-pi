@@ -63,8 +63,9 @@ one day to the next, but it is not a count of probe rounds.
   all fell in one 15-minute bin, drawn over that bin instead of the hours
   of segment the detector cut around it (see
   [Bursts](inference.md#bursts-one-bin-of-loss-read-as-hours)); it still
-  counts as a period in the tile above. Every target the module analyzes has a row, the
-  ISP gateway included, so you can see whether the first hop moved too.
+  counts as a period in the tile above. Every target the module analyzes
+  has a row, the ISP gateway included, so you can see whether the first hop
+  moved too.
   These are detections, not confirmations. Compare them with the two panels
   above before believing one. Click a bar for every layer of that target
   over the same range, with the period shaded. The panel is empty unless the module is on

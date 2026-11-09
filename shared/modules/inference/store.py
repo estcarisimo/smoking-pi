@@ -137,7 +137,7 @@ def measurement_name(measurement: str) -> str:
     raise ValueError("unknown measurement")
 
 
-DEGRADATION_COUNTS = ("lossy_bins", "peak_start", "burst")
+DEGRADATION_INTS = ("lossy_bins", "peak_start", "burst")
 
 
 def points(measurement: str, target: str, category: str, periods: list[dict],
@@ -157,9 +157,9 @@ def points(measurement: str, target: str, category: str, periods: list[dict],
                     "deaf_loss_share", "peak_pct"):
             if p.get(key) is not None:
                 pt = pt.field(key, float(p[key]))
-        # How the loss was spread (degradation.py): counts and an epoch as
-        # integers, like the shared counts; ``burst`` is 1 or 0.
-        for key in DEGRADATION_COUNTS:
+        # How the loss was spread (degradation.py): a count, an epoch and a
+        # 1/0 flag, written as integers like the shared counts.
+        for key in DEGRADATION_INTS:
             if p.get(key) is not None:
                 pt = pt.field(key, int(p[key]))
         # "loss" or "monitor_deaf" (deaf.py): a field, like everything else

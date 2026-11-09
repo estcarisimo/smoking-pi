@@ -84,8 +84,9 @@ spread:
 - `peak_pct`: its highest bin's mean loss, and `peak_start` (epoch
   seconds) the start of that bin — the earliest one on a tie;
 - `burst`: 1 when exactly one bin had loss (`lossy_bins == 1`), else 0.
-  Adjacent segments are merged only when each is degraded, so each had
-  loss, and a merged period is never a burst.
+  The rule reads the period as reported, merged or not: with the default
+  floors adjacent segments are merged only when each had loss, so a merged
+  period has at least two lossy bins and is not a burst.
 
 One lossy bin is the whole rule. Every short burst of the read above had
 exactly one; the gateway's longer periods had five or more. A looser rule
@@ -93,9 +94,9 @@ exactly one; the gateway's longer periods had five or more. A looser rule
 needed. Target Detail shades a burst over its bin only, with the text
 "Loss burst (experimental) on UBA: 15 min at 30.7 % (inside a 3.5 h
 segment averaging 2.2 %)"; any other degradation keeps its segment's span
-and adds "peak 9 % at 14:45" to its text, in the time zone Grafana
-resolves for the dashboard (the browser's by default; "UTC" is written
-after the time when that is the zone). Connectivity & Quality draws a
+and adds "peak 9 % at 14:45 UTC" to its text (always UTC: the query does
+not depend on the dashboard's time zone, so a zone it cannot resolve
+never hides the shading). Connectivity & Quality draws a
 burst purple over its bin. Periods written before these fields existed
 have none and read as before. The pass report (`status.json`) counts
 `bursts` per target beside `monitor_deaf`.
