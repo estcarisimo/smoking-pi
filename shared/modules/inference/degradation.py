@@ -21,6 +21,20 @@ The change-point call is Jitterbug's own (its BayesianChangePointDetector),
 copied rather than imported: that class takes a minimum-RTT dataset, and
 loss is not one. A change point at index i starts the new segment at bin i,
 as in Jitterbug, so a segment can begin one bin early.
+
+What a period carries besides its span and mean says how the loss was
+spread inside it, without changing what is detected. A segment's mean
+pools its bins, so one bin at 31 % among 13 clean ones reads as 3.5 hours
+at 2.2 %, and a 15 % bin next to a clean one as 30 minutes at 7.5 %: the
+span is BCP's segment, not the loss's duration. ``lossy_bins`` counts the
+period's bins with any loss, ``peak_pct`` is its highest bin and
+``peak_start`` that bin's start (the earliest, on a tie). A period whose
+loss fell in a single bin is a ``burst`` (1, else 0), merged or not; with
+a loss floor above 0 every merged segment had loss, so a merged period has
+two lossy bins at least. On the reference Pi
+each of the periods read as a short burst on one destination between
+2026-10-13 and 2026-11-09 had exactly one lossy bin, and the gateway's
+longer ones had five or more, so no looser rule was needed.
 """
 
 from __future__ import annotations
@@ -82,7 +96,9 @@ def detect(loss: pd.DataFrame, probabilities=bcp_probabilities) -> dict:
     """Degraded periods of one target from its per-cycle loss.
 
     Returns ``{"periods": [...], "change_points": n, "segments": n}``; each
-    period has ``start``/``end`` (epoch s), ``mean_loss_pct`` and ``bins``.
+    period has ``start``/``end`` (epoch s), ``mean_loss_pct`` and ``bins``,
+    and how its loss was spread: ``lossy_bins``, ``peak_pct``,
+    ``peak_start`` and ``burst`` (module docstring).
     The first segment starts where the window starts, so its true start is
     unknown: it is reported with ``truncated`` set."""
     series = bins(loss)
@@ -100,8 +116,11 @@ def detect(loss: pd.DataFrame, probabilities=bcp_probabilities) -> dict:
         start = int(series.index[a])
         end = int(series.index[b - 1]) + BIN_S
         mean = float(values[a:b].mean())
-        segments.append((start, end, mean, b - a))
-    for i, (start, end, mean, n) in enumerate(segments):
+        top = a + int(np.argmax(values[a:b]))
+        spread = {"lossy_bins": int((values[a:b] > 0).sum()), "peak_pct": float(values[top]),
+                  "peak_start": int(series.index[top])}
+        segments.append((start, end, mean, b - a, spread))
+    for i, (start, end, mean, n, spread) in enumerate(segments):
         # Bins with data, not the span: a gap in the data is not degraded time.
         if n * BIN_S < floor_s or mean < floor_pct:
             continue
@@ -110,7 +129,13 @@ def detect(loss: pd.DataFrame, probabilities=bcp_probabilities) -> dict:
             total = prev["bins"] + n
             prev["mean_loss_pct"] = (prev["mean_loss_pct"] * prev["bins"] + mean * n) / total
             prev["bins"], prev["end"] = total, end
+            prev["lossy_bins"] += spread["lossy_bins"]
+            # The earlier peak stays on a tie, as inside a segment.
+            if spread["peak_pct"] > prev["peak_pct"]:
+                prev["peak_pct"], prev["peak_start"] = spread["peak_pct"], spread["peak_start"]
+            prev["burst"] = int(prev["lossy_bins"] == 1)
             continue
         periods.append({"start": start, "end": end, "mean_loss_pct": mean, "bins": n,
+                        **spread, "burst": int(spread["lossy_bins"] == 1),
                         "truncated": i == 0})
     return {"periods": periods, "change_points": len(segments) - 1, "segments": len(segments)}

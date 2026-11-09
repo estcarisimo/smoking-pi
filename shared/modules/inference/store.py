@@ -137,6 +137,9 @@ def measurement_name(measurement: str) -> str:
     raise ValueError("unknown measurement")
 
 
+DEGRADATION_INTS = ("lossy_bins", "peak_start", "burst")
+
+
 def points(measurement: str, target: str, category: str, periods: list[dict],
            window_start: int) -> list:
     from influxdb_client import Point, WritePrecision
@@ -151,9 +154,14 @@ def points(measurement: str, target: str, category: str, periods: list[dict],
               .field("end", int(p["end"]))
               .field("duration_s", int(p["end"] - p["start"])))
         for key in ("confidence", "jump_ms", "ks_p", "mean_loss_pct", "coverage", "deaf_share",
-                    "deaf_loss_share"):
+                    "deaf_loss_share", "peak_pct"):
             if p.get(key) is not None:
                 pt = pt.field(key, float(p[key]))
+        # How the loss was spread (degradation.py): a count, an epoch and a
+        # 1/0 flag, written as integers like the shared counts.
+        for key in DEGRADATION_INTS:
+            if p.get(key) is not None:
+                pt = pt.field(key, int(p[key]))
         # "loss" or "monitor_deaf" (deaf.py): a field, like everything else
         # here, so a relabeled period rewrites the same point.
         if p.get("class"):

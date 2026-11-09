@@ -105,12 +105,13 @@ def test_a_pass_labels_by_where_the_periods_loss_fell():
                          "loss_pct": [65.0] + [0.0] * 27})
     deaf_rows = [{"_time": float(t)} for t in range(b, b + 900, 10)]
     written = {}
-    main.run_once(
+    report = main.run_once(
         now=NOW, fetch=lambda t, s: (pd.DataFrame(columns=["epoch", "values"]), loss),
         list_targets=lambda s: [("Google", "topsites")],
         find_congestion=lambda p: {"periods": [], "change_points": 0},
         find_degradation=lambda lo: {"periods": [{"start": b, "end": b + 28 * 900,
-                                                  "mean_loss_pct": 65 / 28}],
+                                                  "mean_loss_pct": 65 / 28,
+                                                  "lossy_bins": 1, "burst": 1}],
                                      "change_points": 2},
         replace=lambda m, t, c, periods, start, now, edge: written.setdefault(m, periods),
         read_deaf=lambda start, now: deaf.deaf_bins(deaf_rows),
@@ -118,6 +119,8 @@ def test_a_pass_labels_by_where_the_periods_loss_fell():
     (period,) = written[store.DEGRADATION]
     assert period["class"] == "monitor_deaf" and period["deaf_loss_share"] == 1.0
     assert abs(period["deaf_share"] - 1 / 28) < 1e-9
+    # The pass counts its bursts beside its deaf periods.
+    assert report["targets"]["Google"]["degradation"]["bursts"] == 1
 
 
 def test_a_pass_labels_deaf_periods_and_records_itself():
@@ -145,6 +148,7 @@ def test_a_pass_labels_deaf_periods_and_records_itself():
     assert period["deaf_loss_share"] == 1.0
     assert period["coverage"] == 1.0
     assert report["targets"]["Google"]["degradation"]["monitor_deaf"] == 1
+    assert report["targets"]["Google"]["degradation"]["bursts"] == 0
     assert report["deaf_bins"] == 2
     assert passes == [(report["seconds"], NOW)]
 

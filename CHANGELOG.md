@@ -11,6 +11,23 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Inference: a degradation that was one burst of loss no longer reads as
+  hours of mild loss.** The loss-degradation detector reports BCP's segment
+  and its mean, and a segment pools a burst with the clean bins around it:
+  one 15-minute bin at 31 % among 14 read "3.5 h at 2.2 %" on Target
+  Detail, a 15 % bin beside a clean one "30 min at 7.5 %". On the reference
+  Pi, 7 of the 22 degradation periods read since mid-October were such
+  short bursts on one destination, shown with durations up to fourteen
+  times the loss's and a mean that hid a 31 % peak — a reader looking for
+  a sustained degradation found none. Each period now carries how its loss
+  was spread: `lossy_bins` (bins with any loss), `peak_pct` and
+  `peak_start` (its highest bin and when), and `burst` (1 when exactly one
+  bin had loss). Target Detail shades a burst over its bin only, reading
+  "Loss burst: 15 min at 31 % (inside a 3.5 h segment averaging 2.2 %)",
+  and adds the peak and its time to any other degradation; Connectivity &
+  Quality draws bursts purple at their bin. The detector, its thresholds
+  and the periods it finds are unchanged: bursts are marked, not filtered.
+  Periods written before this read as before.
 - **Inference: a short radio hang no longer turns into hours of "loss"
   degradation.** Since the watchdog ends a hang in 11–12 minutes, a hang is
   one deaf 15-minute bin, and hours later the change-point segmentation

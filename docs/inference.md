@@ -65,6 +65,42 @@ With 10 pings a cycle and 3 cycles a bin, a single lost ping reads 3.3 % in
 its bin. Change-point detection may well cut a segment around it; the
 30-minute floor is what keeps one lost ping from being a degradation.
 
+### Bursts: one bin of loss read as hours
+
+A segment's mean pools all of its bins, and BCP cuts segments where the
+series changes, not where the loss starts and stops. So one 15-minute bin
+at 31 % between clean ones can end up in a segment of 14 bins and read as
+"3.5 h at 2.2 %"; a bin at 15 % beside a clean one reads as "30 min at
+7.5 %". Both pass the floor, both are real loss, and neither lasted longer
+than 15 minutes: the shown duration is the segment's, not the problem's.
+On the reference Pi, 7 of the 22 degradation periods read from mid-October
+to 2026-11-09 were such short bursts on one destination.
+
+The detector is unchanged (the decision of 2026-11-09: mark bursts, do not
+filter them). Each degradation period now also says how its loss was
+spread:
+
+- `lossy_bins`: how many of its bins had any loss (mean loss above 0);
+- `peak_pct`: its highest bin's mean loss, and `peak_start` (epoch
+  seconds) the start of that bin — the earliest one on a tie;
+- `burst`: 1 when exactly one bin had loss (`lossy_bins == 1`), else 0.
+  The rule reads the period as reported, merged or not: with the default
+  floors adjacent segments are merged only when each had loss, so a merged
+  period has at least two lossy bins and is not a burst.
+
+One lossy bin is the whole rule. Every short burst of the read above had
+exactly one; the gateway's longer periods had five or more. A looser rule
+(two lossy bins with most of the loss in one) was considered and not
+needed. Target Detail shades a burst over its bin only, with the text
+"Loss burst (experimental) on UBA: 15 min at 30.7 % (inside a 3.5 h
+segment averaging 2.2 %)"; any other degradation keeps its segment's span
+and adds "peak 9 % at 14:45 UTC" to its text (always UTC: the query does
+not depend on the dashboard's time zone, so a zone it cannot resolve
+never hides the shading). Connectivity & Quality draws a
+burst purple over its bin. Periods written before these fields existed
+have none and read as before. The pass report (`status.json`) counts
+`bursts` per target beside `monitor_deaf`.
+
 Reading the shading across targets says where the loss is. The same period
 on every destination and on the CPE target is the local link or the Pi;
 on every destination but not on the CPE, it is beyond the first hop; on one
@@ -320,7 +356,9 @@ labeled "Jitterbug (as published) on an aggregate input — experimental".
 ## What a period carries besides its detection
 
 The detectors run on the raw series, as published. Two things are read off
-other evidence and written beside each period, never fed back into it:
+other evidence and written beside each period, never fed back into it
+(a degradation period also carries how its loss was spread, `lossy_bins`,
+`peak_pct`, `peak_start` and `burst`: see *Bursts* above):
 
 - **`class`: `loss` or `monitor_deaf`** (degradation only). A radio hang
   records 100 % loss on every destination for hours, and BCP on loss then

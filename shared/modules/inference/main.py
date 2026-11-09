@@ -149,7 +149,8 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             row["degradation"] = {"periods": len(d["periods"]),
                                   "change_points": d["change_points"],
                                   "monitor_deaf": sum(1 for p in d["periods"]
-                                                      if p.get("class") == deaf.MONITOR_DEAF)}
+                                                      if p.get("class") == deaf.MONITOR_DEAF),
+                                  "bursts": sum(1 for p in d["periods"] if p.get("burst"))}
             replace(store.DEGRADATION, target, category, d["periods"], d_start, now,
                     edge=d_edge)
         except Exception:  # noqa: BLE001 -- one target must not stop the others
