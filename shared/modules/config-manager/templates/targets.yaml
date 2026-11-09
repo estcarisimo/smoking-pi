@@ -61,7 +61,10 @@ active_targets:
   custom:
     # uba.ar is fronted by Imperva's CDN, so pinging it measures the
     # nearest Imperva edge, not the university in Buenos Aires
-    # (ns1.uba.ar, 157.92.0.0/16, is the real path there).
+    # (ns1.uba.ar, 157.92.0.0/16, is the real path there). The edge is
+    # anycast and changes, so its floor moves between a few levels; the
+    # dashboards mark its congestion periods as a likely edge change
+    # (docs/inference.md, Anycast destinations).
     - name: uba_ar
       host: uba.ar
       title: uba.ar (Imperva CDN edge)
