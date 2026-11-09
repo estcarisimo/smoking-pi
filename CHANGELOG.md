@@ -16,8 +16,8 @@ OpenClaw setup said or did the wrong thing: `smoking-pi alerts --openclaw`
 hung on a question nobody could answer over ssh, the upgrade's skill refresh
 said "nothing reloaded" about a gateway it had just restarted, and
 `smoking-pi openclaw automations` called a weekly that `alerts status`
-showed as on "off". This patch fixes all three; nothing else changes
-behavior.
+showed as on "off". This patch fixes all three; the only other change is
+AdGuard Home v0.107.80 in the DNS observer image.
 
 ### Fixed
 
