@@ -241,12 +241,36 @@ def test_a_window_pinned_at_its_start_date_corrects_everything_in_it():
     assert client.deleted[0][0] == _iso(since + 1)
 
 
-def test_a_window_that_starts_sliding_settles_from_the_edge():
-    since = NOW - 13 * DAY  # one day after the edge: the guard reaches past it
+def test_a_window_pinned_inside_the_guard_still_corrects_from_its_start():
+    # INFERENCE_SINCE one day after the edge, inside the three-day guard: a
+    # period just after the start date is written, not left out for good.
+    since = NOW - 13 * DAY
+    client = FakeClient()
+    n = store.replace(store.CONGESTION, "NYT", "topsites",
+                      [{"start": since + HOUR, "end": since + 3 * HOUR}],
+                      since, NOW, client=client, edge=NOW - 14 * DAY)
+    assert n == 1
+    assert client.deleted[0][0] == _iso(since + 1)
+
+
+def test_a_window_that_slides_settles_from_the_edge():
+    # Pinned until the edge reaches the start date, then sliding: settled
+    # from the edge like any other window.
+    since = NOW - 14 * DAY
     client = FakeClient()
     store.replace(store.CONGESTION, "NYT", "topsites", [], since, NOW, client=client,
                   edge=NOW - 14 * DAY)
     assert client.deleted[0][0] == _iso(NOW - 11 * DAY + 1)
+
+
+def test_an_aggregate_stream_a_cycle_after_its_edge_slides_with_it():
+    # aggregate.run trims the stream at the window's start, so its first
+    # cycle is up to five minutes after the edge: still sliding, still guarded.
+    edge = NOW - 14 * DAY
+    client = FakeClient()
+    store.replace_shared([], edge + 300, NOW, client=client,
+                         measurement=store.SHARED_CONGESTION, edge=edge)
+    assert client.deleted[0][0] == _iso(edge + 3 * DAY + 1)
 
 
 def test_a_failed_read_deletes_nothing():

@@ -384,8 +384,10 @@ replaying the module's own code hourly over the reference Pi's raw pings
 around every period that was erased: Jitterbug misses a congestion period
 on and off until its start is up to 56 hours past the window's start, and
 BCP loses a degradation in the window's first bin and, once, an hour in.
-With `INFERENCE_SINCE` the window does not move until it reaches its full
-length, and until then every period in it is corrected.
+A window pinned by `INFERENCE_SINCE` (or Jitterbug's aggregate stream while
+it is younger than 14 days) does not move until it reaches its full
+length, so until then every period after its start is corrected; once it
+slides it settles like the others.
 
 Before this change (v2.52.1 and earlier) each pass deleted its whole
 window and rewrote it, so a period was erased as soon as its start came

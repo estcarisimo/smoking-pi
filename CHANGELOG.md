@@ -47,8 +47,9 @@ version gets a matching GitHub release and git tag.
   across the edge keeps its one record rather than gaining a second. The
   lengths come from an hourly replay of the edge on the same data. A
   period now leaves the window as it was last corrected and stays; the
-  history lost before this change is not restored. With `INFERENCE_SINCE`
-  the window corrects everything until it starts sliding.
+  history lost before this change is not restored. A window pinned by
+  `INFERENCE_SINCE` (or the aggregate stream while younger than the
+  window) corrects everything after its start until it starts sliding.
 
 ## [2.52.1] — 2026-11-09
 

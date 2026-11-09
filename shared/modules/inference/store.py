@@ -15,7 +15,8 @@ one the detector no longer finds disappears. Before the settled edge,
 nothing is deleted and nothing is written:
 
 - the settled edge is ``GUARD`` after the window's start (``edge``), not
-  the start itself. Near the start the detectors lose what they found:
+  the start itself (a window pinned by INFERENCE_SINCE has none until it
+  slides: :func:`settle`). Near the start the detectors lose what they found:
   Jitterbug has no preceding segment left to see the jump against, and
   BCP reports a degradation whose start reaches the window's first bin as
   cut by the window (``truncated``). Deleting there erased every period as its
@@ -87,6 +88,9 @@ GUARD = {
     # One hypothesis per shared period, at that period's start.
     SHARED_SEGMENT: 3 * HOUR,
 }
+# A window start more than one 15-minute bin after its edge is pinned (by
+# INFERENCE_SINCE, or a young aggregate stream) rather than sliding with it.
+PINNED_AFTER_S = 900
 
 
 def _client():
@@ -204,15 +208,18 @@ def settle(periods: list[dict], records: list[tuple[int, int]], window_start: in
 
     ``records`` are the (start, end) of the points earlier passes wrote;
     ``edge`` is where the window would start without INFERENCE_SINCE (or an
-    aggregate stream younger than the window): the settled edge is
-    ``guard`` after it, and never before ``window_start``. A window pinned
-    at its start date does not move toward its periods, so it corrects
-    them all until it starts sliding.
+    aggregate stream younger than the window). A window that slides with
+    its edge settles ``guard`` after it. A window pinned later than that
+    (by more than one bin: the aggregate stream starts at the first cycle
+    after its edge) does not move toward its periods, so the detector does
+    not lose them there: it corrects everything after its start until it
+    starts sliding, then settles from the edge like the others.
 
     Returns ``(settled, write)``: records starting at or before ``settled``
     stay; the caller deletes the rest of the window, after ``settled``, and
     writes ``write``."""
-    first = settled = max(window_start, edge + guard)
+    pinned = window_start - edge > PINNED_AFTER_S
+    first = settled = window_start if pinned else max(window_start, edge + guard)
     spans = [(int(p["start"]), int(p["end"])) for p in periods]
     # A period the detector now starts before the edge, or reports cut by
     # the window, but whose record starts after it: keep the record. Moving
