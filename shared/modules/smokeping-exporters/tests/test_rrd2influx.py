@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 import pathlib
 import subprocess
 import sys
@@ -382,10 +383,53 @@ class TestDashboardsAreValidJson:
                         if p["title"] == "Detected episodes, by target (experimental)")
         query = timeline["targets"][0]["query"]
         assert all(part in query for part in cdn_kind)
-        assert 'then 2 else 8' in query
-        defaults = timeline["fieldConfig"]["defaults"]
-        assert 8 in [s["value"] for s in defaults["thresholds"]["steps"]]
-        assert "edge change likely" in defaults["mappings"][0]["options"]["8"]["text"]
+        edge = "persistent congestion: edge change likely (anycast/CDN destination), not a queue ("
+        assert edge in query
+        # The bar's value is its text; the first regex that matches colors it,
+        # so the edge pattern must come before plain congestion's.
+        patterns = [m["options"]["pattern"]
+                    for m in timeline["fieldConfig"]["defaults"]["mappings"]
+                    if m["type"] == "regex"]
+        first = next(pat for pat in patterns if re.match(pat, edge))
+        assert "edge change likely" in first
+
+    def test_the_timeline_bars_carry_their_numbers(self):
+        """Connectivity & Quality's timeline shows each period's numbers in its
+        tooltip: the bar's value is the state followed by them, and a regex
+        mapping colors it by the state alone. Every state the query writes
+        is colored by its own pattern, and a period's end ("clear") is
+        transparent."""
+        with open(GRAFANA_DASHBOARDS / "dashboards" / "Connection"
+                  / "connectivity_quality.json") as fh:
+            panels = json.load(fh)["panels"]
+        timeline = next(p for p in panels
+                        if p["title"] == "Detected episodes, by target (experimental)")
+        query = timeline["targets"][0]["query"]
+        mappings = timeline["fieldConfig"]["defaults"]["mappings"]
+        assert mappings[0]["options"]["clear"]["color"] == "transparent"
+        regexes = [(m["options"]["pattern"], m["options"]["result"]["color"])
+                   for m in mappings if m["type"] == "regex"]
+
+        def color(text):
+            return next((c for pat, c in regexes if re.match(pat, text)), None)
+
+        # What each state's text starts with in the query, and its color.
+        states = {
+            "loss degradation (mean loss ": "#F2495C",
+            "persistent congestion (": "#FF9830",
+            "persistent congestion: edge change likely": "#FFCB7D",
+            "persistent congestion, whole connection: ": "dark-orange",
+            "monitor deaf, this Pi's radio (mean loss ": "#8e8e8e",
+            "shared loss degradation, whole connection (": "#8F1B2A",
+            "loss carried by one destination, not shared (": "#F4B6BE",
+            "loss burst: 15 min at ": "#B877D9",
+        }
+        for start, want in states.items():
+            assert f'"{start}' in query, start
+            assert color(start + "x") == want, start
+        for number in ('", coverage "', '" ms, confidence "', '" voters"',
+                       '", peak "', '"mean loss "'):
+            assert number in query, number
 
 
 # ───────────────────── skip unchanged RRDs ─────────────────────

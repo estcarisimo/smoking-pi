@@ -456,7 +456,9 @@ other evidence and written beside each period, never fed back into it
   reads; a bin of total loss is empty to it), for a degradation period,
   bins with at least one probe cycle (loss is recorded even when nothing
   answers). A congestion period that spans a gap of hours (a hang, a
-  reboot) reads as such — "data in 40 % of the span" in its annotation —
+  reboot) reads as such — "coverage 0.4" in its Target Detail annotation
+  and Connectivity & Quality tooltip ("data in 40 % of the span" in a
+  degradation's annotation) —
   instead of looking like a solid span; the first read of the reference Pi
   found a 49-hour period of a 3.7 ms jump that straddled two hangs.
   The deaf samples come from the same query the alerter uses, capped at
@@ -523,9 +525,17 @@ two annotations, *Persistent congestion (Jitterbug, experimental)* and
 region shows its numbers; on a CDN destination the congestion annotation
 says *edge change likely (anycast/CDN destination)* ([Anycast
 destinations](#anycast-destinations)). They can be switched off from the
-dashboard's annotation toggles. The [Connectivity & Quality](connectivity-quality.md)
+dashboard's annotation toggles. Another, *Whole connection loss
+(experimental)*, shades the house's [shared degradation](#shared-degradation-the-whole-connection)
+periods on every target, so a target's own period is read inside or
+outside one ([Target Detail](target-detail.md#what-the-inference-module-marks-on-the-charts)).
+The [Connectivity & Quality](connectivity-quality.md)
 dashboard draws every target's periods on one timeline, under the loss and
-latency they are about.
+latency they are about, with each period's numbers in its tooltip. Since
+periods are kept once their start leaves the corrected part of the window
+(see *What a pass corrects and what it keeps*), the dashboards' longer
+ranges show the history accumulated since that change (2026-11-09), not
+only the last 14 days the detectors re-read.
 
 `docker exec <project>-inference-1 python status.py` prints the last pass:
 per target, the change points and periods found, and how long it took.

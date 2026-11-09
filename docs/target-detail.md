@@ -90,18 +90,69 @@ The target dropdown offers the names with a point in the last 24 hours, so a
 retired name is reached only through a link or a bookmark; the dashboard
 still shows whatever history the name has.
 
-**Monitor deaf in range** is the time inside the range in which
-this Pi's own radio heard nothing: the alerter's incidents diagnosed
-`local_wifi` and the inference module's periods labeled `monitor_deaf`,
-taking, of the periods that start together, the shortest: the span every
-target labeled then shares. A period is the monitor's when most of its
-loss fell in deaf bins, and it can span clean hours around a short hang, so
-when no shorter period starts with it this tile counts those hours too.
-The loss tiles are the mean
-over the range with those minutes included, so a target that was fine while
-the monitor was deaf still shows loss; subtract the deaf minutes before
-blaming the destination. The *Monitor deaf* and *Loss incidents*
-annotations mark the same spans on the charts.
+**Monitor deaf in range** is how many minutes inside the range this Pi's
+own radio heard nothing, counted from the Wi-Fi collector's samples: a
+sample is deaf when the uplink's received-packet counter did not move
+since the sample before, or the radio was not associated (the definition
+in `common/microcuts.py` that the alerter, the doctor and the inference
+module use; the doctor's `dashboard-definitions-match` check holds the
+tile's query to it). Each deaf sample counts the time since the one before
+it, 10 s at the collector's default cadence and never more than a minute.
+It says "none" when no sample was deaf, and also on a wired Pi, which has
+no Wi-Fi samples. It reads every Wi-Fi sample in the range, 8 640 a day at
+the default cadence, so on a range of months it is the slowest tile on the
+page; the first sample of each interface in the range is not counted (it
+has no sample before it), at most 20 s. The loss tiles are the mean over the range with those
+minutes included, so a target that was fine while the monitor was deaf
+still shows loss; subtract the deaf minutes before blaming the
+destination.
+
+The tile counted the spans of the inference module's `monitor_deaf`
+periods and the alerter's `local_wifi` incidents until 2026-11-09. A
+`monitor_deaf` period is classed by where its *loss* fell, and the
+segmentation can stretch the period around a 12-minute hang over 6–8
+clean hours, so the tile could report hours of deafness for minutes of
+it. The incidents are diagnosed from these same samples, so counting
+their spans as well would count a deaf minute twice. The *Monitor deaf*
+and *Loss incidents* annotations still mark those spans on the charts, so
+a gray span can be longer than the tile's minutes.
+
+## What the inference module marks on the charts
+
+With the [inference module](inference.md) on (`smoking-pi enable
+inference`, experimental), the charts carry its periods as shaded
+annotations; hover one for its numbers, and switch each off from the
+annotation toggles at the top of the dashboard.
+
+- **Persistent congestion (Jitterbug, experimental)**, orange: the
+  minimum RTT rose and stayed. The text gives the jump ("the minimum RTT
+  rose 4.2 ms and stayed"), Jitterbug's `confidence`, the `coverage` (the
+  share of the period's 15-minute bins with at least one answered ping:
+  "coverage 0.67" means a third of the span had no data, a hang or a
+  reboot, and the period is drawn across it), and the KS test's p-value
+  ("KS p 0.003"; "KS p < 0.001" below that), the evidence that the latency
+  distribution changed. On a CDN destination it also says *edge change
+  likely (anycast/CDN destination)* ([Anycast
+  destinations](inference.md#anycast-destinations)).
+- **Loss degradation (experimental)**, red: this target's loss rose for a
+  while (mean loss, peak, and "data in N % of the span", the same
+  coverage as a percentage); a burst, one 15-minute bin that
+  carried all of it, is shaded over that bin.
+- **Monitor deaf (experimental)**, gray: a period whose loss fell mostly
+  while this Pi's radio heard nothing.
+- **Whole connection loss (experimental)**, dark red: the period the
+  module found when it ran on every destination's loss together
+  (`shared_degradation`). It is the house's period, not this target's:
+  that measurement has no target, so the same span appears on every
+  target's page. The text reads "Whole connection lost 3.2 % (18 voters,
+  scope shared across operators; experimental)": the pooled loss, how
+  many destinations voted, and whether the loss was shared (a third of
+  the operators or more, of two kinds of infrastructure or more) or one
+  destination carried it (that destination is named). A target's own
+  degradation inside such a span is part of something larger; one outside
+  it is the target's alone. The **Connectivity & Quality** link at the
+  top opens the same range there, where the *Whole connection* table says
+  who lost.
 
 ## How targets pair across probes
 

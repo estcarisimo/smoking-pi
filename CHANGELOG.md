@@ -30,6 +30,39 @@ version gets a matching GitHub release and git tag.
   detector and what it writes are unchanged. `docs/inference.md` has a new
   *Anycast destinations* section, and the seed's note on `uba.ar` says why
   its floor moves.
+- **Inference: the dashboards show the numbers the module already stores,
+  and the deaf tile counts deaf minutes, not periods.** The 2026-11-09
+  production read found four gaps between what InfluxDB holds and what the
+  panels said. Target Detail's congestion annotation gave the jump and
+  Jitterbug's confidence but not the period's `coverage` nor the KS test's
+  `ks_p`, both written since the module shipped, so a 49-hour period
+  drawn across two hangs looked as solid as a clean one. A target's
+  degradation could not be told apart from the whole connection's: the
+  shared period (`shared_degradation`) was drawn only on Connectivity &
+  Quality. The Connectivity & Quality timeline named each period's state
+  and nothing else. And *Monitor deaf in range* summed the spans of
+  `monitor_deaf` periods, which since #454 can stretch over the 6–8 clean
+  hours the segmentation put around a 12-minute hang, so the tile could
+  report hours of deafness for minutes of it. Now the congestion
+  annotation ends "confidence 0.87, coverage 0.67, KS p 0.003"; a new
+  Target Detail annotation, *Whole connection loss (experimental)*, shades
+  the house's shared periods on every target ("Whole connection lost 3.2 %
+  (18 voters, scope shared across operators; experimental)"), with a
+  Connectivity & Quality link at the top that keeps the range; the
+  timeline's tooltip carries each period's numbers after its state (jump,
+  confidence and coverage for congestion; mean loss, peak and coverage
+  for a degradation; mean loss and voters for the *Whole connection*
+  rows), with the same rows and colors as before (each bar's value is now
+  that text, colored by regex mappings on its state); and the deaf tile
+  counts, in minutes, the Wi-Fi samples `common/microcuts.uplink_flux`
+  calls deaf, the definition the alerter, the doctor and the inference
+  service use. The alerter's `local_wifi` incidents are no longer added
+  to it: they are diagnosed from those same samples, so their spans would
+  count a deaf minute twice. The doctor's `dashboard-definitions-match`
+  check now holds any panel that restates the deaf definition (the tile,
+  and the Overview's *ISP gateway cut windows*, which already did) to
+  `uplink_flux`'s Flux. Nothing to set; the new queries run at the next
+  staging acceptance (`doctor --live`).
 
 ### Fixed
 
