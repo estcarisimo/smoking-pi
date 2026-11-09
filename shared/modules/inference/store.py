@@ -1,25 +1,52 @@
-"""Results into InfluxDB, one point per period, replaced on every run.
+"""Results into InfluxDB, one point per period, kept once written.
 
 ``persistent_congestion`` (Jitterbug) and ``loss_degradation`` (BCP on
 loss), tagged ``target``/``category``, timestamped at the period's start,
 with the end in the ``end`` field (epoch seconds) so Grafana can shade the
-region. Each run deletes its window's points for the target before writing
-the new ones: a period found again is replaced, not duplicated, and one the
-detector no longer finds disappears. Points before the window are kept.
+region. A point is keyed by measurement, tags and start: a period written
+again at the same start replaces its point, one written at another start
+would be a second point for the same period.
 
-A period that begins at the window's first bin was cut by the window: its
-real start is earlier and an earlier run recorded it. It is not written, so
-the earlier record stays, with the end that run saw.
+Each pass corrects what earlier passes wrote while a period is comfortably
+inside the window: it deletes the target's points from the window's
+*settled edge* to now and writes what the detector found there, so a period
+found again is replaced, a start moved by a bin or two is rewritten, and
+one the detector no longer finds disappears. Before the settled edge,
+nothing is deleted and nothing is written:
 
-Delete-then-write is not atomic: if the write fails, the window shows no
-period until the next pass an hour later. These are experimental shades,
-not alerts, so that is accepted rather than worked around.
+- the settled edge is ``GUARD`` after the window's start (``edge``), not
+  the start itself. Near the start the detectors lose what they found:
+  Jitterbug has no preceding segment left to see the jump against, and
+  BCP reports a degradation whose start reaches the window's first bin as
+  cut by the window (``truncated``). Deleting there erased every period as its
+  start neared the window's start (the reference Pi, 2026-11-09: 12 of
+  19 congestion periods and at least 8 degradation periods gone);
+- a period the detector reports with its start before the settled edge
+  is not written, so the record an earlier pass made while the period was
+  comfortably inside stays as it was, with the end and numbers that pass
+  saw;
+- a period the detector now places before the settled edge, whose record
+  starts after it (its start moved back across the edge), keeps that
+  record: the settled edge moves to it;
+- a period after the settled edge that overlaps a kept record is that
+  record seen again with a shifted start, and is not written either.
+
+So every period gets at most one point, and once its start passes the
+settled edge it is never deleted. The records are read before anything is
+deleted; if the read fails, nothing changes.
+
+Delete-then-write is not atomic: if the write fails, the corrected part of
+the window shows no period until the next pass an hour later. These are
+experimental shades, not alerts, so that is accepted rather than worked
+around.
 """
 
 from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+
+from common.tsdb import flux_str
 
 CONGESTION = "persistent_congestion"
 DEGRADATION = "loss_degradation"
@@ -35,6 +62,31 @@ SHARED_CONGESTION = "shared_congestion"
 SHARED_SEGMENT = "shared_segment"
 # One point per pass: how long, how many targets, how many failed.
 PASS = "inference_pass"
+
+HOUR = 3600
+DAY = 86400
+# How far after the window's start the settled edge lies, per measurement:
+# what the detector reports before it is not trusted to correct, let alone
+# erase, an earlier record. From an hourly replay of the module's own code
+# over the reference Pi's raw pings (October to 2026-11-09), around the
+# edge of every period the hourly passes erased: Jitterbug misses a
+# congestion period on and off until its start is up to 56 hours past the
+# window's start (uba_ar, 2026-10-15) and finds each one again beyond
+# that, so three days keeps every one with a margin of 16 hours. BCP
+# reports a degradation ``truncated`` once its start is in the window's
+# first bin and misses one more (UBA, 2026-10-28) an hour in, so three
+# hours keeps every one with a full pass to spare. Periods the replay lost
+# further in (3 congestion, the degradations seen once or twice) were
+# corrections, not the edge, and stay corrections.
+GUARD = {
+    CONGESTION: 3 * DAY,
+    SHARED_CONGESTION: 3 * DAY,
+    DEGRADATION: 3 * HOUR,
+    # BCP on one series of the whole connection's loss: the same edge.
+    SHARED: 3 * HOUR,
+    # One hypothesis per shared period, at that period's start.
+    SHARED_SEGMENT: 3 * HOUR,
+}
 
 
 def _client():
@@ -141,24 +193,97 @@ def write_pass(report: dict, now: int, client=None) -> None:
             client.close()
 
 
+def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
+    """Two [start, end) spans share time; adjacent ones do not."""
+    return a[0] < b[1] and b[0] < a[1]
+
+
+def settle(periods: list[dict], records: list[tuple[int, int]], window_start: int,
+           edge: int, guard: int) -> tuple[int, list[dict]]:
+    """Where this pass may correct, and what it writes there.
+
+    ``records`` are the (start, end) of the points earlier passes wrote;
+    ``edge`` is where the window would start without INFERENCE_SINCE (or an
+    aggregate stream younger than the window): the settled edge is
+    ``guard`` after it, and never before ``window_start``. A window pinned
+    at its start date does not move toward its periods, so it corrects
+    them all until it starts sliding.
+
+    Returns ``(settled, write)``: records starting at or before ``settled``
+    stay; the caller deletes the rest of the window, after ``settled``, and
+    writes ``write``."""
+    first = settled = max(window_start, edge + guard)
+    spans = [(int(p["start"]), int(p["end"])) for p in periods]
+    # A period the detector now starts before the edge, or reports cut by
+    # the window, but whose record starts after it: keep the record. Moving
+    # the edge can put another reported period before it, so repeat.
+    while True:
+        early = [s for p, s in zip(periods, spans) if p.get("truncated") or s[0] <= settled]
+        moved = [r[0] for r in records
+                 if r[0] > settled and any(_overlaps(r, s) for s in early)]
+        if not moved:
+            break
+        settled = max(moved)
+    kept = [r for r in records if r[0] <= settled]
+    write = [p for p, s in zip(periods, spans)
+             if not p.get("truncated") and s[0] > first
+             and not any(_overlaps(r, s) for r in kept)]
+    return settled, write
+
+
+def _records(client, measurement: str, target: str | None, start: int, now: int) -> list:
+    """(start, end) of ``measurement``'s points since ``start``: what earlier
+    passes wrote, for :func:`settle`."""
+    who = f" and r.target == {flux_str(target)}" if target is not None else ""
+    flux = (f"from(bucket: {flux_str(_bucket())}) "
+            f"|> range(start: {int(start)}, stop: {int(now) + 1}) "
+            f"|> filter(fn: (r) => r._measurement == {flux_str(measurement)}{who}"
+            ' and r._field == "end") '
+            '|> keep(columns: ["_time", "_value"])')
+    out = []
+    for table in client.query_api().query(flux):
+        for record in table.records:
+            when, end = record.values.get("_time"), record.values.get("_value")
+            if when is not None and end is not None:
+                out.append((int(when.timestamp()), int(end)))
+    return sorted(out)
+
+
+def _settle_and_write(client, measurement: str, target: str | None, periods: list[dict],
+                      window_start: int, now: int, edge: int | None, to_points) -> int:
+    """Read the records, delete after the settled edge, write the rest."""
+    edge = window_start if edge is None else int(edge)
+    # A point can be no longer than the window it was found in, so records
+    # that could overlap anything after the settled edge start after this.
+    since = min(window_start, edge) - (now - edge)
+    records = _records(client, measurement, target, since, now)
+    settled, write = settle(periods, records, window_start, edge, GUARD[measurement])
+    if settled < now:
+        who = f" AND target={_quoted(target)}" if target is not None else ""
+        client.delete_api().delete(
+            _iso(settled + 1), _iso(now), f"_measurement={_quoted(measurement)}{who}",
+            bucket=_bucket(), org=os.environ.get("INFLUX_ORG", "smokeping"),
+        )
+    batch = to_points(write)
+    if batch:
+        from influxdb_client.client.write_api import SYNCHRONOUS
+
+        client.write_api(write_options=SYNCHRONOUS).write(bucket=_bucket(), record=batch)
+    return len(batch)
+
+
 def replace(measurement: str, target: str, category: str, periods: list[dict],
-            window_start: int, now: int, client=None) -> int:
-    """Delete ``measurement``'s points for ``target`` in [window_start, now]
-    and write ``periods``. Returns how many points were written."""
+            window_start: int, now: int, client=None, edge: int | None = None) -> int:
+    """Correct ``measurement``'s points for ``target`` after the window's
+    settled edge (:func:`settle`) with ``periods``; earlier points stay.
+    Returns how many points were written."""
     own = client is None
     client = client or _client()
     try:
-        client.delete_api().delete(
-            _iso(window_start), _iso(now),
-            f"_measurement={_quoted(measurement)} AND target={_quoted(target)}",
-            bucket=_bucket(), org=os.environ.get("INFLUX_ORG", "smokeping"),
-        )
-        batch = points(measurement, target, category, periods, window_start)
-        if batch:
-            from influxdb_client.client.write_api import SYNCHRONOUS
-
-            client.write_api(write_options=SYNCHRONOUS).write(bucket=_bucket(), record=batch)
-        return len(batch)
+        name = measurement_name(measurement)
+        return _settle_and_write(
+            client, name, target, periods, window_start, now, edge,
+            lambda keep: points(measurement, target, category, keep, window_start))
     finally:
         if own:
             client.close()
@@ -208,22 +333,16 @@ def shared_points(periods: list[dict], window_start: int,
 
 
 def replace_shared(periods: list[dict], window_start: int, now: int, client=None,
-                   measurement: str = SHARED) -> int:
-    """Delete the window's ``shared_degradation`` (or ``shared_congestion``,
-    ``shared_segment``) points and write ``periods``."""
+                   measurement: str = SHARED, edge: int | None = None) -> int:
+    """Correct the window's ``shared_degradation`` (or ``shared_congestion``,
+    ``shared_segment``) points after its settled edge with ``periods``, as
+    :func:`replace` does."""
     own = client is None
     client = client or _client()
     try:
-        client.delete_api().delete(
-            _iso(window_start), _iso(now), f"_measurement={_quoted(measurement_name(measurement))}",
-            bucket=_bucket(), org=os.environ.get("INFLUX_ORG", "smokeping"),
-        )
-        batch = shared_points(periods, window_start, measurement)
-        if batch:
-            from influxdb_client.client.write_api import SYNCHRONOUS
-
-            client.write_api(write_options=SYNCHRONOUS).write(bucket=_bucket(), record=batch)
-        return len(batch)
+        return _settle_and_write(
+            client, measurement_name(measurement), None, periods, window_start, now, edge,
+            lambda keep: shared_points(keep, window_start, measurement))
     finally:
         if own:
             client.close()

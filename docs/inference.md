@@ -363,6 +363,38 @@ other evidence and written beside each period, never fed back into it:
   past that the service logs a warning and the newest deaf periods may read
   as loss.
 
+## What a pass corrects and what it keeps
+
+A period, once written, stays. Every pass rewrites what it finds well
+inside its window, so a period found again is rewritten, not duplicated, a
+start that moved by a bin or two moves with it, and one no longer found
+disappears; but nothing is deleted or written in the window's first
+**3 days for congestion** (per target and shared) and first **3 hours for
+degradation** (per target and shared, and the path segment read for each
+shared period). There the detectors lose what they found: Jitterbug needs
+a stretch before a period to see the floor jump against, and BCP reports a
+degradation whose start reaches the window's first bin as cut by the
+window. A period the detector now places there keeps the record an
+earlier pass wrote while it was comfortably inside the window, with that
+pass's end and numbers; a start that moves across that line keeps its
+record too, never a second one. So a period leaves the window as it was
+last corrected and stays in InfluxDB, and the dashboards' 30-day ranges
+show 30 days of periods from this change on. The two lengths come from
+replaying the module's own code hourly over the reference Pi's raw pings
+around every period that was erased: Jitterbug misses a congestion period
+on and off until its start is up to 56 hours past the window's start, and
+BCP loses a degradation in the window's first bin and, once, an hour in.
+With `INFERENCE_SINCE` the window does not move until it reaches its full
+length, and until then every period in it is corrected.
+
+Before this change (v2.52.1 and earlier) each pass deleted its whole
+window and rewrote it, so a period was erased as soon as its start came
+close enough to the window's start for the detector to lose it: on the
+reference Pi, 12 of the 19 congestion periods and at least 8 degradation
+periods written since October were gone, and the dashboards' longer ranges
+showed at most the 14 (congestion) or ~7 (degradation) days of the window.
+That history is lost; the raw pings are still there to replay it from.
+
 ## Pass history
 
 Every pass writes one `inference_pass` point: `seconds`, `targets`,
@@ -418,12 +450,11 @@ service runs at a lower CPU priority and is limited to one core, so the
 measurements always come first. It only reads and writes InfluxDB; it sends
 nothing to the network.
 
-Each pass replaces the results inside its window: a period found again is
-rewritten, not duplicated, and one no longer found disappears. A period cut
-by the start of the window is left as an earlier pass recorded it. If a
-pass fails after clearing its window, the window shows nothing until the
-next pass. `status.py` reports the time of the last pass without errors
-(`last_ok`).
+Each pass corrects the periods inside its window and keeps the ones near
+its start (see [What a pass corrects and what it keeps](#what-a-pass-corrects-and-what-it-keeps)).
+If a pass fails after clearing what it corrects, that part of the window
+shows nothing until the next pass. `status.py` reports the time of the last
+pass without errors (`last_ok`).
 
 
 The shared detector adds one change-point run on one series per pass, plus

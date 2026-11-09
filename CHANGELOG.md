@@ -25,6 +25,30 @@ version gets a matching GitHub release and git tag.
   loss) fell in deaf bins, written as the new field `deaf_loss_share`;
   `deaf_share` (the bin share) is still written and means what it did. The
   detector is unchanged.
+- **The inference service no longer erases its own history at the
+  window's edge.** Every hourly pass deleted its whole window
+  (`[window start, now]`) for each target and rewrote what the detector
+  found; as the window's start neared a period's start, Jitterbug lost the
+  stretch before it to see the jump against, and BCP folded the bins
+  before a degradation into it, so the detector stopped finding the period
+  and the last pass that still covered it deleted it. `store.py` said the
+  opposite ("Points before the window are kept"). On the reference Pi 12 of
+  the 19 congestion periods and at least 8 of the degradation periods
+  written since October were gone (the 2026-11-09 production read, which
+  replayed the module's code over the raw pings), the 30-day panels of
+  Target Detail and Connectivity & Quality showed at most 14 days of
+  congestion and about 7 of degradation without saying so, and the
+  front-1 validation ("observe several weeks") had nothing to read beyond
+  the window. A pass now reads what earlier passes wrote and corrects only
+  after a settled edge — 3 days into the window for congestion (per target
+  and shared), 3 hours for degradation (per target, shared, and the
+  shared path segments): before it nothing is deleted, a period the
+  detector reports there is not written, and a period whose start moves
+  across the edge keeps its one record rather than gaining a second. The
+  lengths come from an hourly replay of the edge on the same data. A
+  period now leaves the window as it was last corrected and stays; the
+  history lost before this change is not restored. With `INFERENCE_SINCE`
+  the window corrects everything until it starts sliding.
 
 ## [2.52.1] — 2026-11-09
 
