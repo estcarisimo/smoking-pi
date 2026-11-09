@@ -59,13 +59,15 @@ one day to the next, but it is not a count of probe rounds.
   every other line. The Overview's *Toward the ISP* panel charts it.
 - **Detected episodes, by target (experimental).** What the
   [inference module](inference.md) found: red is loss degradation, orange is
-  persistent congestion. Purple is a loss burst: a degradation whose loss
-  all fell in one 15-minute bin, drawn over that bin instead of the hours
-  of segment the detector cut around it (see
-  [Bursts](inference.md#bursts-one-bin-of-loss-read-as-hours)); it still
-  counts as a period in the tile above. Every target the module analyzes
-  has a row, the ISP gateway included, so you can see whether the first hop
-  moved too.
+  persistent congestion, pale orange a congestion period on a CDN
+  destination, where the edge changing is the likelier reading (see
+  [Anycast destinations](inference.md#anycast-destinations)). Purple is a
+  loss burst: a degradation whose loss all fell in one 15-minute bin, drawn
+  over that bin instead of the hours of segment the detector cut around it
+  (see [Bursts](inference.md#bursts-one-bin-of-loss-read-as-hours)); it
+  still counts as a period in the tile above. Every target the module
+  analyzes has a row, the ISP gateway included, so you can see whether the
+  first hop moved too.
   These are detections, not confirmations. Compare them with the two panels
   above before believing one. Click a bar for every layer of that target
   over the same range, with the period shaded. The panel is empty unless the module is on

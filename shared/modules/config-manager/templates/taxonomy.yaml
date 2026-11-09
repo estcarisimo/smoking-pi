@@ -824,7 +824,7 @@ rules:
     source: manual
     confidence: medium
     since: 2026-10-23
-    note: uba.ar is fronted by Imperva's CDN, so the path measured is Imperva's edge.
+    note: uba.ar is fronted by Imperva's anycast CDN, so the path measured is Imperva's nearest edge; when that edge changes the floor moves, which Jitterbug reads as congestion (docs/inference.md, Anycast destinations).
   - match: {host_suffix: [ns1.uba.ar]}
     service: Universidad de Buenos Aires
     categories: [academic]

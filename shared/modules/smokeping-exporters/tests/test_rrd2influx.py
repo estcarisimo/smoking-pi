@@ -330,6 +330,63 @@ class TestDashboardsAreValidJson:
                             queries["Targets per delivery kind"])
         assert listed == list(asn.KINDS)
 
+    def test_flux_queries_close_their_strings(self):
+        """A stray quote in a Flux query swallows the rest of the line and the
+        panel errors on every target; nothing runs the Flux before Grafana."""
+        import re
+
+        def queries(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "query" and isinstance(value, str) and "from(" in value:
+                        yield value
+                    else:
+                        yield from queries(value)
+            elif isinstance(node, list):
+                for value in node:
+                    yield from queries(value)
+
+        unbalanced = []
+        for path in sorted(GRAFANA_DASHBOARDS.glob("dashboards/**/*.json")):
+            with open(path) as fh:
+                for query in queries(json.load(fh)):
+                    body = re.sub(r"^\s*//.*$", "", query, flags=re.MULTILINE)
+                    body = re.sub(r"\\.", "", body)
+                    if body.count('"') % 2:
+                        unbalanced.append(f"{path.name}: {query[:60]!r}")
+        assert not unbalanced
+
+    def test_congestion_on_a_cdn_reads_as_an_edge_change(self):
+        """Target Detail and Connectivity & Quality mark a congestion period
+        on a CDN destination as a likely edge change by reading the kind this
+        module writes on target_labels (docs/inference.md, Anycast
+        destinations). A renamed kind would drop the mark without an error."""
+        from common import asn
+
+        cdn_kind = ('r._measurement == "target_labels"', 'r._field == "kind"',
+                    f'r._value == "{asn.CDN}"')
+        with open(GRAFANA_DASHBOARDS / "dashboards" / "Targets"
+                  / "target_detail.json") as fh:
+            annotations = json.load(fh)["annotations"]["list"]
+        note = next(a for a in annotations
+                    if a["name"] == "Persistent congestion (Jitterbug, experimental)")
+        query = note["target"]["query"]
+        assert all(part in query for part in cdn_kind)
+        assert "contains(value: r.target, set: edge)" in query
+        assert "edge change likely (anycast/CDN destination)" in query
+
+        with open(GRAFANA_DASHBOARDS / "dashboards" / "Connection"
+                  / "connectivity_quality.json") as fh:
+            panels = json.load(fh)["panels"]
+        timeline = next(p for p in panels
+                        if p["title"] == "Detected episodes, by target (experimental)")
+        query = timeline["targets"][0]["query"]
+        assert all(part in query for part in cdn_kind)
+        assert 'then 2 else 8' in query
+        defaults = timeline["fieldConfig"]["defaults"]
+        assert 8 in [s["value"] for s in defaults["thresholds"]["steps"]]
+        assert "edge change likely" in defaults["mappings"][0]["options"]["8"]["text"]
+
 
 # ───────────────────── skip unchanged RRDs ─────────────────────
 class TestRRDChangedSince:

@@ -9,6 +9,28 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **Inference: a congestion period on a CDN destination now says it is
+  likely the edge changing, not a queue.** Every congestion period Jitterbug
+  reported on the seed's Imperva-fronted target (`uba_ar`) on the reference
+  Pi, 12 of 12 up to the 2026-11-09 production read, was the anycast edge
+  changing or flapping between edges (its minimum RTT sits on three levels,
+  6–8, 15–21 and 30–40 ms, with the AS path unchanged), never a standing
+  queue; Target Detail and Connectivity & Quality shaded them as congestion
+  all the same, which on a Jitterbug validation reads as false positives on
+  every evening an edge moved. The dashboards now read each target's
+  delivery kind (`target_labels`, written by the exporter) and, for a `cdn`
+  target, the Target Detail annotation says *edge change likely
+  (anycast/CDN destination)* and Connectivity & Quality draws the period
+  pale orange on its own row; the shade stays. Nothing to set: every target
+  the exporter classifies as a CDN is marked, earlier periods included
+  (the kind is read when the dashboard draws, so a target reclassified
+  later gains or loses the mark on its older periods too). The
+  detector and what it writes are unchanged. `docs/inference.md` has a new
+  *Anycast destinations* section, and the seed's note on `uba.ar` says why
+  its floor moves.
+
 ### Fixed
 
 - **Inference: a degradation that was one burst of loss no longer reads as

@@ -46,6 +46,69 @@ were sent is lost. The KS test compares distributions and does not depend on
 that order, which is one more reason the paper's configuration is the one
 used here.
 
+### Anycast destinations
+
+Jitterbug assumes the path to a target stays put, so that a floor which
+rises and stays risen is a queue. A destination behind a multi-tenant CDN
+breaks that assumption: the address you ping answers from whichever edge
+the CDN's routing picks (anycast: Cloudflare, Fastly, Imperva...) or its DNS
+picks (Akamai, CloudFront), and that edge can change while the name, the
+address and the AS path do not. A farther edge raises the floor exactly as
+a queue would, and Jitterbug, as published, reports it as congestion.
+
+The seed's `uba_ar` is such a target: `uba.ar` is fronted by Imperva's
+anycast CDN, so pinging it measures the nearest Imperva edge, a few
+milliseconds away, not the university in Buenos Aires (`ns1.uba.ar`, on the
+university's own network, is the real path there). Its 15-minute minimum
+RTT sits on three stable modes, 6–8, 15–21 and 30–40 ms, as the answering
+edge changes. On the reference
+Pi, every one of the 12 congestion periods Jitterbug reported on it up to
+2026-11-09 was the edge changing or flapping between edges: clean floor
+shifts to 18–25 ms, spans of 14 to 71 hours in which only how often the
+farther edge answered changed, an artifact over gaps when the monitor was
+deaf, a flicker. None was a standing queue. On a destination served from
+its own network (Facebook), the same detector over the same weeks reported
+five plausible evening queues.
+
+So a congestion period on a CDN destination is marked, not dropped. The
+mark is a reading, not a measurement: it was established on one target
+(`uba_ar`), and on another CDN it says what is likelier, not what happened;
+a real queue on the way to a CDN target is marked all the same.
+
+- **Target Detail** keeps the orange shade, and the annotation says
+  *edge change likely (anycast/CDN destination)*: the floor rose, probably
+  because a farther edge started answering, not because a queue built up.
+- **Connectivity & Quality** draws the period pale orange on its own row,
+  *edge change likely (anycast/CDN destination)*, beside the target's
+  ordinary congestion row. The *Persistent congestion periods* count still
+  includes it.
+
+The period is still detected and written as before (`persistent_congestion`,
+the same fields): the mark is the dashboards' reading of it, from the
+target's delivery kind, and it does not change what Jitterbug finds. Read
+such a period as a route change, and check it against the latency panels
+(a floor that jumps between a few fixed levels is an edge moving) and the
+target's [path](path.md) before calling it congestion.
+
+**Which targets are marked.** Every target whose delivery kind is `cdn`:
+the exporter looks up the AS each target's address answers from and
+classifies it ([Service taxonomy, Delivery](taxonomy.md#delivery)), and
+writes the kind on `target_labels`, which the dashboards read. There is
+nothing to set: a target of your own on Cloudflare, Fastly, Akamai,
+CloudFront or Imperva is marked as soon as its owner is looked up, and the
+mark applies to its earlier periods too, since it is read when the
+dashboard draws them. The list of CDN networks is `KNOWN` in
+`shared/modules/common/asn.py` plus the `cdn` rows of
+`common/data/asn_roles.csv`. Two consequences of reading the kind rather
+than storing a flag:
+
+- The mark follows the target's current kind: a target that moved off a
+  CDN loses it on its older periods too.
+- An anycast address outside a CDN (a public DNS resolver, a content
+  network's own anycast) is not marked. Automatic detection of a floor
+  that sits on a few fixed levels was considered and left out until a
+  second case shows it is needed.
+
 ## Loss degradation: change points on packet loss
 
 Loss can come from the radio, a faulty line, an overloaded router or a
@@ -457,8 +520,10 @@ sudo smoking-pi enable inference
 minutes after the container. Then open **Target Detail** for a target: the
 two annotations, *Persistent congestion (Jitterbug, experimental)* and
 *Loss degradation (experimental)*, shade the periods found, and hovering a
-region shows its numbers. They can be switched off from the dashboard's
-annotation toggles. The [Connectivity & Quality](connectivity-quality.md)
+region shows its numbers; on a CDN destination the congestion annotation
+says *edge change likely (anycast/CDN destination)* ([Anycast
+destinations](#anycast-destinations)). They can be switched off from the
+dashboard's annotation toggles. The [Connectivity & Quality](connectivity-quality.md)
 dashboard draws every target's periods on one timeline, under the loss and
 latency they are about.
 
