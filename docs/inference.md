@@ -325,11 +325,28 @@ other evidence and written beside each period, never fed back into it:
 - **`class`: `loss` or `monitor_deaf`** (degradation only). A radio hang
   records 100 % loss on every destination for hours, and BCP on loss then
   finds a "degradation" of every target that is really the monitor being
-  deaf — 22 of the first 51 periods on the reference Pi were this. The
-  period is labeled `monitor_deaf` when at least half of its 15-minute bins
-  were deaf by the alerter's own test (`common/microcuts.py`: the uplink
-  interface was not associated, or its received-packet counter did not
-  move), with the share in `deaf_share`. Target Detail shades those gray
+  deaf — 22 of the first 51 periods on the reference Pi were this. A
+  15-minute bin is deaf by the alerter's own test (`common/microcuts.py`:
+  the uplink interface was not associated, or its received-packet counter
+  did not move, for at least half the bin). The period is labeled
+  `monitor_deaf` when at least half of its *loss* fell in deaf bins:
+  `deaf_loss_share` is the sum of the period's per-bin mean loss (the
+  series the detector segments) over its deaf bins, divided by the sum over
+  all its bins. It is the share of the loss and not of the bins because the
+  watchdog now ends a radio hang in 11–12 minutes, so a hang is one deaf
+  bin, and hours later the change-point segmentation merges that bin with
+  the clean hours around it: the second read of the reference Pi found 7
+  of the 11 periods produced by two short hangs grown to 25–31 bins, one of
+  them deaf (a bin share of 0.03–0.04), labeled ordinary loss of 6–8 h
+  although every lost ping was in the deaf bin. By loss they read 1.00, and
+  every other period 0.00. `deaf_share`, the share of the period's bins
+  that were deaf, is still written beside it and means what it did; a
+  period with no loss at all (a detected one always has some) is classed
+  by it. The trade-off: a deaf bin carries up to 100 % loss, so a long, mild
+  real degradation that the segmentation merges with one is labeled the
+  monitor's when the deaf bin outweighs it (40 bins at 2.5 % beside one bin
+  at 100 % read 0.5). `deaf_share` and `mean_loss_pct` beside the class
+  show such a case. Target Detail shades `monitor_deaf` periods gray
   under *Monitor deaf (experimental)* and says so in the text; Connectivity
   & Quality draws them gray on the timeline and leaves them out of the
   degradation count. A wired host never has a deaf period.

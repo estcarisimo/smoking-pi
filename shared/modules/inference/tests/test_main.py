@@ -96,6 +96,30 @@ def test_a_clean_pass_records_last_ok():
     assert report["last_ok"] == NOW
 
 
+def test_a_pass_labels_by_where_the_periods_loss_fell():
+    # main hands the label the same per-cycle loss the detector read: one deaf
+    # bin carrying all the loss of a 28-bin period makes it the monitor's.
+    c_start, d_start = main.windows(NOW)
+    b = ((d_start + 3600) // 900) * 900
+    loss = pd.DataFrame({"epoch": [b + i * 900 + 60 for i in range(28)],
+                         "loss_pct": [65.0] + [0.0] * 27})
+    deaf_rows = [{"_time": float(t)} for t in range(b, b + 900, 10)]
+    written = {}
+    main.run_once(
+        now=NOW, fetch=lambda t, s: (pd.DataFrame(columns=["epoch", "values"]), loss),
+        list_targets=lambda s: [("Google", "topsites")],
+        find_congestion=lambda p: {"periods": [], "change_points": 0},
+        find_degradation=lambda lo: {"periods": [{"start": b, "end": b + 28 * 900,
+                                                  "mean_loss_pct": 65 / 28}],
+                                     "change_points": 2},
+        replace=lambda m, t, c, periods, start, now: written.setdefault(m, periods),
+        read_deaf=lambda start, now: deaf.deaf_bins(deaf_rows),
+        record_pass=lambda r, now: None)
+    (period,) = written[store.DEGRADATION]
+    assert period["class"] == "monitor_deaf" and period["deaf_loss_share"] == 1.0
+    assert abs(period["deaf_share"] - 1 / 28) < 1e-9
+
+
 def test_a_pass_labels_deaf_periods_and_records_itself():
     c_start, d_start = main.windows(NOW)
     b = ((d_start + 3600) // 900) * 900
@@ -118,6 +142,7 @@ def test_a_pass_labels_deaf_periods_and_records_itself():
         record_pass=lambda r, now: passes.append((r["seconds"], now)))
     (period,) = written[store.DEGRADATION]
     assert period["class"] == "monitor_deaf" and period["deaf_share"] == 1.0
+    assert period["deaf_loss_share"] == 1.0
     assert period["coverage"] == 1.0
     assert report["targets"]["Google"]["degradation"]["monitor_deaf"] == 1
     assert report["deaf_bins"] == 2

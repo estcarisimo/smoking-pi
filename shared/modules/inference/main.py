@@ -134,7 +134,7 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             d_loss = loss[loss["epoch"] >= d_start]
             d = find_degradation(d_loss)
             deaf.coverage(d["periods"], d_loss["epoch"])
-            deaf.label(d["periods"], deaf_bins)
+            deaf.label(d["periods"], deaf_bins, d_loss)
             row["degradation"] = {"periods": len(d["periods"]),
                                   "change_points": d["change_points"],
                                   "monitor_deaf": sum(1 for p in d["periods"]

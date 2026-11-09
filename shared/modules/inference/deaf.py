@@ -9,8 +9,14 @@ counter did not move. On the reference Pi a radio hang records 100 % loss
 on every destination for hours; BCP on loss then finds a "degradation" of
 every target that is really the monitor being deaf. The period stays (the
 method is untouched) and is labeled ``monitor_deaf`` when at least half of
-its bins were deaf, so a dashboard can shade it as the monitor's and a
-reader does not blame the destination.
+its loss fell in deaf bins, so a dashboard can shade it as the monitor's and
+a reader does not blame the destination.
+
+The share is of the loss, not of the bins. Since the watchdog reloads the
+radio's driver, a hang lasts 11-12 minutes: one deaf bin. Hours later BCP
+merges that bin with the clean stretch around it, and a period of 28 bins
+with one deaf one -- all of its loss in that bin -- would read 1/28 deaf by
+bins. ``deaf_share`` (the bin share) is still written beside the class.
 
 Coverage is the share of a period's 15-minute bins that had data at all.
 A congestion period that spans a gap of hours -- a hang, a reboot -- reads
@@ -22,6 +28,8 @@ import os
 from typing import Any
 
 import pandas as pd
+
+import degradation
 
 BIN_S = 900
 # The exporter's cadence (WIFI_SAMPLE_INTERVAL, 10 s by default; the compose
@@ -89,13 +97,31 @@ def _span_bins(start: int, end: int) -> list[int]:
     return list(range(first, int(end), BIN_S)) or [first]
 
 
-def label(periods: list[dict], deaf: set[int]) -> list[dict]:
-    """Set ``class`` and ``deaf_share`` on each period, in place."""
+def label(periods: list[dict], deaf: set[int], loss: pd.DataFrame) -> list[dict]:
+    """Set ``class``, ``deaf_loss_share`` and ``deaf_share`` on each period,
+    in place.
+
+    ``loss`` is the per-cycle loss the detector read (``epoch``,
+    ``loss_pct``). It carries no ping counts, so the loss is measured as the
+    detector measures it: each bin's mean loss (``degradation.bins``).
+    ``deaf_loss_share`` is the sum of that over the period's deaf bins
+    divided by the sum over all its bins, and the period is ``monitor_deaf``
+    when it is at least DEAF_PERIOD_SHARE. A period with no loss at all
+    (a detected one always has some) has no ``deaf_loss_share`` and is
+    classed by ``deaf_share``, the share of its bins that were deaf."""
+    per_bin = {int(b): float(v) for b, v in degradation.bins(loss).items()}
     for p in periods:
         span = _span_bins(p["start"], p["end"])
         share = sum(1 for b in span if b in deaf) / len(span)
+        total = sum(per_bin.get(b, 0.0) for b in span)
         p["deaf_share"] = share
-        p["class"] = MONITOR_DEAF if share >= DEAF_PERIOD_SHARE else LOSS
+        if total > 0:
+            in_deaf = sum(per_bin.get(b, 0.0) for b in span if b in deaf)
+            p["deaf_loss_share"] = decisive = in_deaf / total
+        else:
+            p.pop("deaf_loss_share", None)
+            decisive = share
+        p["class"] = MONITOR_DEAF if decisive >= DEAF_PERIOD_SHARE else LOSS
     return periods
 
 

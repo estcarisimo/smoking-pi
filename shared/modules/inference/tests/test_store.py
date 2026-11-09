@@ -1,4 +1,5 @@
 """Results into InfluxDB: replace the window, never duplicate."""
+import re
 
 import pytest
 
@@ -72,13 +73,15 @@ def test_a_quote_never_reaches_the_delete_predicate():
                       client=FakeClient())
 
 
-def test_a_period_carries_its_class_coverage_and_deaf_share():
+def test_a_period_carries_its_class_coverage_and_both_deaf_shares():
     (pt,) = store.points(store.DEGRADATION, "Google", "topsites",
                          [{"start": W0 + 900, "end": W0 + 4500, "mean_loss_pct": 96.0,
-                           "class": "monitor_deaf", "deaf_share": 1.0, "coverage": 0.75}], W0)
+                           "class": "monitor_deaf", "deaf_share": 0.25, "deaf_loss_share": 1.0,
+                           "coverage": 0.75}], W0)
     line = pt.to_line_protocol()
     assert 'class="monitor_deaf"' in line
-    assert "deaf_share=1," in line and "coverage=0.75" in line
+    assert "deaf_share=0.25" in line and "coverage=0.75" in line
+    assert re.search(r"[ ,]deaf_loss_share=1[, ]", line)
 
 
 def test_a_pass_becomes_one_point_with_its_cost_and_counts():
