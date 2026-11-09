@@ -52,7 +52,7 @@
         "target": {
           "refId": "Anno",
           "queryType": "flux",
-          "query": "import \"array\"\nimport \"date\"\nimport \"regexp\"\n// Same target matching as the panels: any probe of this base name.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still shaded.\n// A target the exporter tagged as a multi-tenant CDN (target_labels, field kind, its last\n// point: docs/taxonomy.md) answers from whichever edge the CDN's routing (anycast) or DNS\n// picks, and a farther edge raises the floor just as a queue would: say so, keep the shade\n// (docs/inference.md#anycast-destinations). An empty name pads the list, so it is never\n// empty: no target is named \"\".\ncdn = from(bucket: \"smokeping\") |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and r.target =~ re and r._field == \"kind\")\n  |> last() |> filter(fn: (r) => r._value == \"cdn\") |> group() |> keep(columns: [\"target\"])\nedge = union(tables: [cdn, array.from(rows: [{target: \"\"}])]) |> group()\n  |> findColumn(fn: (key) => true, column: \"target\")\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r.target =~ re and (r._field == \"end\" or r._field == \"confidence\" or r._field == \"jump_ms\"))\n  |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end * 1000000000), text: \"Persistent congestion (Jitterbug, experimental) on \" + r.target + (if contains(value: r.target, set: edge) then \", edge change likely (anycast/CDN destination): \" + r.target + \" answers from a CDN edge, and a farther edge raises the floor just as a queue would. The minimum RTT rose \" else \": the minimum RTT rose \") + (if exists r.jump_ms then string(v: float(v: int(v: r.jump_ms * 10.0)) / 10.0) else \"?\") + \" ms and stayed; confidence \" + (if exists r.confidence then string(v: float(v: int(v: r.confidence * 100.0)) / 100.0) else \"?\"), tags: \"experimental\"}))"
+          "query": "import \"array\"\nimport \"date\"\nimport \"regexp\"\n// Same target matching as the panels: any probe of this base name.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still shaded.\n// coverage: the share of the period's 15-minute bins with an answered ping (a gap of hours,\n// a hang or a reboot, reads below 1); ks_p: the KS test's p-value, the evidence that the\n// latency distribution changed (store.py).\n// A target the exporter tagged as a multi-tenant CDN (target_labels, field kind, its last\n// point: docs/taxonomy.md) answers from whichever edge the CDN's routing (anycast) or DNS\n// picks, and a farther edge raises the floor just as a queue would: say so, keep the shade\n// (docs/inference.md#anycast-destinations). An empty name pads the list, so it is never\n// empty: no target is named \"\".\ncdn = from(bucket: \"smokeping\") |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"target_labels\" and r.target =~ re and r._field == \"kind\")\n  |> last() |> filter(fn: (r) => r._value == \"cdn\") |> group() |> keep(columns: [\"target\"])\nedge = union(tables: [cdn, array.from(rows: [{target: \"\"}])]) |> group()\n  |> findColumn(fn: (key) => true, column: \"target\")\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r.target =~ re and (r._field == \"end\" or r._field == \"confidence\" or r._field == \"jump_ms\" or r._field == \"coverage\" or r._field == \"ks_p\"))\n  |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end * 1000000000), text: \"Persistent congestion (Jitterbug, experimental) on \" + r.target + (if contains(value: r.target, set: edge) then \", edge change likely (anycast/CDN destination): \" + r.target + \" answers from a CDN edge, and a farther edge raises the floor just as a queue would. The minimum RTT rose \" else \": the minimum RTT rose \") + (if exists r.jump_ms then string(v: float(v: int(v: r.jump_ms * 10.0)) / 10.0) else \"?\") + \" ms and stayed; confidence \" + (if exists r.confidence then string(v: float(v: int(v: r.confidence * 100.0)) / 100.0) else \"?\") + (if exists r.coverage then \", coverage \" + string(v: float(v: int(v: r.coverage * 100.0 + 0.5)) / 100.0) else \"\") + (if not exists r.ks_p then \"\" else if r.ks_p < 0.001 then \", KS p < 0.001\" else \", KS p \" + string(v: float(v: int(v: r.ks_p * 1000.0 + 0.5)) / 1000.0)), tags: \"experimental\"}))"
         }
       },
       {
@@ -81,6 +81,20 @@
           "refId": "Anno",
           "queryType": "flux",
           "query": "import \"date\"\nimport \"regexp\"\n// Same target matching as the panels: any probe of this base name.\nbase = regexp.replaceAllString(r: /(_h[123]|_tcp(443)?|_icmp)$/, v: \"${target}\", t: \"\")\nre = regexp.compile(v: \"^(?i)\" + regexp.quoteMeta(v: base) + \"(_h[123]|_tcp(443)?|_icmp)?$\")\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still shaded.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r.target =~ re and (r._field == \"end\" or r._field == \"mean_loss_pct\" or r._field == \"class\" or r._field == \"coverage\"))\n  |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n  |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\")\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end * 1000000000), text: \"The monitor was deaf (experimental): most of the loss in this span fell while this Pi's radio heard nothing, so the \" + (if exists r.mean_loss_pct then string(v: float(v: int(v: r.mean_loss_pct * 10.0)) / 10.0) else \"?\") + \" % mean loss on \" + r.target + \" is the monitor's, not the destination's\", tags: \"experimental\"}))"
+        }
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "#8F1B2A",
+        "name": "Whole connection loss (experimental)",
+        "target": {
+          "refId": "Anno",
+          "queryType": "flux",
+          "query": "import \"date\"\n// The whole connection's loss periods (shared.py): one detector run on every destination's\n// loss together. shared_degradation has no target tag: the period is the house's, drawn on\n// every target so that this target's own loss is read inside it (or outside it).\npct = (x) => string(v: float(v: int(v: x * 10.0 + 0.5)) / 10.0)\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still shaded.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"shared_degradation\" and (r._field == \"end\" or r._field == \"mean_loss_pct\" or r._field == \"voters\" or r._field == \"scope\" or r._field == \"dominant\"))\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n  // scope is \"shared\" when a third of the operators behind the targets lost and they are of two\n  // kinds of infrastructure or more; \"dominated\" when one destination (dominant) carried it.\n  |> map(fn: (r) => ({_time: r._time, timeEnd: time(v: r.end * 1000000000), text: \"Whole connection lost \" + (if exists r.mean_loss_pct then pct(x: r.mean_loss_pct) else \"?\") + \" % (\" + (if exists r.voters then string(v: r.voters) else \"?\") + \" voters, scope \" + (if not exists r.scope then \"?\" else if r.scope == \"shared\" then \"shared across operators\" else \"one destination\" + (if exists r.dominant and r.dominant != \"\" then \", \" + r.dominant else \"\")) + \"; experimental): the house's period, every destination's loss together, not this target's. Who lost: Connectivity & Quality, same range (link above).\", tags: \"experimental,whole-connection\"}))"
         }
       },
       {
@@ -130,6 +144,16 @@
   "refresh": "5m",
   "graphTooltip": 1,
   "links": [
+    {
+      "title": "Connectivity & Quality",
+      "type": "link",
+      "url": "/d/connectivity-quality-v1",
+      "icon": "dashboard",
+      "tooltip": "Every target on one time axis, same range: who lost in a whole-connection period",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false
+    },
     {
       "title": "SmokePing dashboards",
       "type": "dashboards",
@@ -348,7 +372,7 @@
     {
       "type": "stat",
       "title": "Monitor deaf in range",
-      "description": "Time inside the range in which this Pi's own radio heard nothing: the alerter's incidents diagnosed local_wifi, and the inference module's periods labeled monitor_deaf (of periods starting at the same time, the shortest: the span every target labeled then shares; a span that began more than 7 days (incidents) or 14 days (periods) before the range is not seen). Loss in those minutes is the monitor's, not any destination's: subtract it before reading the loss tiles. \"none\": no such span in the range. The \"Monitor deaf\" and \"Loss incidents\" annotations mark the spans on the charts.",
+      "description": "Minutes inside the range in which this Pi's own radio heard nothing: Wi-Fi samples in which the uplink's received-packet counter did not move, or the radio was not associated (the definition the alerter, the doctor and the inference module use). Each deaf sample counts the time since the one before it, 10 s by default. Loss in those minutes is the monitor's, not any destination's: subtract it before reading the loss tiles. \"none\": no deaf sample in the range, or no Wi-Fi uplink (a wired Pi). The \"Monitor deaf\" and \"Loss incidents\" annotations mark the spans on the charts; a Monitor deaf span can be longer than these minutes, since the inference period around a short hang covers the clean bins beside it.",
       "gridPos": {
         "h": 4,
         "w": 4,
@@ -363,7 +387,7 @@
             "uid": "influxdb"
           },
           "queryType": "flux",
-          "query": "import \"date\"\nstart = int(v: v.timeRangeStart)\nstop = int(v: v.timeRangeStop)\n// Spans in which this Pi's radio heard nothing, whatever any destination did: the\n// alerter's incidents diagnosed local_wifi and the inference module's periods labeled\n// monitor_deaf (on any target: a deaf radio is deaf to all of them). Both are stamped\n// at their start; reach back for ones that began before the range.\nincidents = from(bucket:\"smokeping\") |> range(start: date.sub(d: 7d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement == \"loss_incident\" and (r._field == \"class\" or r._field == \"end_epoch\"))\n  |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn:(r)=> r.class == \"local_wifi\")\n  |> map(fn:(r)=> ({_time: r._time, _start: int(v: r._time), _stop: r.end_epoch * 1000000000}))\nperiods = from(bucket:\"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement == \"loss_degradation\" and (r._field == \"class\" or r._field == \"end\"))\n  |> pivot(rowKey:[\"_time\", \"target\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn:(r)=> exists r.class and r.class == \"monitor_deaf\")\n  |> map(fn:(r)=> ({_time: r._time, _start: int(v: r._time), _stop: r.end * 1000000000}))\n// Clip every span to the range; of the periods that start at the same time keep the\n// one that ends first (the span every target labeled then shares, not the longest\n// target's tail); then add them up without counting an overlap twice. In seconds.\nunion(tables: [incidents, periods])\n  |> map(fn:(r)=> ({_time: r._time, _start: if r._start > start then r._start else start, _stop: if r._stop < stop then r._stop else stop}))\n  |> filter(fn:(r)=> r._stop > r._start)\n  |> group(columns:[\"_time\"]) |> min(column: \"_stop\")\n  |> group() |> sort(columns:[\"_start\"])\n  |> reduce(identity: {_stop: 0, _value: 0}, fn: (r, accumulator) => ({\n      _stop: if r._stop > accumulator._stop then r._stop else accumulator._stop,\n      _value: accumulator._value + (if r._start > accumulator._stop then r._stop - r._start else if r._stop > accumulator._stop then r._stop - accumulator._stop else 0)}))\n  |> map(fn:(r)=> ({_value: float(v: r._value) / 1000000000.0}))\n  |> set(key:\"_field\", value:\"deaf\") |> keep(columns:[\"_value\",\"_field\"]) |> group(columns:[\"_field\"])"
+          "query": "import \"internal/debug\"\n// Minutes inside the range in which this Pi's own radio heard nothing, from the Wi-Fi\n// collector's samples: the deaf definition of common/microcuts.uplink_flux (the alerter,\n// the doctor's monitor-radio check and the inference service's deaf.py read the same),\n// restated here because a dashboard cannot import it; a test holds the two equal. A\n// sample counts while its interface carries the default route; it is deaf when the\n// received-packet counter did not move since the sample before, or the radio is not\n// associated. Not the monitor_deaf periods: one of those spans every bin BCP put in it,\n// clean hours included, and the alerter's local_wifi incidents are diagnosed from these\n// same samples (adding their spans would count a deaf minute twice).\nfrom(bucket: \"smokeping\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wifi_link\")\n  |> filter(fn: (r) => r._field == \"rx_packets\" or r._field == \"associated\" or r._field == \"uplink\") |> keep(columns: [\"_time\", \"_field\", \"_value\", \"interface\"]) |> group(columns: [\"interface\"]) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> sort(columns: [\"_time\"]) |> map(fn: (r) => ({r with uplink: if r.associated == 0 then debug.null(type: \"int\") else r.uplink})) |> fill(column: \"uplink\", usePrevious: true) |> difference(columns: [\"rx_packets\"]) \n  // Each deaf sample speaks for the time since its interface's sample before (10 s at the\n  // collector's default interval), up to a minute: a longer gap is the collector not\n  // sampling (a reboot, a stop), not a minute heard as silent.\n  |> elapsed(unit: 1s)\n  |> filter(fn: (r) => r.uplink == 1 and (r.rx_packets == 0 or r.associated == 0)) \n  |> map(fn: (r) => ({_time: r._time, _value: float(v: if r.elapsed < 60 then r.elapsed else 60) / 60.0}))\n  |> group() |> sum()\n  |> set(key: \"_field\", value: \"deaf\") |> keep(columns: [\"_value\", \"_field\"]) |> group(columns: [\"_field\"])"
         }
       ],
       "options": {
@@ -382,7 +406,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "dtdurations",
+          "unit": "m",
           "decimals": 1,
           "noValue": "none",
           "color": {
@@ -397,7 +421,7 @@
               },
               {
                 "color": "orange",
-                "value": 60
+                "value": 1
               }
             ]
           },

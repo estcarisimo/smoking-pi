@@ -1511,6 +1511,73 @@ def test_signal_thresholds_must_include_the_weak_wifi_bar(tmp_path):
     assert run([-80, -67]).status == Status.FAIL
 
 
+_REAL_COMMON = pathlib.Path(__file__).resolve().parents[2] / "common"
+_REAL_DASHBOARDS = (pathlib.Path(__file__).resolve().parents[2]
+                    / "grafana/provisioning/dashboards")
+
+
+def _deaf_repo(tmp_path):
+    """A repo whose common/ is the real one: the deaf comparison loads
+    microcuts.uplink_flux from it."""
+    import shutil
+
+    shutil.copytree(_REAL_COMMON, tmp_path / "shared/modules/common",
+                    ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    return static_checks.Repo(tmp_path)
+
+
+def _deaf_tile():
+    with open(_REAL_DASHBOARDS / "Targets/target_detail.json") as fh:
+        data = json.load(fh)
+    return next(p for p in sources.iter_panels(sources.Dashboard(
+        pathlib.Path("target_detail.json"), "dashboards", data))
+        if p.get("title") == "Monitor deaf in range")
+
+
+def test_the_deaf_tile_reads_microcuts_own_samples(tmp_path):
+    """Target Detail's "Monitor deaf in range" counts the samples the
+    alerter, the doctor and the inference service call deaf, not periods."""
+    repo = _deaf_repo(tmp_path)
+    tile = _deaf_tile()
+    out = static_checks.check_dashboard_definitions_match(
+        repo, [_panel_dashboard(tmp_path, tile)])
+    assert out.status == Status.OK
+    query = tile["targets"][0]["query"]
+    assert "monitor_deaf" not in query.split("\nfrom(")[1]
+    assert '"loss_incident"' not in query
+
+
+@pytest.mark.parametrize("old, new", [
+    # A looser deaf filter: a radio that heard something counted as deaf.
+    ("r.rx_packets == 0 or r.associated == 0", "r.rx_packets <= 5 or r.associated == 0"),
+    # The default route ignored: a spare radio's silence counted.
+    ("r.uplink == 1 and", "r.uplink >= 0 and"),
+    # Another field read as the counter.
+    ('r._field == "rx_packets" or', 'r._field == "tx_packets" or'),
+])
+def test_a_deaf_tile_that_drifts_from_microcuts_fails(tmp_path, old, new):
+    repo = _deaf_repo(tmp_path)
+    tile = json.loads(json.dumps(_deaf_tile()))
+    query = tile["targets"][0]["query"]
+    assert old in query
+    tile["targets"][0]["query"] = query.replace(old, new)
+    if "r.rx_packets == 0" not in tile["targets"][0]["query"]:
+        # Still recognizably a deaf count: keep the marker the check keys on.
+        tile["targets"][0]["query"] += "\n// r.rx_packets == 0"
+    out = static_checks.check_dashboard_definitions_match(
+        repo, [_panel_dashboard(tmp_path, tile)])
+    assert out.status == Status.FAIL
+    assert "uplink_flux" in out.findings[0].message
+
+
+def test_a_deaf_panel_without_a_readable_common_fails(tmp_path):
+    repo = _definitions_repo(tmp_path)  # microcuts.py without uplink_flux
+    out = static_checks.check_dashboard_definitions_match(
+        repo, [_panel_dashboard(tmp_path, _deaf_tile())])
+    assert out.status == Status.FAIL
+    assert "could not be read" in out.findings[0].message
+
+
 def test_dashboard_definitions_skip_without_common(tmp_path):
     out = static_checks.check_dashboard_definitions_match(
         static_checks.Repo(tmp_path), [])

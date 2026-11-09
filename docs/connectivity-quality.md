@@ -68,6 +68,16 @@ one day to the next, but it is not a count of probe rounds.
   still counts as a period in the tile above. Every target the module
   analyzes has a row, the ISP gateway included, so you can see whether the
   first hop moved too.
+  Hover a bar for the period's numbers, after its state: a congestion
+  period's jump in the minimum RTT, Jitterbug's confidence and its
+  coverage (the share of the period's 15-minute bins with an answered
+  ping; below 1 when a hang or a reboot left a gap inside it); a
+  degradation's mean loss, peak and coverage; a burst's loss in its 15
+  minutes and the mean of the segment around it; a gray period's mean loss
+  and how much of it fell while the radio was deaf; a *Whole connection*
+  period's mean loss and how many destinations voted (and, when one
+  destination carried it, which). Target Detail's annotations give the
+  same numbers for one target, plus the KS test's p-value.
   These are detections, not confirmations. Compare them with the two panels
   above before believing one. Click a bar for every layer of that target
   over the same range, with the period shaded. The panel is empty unless the module is on

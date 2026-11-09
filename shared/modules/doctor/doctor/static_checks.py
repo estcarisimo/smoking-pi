@@ -624,6 +624,38 @@ def _threshold_values(panel: dict) -> set[float]:
             if isinstance(step, dict) and isinstance(step.get("value"), (int, float))}
 
 
+_DEAF_FIELDS = 'r._field=="rx_packets"'
+_DEAF_CHAIN_START = '|>keep(columns:["_time","_field","_value","interface"])'
+_DEAF_FILTER_START = "|>filter(fn:(r)=>r.uplink==1"
+
+
+def _squeezed(flux: str) -> str:
+    """Flux without whitespace: the panels write ``range(start:x)``, common/
+    writes ``range(start: x)``, and neither difference changes a query."""
+    return re.sub(r"\s+", "", flux)
+
+
+def _deaf_definition(repo: Repo) -> list[str]:
+    """The pieces of common/microcuts.uplink_flux a dashboard restating the
+    deaf definition must contain, whitespace removed (:func:`_squeezed`):
+    the fields it reads (a panel may fold them into its measurement
+    filter), the chain from keep() to the counter's difference(), and the
+    deaf filter. Empty when the module cannot be loaded or no longer has
+    that shape."""
+    from . import live_checks
+
+    flux = _squeezed(live_checks._deaf_flux(repo) or "")
+    marks = [flux.find(m) for m in (_DEAF_FIELDS, _DEAF_CHAIN_START, _DEAF_FILTER_START)]
+    if -1 in marks or not marks[0] < marks[1] < marks[2]:
+        return []
+    fields, chain, deaf = marks
+    end = flux.find("|>", deaf + 2)
+    if end == -1:
+        return []
+    # The fields' predicate ends at the filter's closing parenthesis.
+    return [flux[fields:chain - 1], flux[chain:deaf], flux[deaf:end]]
+
+
 def check_dashboard_definitions_match(repo: Repo, dashboards) -> CheckResult:
     """A dashboard literal that restates a shared definition must equal it.
 
@@ -631,8 +663,10 @@ def check_dashboard_definitions_match(repo: Repo, dashboards) -> CheckResult:
     report read a loss event, a microcut and weak Wi-Fi from common/ (one
     definition, 2026-10-14). A dashboard cannot import Python, so its Flux
     and its thresholds carry the numbers as literals: 1.5 pings' worth, a
-    window above 50%, -75 dBm. Retuning one in common/ would leave the
-    panels saying the old thing while every answer says the new one."""
+    window above 50%, -75 dBm; and a panel counting this Pi's deaf radio
+    restates the Flux of common/microcuts.uplink_flux. Retuning one in
+    common/ would leave the panels saying the old thing while every answer
+    says the new one."""
     constants = _shared_constants(repo)
     event = constants.get("EVENT_LOST_PINGS")
     cut = constants.get("DEFAULT_LOSS_PCT")
@@ -642,6 +676,7 @@ def check_dashboard_definitions_match(repo: Repo, dashboards) -> CheckResult:
                        f"no shared definitions under {repo.common}")
     findings: list[Finding] = []
     checked = 0
+    deaf_parts: list[str] | None = None
 
     def compare(dashboard, title, what, found, want, name):
         nonlocal checked
@@ -677,6 +712,27 @@ def check_dashboard_definitions_match(repo: Repo, dashboards) -> CheckResult:
                     for value in _CUT_LINE_RE.findall(query):
                         compare(dashboard, title, "the cut-window line", value,
                                 cut, "MICROCUT_LOSS_PCT")
+            # A panel counting this Pi's deaf radio (Target Detail's "Monitor
+            # deaf in range") restates common/microcuts.uplink_flux: its chain
+            # up to the counter's difference and its deaf filter, verbatim.
+            for query in queries:
+                if '"wifi_link"' in query and "r.rx_packets == 0" in query:
+                    if deaf_parts is None:
+                        deaf_parts = _deaf_definition(repo)
+                    checked += 1
+                    if not deaf_parts:
+                        findings.append(Finding(
+                            f"panel {title!r} restates the deaf-radio definition, "
+                            f"but common/microcuts.uplink_flux could not be read "
+                            f"to compare", where=dashboard.rel))
+                    elif not all(part in _squeezed(query) for part in deaf_parts):
+                        findings.append(Finding(
+                            f"panel {title!r}: its deaf Wi-Fi samples are not "
+                            f"common/microcuts.uplink_flux's (the chain up to "
+                            f"difference() and the deaf filter must be the same "
+                            f"Flux, spacing aside) — the panel and every answer "
+                            f"disagree",
+                            where=dashboard.rel))
             if any("signal_dbm" in q for q in queries):
                 values = {v for v in _threshold_values(panel) if v < 0}
                 if values:
@@ -689,8 +745,8 @@ def check_dashboard_definitions_match(repo: Repo, dashboards) -> CheckResult:
     return result(
         "dashboard-definitions-match",
         findings,
-        f"{checked} dashboard literals match the shared loss-event, microcut "
-        f"and weak Wi-Fi definitions",
+        f"{checked} dashboard literals match the shared loss-event, microcut, "
+        f"weak Wi-Fi and deaf-radio definitions",
     )
 
 
