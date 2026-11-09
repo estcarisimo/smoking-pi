@@ -372,7 +372,7 @@
     {
       "type": "stat",
       "title": "Monitor deaf in range",
-      "description": "Minutes inside the range in which this Pi's own radio heard nothing: Wi-Fi samples in which the uplink's received-packet counter did not move, or the radio was not associated (the definition the alerter, the doctor and the inference module use). Each deaf sample counts the time since the one before it, 10 s by default. Loss in those minutes is the monitor's, not any destination's: subtract it before reading the loss tiles. \"none\": no deaf sample in the range, or no Wi-Fi uplink (a wired Pi). The \"Monitor deaf\" and \"Loss incidents\" annotations mark the spans on the charts; a Monitor deaf span can be longer than these minutes, since the inference period around a short hang covers the clean bins beside it.",
+      "description": "Minutes inside the range in which this Pi's own radio heard nothing: Wi-Fi samples in which the uplink's received-packet counter did not move, or the radio was not associated (the definition the alerter, the doctor and the inference module use). Each deaf sample counts the time since the one before it, 10 s by default. Loss in those minutes is the monitor's, not any destination's: subtract it before reading the loss tiles. \"none\": no deaf sample in the range, or no Wi-Fi uplink (a wired Pi). The \"Monitor deaf\" and \"Loss incidents\" annotations mark the spans on the charts; a Monitor deaf span can be longer than these minutes, since the inference period around a short hang covers the clean bins beside it. It reads every Wi-Fi sample in the range (8 640 a day at the default 10 s), so a range of months takes a while to load.",
       "gridPos": {
         "h": 4,
         "w": 4,

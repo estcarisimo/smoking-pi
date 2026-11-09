@@ -99,7 +99,10 @@ module use; the doctor's `dashboard-definitions-match` check holds the
 tile's query to it). Each deaf sample counts the time since the one before
 it, 10 s at the collector's default cadence and never more than a minute.
 It says "none" when no sample was deaf, and also on a wired Pi, which has
-no Wi-Fi samples. The loss tiles are the mean over the range with those
+no Wi-Fi samples. It reads every Wi-Fi sample in the range, 8 640 a day at
+the default cadence, so on a range of months it is the slowest tile on the
+page; the first sample of each interface in the range is not counted (it
+has no sample before it), at most 20 s. The loss tiles are the mean over the range with those
 minutes included, so a target that was fine while the monitor was deaf
 still shows loss; subtract the deaf minutes before blaming the
 destination.
@@ -132,7 +135,8 @@ annotation toggles at the top of the dashboard.
   likely (anycast/CDN destination)* ([Anycast
   destinations](inference.md#anycast-destinations)).
 - **Loss degradation (experimental)**, red: this target's loss rose for a
-  while (mean loss, peak, coverage); a burst, one 15-minute bin that
+  while (mean loss, peak, and "data in N % of the span", the same
+  coverage as a percentage); a burst, one 15-minute bin that
   carried all of it, is shaded over that bin.
 - **Monitor deaf (experimental)**, gray: a period whose loss fell mostly
   while this Pi's radio heard nothing.

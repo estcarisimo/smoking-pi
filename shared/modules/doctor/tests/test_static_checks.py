@@ -1542,6 +1542,7 @@ def test_the_deaf_tile_reads_microcuts_own_samples(tmp_path):
     out = static_checks.check_dashboard_definitions_match(
         repo, [_panel_dashboard(tmp_path, tile)])
     assert out.status == Status.OK
+    assert out.summary.startswith("1 dashboard literals")  # the tile was compared
     query = tile["targets"][0]["query"]
     assert "monitor_deaf" not in query.split("\nfrom(")[1]
     assert '"loss_incident"' not in query
@@ -1562,8 +1563,9 @@ def test_a_deaf_tile_that_drifts_from_microcuts_fails(tmp_path, old, new):
     assert old in query
     tile["targets"][0]["query"] = query.replace(old, new)
     if "r.rx_packets == 0" not in tile["targets"][0]["query"]:
-        # Still recognizably a deaf count: keep the marker the check keys on.
-        tile["targets"][0]["query"] += "\n// r.rx_packets == 0"
+        # Still recognizably a deaf count: keep the marker the check keys on,
+        # spaced differently, which the check must not depend on.
+        tile["targets"][0]["query"] += "\n// r.rx_packets==0"
     out = static_checks.check_dashboard_definitions_match(
         repo, [_panel_dashboard(tmp_path, tile)])
     assert out.status == Status.FAIL

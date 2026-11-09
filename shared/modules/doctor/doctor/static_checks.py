@@ -716,7 +716,8 @@ def check_dashboard_definitions_match(repo: Repo, dashboards) -> CheckResult:
             # deaf in range") restates common/microcuts.uplink_flux: its chain
             # up to the counter's difference and its deaf filter, verbatim.
             for query in queries:
-                if '"wifi_link"' in query and "r.rx_packets == 0" in query:
+                squeezed = _squeezed(query)
+                if '"wifi_link"' in squeezed and "r.rx_packets==0" in squeezed:
                     if deaf_parts is None:
                         deaf_parts = _deaf_definition(repo)
                     checked += 1
@@ -725,7 +726,7 @@ def check_dashboard_definitions_match(repo: Repo, dashboards) -> CheckResult:
                             f"panel {title!r} restates the deaf-radio definition, "
                             f"but common/microcuts.uplink_flux could not be read "
                             f"to compare", where=dashboard.rel))
-                    elif not all(part in _squeezed(query) for part in deaf_parts):
+                    elif not all(part in squeezed for part in deaf_parts):
                         findings.append(Finding(
                             f"panel {title!r}: its deaf Wi-Fi samples are not "
                             f"common/microcuts.uplink_flux's (the chain up to "
