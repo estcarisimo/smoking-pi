@@ -14,10 +14,11 @@ version gets a matching GitHub release and git tag.
 This release proves the whole-connection path end to end on a staging Pi,
 with a maintainer tool that injects a loss evening and checks that the
 shared degradation, the shared path segment and the episode traces reach
-Connectivity & Quality. It adds a vertical triage to every detected
-congestion or degradation period, a sentence and a table saying which
-other layers (TCP, HTTP, DNS, first hop, Wi-Fi, path, other destinations)
-moved with it, without changing what is detected.
+Connectivity & Quality. It adds, to the experimental inference module, a
+vertical triage of every detected congestion or degradation period: a
+sentence and a table saying which other layers (TCP, HTTP, DNS, first hop,
+Wi-Fi, path, other destinations) moved with it, without changing what is
+detected.
 
 ### Added
 
@@ -79,7 +80,8 @@ moved with it, without changing what is detected.
   confidence or the class. Target Detail's congestion and degradation
   annotations and Connectivity & Quality's *Detected episodes* tooltip
   append the sentence, and a new table under that timeline lists every
-  period with a colored column per layer and the sentence wrapped. Cost on the staging Pi: 1.6 s a pass (the layers'
+  period with a colored column per layer and the sentence wrapped. Cost
+  on the staging Pi: 1.6 s a pass (the layers'
   closed bins are cached, the last 25 h re-read), 5.7 s on the first pass
   and once a week, and the deaf cache's daily full read reaches about 12
   days instead of 7 (+2.6 s); `inference_pass` records `triage_s` and
