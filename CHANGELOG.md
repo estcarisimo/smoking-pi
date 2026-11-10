@@ -43,6 +43,40 @@ version gets a matching GitHub release and git tag.
   fell inside the evening, and the pass left those bins out); the plan now
   refuses an evening on them. `docs/inference.md` has a new section,
   *Proving the shared path on staging*.
+- **Inference (experimental): each detected period says which other
+  layers moved with it.** A congestion or degradation period said that ICMP
+  to one destination changed and nothing else: whether TCP and HTTP to the
+  same destination rose too, whether DNS, the gateway or the Pi's own radio
+  moved, whether the path changed or other destinations rose at the same
+  time, a reader had to work out by opening six panels on two dashboards
+  and comparing them by eye, one period at a time. The 2026-11-09 read of
+  the reference Pi did that for five evenings toward one destination and
+  it took a day of queries; done casually, it is how a queue past the ISP
+  gets blamed on the Wi-Fi, or a slow radio on the destination. A new
+  `triage.py` does the comparison when a period is written: for each
+  layer, the median of its 15-minute medians during the period against
+  the 24 hours before (without the destination's other periods), with a
+  threshold of max(p90 − p10 of the baseline, 10 % of its level), loss
+  against max(1 point, the baseline's spread), "no data" below 75 %
+  coverage, and a majority over HTTP's versions and DNS's resolvers. The
+  answer goes on the period's own point as optional fields (`triage`, a
+  sentence such as "ICMP, TCP and HTTP to Facebook rose together (median
+  +11, +12 and +61 ms); DNS, first hop and Wi-Fi did not; no loss; path
+  unchanged; only Facebook rose.", plus `tri_tcp`, `tri_http`, `tri_dns`,
+  `tri_hop`, `tri_wifi`, `tri_path`, `tri_others`, the `*_rise_ms` and
+  `tri_version`), so it lives and dies with the period; older points have
+  none and render as before. It never changes the detection, the
+  confidence or the class. Target Detail's congestion and degradation
+  annotations and Connectivity & Quality's *Detected episodes* tooltip
+  append the sentence. Cost on the staging Pi: 1.6 s a pass (the layers'
+  closed bins are cached, the last 25 h re-read), 5.7 s on the first pass
+  and once a week, and the deaf cache's daily full read reaches 11 days
+  instead of 7 (+2.6 s); `inference_pass` records `triage_s` and
+  `triage_errors`, and a triage that fails never fails the pass.
+  `docs/inference.md` has a *Which other layers moved (vertical triage)*
+  section with the rules and the limits found in the design read (the
+  rule was chosen on the same five cases it was checked on; the loss rules
+  never met a real degradation).
 
 ## [2.53.0] — 2026-11-09
 

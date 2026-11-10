@@ -138,6 +138,14 @@ def measurement_name(measurement: str) -> str:
 
 
 DEGRADATION_INTS = ("lossy_bins", "peak_start", "burst")
+# Which other layers moved during the period (triage.py): evidence beside
+# the period, on its own point so it has the period's life -- rewritten
+# while the period is corrected, kept once it settles, gone with it. Every
+# one is optional: a point written before the triage, or by a pass whose
+# triage failed, has none, and the dashboards show it as before.
+TRIAGE_TEXT = ("triage", "tri_tcp", "tri_http", "tri_dns", "tri_hop", "tri_wifi", "tri_path")
+TRIAGE_INTS = ("tri_others", "tri_version")
+TRIAGE_NUMBERS = ("icmp_rise_ms", "tcp_rise_ms", "http_rise_ms", "dns_rise_ms", "hop_rise_ms")
 
 
 def points(measurement: str, target: str, category: str, periods: list[dict],
@@ -159,9 +167,15 @@ def points(measurement: str, target: str, category: str, periods: list[dict],
                 pt = pt.field(key, float(p[key]))
         # How the loss was spread (degradation.py): a count, an epoch and a
         # 1/0 flag, written as integers like the shared counts.
-        for key in DEGRADATION_INTS:
+        for key in DEGRADATION_INTS + TRIAGE_INTS:
             if p.get(key) is not None:
                 pt = pt.field(key, int(p[key]))
+        for key in TRIAGE_NUMBERS:
+            if p.get(key) is not None:
+                pt = pt.field(key, float(p[key]))
+        for key in TRIAGE_TEXT:
+            if p.get(key) is not None:
+                pt = pt.field(key, str(p[key]))
         # "loss" or "monitor_deaf" (deaf.py): a field, like everything else
         # here, so a relabeled period rewrites the same point.
         if p.get("class"):
@@ -187,7 +201,9 @@ def pass_point(report: dict, now: int):
             .field("degradation_periods", int(degraded))
             .field("shared_periods", int((report.get("shared") or {}).get("periods", 0)))
             .field("shared_congestion_periods",
-                   int((report.get("shared_congestion") or {}).get("periods", 0))))
+                   int((report.get("shared_congestion") or {}).get("periods", 0)))
+            .field("triage_s", float((report.get("triage") or {}).get("seconds", 0.0)))
+            .field("triage_errors", int((report.get("triage") or {}).get("errors", 0))))
 
 
 def write_pass(report: dict, now: int, client=None) -> None:
@@ -210,6 +226,14 @@ def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
     return a[0] < b[1] and b[0] < a[1]
 
 
+def writable_from(window_start: int, edge: int, guard: int) -> int:
+    """The settled edge before any record moves it: no period starting at
+    or before it is written (:func:`settle`). The triage reads its layers
+    from here, less a baseline."""
+    pinned = window_start - edge > PINNED_AFTER_S
+    return window_start if pinned else max(window_start, edge + guard)
+
+
 def settle(periods: list[dict], records: list[tuple[int, int]], window_start: int,
            edge: int, guard: int) -> tuple[int, list[dict]]:
     """Where this pass may correct, and what it writes there.
@@ -226,8 +250,7 @@ def settle(periods: list[dict], records: list[tuple[int, int]], window_start: in
     Returns ``(settled, write)``: records starting at or before ``settled``
     stay; the caller deletes the rest of the window, after ``settled``, and
     writes ``write``."""
-    pinned = window_start - edge > PINNED_AFTER_S
-    first = settled = window_start if pinned else max(window_start, edge + guard)
+    first = settled = writable_from(window_start, edge, guard)
     spans = [(int(p["start"]), int(p["end"])) for p in periods]
     # A period the detector now starts before the edge, or reports cut by
     # the window, but whose record starts after it: keep the record. Moving
@@ -265,8 +288,11 @@ def _records(client, measurement: str, target: str | None, start: int, now: int)
 
 
 def _settle_and_write(client, measurement: str, target: str | None, periods: list[dict],
-                      window_start: int, now: int, edge: int | None, to_points) -> int:
-    """Read the records, delete after the settled edge, write the rest."""
+                      window_start: int, now: int, edge: int | None, to_points,
+                      enrich=None) -> int:
+    """Read the records, delete after the settled edge, write the rest.
+    ``enrich(write)`` adds fields to the periods about to be written, in
+    place (the triage): only those, never the ones a record keeps."""
     edge = window_start if edge is None else int(edge)
     # A point can be no longer than the window it was found in, so records
     # that could overlap anything after the settled edge start after this.
@@ -279,6 +305,8 @@ def _settle_and_write(client, measurement: str, target: str | None, periods: lis
             _iso(settled + 1), _iso(now), f"_measurement={_quoted(measurement)}{who}",
             bucket=_bucket(), org=os.environ.get("INFLUX_ORG", "smokeping"),
         )
+    if enrich is not None and write:
+        enrich(write)
     batch = to_points(write)
     if batch:
         from influxdb_client.client.write_api import SYNCHRONOUS
@@ -288,7 +316,8 @@ def _settle_and_write(client, measurement: str, target: str | None, periods: lis
 
 
 def replace(measurement: str, target: str, category: str, periods: list[dict],
-            window_start: int, now: int, client=None, edge: int | None = None) -> int:
+            window_start: int, now: int, client=None, edge: int | None = None,
+            enrich=None) -> int:
     """Correct ``measurement``'s points for ``target`` after the window's
     settled edge (:func:`settle`) with ``periods``; earlier points stay.
     Returns how many points were written."""
@@ -298,7 +327,8 @@ def replace(measurement: str, target: str, category: str, periods: list[dict],
         name = measurement_name(measurement)
         return _settle_and_write(
             client, name, target, periods, window_start, now, edge,
-            lambda keep: points(measurement, target, category, keep, window_start))
+            lambda keep: points(measurement, target, category, keep, window_start),
+            enrich=enrich)
     finally:
         if own:
             client.close()

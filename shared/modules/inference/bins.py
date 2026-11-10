@@ -76,20 +76,23 @@ def _save(name: str, df: pd.DataFrame, meta: dict, directory: Path) -> None:
 
 def read(name: str, start: int, now: int, fetch: Callable[[int, int], pd.DataFrame],
          columns: list[str], directory: Path | None = None,
-         text: tuple[str, ...] = ()) -> pd.DataFrame:
+         text: tuple[str, ...] = (), tail_s: int = TAIL_S,
+         refresh_s: int = REFRESH_S) -> pd.DataFrame:
     """The bins of [start, now), ``columns`` with ``bin`` (the bin's start
     epoch) first. ``fetch(since, stop)`` reads the bins of [since, stop) from
     InfluxDB, ``since`` on a bin boundary; this calls it for the whole window
     or only for its tail, and keeps what it returns. ``text`` names the
-    columns that are strings."""
+    columns that are strings. ``tail_s`` and ``refresh_s`` replace TAIL_S
+    and REFRESH_S for one cache: a longer tail that covers every late point
+    makes the daily full read a safety net that can run less often."""
     directory = directory or state_dir()
     first, stop = _align(start), int(now)
     cached = _load(name, columns, directory, text)
     # A clock that stepped back (stop before the last pass) reads it all too.
     full = (cached is None or cached[1]["from"] > first or stop < cached[1]["through"]
-            or cached[1]["through"] - TAIL_S < first
-            or stop - cached[1]["full_at"] >= REFRESH_S)
-    since = first if full else _align(cached[1]["through"] - TAIL_S)
+            or cached[1]["through"] - tail_s < first
+            or stop - cached[1]["full_at"] >= refresh_s)
+    since = first if full else _align(cached[1]["through"] - tail_s)
     new = fetch(since, stop).reindex(columns=columns)
     if full:
         out, full_at = new, stop
