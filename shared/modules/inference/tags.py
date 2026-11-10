@@ -41,6 +41,7 @@ until a lookup succeeds the target is ``unknown`` and counts as no operator.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 from pathlib import Path
 
@@ -53,6 +54,8 @@ from common.operators import (  # noqa: F401 -- re-exported: tags.ADDRESS_TTL...
 )
 
 
+log = logging.getLogger("inference.tags")
+
 # SmokePing's own defaults (the smokeping service's ``dns:`` in compose).
 DEFAULT_NAMESERVERS = ("1.1.1.1", "8.8.8.8")
 
@@ -60,16 +63,22 @@ DEFAULT_NAMESERVERS = ("1.1.1.1", "8.8.8.8")
 def nameservers() -> list[str]:
     """The resolvers SmokePing resolves its targets with: ``SMOKEPING_DNS``
     and ``SMOKEPING_DNS_FALLBACK``, each one address, compose's defaults
-    when unset. A value that is not an address is skipped; none at all
-    falls back to the defaults."""
+    when unset. A value that is not an address is skipped, with a warning
+    (once per value: Docker's ``dns:`` takes addresses only, so SmokePing
+    cannot be using it either); none at all falls back to the defaults."""
     found = []
     for name, default in zip(("SMOKEPING_DNS", "SMOKEPING_DNS_FALLBACK"), DEFAULT_NAMESERVERS):
         value = (os.environ.get(name) or "").strip() or default
         try:
             found.append(str(ipaddress.ip_address(value)))
         except ValueError:
-            continue
+            if (name, value) not in _warned:
+                _warned.add((name, value))
+                log.warning("%s is not an IP address; the operator tags skip it", name)
     return list(dict.fromkeys(found)) or list(DEFAULT_NAMESERVERS)
+
+
+_warned: set[tuple[str, str]] = set()
 
 
 def lookup(host: str, public=None, system=None) -> tuple[str, list[str]] | None:

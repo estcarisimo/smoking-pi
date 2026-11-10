@@ -89,9 +89,13 @@ def _resolver(nameservers: list[str] | None = None):
     if nameservers:
         r = dns.resolver.Resolver(configure=False)
         r.nameservers = list(nameservers)
+        # each server its own try: an unreachable first one must not use up
+        # the whole lifetime before the second is asked
+        r.timeout = 1.5
+        r.lifetime = 1.5 * len(r.nameservers) + 0.5
     else:
         r = dns.resolver.Resolver()
-    r.lifetime = 3.0
+        r.lifetime = 3.0
     return r
 
 

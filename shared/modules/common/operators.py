@@ -109,7 +109,8 @@ class Operators:
 
         def failed(previous: dict | None, ttl: int) -> dict:
             # Keep a good answer through a failed re-lookup; ask again in an hour.
-            if previous and not previous.get("failed"):
+            # A blocked one cached by an older version is no answer to keep.
+            if previous and not previous.get("failed") and not blocked(previous.get("ip") or ""):
                 return {**previous, "at": now - ttl + FAILED_TTL}
             return {"failed": True, "at": now}
 

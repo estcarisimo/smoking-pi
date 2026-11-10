@@ -117,3 +117,21 @@ def test_a_cached_blocked_address_is_unknown_and_asked_again(tmp_path):
     t.refresh(hosts)
     assert calls[0] == ("A", "sentry.io")
     assert t.owner("Sentry", hosts) == ("Google Cloud", asn.CLOUD, 396982)
+
+
+def test_a_cached_blocked_address_that_still_fails_waits_an_hour(tmp_path):
+    # the re-lookup fails too: it becomes an ordinary failure, asked again in
+    # an hour, not on every pass
+    (tmp_path / "ops.json").write_text(json.dumps({
+        "addresses": {"sentry.io": {"ip": "0.0.0.0", "chain": [], "at": 1.0}}, "owners": {}}))
+    calls = []
+    now = [2.0]
+    t = make(tmp_path, lambda: now[0], {}, {}, calls)
+    hosts = {"Sentry": "sentry.io"}
+    t.refresh(hosts)
+    t.refresh(hosts)
+    assert calls == [("A", "sentry.io")]
+    assert t.owner("Sentry", hosts) == (asn.UNKNOWN, asn.UNKNOWN, 0)
+    now[0] += operators.FAILED_TTL + 1
+    t.refresh(hosts)
+    assert calls == [("A", "sentry.io"), ("A", "sentry.io")]

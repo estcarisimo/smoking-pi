@@ -178,11 +178,14 @@ def test_the_cname_chain_comes_from_the_resolver_that_answered():
         "18.155.0.1", ["tp.x-frontier.amazon.com"])
 
 
-def test_nameservers_are_smokeping_s(monkeypatch):
+def test_nameservers_are_smokeping_s(monkeypatch, caplog):
     assert tags.nameservers() == ["1.1.1.1", "8.8.8.8"]
     monkeypatch.setenv("SMOKEPING_DNS", "9.9.9.9")
     monkeypatch.setenv("SMOKEPING_DNS_FALLBACK", "not an address")
-    assert tags.nameservers() == ["9.9.9.9"]
+    with caplog.at_level("WARNING", logger="inference.tags"):
+        assert tags.nameservers() == ["9.9.9.9"]
+        assert tags.nameservers() == ["9.9.9.9"]
+    assert caplog.text.count("SMOKEPING_DNS_FALLBACK is not an IP address") == 1
     monkeypatch.setenv("SMOKEPING_DNS_FALLBACK", "9.9.9.9")
     assert tags.nameservers() == ["9.9.9.9"]
 
@@ -218,3 +221,5 @@ def test_the_public_resolver_reads_nothing_from_the_host(monkeypatch):
     monkeypatch.setenv("SMOKEPING_DNS", "9.9.9.9")
     r = tags._resolver(tags.nameservers())
     assert [str(n) for n in r.nameservers] == ["9.9.9.9", "8.8.8.8"]
+    # the second server gets a full try even when the first times out
+    assert r.lifetime >= 2 * r.timeout
