@@ -351,4 +351,9 @@ def run(start: int, deaf_bins: set[int], query=query_influx, tag_store=None,
     out = detect_bins(table, set(deaf_bins) | upgrades, lambda t: tag_store.of(t, hosts),
                       find=find)
     out["upgrade_bins"] = len(upgrades)
+    # A voter with no operator cannot widen a period's attribution: say so.
+    out["untagged"] = tag_store.untagged(out.get("voter_targets") or [], hosts)
+    if out["untagged"]:
+        log.info("%d of %d voters have no operator yet: %s", len(out["untagged"]),
+                 out["voters"], ", ".join(out["untagged"]))
     return out

@@ -228,10 +228,45 @@ def test_run_reads_bins_hosts_and_tags():
             assert hosts[target] == f"{target}.example"
             return of(target)
 
+        def untagged(self, targets, hosts):
+            return []
+
     store = FakeTags()
     out = shared.run(T0, set(), query=query, tag_store=store, find=fake_find)
     assert store.hosts["a1"] == "a1.example"
     assert out["voters"] == 12
+    assert out["untagged"] == []
+
+
+def test_run_names_the_voters_without_an_operator(tmp_path, caplog):
+    # two voters' hosts are blocked by a filtering resolver (no answer from
+    # either lookup), the rest resolve: the pass says which two, once
+    data = base()
+    for t in OPERATORS:
+        data[t] = with_window(data[t], 300, 12, 0.05)
+    loss, counts = rows(data, categories=CATS)
+
+    def query(flux):
+        if "fn: mean" in flux:
+            return loss
+        if "fn: count" in flux:
+            return counts
+        return [{"target": t, "_value": f"{t}.example"} for t in data]
+
+    def resolve_fn(host):
+        if host in ("a2.example", "f1.example"):
+            return None
+        if host == "CPE_IPv4.example":
+            return ("192.168.1.1", [])
+        return ("104.16.0.1", [])
+
+    store = tags.Tags(tmp_path / "tags.json", clock=lambda: 1.0, resolve_fn=resolve_fn,
+                      origin_fn=lambda ip: (13335, "CLOUDFLARENET"))
+    with caplog.at_level("INFO", logger="inference.shared"):
+        out = shared.run(T0, set(), query=query, tag_store=store, find=fake_find)
+    assert out["voters"] == 12
+    assert out["untagged"] == ["a2", "f1"]
+    assert "2 of 12 voters have no operator yet: a2, f1" in caplog.text
 
 
 def test_a_period_says_who_lost_and_who_stayed_out_of_it():
@@ -334,6 +369,9 @@ class _Tags:
 
     def of(self, target, hosts):
         return of(target)
+
+    def untagged(self, targets, hosts):
+        return sorted(t for t in targets if of(t)[1] == tags.UNKNOWN)
 
 
 def test_an_upgrade_is_the_monitor_s_time_not_the_network_s(tmp_path):

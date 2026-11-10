@@ -686,6 +686,12 @@ services:
       - INFERENCE_TARGETS=${INFERENCE_TARGETS:-}
       - INFERENCE_DEGRADATION_MIN_MINUTES=${INFERENCE_DEGRADATION_MIN_MINUTES:-30}
       - INFERENCE_DEGRADATION_LOSS_PCT=${INFERENCE_DEGRADATION_LOSS_PCT:-2}
+      # The operator tags resolve each target through SmokePing's resolvers,
+      # not this container's (the Pi's, which may filter: a blocked tracker
+      # answers 0.0.0.0 while SmokePing measures the real address). Same
+      # defaults as the smokeping service's `dns:`. docs/inference.md.
+      - SMOKEPING_DNS=${SMOKEPING_DNS:-1.1.1.1}
+      - SMOKEPING_DNS_FALLBACK=${SMOKEPING_DNS_FALLBACK:-8.8.8.8}
       # The Wi-Fi exporter's cadence: deaf.py counts deaf samples per bin.
       - WIFI_SAMPLE_INTERVAL=${WIFI_SAMPLE_INTERVAL:-10}
       - TSDB_TYPE=${TSDB_TYPE:-influxdb}

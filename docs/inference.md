@@ -238,11 +238,26 @@ it. With fewer than eight steady targets the module says nothing and leaves
 earlier periods as they were.
 
 The lookups are DNS queries, a few per target, cached in the state volume
-(addresses for a day, owners for a week, a failure for an hour), the same
-service the DNS observer and the resolver probe use. No probe is added. A
-target whose lookups have not succeeded yet counts as no operator, so in
-the first passes after the module starts, before every target is tagged
-(64 lookups a pass), a period may read `dominated` and later `shared`.
+(addresses for a day, owners for a week, a failure for an hour). No probe
+is added. A target whose lookups have not succeeded yet counts as no
+operator, so in the first passes after the module starts, before every
+target is tagged (64 lookups a pass), a period may read `dominated` and
+later `shared`.
+
+**Why the tags do not use the Pi's resolver.** The address that tags a
+target should be the one SmokePing measures, and SmokePing resolves its
+targets through its own pinned resolvers (`SMOKEPING_DNS` and
+`SMOKEPING_DNS_FALLBACK`, 1.1.1.1 and 8.8.8.8 unless set). The Pi's own
+resolver can differ: with the [DNS observer](dns-observer.md)'s blocklists
+on, a tracker or analytics host (an ad server, an error-reporting service)
+answers `0.0.0.0`, while SmokePing goes on measuring the real address. Tagged
+through the Pi, those voters had no operator, and a shared period that hit
+them was attributed to fewer operators than actually lost. So the module asks
+SmokePing's resolvers first and the container's own resolver only when they
+give no answer (internal names, outbound DNS blocked), and it takes a
+`0.0.0.0` or `::` answer from either as *blocked*, no address. A target still
+without an operator after a pass is counted in `status.json`
+(`shared.untagged_voters`) and named in the container's log.
 
 **Who lost.** Each period also carries its attribution, read off the same
 bins the detector used, as three short strings: `by_operator`, the three

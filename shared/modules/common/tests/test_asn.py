@@ -301,3 +301,26 @@ def test_a_failed_download_is_retried_an_hour_later_not_every_call(tmp_path):
     clock[0] += 3600
     t.refresh()
     assert len(net.asked) > first
+
+
+class _Answer(list):
+    """dnspython's answer, as far as resolve() and addresses() read it."""
+    response = type("Resp", (), {"answer": []})()
+
+
+class _Resolver:
+    def __init__(self, ips):
+        self.ips = ips
+
+    def resolve(self, host, rdtype):
+        return _Answer(self.ips)
+
+
+def test_a_filtering_resolver_s_blocked_answer_is_not_an_address():
+    # AdGuard Home and Pi-hole answer a blocked name with 0.0.0.0 (or ::):
+    # nothing was ever measured there, so it is no answer
+    assert asn.resolve("sentry.io", _Resolver(["0.0.0.0"])) is None
+    assert asn.addresses("sentry.io", _Resolver(["0.0.0.0"])) == []
+    assert asn.resolve("x.example", _Resolver(["0.0.0.0", "198.51.100.7"])) == ("198.51.100.7", [])
+    assert asn.addresses("x.example", _Resolver(["198.51.100.7", "0.0.0.0"])) == ["198.51.100.7"]
+    assert asn.blocked("::") and asn.blocked("0.0.0.0") and not asn.blocked("10.0.0.1")

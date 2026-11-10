@@ -17,8 +17,10 @@ that fails where an earlier one succeeded keeps the earlier answer and is
 asked again in an hour: one DNS timeout must not relabel a target.
 
 An address that is not global (the gateway, a host on the LAN) is
-``local``, with no lookup; a host with no IPv4 address (IPv6-only, or one
-that does not resolve) is ``unknown``. Neither is an error.
+``local``, with no lookup; a host with no IPv4 address (IPv6-only, one that
+does not resolve, or one a filtering resolver blocks with ``0.0.0.0``) is
+``unknown``. Neither is an error. A ``0.0.0.0`` cached before
+:func:`common.asn.resolve` refused it is asked again on the next pass.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from common.asn import LOCAL, UNKNOWN, classify, origin, resolve
+from common.asn import LOCAL, UNKNOWN, blocked, classify, origin, resolve
 
 log = logging.getLogger("common.operators")
 
@@ -92,7 +94,7 @@ class Operators:
         now = self.clock()
 
         def old(entry: dict | None, ttl: int) -> bool:
-            if entry is None:
+            if entry is None or blocked(entry.get("ip") or ""):
                 return True
             return now - entry.get("at", now) > (FAILED_TTL if entry.get("failed") else ttl)
 
@@ -144,7 +146,7 @@ class Operators:
         host = host_of(hosts.get(target))
         address = self.addresses.get(host)
         ip = _ipv4((address or {}).get("ip"))
-        if ip is None:
+        if ip is None or ip.is_unspecified:
             return UNKNOWN, UNKNOWN, 0
         if not ip.is_global:
             return "local network", LOCAL, 0

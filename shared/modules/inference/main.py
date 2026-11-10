@@ -226,6 +226,7 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             report["shared"] = {"periods": len(s["periods"]), "voters": s["voters"],
                                 "shared": sum(1 for p in s["periods"] if p.get("scope") == "shared"),
                                 "upgrade_bins": s.get("upgrade_bins", 0),
+                                "untagged_voters": len(s.get("untagged") or []),
                                 "seconds": round(time.monotonic() - shared_started, 1)}
         except Exception:  # noqa: BLE001 -- the per-target results stand without it
             log.warning("shared degradation failed", exc_info=True)

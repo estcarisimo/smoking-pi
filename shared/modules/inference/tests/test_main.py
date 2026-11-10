@@ -182,11 +182,12 @@ def test_the_shared_detector_runs_once_on_the_loss_window():
     seen, written = [], []
     periods = [{"start": d_start + 900, "end": d_start + 9000, "scope": "shared"}]
     report = _quiet(shared_pass=lambda start, deaf: seen.append(start) or
-                    {"periods": periods, "voters": 40},
+                    {"periods": periods, "voters": 40, "untagged": ["a", "b"]},
                     replace_shared=lambda p, start, now, edge: written.append((len(p), start)))
     assert seen == [d_start]
     assert written == [(1, d_start)]
     assert report["shared"]["periods"] == 1 and report["shared"]["shared"] == 1
+    assert report["shared"]["untagged_voters"] == 2
     assert report["errors"] == 0
 
 
