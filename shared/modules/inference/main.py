@@ -140,6 +140,8 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
     t_start = min(store.writable_from(c_start, c_edge, store.GUARD[store.CONGESTION]),
                   store.writable_from(d_start, d_edge, store.GUARD[store.DEGRADATION])) \
         - triage.BASELINE_S - 2 * triage.BIN_S
+    # INFERENCE_SINCE: history from another connection is no baseline either.
+    t_start = max(t_start, since() or 0)
     # The host's deaf bins, once per pass: every target shares the radio.
     # With the triage, from its start too: a congestion period is written
     # until it is 11 days old, older than the loss window.
@@ -190,7 +192,10 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             report["errors"] += 1
         report["targets"][target] = row
     # Written once every target was read: the triage's breadth compares a
-    # period with the destinations read after it too.
+    # period with the destinations read after it too. Its layers are read
+    # here, before the first delete.
+    if tri is not None and any(c["periods"] or (d and d["periods"]) for _, _, c, d in found):
+        tri.prepare()
     for target, category, c, d in found:
         try:
             for measurement, kind, result, start, edge in (

@@ -331,10 +331,13 @@ def test_every_writer_settles_from_the_sliding_edge_not_the_start_date(monkeypat
 
 class FakeTriage:
     def __init__(self, fail=False):
-        self.fail, self.added, self.enriched = fail, [], []
+        self.fail, self.added, self.enriched, self.prepared = fail, [], [], []
 
     def add_icmp(self, target, pings, loss, periods):
         self.added.append((target, len(periods)))
+
+    def prepare(self):
+        self.prepared.append(len(self.enriched))
 
     def enrich(self, kind, target, write):
         self.enriched.append((kind, target, len(write)))
@@ -380,6 +383,8 @@ def test_the_triage_sees_every_target_before_any_period_is_written():
     # Both destinations were read before the first write: breadth sees both.
     assert all(n == 2 for _, n in order)
     assert ("congestion", "Facebook", 1) in tri.enriched
+    # The layers were read once, before the first write (and its delete).
+    assert tri.prepared == [0]
     assert report["triage"] == {"periods": 4, "errors": 0, "seconds": 0.5}
 
 
@@ -420,3 +425,9 @@ def test_without_the_triage_nothing_changes_in_the_writes():
         read_deaf=lambda s, n: set(), record_pass=lambda r, n: None)
     assert written == [store.CONGESTION, store.DEGRADATION]
     assert "triage" not in report
+
+
+def test_inference_since_bounds_the_triage_too(monkeypatch):
+    monkeypatch.setenv("INFERENCE_SINCE", "2026-09-25")
+    _, made = _with_triage(FakeTriage(), lambda *a, **kw: None, targets=(("Facebook", "t"),))
+    assert made["start"] >= main.since()

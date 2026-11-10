@@ -88,10 +88,10 @@ FLOOR = "floor"
 
 LAYER_NAMES = {"icmp": "ICMP", "tcp": "TCP", "http": "HTTP", "dns": "DNS",
                "hop": "first hop", "wifi": "Wi-Fi"}
-# The fields a period point carries (store.py writes them when present).
-TEXT_FIELDS = ("triage", "tri_tcp", "tri_http", "tri_dns", "tri_hop", "tri_wifi", "tri_path")
-INT_FIELDS = ("tri_others", "tri_version")
-NUMBER_FIELDS = ("icmp_rise_ms", "tcp_rise_ms", "http_rise_ms", "dns_rise_ms", "hop_rise_ms")
+# The fields a period point carries are store.py's TRIAGE_* (it writes them
+# when present).
+# A sentence names at most this many other destinations, then counts the rest.
+MAX_NAMED = 5
 
 
 # ───────────────────────── bins ─────────────────────────
@@ -172,12 +172,15 @@ def loss(series: dict[int, float], during: list[int], base: list[int]) -> dict |
 
 def _majority(results: list[dict], key: str) -> tuple[bool, float] | None:
     """A layer of several probes: it moved when at least half of the probes
-    with data did; its rise is the median of theirs."""
+    with data did; its rise is the median of the probes that moved (of
+    every probe with data when it did not move), so two of four resolvers
+    up by 6 ms do not read as +3."""
     have = [r for r in results if r is not None]
     if not have:
         return None
-    moved = sum(1 for r in have if r[key])
-    return 2 * moved >= len(have), float(np.median([r["rise"] for r in have]))
+    movers = [r for r in have if r[key]]
+    moved = 2 * len(movers) >= len(have)
+    return moved, float(np.median([r["rise"] for r in (movers if moved else have)]))
 
 
 class Layers:
@@ -244,13 +247,15 @@ def _state(layer: dict, primary: str) -> str:
     """up / lost / flat / nodata; the period's own question first (rise for
     congestion, loss for degradation)."""
     rose, lost = layer.get("rose"), layer.get("lost")
-    if rose is None and lost is None:
-        return NODATA
-    order = ((LOST, lost), (UP, rose)) if primary == DEGRADATION else ((UP, rose), (LOST, lost))
-    for name, flag in order:
-        if flag:
-            return name
-    return FLAT
+    first, second = ((lost, rose) if primary == DEGRADATION else (rose, lost))
+    first_name, second_name = (LOST, UP) if primary == DEGRADATION else (UP, LOST)
+    if first:
+        return first_name
+    if second:
+        return second_name
+    # The period's own question could not be answered: no data, never
+    # "did not", even when the other one could.
+    return NODATA if first is None else FLAT
 
 
 def _wifi(layers: Layers, deaf: set[int] | None, during: list[int], padded: list[int],
@@ -427,7 +432,10 @@ def text(result: dict) -> str:
             parts.append(f"Wi-Fi tx rate fell to {100 * wifi['rate_ratio']:.0f} %")
 
     flat = [n for n in ("icmp", "tcp", "http", "dns", "hop") if result[n]["state"] == FLAT]
-    flat_names = [LAYER_NAMES[n] for n in flat]
+    # Jitterbug found the period on the floor; the triage reads medians, so
+    # an ICMP that did not rise says which.
+    flat_names = [("ICMP's median" if n == "icmp" and kind == CONGESTION else LAYER_NAMES[n])
+                  for n in flat]
     if wifi["state"] == FLAT:
         flat_names.append("Wi-Fi")
     if flat_names:
@@ -486,7 +494,10 @@ def _context(result: dict, target: str, verb: str) -> list[str]:
     primary = LOST if result["kind"] == DEGRADATION else UP
     if others:
         word = "destination" if len(others) == 1 else "destinations"
-        parts.append(f"{len(others)} other {word} {verb} too: {', '.join(others)}")
+        named = ", ".join(others[:MAX_NAMED])
+        if len(others) > MAX_NAMED:
+            named += f" and {len(others) - MAX_NAMED} more"
+        parts.append(f"{len(others)} other {word} {verb} too: {named}")
     elif result["icmp"].get("state") == primary:
         parts.append(f"only {target} {verb}")
     else:
@@ -544,15 +555,14 @@ class Triage:
         began = time.monotonic()
         try:
             table = self._read_layers(self.start, self.now)
+            frames = [t for t in [table, *self._icmp] if len(t)]
+            self._layers = Layers(pd.concat(frames, ignore_index=True) if frames else None)
         except Exception:  # noqa: BLE001 -- counted once; the periods go without it
             log.warning("triage: could not read the layers", exc_info=True)
             self.errors += 1
             self._failed = True
             self.read_seconds += time.monotonic() - began
             return False
-        self._layers = Layers(pd.concat([t for t in [table, *self._icmp] if len(t)],
-                                        ignore_index=True)
-                              if (len(table) or self._icmp) else table)
         try:
             self._paths = self._read_paths(self.targets, self.start, self.now)
         except Exception:  # noqa: BLE001 -- the path is one layer; no traces = no data
@@ -561,6 +571,13 @@ class Triage:
             self._paths = None
         self.read_seconds += time.monotonic() - began
         return True
+
+    def prepare(self) -> None:
+        """Read the layers now, before store.py deletes anything: the reads
+        then never sit between a delete and its write. Never raises."""
+        began = time.monotonic()
+        self._load()
+        self.seconds += time.monotonic() - began
 
     def others(self) -> list[str]:
         """Destinations to check for breadth: the pass's targets except the

@@ -155,7 +155,7 @@ def _triage_flux(targets: list[str], since: int, stop: int) -> list[str]:
     measured 2.1 s on the staging Pi against 0.27 s for the raw points."""
     bucket = flux_str(influx_bucket())
     rng = f"|> range(start: {int(since)}, stop: {int(stop)}) "
-    names = [t for t in targets if SAFE_NAME.match(t)]
+    names = [t for t in targets if SAFE_NAME.fullmatch(t)]
     out = []
     if names:
         alt = "|".join(names)
@@ -282,8 +282,16 @@ def triage_bins(targets: list[str], start: int, now: int, query=query_influx,
         table = triage_table(rows)
         return table[(table["bin"] >= since) & (table["bin"] < stop)]
 
-    return bins.read(f"triage-{key}", start, now, fetch, TRIAGE_COLUMNS, directory,
-                     text=("layer", "probe"), tail_s=TRIAGE_TAIL_S, refresh_s=TRIAGE_REFRESH_S)
+    out = bins.read(f"triage-{key}", start, now, fetch, TRIAGE_COLUMNS, directory,
+                    text=("layer", "probe"), tail_s=TRIAGE_TAIL_S, refresh_s=TRIAGE_REFRESH_S)
+    # The cache of an earlier set of targets is not read again: remove it.
+    for old in (directory or bins.state_dir()).glob("triage-*"):
+        if not old.name.startswith(f"triage-{key}."):
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    return out
 
 
 def _truthy(value) -> bool:
@@ -297,7 +305,7 @@ def path_traces(targets: list[str], start: int, now: int,
     """pathmeter's traces to each target since ``start``: ``time``,
     ``changed``, ``as_changed`` and ``as_path``. One query for every
     target; a host without the path meter has none."""
-    names = [t for t in targets if SAFE_NAME.match(t)]
+    names = [t for t in targets if SAFE_NAME.fullmatch(t)]
     if not names:
         return {}
     flux = (
@@ -305,6 +313,11 @@ def path_traces(targets: list[str], start: int, now: int,
         f"|> range(start: {int(start)}, stop: {int(now) + 1}) "
         '|> filter(fn: (r) => r._measurement == "path_trace" and '
         f'r.target =~ /^({"|".join(names)})$/) '
+        # Traces taken during a loss episode (tagged ``trigger``) are left
+        # out, as in segments.py: they lose hops, so a truncated AS path
+        # would read as a detour, and they would fill the gaps that say
+        # the hourly traces stopped.
+        '|> filter(fn: (r) => not exists r.trigger) '
         '|> filter(fn: (r) => r._field == "changed" or r._field == "as_changed" '
         'or r._field == "as_path") '
         '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") '

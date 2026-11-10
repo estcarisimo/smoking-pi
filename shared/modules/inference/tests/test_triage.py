@@ -177,7 +177,7 @@ def test_only_the_first_hop_moves(tmp_path):
         "flat", "flat", "flat", "up")
     assert p["hop_rise_ms"] == pytest.approx(8, abs=1)
     assert p["triage"].startswith("first hop rose too (+8 ms); "
-                                  "ICMP, TCP, HTTP, DNS and Wi-Fi did not; no loss;")
+                                  "ICMP's median, TCP, HTTP, DNS and Wi-Fi did not; no loss;")
 
 
 def test_a_deaf_bin_next_to_the_period_counts_one_further_does_not(tmp_path):
@@ -395,5 +395,47 @@ def test_when_the_destination_itself_did_not_rise_the_sentence_does_not_say_only
     for v in (1, 2, 3):
         w.http[f"Facebook_h{v}"] = lambda e, v=v: 75 + v + _noise(e, 3)
     p = _one(w, tmp_path)
-    assert p["triage"] == ("ICMP, TCP, HTTP, DNS, first hop and Wi-Fi did not; no loss; "
+    assert p["triage"] == ("ICMP's median, TCP, HTTP, DNS, first hop and Wi-Fi did not; no loss; "
                            "path unchanged; no other destination rose.")
+
+
+def test_episode_traces_are_left_out_of_the_path():
+    seen = []
+    series.path_traces(["Facebook"], P0, P1, query=lambda q: seen.append(q) or [])
+    assert "not exists r.trigger" in seen[0]
+
+
+def test_a_name_with_a_newline_never_reaches_a_flux_regex():
+    seen = []
+    assert series.path_traces(["Facebook\n"], P0, P1, query=lambda q: seen.append(q) or []) == {}
+    assert seen == []
+
+
+def test_an_unanswered_question_is_no_data_not_did_not():
+    # A degradation asks about loss first: latency alone cannot say "did not".
+    assert triage._state({"rose": False, "lost": None}, triage.DEGRADATION) == "nodata"
+    assert triage._state({"rose": True, "lost": None}, triage.DEGRADATION) == "up"
+    assert triage._state({"rose": None, "lost": False}, triage.CONGESTION) == "nodata"
+    assert triage._state({"rose": False, "lost": False}, triage.CONGESTION) == "flat"
+
+
+def test_a_layer_that_moved_reports_the_rise_of_the_probes_that_moved():
+    moved, rise = triage._majority([{"rose": True, "rise": 6.0}, {"rose": True, "rise": 6.5},
+                                    {"rose": False, "rise": 0.1}, {"rose": False, "rise": -0.2}],
+                                   "rose")
+    assert moved and rise == pytest.approx(6.25)
+
+
+def test_many_other_destinations_are_counted_past_five():
+    result = {"kind": triage.CONGESTION, "target": "X", "path": {"state": "nodata"},
+              "others": [f"T{i}" for i in range(8)], "icmp": {"state": "up"}}
+    assert triage._context(result, "X", "rose")[-1] == (
+        "8 other destinations rose too: T0, T1, T2, T3, T4 and 3 more")
+
+
+def test_the_cache_of_an_earlier_target_set_is_removed(tmp_path):
+    w = World()
+    series.triage_bins(["Facebook"], DATA_FROM, DATA_TO, query=w.query, directory=tmp_path)
+    series.triage_bins(["Facebook", "Google"], DATA_FROM, DATA_TO, query=w.query,
+                       directory=tmp_path)
+    assert len({f.name.split(".")[0] for f in tmp_path.glob("triage-*")}) == 1

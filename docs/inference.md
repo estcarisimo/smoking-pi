@@ -527,7 +527,8 @@ corrected, fixed when it settles, deleted with it).
   equal traces); **one trace off the usual path** when a single trace took
   another AS path than the most common one of the 24 hours before, without
   confirmation; **no traces** without a trace there or with a gap of more
-  than 3 hours between them.
+  than 3 hours between them. Traces taken during a loss episode (tagged
+  `trigger`) are left out, as for the shared path segments: they lose hops.
 - *Other destinations*: every other selected destination except the
   gateway (which is the first hop), by the same rule on its ICMP floor (on
   its loss, for a degradation).
@@ -557,10 +558,16 @@ reads it as before):
 
 That reading is "between the ISP and the destination, or at the
 destination": nothing in the house or at the first hop moved, and nothing
-says which stretch beyond it did. Target Detail appends it to the period's
-annotation (after *Layers:*), and Connectivity & Quality's *Detected
-episodes* timeline appends it to the bar's tooltip. Times in the sentence
-(a path change) are in UTC.
+says which stretch beyond it did. An ICMP that did not rise reads "ICMP's
+median did not": Jitterbug found the period on the floor, the triage reads
+medians. Target Detail appends the sentence to the period's annotation
+(after *Layers:*); Connectivity & Quality appends it to the *Detected
+episodes* tooltip, and a table under that timeline, *Detected episodes:
+which other layers moved*, lists every period that carries it with one
+colored column per layer and the sentence wrapped (a tooltip shows one
+line, cut at the screen's edge). Times in the sentence (a path change) are
+in UTC. `INFERENCE_SINCE` bounds the triage's reads like the detectors':
+no baseline from before that date.
 
 **Cost.** The layers are read once per pass, and only when there is a
 period to write: TCP and HTTP of every selected destination, the
@@ -576,8 +583,11 @@ covers every point the exporter may still backfill (it never reaches back
 more than 24 hours), so the full read of the window is a weekly safety net
 rather than a daily one. ICMP comes from the pings the pass already read.
 The traces are one query for every destination. The deaf bins are read
-from the triage's start too (11 days before now, the oldest congestion
-period still corrected), not only the 7 days of the loss window. Each pass
+from the triage's start too (about 12 days before now: the oldest
+congestion period still corrected, 11 days back, less its baseline), not
+only the 7 days of the loss window. The layers are read once, before the
+pass deletes anything, so the reads never sit between a delete and its
+write. Each pass
 records `triage_s` and `triage_errors` (see [Pass history](#pass-history));
 a triage that fails is counted there, never in the pass's `errors`, and the
 period is written without it.
@@ -589,7 +599,7 @@ of layers), the triage replayed in a container beside the service:
 | --- | --- |
 | A pass with the cache (the last 25 h of every layer, then every period) | 1.6 |
 | The first pass, and the weekly full read (12 days) | 5.7 |
-| The deaf cache's daily full read, 11 days instead of 7 | +2.6 (7.1 instead of 4.5) |
+| The deaf cache's daily full read, about 12 days instead of 7 | +2.6 (7.1 instead of 4.5) |
 
 Before the cache and the raw reads, InfluxDB's own `median` over the window
 took over 15 s for ICMP alone; ICMP now costs nothing extra.

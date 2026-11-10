@@ -68,10 +68,11 @@ version gets a matching GitHub release and git tag.
   none and render as before. It never changes the detection, the
   confidence or the class. Target Detail's congestion and degradation
   annotations and Connectivity & Quality's *Detected episodes* tooltip
-  append the sentence. Cost on the staging Pi: 1.6 s a pass (the layers'
+  append the sentence, and a new table under that timeline lists every
+  period with a colored column per layer and the sentence wrapped. Cost on the staging Pi: 1.6 s a pass (the layers'
   closed bins are cached, the last 25 h re-read), 5.7 s on the first pass
-  and once a week, and the deaf cache's daily full read reaches 11 days
-  instead of 7 (+2.6 s); `inference_pass` records `triage_s` and
+  and once a week, and the deaf cache's daily full read reaches about 12
+  days instead of 7 (+2.6 s); `inference_pass` records `triage_s` and
   `triage_errors`, and a triage that fails never fails the pass.
   `docs/inference.md` has a *Which other layers moved (vertical triage)*
   section with the rules and the limits found in the design read (the
