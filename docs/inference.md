@@ -605,6 +605,117 @@ reference Pi) and adds 12 cycles in about 1 s; Jitterbug on the 14-day
 stream takes about 6 s, 7.3 s in all. The first pass after an upgrade
 fills 7 days a day at a time: about 30 s once, at most ~390 MB.
 
+## Proving the shared path on staging
+
+The shared detectors and the path meter's episode rounds only write when
+the whole connection loses, and none had by the second production read
+(2026-11-09): shared degradation and shared segments since v2.44.0, episode
+traces since v2.51.0, never a point on the reference Pi. Their unit tests
+prove each step on fakes; this proves that a real evening gets from the
+bins to the dashboards. A maintainer tool, for a **staging Pi only**:
+
+```bash
+shared/scripts/inject-shared-loss.sh --host "$(hostname)" --keep
+# ... screenshots of Connectivity & Quality ...
+shared/scripts/inject-shared-loss.sh --host "$(hostname)" --cleanup
+```
+
+Run it from a checkout of the version under test (on a package install,
+`/opt/smoking-pi/shared/scripts/`), with the inference and path meter
+profiles on. It runs `shared/modules/inference/inject.py` inside the
+inference container (copying it in when the image predates it) and:
+
+1. **Plans an evening.** Three hours (`--hours`), ending two hours before
+   the bin cache's last pass, so the evening is a closed part of the cache
+   (`loss.csv` in the state volume) and not the tail a pass re-reads from
+   InfluxDB. Who loses: the destinations whose hourly paths cross one
+   network or exchange point, chosen so the period qualifies as `shared`
+   (a third of the voting operators, two kinds) and the segment scorer can
+   tell them apart; the operator with most targets loses most, so the
+   attribution has one clear leader; the levels are scaled until the pooled
+   loss is 5 %. With no such segment, every voter loses. `--csv FILE` takes
+   the evening from a file instead, one row per 15-minute bin and target
+   (`bin,target,loss`, the bin's start as epoch seconds or an ISO time,
+   loss a ratio 0–1), moved to the same place in the window; targets the
+   staging Pi does not measure are skipped. The file is copied into the
+   container for the run and never kept. The plan refuses an evening on the
+   monitor's own bins (a deaf radio, an upgrade), with fewer than eight
+   voters, one that would read `dominated`, or one where shared points
+   already exist (cleanup would delete them).
+2. **Injects it** into the cache, after copying `loss.csv`/`loss.json`
+   aside, and runs **one pass** as the service does (the shared detector and
+   the segments; not the per-target detectors).
+3. **Injects one cycle of widespread loss**: a `loss` point of 60 % for
+   every target that reported in the last 15 minutes, the gateway excepted,
+   at a second no point holds. The path meter's episode check, which is the
+   alerter's widespread rule, sees an episode under way within five minutes
+   and traces it. The alerter is stopped meanwhile (it would alert), and
+   started again whatever happens.
+4. **Verifies the three outputs** in InfluxDB against the plan: one
+   `shared_degradation` period over the evening (within 30 minutes at each
+   end) with the planned scope, the planned leader of `by_operator`, the
+   planned `kinds` and a pooled loss within half to one and a half the
+   planned; the `shared_segment` hypothesis at the period's start with the
+   planned confidence and segment; `trigger=episode` traces after the cycle,
+   each with its `episode`.
+5. **Cleans up**: deletes the injected cycle, restores the cache, and
+   deletes the `shared_degradation` and `shared_segment` points within an
+   hour of the evening and the `trigger=episode` traces since the cycle.
+   `--keep` deletes the injected cycle only and leaves the evening and its
+   outputs for screenshots (restored alone, the cache would let the next
+   hourly pass correct the period away); `--cleanup` finishes later.
+
+**The guard.** The script refuses unless the host's name contains
+`staging` and `--host` repeats it exactly: the reference Pi is
+`smokingpi`, and a command copied to the wrong terminal stops there.
+`inject.py` refuses to run without `--staging`, which only the script
+passes. Never run it on a Pi whose history matters: the injected loss is
+indistinguishable from measured loss until cleanup deletes it.
+
+The assistant's automations read the same data: run it between two runs of
+the hourly OpenClaw heartbeat (or after its last one of the day), and keep
+`--keep` short.
+
+**On the staging Pi, 2026-11-09 (v2.53.0, 22 voters),** the first run planted
+the evening on the Equinix Internet Exchange Dallas: Apple, Wikimedia and
+Imperva's `uba.ar` lost 29–44 % for three hours, a third of the nine voting
+operators, three kinds. All three outputs came out as planned, the first
+points either measurement had ever held:
+
+- `shared_degradation`: one period, 20:45 to 23:45 UTC (the evening was
+  21:00 to 00:00; the detector placed it one bin early), `shared`, pooled
+  loss 4.5 %, `by_operator` *Apple 38.5 %, Imperva 33.9 %, WIKIMEDIA
+  26.1 %*, kinds `cdn,content_network,other`;
+- `shared_segment`: `strong`, *exchange Equinix Internet Exchange Dallas,
+  crossed by 3 of 3 that lost and 0 of 19 that did not* (22 traced,
+  p = 0.003);
+- the widespread cycle read as 77 of 77 targets lossy, and the path meter's
+  next round traced six destinations, `trigger=episode`, each with its
+  `episode`.
+
+![The injected evening on Connectivity & Quality: the Whole connection row
+in the episode timeline, and the two Whole connection tables with their
+first rows](img/inference-staging-injection.png)
+
+The raw loss charts above them do not show the evening: it was injected
+into the bin cache only, which is what the shared pass reads. That run also
+found the plan blind to `upgrade` markers (an upgrade at 23:00 fell inside
+the evening and the pass left those bins out); the plan now refuses an
+evening on them, as it does one on a deaf radio. A second run took the
+evening from a CSV (every voter losing 1.5–3 %, the five Fastly-fronted
+ones 4–8 %, a synthetic file placed 19:30–22:30 UTC clear of the upgrades):
+`shared`, `by_operator` led by *Fastly 6.7 %*, all four kinds, and a
+`shared_segment` of confidence `none` (*22 lost, 0 did not*: everyone's
+loss sets no path apart, as the real October nights read); five episode
+traces; and the full cleanup left no point and the cache byte for byte as
+it was. In both runs the period started one bin before the evening: a
+change point at bin *i* opens the new segment at bin *i*, as in Jitterbug
+(see the degradation detector above), which is why the check allows two
+bins at each end.
+
+The path meter's own ledger (`episodes.json`) keeps the test's rounds for a
+day, so `smoking-pi budget` counts their probes until they roll off.
+
 ## Limits
 
 - **InfluxDB only.** With `TSDB_TYPE=clickhouse` the service stays idle and
