@@ -26,7 +26,9 @@ version gets a matching GitHub release and git tag.
   moved when it did, else one of its own ("ICMP's median did not rise,
   though its loss rose (+5 points)", "ICMP's loss did not rise", "ICMP's
   median: no data"); a layer that moved only on the other question is in
-  "did not" and in "also lost" (or "also rose"); "no loss" reads "no other
+  "did not" and in "also lost" (or "also rose"), and one whose median (a
+  degradation's: loss) had no data reads "no data" even when it moved on
+  the other question, never "did not"; "no loss" reads "no other
   loss" when ICMP's clause already gave its loss; and a rise at DNS or the
   first hop says "too" only after the destination rose. The stored layer
   states and the detection are unchanged; periods still in the corrected

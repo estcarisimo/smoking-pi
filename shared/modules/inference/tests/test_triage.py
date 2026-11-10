@@ -463,7 +463,8 @@ CONGESTION_CASES = [
     (_layer_result("nodata"),
      "ICMP's median: no data; TCP, HTTP, DNS, first hop and Wi-Fi did not; no loss; "
      "path unchanged; no other destination rose."),
-    (_layer_result("nodata", loss_rise=5, lost=True),
+    # _state reads this one "lost" (the loss answered, the median could not).
+    (_layer_result("lost", loss_rise=5, lost=True),
      "ICMP's median: no data, though its loss rose (+5 points); TCP, HTTP, DNS, first hop "
      "and Wi-Fi did not; no other loss; path unchanged; no other destination rose."),
 ]
@@ -494,7 +495,8 @@ DEGRADATION_CASES = [
     (_layer_result("nodata"),
      "ICMP's loss: no data; TCP, HTTP, DNS, first hop and Wi-Fi did not; no latency rise; "
      "path unchanged; no other destination lost."),
-    (_layer_result("nodata", rise=12, rose=True),
+    # _state reads this one "up" (the median answered, the loss could not).
+    (_layer_result("up", rise=12, rose=True),
      "ICMP's loss: no data, though its median rose (+12 ms); TCP, HTTP, DNS, first hop "
      "and Wi-Fi did not; no other latency rise; path unchanged; no other destination lost."),
 ]
@@ -520,6 +522,17 @@ def test_a_layer_that_moved_only_on_the_other_question_still_did_not():
     assert triage.text(_result(triage.DEGRADATION, icmp, http=http)) == (
         "ICMP to X lost (mean +4 points); TCP, HTTP, DNS, first hop and Wi-Fi did not; "
         "HTTP also rose (median +30 ms); path unchanged; only X lost.")
+
+
+def test_a_layer_with_no_answer_to_the_question_is_no_data_even_when_it_moved_otherwise():
+    # TCP's median had no data, its loss rose: _state says "lost", the
+    # sentence says no data and the loss, never "did not".
+    icmp = _layer_result("up", rise=10, loss_rise=0.0, rose=True, lost=False)
+    tcp = _layer_result("lost", loss_rise=3, lost=True)
+    assert triage._state({"rose": None, "lost": True}, triage.CONGESTION) == "lost"
+    assert triage.text(_result(triage.CONGESTION, icmp, tcp=tcp)) == (
+        "ICMP to X rose (median +10 ms); HTTP, DNS, first hop and Wi-Fi did not; "
+        "TCP: no data; TCP also lost (+3 points); path unchanged; only X rose.")
 
 
 def test_a_rise_elsewhere_says_too_only_after_the_destination_rose():

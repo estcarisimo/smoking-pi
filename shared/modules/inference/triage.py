@@ -441,16 +441,19 @@ def text(result: dict) -> str:
         else:
             parts.append(f"Wi-Fi tx rate fell to {100 * wifi['rate_ratio']:.0f} %")
 
-    # "Did not" is about the period's question, so a layer that moved only
-    # on the other one (it lost in a congestion period) is in it too.
+    # "Did not" and "no data" answer the period's question itself, read
+    # from its own flag: a layer that moved only on the other question (it
+    # lost in a congestion period) is in one of them too, and _state's
+    # ``lost`` for "no median, but loss" is no data, never "did not".
+    asked = "lost" if kind == DEGRADATION else "rose"
     flat = [LAYER_NAMES[n] for n in ("tcp", "http", "dns", "hop")
-            if result[n]["state"] in (FLAT, other_state)]
+            if result[n]["state"] != primary and result[n].get(asked) is False]
     if wifi["state"] == FLAT:
         flat.append("Wi-Fi")
     if flat:
         parts.append(f"{_join(flat)} did not")
     nodata = [LAYER_NAMES[n] for n in ("tcp", "http", "dns", "hop")
-              if result[n]["state"] == NODATA]
+              if result[n]["state"] != primary and result[n].get(asked) is None]
     if wifi["state"] == NODATA:
         nodata.append("Wi-Fi")
     if nodata:
@@ -487,12 +490,16 @@ def _icmp_unmoved(kind: str, icmp: dict) -> tuple[str, bool]:
     triage reads medians, so a flat median is a reading, not a contradiction.
     For a degradation it is the loss."""
     if kind == DEGRADATION:
-        asked, moved, said = "loss", icmp.get("rose"), "its median rose ({} ms)"
+        asked, answer, moved, said = "loss", icmp.get("lost"), icmp.get("rose"), \
+            "its median rose ({} ms)"
         amount = icmp.get("rise")
     else:
-        asked, moved, said = "median", icmp.get("lost"), "its loss rose ({} points)"
+        asked, answer, moved, said = "median", icmp.get("rose"), icmp.get("lost"), \
+            "its loss rose ({} points)"
         amount = icmp.get("loss_rise")
-    clause = (f"ICMP's {asked}: no data" if icmp["state"] == NODATA
+    # The question's own answer, not the state: _state reads "lost" when the
+    # median had no data but the loss rose, and that median did not "not rise".
+    clause = (f"ICMP's {asked}: no data" if answer is None
               else f"ICMP's {asked} did not rise")
     if moved and amount is not None:
         return f"{clause}, though {said.format(_num(amount))}", True
