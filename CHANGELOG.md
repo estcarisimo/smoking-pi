@@ -9,6 +9,32 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Inference: the triage sentence always says what ICMP did.** In a
+  congestion period where ICMP's loss rose but its median did not, the
+  sentence lost its first clause: the median was in neither "rose" nor "did
+  not", and the loss came last, among the other layers ("first hop and
+  Wi-Fi did not; ICMP also lost (+5 points); …", as seen on staging for uba_ar
+  on 2026-11-08 01:00 UTC). A reader could not tell whether ICMP's median
+  moved, which is the first thing the sentence is for, since Jitterbug finds
+  a congestion period on the RTT floor and the triage reads medians. The
+  same gap existed, mirrored, for a degradation whose ICMP loss did not rise
+  but whose median did, and for any other layer that moved only on the
+  other question (a TCP that lost in a congestion period was in neither
+  list either). The sentence now always opens with ICMP: the clause of what
+  moved when it did, else one of its own ("ICMP's median did not rise,
+  though its loss rose (+5 points)", "ICMP's loss did not rise", "ICMP's
+  median: no data"); a layer that moved only on the other question is in
+  "did not" and in "also lost" (or "also rose"), and one whose median (a
+  degradation's: loss) had no data reads "no data" even when it moved on
+  the other question, never "did not"; "no loss" reads "no other
+  loss" when ICMP's clause already gave its loss; and a rise at DNS or the
+  first hop says "too" only after the destination rose. The stored layer
+  states and the detection are unchanged; periods still in the corrected
+  part of the window get the new sentence on the next pass, settled ones
+  keep theirs.
+
 ## [2.54.0] — 2026-11-10
 
 This release proves the whole-connection path end to end on a staging Pi,

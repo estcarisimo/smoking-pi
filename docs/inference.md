@@ -558,9 +558,23 @@ reads it as before):
 
 That reading is "between the ISP and the destination, or at the
 destination": nothing in the house or at the first hop moved, and nothing
-says which stretch beyond it did. An ICMP that did not rise reads "ICMP's
-median did not": Jitterbug found the period on the floor, the triage reads
-medians. Target Detail appends the sentence to the period's annotation
+says which stretch beyond it did. The sentence always opens with ICMP,
+the period's own signal. When ICMP did not move on the period's question,
+it gets a clause of its own: for congestion, "ICMP's median did not rise"
+(Jitterbug found the period on the floor, the triage reads medians, so a
+flat median is a reading, not a contradiction), with its loss when that
+rose:
+
+> ICMP's median did not rise, though its loss rose (+5 points); TCP, HTTP,
+> DNS, first hop and Wi-Fi did not; no other loss; path unchanged; no other
+> destination rose.
+
+For a degradation it is the loss ("ICMP's loss did not rise, though its
+median rose (+12 ms)"), and with too little data, "ICMP's median: no data"
+(or "ICMP's loss: no data"). "Did not" is about the period's question: a
+layer that moved only on the other one (TCP lost during a congestion
+period) is listed there and again in "also lost" ("also rose" for a
+degradation). Target Detail appends the sentence to the period's annotation
 (after *Layers:*); Connectivity & Quality appends it to the *Detected
 episodes* tooltip, and a table under that timeline, *Detected episodes:
 which other layers moved*, lists every period that carries it with one
