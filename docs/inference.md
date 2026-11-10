@@ -566,7 +566,11 @@ episodes* tooltip, and a table under that timeline, *Detected episodes:
 which other layers moved*, lists every period that carries it with one
 colored column per layer and the sentence wrapped (a tooltip shows one
 line, cut at the screen's edge). Times in the sentence (a path change) are
-in UTC. `INFERENCE_SINCE` bounds the triage's reads like the detectors':
+in UTC.
+
+![Target Detail: the congestion annotation ends with the layers that moved](img/inference-triage-annotation.png)
+
+![Connectivity & Quality: one row per period, a colored column per layer and the sentence](img/inference-triage-table.png) `INFERENCE_SINCE` bounds the triage's reads like the detectors':
 no baseline from before that date.
 
 **Cost.** The layers are read once per pass, and only when there is a
