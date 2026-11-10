@@ -722,8 +722,11 @@ ones 4–8 %, a synthetic file placed 19:30–22:30 UTC clear of the upgrades):
 `shared`, `by_operator` led by *Fastly 6.7 %*, all four kinds, and a
 `shared_segment` of confidence `none` (*22 lost, 0 did not*: everyone's
 loss sets no path apart, as the real October nights read); five episode
-traces; and the full cleanup left no point and, with no service pass in
-between, the cache byte for byte as it was. In both runs the period started one bin before the evening: a
+traces; and the full cleanup left no point and the cache byte for byte as
+it was. A third run, after the review, planted the same exchange over
+19:30–22:30 UTC and passed every check (the hypothesis read `weak` on that
+window's traces, as planned); its cleanup kept the tail its own pass had
+added and put the evening's measured bins back, `full_at` included. In both runs the period started one bin before the evening: a
 change point at bin *i* opens the new segment at bin *i*, as in Jitterbug
 (see the degradation detector above), which is why the check allows two
 bins at each end.

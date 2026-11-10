@@ -38,12 +38,11 @@ version gets a matching GitHub release and git tag.
   naming that exchange (3 of 3 that lost, 0 of 19 that did not); a CSV
   evening everyone shared read `shared` with a `none` hypothesis; each
   widespread cycle got episode traces within five minutes; the alerter's log
-  showed no alert, and the cleanup left the cache byte for byte as it was
-  (no service pass ran in between). The first run also found that the plan
-  ignored `upgrade` markers (an upgrade fell inside the evening, and the
-  pass left those bins out); the plan now refuses an evening on them.
-  `docs/inference.md` has a new section, *Proving the shared path on
-  staging*.
+  showed no alert, and the cleanup put the cache's measured bins back. The
+  first run also found that the plan ignored `upgrade` markers (an upgrade
+  fell inside the evening, and the pass left those bins out); the plan now
+  refuses an evening on them. `docs/inference.md` has a new section,
+  *Proving the shared path on staging*.
 
 ## [2.53.0] — 2026-11-09
 
