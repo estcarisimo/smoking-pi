@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.54.0] — 2026-11-10
+
+This release proves the whole-connection path end to end on a staging Pi,
+with a maintainer tool that injects a loss evening and checks that the
+shared degradation, the shared path segment and the episode traces reach
+Connectivity & Quality. It adds a vertical triage to every detected
+congestion or degradation period, a sentence and a table saying which
+other layers (TCP, HTTP, DNS, first hop, Wi-Fi, path, other destinations)
+moved with it, without changing what is detected.
+
 ### Added
 
 - **Inference: a staging test that proves the shared path end to end
