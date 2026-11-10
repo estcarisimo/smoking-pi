@@ -1,5 +1,7 @@
 """The per-target cache: what is asked, what is kept, what a target reads."""
 
+import json
+
 from common import asn, operators
 
 
@@ -100,3 +102,36 @@ def test_the_cache_survives_a_restart(tmp_path):
     again.refresh(hosts)
     assert len(calls) == 2
     assert again.owner("A", hosts) == ("Cloudflare", asn.CDN, 13335)
+
+
+def test_a_cached_blocked_address_is_unknown_and_asked_again(tmp_path):
+    # a 0.0.0.0 cached before asn.resolve refused it: not "local network",
+    # and asked again on the next pass rather than kept for a day
+    (tmp_path / "ops.json").write_text(json.dumps({
+        "addresses": {"sentry.io": {"ip": "0.0.0.0", "chain": [], "at": 1.0}}, "owners": {}}))
+    calls = []
+    t = make(tmp_path, lambda: 2.0, {"sentry.io": ("35.186.247.156", [])},
+             {"35.186.247.156": (396982, "GOOGLE-CLOUD-PLATFORM")}, calls)
+    hosts = {"Sentry": "sentry.io"}
+    assert t.owner("Sentry", hosts) == (asn.UNKNOWN, asn.UNKNOWN, 0)
+    t.refresh(hosts)
+    assert calls[0] == ("A", "sentry.io")
+    assert t.owner("Sentry", hosts) == ("Google Cloud", asn.CLOUD, 396982)
+
+
+def test_a_cached_blocked_address_that_still_fails_waits_an_hour(tmp_path):
+    # the re-lookup fails too: it becomes an ordinary failure, asked again in
+    # an hour, not on every pass
+    (tmp_path / "ops.json").write_text(json.dumps({
+        "addresses": {"sentry.io": {"ip": "0.0.0.0", "chain": [], "at": 1.0}}, "owners": {}}))
+    calls = []
+    now = [2.0]
+    t = make(tmp_path, lambda: now[0], {}, {}, calls)
+    hosts = {"Sentry": "sentry.io"}
+    t.refresh(hosts)
+    t.refresh(hosts)
+    assert calls == [("A", "sentry.io")]
+    assert t.owner("Sentry", hosts) == (asn.UNKNOWN, asn.UNKNOWN, 0)
+    now[0] += operators.FAILED_TTL + 1
+    t.refresh(hosts)
+    assert calls == [("A", "sentry.io"), ("A", "sentry.io")]

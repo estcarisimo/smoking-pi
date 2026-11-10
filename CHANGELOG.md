@@ -11,6 +11,29 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **Inference: the operator tags no longer go through the Pi's filtering
+  resolver.** The shared detector tags each voter with who runs the network
+  it reaches, from the address its host resolves to, and it asked the
+  container's resolver, which is the Pi's. Since the DNS observer's AdGuard
+  Home filters (blocklists on in production since 2026-10-24), twelve
+  measured names answer `0.0.0.0` (ad, analytics and error-reporting
+  hosts), so six ICMP voters and their HTTP/TCP layers read *no operator*.
+  SmokePing, pinned to public resolvers, kept measuring the real addresses
+  (so did the exporter's delivery labels, in the same container): only the
+  inference tag was lost. A shared period that hit those voters would have
+  been attributed to fewer operators (and kinds) than actually lost, which
+  is the half of the verdict that says whether it was the connection.
+
+  The tags now resolve through SmokePing's own resolvers (`SMOKEPING_DNS`,
+  `SMOKEPING_DNS_FALLBACK`, now also passed to the inference container),
+  each given its own try, with the container's resolver only as the
+  fallback. A `0.0.0.0` answer from any resolver is *blocked*, never an
+  address, in every module that resolves through `common/asn.py`: the path
+  meter, which traced such a destination to `0.0.0.0`, now leaves it out.
+  One already cached is asked again on the next pass. Each pass counts the
+  voters still without an operator in `status.json`
+  (`shared.untagged_voters`) and names them in the log. Nothing to set.
+  `docs/inference.md` says why the tags do not use the Pi's resolver.
 - **Inference: the triage sentence always says what ICMP did.** In a
   congestion period where ICMP's loss rose but its median did not, the
   sentence lost its first clause: the median was in neither "rose" nor "did

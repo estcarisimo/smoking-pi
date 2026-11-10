@@ -8,7 +8,9 @@ network's kind from a short curated table of well-known networks:
 
 1. its host, from the ``target_host`` measurement the exporter writes;
 2. the host's address and CNAME chain, from DNS (the chain is what tells
-   CloudFront from the rest of Amazon);
+   CloudFront from the rest of Amazon), asked of the resolvers SmokePing
+   resolves its targets with (``SMOKEPING_DNS``, ``SMOKEPING_DNS_FALLBACK``),
+   not the Pi's: see :func:`lookup`;
 3. the address's origin AS and its name, from the routing table in the
    state volume (originet over CAIDA's RouteViews snapshot, CAIDA's AS2Org
    names), looked up locally;
@@ -38,16 +40,63 @@ until a lookup succeeds the target is ``unknown`` and counts as no operator.
 
 from __future__ import annotations
 
+import ipaddress
+import logging
 import os
 from pathlib import Path
 
 from common.asn import (  # noqa: F401 -- re-exported: tags.CDN, tags.classify...
     ACADEMIC, ACCESS, AMAZON, CACHE, CDN, CLOUD, CLOUDFRONT_HINTS, CONTENT, DNS_INFRA,
-    KNOWN, LOCAL, OTHER, TRANSIT, UNKNOWN, _resolver, classify, origin, resolve,
+    KNOWN, LOCAL, OTHER, TRANSIT, UNKNOWN, _resolver, blocked, classify, origin, resolve,
 )
 from common.operators import (  # noqa: F401 -- re-exported: tags.ADDRESS_TTL...
     ADDRESS_TTL, BUDGET, FAILED_TTL, OWNER_TTL, Operators,
 )
+
+
+log = logging.getLogger("inference.tags")
+
+# SmokePing's own defaults (the smokeping service's ``dns:`` in compose).
+DEFAULT_NAMESERVERS = ("1.1.1.1", "8.8.8.8")
+
+
+def nameservers() -> list[str]:
+    """The resolvers SmokePing resolves its targets with: ``SMOKEPING_DNS``
+    and ``SMOKEPING_DNS_FALLBACK``, each one address, compose's defaults
+    when unset. A value that is not an address is skipped, with a warning
+    (once per value: Docker's ``dns:`` takes addresses only, so SmokePing
+    cannot be using it either); none at all falls back to the defaults."""
+    found = []
+    for name, default in zip(("SMOKEPING_DNS", "SMOKEPING_DNS_FALLBACK"), DEFAULT_NAMESERVERS):
+        value = (os.environ.get(name) or "").strip() or default
+        try:
+            found.append(str(ipaddress.ip_address(value)))
+        except ValueError:
+            if (name, value) not in _warned:
+                _warned.add((name, value))
+                log.warning("%s is not an IP address; the operator tags skip it", name)
+    return list(dict.fromkeys(found)) or list(DEFAULT_NAMESERVERS)
+
+
+_warned: set[tuple[str, str]] = set()
+
+
+def lookup(host: str, public=None, system=None) -> tuple[str, list[str]] | None:
+    """(address, CNAME chain) of ``host`` as SmokePing sees it.
+
+    Not through this container's resolver: that is the Pi's, and on a Pi
+    whose resolver filters (the DNS observer's AdGuard Home with blocklists
+    on) a tracker or analytics host answers ``0.0.0.0``, while SmokePing,
+    pinned to public resolvers, measures the real address. Asking the Pi
+    would leave those voters without an operator. So the resolvers SmokePing
+    uses first (:func:`nameservers`); the host's only when they give no
+    answer (a deployment whose SmokePing names are internal, or a network
+    that blocks outbound DNS). A blocked answer from either is no answer
+    (:func:`common.asn.blocked`)."""
+    found = resolve(host, public or _resolver(nameservers()))
+    if found is None:
+        found = resolve(host, system or _resolver())
+    return found
 
 
 def _state_path() -> Path:
@@ -58,7 +107,7 @@ class Tags(Operators):
     """Operator and kind per target, cached in ``tags.json``."""
 
     def __init__(self, path: Path | None = None, clock=None,
-                 resolve_fn=resolve, origin_fn=origin) -> None:
+                 resolve_fn=lookup, origin_fn=origin) -> None:
         kwargs = {"clock": clock} if clock is not None else {}
         super().__init__(path or _state_path(), resolve_fn=resolve_fn,
                          origin_fn=origin_fn, **kwargs)
@@ -68,3 +117,9 @@ class Tags(Operators):
         A target on the local network is no kind of infrastructure here."""
         operator, kind = super().of(target, hosts)
         return (UNKNOWN, UNKNOWN) if kind == LOCAL else (operator, kind)
+
+    def untagged(self, targets, hosts: dict[str, str]) -> list[str]:
+        """The targets with no operator yet: not resolved, blocked, or no
+        owner in the routing table. One on the local network (the gateway)
+        is no operator by design and not counted."""
+        return sorted(t for t in targets if self.owner(t, hosts)[1] == UNKNOWN)

@@ -81,17 +81,38 @@ def roles(path: Path = ROLES_FILE) -> dict[int, tuple[str, str]]:
     return table
 
 
-def _resolver():
+def _resolver(nameservers: list[str] | None = None):
+    """A dnspython resolver: the host's (``/etc/resolv.conf``), or one that
+    asks exactly ``nameservers`` and reads nothing from the host."""
     import dns.resolver
 
-    r = dns.resolver.Resolver()
-    r.lifetime = 3.0
+    if nameservers:
+        r = dns.resolver.Resolver(configure=False)
+        r.nameservers = list(nameservers)
+        # each server its own try: an unreachable first one must not use up
+        # the whole lifetime before the second is asked
+        r.timeout = 1.5
+        r.lifetime = 1.5 * len(r.nameservers) + 0.5
+    else:
+        r = dns.resolver.Resolver()
+        r.lifetime = 3.0
     return r
+
+
+def blocked(address: str) -> bool:
+    """True for the answer a filtering resolver gives a name it blocks:
+    ``0.0.0.0`` or ``::`` (AdGuard Home, Pi-hole). It is not an address
+    anything was measured at, so it is no answer at all."""
+    try:
+        return ipaddress.ip_address(address).is_unspecified
+    except ValueError:
+        return False
 
 
 def resolve(host: str, resolver=None) -> tuple[str, list[str]] | None:
     """(first IPv4 address, CNAME chain) of ``host``; an address is its own
-    answer. None when it does not resolve."""
+    answer. None when it does not resolve, or only to a blocked answer
+    (:func:`blocked`)."""
     try:
         ipaddress.ip_address(host)
         return host, []
@@ -103,12 +124,14 @@ def resolve(host: str, resolver=None) -> tuple[str, list[str]] | None:
         return None
     chain = [str(item.target).rstrip(".") for rrset in answer.response.answer
              for item in rrset if rrset.rdtype == 5]  # CNAME
-    return (str(answer[0]), chain) if len(answer) else None
+    found = [str(item) for item in answer if not blocked(str(item))]
+    return (found[0], chain) if found else None
 
 
 def addresses(host: str, resolver=None) -> list[str]:
     """Every IPv4 address ``host`` resolves to, in the answer's order; an
-    address is its own answer. Empty when it does not resolve."""
+    address is its own answer. Empty when it does not resolve; a blocked
+    answer (:func:`blocked`) is left out."""
     try:
         ipaddress.ip_address(host)
         return [host]
@@ -118,7 +141,7 @@ def addresses(host: str, resolver=None) -> list[str]:
         answer = (resolver or _resolver()).resolve(host, "A")
     except Exception:  # noqa: BLE001 -- dnspython raises many kinds; all mean "no answer"
         return []
-    return [str(item) for item in answer]
+    return [str(item) for item in answer if not blocked(str(item))]
 
 
 def origin(ip: str, resolver=None) -> tuple[int, str] | None:
