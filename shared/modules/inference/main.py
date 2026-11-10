@@ -15,6 +15,10 @@ and Jitterbug, unchanged, on an aggregate stream of every voter's pings
 over its own floor (aggregate.py), over the congestion window. With the
 path meter on, each shared period also gets the path segment its lossy
 destinations share, as a hypothesis (segments.py).
+Each period about to be written first gets the vertical triage
+(triage.py): which other layers -- TCP, HTTP, DNS, the first hop, the
+radio, the path, other destinations -- moved with it, as fields on its
+point. Evidence beside the period; it never changes what was detected.
 ``INFERENCE_SINCE`` (a date) keeps both windows from reaching before it, for
 a host that moved or changed provider: history from another connection is
 not this one's baseline.
@@ -42,6 +46,7 @@ import series
 import shared
 import status
 import store
+import triage
 from common import asn
 
 log = logging.getLogger("inference")
@@ -95,14 +100,18 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
              record_pass=store.write_pass, shared_pass=None,
              replace_shared=store.replace_shared, aggregate_pass=None,
              replace_shared_congestion=None, segments_pass=None,
-             replace_segments=None) -> dict:
+             replace_segments=None, make_triage=None) -> dict:
     """One pass over every target. A target that fails is logged and skipped;
     the others still run. ``shared_pass(start, deaf_bins)`` runs the shared
     detector once after them (main() passes shared.run), and
     ``aggregate_pass(shared_result, c_start, d_start, now)`` Jitterbug on the
     aggregate stream after that, with the shared pass's voters (main() passes
     aggregate.run). ``segments_pass(shared_result)`` reads the paths behind
-    the shared periods (main() passes segments.run)."""
+    the shared periods (main() passes segments.run).
+    ``make_triage(targets, start, now, deaf_bins, categories)`` returns the
+    pass's triage.Triage (main() passes :func:`new_triage`); each target's
+    periods are then written with its fields, after every target was read,
+    so a period's breadth can see the destinations read after it."""
     if replace_shared_congestion is None:
         def replace_shared_congestion(periods, start, end, edge=None):
             return store.replace_shared(periods, start, end, edge=edge,
@@ -126,11 +135,29 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
         selected = []
     if not selected and "failed" not in report:
         log.warning("no target matched INFERENCE_CATEGORIES / INFERENCE_TARGETS")
+    # Where the triage reads from: the earliest start a period may be
+    # written at (store.settle), less its baseline and a bin.
+    t_start = min(store.writable_from(c_start, c_edge, store.GUARD[store.CONGESTION]),
+                  store.writable_from(d_start, d_edge, store.GUARD[store.DEGRADATION])) \
+        - triage.BASELINE_S - 2 * triage.BIN_S
+    # INFERENCE_SINCE: history from another connection is no baseline either.
+    t_start = max(t_start, since() or 0)
     # The host's deaf bins, once per pass: every target shares the radio.
+    # With the triage, from its start too: a congestion period is written
+    # until it is 11 days old, older than the loss window.
     deaf_started = time.monotonic()
-    deaf_bins = read_deaf(d_start, now) if (selected or shared_pass) else set()
+    deaf_from = min(d_start, t_start) if make_triage is not None else d_start
+    deaf_bins = read_deaf(deaf_from, now) if (selected or shared_pass) else set()
     report["deaf_bins"] = len(deaf_bins)
     report["deaf_seconds"] = round(time.monotonic() - deaf_started, 1)
+    tri = None
+    if make_triage is not None and selected:
+        try:
+            tri = make_triage([t for t, _ in selected], t_start, now, deaf_bins,
+                              dict(selected))
+        except Exception:  # noqa: BLE001 -- the triage never fails the pass
+            log.warning("could not start the triage", exc_info=True)
+    found = []
     for target, category in selected:
         row = {}
         try:
@@ -140,24 +167,53 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
             deaf.coverage(c["periods"], c_pings["epoch"])
             row["congestion"] = {"periods": len(c["periods"]),
                                  "change_points": c["change_points"]}
-            replace(store.CONGESTION, target, category, c["periods"], c_start, now,
-                    edge=c_edge)
-            d_loss = loss[loss["epoch"] >= d_start]
-            d = find_degradation(d_loss)
-            deaf.coverage(d["periods"], d_loss["epoch"])
-            deaf.label(d["periods"], deaf_bins, d_loss)
-            row["degradation"] = {"periods": len(d["periods"]),
-                                  "change_points": d["change_points"],
-                                  "monitor_deaf": sum(1 for p in d["periods"]
-                                                      if p.get("class") == deaf.MONITOR_DEAF),
-                                  "bursts": sum(1 for p in d["periods"] if p.get("burst"))}
-            replace(store.DEGRADATION, target, category, d["periods"], d_start, now,
-                    edge=d_edge)
+            d = None
+            try:
+                d_loss = loss[loss["epoch"] >= d_start]
+                d = find_degradation(d_loss)
+                deaf.coverage(d["periods"], d_loss["epoch"])
+                deaf.label(d["periods"], deaf_bins, d_loss)
+                row["degradation"] = {
+                    "periods": len(d["periods"]), "change_points": d["change_points"],
+                    "monitor_deaf": sum(1 for p in d["periods"]
+                                        if p.get("class") == deaf.MONITOR_DEAF),
+                    "bursts": sum(1 for p in d["periods"] if p.get("burst"))}
+            except Exception:  # noqa: BLE001 -- the congestion periods still go out
+                log.warning("degradation failed for %s", target, exc_info=True)
+                row["error"] = True
+                report["errors"] += 1
+                d = None
+            if tri is not None:
+                tri.add_icmp(target, pings, loss, c["periods"] + (d["periods"] if d else []))
+            found.append((target, category, c, d))
         except Exception:  # noqa: BLE001 -- one target must not stop the others
             log.warning("inference failed for %s", target, exc_info=True)
             row["error"] = True
             report["errors"] += 1
         report["targets"][target] = row
+    # Written once every target was read: the triage's breadth compares a
+    # period with the destinations read after it too. Its layers are read
+    # here, before the first delete.
+    if tri is not None and any(c["periods"] or (d and d["periods"]) for _, _, c, d in found):
+        tri.prepare()
+    for target, category, c, d in found:
+        try:
+            for measurement, kind, result, start, edge in (
+                    (store.CONGESTION, triage.CONGESTION, c, c_start, c_edge),
+                    (store.DEGRADATION, triage.DEGRADATION, d, d_start, d_edge)):
+                if result is None:
+                    continue
+                extra = {}
+                if tri is not None:
+                    extra["enrich"] = (lambda w, k=kind, t=target: tri.enrich(k, t, w))
+                replace(measurement, target, category, result["periods"], start, now,
+                        edge=edge, **extra)
+        except Exception:  # noqa: BLE001 -- one target must not stop the others
+            log.warning("inference failed for %s", target, exc_info=True)
+            report["targets"][target]["error"] = True
+            report["errors"] += 1
+    if tri is not None:
+        report["triage"] = tri.report()
     s = None
     if shared_pass is not None:
         shared_started = time.monotonic()
@@ -215,6 +271,13 @@ def run_once(now: int | None = None, fetch=series.fetch, list_targets=series.tar
     return report
 
 
+def new_triage(targets, start, now, deaf_bins, categories) -> triage.Triage:
+    """The pass's triage, reading through series.py."""
+    return triage.Triage(targets, start, now, deaf_bins,
+                         read_layers=lambda s, n: series.triage_bins(targets, s, n),
+                         read_paths=series.path_traces, categories=categories)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -244,7 +307,8 @@ def main() -> None:
         except Exception:  # noqa: BLE001 -- the table is an aid; the pass goes on without it
             log.exception("routing table refresh failed")
         report = run_once(shared_pass=shared.run, aggregate_pass=aggregate.run,
-                          segments_pass=lambda s: segments.run(s, name_of=asn.as_name))
+                          segments_pass=lambda s: segments.run(s, name_of=asn.as_name),
+                          make_triage=new_triage)
         report["interval"] = interval
         status.write(report)
         time.sleep(max(60.0, interval - (time.time() - began)))

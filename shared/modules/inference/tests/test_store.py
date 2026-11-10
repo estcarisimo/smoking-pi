@@ -439,3 +439,56 @@ def test_shared_segment_points_carry_the_hypothesis_and_its_counts():
         assert part in line
     assert "target_loss" not in line and "voters" not in line
     assert store.measurement_name(store.SHARED_SEGMENT) == "shared_segment"
+
+
+def test_the_triage_fields_are_written_with_their_types_and_do_not_change_the_key():
+    p = {"start": W0 + 900, "end": W0 + 4500, "confidence": 0.9,
+         "triage": "ICMP, TCP and HTTP to NYT rose together", "tri_tcp": "up",
+         "tri_http": "up", "tri_dns": "flat", "tri_hop": "flat", "tri_wifi": "nodata",
+         "tri_path": "unchanged", "tri_others": 0, "tri_version": 1,
+         "icmp_rise_ms": 10.2, "tcp_rise_ms": 9.0, "http_rise_ms": 49}
+    (pt,) = store.points(store.CONGESTION, "NYT", "topsites", [p], W0)
+    line = pt.to_line_protocol()
+    assert line.startswith("persistent_congestion,category=topsites,target=NYT ")
+    assert 'triage="ICMP, TCP and HTTP to NYT rose together"' in line
+    assert 'tri_tcp="up"' in line and 'tri_path="unchanged"' in line
+    assert "tri_others=0i" in line and "tri_version=1i" in line
+    assert "http_rise_ms=49" in line and "http_rise_ms=49i" not in line
+    assert line.endswith(f" {W0 + 900}")
+
+
+def test_a_period_without_the_triage_has_none_of_its_fields():
+    (pt,) = store.points(store.CONGESTION, "NYT", "topsites",
+                         [{"start": W0 + 900, "end": W0 + 4500}], W0)
+    assert "tri_" not in pt.to_line_protocol() and "triage" not in pt.to_line_protocol()
+
+
+def test_the_triage_runs_only_on_the_periods_that_are_written():
+    # A record an earlier pass wrote before the settled edge stays as it was:
+    # its period is not written, so it is not triaged either.
+    kept = (W0 + 2 * DAY, W0 + 3 * DAY + 3600)
+    client = FakeClient([kept])
+    seen = []
+    periods = [{"start": kept[0] + 900, "end": kept[1]},
+               {"start": W0 + 5 * DAY, "end": W0 + 5 * DAY + 3600}]
+    store.replace(store.CONGESTION, "NYT", "topsites", periods, W0, NOW, client=client,
+                  enrich=lambda w: seen.extend(p["start"] for p in w))
+    assert seen == [W0 + 5 * DAY]
+
+
+def test_the_triage_fields_reach_the_written_point():
+    client = FakeClient()
+
+    def enrich(write):
+        for p in write:
+            p["triage"] = "only NYT rose."
+    store.replace(store.CONGESTION, "NYT", "topsites",
+                  [{"start": W0 + 5 * DAY, "end": W0 + 5 * DAY + 3600}], W0, NOW,
+                  client=client, enrich=enrich)
+    assert 'triage="only NYT rose."' in client.written[0].to_line_protocol()
+
+
+def test_the_pass_records_the_triage_cost():
+    line = store.pass_point({"seconds": 70.0, "targets": {},
+                             "triage": {"seconds": 1.25, "errors": 2}}, NOW).to_line_protocol()
+    assert "triage_s=1.25" in line and "triage_errors=2i" in line

@@ -466,6 +466,182 @@ other evidence and written beside each period, never fed back into it
   past that the service logs a warning and the newest deaf periods may read
   as loss.
 
+## Which other layers moved (vertical triage)
+
+Experimental, like the detectors. A detected period says that ICMP to one
+destination changed; it does not say whether anything else did. Telling a
+queue past the ISP from a slow radio, a busy gateway or a DNS problem meant
+opening six panels on two dashboards and comparing them by eye, period by
+period. The triage does that comparison once, when the period is written,
+and stores the answer on the period itself.
+
+**What it is.** For each congestion or degradation period a pass is about
+to write (the ones in the corrected part of the window: see
+[What a pass corrects and what it keeps](#what-a-pass-corrects-and-what-it-keeps)),
+the module asks every other layer whether it moved during the period, and
+writes the answers as fields on the same `persistent_congestion` or
+`loss_degradation` point. It **never** changes the detection, the
+`confidence`, the `class` or anything Jitterbug or BCP read: it is evidence
+beside the period, with the period's life (rewritten while the period is
+corrected, fixed when it settles, deleted with it).
+
+| Layer | What it reads (unit) | For a destination X |
+| --- | --- | --- |
+| ICMP | `latency` (s; loss 0–1), from the pings the pass already read | X itself: the reference rise |
+| TCP | `tcp_latency` (s; loss 0–1) | `X_tcp443` (or `X_tcp`) |
+| HTTP | `http_latency` (s; failed requests 0–1) | `X_h1`, `X_h2`, `X_h3` |
+| DNS | `dns_latency` of the public resolvers (category `dns`); `dns_resolution` p50 of `upstreams` (the house's own resolution) | resolution in general: there is no DNS probe per destination |
+| First hop | `cpe_latency` (ms; loss 0–100) | the gateway with the most data in the period |
+| Wi-Fi | deaf 15-minute bins (as for `monitor_deaf`), `wifi_link` signal and tx rate on the uplink interface | this Pi's radio |
+| Path | pathmeter's `path_trace` (`changed`, `as_changed`, `as_path`) | X's traces |
+| Other destinations | the other selected destinations' ICMP | breadth: was it only X? |
+
+**The rule**, the same for every layer:
+
+- *Window*: the period's 15-minute bins; one more bin each side for point
+  events (loss, a deaf bin); one more hour each side for the path, whose
+  traces are hourly.
+- *Baseline*: the 24 hours ending one bin before the period's start,
+  without the bins of the same destination's other periods (else last
+  evening's period would raise this evening's baseline).
+- *Rose*: the median of the layer's 15-minute medians during the period,
+  minus the baseline's, is at least **max(p90 − p10 of the baseline's bin
+  medians, 10 % of the baseline median)**: relative to each layer's own noise
+  and level (1 ms on ICMP at 7 ms is not 1 ms on HTTP at 75 ms). The median,
+  not the floor: the lowest of three HTTP requests per cycle is too noisy to
+  decide on.
+- *Lost*: the mean loss during, minus the baseline's, is at least
+  **max(1 point, p90 − p10 of the baseline's bin means)**, in percent. The
+  spread is what absorbs the gateway's loss floor from ICMP rate limiting.
+- *Coverage*: at least 75 % of the period's bins must have data in the
+  layer (and the baseline at least 8 bins), or the layer reads **no data** —
+  never "did not".
+- *Several probes*: HTTP's versions and DNS's resolvers (with the house's
+  resolution) move as a layer when at least half of the probes with data
+  did; the rise shown is the median of theirs.
+- *Wi-Fi*: **deaf** (`lost`) with at least one deaf bin in the window ± 1
+  bin; **moved** (`up`) when the signal fell 6 dB or more or the tx rate
+  fell to half the baseline or less; a wired host has no data.
+- *Path*: **changed** when a trace within the hour around the period
+  carries pathmeter's own `changed` or `as_changed` (it already asks for two
+  equal traces); **one trace off the usual path** when a single trace took
+  another AS path than the most common one of the 24 hours before, without
+  confirmation; **no traces** without a trace there or with a gap of more
+  than 3 hours between them. Traces taken during a loss episode (tagged
+  `trigger`) are left out, as for the shared path segments: they lose hops.
+- *Other destinations*: every other selected destination except the
+  gateway (which is the first hop), by the same rule on its ICMP floor (on
+  its loss, for a degradation).
+
+A degradation asks the same layers about loss first (TCP lost, HTTP
+failed, the gateway lost above its floor, the radio was deaf), and about a
+rise second; for congestion it is the other way round.
+
+**What it writes**, every field optional (a period written before the
+triage, or by a pass whose triage failed, has none, and every dashboard
+reads it as before):
+
+- `triage` (string): the sentence below;
+- `tri_tcp`, `tri_http`, `tri_dns`, `tri_hop`, `tri_wifi` (string): `up`,
+  `flat`, `lost` or `nodata`;
+- `tri_path` (string): `unchanged`, `changed`, `detour` or `nodata`;
+- `tri_others` (integer): how many other destinations moved too;
+- `icmp_rise_ms`, `tcp_rise_ms`, `http_rise_ms`, `dns_rise_ms`,
+  `hop_rise_ms` (float): each layer's median rise in ms (absent with no data);
+- `tri_version` (integer): the version of these rules.
+
+**The sentence** names what moved, never a cause:
+
+> ICMP, TCP and HTTP to Facebook rose together (median +10, +10 and +49 ms);
+> DNS, first hop and Wi-Fi did not; no loss; path unchanged; only Facebook
+> rose.
+
+That reading is "between the ISP and the destination, or at the
+destination": nothing in the house or at the first hop moved, and nothing
+says which stretch beyond it did. An ICMP that did not rise reads "ICMP's
+median did not": Jitterbug found the period on the floor, the triage reads
+medians. Target Detail appends the sentence to the period's annotation
+(after *Layers:*); Connectivity & Quality appends it to the *Detected
+episodes* tooltip, and a table under that timeline, *Detected episodes:
+which other layers moved*, lists every period that carries it with one
+colored column per layer and the sentence wrapped (a tooltip shows one
+line, cut at the screen's edge). Times in the sentence (a path change) are
+in UTC.
+
+![Target Detail: the congestion annotation ends with the layers that moved](img/inference-triage-annotation.png)
+
+![Connectivity & Quality: one row per period, a colored column per layer and the sentence](img/inference-triage-table.png) `INFERENCE_SINCE` bounds the triage's reads like the detectors':
+no baseline from before that date.
+
+**Cost.** The layers are read once per pass, and only when there is a
+period to write: TCP and HTTP of every selected destination, the
+resolvers, the house's resolution, the gateway and the radio. They are
+read as raw points and binned in the service (InfluxDB cannot push a median
+down: `aggregateWindow(fn: median)` over 13 days of one destination's HTTP
+took 2.1 s on the staging Pi against 0.27 s for the raw points); only the
+gateway, probed every 30 s, has its bin medians computed in InfluxDB, where
+they cost less than parsing ten times the points here. The closed bins are
+kept in the state volume (`triage-*.csv`, like the shared detector's
+caches). Each pass reads the last 25 hours again, which
+covers every point the exporter may still backfill (it never reaches back
+more than 24 hours), so the full read of the window is a weekly safety net
+rather than a daily one. ICMP comes from the pings the pass already read.
+The traces are one query for every destination. The deaf bins are read
+from the triage's start too (about 12 days before now: the oldest
+congestion period still corrected, 11 days back, less its baseline), not
+only the 7 days of the loss window. The layers are read once, before the
+pass deletes anything, so the reads never sit between a delete and its
+write. Each pass
+records `triage_s` and `triage_errors` (see [Pass history](#pass-history));
+a triage that fails is counted there, never in the pass's `errors`, and the
+period is written without it.
+
+Measured on the staging Pi (7 destinations, 11 periods to write, 12 days
+of layers), the triage replayed in a container beside the service:
+
+| Per pass | Seconds |
+| --- | --- |
+| A pass with the cache (the last 25 h of every layer, then every period) | 1.6 |
+| The first pass, and the weekly full read (12 days) | 5.7 |
+| The deaf cache's daily full read, about 12 days instead of 7 | +2.6 (7.1 instead of 4.5) |
+
+Before the cache and the raw reads, InfluxDB's own `median` over the window
+took over 15 s for ICMP alone; ICMP now costs nothing extra.
+
+**Limits.** These come from the design read that chose the rules (five
+evenings of congestion toward one destination on the reference Pi, nine
+evenings without a period as controls) and are not settled:
+
+- The median rule was chosen *after* seeing that the floor rule failed on
+  HTTP in one of those same five cases; the only guard against overfitting
+  is the nine control evenings (no false "rose" on TCP, HTTP, ICMP or the
+  first hop). DNS rose on one control evening on its own: the DNS layer
+  has some false positives of its own.
+- The loss rules per layer were never checked against a real network
+  degradation: there was none in that read (only gateway loss, bursts and
+  deaf radios).
+- How much HTTP should rise against ICMP is not checked: there it rose
+  3–8 times the ICMP rise (handshake, TLS and request each pay round
+  trips), and no proportion is required.
+- Why TCP's floor rose less than ICMP's while their medians rose alike
+  (an intermittent queue, or the edge treating ICMP apart) is not known;
+  it does not change the verdict.
+- It cannot say *where* past the first hop the queue was: that needs a
+  per-hop RTT, which the hourly traces do not resolve.
+- DNS is resolution in general, not the destination's name: there is no
+  DNS probe per destination.
+- The Wi-Fi thresholds (6 dB, half the tx rate) never fired in that read;
+  only signal and tx rate are used (the Pi's radio reports no noise or
+  retries).
+- An anycast destination's period or the gateway's own were not tried:
+  the first will likely read "only ICMP" (or TCP and HTTP too, if the edge
+  changed for every protocol), the second "first hop rose".
+- The baseline is the 24 hours before, not the same hour the day before:
+  a destination with a strong daily cycle may need the second.
+- Only the destination's own probes decide: a second host of the same
+  service (the DNS wizard's `W_*` probes) is not read.
+- Not for the assistant or the alerts until it is validated.
+
 ## What a pass corrects and what it keeps
 
 A period, once written, stays. Every pass rewrites what it finds well
@@ -504,7 +680,8 @@ That history is lost; the raw pings are still there to replay it from.
 
 Every pass writes one `inference_pass` point: `seconds`, `targets`,
 `errors`, `congestion_periods`, `degradation_periods`, `shared_periods`,
-`shared_congestion_periods`. The
+`shared_congestion_periods`, and the triage's `triage_s` (seconds) and
+`triage_errors`. The
 [Diagnostics dashboard](diagnostics.md) (Advanced folder) charts the seconds
 and failures per pass; `status.json` keeps only the last pass, and the
 container's log does not survive an upgrade, so this is the record of what a

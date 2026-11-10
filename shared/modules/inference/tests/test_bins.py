@@ -112,3 +112,22 @@ def test_an_empty_tail_keeps_the_closed_bins(tmp_path):
     out = bins.read("x", T0, T0 + DAY + 900, lambda a, b: pd.DataFrame(columns=COLUMNS),
                     COLUMNS, tmp_path)
     assert len(out) == 96 - bins.TAIL_S // 900
+
+
+def test_a_cache_may_keep_a_longer_tail_and_refresh_less_often(tmp_path):
+    asked = []
+
+    def fetch(since, stop):
+        asked.append(since)
+        return pd.DataFrame({"bin": [b for b in range(since, stop, bins.BIN_S)], "v": 1.0})
+
+    day = 86400
+    bins.read("t", 0, 10 * day, fetch, ["bin", "v"], tmp_path, tail_s=25 * 3600,
+              refresh_s=7 * day)
+    bins.read("t", 0, 10 * day + 3600, fetch, ["bin", "v"], tmp_path, tail_s=25 * 3600,
+              refresh_s=7 * day)
+    # Two days on: past the daily refresh, short of the weekly one.
+    bins.read("t", 0, 12 * day, fetch, ["bin", "v"], tmp_path, tail_s=25 * 3600,
+              refresh_s=7 * day)
+    tail = 25 * 3600
+    assert asked == [0, 10 * day - tail, 10 * day + 3600 - tail]

@@ -327,3 +327,107 @@ def test_every_writer_settles_from_the_sliding_edge_not_the_start_date(monkeypat
     assert edges == {store.CONGESTION: (c_start, c_edge), store.DEGRADATION: (d_start, d_edge),
                      "shared": (d_start, d_edge), "segment": (d_start, d_edge),
                      "agg": (c_start, c_edge)}
+
+
+class FakeTriage:
+    def __init__(self, fail=False):
+        self.fail, self.added, self.enriched, self.prepared = fail, [], [], []
+
+    def add_icmp(self, target, pings, loss, periods):
+        self.added.append((target, len(periods)))
+
+    def prepare(self):
+        self.prepared.append(len(self.enriched))
+
+    def enrich(self, kind, target, write):
+        self.enriched.append((kind, target, len(write)))
+        if self.fail:
+            # A real Triage never raises; one that did must not stop the write.
+            raise RuntimeError("triage bug")
+        for p in write:
+            p["triage"] = "x"
+
+    def report(self):
+        return {"periods": len(self.enriched), "errors": 0, "seconds": 0.5}
+
+
+def _with_triage(tri, replace, targets=(("Facebook", "topsites"), ("Google", "topsites"))):
+    made = {}
+
+    def make(ts, start, now, deaf_bins, categories):
+        made.update(targets=ts, start=start, categories=categories)
+        return tri
+
+    report = main.run_once(
+        now=NOW, fetch=lambda t, s: (pd.DataFrame({"epoch": [NOW - 100], "values": [7.0]}),
+                                     pd.DataFrame({"epoch": [NOW - 100], "loss_pct": [0.0]})),
+        list_targets=lambda s: list(targets),
+        find_congestion=lambda p: {"periods": [{"start": NOW - 7200, "end": NOW - 3600}],
+                                   "change_points": 1},
+        find_degradation=lambda lo: {"periods": [], "change_points": 0},
+        replace=replace, read_deaf=lambda s, n: made.setdefault("deaf_from", s) and set(),
+        record_pass=lambda r, n: None, make_triage=make)
+    return report, made
+
+
+def test_the_triage_sees_every_target_before_any_period_is_written():
+    tri, order = FakeTriage(), []
+
+    def replace(m, t, c, periods, start, now, edge, enrich):
+        order.append((t, len(tri.added)))
+        enrich(periods)
+
+    report, made = _with_triage(tri, replace)
+    assert made["targets"] == ["Facebook", "Google"]
+    assert made["categories"] == {"Facebook": "topsites", "Google": "topsites"}
+    # Both destinations were read before the first write: breadth sees both.
+    assert all(n == 2 for _, n in order)
+    assert ("congestion", "Facebook", 1) in tri.enriched
+    # The layers were read once, before the first write (and its delete).
+    assert tri.prepared == [0]
+    assert report["triage"] == {"periods": 4, "errors": 0, "seconds": 0.5}
+
+
+def test_the_triage_reads_from_the_earliest_writable_start_less_a_day():
+    c_start, d_start = main.windows(NOW)
+    c_edge, _ = main.edges(NOW)
+    _, made = _with_triage(FakeTriage(), lambda *a, **kw: None)
+    expected = c_edge + store.GUARD[store.CONGESTION] - DAY - 2 * 900
+    assert made["start"] == expected
+    # The deaf bins reach as far back: a congestion period older than the
+    # loss window still has its radio read.
+    assert made["deaf_from"] == min(d_start, expected)
+
+
+def test_a_write_that_fails_in_the_triage_is_that_targets_error_only():
+    tri, written = FakeTriage(fail=True), []
+
+    def replace(m, t, c, periods, start, now, edge, enrich):
+        enrich(periods)
+        written.append((m, t))
+
+    report, _ = _with_triage(tri, replace)
+    # store.replace calls enrich before it writes; if enrich raised there the
+    # target's write is counted failed, and the next target still goes out.
+    assert report["targets"]["Google"].get("error") and report["targets"]["Facebook"].get("error")
+    assert report["errors"] == 2
+
+
+def test_without_the_triage_nothing_changes_in_the_writes():
+    written = []
+    report = main.run_once(
+        now=NOW, fetch=lambda t, s: (pd.DataFrame({"epoch": [], "values": []}),
+                                     pd.DataFrame({"epoch": [], "loss_pct": []})),
+        list_targets=lambda s: [("Google", "topsites")],
+        find_congestion=lambda p: {"periods": [], "change_points": 0},
+        find_degradation=lambda lo: {"periods": [], "change_points": 0},
+        replace=lambda m, t, c, periods, start, now, edge: written.append(m),
+        read_deaf=lambda s, n: set(), record_pass=lambda r, n: None)
+    assert written == [store.CONGESTION, store.DEGRADATION]
+    assert "triage" not in report
+
+
+def test_inference_since_bounds_the_triage_too(monkeypatch):
+    monkeypatch.setenv("INFERENCE_SINCE", "2026-09-25")
+    _, made = _with_triage(FakeTriage(), lambda *a, **kw: None, targets=(("Facebook", "t"),))
+    assert made["start"] >= main.since()

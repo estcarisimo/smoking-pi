@@ -706,7 +706,7 @@
       "id": 13,
       "type": "state-timeline",
       "title": "Detected episodes, by target (experimental)",
-      "description": "What the inference module found, on the same time axis: red is loss degradation, orange is persistent congestion (Jitterbug); pale orange is a congestion period on a CDN destination, where an edge change is likely (anycast/CDN destination): the CDN started answering from a farther edge, which raises the floor as a queue would, so read it as a likely route change before calling it congestion. Purple is a loss burst: a degradation period whose loss all fell in one 15-minute bin, drawn over that bin rather than over the segment the detector cut around it (a segment pools the bin with clean ones: one bin at 31 % among 14 reads as 3.5 h at 2.2 %). It is still a detected period, marked, not filtered. Hover a bar for the period's numbers: a congestion period's jump, Jitterbug's confidence and its coverage (the share of its 15-minute bins with an answered ping); a degradation's mean loss, peak and coverage; a burst's 15-minute loss; a Whole connection period's mean loss and how many destinations voted. Every target the module analyzes, the ISP gateway included: its rows say whether the first hop moved too. Detected, not confirmed: compare with the loss and latency above. Empty when the inference profile is off. Gray: most of the period's loss fell in minutes when the monitor itself was deaf (its radio heard nothing), so the loss is this Pi's, not the destination's. Click a bar for every layer of that target over the same range, with the period shaded. The Whole connection rows are one detector run on every destination's loss together (experimental): dark red when the loss was shared across operators and kinds of infrastructure (a third of the operators or more, two kinds or more), pale when one destination carried it. Detected on the aggregate series, not the sum of the rows below. The orange-dark Whole connection row is Jitterbug, unchanged (BCP + KS as published), run once on an aggregate input: per probe cycle, the deciles of every voting destination's pings over each one's own floor. Experimental, and expected to be empty most of the time: shared loss barely moves that floor. The table below says who lost in each Whole connection loss period.",
+      "description": "What the inference module found, on the same time axis: red is loss degradation, orange is persistent congestion (Jitterbug); pale orange is a congestion period on a CDN destination, where an edge change is likely (anycast/CDN destination): the CDN started answering from a farther edge, which raises the floor as a queue would, so read it as a likely route change before calling it congestion. Purple is a loss burst: a degradation period whose loss all fell in one 15-minute bin, drawn over that bin rather than over the segment the detector cut around it (a segment pools the bin with clean ones: one bin at 31 % among 14 reads as 3.5 h at 2.2 %). It is still a detected period, marked, not filtered. Hover a bar for the period's numbers: a congestion period's jump, Jitterbug's confidence and its coverage (the share of its 15-minute bins with an answered ping); a degradation's mean loss, peak and coverage; a burst's 15-minute loss; a Whole connection period's mean loss and how many destinations voted. After the numbers, a destination's period says which other layers moved with it (experimental vertical triage: TCP, HTTP, DNS, first hop, Wi-Fi, path and other destinations, each against the 24 h before; median of 15-minute bins; what moved, not a cause; docs/inference.md#which-other-layers-moved-vertical-triage). Every target the module analyzes, the ISP gateway included: its rows say whether the first hop moved too. Detected, not confirmed: compare with the loss and latency above. Empty when the inference profile is off. Gray: most of the period's loss fell in minutes when the monitor itself was deaf (its radio heard nothing), so the loss is this Pi's, not the destination's. Click a bar for every layer of that target over the same range, with the period shaded. The Whole connection rows are one detector run on every destination's loss together (experimental): dark red when the loss was shared across operators and kinds of infrastructure (a third of the operators or more, two kinds or more), pale when one destination carried it. Detected on the aggregate series, not the sum of the rows below. The orange-dark Whole connection row is Jitterbug, unchanged (BCP + KS as published), run once on an aggregate input: per probe cycle, the deciles of every voting destination's pings over each one's own floor. Experimental, and expected to be empty most of the time: shared loss barely moves that floor. The table below says who lost in each Whole connection loss period.",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
@@ -862,7 +862,533 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "import \"array\"\nimport \"date\"\n// Each period is one bar whose value is its state and its numbers, as text: the tooltip shows\n// it whole, and the regex value mappings color the bar by the state the text starts with.\n// A row ends with \"clear\" (transparent). Rows and colors are the states as before.\npct = (x) => string(v: float(v: int(v: x * 10.0 + 0.5)) / 10.0)\ntwo = (x) => string(v: float(v: int(v: x * 100.0 + 0.5)) / 100.0)\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\n// class is \"monitor_deaf\" when most of the period's loss fell in bins in which this Pi's radio heard nothing (deaf.py); periods written before the class existed are loss.\ndegradations = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r.target =~ /^(${service_targets:pipe})$/ and (r._field == \"end\" or r._field == \"class\" or r._field == \"burst\" or r._field == \"peak_start\" or r._field == \"mean_loss_pct\" or r._field == \"peak_pct\" or r._field == \"coverage\" or r._field == \"deaf_loss_share\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n// burst is 1 when all of the period's loss fell in one 15-minute bin (degradation.py); it is drawn over that bin, starting at peak_start. Periods written before it existed are not bursts.\nloss_periods = degradations |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\")\nloss_burst = loss_periods |> filter(fn: (r) => exists r.burst and r.burst == 1 and exists r.peak_start and (r.peak_start + 900) * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: time(v: r.peak_start * 1000000000), target: r.target, kind: \"loss burst\", end: time(v: (r.peak_start + 900) * 1000000000), text: \"loss burst: 15 min at \" + (if exists r.peak_pct then pct(x: r.peak_pct) else \"?\") + \" % (the segment around it averaged \" + (if exists r.mean_loss_pct then pct(x: r.mean_loss_pct) else \"?\") + \" %)\"}))\nloss_degradation = loss_periods |> filter(fn: (r) => not exists r.burst or r.burst != 1 or not exists r.peak_start) |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"loss degradation\", end: time(v: r.end * 1000000000), text: \"loss degradation (mean loss \" + (if exists r.mean_loss_pct then pct(x: r.mean_loss_pct) else \"?\") + \" %\" + (if exists r.peak_pct then \", peak \" + pct(x: r.peak_pct) + \" %\" else \"\") + (if exists r.coverage then \", coverage \" + two(x: r.coverage) else \"\") + \")\"}))\nmonitor_deaf = degradations |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"monitor deaf\", end: time(v: r.end * 1000000000), text: \"monitor deaf, this Pi's radio (mean loss \" + (if exists r.mean_loss_pct then pct(x: r.mean_loss_pct) else \"?\") + \" %\" + (if exists r.deaf_loss_share then \", \" + two(x: r.deaf_loss_share) + \" of it while deaf\" else \"\") + \")\"}))\n// A CDN destination (target_labels' kind, the exporter's last point; docs/taxonomy.md) answers from whichever edge its routing (anycast) or DNS picks: a farther edge raises the floor as a queue would, so its periods read \"edge change likely\" (docs/inference.md#anycast-destinations). An empty name pads the list, so it is never empty: no target is named \"\".\ncdn = from(bucket: \"smokeping\") |> range(start: 0) |> filter(fn: (r) => r._measurement == \"target_labels\" and r._field == \"kind\") |> last() |> filter(fn: (r) => r._value == \"cdn\") |> group() |> keep(columns: [\"target\"])\nedge = union(tables: [cdn, array.from(rows: [{target: \"\"}])]) |> group() |> findColumn(fn: (key) => true, column: \"target\")\n// Jitterbug's numbers: the floor's jump, its confidence, and coverage, the share of the period's bins with an answered ping.\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r.target =~ /^(${service_targets:pipe})$/ and (r._field == \"end\" or r._field == \"jump_ms\" or r._field == \"confidence\" or r._field == \"coverage\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target, kind: if contains(value: r.target, set: edge) then \"edge change likely (anycast/CDN destination)\" else \"persistent congestion\", end: time(v: r.end * 1000000000), text: (if contains(value: r.target, set: edge) then \"persistent congestion: edge change likely (anycast/CDN destination), not a queue (\" else \"persistent congestion (\") + \"jump \" + (if exists r.jump_ms then pct(x: r.jump_ms) else \"?\") + \" ms, confidence \" + (if exists r.confidence then two(x: r.confidence) else \"?\") + (if exists r.coverage then \", coverage \" + two(x: r.coverage) else \"\") + \")\"}))\n// The whole connection (shared.py): one series across every destination. \"shared\" when a third of the operators behind the targets lost and they are of two kinds of infrastructure or more; otherwise one destination (dominant) carried it.\nwhole = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_degradation\" and (r._field == \"end\" or r._field == \"scope\" or r._field == \"mean_loss_pct\" or r._field == \"voters\" or r._field == \"dominant\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => {\n    shared = exists r.scope and r.scope == \"shared\"\n    numbers = \"mean loss \" + (if exists r.mean_loss_pct then pct(x: r.mean_loss_pct) else \"?\") + \" %, \" + (if exists r.voters then string(v: r.voters) else \"?\") + \" voters\"\n    return {_time: r._time, target: \"Whole connection\", kind: if shared then \"shared loss degradation\" else \"one destination dominated\", end: time(v: r.end * 1000000000),\n      text: if shared then \"shared loss degradation, whole connection (\" + numbers + \")\" else \"loss carried by one destination, not shared (\" + numbers + (if exists r.dominant and r.dominant != \"\" then \", mostly \" + r.dominant else \"\") + \")\"}\n  })\n// Jitterbug, unchanged, on an aggregate input (aggregate.py): the deciles of every voter's pings over its own floor, per cycle. Experimental.\nwhole_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_congestion\" and (r._field == \"end\" or r._field == \"jump_ms\" or r._field == \"confidence\" or r._field == \"coverage\" or r._field == \"voters\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: \"Whole connection\", kind: \"Jitterbug (as published) on an aggregate input — experimental\", end: time(v: r.end * 1000000000), text: \"persistent congestion, whole connection: Jitterbug (as published) on an aggregate input, experimental (\" + \"jump \" + (if exists r.jump_ms then pct(x: r.jump_ms) else \"?\") + \" ms, confidence \" + (if exists r.confidence then two(x: r.confidence) else \"?\") + (if exists r.coverage then \", coverage \" + two(x: r.coverage) else \"\") + (if exists r.voters then \", \" + string(v: r.voters) + \" voters\" else \"\") + \")\"}))\nperiods = union(tables: [loss_degradation, loss_burst, persistent_congestion, monitor_deaf, whole, whole_congestion])\n// A start and an end at the same time: the end first (order 0), so the new period is drawn.\nstarts = periods |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: r.text, order: 1}))\nends = periods |> map(fn: (r) => ({_time: r.end, target: r.target, kind: r.kind, _value: \"clear\", order: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\", \"kind\"]) |> sort(columns: [\"_time\", \"order\"]) |> drop(columns: [\"order\"])"
+          "query": "import \"array\"\nimport \"date\"\n// Each period is one bar whose value is its state and its numbers, as text: the tooltip shows\n// it whole, and the regex value mappings color the bar by the state the text starts with.\n// A row ends with \"clear\" (transparent). Rows and colors are the states as before.\npct = (x) => string(v: float(v: int(v: x * 10.0 + 0.5)) / 10.0)\ntwo = (x) => string(v: float(v: int(v: x * 100.0 + 0.5)) / 100.0)\n// A period is stamped at its start: reach back so one that began before\n// the range but ends inside it is still drawn.\n// class is \"monitor_deaf\" when most of the period's loss fell in bins in which this Pi's radio heard nothing (deaf.py); periods written before the class existed are loss.\ndegradations = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"loss_degradation\" and r.target =~ /^(${service_targets:pipe})$/ and (r._field == \"end\" or r._field == \"class\" or r._field == \"burst\" or r._field == \"peak_start\" or r._field == \"mean_loss_pct\" or r._field == \"peak_pct\" or r._field == \"coverage\" or r._field == \"deaf_loss_share\" or r._field == \"triage\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart))\n// burst is 1 when all of the period's loss fell in one 15-minute bin (degradation.py); it is drawn over that bin, starting at peak_start. Periods written before it existed are not bursts.\nloss_periods = degradations |> filter(fn: (r) => not exists r.class or r.class != \"monitor_deaf\")\nloss_burst = loss_periods |> filter(fn: (r) => exists r.burst and r.burst == 1 and exists r.peak_start and (r.peak_start + 900) * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: time(v: r.peak_start * 1000000000), target: r.target, kind: \"loss burst\", end: time(v: (r.peak_start + 900) * 1000000000), text: \"loss burst: 15 min at \" + (if exists r.peak_pct then pct(x: r.peak_pct) else \"?\") + \" % (the segment around it averaged \" + (if exists r.mean_loss_pct then pct(x: r.mean_loss_pct) else \"?\") + \" %)\" + (if exists r.triage then \" — layers: \" + r.triage else \"\")}))\nloss_degradation = loss_periods |> filter(fn: (r) => not exists r.burst or r.burst != 1 or not exists r.peak_start) |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"loss degradation\", end: time(v: r.end * 1000000000), text: \"loss degradation (mean loss \" + (if exists r.mean_loss_pct then pct(x: r.mean_loss_pct) else \"?\") + \" %\" + (if exists r.peak_pct then \", peak \" + pct(x: r.peak_pct) + \" %\" else \"\") + (if exists r.coverage then \", coverage \" + two(x: r.coverage) else \"\") + \")\" + (if exists r.triage then \" — layers: \" + r.triage else \"\")}))\nmonitor_deaf = degradations |> filter(fn: (r) => exists r.class and r.class == \"monitor_deaf\") |> map(fn: (r) => ({_time: r._time, target: r.target, kind: \"monitor deaf\", end: time(v: r.end * 1000000000), text: \"monitor deaf, this Pi's radio (mean loss \" + (if exists r.mean_loss_pct then pct(x: r.mean_loss_pct) else \"?\") + \" %\" + (if exists r.deaf_loss_share then \", \" + two(x: r.deaf_loss_share) + \" of it while deaf\" else \"\") + \")\" + (if exists r.triage then \" — layers: \" + r.triage else \"\")}))\n// A CDN destination (target_labels' kind, the exporter's last point; docs/taxonomy.md) answers from whichever edge its routing (anycast) or DNS picks: a farther edge raises the floor as a queue would, so its periods read \"edge change likely\" (docs/inference.md#anycast-destinations). An empty name pads the list, so it is never empty: no target is named \"\".\ncdn = from(bucket: \"smokeping\") |> range(start: 0) |> filter(fn: (r) => r._measurement == \"target_labels\" and r._field == \"kind\") |> last() |> filter(fn: (r) => r._value == \"cdn\") |> group() |> keep(columns: [\"target\"])\nedge = union(tables: [cdn, array.from(rows: [{target: \"\"}])]) |> group() |> findColumn(fn: (key) => true, column: \"target\")\n// Jitterbug's numbers: the floor's jump, its confidence, and coverage, the share of the period's bins with an answered ping.\n// triage (triage.py): which other layers moved with the period, in one sentence; evidence beside it, never part of\n// its detection, and absent on periods written before it existed. Appended after the numbers so the colors stay.\npersistent_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"persistent_congestion\" and r.target =~ /^(${service_targets:pipe})$/ and (r._field == \"end\" or r._field == \"jump_ms\" or r._field == \"confidence\" or r._field == \"coverage\" or r._field == \"triage\")) |> pivot(rowKey: [\"_time\", \"target\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: r.target, kind: if contains(value: r.target, set: edge) then \"edge change likely (anycast/CDN destination)\" else \"persistent congestion\", end: time(v: r.end * 1000000000), text: (if contains(value: r.target, set: edge) then \"persistent congestion: edge change likely (anycast/CDN destination), not a queue (\" else \"persistent congestion (\") + \"jump \" + (if exists r.jump_ms then pct(x: r.jump_ms) else \"?\") + \" ms, confidence \" + (if exists r.confidence then two(x: r.confidence) else \"?\") + (if exists r.coverage then \", coverage \" + two(x: r.coverage) else \"\") + \")\" + (if exists r.triage then \" — layers: \" + r.triage else \"\")}))\n// The whole connection (shared.py): one series across every destination. \"shared\" when a third of the operators behind the targets lost and they are of two kinds of infrastructure or more; otherwise one destination (dominant) carried it.\nwhole = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_degradation\" and (r._field == \"end\" or r._field == \"scope\" or r._field == \"mean_loss_pct\" or r._field == \"voters\" or r._field == \"dominant\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => {\n    shared = exists r.scope and r.scope == \"shared\"\n    numbers = \"mean loss \" + (if exists r.mean_loss_pct then pct(x: r.mean_loss_pct) else \"?\") + \" %, \" + (if exists r.voters then string(v: r.voters) else \"?\") + \" voters\"\n    return {_time: r._time, target: \"Whole connection\", kind: if shared then \"shared loss degradation\" else \"one destination dominated\", end: time(v: r.end * 1000000000),\n      text: if shared then \"shared loss degradation, whole connection (\" + numbers + \")\" else \"loss carried by one destination, not shared (\" + numbers + (if exists r.dominant and r.dominant != \"\" then \", mostly \" + r.dominant else \"\") + \")\"}\n  })\n// Jitterbug, unchanged, on an aggregate input (aggregate.py): the deciles of every voter's pings over its own floor, per cycle. Experimental.\nwhole_congestion = from(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"shared_congestion\" and (r._field == \"end\" or r._field == \"jump_ms\" or r._field == \"confidence\" or r._field == \"coverage\" or r._field == \"voters\")) |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> filter(fn: (r) => r.end * 1000000000 >= int(v: v.timeRangeStart)) |> map(fn: (r) => ({_time: r._time, target: \"Whole connection\", kind: \"Jitterbug (as published) on an aggregate input — experimental\", end: time(v: r.end * 1000000000), text: \"persistent congestion, whole connection: Jitterbug (as published) on an aggregate input, experimental (\" + \"jump \" + (if exists r.jump_ms then pct(x: r.jump_ms) else \"?\") + \" ms, confidence \" + (if exists r.confidence then two(x: r.confidence) else \"?\") + (if exists r.coverage then \", coverage \" + two(x: r.coverage) else \"\") + (if exists r.voters then \", \" + string(v: r.voters) + \" voters\" else \"\") + \")\"}))\nperiods = union(tables: [loss_degradation, loss_burst, persistent_congestion, monitor_deaf, whole, whole_congestion])\n// A start and an end at the same time: the end first (order 0), so the new period is drawn.\nstarts = periods |> map(fn: (r) => ({_time: r._time, target: r.target, kind: r.kind, _value: r.text, order: 1}))\nends = periods |> map(fn: (r) => ({_time: r.end, target: r.target, kind: r.kind, _value: \"clear\", order: 0}))\nunion(tables: [starts, ends]) |> map(fn: (r) => ({r with _time: if r._time < v.timeRangeStart then v.timeRangeStart else r._time})) |> group(columns: [\"target\", \"kind\"]) |> sort(columns: [\"_time\", \"order\"]) |> drop(columns: [\"order\"])"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Detected episodes: which other layers moved (experimental)",
+      "description": "One row per period of the timeline above that carries the vertical triage, newest first: whether TCP and HTTP to the same destination, DNS, the first hop, this Pi's Wi-Fi and the path moved with it, and the sentence that says so. Each layer is compared with the 24 h before (median of 15-minute bins, a threshold of its own noise and level; loss against its own spread), and \"no data\" means too little data to say, never \"did not\". It names what moved, not a cause, and never changes the detection (docs/inference.md#which-other-layers-moved-vertical-triage). Periods written before the triage existed are not listed. Experimental, never an alert.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Start",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "_time": 0,
+              "target": 1,
+              "kind": 2,
+              "duration_s": 3,
+              "tcp": 4,
+              "http": 5,
+              "dns": 6,
+              "hop": 7,
+              "wifi": 8,
+              "path": 9,
+              "triage": 10
+            },
+            "renameByName": {
+              "_time": "Start",
+              "target": "Target",
+              "kind": "Period",
+              "duration_s": "Duration",
+              "tcp": "TCP",
+              "http": "HTTP",
+              "dns": "DNS",
+              "hop": "First hop",
+              "wifi": "Wi-Fi",
+              "path": "Path",
+              "triage": "Which layers moved"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Start"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Period"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 105
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 85
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Which layers moved"
+            },
+            "properties": [
+              {
+                "id": "custom.wrapText",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "TCP"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 85
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "up": {
+                        "text": "rose",
+                        "color": "#FF9830",
+                        "index": 0
+                      },
+                      "lost": {
+                        "text": "lost",
+                        "color": "#F2495C",
+                        "index": 1
+                      },
+                      "flat": {
+                        "text": "did not",
+                        "color": "text",
+                        "index": 2
+                      },
+                      "nodata": {
+                        "text": "no data",
+                        "color": "#8e8e8e",
+                        "index": 3
+                      },
+                      "changed": {
+                        "text": "changed",
+                        "color": "#F2495C",
+                        "index": 4
+                      },
+                      "detour": {
+                        "text": "one trace off",
+                        "color": "#FF9830",
+                        "index": 5
+                      },
+                      "unchanged": {
+                        "text": "unchanged",
+                        "color": "text",
+                        "index": 6
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "HTTP"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 85
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "up": {
+                        "text": "rose",
+                        "color": "#FF9830",
+                        "index": 0
+                      },
+                      "lost": {
+                        "text": "lost",
+                        "color": "#F2495C",
+                        "index": 1
+                      },
+                      "flat": {
+                        "text": "did not",
+                        "color": "text",
+                        "index": 2
+                      },
+                      "nodata": {
+                        "text": "no data",
+                        "color": "#8e8e8e",
+                        "index": 3
+                      },
+                      "changed": {
+                        "text": "changed",
+                        "color": "#F2495C",
+                        "index": 4
+                      },
+                      "detour": {
+                        "text": "one trace off",
+                        "color": "#FF9830",
+                        "index": 5
+                      },
+                      "unchanged": {
+                        "text": "unchanged",
+                        "color": "text",
+                        "index": 6
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DNS"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 85
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "up": {
+                        "text": "rose",
+                        "color": "#FF9830",
+                        "index": 0
+                      },
+                      "lost": {
+                        "text": "lost",
+                        "color": "#F2495C",
+                        "index": 1
+                      },
+                      "flat": {
+                        "text": "did not",
+                        "color": "text",
+                        "index": 2
+                      },
+                      "nodata": {
+                        "text": "no data",
+                        "color": "#8e8e8e",
+                        "index": 3
+                      },
+                      "changed": {
+                        "text": "changed",
+                        "color": "#F2495C",
+                        "index": 4
+                      },
+                      "detour": {
+                        "text": "one trace off",
+                        "color": "#FF9830",
+                        "index": 5
+                      },
+                      "unchanged": {
+                        "text": "unchanged",
+                        "color": "text",
+                        "index": 6
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "First hop"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 85
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "up": {
+                        "text": "rose",
+                        "color": "#FF9830",
+                        "index": 0
+                      },
+                      "lost": {
+                        "text": "lost",
+                        "color": "#F2495C",
+                        "index": 1
+                      },
+                      "flat": {
+                        "text": "did not",
+                        "color": "text",
+                        "index": 2
+                      },
+                      "nodata": {
+                        "text": "no data",
+                        "color": "#8e8e8e",
+                        "index": 3
+                      },
+                      "changed": {
+                        "text": "changed",
+                        "color": "#F2495C",
+                        "index": 4
+                      },
+                      "detour": {
+                        "text": "one trace off",
+                        "color": "#FF9830",
+                        "index": 5
+                      },
+                      "unchanged": {
+                        "text": "unchanged",
+                        "color": "text",
+                        "index": 6
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Wi-Fi"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 85
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "up": {
+                        "text": "rose",
+                        "color": "#FF9830",
+                        "index": 0
+                      },
+                      "lost": {
+                        "text": "lost",
+                        "color": "#F2495C",
+                        "index": 1
+                      },
+                      "flat": {
+                        "text": "did not",
+                        "color": "text",
+                        "index": 2
+                      },
+                      "nodata": {
+                        "text": "no data",
+                        "color": "#8e8e8e",
+                        "index": 3
+                      },
+                      "changed": {
+                        "text": "changed",
+                        "color": "#F2495C",
+                        "index": 4
+                      },
+                      "detour": {
+                        "text": "one trace off",
+                        "color": "#FF9830",
+                        "index": 5
+                      },
+                      "unchanged": {
+                        "text": "unchanged",
+                        "color": "text",
+                        "index": 6
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Path"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 115
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "up": {
+                        "text": "rose",
+                        "color": "#FF9830",
+                        "index": 0
+                      },
+                      "lost": {
+                        "text": "lost",
+                        "color": "#F2495C",
+                        "index": 1
+                      },
+                      "flat": {
+                        "text": "did not",
+                        "color": "text",
+                        "index": 2
+                      },
+                      "nodata": {
+                        "text": "no data",
+                        "color": "#8e8e8e",
+                        "index": 3
+                      },
+                      "changed": {
+                        "text": "changed",
+                        "color": "#F2495C",
+                        "index": 4
+                      },
+                      "detour": {
+                        "text": "one trace off",
+                        "color": "#FF9830",
+                        "index": 5
+                      },
+                      "unchanged": {
+                        "text": "unchanged",
+                        "color": "text",
+                        "index": 6
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\n// One row per detected period of a destination that carries the vertical triage (triage.py): which other\n// layers moved with it, each against the 24 h before. Periods written before the triage existed have none and\n// are not listed. Stamped at the period's start: reach back so one that began before the range is listed.\nfrom(bucket: \"smokeping\") |> range(start: date.sub(d: 14d, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => (r._measurement == \"persistent_congestion\" or r._measurement == \"loss_degradation\") and r.target =~ /^(${service_targets:pipe})$/ and (r._field == \"end\" or r._field == \"triage\" or r._field == \"tri_tcp\" or r._field == \"tri_http\" or r._field == \"tri_dns\" or r._field == \"tri_hop\" or r._field == \"tri_wifi\" or r._field == \"tri_path\"))\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.triage and r.end * 1000000000 >= int(v: v.timeRangeStart))\n  |> map(fn: (r) => ({_time: r._time, target: r.target, kind: if r._measurement == \"persistent_congestion\" then \"congestion\" else \"degradation\", duration_s: r.end - int(v: r._time) / 1000000000, tcp: (if exists r.tri_tcp then r.tri_tcp else \"\"), http: (if exists r.tri_http then r.tri_http else \"\"), dns: (if exists r.tri_dns then r.tri_dns else \"\"), hop: (if exists r.tri_hop then r.tri_hop else \"\"), wifi: (if exists r.tri_wifi then r.tri_wifi else \"\"), path: (if exists r.tri_path then r.tri_path else \"\"), triage: r.triage}))\n  |> group() |> sort(columns: [\"_time\"], desc: true)"
         }
       ]
     },
@@ -879,7 +1405,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 40
       },
       "options": {
         "showHeader": true,
@@ -1041,7 +1567,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 47
       },
       "options": {
         "showHeader": true,
@@ -1268,7 +1794,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 46
+        "y": 54
       },
       "panels": []
     },
@@ -1285,7 +1811,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 47
+        "y": 55
       },
       "options": {
         "showHeader": true,
@@ -1488,7 +2014,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 65
       },
       "collapsed": false,
       "panels": []
@@ -1508,7 +2034,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 58
+        "y": 66
       },
       "options": {
         "calculate": false,
@@ -1614,7 +2140,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 58
+        "y": 66
       },
       "options": {
         "calculate": false,
@@ -1720,7 +2246,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 69
+        "y": 77
       },
       "options": {
         "calculate": false,
@@ -1827,7 +2353,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 69
+        "y": 77
       },
       "options": {
         "calculate": false,
