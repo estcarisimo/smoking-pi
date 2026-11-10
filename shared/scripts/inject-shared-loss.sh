@@ -12,10 +12,12 @@
 #       [--pause] [--keep] [--no-episode] [--wait 15] [--project pro]
 #   shared/scripts/inject-shared-loss.sh --host <this host's name> --cleanup
 #
-# The guard: it refuses unless this host's name contains "staging" and
-# --host repeats it exactly (the reference Pi is "smokingpi"; a typo, or a
-# copied command run on the wrong Pi, stops here). inject.py itself refuses
-# to run without --staging, which only this script passes.
+# The guard: it refuses unless this host's name contains "staging", --host
+# repeats it exactly (type it; the reference Pi is "smokingpi", so a
+# command copied to the wrong terminal stops here), and the Docker daemon
+# it talks to is this host's own (a DOCKER_HOST or a context pointing
+# elsewhere stops here too). inject.py refuses to run without --staging and
+# the daemon's name in INJECT_HOST, which only this script passes.
 #
 # While the widespread cycle is in InfluxDB the alerter is stopped (it
 # would alert on it) and started again on exit, whatever happens. The
@@ -73,6 +75,12 @@ if [ "$HOST" != "$name" ]; then
     echo "refused: --host must repeat this host's name exactly ('$name')" >&2
     exit 2
 fi
+daemon=$(docker info --format '{{.Name}}' 2>/dev/null || true)
+if [ "$daemon" != "$name" ]; then
+    echo "refused: the Docker daemon in use is '${daemon:-unreachable}', not this host" >&2
+    echo "('$name'): unset DOCKER_HOST or switch the docker context back." >&2
+    exit 2
+fi
 
 container() {
     docker ps -q --filter "label=com.docker.compose.project=$PROJECT" \
@@ -87,18 +95,34 @@ if [ "$EPISODE" = 1 ] && [ -z "$PATHMETER" ]; then
     exit 2
 fi
 
-# An image older than this tool has no inject.py: copy this checkout's in.
-# It lives until the container is recreated.
-if ! docker exec "$INF" test -f inject.py; then
-    here=$(cd "$(dirname "$0")/../modules/inference" && pwd)
+# An image older than this tool has no inject.py, or an older one: copy
+# this checkout's in. It lives until the container is recreated.
+here=$(cd "$(dirname "$0")/../modules/inference" && pwd)
+if ! docker exec "$INF" cat inject.py 2>/dev/null | cmp -s - "$here/inject.py"; then
     docker cp "$here/inject.py" "$INF:/app/inject.py"
+    echo "(copied this checkout's inject.py into the container)"
 fi
 
-run() { docker exec "$INF" python inject.py --staging "$@"; }
+run() { docker exec -e INJECT_HOST="$daemon" "$INF" python inject.py --staging "$@"; }
+
+restart_alerter() {
+    if [ -n "$ALERTER" ] && [ "$(docker inspect -f '{{.State.Running}}' "$ALERTER")" != true ]; then
+        docker start "$ALERTER" >/dev/null && echo "alerter started again"
+    fi
+}
 
 if [ "$ONLY_CLEANUP" = 1 ]; then
-    run cleanup
+    # Also after a run that was killed, or a reboot, with the alerter stopped.
+    restart_alerter
+    run cleanup || { echo "cleanup failed: run --cleanup again" >&2; exit 1; }
     exit
+fi
+
+# One test at a time: refuse before the trap below, which would clean up
+# the other test's state.
+if docker exec "$INF" test -f /var/lib/inference/inject/manifest.json; then
+    echo "refused: a test is already under way; finish it with: $0 --host $HOST --cleanup" >&2
+    exit 2
 fi
 
 args=(--hours "$HOURS")
@@ -109,27 +133,32 @@ if [ -n "$CSV" ]; then
     args+=(--csv /tmp/inject-evening.csv)
 fi
 
-restart_alerter() {
-    if [ -n "$ALERTER" ] && [ "$(docker inspect -f '{{.State.Running}}' "$ALERTER")" != true ]; then
-        docker start "$ALERTER" >/dev/null && echo "alerter started again"
-    fi
-}
 cleanup() {
+    local code=$? failed=0
+    set +e
     if [ "$KEEP" = 1 ]; then
         echo "== --keep: deleting the injected loss cycle, keeping the evening and its outputs"
-        run cleanup --keep-points || true
+        run cleanup --keep-points || failed=1
         echo "   finish with: $0 --host $HOST --cleanup"
     else
         echo "== cleanup"
-        run cleanup || true
+        run cleanup || failed=1
     fi
-    [ -n "$CSV" ] && docker exec "$INF" rm -f /tmp/inject-evening.csv
+    # The alerter only after the injected cycle is gone: it would alert on it.
     restart_alerter
+    [ -n "$CSV" ] && docker exec "$INF" rm -f /tmp/inject-evening.csv
+    if [ "$failed" = 1 ]; then
+        echo "CLEANUP FAILED: staging is not restored; run: $0 --host $HOST --cleanup" >&2
+        exit 1
+    fi
+    exit "$code"
 }
+# Set before inject: a refused or interrupted inject still removes the CSV
+# and puts back whatever it changed (cleanup with no test restores the copy).
+trap cleanup EXIT
 
 echo "== plan and inject"
 run inject "${args[@]}"
-trap cleanup EXIT
 
 echo "== one pass"
 run pass

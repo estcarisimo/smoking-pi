@@ -15,8 +15,8 @@ version gets a matching GitHub release and git tag.
   (`shared/scripts/inject-shared-loss.sh`).** Shared degradation and shared
   path segments (since v2.44.0) and the path meter's episode traces (since
   v2.51.0) only write when the whole connection loses, and the second
-  production read (2026-11-09) found that no such evening had happened
-  since they shipped: not one `shared_degradation`, `shared_segment` or
+  production read (2026-11-09) found that no such evening had happened since
+  they shipped: not one `shared_degradation`, `shared_segment` or
   `trigger=episode` point on the reference Pi. Each step had unit tests on
   fakes; nothing had shown that a real evening reaches the two *Whole
   connection* tables of Connectivity & Quality, so the first real shared
@@ -24,24 +24,26 @@ version gets a matching GitHub release and git tag.
   the qualification, the traces and the dashboards, and the evening it was
   built for would have gone unexplained. The maintainer tool injects a loss
   evening into the inference bin cache of a **staging** Pi (a synthetic one
-  planted on the destinations behind one network or exchange point, or a
-  CSV of 15-minute bins the maintainer passes), runs one pass, injects one
-  cycle of widespread loss for the path meter (with the alerter stopped),
-  checks the three outputs against the plan, and puts the cache and
-  InfluxDB back. It refuses unless the host's name contains `staging` and
-  is repeated on the command line. Run on the staging Pi (v2.53.0, 22
-  voters) the first `shared_degradation` and `shared_segment` points ever
-  written came out as planned: an evening planted behind the Equinix
-  Internet Exchange Dallas (Apple, Wikimedia and Imperva losing) read
-  `shared`, led by Apple, three kinds, with a `strong` hypothesis naming
-  that exchange (3 of 3 that lost, 0 of 19 that did not); a CSV evening
-  everyone shared read `shared` with a `none` hypothesis; each widespread
-  cycle got episode traces within five minutes; no alert went out, and the
-  cleanup left the cache byte for byte as it was. The first run also found
-  that the plan ignored `upgrade` markers (an upgrade fell inside the
-  evening, and the pass left those bins out); the plan now refuses an
-  evening on them. `docs/inference.md` has a new
-  section, *Proving the shared path on staging*.
+  planted on the destinations behind one network or exchange point, or a CSV
+  of 15-minute bins the maintainer passes), runs one pass, injects one cycle
+  of widespread loss for the path meter (with the alerter stopped), checks
+  the three outputs against the plan, and puts the cache and InfluxDB back,
+  keeping out of the service's own hourly pass. It refuses unless the host's
+  name contains `staging`, is repeated on the command line and is the Docker
+  daemon's own (a bats suite proves the refusals). Run on the staging Pi
+  (v2.53.0, 22 voters) the first `shared_degradation` and `shared_segment`
+  points ever written came out as planned: an evening planted behind the
+  Equinix Internet Exchange Dallas (Apple, Wikimedia and Imperva losing)
+  read `shared`, led by Apple, three kinds, with a `strong` hypothesis
+  naming that exchange (3 of 3 that lost, 0 of 19 that did not); a CSV
+  evening everyone shared read `shared` with a `none` hypothesis; each
+  widespread cycle got episode traces within five minutes; the alerter's log
+  showed no alert, and the cleanup left the cache byte for byte as it was
+  (no service pass ran in between). The first run also found that the plan
+  ignored `upgrade` markers (an upgrade fell inside the evening, and the
+  pass left those bins out); the plan now refuses an evening on them.
+  `docs/inference.md` has a new section, *Proving the shared path on
+  staging*.
 
 ## [2.53.0] — 2026-11-09
 

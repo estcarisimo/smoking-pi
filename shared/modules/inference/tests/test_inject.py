@@ -247,9 +247,15 @@ def test_with_no_destination_traced_no_hypothesis_is_expected():
     assert not inject.check_segment([{"start": T0}], _period(), plan)[0]["ok"]
 
 
+def _seen(at, **over):
+    run = {"targets_affected": 20, "targets_total": 20, "reading": None,
+           "end": pd.Timestamp(at // 300 * 300, unit="s", tz="UTC").isoformat()}
+    run.update(over)
+    return run
+
+
 def test_episode_traces_after_the_cycle_pass():
-    plan = dict(PLAN, widespread={"at": T0, "seen": {"targets_affected": 20,
-                                                     "targets_total": 20, "reading": None}})
+    plan = dict(PLAN, widespread={"at": T0 + 30, "step": 300, "seen": _seen(T0 + 30)})
     rows = [{"target": "Google", "episode": "2026-11-10T01:00:00+00:00"},
             {"target": "Apple", "episode": "2026-11-10T01:00:00+00:00"}]
     checks = inject.check_episode(rows, plan)
@@ -261,8 +267,14 @@ def test_no_trace_no_cycle_or_an_uplink_reading_fails():
     assert not inject.check_episode([], PLAN)[0]["ok"]
     plan = dict(PLAN, widespread={"at": T0, "seen": None})
     assert [c["ok"] for c in inject.check_episode([], plan)] == [False, False, False]
-    down = dict(PLAN, widespread={"at": T0, "seen": {"reading": "uplink_down"}})
+    down = dict(PLAN, widespread={"at": T0, "seen": _seen(T0, reading="uplink_down")})
     assert not inject.check_episode([{"target": "G", "episode": "x"}], down)[0]["ok"]
+
+
+def test_a_widespread_run_that_is_not_the_injected_cycles_step_does_not_count():
+    # A real run ten minutes earlier: the path meter may be tracing that one.
+    plan = dict(PLAN, widespread={"at": T0 + 30, "step": 300, "seen": _seen(T0 - 600)})
+    assert not inject.check_episode([{"target": "G", "episode": "x"}], plan)[0]["ok"]
 
 
 def test_leader_is_the_first_name_of_the_listing():
@@ -275,6 +287,9 @@ def test_leader_is_the_first_name_of_the_listing():
 
 
 class FakeDelete:
+    """Records the predicates and ranges; InfluxDB's own delete semantics
+    (both ends inclusive) are what the staging runs checked, not this."""
+
     def __init__(self):
         self.calls = []
 
@@ -368,21 +383,53 @@ def test_the_widespread_cycle_copies_every_series_but_the_gateway(monkeypatch):
     def query(flux):
         return rows if "|> last()" in flux else []
 
-    monkeypatch.setattr(loss_events, "answer", lambda q, hours, cadences=None: {
-        "widespread": [{"targets_affected": 2, "targets_total": 2, "reading": None}]})
+    calls = []
+
+    def answer(q, hours, cadences=None):
+        calls.append(hours)
+        return {"widespread": [] if len(calls) == 1 else
+                [{"targets_affected": 2, "targets_total": 2, "reading": None}]}
+
+    monkeypatch.setattr(loss_events, "answer", answer)
     written = []
     plan = {"span": [T0, END]}
     ws = inject.widespread(plan, now=T0 + 7200, query=query, write=written.extend)
     lines = sorted(p.to_line_protocol() for p in written)
     assert len(lines) == 2 and all("loss=0.6" in line for line in lines)
     assert not any("cpe" in line for line in lines)
-    assert ws["measurements"] == ["dns_latency", "latency"] and ws["at"] % 60 != 0
+    assert ws["measurements"] == ["dns_latency", "latency"] and ws["at"] % 60 == 30
+    assert ws["at"] <= T0 + 7200 - 30 and ws["step"] == 300
     assert ws["seen"]["targets_affected"] == 2
     with pytest.raises(inject.PlanError, match="already injected"):
         inject.widespread(plan, now=T0 + 7300, query=query, write=written.extend)
 
 
-def test_the_widespread_cycle_refuses_a_second_that_holds_points():
+@pytest.mark.parametrize("real_run, traces, why", [
+    (True, [], "widespread run is already"),
+    (False, [{"target": "G", "episode": "x"}], "episode traces in the last hour"),
+])
+def test_the_widespread_cycle_waits_out_a_real_episode(monkeypatch, real_run, traces, why):
+    from common import loss_events
+
+    inject.workdir().mkdir(parents=True)
+    monkeypatch.setattr(loss_events, "answer", lambda q, hours, cadences=None: {
+        "widespread": [{"end": "x"}] if real_run else []})
+
+    def query(flux):
+        if "|> last()" in flux:
+            return [{"_measurement": "latency", "_field": "loss", "target": "G",
+                     "category": "x"}]
+        return traces if '"episode"' in flux else []
+
+    with pytest.raises(inject.PlanError, match=why):
+        inject.widespread({"span": [T0, END]}, now=T0 + 7200, query=query,
+                          write=lambda points: None)
+
+
+def test_the_widespread_cycle_refuses_a_second_that_holds_points(monkeypatch):
+    from common import loss_events
+
+    monkeypatch.setattr(loss_events, "answer", lambda q, hours, cadences=None: {})
     inject.workdir().mkdir(parents=True)
     rows = [{"_measurement": "latency", "_field": "loss", "target": "G", "category": "x"}]
     with pytest.raises(inject.PlanError, match="already exist"):
@@ -390,9 +437,86 @@ def test_the_widespread_cycle_refuses_a_second_that_holds_points():
                           write=lambda points: None)
 
 
-def test_the_command_refuses_without_staging(capsys):
+def test_the_command_refuses_without_staging(capsys, monkeypatch):
     assert inject.main(["plan"]) == 2
     assert "staging Pi only" in capsys.readouterr().err
+    # --staging alone is not enough: the wrapper also passes the Docker
+    # host's name, and it must be a staging host's.
+    assert inject.main(["--staging", "plan"]) == 2
+    monkeypatch.setenv("INJECT_HOST", "smokingpi")
+    assert inject.main(["--staging", "plan"]) == 2
+
+
+# --- the service's own pass ------------------------------------------------------
+
+
+@pytest.mark.parametrize("now, ahead, busy", [
+    (T0 + 600, inject.INJECT_AHEAD_S, None),                  # just after a pass
+    (T0 + 3600 - 1200, inject.INJECT_AHEAD_S, "next pass"),    # too close for a test
+    (T0 + 3600 - 1200, 0, None),                              # fine for a cleanup
+    (T0 + 3600 + 60, 0, "next pass"),                          # running
+    (T0 + 3600 + 900, 0, "has not reported"),                  # overdue: may be running
+])
+def test_the_tool_keeps_out_of_the_services_pass(now, ahead, busy):
+    status = {"at": T0, "interval": 3600, "seconds": 150.0}
+    said = inject.service_busy(now, status, ahead)
+    assert (said is None) if busy is None else (busy in said)
+
+
+def test_a_starting_service_is_busy_until_its_first_pass():
+    assert "starting" in inject.service_busy(T0 + 60, {"starting": T0, "interval": 3600}, 0)
+    assert inject.service_busy(T0 + 3000, {"starting": T0, "interval": 3600}, 0) is None
+
+
+def test_inject_refuses_while_the_service_is_due():
+    bins._save("loss", _cache(), {"from": T0, "through": T0 + 9000, "full_at": 1},
+               bins.state_dir())
+    with pytest.raises(inject.PlanError, match="next pass"):
+        inject.inject({"span": [T0, T0 + 900], "_rows": [], "_clear": []}, now=T0 + 3000,
+                      status={"at": T0, "interval": 3600, "seconds": 150})
+    assert not inject.workdir().exists()
+
+
+def test_cleanup_waits_for_a_running_pass():
+    t = [T0 + 3600 + 30]
+    states = iter([{"at": T0, "interval": 3600, "seconds": 150}] * 3
+                  + [{"at": T0 + 3600, "interval": 3600, "seconds": 150}] * 10)
+    quiet = inject.wait_quiet(status=lambda: next(states), clock=lambda: t[0],
+                              sleep=lambda s: t.__setitem__(0, t[0] + s))
+    assert quiet == T0 + 3600 + 30 + 3 * 15
+
+
+def test_restore_keeps_a_newer_tail_and_puts_the_evenings_bins_back():
+    state = bins.state_dir()
+    cache = _cache()
+    bins._save("loss", cache, {"from": T0 - 8 * 900, "through": T0 + 9000, "full_at": 1}, state)
+    plan = {"span": [T0, T0 + 4 * 900],
+            "_rows": [{"bin": T0, "target": "L0", "loss": 0.25}], "_clear": []}
+    inject.inject(plan, now=T0 + 9100)
+    # A service pass saves the cache meanwhile, with one more bin.
+    table, meta = bins._load("loss", shared.BIN_COLUMNS, state, ("target", "category"))
+    newer = pd.concat([table, pd.DataFrame([{"bin": T0 + 16 * 900, "target": "L0",
+                                             "category": "topsites", "loss": 0.0,
+                                             "count": 3.0}])], ignore_index=True)
+    bins._save("loss", newer, dict(meta, through=T0 + 12600), state)
+    said = inject.restore(json.loads((inject.workdir() / "manifest.json").read_text()))
+    assert said.startswith("restored the evening's bins")
+    table, meta = bins._load("loss", shared.BIN_COLUMNS, state, ("target", "category"))
+    assert meta == {"from": T0 - 8 * 900, "through": T0 + 12600, "full_at": 1}
+    assert table.set_index(["bin", "target"]).loc[(T0, "L0"), "loss"] == 0.0
+    assert (T0 + 16 * 900) in set(table["bin"])
+    assert not (inject.workdir() / "loss.csv").exists()
+
+
+def test_cleanup_deletes_only_the_episode_rounds_the_cycle_caused():
+    plan = {"span": [T0, END], "widespread": {"at": T0 + 30, "measurements": ["latency"],
+                                              "deleted": T0 + 900}}
+    inject.workdir().mkdir(parents=True)
+    (inject.workdir() / "manifest.json").write_text("{}")
+    client = FakeClient()
+    inject.cleanup(plan, now=T0 + 86400, client=client, query=lambda flux: [])
+    episode = [c for c in client.api.calls if "trigger" in c[2]]
+    assert {c[:2] for c in episode} == {(inject._iso(T0 + 30), inject._iso(T0 + 901))}
 
 
 # --- the plan, end to end on fakes -------------------------------------------------

@@ -246,6 +246,10 @@ jobs:
       # SmokePing's DNS probe parses; against a fake dig, no network.
       - name: Run the dig-usec suite
         run: bats packaging/tests/dig-usec.bats
+      # The staging injection test writes loss into the inference cache
+      # and InfluxDB: its production guard is proven here, against stubs.
+      - name: Run the inject-shared-loss guard suite
+        run: bats packaging/tests/inject-shared-loss.bats
 
   homebrew:
     name: Homebrew formula (parses; sha256 is the tarball's)

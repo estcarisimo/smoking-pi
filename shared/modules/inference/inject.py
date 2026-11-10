@@ -108,6 +108,12 @@ SLACK_S = 2 * BIN_S
 MARGIN_S = 3600
 EPISODE_MEASUREMENTS = ("path_trace", "path_hop", "pathmeter_pass")
 TRIGGER = "episode"
+# The service's own hourly pass reads and saves the same cache: the tool
+# touches it only when no pass runs or is due within these margins.
+PASS_MARGIN_S = 120
+INJECT_AHEAD_S = 25 * 60     # inject, one pass, the episode wait, verify
+QUIET_WAIT_S = 20 * 60       # how long cleanup waits for a running pass
+FIRST_PASS_S = 600           # a starting service: its delay and first pass
 NOT_TAGS = {"result", "table", "_start", "_stop", "_time", "_value", "_field",
             "_measurement"}
 
@@ -349,9 +355,10 @@ def points_flux(measurement: str, start: int, stop: int) -> str:
             '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")')
 
 
-def episode_flux(since: int) -> str:
+def episode_flux(since: int, until: int | None = None) -> str:
+    stop = f", stop: {int(until) + 1}" if until is not None else ""
     return (f"from(bucket: {flux_str(influx_bucket())}) "
-            f"|> range(start: {int(since)}) "
+            f"|> range(start: {int(since)}{stop}) "
             '|> filter(fn: (r) => r._measurement == "path_trace" and r.trigger == "episode") '
             '|> filter(fn: (r) => r._field == "episode" or r._field == "reached" '
             'or r._field == "first_hop") '
@@ -436,6 +443,21 @@ def check_segment(found: list[dict], period: dict | None, plan: dict) -> list[di
     ]
 
 
+def episode_window(ws: dict, now: int) -> tuple[int, int]:
+    """[from, to] of the episode rounds the injected cycle caused: from the
+    cycle until it was deleted (no check sees it after that; a round that
+    started before writes at its start). widespread() refused to inject
+    while a real widespread run or episode traces were in the last hour."""
+    return int(ws["at"]), int(ws.get("deleted") or now)
+
+
+def _epoch(value) -> int | None:
+    try:
+        return int(pd.Timestamp(value).timestamp())
+    except (TypeError, ValueError):
+        return None
+
+
 def check_episode(rows: list[dict], plan: dict) -> list[dict]:
     """The ``trigger=episode`` traces the path meter wrote after the
     widespread cycle."""
@@ -444,11 +466,16 @@ def check_episode(rows: list[dict], plan: dict) -> list[dict]:
         return [_check("trigger=episode traces", False, "no widespread cycle injected",
                        "≥ 1 trace")]
     seen = ws.get("seen") or {}
+    step = int(ws.get("step") or 300)
+    # The run must be the injected cycle's own step, not a real one nearby.
+    ours = _epoch(seen.get("end")) == int(ws["at"]) // step * step
     rule = _check("the alerter's widespread rule saw the cycle",
-                  bool(seen) and seen.get("reading") not in ("uplink_down", "monitor_dns"),
+                  bool(seen) and ours
+                  and seen.get("reading") not in ("uplink_down", "monitor_dns"),
                   f"{seen.get('targets_affected')} of {seen.get('targets_total')}"
                   f" ({seen.get('reading') or 'no reading'})" if seen else "no widespread run",
-                  "a run the path meter traces")
+                  f"a run ending at the cycle's step ({_iso(int(ws['at']) // step * step)})"
+                  " that the path meter traces")
     traced = sorted({str(r.get("target")) for r in rows if r.get("target")})
     ids = sorted({str(r.get("episode")) for r in rows if r.get("episode")})
     return [rule, _check("trigger=episode traces after the widespread cycle", bool(traced),
@@ -551,7 +578,8 @@ def make_plan(args, now: int, query=query_influx, tag_store=None, deaf=None) -> 
         raise PlanError("this evening would read as dominated, not shared: "
                         f"{option['expect']['lossy_operators']} of {option['expect']['operators']}"
                         f" operators, kinds {option['expect']['kinds']}")
-    before = {m: len(periods(query(points_flux(m, start - MARGIN_S, end + MARGIN_S))))
+    # Every point counts, a malformed one too: cleanup deletes them all.
+    before = {m: len(query(points_flux(m, start - MARGIN_S, end + MARGIN_S)))
               for m in (store.SHARED, store.SHARED_SEGMENT)}
     if any(before.values()):
         raise PlanError(f"shared points already exist around the evening {before}: cleanup "
@@ -572,10 +600,41 @@ def make_plan(args, now: int, query=query_influx, tag_store=None, deaf=None) -> 
     }
 
 
-def inject(plan: dict, now: int) -> dict:
+def _status() -> dict:
+    try:
+        return json.loads((bins.state_dir() / "status.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def service_busy(now: int, status: dict, ahead_s: int) -> str | None:
+    """Why the service's own pass may touch the cache within ``ahead_s``,
+    or None. It reads and saves ``loss.csv`` like this tool and takes no
+    lock: an inject under a running pass is overwritten, a restore under
+    one is undone. A pass starting at ``at`` is due again ``interval``
+    later (main.main) and lasts about ``seconds``."""
+    at, interval = status.get("at"), status.get("interval")
+    if not at or not interval:
+        started = status.get("starting")
+        if started and now < int(started) + FIRST_PASS_S:
+            return "the service is starting and its first pass is due"
+        return None
+    seconds = float(status.get("seconds") or 300)
+    due = int(at) + int(interval)
+    if now > due + seconds + PASS_MARGIN_S:
+        return f"the service's pass due at {_iso(due)} has not reported: it may be running"
+    if due - ahead_s - PASS_MARGIN_S <= now:
+        return f"the service's next pass is due at {_iso(due)}"
+    return None
+
+
+def inject(plan: dict, now: int, status: dict | None = None) -> dict:
     """Copy the cache aside and write the evening into it."""
     if _load_manifest():
         raise PlanError("a test is already under way (inject/manifest.json): cleanup first")
+    busy = service_busy(now, _status() if status is None else status, INJECT_AHEAD_S)
+    if busy:
+        raise PlanError(f"{busy}; inject after it, with {INJECT_AHEAD_S // 60} minutes to spare")
     table, meta = _cache()
     d = workdir()
     d.mkdir(parents=True, exist_ok=True)
@@ -585,11 +644,44 @@ def inject(plan: dict, now: int) -> dict:
     rows = pd.DataFrame(plan.pop("_rows"), columns=["bin", "target", "loss"])
     out = apply(table, rows, tuple(plan["span"]), plan.pop("_clear"))
     plan["backup"] = {"through": meta["through"], "full_at": meta["full_at"]}
+    plan["injected_meta"] = {"from": meta["from"], "through": meta["through"], "full_at": now}
     plan["injected_rows"] = int(len(rows))
     _save_manifest(plan)
-    bins._save(CACHE, out, {"from": meta["from"], "through": meta["through"], "full_at": now},
-               bins.state_dir())
+    bins._save(CACHE, out, plan["injected_meta"], bins.state_dir())
     return plan
+
+
+def restore(plan: dict | None) -> str:
+    """Put the copied cache back. When no pass saved the cache since
+    inject, the copy goes back as it was. When one did, its newer tail
+    stays and only the evening's bins come back from the copy: putting the
+    whole copy back would move ``through`` backwards."""
+    d = workdir()
+    if not ((d / f"{CACHE}.csv").exists() and (d / f"{CACHE}.json").exists()):
+        return "no copy to restore"
+    text = ("target", "category")
+    live = bins._load(CACHE, shared.BIN_COLUMNS, bins.state_dir(), text)
+    injected = (plan or {}).get("injected_meta")
+    if live is None or not injected or live[1] == injected:
+        for suffix in (".csv", ".json"):
+            os.replace(d / f"{CACHE}{suffix}", bins.state_dir() / f"{CACHE}{suffix}")
+        return "restored"
+    copy = bins._load(CACHE, shared.BIN_COLUMNS, d, text)
+    if copy is None:
+        return "the copy could not be read; left in inject/ for a look"
+    start, end = plan["span"]
+    table, meta = live
+    inside = (table["bin"] >= start) & (table["bin"] < end)
+    back = copy[0][(copy[0]["bin"] >= start) & (copy[0]["bin"] < end)]
+    merged = (pd.concat([table[~inside], back], ignore_index=True)
+              .sort_values(["bin", "target"], kind="stable").reset_index(drop=True))
+    # The full refresh inject postponed is due as it was; one a pass made
+    # since (the evening already gone) stands.
+    full_at = copy[1]["full_at"] if meta["full_at"] == injected["full_at"] else meta["full_at"]
+    bins._save(CACHE, merged[shared.BIN_COLUMNS], dict(meta, full_at=full_at), bins.state_dir())
+    for suffix in (".csv", ".json"):
+        (d / f"{CACHE}{suffix}").unlink()
+    return "restored the evening's bins; kept the newer tail the service's passes added"
 
 
 def run_pass(now: int | None = None) -> dict:
@@ -635,9 +727,13 @@ def widespread(plan: dict, now: int, query=query_influx, write=None) -> dict:
 
     if plan.get("widespread"):
         raise PlanError("the widespread cycle is already injected")
-    at = int(now) - 20
-    if at % 60 == 0:
-        at -= 7
+    # Half a minute past a minute: never a second the exporter writes at
+    # (its cycles are on the step), nor the one after it.
+    at = (int(now) - 60) // 60 * 60 + 30
+    cadences = cadence.by_target(query(cadence.cadence_flux()))
+    if loss_events.answer(query, 1, cadences=cadences).get("widespread"):
+        raise PlanError("a widespread run is already in the last hour: a real episode "
+                        "would mix with the test's; try again later")
     found = series_of(query(widespread_flux()))
     if not found:
         raise PlanError("no target reported in the last 15 minutes")
@@ -648,6 +744,9 @@ def widespread(plan: dict, now: int, query=query_influx, write=None) -> dict:
     if held:
         raise PlanError(f"points already exist at {_iso(at)} in {held}; try again in a minute")
     before = len(query(episode_flux(at - 3600)))
+    if before:
+        raise PlanError(f"{before} episode traces in the last hour: a real episode would mix "
+                        "with the test's; try again later")
     points = []
     for m, tags_ in found:
         p = Point(m)
@@ -655,10 +754,9 @@ def widespread(plan: dict, now: int, query=query_influx, write=None) -> dict:
             p = p.tag(k, v)
         points.append(p.field("loss", WIDESPREAD_LOSS).time(at, WritePrecision.S))
     plan["widespread"] = {"at": at, "measurements": measurements, "series": len(points),
-                          "episode_traces_before": before}
+                          "step": cadence.longest_step(cadences)}
     _save_manifest(plan)
     (write or write_points)(points)
-    cadences = cadence.by_target(query(cadence.cadence_flux()))
     runs = loss_events.answer(query, 1, cadences=cadences).get("widespread") or []
     newest = runs[0] if runs else None
     plan["widespread"]["seen"] = newest
@@ -673,7 +771,7 @@ def verify(plan: dict, query=query_influx, episode: bool = True) -> dict:
     seg = periods(query(points_flux(store.SHARED_SEGMENT, start - MARGIN_S, end + MARGIN_S)))
     s_checks = check_segment(seg, period, plan)
     ws = plan.get("widespread")
-    e_rows = query(episode_flux(ws["at"])) if ws else []
+    e_rows = query(episode_flux(*episode_window(ws, int(time.time())))) if ws else []
     e_checks = check_episode(e_rows, plan) if episode else []
     return {"shared_degradation": {"checks": p_checks, "period": _public(period)},
             "shared_segment": {"checks": s_checks,
@@ -688,6 +786,18 @@ def _public(p: dict | None) -> dict | None:
     if not p:
         return None
     return {k: (_iso(v) if k in ("start", "end") else v) for k, v in p.items()}
+
+
+def wait_quiet(status=_status, clock=time.time, sleep=time.sleep) -> int:
+    """Wait until no service pass runs or is due within PASS_MARGIN_S (at
+    most QUIET_WAIT_S); returns the time it is quiet."""
+    deadline = clock() + QUIET_WAIT_S
+    while (busy := service_busy(int(clock()), status(), 0)):
+        if clock() >= deadline:
+            raise PlanError(f"{busy}, for {QUIET_WAIT_S // 60} minutes: cleanup again later")
+        log.info("%s; waiting", busy)
+        sleep(15)
+    return int(clock())
 
 
 def cleanup(plan: dict | None, now: int, client=None, keep_points: bool = False,
@@ -720,17 +830,16 @@ def cleanup(plan: dict | None, now: int, client=None, keep_points: bool = False,
                 _save_manifest(plan)
         if keep_points:
             return report
-        if (d / f"{CACHE}.csv").exists() and (d / f"{CACHE}.json").exists():
-            for suffix in (".csv", ".json"):
-                os.replace(d / f"{CACHE}{suffix}", bins.state_dir() / f"{CACHE}{suffix}")
-            report["cache"] = "restored"
+        report["cache"] = restore(plan)
         if not plan:
             return report
         start, end = plan["span"]
         if ws:
+            # Only the rounds the injected cycle caused (episode_window).
+            first, last = episode_window(ws, now)
             for m in EPISODE_MEASUREMENTS:
-                delete(ws["at"], now, f"_measurement={store._quoted(m)} AND "
-                                      f"trigger={store._quoted(TRIGGER)}")
+                delete(first, last + 1, f"_measurement={store._quoted(m)} AND "
+                                        f"trigger={store._quoted(TRIGGER)}")
         for m in (store.SHARED, store.SHARED_SEGMENT):
             delete(start - MARGIN_S, end + MARGIN_S, f"_measurement={store._quoted(m)}")
     finally:
@@ -739,7 +848,7 @@ def cleanup(plan: dict | None, now: int, client=None, keep_points: bool = False,
     report["left"] = {m: len(periods(query(points_flux(m, start - MARGIN_S, end + MARGIN_S))))
                       for m in (store.SHARED, store.SHARED_SEGMENT)}
     if ws:
-        report["left"]["episode traces"] = len(query(episode_flux(ws["at"])))
+        report["left"]["episode traces"] = len(query(episode_flux(*episode_window(ws, now))))
     os.replace(d / "manifest.json", d / f"done-{int(now)}.json")
     return report
 
@@ -793,10 +902,12 @@ def main(argv: list[str] | None = None) -> int:
     c = sub.add_parser("cleanup")
     c.add_argument("--keep-points", action="store_true")
     args = parser.parse_args(argv)
-    if not args.staging:
+    host = os.environ.get("INJECT_HOST", "")
+    if not args.staging or "staging" not in host.lower():
         print("inject.py writes loss into the bin cache and InfluxDB: it runs on a staging "
               "Pi only, through shared/scripts/inject-shared-loss.sh (docs/inference.md, "
-              "'Proving the shared path on staging').", file=sys.stderr)
+              "'Proving the shared path on staging'), which passes --staging and the "
+              "Docker host's name (INJECT_HOST, which must contain 'staging').", file=sys.stderr)
         return 2
     now = int(time.time())
     try:
@@ -810,7 +921,12 @@ def main(argv: list[str] | None = None) -> int:
             _print(plan)
             return 0
         if args.step == "cleanup":
-            _print(cleanup(_load_manifest(), now, keep_points=args.keep_points))
+            # Only the injected cycle goes with --keep-points; the cache is
+            # left alone, so a service pass does not matter.
+            plan = _load_manifest()
+            if not args.keep_points and (plan or (workdir() / f"{CACHE}.csv").exists()):
+                now = wait_quiet()
+            _print(cleanup(plan, now, keep_points=args.keep_points))
             return 0
         plan = _load_manifest()
         if not plan:

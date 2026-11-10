@@ -615,15 +615,16 @@ prove each step on fakes; this proves that a real evening gets from the
 bins to the dashboards. A maintainer tool, for a **staging Pi only**:
 
 ```bash
-shared/scripts/inject-shared-loss.sh --host "$(hostname)" --keep
+shared/scripts/inject-shared-loss.sh --host stagingpi --keep
 # ... screenshots of Connectivity & Quality ...
-shared/scripts/inject-shared-loss.sh --host "$(hostname)" --cleanup
+shared/scripts/inject-shared-loss.sh --host stagingpi --cleanup
 ```
 
 Run it from a checkout of the version under test (on a package install,
 `/opt/smoking-pi/shared/scripts/`), with the inference and path meter
 profiles on. It runs `shared/modules/inference/inject.py` inside the
-inference container (copying it in when the image predates it) and:
+inference container (copying the checkout's in when the image's differs or
+has none) and:
 
 1. **Plans an evening.** Three hours (`--hours`), ending two hours before
    the bin cache's last pass, so the evening is a closed part of the cache
@@ -638,39 +639,53 @@ inference container (copying it in when the image predates it) and:
    (`bin,target,loss`, the bin's start as epoch seconds or an ISO time,
    loss a ratio 0–1), moved to the same place in the window; targets the
    staging Pi does not measure are skipped. The file is copied into the
-   container for the run and never kept. The plan refuses an evening on the
-   monitor's own bins (a deaf radio, an upgrade), with fewer than eight
-   voters, one that would read `dominated`, or one where shared points
-   already exist (cleanup would delete them).
+   container for the run and removed when the script exits. The plan refuses
+   an evening on the monitor's own bins (a deaf radio, an upgrade), with
+   fewer than eight voters, one that would read `dominated`, or one where
+   shared points already exist (cleanup would delete them).
 2. **Injects it** into the cache, after copying `loss.csv`/`loss.json`
    aside, and runs **one pass** as the service does (the shared detector and
-   the segments; not the per-target detectors).
+   the segments; not the per-target detectors). The service's own hourly
+   pass reads and saves the same cache with no lock, so the tool injects
+   only when that pass is at least 25 minutes away (it says when, from the
+   service's `status.json`), and cleanup waits for one that is running.
 3. **Injects one cycle of widespread loss**: a `loss` point of 60 % for
    every target that reported in the last 15 minutes, the gateway excepted,
-   at a second no point holds. The path meter's episode check, which is the
-   alerter's widespread rule, sees an episode under way within five minutes
-   and traces it. The alerter is stopped meanwhile (it would alert), and
-   started again whatever happens.
+   at half a minute past a minute, a second no point holds. The path
+   meter's episode check, which is the alerter's widespread rule, sees an
+   episode under way within five minutes and traces it. It refuses while a
+   real widespread run or episode traces are in the last hour, so the test's
+   rounds are the only ones. The alerter is stopped meanwhile (it would
+   alert), and started again once the cycle is deleted, also by
+   `--cleanup` after a run that was killed.
 4. **Verifies the three outputs** in InfluxDB against the plan: one
    `shared_degradation` period over the evening (within 30 minutes at each
    end) with the planned scope, the planned leader of `by_operator`, the
    planned `kinds` and a pooled loss within half to one and a half the
    planned; the `shared_segment` hypothesis at the period's start with the
-   planned confidence and segment; `trigger=episode` traces after the cycle,
-   each with its `episode`.
+   planned confidence and segment; a widespread run ending at the cycle's
+   own step, and `trigger=episode` traces between the cycle and its
+   deletion, each with its `episode`.
 5. **Cleans up**: deletes the injected cycle, restores the cache, and
    deletes the `shared_degradation` and `shared_segment` points within an
-   hour of the evening and the `trigger=episode` traces since the cycle.
+   hour of the evening and the `trigger=episode` traces from the cycle to
+   its deletion. When a service pass saved the cache meanwhile, its newer
+   tail stays and only the evening's bins come back from the copy. A
+   cleanup that fails says so and exits non-zero.
    `--keep` deletes the injected cycle only and leaves the evening and its
    outputs for screenshots (restored alone, the cache would let the next
    hourly pass correct the period away); `--cleanup` finishes later.
 
 **The guard.** The script refuses unless the host's name contains
-`staging` and `--host` repeats it exactly: the reference Pi is
-`smokingpi`, and a command copied to the wrong terminal stops there.
-`inject.py` refuses to run without `--staging`, which only the script
-passes. Never run it on a Pi whose history matters: the injected loss is
-indistinguishable from measured loss until cleanup deletes it.
+`staging`, `--host` repeats it exactly (type it: the reference Pi is
+`smokingpi`, and a command copied to the wrong terminal stops there), and
+the Docker daemon it talks to is this host's own (`docker info`), so a
+`DOCKER_HOST` or a docker context pointing at another Pi stops it too.
+`inject.py` refuses to run without `--staging` and a daemon name containing
+`staging` in `INJECT_HOST`, which only the script passes; a bats suite
+(`packaging/tests/inject-shared-loss.bats`) proves the refusals. Never run
+it on a Pi whose history matters: the injected loss is indistinguishable
+from measured loss until cleanup deletes it.
 
 The assistant's automations read the same data: run it between two runs of
 the hourly OpenClaw heartbeat (or after its last one of the day), and keep
@@ -707,8 +722,8 @@ ones 4–8 %, a synthetic file placed 19:30–22:30 UTC clear of the upgrades):
 `shared`, `by_operator` led by *Fastly 6.7 %*, all four kinds, and a
 `shared_segment` of confidence `none` (*22 lost, 0 did not*: everyone's
 loss sets no path apart, as the real October nights read); five episode
-traces; and the full cleanup left no point and the cache byte for byte as
-it was. In both runs the period started one bin before the evening: a
+traces; and the full cleanup left no point and, with no service pass in
+between, the cache byte for byte as it was. In both runs the period started one bin before the evening: a
 change point at bin *i* opens the new segment at bin *i*, as in Jitterbug
 (see the degradation detector above), which is why the check allows two
 bins at each end.
