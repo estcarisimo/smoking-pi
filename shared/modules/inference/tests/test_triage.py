@@ -176,8 +176,8 @@ def test_only_the_first_hop_moves(tmp_path):
     assert (p["tri_tcp"], p["tri_http"], p["tri_dns"], p["tri_hop"]) == (
         "flat", "flat", "flat", "up")
     assert p["hop_rise_ms"] == pytest.approx(8, abs=1)
-    assert p["triage"].startswith("first hop rose too (+8 ms); "
-                                  "ICMP's median, TCP, HTTP, DNS and Wi-Fi did not; no loss;")
+    assert p["triage"].startswith("ICMP's median did not rise; first hop rose (+8 ms); "
+                                  "TCP, HTTP, DNS and Wi-Fi did not; no loss;")
 
 
 def test_a_deaf_bin_next_to_the_period_counts_one_further_does_not(tmp_path):
@@ -395,8 +395,8 @@ def test_when_the_destination_itself_did_not_rise_the_sentence_does_not_say_only
     for v in (1, 2, 3):
         w.http[f"Facebook_h{v}"] = lambda e, v=v: 75 + v + _noise(e, 3)
     p = _one(w, tmp_path)
-    assert p["triage"] == ("ICMP's median, TCP, HTTP, DNS, first hop and Wi-Fi did not; no loss; "
-                           "path unchanged; no other destination rose.")
+    assert p["triage"] == ("ICMP's median did not rise; TCP, HTTP, DNS, first hop and Wi-Fi "
+                           "did not; no loss; path unchanged; no other destination rose.")
 
 
 def test_episode_traces_are_left_out_of_the_path():
@@ -424,6 +424,121 @@ def test_a_layer_that_moved_reports_the_rise_of_the_probes_that_moved():
                                     {"rose": False, "rise": 0.1}, {"rose": False, "rise": -0.2}],
                                    "rose")
     assert moved and rise == pytest.approx(6.25)
+
+
+# ───────────────────────── the sentence, branch by branch ─────────────────────────
+
+def _layer_result(state, rise=None, loss_rise=None, rose=None, lost=None):
+    return {"state": state, "rise": rise, "loss_rise": loss_rise, "rose": rose, "lost": lost}
+
+
+def _result(kind, icmp, **layers):
+    """A result as evaluate() returns it: every layer flat unless given."""
+    flat = _layer_result("flat", rise=0.1, loss_rise=0.0, rose=False, lost=False)
+    out = {"kind": kind, "target": "X", "base_bins": 96, "icmp": icmp,
+           "path": {"state": "unchanged"}, "others": [],
+           "wifi": {"state": "flat", "deaf_bins": 0}}
+    for n in ("tcp", "http", "dns", "hop"):
+        out[n] = layers.get(n, dict(flat))
+    return out
+
+
+CONGESTION_CASES = [
+    # ICMP's median rose, without and with loss.
+    (_layer_result("up", rise=10, loss_rise=0.0, rose=True, lost=False),
+     "ICMP to X rose (median +10 ms); TCP, HTTP, DNS, first hop and Wi-Fi did not; no loss; "
+     "path unchanged; only X rose."),
+    (_layer_result("up", rise=10, loss_rise=5, rose=True, lost=True),
+     "ICMP to X rose (median +10 ms); TCP, HTTP, DNS, first hop and Wi-Fi did not; "
+     "ICMP also lost (+5 points); path unchanged; only X rose."),
+    # ICMP's median did not rise, without and with loss: the flat-median
+    # case used to lose its clause when the loss rose.
+    (_layer_result("flat", rise=0.2, loss_rise=0.0, rose=False, lost=False),
+     "ICMP's median did not rise; TCP, HTTP, DNS, first hop and Wi-Fi did not; no loss; "
+     "path unchanged; no other destination rose."),
+    (_layer_result("lost", rise=0.2, loss_rise=5, rose=False, lost=True),
+     "ICMP's median did not rise, though its loss rose (+5 points); TCP, HTTP, DNS, "
+     "first hop and Wi-Fi did not; no other loss; path unchanged; no other destination rose."),
+    # No data on the median, without and with loss.
+    (_layer_result("nodata"),
+     "ICMP's median: no data; TCP, HTTP, DNS, first hop and Wi-Fi did not; no loss; "
+     "path unchanged; no other destination rose."),
+    (_layer_result("nodata", loss_rise=5, lost=True),
+     "ICMP's median: no data, though its loss rose (+5 points); TCP, HTTP, DNS, first hop "
+     "and Wi-Fi did not; no other loss; path unchanged; no other destination rose."),
+]
+
+
+@pytest.mark.parametrize("icmp, sentence", CONGESTION_CASES)
+def test_a_congestion_sentence_opens_with_what_icmps_median_did(icmp, sentence):
+    assert triage.text(_result(triage.CONGESTION, icmp)) == sentence
+
+
+DEGRADATION_CASES = [
+    # ICMP's loss rose, without and with a median rise.
+    (_layer_result("lost", rise=0.2, loss_rise=4, rose=False, lost=True),
+     "ICMP to X lost (mean +4 points); TCP, HTTP, DNS, first hop and Wi-Fi did not; "
+     "no latency rise; path unchanged; only X lost."),
+    (_layer_result("lost", rise=12, loss_rise=4, rose=True, lost=True),
+     "ICMP to X lost (mean +4 points); TCP, HTTP, DNS, first hop and Wi-Fi did not; "
+     "ICMP also rose (median +12 ms); path unchanged; only X lost."),
+    # ICMP's loss did not rise, without and with a median rise: the same
+    # gap, mirrored.
+    (_layer_result("flat", rise=0.2, loss_rise=0.1, rose=False, lost=False),
+     "ICMP's loss did not rise; TCP, HTTP, DNS, first hop and Wi-Fi did not; "
+     "no latency rise; path unchanged; no other destination lost."),
+    (_layer_result("up", rise=12, loss_rise=0.1, rose=True, lost=False),
+     "ICMP's loss did not rise, though its median rose (+12 ms); TCP, HTTP, DNS, first hop "
+     "and Wi-Fi did not; no other latency rise; path unchanged; no other destination lost."),
+    # No data on the loss, without and with a median rise.
+    (_layer_result("nodata"),
+     "ICMP's loss: no data; TCP, HTTP, DNS, first hop and Wi-Fi did not; no latency rise; "
+     "path unchanged; no other destination lost."),
+    (_layer_result("nodata", rise=12, rose=True),
+     "ICMP's loss: no data, though its median rose (+12 ms); TCP, HTTP, DNS, first hop "
+     "and Wi-Fi did not; no other latency rise; path unchanged; no other destination lost."),
+]
+
+
+@pytest.mark.parametrize("icmp, sentence", DEGRADATION_CASES)
+def test_a_degradation_sentence_opens_with_what_icmps_loss_did(icmp, sentence):
+    assert triage.text(_result(triage.DEGRADATION, icmp)) == sentence
+
+
+def test_a_layer_that_moved_only_on_the_other_question_still_did_not():
+    # Congestion: TCP lost but its median did not rise, so it is in "did
+    # not" (the period's question) and in "also lost".
+    icmp = _layer_result("lost", rise=0.2, loss_rise=5, rose=False, lost=True)
+    tcp = _layer_result("lost", rise=0.1, loss_rise=3, rose=False, lost=True)
+    assert triage.text(_result(triage.CONGESTION, icmp, tcp=tcp)) == (
+        "ICMP's median did not rise, though its loss rose (+5 points); TCP, HTTP, DNS, "
+        "first hop and Wi-Fi did not; TCP also lost (+3 points); path unchanged; "
+        "no other destination rose.")
+    # Degradation, mirrored: HTTP's median rose but it did not fail more.
+    icmp = _layer_result("lost", rise=0.2, loss_rise=4, rose=False, lost=True)
+    http = _layer_result("up", rise=30, loss_rise=0.0, rose=True, lost=False)
+    assert triage.text(_result(triage.DEGRADATION, icmp, http=http)) == (
+        "ICMP to X lost (mean +4 points); TCP, HTTP, DNS, first hop and Wi-Fi did not; "
+        "HTTP also rose (median +30 ms); path unchanged; only X lost.")
+
+
+def test_a_rise_elsewhere_says_too_only_after_the_destination_rose():
+    hop = _layer_result("up", rise=8, loss_rise=0.0, rose=True, lost=False)
+    flat_icmp = _layer_result("flat", rise=0.2, loss_rise=0.0, rose=False, lost=False)
+    up_icmp = _layer_result("up", rise=10, loss_rise=0.0, rose=True, lost=False)
+    assert triage.text(_result(triage.CONGESTION, flat_icmp, hop=hop)).startswith(
+        "ICMP's median did not rise; first hop rose (+8 ms); TCP, HTTP, DNS and Wi-Fi did not;")
+    assert triage.text(_result(triage.CONGESTION, up_icmp, hop=hop)).startswith(
+        "ICMP to X rose (median +10 ms); first hop rose too (+8 ms);")
+
+
+def test_no_baseline_says_why_once_for_either_kind():
+    for kind, verb in ((triage.CONGESTION, "rose"), (triage.DEGRADATION, "lost")):
+        result = _result(kind, _layer_result("nodata"))
+        result["base_bins"] = 2
+        assert triage.text(result) == (
+            "no baseline: the 24 h before were inside other periods of X; path unchanged; "
+            f"no other destination {verb}.")
 
 
 def test_many_other_destinations_are_counted_past_five():

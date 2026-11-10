@@ -398,12 +398,15 @@ def _clock(epoch: int) -> str:
 
 
 def text(result: dict) -> str:
-    """One sentence a reader can take at a glance: what moved with the
-    period, what did not, what had no data, the path and the breadth.
-    It names what moved, never a cause."""
+    """One sentence a reader can take at a glance: what ICMP did, what else
+    moved with the period, what did not, what had no data, the path and the
+    breadth. It names what moved, never a cause."""
     kind, target = result["kind"], result["target"]
     primary, verb, unit = ((LOST, "lost", " points") if kind == DEGRADATION
                            else (UP, "rose", " ms"))
+    # The state of a layer that answered the period's question "no" and the
+    # other question "yes": it did not move as asked, but it did move.
+    other_state = LOST if kind == CONGESTION else UP
     key = "loss_rise" if kind == DEGRADATION else "rise"
     parts = []
     if result.get("base_bins", MIN_BASE_BINS) < MIN_BASE_BINS:
@@ -411,6 +414,12 @@ def text(result: dict) -> str:
         parts.append(f"no baseline: the 24 h before were inside other periods of {target}")
         return "; ".join(parts + _context(result, target, verb)) + "."
 
+    # The sentence always opens with ICMP, the period's own signal: either
+    # in the clause of what moved, or in a clause of its own.
+    icmp_other = False
+    if result["icmp"]["state"] != primary:
+        clause, icmp_other = _icmp_unmoved(kind, result["icmp"])
+        parts.append(clause)
     dest = [n for n in ("icmp", "tcp", "http") if result[n]["state"] == primary]
     if dest:
         names = _join([LAYER_NAMES[n] for n in dest])
@@ -419,8 +428,9 @@ def text(result: dict) -> str:
         together = " together" if len(dest) > 1 else ""
         parts.append(f"{names} to {target} {verb}{together} ({stat} {nums}{unit})")
     general = [n for n in ("dns", "hop") if result[n]["state"] == primary]
+    too = " too" if dest else ""
     for n in general:
-        parts.append(f"{LAYER_NAMES[n]} {verb} too ({_num(result[n][key])}{unit})")
+        parts.append(f"{LAYER_NAMES[n]} {verb}{too} ({_num(result[n][key])}{unit})")
     wifi = result["wifi"]
     if wifi["state"] == LOST:
         n = wifi["deaf_bins"]
@@ -431,16 +441,15 @@ def text(result: dict) -> str:
         else:
             parts.append(f"Wi-Fi tx rate fell to {100 * wifi['rate_ratio']:.0f} %")
 
-    flat = [n for n in ("icmp", "tcp", "http", "dns", "hop") if result[n]["state"] == FLAT]
-    # Jitterbug found the period on the floor; the triage reads medians, so
-    # an ICMP that did not rise says which.
-    flat_names = [("ICMP's median" if n == "icmp" and kind == CONGESTION else LAYER_NAMES[n])
-                  for n in flat]
+    # "Did not" is about the period's question, so a layer that moved only
+    # on the other one (it lost in a congestion period) is in it too.
+    flat = [LAYER_NAMES[n] for n in ("tcp", "http", "dns", "hop")
+            if result[n]["state"] in (FLAT, other_state)]
     if wifi["state"] == FLAT:
-        flat_names.append("Wi-Fi")
-    if flat_names:
-        parts.append(f"{_join(flat_names)} did not")
-    nodata = [LAYER_NAMES[n] for n in ("icmp", "tcp", "http", "dns", "hop")
+        flat.append("Wi-Fi")
+    if flat:
+        parts.append(f"{_join(flat)} did not")
+    nodata = [LAYER_NAMES[n] for n in ("tcp", "http", "dns", "hop")
               if result[n]["state"] == NODATA]
     if wifi["state"] == NODATA:
         nodata.append("Wi-Fi")
@@ -448,29 +457,46 @@ def text(result: dict) -> str:
         parts.append(f"{_join(nodata)}: no data")
 
     # The other question: loss during a congestion period, a rise during a
-    # degradation one.
-    other_state = LOST if kind == CONGESTION else UP
-    other_key = "loss_rise" if kind == CONGESTION else "rise"
+    # degradation one. ICMP's answer is in its own clause when it did not
+    # move as asked.
+    other_flag, other_key = ("lost", "loss_rise") if kind == CONGESTION else ("rose", "rise")
     also = [n for n in ("icmp", "tcp", "http", "dns", "hop")
-            if result[n]["state"] == other_state]
+            if (result[n]["state"] == other_state and n != "icmp")
+            or (result[n]["state"] == primary and result[n].get(other_flag))]
+    other = " other" if icmp_other else ""
     if kind == CONGESTION:
-        also += [n for n in ("icmp", "tcp", "http", "dns", "hop")
-                 if result[n]["state"] == UP and result[n].get("lost")]
         if also:
             parts.append(f"{_join([LAYER_NAMES[n] for n in also])} also lost ("
-                         + _join([_num(result[n]['loss_rise']) for n in also]) + " points)")
+                         + _join([_num(result[n][other_key]) for n in also]) + " points)")
         else:
-            parts.append("no loss")
+            parts.append(f"no{other} loss")
     else:
-        also += [n for n in ("icmp", "tcp", "http", "dns", "hop")
-                 if result[n]["state"] == LOST and result[n].get("rose")]
         if also:
             parts.append(f"{_join([LAYER_NAMES[n] for n in also])} also rose (median "
                          + _join([_num(result[n][other_key]) for n in also]) + " ms)")
         else:
-            parts.append("no latency rise")
+            parts.append(f"no{other} latency rise")
 
     return "; ".join(parts + _context(result, target, verb)) + "."
+
+
+def _icmp_unmoved(kind: str, icmp: dict) -> tuple[str, bool]:
+    """ICMP's clause when it did not move on the period's question, and
+    whether it already said ICMP moved on the other one. For congestion the
+    question is the median: Jitterbug found the period on the RTT floor, the
+    triage reads medians, so a flat median is a reading, not a contradiction.
+    For a degradation it is the loss."""
+    if kind == DEGRADATION:
+        asked, moved, said = "loss", icmp.get("rose"), "its median rose ({} ms)"
+        amount = icmp.get("rise")
+    else:
+        asked, moved, said = "median", icmp.get("lost"), "its loss rose ({} points)"
+        amount = icmp.get("loss_rise")
+    clause = (f"ICMP's {asked}: no data" if icmp["state"] == NODATA
+              else f"ICMP's {asked} did not rise")
+    if moved and amount is not None:
+        return f"{clause}, though {said.format(_num(amount))}", True
+    return clause, False
 
 
 def _context(result: dict, target: str, verb: str) -> list[str]:
