@@ -161,6 +161,13 @@ class MulticastSocket:
         s.setblocking(False)
         self.sock = s
         self.joined: dict[str, str] = {}
+        # The interface index each membership was made on: a driver reload
+        # gives wlan0 a new one, and the old membership dies with the old
+        # device while the name and the address look unchanged.
+        self.indexes: dict[str, int] = {}
+
+    def close(self) -> None:
+        self.sock.close()
 
     def fileno(self) -> int:
         return self.sock.fileno()
@@ -168,13 +175,16 @@ class MulticastSocket:
     def sync(self, interfaces: dict[str, dict]) -> None:
         """Join the group on new interfaces, leave it on gone ones."""
         for name, addr in list(self.joined.items()):
-            if interfaces.get(name, {}).get("ipv4") != addr:
+            now = interfaces.get(name, {})
+            if now.get("ipv4") != addr or now.get("index") != self.indexes.get(name):
                 self._membership(socket.IP_DROP_MEMBERSHIP, addr)
                 del self.joined[name]
+                self.indexes.pop(name, None)
         for name, info in interfaces.items():
             if name not in self.joined:
                 if self._membership(socket.IP_ADD_MEMBERSHIP, info["ipv4"]):
                     self.joined[name] = info["ipv4"]
+                    self.indexes[name] = info["index"]
                     log.info("listening on %s (%s)", name, info["ipv4"])
 
     def _membership(self, option: int, addr: str) -> bool:

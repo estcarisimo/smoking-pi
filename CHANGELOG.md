@@ -11,6 +11,24 @@ version gets a matching GitHub release and git tag.
 
 ### Fixed
 
+- **mdns: a responder that stopped hearing the LAN now says so and
+  recovers.** After the Wi-Fi driver reloaded on 2026-11-15, the production
+  `mdns` container kept running and "healthy" for nine days while nobody
+  could resolve `smoking-pi.local` (the host's own `smokingpi.local`, which
+  is Avahi's, kept working). The healthcheck only read a status file the
+  loop writes whether or not it hears anything, and the multicast membership
+  was kept as long as the interface's name and address looked the same, which
+  a driver reload that gives the device a new index leaves true (the likely
+  cause; the Pi had no packet capture to prove it). The fix was a manual
+  container restart. Cost: the name the docs, `smoking-pi url` and
+  the links point to was dead on every device that uses it, silently.
+
+  The responder now multicasts a query for a name nobody holds once a
+  minute and expects it back; three misses make the status `deaf` and the
+  container unhealthy, the socket is rebuilt, and six exit so Docker
+  restarts it. Memberships are also remade when an interface's index
+  changes. A radio that drops multicast in firmware is not detected by this.
+
 - **Inference: the operator tags no longer go through the Pi's filtering
   resolver.** The shared detector tags each voter with who runs the network
   it reaches, from the address its host resolves to, and it asked the

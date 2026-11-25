@@ -96,3 +96,27 @@ def test_invalid_name_reason_is_the_literal_rule(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "idle", lambda path, body: seen.update(body) or 0)
     assert main.run({"MDNS_NAME": "bad_name", "MDNS_STATE_DIR": str(tmp_path)}) == 0
     assert seen == {"state": "invalid", "reason": main.NAME_RULE, "setting": "bad_name"}
+
+
+def test_a_deaf_responder_is_not_healthy(tmp_path, monkeypatch):
+    monkeypatch.setenv("MDNS_STATE_DIR", str(tmp_path))
+    main.write_status(str(tmp_path / "status.json"),
+                      {"state": "deaf", "reason": "the responder no longer hears multicast"})
+    assert status.main(["--check"]) == 1
+
+
+def test_membership_is_remade_when_the_interface_index_changes():
+    class Fake(net.MulticastSocket):
+        def __init__(self):
+            self.joined, self.indexes, self.calls = {}, {}, []
+
+        def _membership(self, option, addr):
+            self.calls.append((option, addr))
+            return True
+
+    s = Fake()
+    s.sync({"wlan0": {"index": 3, "ipv4": "192.168.1.10"}})
+    s.sync({"wlan0": {"index": 3, "ipv4": "192.168.1.10"}})
+    assert len(s.calls) == 1                       # unchanged: left alone
+    s.sync({"wlan0": {"index": 9, "ipv4": "192.168.1.10"}})   # driver reload
+    assert len(s.calls) == 3 and s.indexes["wlan0"] == 9
