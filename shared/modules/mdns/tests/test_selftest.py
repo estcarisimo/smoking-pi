@@ -30,9 +30,31 @@ def test_heard_query_resets_misses_and_waits_for_the_next_interval():
     assert not t.due(selftest.INTERVAL - 1) and t.due(selftest.INTERVAL + 1)
 
 
-def test_unheard_queries_turn_deaf_then_rebuild_once_then_give_up():
+def test_a_host_where_the_test_never_works_is_never_deaf():
     t = selftest.SelfTest()
     now = 0.0
+    for _ in range(selftest.EXIT_AFTER + 2):
+        run_round(t, now, loops_back=False)
+        now += selftest.INTERVAL + selftest.WAIT
+    assert not t.deaf and not t.give_up and not t.should_rebuild()
+
+
+def test_reset_forgets_a_verdict_when_the_name_is_not_announced():
+    t = selftest.SelfTest()
+    run_round(t, 0.0, loops_back=True)
+    now = selftest.INTERVAL + 1
+    for _ in range(selftest.DEAF_AFTER):
+        run_round(t, now, loops_back=False)
+        now += selftest.INTERVAL + selftest.WAIT
+    assert t.deaf
+    t.reset()
+    assert not t.deaf and t.misses == 0
+
+
+def test_unheard_queries_turn_deaf_then_rebuild_once_then_give_up():
+    t = selftest.SelfTest()
+    run_round(t, 0.0, loops_back=True)   # it worked once, so silence means deaf
+    now = selftest.INTERVAL + 1
     seen = []
     for _ in range(selftest.EXIT_AFTER):
         run_round(t, now, loops_back=False)

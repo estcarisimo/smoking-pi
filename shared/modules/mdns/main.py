@@ -134,6 +134,7 @@ def run(env: dict) -> int:
     next_status = now
     last_state, last_name = r.state, r.name
     probe = selftest.SelfTest()
+    exit_code = 0
 
     def send(out: list[responder.Outgoing], arrived: int | None = None) -> None:
         for o in out:
@@ -170,7 +171,9 @@ def run(env: dict) -> int:
             own = net.own_addresses()
             send(r.set_addresses(net.addresses(interfaces), now))
             next_refresh = now + REFRESH_SECONDS
-        if r.state == "announced" and by_index and probe.due(now):
+        if r.state != "announced":
+            probe.reset()
+        elif by_index and probe.due(now):
             data = probe.query(now)
             for addr in by_index.values():
                 sock.send_multicast(data, addr)
@@ -184,7 +187,8 @@ def run(env: dict) -> int:
         if probe.give_up:
             log.error("own multicast query not heard %d times; exiting so Docker "
                       "restarts the responder", probe.misses)
-            return 1
+            exit_code = 1
+            break
         if now >= next_status:
             body = dict(r.status(), interfaces=sorted(interfaces), **probe.status())
             if probe.deaf:
@@ -213,7 +217,7 @@ def run(env: dict) -> int:
 
     send(r.goodbye())
     log.info("withdrew %s", r.name)
-    return 0
+    return exit_code
 
 
 def main() -> int:
