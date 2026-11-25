@@ -28,7 +28,14 @@ The `mdns` service avoids both halves of that:
 - packets from the Pi's own addresses are never a conflict, and neither
   are records identical to its own;
 - the name it holds is written to its status, so `smoking-pi url` prints
-  the name that answers instead of guessing `$(hostname).local`.
+  the name that answers instead of guessing `$(hostname).local`;
+- it tests that it still hears the LAN: once a minute it multicasts a query
+  for a name nobody holds and expects to receive it back. Three misses turn
+  the status to `deaf` (and the container `unhealthy`), the socket is
+  rebuilt, and after six the process exits so Docker restarts it. It also
+  rejoins the multicast group when an interface comes back with a new index
+  (a Wi-Fi driver reload). It cannot see a radio that drops multicast before
+  the kernel does.
 
 ## When `<hostname>.local` stops resolving
 
@@ -140,8 +147,9 @@ On a Mac, `dns-sd -G v4 smoking-pi.local`. Windows 10 and later resolve
 - **The client has no mDNS resolver.** Most desktops do. A minimal Linux
   without `nss-mdns` (or systemd-resolved with MulticastDNS on) does not;
   `dig @224.0.0.251 -p 5353` above still works there.
-- **The container is not running or still probing**: `smoking-pi status`,
-  then `smoking-pi logs mdns`. Probing takes under two seconds.
+- **The container is not running, still probing, or `deaf`**:
+  `smoking-pi status`, then `smoking-pi logs mdns`; `deaf` clears by
+  itself within about six minutes, or restart the service. Probing takes under two seconds.
 - **The name is `smoking-pi-2.local`**: another host holds the plain name;
   see [Two Smoking Pis on one network](#two-smoking-pis-on-one-network).
 - **The client is on another network** (a VPN, a Docker bridge, a

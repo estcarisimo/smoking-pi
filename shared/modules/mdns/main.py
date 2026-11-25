@@ -25,6 +25,7 @@ import time
 
 import net
 import responder
+import selftest
 import wire
 
 log = logging.getLogger("mdns")
@@ -132,6 +133,7 @@ def run(env: dict) -> int:
     next_refresh = now + REFRESH_SECONDS
     next_status = now
     last_state, last_name = r.state, r.name
+    probe = selftest.SelfTest()
 
     def send(out: list[responder.Outgoing], arrived: int | None = None) -> None:
         for o in out:
@@ -168,8 +170,26 @@ def run(env: dict) -> int:
             own = net.own_addresses()
             send(r.set_addresses(net.addresses(interfaces), now))
             next_refresh = now + REFRESH_SECONDS
+        if r.state == "announced" and by_index and probe.due(now):
+            data = probe.query(now)
+            for addr in by_index.values():
+                sock.send_multicast(data, addr)
+        probe.settle(now)
+        if probe.should_rebuild():
+            log.warning("own multicast query not heard %d times; joining the group again",
+                        probe.misses)
+            sock.close()
+            sock = net.MulticastSocket()
+            sock.sync(interfaces)
+        if probe.give_up:
+            log.error("own multicast query not heard %d times; exiting so Docker "
+                      "restarts the responder", probe.misses)
+            return 1
         if now >= next_status:
-            write_status(path, dict(r.status(), interfaces=sorted(interfaces)))
+            body = dict(r.status(), interfaces=sorted(interfaces), **probe.status())
+            if probe.deaf:
+                body.update(state="deaf", reason="the responder no longer hears multicast")
+            write_status(path, body)
             next_status = now + STATUS_SECONDS
         due = r.next_due()
         timeout = 1.0 if due is None else max(0.0, min(1.0, due - now))
@@ -186,6 +206,8 @@ def run(env: dict) -> int:
             try:
                 msg = wire.parse(data)
             except wire.WireError:
+                continue
+            if source[0] in own and probe.observe(msg):
                 continue
             send(r.handle(msg, source, own, time.monotonic()), arrived=index)
 
