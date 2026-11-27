@@ -5057,12 +5057,27 @@ assert d["fleet_id"] == "0b1e2f3a-0000-4000-8000-000000000001", d
     [[ "$output" == *"agent:      not_enrolled"* ]]
 }
 
+@test "fleet status: a corrupt or mismatched enrollment is not 'no'" {
+    printf 'COMPOSE_PROFILES=influxdb,fleet\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\n' > "$SMOKING_PI_ENV_FILE"
+    export STUB_FLEET_AGENT='{"state": "identity_mismatch", "enrolled": false}'
+    run "$CLI" fleet status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"enrolled:   not as this node"* ]]
+    export STUB_FLEET_AGENT='{"state": "state_corrupt", "enrolled": false}'
+    run bash -c "'$CLI' fleet status --json 2>/dev/null"
+    echo "$output" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["enrolled"] is None and d["agent"] == "state_corrupt", d'
+}
+
 @test "fleet status never replaces a node id that is there, even a malformed one" {
     printf 'COMPOSE_PROFILES=influxdb\nFLEET_NODE_ID=not-a-uuid\n' > "$SMOKING_PI_ENV_FILE"
     run "$CLI" fleet status
     [ "$status" -eq 1 ]
     [[ "$output" == *"is not a node id"* ]]
     grep -qx 'FLEET_NODE_ID=not-a-uuid' "$SMOKING_PI_ENV_FILE"
+    # Matched whole: a valid id with something after it is not one.
+    printf 'COMPOSE_PROFILES=influxdb\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4bX\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" fleet status
+    [ "$status" -eq 1 ]
 }
 
 @test "fleet: Pro only, status is the one subcommand, help reads nothing" {

@@ -35,8 +35,20 @@ def run(report: dict, line: str, problems: tuple[str, ...] = (),
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGTERM, _stop)
         signal.signal(signal.SIGINT, _stop)
+    failing = False
     while True:
-        status.write(dict(report, at=time.time()))
+        # A volume that refuses the write (full, wrong owner) must not kill
+        # the service: the healthcheck reports it, the log says it once.
+        try:
+            status.write(dict(report, at=time.time()))
+            if failing:
+                log.info("status file writable again")
+            failing = False
+        except OSError as err:
+            if not failing:
+                log.warning("cannot write the status file (%s); the healthcheck will fail",
+                            type(err).__name__)
+            failing = True
         if stop.wait(tick):
             break
     log.info("stopped")

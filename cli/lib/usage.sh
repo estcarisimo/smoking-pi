@@ -29,8 +29,8 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      keeps what you chose. dns hands over to 'dns enable'.
   fleet status [--json]
                      This installation's place in a Fleet (Pro, docs/fleet.md):
-                     its node id (created the first time, then kept in the env
-                     file, so backup and restore carry it), node and site
+                     its node id (the first run creates it and writes it to
+                     the env file, so backup and restore carry it), node and site
                      names, role (node, lead, both or none), the lead URLs,
                      and whether the fleet agent is enrolled. Joining a fleet
                      is not built yet.

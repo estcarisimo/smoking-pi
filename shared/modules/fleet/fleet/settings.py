@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 from .protocol import valid_https_url, valid_name
@@ -18,12 +19,12 @@ LEAD_MODES = ("dedicated", "node")
 DEFAULT_LEAD_MODE = "node"
 DEFAULT_SITE_NAME = "default"
 
-_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", re.ASCII)
 
 
 def valid_node_id(value: str) -> bool:
     """A random (version 4) UUID, lowercase: what `smoking-pi` generates."""
-    return bool(_UUID.match(value))
+    return bool(_UUID.fullmatch(value))
 
 
 def default_node_name(node_id: str) -> str:
@@ -57,14 +58,20 @@ def load(env: dict[str, str] | None = None) -> Settings:
         problems.append("FLEET_NODE_ID is not a version 4 UUID")
         node_id = ""
 
-    node_name = (env.get("FLEET_NODE_NAME") or "").strip() or default_node_name(node_id)
+    # Names are taken in NFC (protocol.valid_name): an editor that wrote "é"
+    # decomposed is not a different, invalid name.
+    node_name = (unicodedata.normalize("NFC", env.get("FLEET_NODE_NAME") or "").strip()
+                 or default_node_name(node_id))
     if not valid_name(node_name):
-        problems.append("FLEET_NODE_NAME: 1 to 64 letters, digits, spaces and . _ - ' ( )")
+        problems.append("FLEET_NODE_NAME: 1 to 64 letters, digits (any script), spaces "
+                        "and . _ - ' ( )")
         node_name = default_node_name(node_id)
 
-    site_name = (env.get("FLEET_SITE_NAME") or "").strip() or DEFAULT_SITE_NAME
+    site_name = (unicodedata.normalize("NFC", env.get("FLEET_SITE_NAME") or "").strip()
+                 or DEFAULT_SITE_NAME)
     if not valid_name(site_name):
-        problems.append("FLEET_SITE_NAME: 1 to 64 letters, digits, spaces and . _ - ' ( )")
+        problems.append("FLEET_SITE_NAME: 1 to 64 letters, digits (any script), spaces "
+                        "and . _ - ' ( )")
         site_name = DEFAULT_SITE_NAME
 
     urls: list[str] = []

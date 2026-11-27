@@ -7,22 +7,26 @@ and the HTTPS endpoints come in a later release (docs/fleet.md).
 
 from __future__ import annotations
 
-import json
 import sys
 
-from . import runner, settings, status
+from . import runner, settings, statefile, status
 from .layout import lead_paths
+from .protocol import valid_uuid
 
 
 def describe(cfg: settings.Settings, paths=None) -> tuple[dict, str]:
     paths = paths or lead_paths()
-    fleet: dict = {}
-    if paths.fleet.is_file():
-        try:
-            fleet = json.loads(paths.fleet.read_text())
-        except (OSError, ValueError):
-            fleet = {}
-    if fleet:
+    read = statefile.read_object(paths.fleet)
+    fleet: dict = read if isinstance(read, dict) else {}
+    problems = list(cfg.problems)
+    if read == statefile.CORRUPT or (
+            read != statefile.ABSENT and not valid_uuid(str(fleet.get("fleet_id", "")))):
+        state = "state_corrupt"
+        fleet = {}
+        problems.append("fleet.json is unreadable, not a JSON object, or has no valid fleet_id")
+        line = ("fleet lead: the fleet file is corrupt; nothing is served, and no fleet "
+                "will be created over it. Idle.")
+    elif read != statefile.ABSENT:
         state = "initialized"
         line = (f"fleet lead: fleet {fleet.get('fleet_id', '?')} is initialized here "
                 f"(mode {cfg.lead_mode}); this release does not serve nodes yet. Idle.")
@@ -33,7 +37,7 @@ def describe(cfg: settings.Settings, paths=None) -> tuple[dict, str]:
     report = status.snapshot(
         role="lead", state=state, lead_mode=cfg.lead_mode, node_id=cfg.node_id or None,
         node_name=cfg.node_name, fleet_id=fleet.get("fleet_id"),
-        lead_urls=list(cfg.lead_urls), problems=list(cfg.problems))
+        lead_urls=list(cfg.lead_urls), problems=problems)
     return report, line
 
 

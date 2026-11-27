@@ -55,7 +55,18 @@ Compatibility rules (docs/fleet.md, "Protocol"):
   lead decides (an older agent never guesses at a newer instruction). A
   directive of a known type whose arguments fail validation is reported
   ``invalid``; the other directives of the same response still apply.
+* **A directive without a usable id** cannot be reported back: it is
+  dropped (``HeartbeatResponse.malformed``, for the agent to log), and the
+  rest of the response applies, ``revoked`` first. The lead never sends one.
 * **Unknown error codes** are handled as ``internal`` (back off and retry).
+* **Optional fields** may be omitted or ``null``; both mean absent. A
+  required field is never ``null``.
+* **Size**: a body above :data:`MAX_BODY_BYTES` is refused unread
+  (``too_large``), by both sides.
+* **Certificates**: every field that carries the sender's or the node's own
+  certificate is a chain, leaf first (``cert_chain``). The exceptions are
+  trust anchors, single self-standing certificates: ``RootResponse.root_pem``
+  (the fleet root the node pins) and ``StoreDescriptor.ca_pem``.
 
 Secrets (the join token, the store's write token) are :class:`Secret`
 values: their ``repr`` and ``str`` are redacted, :func:`redacted` replaces
@@ -74,6 +85,7 @@ import json
 import re
 import secrets
 import typing
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -85,8 +97,11 @@ from urllib.parse import urlsplit
 PROTOCOL_MIN = 1
 PROTOCOL_MAX = 1
 
-#: Open vocabulary values: lowercase, a letter first, at most 32 characters.
-TOKEN_PATTERN = r"^[a-z][a-z0-9_-]{0,31}$"
+#: Open vocabulary values: lowercase ASCII, a letter first, at most 32
+#: characters. Every pattern here is matched whole (re.fullmatch), in ASCII
+#: mode: `$` alone would accept a trailing newline, and `\d` other scripts'
+#: digits.
+TOKEN_PATTERN = r"[a-z][a-z0-9_-]{0,31}"
 
 #: Heartbeat pacing, in seconds. The lead chooses ``next_heartbeat`` within
 #: [HEARTBEAT_MIN, HEARTBEAT_MAX]; an agent that cannot reach any lead backs
@@ -102,26 +117,32 @@ BACKOFF_MAX = 1800
 #: How long it remembers the replaced one:
 INSTANCE_MEMORY_SECONDS = 7 * 24 * 3600
 
+#: The largest request or response body either side reads, in bytes.
+MAX_BODY_BYTES = 256 * 1024
+
 #: Client certificates last this long; the agent renews from 2/3 of it on.
 CERT_LIFETIME_DAYS = 90
 
 #: The join string's prefix, which is also its format version.
 JOIN_PREFIX = "spfleet1_"
 
-_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-_TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-_HEX16 = r"^[0-9a-f]{16}$"
-_SHA256 = r"^[0-9a-f]{64}$"
-_ID = r"^[A-Za-z0-9_-]{1,64}$"
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", re.ASCII)
+_HEX16 = r"[0-9a-f]{16}"
+_SHA256 = r"[0-9a-f]{64}"
+_ID = r"[A-Za-z0-9_-]{1,64}"
 # A human name: letters, digits, space and . _ - ' ( ), 1 to 64 characters.
-_NAME = re.compile(r"^[\w .'()-]{1,64}$")
-_JOIN_TOKEN = r"^[A-Za-z0-9_-]{32,128}$"
-_WRITE_TOKEN = r"^[A-Za-z0-9_=+/-]{16,256}$"
+# A human name: letters and digits of any script (a site may well be
+# "Zürich" or "Cocina de Mamá"), space and . _ - ' ( ), 1 to 64 characters,
+# in NFC form. Not ASCII on purpose; every other pattern here is.
+_NAME = re.compile(r"[\w .'()-]{1,64}")
+_JOIN_TOKEN = r"[A-Za-z0-9_-]{32,128}"
+_WRITE_TOKEN = r"[A-Za-z0-9_=+/-]{16,256}"
 _PEM_CERT = re.compile(
-    r"^-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]+-----END CERTIFICATE-----\n?$")
+    r"-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]+-----END CERTIFICATE-----\n?", re.ASCII)
 _PEM_CSR = re.compile(
-    r"^-----BEGIN CERTIFICATE REQUEST-----\n[A-Za-z0-9+/=\n]+"
-    r"-----END CERTIFICATE REQUEST-----\n?$")
+    r"-----BEGIN CERTIFICATE REQUEST-----\n[A-Za-z0-9+/=\n]+"
+    r"-----END CERTIFICATE REQUEST-----\n?", re.ASCII)
 _PEM_MAX = 8192
 
 
@@ -143,6 +164,11 @@ class Secret:
 
     ``reveal()`` is the one way to read it; :func:`encode` calls it to put the
     value on the wire. Comparison is constant-time.
+
+    It refuses to be pickled, which also makes ``copy.deepcopy`` and
+    ``dataclasses.asdict`` fail on any message holding one: use
+    :func:`encode` (wire) or :func:`redacted` (logs) instead, and
+    ``dataclasses.replace`` to derive a message.
     """
 
     __slots__ = ("_value",)
@@ -185,7 +211,6 @@ class Spec:
     kind: str
     doc: str
     required: bool = True
-    nullable: bool = False
     of: Any = None            # "object": the dataclass; "list": the item Spec
     min: int | None = None    # "int": bounds; "list"/"chain": item counts
     max: int | None = None
@@ -206,7 +231,9 @@ def spec(kind: str, doc: str, **kw: Any) -> Any:
 
 
 def _specs(cls: type) -> list[tuple[str, Spec]]:
-    return [(f.name, f.metadata["spec"]) for f in dataclasses.fields(cls)]
+    """The wire fields. A field without a Spec is local (never sent)."""
+    return [(f.name, f.metadata["spec"]) for f in dataclasses.fields(cls)
+            if "spec" in f.metadata]
 
 
 def now_rfc3339() -> str:
@@ -218,8 +245,19 @@ def parse_time(value: str) -> datetime:
     return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 
 
+def valid_uuid(value: str) -> bool:
+    """A lowercase UUID, as the protocol writes ids."""
+    return isinstance(value, str) and _UUID.fullmatch(value) is not None
+
+
+def _full(pattern: str, value: str) -> bool:
+    return re.fullmatch(pattern, value, re.ASCII) is not None
+
+
 def valid_name(value: str) -> bool:
-    return bool(_NAME.match(value)) and value.strip() == value
+    """See _NAME: any script's letters and digits, NFC, no outer spaces."""
+    return (bool(_NAME.fullmatch(value)) and value.strip() == value
+            and unicodedata.normalize("NFC", value) == value)
 
 
 def valid_https_url(value: str) -> bool:
@@ -238,13 +276,22 @@ def valid_https_url(value: str) -> bool:
     if port is not None and not 0 < port < 65536:
         return False
     host = parts.hostname
-    if ":" in host:  # an IPv6 literal
+    if ":" in host or re.fullmatch(r"[0-9.]+", host, re.ASCII):
+        # An address literal. As common/links.py: no zone id, nothing a
+        # second machine cannot reach (link-local, unspecified, loopback is
+        # allowed for a lead on the same host).
+        if "%" in host:
+            return False
         try:
-            ipaddress.IPv6Address(host)
+            addr = ipaddress.ip_address(host)
         except ValueError:
             return False
-        return True
-    return re.match(r"^[A-Za-z0-9.-]{1,253}$", host) is not None
+        return not (addr.is_link_local or addr.is_unspecified or addr.is_multicast)
+    if len(host) > 253:
+        return False
+    labels = host.rstrip(".").split(".")
+    return all(re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label, re.ASCII)
+               for label in labels)
 
 
 def _check(s: Spec, value: Any, path: str, out: list[str]) -> Any:
@@ -282,16 +329,16 @@ def _check(s: Spec, value: Any, path: str, out: list[str]) -> Any:
         return None
     ok = True
     if k == "str":
-        ok = s.pattern is None or re.match(s.pattern, value) is not None
+        ok = s.pattern is None or _full(s.pattern, value)
     elif k == "secret":
-        ok = s.pattern is None or re.match(s.pattern, value) is not None
+        ok = s.pattern is None or _full(s.pattern, value)
         return Secret(value) if ok else out.append(f"{path}: malformed")
     elif k == "token":
-        ok = re.match(TOKEN_PATTERN, value) is not None
+        ok = _full(TOKEN_PATTERN, value)
     elif k == "uuid":
-        ok = _UUID.match(value) is not None
+        ok = _UUID.fullmatch(value) is not None
     elif k == "time":
-        ok = _TIME.match(value) is not None
+        ok = _TIME.fullmatch(value) is not None
         if ok:
             try:
                 parse_time(value)
@@ -302,11 +349,13 @@ def _check(s: Spec, value: Any, path: str, out: list[str]) -> Any:
     elif k == "https_url":
         ok = valid_https_url(value)
     elif k == "pem":
-        ok = len(value) <= _PEM_MAX and _PEM_CERT.match(value) is not None
+        ok = len(value) <= _PEM_MAX and _PEM_CERT.fullmatch(value) is not None
     elif k == "csr":
-        ok = len(value) <= _PEM_MAX and _PEM_CSR.match(value) is not None
+        ok = len(value) <= _PEM_MAX and _PEM_CSR.fullmatch(value) is not None
     elif k == "text":
-        ok = not any(ord(c) < 32 and c not in "\t" for c in value)
+        # No control (C0, DEL, C1: U+0085), format, line or paragraph
+        # separator (U+2028/9): one log line stays one line.
+        ok = not any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") for c in value)
     else:  # pragma: no cover - a spec typo, caught by the tests
         raise AssertionError(f"unknown kind {k}")
     if not ok:
@@ -324,7 +373,9 @@ def _decode_into(cls: type, data: dict, path: str, out: list[str]) -> Any:
             continue
         value = data[name]
         if value is None:
-            if not s.nullable:
+            # One rule for every optional field: omitted and null both mean
+            # absent. A required field is never null.
+            if s.required:
                 out.append(f"{where}: must not be null")
             kwargs[name] = None
             continue
@@ -355,6 +406,9 @@ def decode(cls: type, data: Any) -> Any:
 
 
 def decode_json(cls: type, text: str | bytes) -> Any:
+    size = len(text.encode() if isinstance(text, str) else text)
+    if size > MAX_BODY_BYTES:
+        raise ValidationError(["body: too large"])
     try:
         data = json.loads(text)
     except (ValueError, UnicodeDecodeError):
@@ -373,16 +427,19 @@ def _plain(value: Any, reveal: bool) -> Any:
 
 
 def _as_dict(obj: Any, reveal: bool) -> dict:
+    specs = _specs(type(obj))
+    if not specs:  # a local record (UnknownDirective, ...): no secret in it
+        return {f.name: _plain(getattr(obj, f.name), reveal)
+                for f in dataclasses.fields(obj)}
     out: dict[str, Any] = {}
-    for f in dataclasses.fields(obj):
-        value = getattr(obj, f.name)
-        s: Spec = f.metadata["spec"]
+    for name, s in specs:
+        value = getattr(obj, name)
         if value is None and not s.required:
             continue
-        out[f.name] = _plain(value, reveal)
+        out[name] = _plain(value, reveal)
     extra = getattr(obj, "_wire_extra", None)
     if extra is not None:
-        out.update(extra())
+        out.update(extra(reveal))
     return out
 
 
@@ -471,7 +528,7 @@ class JoinString:
         if not text.startswith(JOIN_PREFIX):
             raise ValidationError(["join string: unknown format (expected spfleet1_...)"])
         body = text[len(JOIN_PREFIX):]
-        if len(body) > 4096 or not re.match(r"^[A-Za-z0-9_-]+$", body):
+        if len(body) > 4096 or not _full(r"[A-Za-z0-9_-]+", body):
             raise ValidationError(["join string: malformed"])
         try:
             raw = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))
@@ -551,7 +608,7 @@ class Freshness:
     stale: int = spec("int", "Of those, how many produced nothing for two steps.",
                       min=0, max=100000)
     newest_age_seconds: int | None = spec(
-        "int", "Age of the newest measurement.", required=False, nullable=True,
+        "int", "Age of the newest measurement.", required=False,
         min=0, max=2**31)
 
 
@@ -576,11 +633,11 @@ class Inventory:
                                of=Spec("token", ""), max=64,
                                values=("influxdb", "clickhouse", "replication", "seed"))
     doctor: DoctorSummary | None = spec("object", "Last doctor run.", of=DoctorSummary,
-                                        required=False, nullable=True)
+                                        required=False)
     measuring: Freshness | None = spec("object", "Measurement freshness.", of=Freshness,
-                                       required=False, nullable=True)
+                                       required=False)
     uplink: Uplink | None = spec("object", "Uplink interface.", of=Uplink,
-                                 required=False, nullable=True)
+                                 required=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -595,11 +652,10 @@ class ReplicationState:
     latest_response_code: int = spec("int", "Last HTTP status from the store (0: network).",
                                      min=0, max=599)
     latest_error: str | None = spec(
-        "text", "Last error message InfluxDB recorded, truncated.", required=False,
-        nullable=True, max_len=512)
+        "text", "Last error message InfluxDB recorded, truncated.", required=False, max_len=512)
     queue_full_seen: bool = spec("bool", "A 'queue is full' log line since the last heartbeat.")
     queue_full_last_at: str | None = spec("time", "When the last one was seen.",
-                                          required=False, nullable=True)
+                                          required=False)
     max_queue_bytes: int = spec("int", "The queue's size limit.", min=0, max=2**53)
 
 
@@ -612,10 +668,10 @@ class SeedProgress:
                       values=("pending", "running", "done", "failed", "paused"))
     since: str = spec("time", "Oldest point to copy.")
     until: str = spec("time", "Newest point to copy (the replication's start).")
-    cursor: str | None = spec("time", "Copied up to here.", required=False, nullable=True)
+    cursor: str | None = spec("time", "Copied up to here.", required=False)
     bytes_sent: int = spec("int", "Bytes sent so far.", min=0, max=2**53)
     error_id: str | None = spec("str", "Set when state is failed: the node's log id.",
-                                required=False, nullable=True, pattern=_HEX16)
+                                required=False, pattern=_HEX16)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -624,8 +680,7 @@ class DirectiveResult:
 
     id: str = spec("str", "The directive's id.", pattern=_ID)
     status: str = spec("token", "Outcome.", values=("done", "failed", "ignored", "invalid"))
-    error_id: str | None = spec("str", "For failed: the node's log id.", required=False,
-                                nullable=True, pattern=_HEX16)
+    error_id: str | None = spec("str", "For failed: the node's log id.", required=False, pattern=_HEX16)
 
 
 # ---------------------------------------------------------------------------
@@ -707,25 +762,37 @@ class UnknownDirective:
 
 @dataclass(frozen=True)
 class InvalidDirective:
-    """A known type whose arguments failed validation: reported ``invalid``."""
+    """A directive with a usable id that cannot be applied: a known type
+    whose arguments failed validation, or a malformed type. Reported
+    ``invalid``; ``type`` is "" when the type itself was malformed."""
 
     id: str
     type: str
     reasons: tuple[str, ...]
 
 
-def decode_directive(data: Any) -> Any:
-    """One directive object -> its class, UnknownDirective or InvalidDirective.
+@dataclass(frozen=True)
+class MalformedDirective:
+    """A directive without a usable id: nothing can be reported back about
+    it. Dropped from ``directives``; listed in the response's ``malformed``
+    so the agent logs ``reasons`` (literal strings). The lead never sends
+    one: it is a lead bug."""
 
-    Raises ValidationError only when it has no usable ``id`` and ``type``
-    (nothing could be reported back about it)."""
+    index: int
+    reasons: tuple[str, ...]
+
+
+def decode_directive(data: Any, index: int = 0) -> Any:
+    """One directive object -> its class, UnknownDirective, InvalidDirective
+    or MalformedDirective. Never raises: one bad directive must not cost the
+    others (a ``revoked`` among them above all)."""
     if not isinstance(data, dict):
-        raise ValidationError(["directive: must be an object"])
+        return MalformedDirective(index, ("directive: must be an object",))
     did, dtype = data.get("id"), data.get("type")
-    if not (isinstance(did, str) and re.match(_ID, did)):
-        raise ValidationError(["directive.id: malformed"])
-    if not (isinstance(dtype, str) and re.match(TOKEN_PATTERN, dtype)):
-        raise ValidationError(["directive.type: malformed"])
+    if not (isinstance(did, str) and _full(_ID, did)):
+        return MalformedDirective(index, ("directive.id: malformed",))
+    if not (isinstance(dtype, str) and _full(TOKEN_PATTERN, dtype)):
+        return InvalidDirective(did, "", ("directive.type: malformed",))
     cls = DIRECTIVES.get(dtype)
     if cls is None:
         return UnknownDirective(did, dtype)
@@ -735,8 +802,8 @@ def decode_directive(data: Any) -> Any:
         return InvalidDirective(did, dtype, err.reasons)
 
 
-def _directive_wire(d: Any) -> dict:
-    out = encode(d)
+def _directive_wire(d: Any, reveal: bool) -> dict:
+    out = _as_dict(d, reveal)
     out["type"] = d.TYPE
     return out
 
@@ -803,7 +870,7 @@ class EnrollResponse:
                                    min=HEARTBEAT_MIN, max=HEARTBEAT_MAX)
     store: StoreDescriptor | None = spec(
         "object", "Where to replicate; null until the lead has a store.", of=StoreDescriptor,
-        required=False, nullable=True)
+        required=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -824,13 +891,13 @@ class HeartbeatRequest:
     sent_at: str = spec("time", "When the agent sent it.")
     lead_epoch: int = spec("int", "Epoch of the lead list the agent holds.", min=0, max=2**53)
     store_id: str | None = spec("uuid", "Store the agent replicates to, if any.",
-                                required=False, nullable=True)
+                                required=False)
     inventory: Inventory = spec("object", "What the node is.", of=Inventory)
     replication: ReplicationState | None = spec(
         "object", "Replication state; null when not replicating.", of=ReplicationState,
-        required=False, nullable=True)
+        required=False)
     seed: SeedProgress | None = spec("object", "History seed; null when none.",
-                                     of=SeedProgress, required=False, nullable=True)
+                                     of=SeedProgress, required=False)
     directive_results: tuple = spec("list", "Outcomes of the previous response's directives.",
                                     of=Spec("object", "", of=DirectiveResult),
                                     required=False, max=64)
@@ -845,27 +912,47 @@ class HeartbeatResponse:
     next_heartbeat: int = spec("int", "Seconds until the next heartbeat.",
                                min=HEARTBEAT_MIN, max=HEARTBEAT_MAX)
     directives: tuple = spec(
-        "list", "Instructions, applied in order (types below). Read-only toward the "
-        "node's configuration: none changes what or how the node measures.",
+        "list", "Instructions, applied in order (types below); `revoked` overrides the "
+        "rest. Read-only toward the node's configuration: none changes what or how the "
+        "node measures. One without a usable `id` is dropped and logged by the agent "
+        "(the lead never sends one); the others still apply.",
         of=Spec("object", "", of=dict), required=False, max=32)
+    # Local only (no Spec, never sent): directives from_wire() dropped.
+    malformed: tuple = field(default=())
 
     @classmethod
     def from_wire(cls, data: Any) -> "HeartbeatResponse":
-        """decode() for the envelope, decode_directive() for each directive."""
+        """decode() for the envelope, decode_directive() for each directive.
+
+        Raises ValidationError when the envelope is bad (no usable interval
+        or time, or ``directives`` not a list of at most 32); never for one
+        bad directive."""
         if not isinstance(data, dict):
             raise ValidationError(["body: must be a JSON object"])
         raw = data.get("directives", [])
+        if raw is None:
+            raw = []
         if not isinstance(raw, list) or len(raw) > 32:
             raise ValidationError(["directives: must be a list of at most 32"])
         envelope = decode(_HeartbeatEnvelope, {k: v for k, v in data.items()
                                                if k != "directives"})
+        decoded = [decode_directive(d, i) for i, d in enumerate(raw)]
         return cls(protocol=envelope.protocol, server_time=envelope.server_time,
                    next_heartbeat=envelope.next_heartbeat,
-                   directives=tuple(decode_directive(d) for d in raw))
+                   directives=tuple(d for d in decoded
+                                    if not isinstance(d, MalformedDirective)),
+                   malformed=tuple(d for d in decoded if isinstance(d, MalformedDirective)))
 
-    def _wire_extra(self) -> dict:
-        return {"directives": [_directive_wire(d) for d in self.directives
-                               if type(d) in DIRECTIVES.values()]}
+    def _wire_extra(self, reveal: bool) -> dict:
+        # Only directives this version can send; the local records of
+        # received ones (Unknown/Invalid) go out as their id and type.
+        out = []
+        for d in self.directives:
+            if type(d) in DIRECTIVES.values():
+                out.append(_directive_wire(d, reveal))
+            else:
+                out.append({"id": d.id, "type": d.type})
+        return {"directives": out}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -930,6 +1017,7 @@ ERROR_STATUS: dict[str, int] = {
     "node_exists": 409,
     "duplicate_node": 409,
     "not_current_lead": 421,
+    "too_large": 413,
     "rate_limited": 429,
     "internal": 500,
     "unavailable": 503,
@@ -945,6 +1033,7 @@ ERROR_MESSAGE: dict[str, str] = {
     "node_exists": "A node with this id is already enrolled.",
     "duplicate_node": "Two installations are using this node id.",
     "not_current_lead": "This lead is not the current one.",
+    "too_large": "The request body is too large.",
     "rate_limited": "Too many requests.",
     "internal": "The lead failed; see its log.",
     "unavailable": "The lead is not ready.",
@@ -964,6 +1053,7 @@ ERROR_ACTION: dict[str, str] = {
     "node_exists": "stop",
     "duplicate_node": "stop",
     "not_current_lead": "next_lead",
+    "too_large": "fix_request",
     "rate_limited": "backoff",
     "internal": "backoff",
     "unavailable": "backoff",
@@ -1066,9 +1156,11 @@ def reference_markdown() -> str:
     lines = [
         f"Protocol versions spoken by this release: {PROTOCOL_MIN} to {PROTOCOL_MAX}.",
         "Types: *time* is UTC `YYYY-MM-DDTHH:MM:SSZ`; *token* is an open "
-        f"vocabulary value matching `{TOKEN_PATTERN}`; *name* is 1 to 64 letters, "
-        "digits, spaces and `. _ - ' ( )`; *secret* never appears in a log, a status "
-        "or `repr`. Optional fields may be omitted; *null* is allowed only where it says so.",
+        f"vocabulary value matching `{TOKEN_PATTERN}` (whole, ASCII); *name* is 1 to 64 "
+        "letters and digits of any script, spaces and `. _ - ' ( )`, in NFC form; "
+        "*secret* never appears in a log, a status or `repr`. Optional fields may be "
+        "omitted or null, both meaning absent; required fields are never null. Bodies "
+        f"are at most {MAX_BODY_BYTES} bytes.",
         "",
     ]
     for cls in REFERENCE:
@@ -1084,8 +1176,6 @@ def reference_markdown() -> str:
             lines.append(f"| `type` | token | yes | `{cls.TYPE}` |")
         for name, s in _specs(cls):
             req = "yes" if s.required else "no"
-            if s.nullable:
-                req += ", nullable"
             notes = s.doc
             bounds = _bounds_text(s)
             if bounds:

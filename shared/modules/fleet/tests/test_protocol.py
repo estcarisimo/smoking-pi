@@ -225,6 +225,18 @@ def test_lead_endpoints_current_must_be_listed():
 
 @pytest.mark.parametrize("url,ok", [
     ("https://lead.example", True),
+    ("https://lead.example.", True),
+    ("https://127.0.0.1:8443", True),
+    ("https://a..b", False),
+    ("https://-x.example", False),
+    ("https://x-.example", False),
+    ("https://" + "a" * 64 + ".example", False),
+    ("https://[fe80::1%25eth0]:8443", False),
+    ("https://[fe80::1]:8443", False),
+    ("https://[::]:8443", False),
+    ("https://0.0.0.0", False),
+    ("https://169.254.1.1", False),
+    ("https://999.1.1.1", False),
     ("https://lead.example:8443/fleet", True),
     ("https://192.0.2.10:8443", True),
     ("https://[2001:db8::1]:8443", True),
@@ -265,14 +277,47 @@ def test_a_known_directive_with_bad_arguments_is_invalid_not_fatal():
     assert third == p.RenewNow(id="s3")
 
 
-@pytest.mark.parametrize("bad", [
-    "nope", {"type": "renew_now"}, {"id": "bad id!", "type": "renew_now"},
-    {"id": "a", "type": "Renew"},
-])
-def test_a_directive_without_usable_id_or_type_rejects_the_response(bad):
+def test_one_malformed_directive_never_costs_the_others():
+    """The review's case: a directive without an id beside a revoked. The
+    revoked still applies; the malformed one is dropped and reported."""
+    resp = p.HeartbeatResponse.from_wire({
+        "protocol": 1, "server_time": T0, "next_heartbeat": 60,
+        "directives": [{"type": "x"}, "nope", {"id": "bad id!", "type": "renew_now"},
+                       {"id": "t1", "type": "Renew"},
+                       {"id": "r", "type": "revoked", "reason": "operator"}]})
+    assert resp.directives == (p.InvalidDirective("t1", "", ("directive.type: malformed",)),
+                               p.Revoked(id="r", reason="operator"))
+    assert [m.index for m in resp.malformed] == [0, 1, 2]
+    assert resp.malformed[0].reasons == ("directive.id: malformed",)
+    assert "nope" not in repr(resp.malformed) and "bad id" not in repr(resp.malformed)
+
+
+@pytest.mark.parametrize("directives", ["x", [{}] * 33])
+def test_a_bad_directives_envelope_still_rejects_the_response(directives):
     with pytest.raises(p.ValidationError):
         p.HeartbeatResponse.from_wire({"protocol": 1, "server_time": T0,
-                                       "next_heartbeat": 60, "directives": [bad]})
+                                       "next_heartbeat": 60, "directives": directives})
+
+
+def test_received_unknown_and_invalid_directives_encode_and_redact():
+    """The forward-compatibility path: a response holding directives this
+    version does not apply can still be logged (redacted) and re-encoded."""
+    resp = p.HeartbeatResponse.from_wire({
+        "protocol": 1, "server_time": T0, "next_heartbeat": 60,
+        "directives": [{"id": "x1", "type": "teleport"},
+                       {"id": "s1", "type": "start_seed", "since": T1, "until": T0,
+                        "max_bytes_per_second": 65536}]})
+    assert p.redacted(resp)["directives"] == [{"id": "x1", "type": "teleport"},
+                                              {"id": "s1", "type": "start_seed"}]
+    assert p.encode(resp)["directives"] == p.redacted(resp)["directives"]
+
+
+def test_redacted_hides_a_write_token_inside_a_directive():
+    resp = p.HeartbeatResponse(protocol=1, server_time=T0, next_heartbeat=60,
+                               directives=(p.RepointStore(id="r2", store=store()),))
+    assert WRITE_TOKEN not in json.dumps(p.redacted(resp))
+    assert p.redacted(resp)["directives"][0]["store"]["write_token"] == "<redacted>"
+    assert WRITE_TOKEN in p.encode_json(resp)
 
 
 def test_heartbeat_interval_is_bounded():
@@ -355,3 +400,103 @@ def test_every_secret_field_is_marked_and_typed_secret():
             assert (s.kind == "secret") == s.secret, f"{cls.__name__}.{name}"
             if "token" in name and cls is not p.ErrorResponse:
                 assert s.kind == "secret", f"{cls.__name__}.{name} looks like a credential"
+
+
+# -- patterns are matched whole, in ASCII --------------------------------------
+
+
+@pytest.mark.parametrize("field,value", [
+    ("node_id", NODE + "\n"),
+    ("node_id", NODE[:-1] + "\u0663"),          # ARABIC-INDIC DIGIT THREE
+    ("sent_at", T0 + "\n"),
+    ("sent_at", "\uff12" + T0[1:]),             # FULLWIDTH DIGIT TWO
+    ("store_id", STORE + "\n"),
+])
+def test_ids_and_times_refuse_a_trailing_newline_and_other_digits(field, value):
+    wire = json.loads(p.encode_json(heartbeat()))
+    wire[field] = value
+    with pytest.raises(p.ValidationError):
+        p.decode(p.HeartbeatRequest, wire)
+
+
+@pytest.mark.parametrize("cls_field,value", [
+    (("edition",), "pro\n"),
+    (("doctor", "at"), T0 + "\n"),
+])
+def test_tokens_refuse_a_trailing_newline(cls_field, value):
+    wire = p.encode(inventory())
+    target = wire
+    for key in cls_field[:-1]:
+        target = target[key]
+    target[cls_field[-1]] = value
+    with pytest.raises(p.ValidationError):
+        p.decode(p.Inventory, wire)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("org_id", "0123456789abcdef\n"),
+    ("bucket_id", "fedcba987654321\u0663"),
+    ("write_token", WRITE_TOKEN + "\n"),
+    ("bucket_name", f"node-{NODE}\n"),
+])
+def test_store_fields_are_matched_whole(field, value):
+    wire = p.encode(store())
+    wire[field] = value
+    with pytest.raises(p.ValidationError):
+        p.decode(p.StoreDescriptor, wire)
+
+
+def test_join_token_and_fingerprint_are_matched_whole():
+    for kw in ({"token": p.Secret(JOIN_TOKEN + "\n")}, {"root_sha256": FP + "\n"}):
+        with pytest.raises(p.ValidationError):
+            p.JoinString.parse(join(**kw).to_string())
+    resp = p.HeartbeatResponse.from_wire({
+        "protocol": 1, "server_time": T0, "next_heartbeat": 60,
+        "directives": [{"id": "a\n", "type": "renew_now"},
+                       {"id": "b", "type": "renew_now\n"}]})
+    assert len(resp.malformed) == 1 and isinstance(resp.directives[0], p.InvalidDirective)
+
+
+@pytest.mark.parametrize("name,ok", [
+    ("Kitchen Pi", True),
+    ("Zürich", True),                     # names are any script, on purpose
+    ("Cocina de Mamá (2)", True),
+    ("東京", True),
+    ("Zu\u0308rich", False),              # not NFC
+    ("Kitchen\n", False),
+    (" Kitchen", False),
+    ("a\u2028b", False),
+    ("x" * 65, False),
+])
+def test_names(name, ok):
+    assert p.valid_name(name) is ok
+
+
+@pytest.mark.parametrize("bad", ["a\u2028b", "a\u2029b", "a\u0085b", "a\x7fb", "a\nb",
+                                 "a\u200bb\u202e"])
+def test_text_refuses_controls_and_separators(bad):
+    wire = json.loads(p.encode_json(heartbeat()))
+    wire["replication"]["latest_error"] = bad
+    with pytest.raises(p.ValidationError):
+        p.decode(p.HeartbeatRequest, wire)
+
+
+def test_optional_fields_take_null_or_absence_alike_and_required_never_null():
+    wire = json.loads(p.encode_json(heartbeat()))
+    wire["store_id"] = None
+    wire["replication"] = None
+    wire["seed"] = None
+    wire["directive_results"] = None
+    got = p.decode(p.HeartbeatRequest, wire)
+    assert got.store_id is None and got.replication is None
+    wire["node_id"] = None
+    with pytest.raises(p.ValidationError):
+        p.decode(p.HeartbeatRequest, wire)
+
+
+def test_bodies_above_the_limit_are_refused_unread():
+    big = b'{"x": "' + b"a" * p.MAX_BODY_BYTES + b'"}'
+    with pytest.raises(p.ValidationError) as err:
+        p.decode_json(p.HeartbeatRequest, big)
+    assert err.value.reasons == ("body: too large",)
+    assert p.error("too_large")[0] == 413

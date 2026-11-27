@@ -20,6 +20,9 @@ fleet_new_uuid() {
 }
 
 fleet_valid_id() {
+    # Whole string (bash's `$` is end of string, not before a newline), and
+    # the C locale so the ranges mean ASCII.
+    local LC_ALL=C
     [[ "$1" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]
 }
 
@@ -103,7 +106,9 @@ elif not agent.get("state"):
     agent_state, enrolled = "not_running", None
 else:
     agent_state = str(agent["state"])
-    enrolled = bool(agent.get("enrolled"))
+    # A corrupt or mismatched enrollment is not "no": it waits for a person.
+    enrolled = (None if agent_state in ("state_corrupt", "identity_mismatch")
+                else bool(agent.get("enrolled")))
 out = {
     "node_id": e["FLEET_ID"],
     "node_name": e["FLEET_NAME"],
@@ -135,6 +140,11 @@ if agent_state == "off":
     enrolled_text = "not known (the fleet agent is off)"
 elif agent_state == "not_running":
     enrolled_text = f"not known (the fleet agent is not running: {cli} up)"
+elif agent_state == "state_corrupt":
+    enrolled_text = "not known: the agent's enrollment file is corrupt (docs/fleet.md)"
+elif agent_state == "identity_mismatch":
+    enrolled_text = ("not as this node: the agent is enrolled under another node id "
+                     "(docs/fleet.md, \"Two installations, one node id\")")
 elif enrolled:
     enrolled_text = f"yes, fleet {out['fleet_id'] or '?'}"
 else:

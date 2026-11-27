@@ -38,9 +38,14 @@ class NodePaths:
 
     @property
     def enrollment(self) -> Path:
-        """Non-secret facts of the enrollment: fleet_id, site_id, not_after,
-        the lead list and the store descriptor without its token. Its
-        presence is what "enrolled" means."""
+        """Non-secret facts of the enrollment, a JSON object: ``node_id``
+        (required: the id it was enrolled under), ``fleet_id``, ``site_id``,
+        ``not_after``, the lead list and the store descriptor without its
+        token. Its presence is what "enrolled" means. A file that is not
+        such an object is ``state_corrupt``, never "not enrolled" (the
+        agent must not enroll over it); a ``node_id`` other than
+        FLEET_NODE_ID is ``identity_mismatch`` (an older env file restored
+        beside a newer agent volume), and the agent sends nothing."""
         return self.root / "node" / "enrollment.json"
 
     @property
@@ -77,8 +82,9 @@ class LeadPaths:
 
     @property
     def fleet(self) -> Path:
-        """fleet_id, name, lead mode, the lead list. Its presence is what
-        "a fleet is initialized here" means."""
+        """A JSON object: fleet_id, name, lead mode, the lead list. Its
+        presence is what "a fleet is initialized here" means; a file that is
+        not such an object is ``state_corrupt``."""
         return self.root / "lead" / "fleet.json"
 
     @property
