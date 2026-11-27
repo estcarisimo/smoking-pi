@@ -62,6 +62,11 @@ container, behind its own profile too, traces the path to every measured
 destination once an hour and writes the paths and their changes to
 InfluxDB, for Target Detail's Path row.
 
+**Several Pis (in progress).** The [fleet agent and fleet lead](fleet.md)
+containers, each behind its own profile, are how several installations
+will report to one lead. In this release they only report their own state;
+the diagram shows where they will connect.
+
 **The Pi's name.** The [mdns](mdns.md) container answers for
 `smoking-pi.local` on the LAN, so the two `you` badges are reachable by
 name as well as by address.

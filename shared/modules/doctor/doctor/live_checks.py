@@ -90,6 +90,14 @@ DEPLOYED_MODULES = {
     "smokeping-exporters": ("smokeping", "/exporters", False),
 }
 
+# Modules laid out as a package (shared/modules/<module>/<package>/), whose
+# one image several services run: module directory -> (package, the compose
+# services, where the package and common sit in the container). Each
+# running service is compared on its own.
+DEPLOYED_PACKAGES = {
+    "fleet": ("fleet", ("fleet-agent", "fleet-lead"), "/app/fleet", "/app/common"),
+}
+
 # Compose stamps this on every container it creates.
 COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 
@@ -235,10 +243,28 @@ def check_deployed_code_current(
     compared = 0
     checked_containers = 0
 
+    common_dir = repo.root / "shared/modules" / COMMON_DIR
+    # (service, [(label, source directory, path in the container), ...])
+    targets: list[tuple[str, list[tuple[str, pathlib.Path, str]]]] = []
     for module, (service, code_path, has_common) in sorted(DEPLOYED_MODULES.items()):
         module_dir = repo.root / "shared/modules" / module
         if not module_dir.is_dir():
             continue
+        comparisons = [(module, module_dir, code_path)]
+        if has_common:
+            comparisons.append(
+                (f"{module}:{COMMON_DIR}", common_dir, f"{code_path}/{COMMON_DIR}"))
+        targets.append((service, comparisons))
+    for module, (package, services, code_path, common_path) in sorted(
+            DEPLOYED_PACKAGES.items()):
+        package_dir = repo.root / "shared/modules" / module / package
+        if not package_dir.is_dir():
+            continue
+        for service in services:
+            targets.append((service, [(f"{module}/{package}", package_dir, code_path),
+                                      (f"{module}:{COMMON_DIR}", common_dir, common_path)]))
+
+    for service, comparisons in targets:
         container = docker.container_for_service(service)
         if not container:
             # Not running is not drift. A profile that is switched off is a
@@ -246,13 +272,6 @@ def check_deployed_code_current(
             continue
         checked_containers += 1
 
-        comparisons = [(module, module_dir, code_path)]
-        if has_common:
-            comparisons.append(
-                (f"{module}:{COMMON_DIR}",
-                 repo.root / "shared/modules" / COMMON_DIR,
-                 f"{code_path}/{COMMON_DIR}")
-            )
         for label, source_dir, container_path in comparisons:
             repo_files = _repo_py_files(source_dir)
             if not repo_files:

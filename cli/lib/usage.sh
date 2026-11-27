@@ -23,10 +23,17 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      go to docker compose (its own help: docker compose up --help).
   enable | disable [NAME...]
                      The optional services (Pro): mcp, alerts, inference,
-                     pathmeter, dns. No NAME: which are on. Records them in
+                     pathmeter, fleet, fleet-lead, dns. No NAME: which are on. Records them in
                      COMPOSE_PROFILES and starts or removes them -- the one
                      way to change that list, so a later 'up' or 'down'
                      keeps what you chose. dns hands over to 'dns enable'.
+  fleet status [--json]
+                     This installation's place in a Fleet (Pro, docs/fleet.md):
+                     its node id (the first run creates it and writes it to
+                     the env file, so backup and restore carry it), node and site
+                     names, role (node, lead, both or none), the lead URLs,
+                     and whether the fleet agent is enrolled. Joining a fleet
+                     is not built yet.
   tunnel [status | start [--yes] | stop]
                      Cloudflare quick tunnels: public trycloudflare.com URLs
                      for the web pages, no account needed. Anyone with a URL

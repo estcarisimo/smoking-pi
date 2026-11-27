@@ -1,0 +1,2 @@
+# The fleet module is the standard library only; the tests need pytest.
+pytest

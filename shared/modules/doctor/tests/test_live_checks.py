@@ -185,6 +185,32 @@ def test_exporters_baked_into_the_smokeping_image_are_checked(repo):
     assert not any("cd /exporters/common" in c for c in docker.calls)
 
 
+def test_a_package_module_is_checked_in_every_service_that_runs_its_image(repo):
+    """Fleet: one image, a package (fleet/fleet/), two services. Each running
+    service is compared on its own, the package at /app/fleet and common at
+    /app/common (not /app/fleet/common)."""
+    package = repo.root / "shared/modules/fleet/fleet"
+    package.mkdir(parents=True)
+    (package / "agent.py").write_text("print('agent')\n")
+    (repo.root / "shared/modules/fleet/write_reference.py").write_text("# not deployed\n")
+    responses = _healthy_alerter(repo)
+    links = _hashes_for(repo, [("links.py", "print('links')\n")])
+    responses["ps --filter label=com.docker.compose.service=fleet-agent"] = (0, "pro-fleet-agent-1\n")
+    responses["ps --filter label=com.docker.compose.service=fleet-lead"] = (0, "pro-fleet-lead-1\n")
+    responses["exec pro-fleet-agent-1 sh -c cd /app/fleet "] = (
+        0, _hashes_for(repo, [("agent.py", "print('agent')\n")]))
+    responses["exec pro-fleet-agent-1 sh -c cd /app/common "] = (0, links)
+    responses["exec pro-fleet-lead-1 sh -c cd /app/fleet "] = (
+        0, _hashes_for(repo, [("agent.py", "print('OLD')\n")]))
+    responses["exec pro-fleet-lead-1 sh -c cd /app/common "] = (0, links)
+    docker = FakeDocker(responses)
+    res = live_checks.check_deployed_code_current(repo, docker)
+    assert res.status is Status.FAIL
+    assert [f.where for f in res.findings] == ["pro-fleet-lead-1:/app/fleet/agent.py"]
+    assert "docker compose build fleet-lead" in res.findings[0].message
+    assert not any("cd /app/fleet/common" in c for c in docker.calls)
+
+
 def test_drift_in_the_shared_common_package_is_caught(repo):
     responses = _healthy_alerter(repo)
     responses["exec pro-alerter-1 sh -c cd /app/common "] = (
