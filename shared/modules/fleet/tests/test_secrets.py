@@ -93,20 +93,23 @@ def secret_bearing():
                     protocol.UnknownDirective("d2", "teleport")))
 
 
-def test_no_way_of_printing_or_logging_a_message_shows_its_secret(caplog):
-    log = logging.getLogger("fleet.test")
+def _formatted(fmt: str, arg) -> str:
+    """What a logging handler would write for ``log.info(fmt, arg)``: the
+    same LogRecord, through the same Formatter.format() -> getMessage()
+    -> ``fmt % args`` path, without handing the object to a logger."""
+    record = logging.LogRecord("fleet.test", logging.INFO, __file__, 0, fmt, (arg,), None)
+    return logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s").format(record)
+
+
+def test_no_way_of_printing_or_logging_a_message_shows_its_secret():
     for msg in secret_bearing():
         texts = [repr(msg), str(msg), f"{msg}", f"{msg!r}", "%s" % (msg,),
-                 json.dumps(protocol.redacted(msg))]
-        with caplog.at_level(logging.DEBUG, logger="fleet.test"):
-            log.info("message %s", msg)
-            log.info("message %r", msg)
-            log.info("redacted %s", protocol.redacted(msg))
-        texts.append(caplog.text)
+                 "{} {!r}".format(msg, msg), json.dumps(protocol.redacted(msg)),
+                 _formatted("message %s", msg), _formatted("message %r", msg),
+                 _formatted("redacted %s", protocol.redacted(msg))]
         for text in texts:
             assert JOIN_TOKEN not in text, type(msg).__name__
             assert WRITE_TOKEN not in text, type(msg).__name__
-        caplog.clear()
         # The wire is the one place a secret goes.
         wire = json.dumps(protocol.encode(msg))
         assert JOIN_TOKEN in wire or WRITE_TOKEN in wire, type(msg).__name__
