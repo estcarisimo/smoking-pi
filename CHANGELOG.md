@@ -9,6 +9,28 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Target Detail: where on the path the RTT rose.** In the week of
+  2026-11-18, the production Pi's RTT to a distant destination went from
+  160 to 450 ms with loss on two evenings, and the dashboard could say when
+  but not where: the Path row showed only the last trace, and the hourly
+  per-hop reply times sat in InfluxDB unread. Finding the hop took an
+  offline analysis. Two built-in panels in the Path row now do it from what
+  is already recorded (no new probe, no change of cadence). A table gives
+  each hop's reply time when the target was calm and when it was hot
+  (p10/p50/p90, trace counts, the step and whether it persists through to
+  the destination). A status history shows each trace's reply time minus
+  the hop's calm median, with the end-to-end RTT as the last row.
+  Hot and calm come from the target's own ICMP RTT against the range's
+  median (≥ 1.5× and +20 ms; within 10 % and 5 ms), not from Jitterbug, whose
+  persistent-congestion period missed the first of those humps. On
+  production data the step starts at the transit network's first router
+  and persists to the destination in all 14 hot traces. Each panel is one
+  query of 2–3 s over 7 days and ~8 s over 30 days on the Pi; they sit in
+  the collapsed Path row, so nothing runs until it is opened. The
+  ClickHouse tree has no Target Detail. docs/path.md.
+
 ### Fixed
 
 - **mdns: a responder that stopped hearing the LAN now says so and
