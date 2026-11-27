@@ -164,6 +164,57 @@ On **Target Detail**, the collapsed **Path (experimental)** row:
 - **Path changes**: when the AS path, the hops or the address changed in
   the range.
 - **Hops to the destination**: how far the destination answered, per trace.
+- **Hop reply time, calm vs hot** and **hop reply time minus its calm
+  median, per trace**: where on the path the end-to-end RTT rose. Each
+  trace is called *hot* or *calm* from the target's own ICMP RTT
+  (SmokePing's median) in the step that holds it (the first one stamped at
+  or after the trace, whatever the probe's step), against a
+  baseline, the median of the selected range: hot when it is at least 1.5
+  times the baseline and 20 ms above it, calm when it is within 10 % and
+  5 ms of it; the traces in between are left out. The ratio keeps the rule
+  the same for a target 8 ms away and one 160 ms away; the floors keep
+  a near target's jitter from counting. The baseline is the calm level as
+  long as the target was congested for less than half the range. Hot and
+  calm do not come from the Jitterbug periods, which can miss a hump: they
+  stay on the dashboard as an annotation.
+
+  The table gives each hop's reply time when the target was calm and when it
+  was hot (p10, p50 and p90 by nearest rank, and the number of hourly traces
+  it answered in) and
+  the *step*, hot p50 minus calm p50. A hop *persists downstream* when its
+  step is at least half the end-to-end step and so is every later hop with
+  hot replies; *starts here* marks the first such hop. A hop needs three hot
+  and three calm traces to be judged. A second address at a later TTL (a
+  route variant, or load balancing) that answered fast in three hot traces
+  counts too, and can turn the hops before it to *no*: read the rows
+  around it. The status history shows the same
+  thing in time: every trace is a column, every hop a row, colored by its
+  reply time minus that hop's calm median, with the end-to-end RTT minus
+  the baseline as the last row. It lists the addresses that answered in at
+  least a tenth of the hourly traces, counting the hot and calm ones (three
+  at least), because a load-balanced network can answer from dozens; the
+  table lists them all.
+
+  ![Target Detail over a week with two congestion humps to a distant
+  destination: the table's step turns red at the first router of the transit
+  network that carries the long haul and stays red down to the destination,
+  and the status history shows both humps starting at that hop; the house's
+  own hops blurred](img/path-hop-rtt.png)
+
+  Hops are keyed by address and named by their usual TTL (the average,
+  rounded), the address and its AS or exchange, so a route variant is a row
+  of its own with few traces. The shared first hops take the fastest reply
+  of the destinations traced from hop 1 in the same cycle at the same TTL.
+  Only the hourly traces count: the rounds a loss episode adds land almost
+  all in hot steps and would weigh one episode many times. With one probe
+  per hop an hour, a week holds a dozen hot traces at best: read the panels
+  for where to look, not as a measurement of each router.
+
+  A hop's reply time is its own slow path answering, rate-limited, plus a
+  return path that may not be the forward one, so a rise at one hop says
+  nothing by itself. Only a step that persists at every later hop, through
+  to the destination, locates where the RTT rose, and even then not in which
+  direction (toward the destination or back).
 
 The **Path changed (experimental)** annotation marks confirmed changes on
 every panel of the dashboard.
