@@ -9,6 +9,16 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+## [2.55.0] — 2026-11-26
+
+This release lets Target Detail say where on the path a destination's RTT
+rose: the Path row gains a table of each hop's reply time when the target
+was calm and when it was hot, and a status history of each trace's reply
+time against the hop's calm median, both from the hourly traces already
+recorded. It also fixes an mDNS responder that could stop hearing the LAN
+while staying healthy, inference operator tags lost to the Pi's filtering
+resolver, and a triage sentence that could omit what ICMP did.
+
 ### Added
 
 - **Target Detail: where on the path the RTT rose.** In the week of
