@@ -1,7 +1,7 @@
 # Dependabot version updates.
 #
 # This repo has three ecosystems and many places they live: the Python
-# modules, thirteen Dockerfiles, and the Actions workflow. One entry per directory
+# modules, fourteen Dockerfiles, and the Actions workflow. One entry per directory
 # would open a PR per directory a week at a solo maintainer, which is how Dependabot
 # gets muted and then ignored. So: `directories` globs instead of one block
 # each, groups so a week's updates arrive as one PR per ecosystem, and a low
@@ -62,6 +62,7 @@ updates:
       - "/shared/modules/alerter"
       - "/shared/modules/config-manager"
       - "/shared/modules/dns-observer"
+      - "/shared/modules/fleet"
       - "/shared/modules/grafana"
       - "/shared/modules/influxdb"
       - "/shared/modules/mcp-server"

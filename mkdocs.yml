@@ -55,6 +55,8 @@ nav:
       - Maintenance and cleanup: maintenance.md
       - Command vs API scope: cli-scope.md
       - Release acceptance on a Pi: release-acceptance.md
+  - Several Pis:
+      - Fleet (in progress): fleet.md
   - Changelog: changelog.md
 
 theme:

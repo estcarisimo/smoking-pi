@@ -176,6 +176,7 @@ Everything is Compose, run by `smoking-pi`. Optional services are behind profile
 | `mcp` | MCP server on `127.0.0.1:8090` | `smoking-pi enable mcp`, then `connect` or `openclaw` |
 | `inference` | Experimental congestion and degradation detectors | `smoking-pi enable inference`; see [docs/inference.md](docs/inference.md) |
 | `pathmeter` | Experimental hourly traceroute to every destination, on Target Detail | `smoking-pi enable pathmeter`; see [docs/path.md](docs/path.md) |
+| `fleet`, `fleet-lead` | In progress: the Fleet node agent and lead (several Pis reporting to one); this release only gives the installation its identity | `smoking-pi fleet status`; see [docs/fleet.md](docs/fleet.md) |
 | `dns` | DNS observer (AdGuard Home) on port 53, for the router to forward the house's DNS to | `smoking-pi dns enable`; see [docs/dns-observer.md](docs/dns-observer.md) |
 
 ```bash
@@ -240,6 +241,7 @@ smoking-pi/
 │   │   ├── netmeter/          # uplink traffic per service: counter-only nftables table (Pro)
 │   │   ├── inference/         # experimental: persistent congestion (Jitterbug) and loss degradation (Pro)
 │   │   ├── pathmeter/         # experimental: Paris traceroute to every destination, hourly (Pro)
+│   │   ├── fleet/             # in progress: Fleet node agent and lead, and their protocol (Pro)
 │   │   ├── doctor/            # Static + live instrumentation checks
 │   │   └── common/            # Flux helpers, chart renderer, deep links, mutes, OpenClaw client, AS lookup
 │   ├── scripts/               # helpers the command and setup.sh run; skill build/install (maintainers)
@@ -269,7 +271,7 @@ uv sync            # or: python -m venv .venv && pip install -e ".[dev]"
 Every module with a `tests/` directory is discovered by CI. Tests mock the network, the database and Docker; none needs a running stack.
 
 ```bash
-for m in alerter mcp-server web-admin config-manager doctor smokeping-exporters dns-observer mdns netmeter inference pathmeter; do
+for m in alerter mcp-server web-admin config-manager doctor smokeping-exporters dns-observer mdns netmeter inference pathmeter fleet; do
   (cd shared/modules/$m && pytest tests/ -q)
 done
 ```

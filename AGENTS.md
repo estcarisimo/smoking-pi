@@ -40,7 +40,7 @@ tests, the strict docs build, CodeQL, and **every image built for arm64 and
 amd64** (not pushed; `Images build (all)` is the required check). All must be
 green; CodeQL on a PR is diff-only, so "0 results" on a PR means *no new
 alerts*, not "fixed". The release adds what only a release can prove:
-`release.yml` publishes the thirteen images to GHCR from the tag, builds the
+`release.yml` publishes the fourteen images to GHCR from the tag, builds the
 `.deb` and installs it across the OS matrix, and `docs.yml` deploys the site.
 Where each image builds from is `packaging/image-context.sh`, read by both
 workflows. A Dockerfile change is still deployed on the reference Pi before
@@ -62,6 +62,7 @@ merge: CI proves it builds, the Pi proves it runs.
 | `shared/modules/inference/` | Pro, experimental (profile `inference`, off by default): persistent congestion with Jitterbug as published (BCP + KS) and loss degradation (BCP on loss), written to InfluxDB, shaded on Target Detail; never in the alert path. Python 3.13 image (ruptures has no 3.14 wheels) |
 | `shared/modules/netmeter/` | Pro: uplink bytes per service via a counter-only nftables table (CAP_NET_ADMIN, host cgroupns); container map from config-manager `/meter/containers` |
 | `shared/modules/pathmeter/` | Pro, experimental (profile `pathmeter`, off by default): hourly Paris traceroute (ICMP, scamper) to every destination, shared first hops traced once; `path_trace`/`path_hop` in InfluxDB, Target Detail's Path row; host network, NET_RAW + scamper's privsep caps |
+| `shared/modules/fleet/` | Pro, in progress (profiles `fleet` and `fleet-lead`, off by default): one image, `python -m fleet.agent` and `python -m fleet.lead`; `fleet/protocol.py` is the versioned agent↔lead contract (stdlib only), and docs/fleet.md's reference is generated from it. Node id in the env file (`FLEET_NODE_ID`), secrets only where `fleet/layout.py` says |
 | `shared/modules/common/` | The only code shared between images: Flux, charts, links, mutes, OpenClaw client, AS lookup (`asn.py`) |
 | `shared/modules/grafana/provisioning/` | Dashboards as JSON; separate trees for InfluxDB and ClickHouse |
 | `docs/` | getting-started, alerting, mcp-server, openclaw-integration, remote-openclaw, wifi, http-probes, dns-probes, doctor, clickhouse, ipv6-gating, dns-observer, upgrades, packaging, release-acceptance |
@@ -92,7 +93,7 @@ setting a person changes by editing it is a missing command.
 
 **Containers cannot import across each other.** Shared code goes in
 `shared/modules/common/`, which each Dockerfile copies in. Build context for
-those images (alerter, dns-observer, inference, mcp-server,
+those images (alerter, dns-observer, fleet, inference, mcp-server,
 pathmeter, web-admin) and for smokeping (which bakes in
 `shared/modules/smokeping-exporters`) is `shared/` in every edition's
 compose file, and `packaging/image-context.sh` says so to both CI's
@@ -199,7 +200,7 @@ checks they match); merge; a candidate tag `vX.Y.Z-rc.N` with a GitHub
 section + the Validation section). Tags other than `vX.Y.Z`,
 `vX.Y.Z-rc.N` (N from 1) and `test-*` are refused
 (`packaging/release-version.sh`, tested in `release-version.bats`). The tag
-triggers `release.yml` — thirteen images × two architectures to
+triggers `release.yml` — fourteen images × two architectures to
 `ghcr.io/estcarisimo/smoking-pi/<service>:<version>` (it refuses a tag that
 disagrees with `CITATION.cff`), then the `.deb` built from the tagged tree
 and installed with each supported host's own `apt` (Ubuntu 22.04/24.04

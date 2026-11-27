@@ -44,6 +44,8 @@
 <path d="M913,880 L938.0,880.0 Q948,880 948.0,870.0 L948.0,649.5 Q948,645 952.5,645.0 L957,645" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1563,530 L1647,530" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M1647,850 L1563,850" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M1563,648 L1647,648" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M1647,738 L1563,738" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M670,787 L670,663" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M427,850 L390.0,850.0 Q380,850 380.0,840.0 L380.0,630.0 Q380,620 370.0,620.0 L333,620" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
 <path d="M200,997 L200.0,985.0 Q200,975 210.0,975.0 L540.0,975.0 Q550,975 550.0,965.0 L550,913" fill="none" stroke="#334155" stroke-width="1.9" stroke-linecap="round" marker-end="url(#arrow)"/>
@@ -72,6 +74,11 @@
 <text x="1698" y="501" font-size="17" font-weight="700" fill="#334155">Chat and webhooks</text>
 <text x="1668" y="527" font-size="14" fill="#1f2937">Telegram through OpenClaw,</text>
 <text x="1668" y="548" font-size="14" fill="#1f2937">Slack, webhooks</text>
+<rect x="1650" y="615" width="240" height="155" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
+<g transform="translate(1668,630) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></g>
+<text x="1698" y="646" font-size="17" font-weight="700" fill="#334155">Other Smoking Pis</text>
+<text x="1668" y="672" font-size="14" fill="#1f2937">a fleet: nodes and</text>
+<text x="1668" y="693" font-size="14" fill="#1f2937">their lead (HTTPS, mTLS)</text>
 <rect x="1650" y="790" width="240" height="120" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2.25" filter="url(#shadow)"/>
 <g transform="translate(1668,805) scale(0.833)" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16v12H4zM12 4v4M9 14h.1M15 14h.1"/></g>
 <text x="1698" y="821" font-size="17" font-weight="700" fill="#334155">AI assistants</text>
@@ -162,6 +169,16 @@
 <rect x="1483" y="484" width="59" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1512" y="500" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">alerts</text>
 <text x="1278" y="527" font-size="14" fill="#1f2937">outages, microcuts, verdicts,</text>
 <text x="1278" y="548" font-size="14" fill="#1f2937">the weekly summary</text>
+<rect x="1260" y="610" width="300" height="75" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<g transform="translate(1278,625) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3"/></g>
+<text x="1308" y="641" font-size="17" font-weight="700" fill="#c2410c">fleet agent</text>
+<rect x="1490" y="624" width="52" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1516" y="640" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">fleet</text>
+<text x="1278" y="667" font-size="14" fill="#1f2937">reports to a lead</text>
+<rect x="1260" y="700" width="300" height="75" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
+<g transform="translate(1278,715) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3"/></g>
+<text x="1308" y="731" font-size="17" font-weight="700" fill="#c2410c">fleet lead</text>
+<rect x="1454" y="714" width="88" height="22" rx="11" fill="#ffffff" stroke="#c2410c" stroke-width="1"/><text x="1498" y="730" text-anchor="middle" font-size="12.5" font-weight="600" fill="#c2410c">fleet-lead</text>
+<text x="1278" y="757" font-size="14" fill="#1f2937">CA and node registry</text>
 <rect x="1260" y="790" width="300" height="120" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2.25" stroke-dasharray="9 6" filter="url(#shadow)"/>
 <g transform="translate(1278,805) scale(0.833)" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3"/></g>
 <text x="1308" y="821" font-size="17" font-weight="700" fill="#c2410c">mcp-server</text>
@@ -182,6 +199,8 @@
 <rect x="912" y="770" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="938" y="786" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">paths</text>
 <rect x="1579" y="504" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="520" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">sends</text>
 <rect x="1586" y="824" width="38" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="840" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">MCP</text>
+<rect x="1572" y="622" width="66" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="638" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">reports</text>
+<rect x="1579" y="712" width="52" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="1605" y="728" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">nodes</text>
 <rect x="622" y="715" width="95" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="670" y="730" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json</text>
 <rect x="296" y="679" width="167" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="380" y="694" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">wizard.json / Targets</text>
 <rect x="313" y="949" width="124" height="22" rx="11" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/><text x="375" y="964" text-anchor="middle" font-size="12.5" font-weight="normal" font-style="italic" fill="#334155">the house&#x27;s DNS</text>

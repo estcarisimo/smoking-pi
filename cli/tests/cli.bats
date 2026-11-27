@@ -63,6 +63,8 @@ case "$*" in
     *"ps --status running --services"*) printf 'postgres\n' ;;
     # The mdns service's status (STUB_MDNS; unset = not running).
     *"exec -T mdns python status.py --json"*) [ -n "${STUB_MDNS:-}" ] || exit 1; printf '%b' "$STUB_MDNS" ;;
+    # The fleet agent's status (STUB_FLEET_AGENT; unset = not running).
+    *"exec -T fleet-agent python -m fleet.status"*) [ -n "${STUB_FLEET_AGENT:-}" ] || exit 1; printf '%b' "$STUB_FLEET_AGENT" ;;
     *"exec -T postgres pg_dumpall"*) echo "-- dump" ;;
     # Quick tunnels: labeled ones as "page name" (STUB_TUNNELS), every
     # container name (STUB_NAMES), and a log with two hostnames, the
@@ -4997,4 +4999,120 @@ smokeping_stub() {
     run "$CLI" backup "$BATS_TEST_TMPDIR/bk"
     [ "$status" -eq 0 ]
     [ -f "$BATS_TEST_TMPDIR/bk/postgres.sql" ]
+}
+
+# --- fleet: the installation's identity and place in a Fleet ------------------
+
+FLEET_ID_RE='^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+
+@test "fleet status creates the node id once, keeps it, and says what it is" {
+    run "$CLI" fleet status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Created this installation's Fleet node id"* ]]
+    id="$(sed -n 's/^FLEET_NODE_ID=//p' "$SMOKING_PI_ENV_FILE")"
+    [[ "$id" =~ $FLEET_ID_RE ]]
+    [[ "$output" == *"node id:    $id"* ]]
+    [[ "$output" == *"node name:  node-${id:0:8}"* ]]
+    [[ "$output" == *"site:       default"* ]]
+    [[ "$output" == *"role:       none (Fleet is off: smoking-pi enable fleet)"* ]]
+    [[ "$output" == *"leads:      none set"* ]]
+    [[ "$output" == *"Joining a fleet is not built yet"* ]]
+    run "$CLI" fleet status
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Created"* ]]
+    [ "$(grep -c '^FLEET_NODE_ID=' "$SMOKING_PI_ENV_FILE")" -eq 1 ]
+    grep -qx "FLEET_NODE_ID=$id" "$SMOKING_PI_ENV_FILE"
+    # Reading it starts nothing.
+    if compose_calls | grep -q ' up '; then false; fi
+}
+
+@test "fleet status --json: names, role, leads and the agent's own state" {
+    id=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    printf 'COMPOSE_PROFILES=influxdb,fleet,fleet-lead\nFLEET_NODE_ID=%s\nFLEET_NODE_NAME='"'"'Kitchen Pi'"'"'\nFLEET_SITE_NAME=Home\nFLEET_LEAD_URLS=https://a.example:8443,https://b.example\nFLEET_LEAD_MODE=dedicated\n' "$id" > "$SMOKING_PI_ENV_FILE"
+    export STUB_FLEET_AGENT='{"state": "enrolled", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001"}'
+    run bash -c "'$CLI' fleet status --json 2>/dev/null"
+    [ "$status" -eq 0 ]
+    echo "$output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["node_id"] == "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b", d
+assert d["node_name"] == "Kitchen Pi" and d["site_name"] == "Home", d
+assert d["role"] == "node+lead" and d["lead_mode"] == "dedicated", d
+assert d["lead_urls"] == ["https://a.example:8443", "https://b.example"], d
+assert d["agent"] == "enrolled" and d["enrolled"] is True, d
+assert d["fleet_id"] == "0b1e2f3a-0000-4000-8000-000000000001", d
+'
+    compose_calls | grep -q 'exec -T fleet-agent python -m fleet.status'
+}
+
+@test "fleet status: an agent that is on but not running is not known, not 'no'" {
+    printf 'COMPOSE_PROFILES=influxdb,fleet\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" fleet status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"role:       node (the fleet agent is on)"* ]]
+    [[ "$output" == *"enrolled:   not known (the fleet agent is not running: smoking-pi up)"* ]]
+    export STUB_FLEET_AGENT='{"state": "not_enrolled", "enrolled": false}'
+    run "$CLI" fleet status
+    [[ "$output" == *"enrolled:   no"* ]]
+    [[ "$output" == *"agent:      not_enrolled"* ]]
+}
+
+@test "fleet status never replaces a node id that is there, even a malformed one" {
+    printf 'COMPOSE_PROFILES=influxdb\nFLEET_NODE_ID=not-a-uuid\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" fleet status
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"is not a node id"* ]]
+    grep -qx 'FLEET_NODE_ID=not-a-uuid' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "fleet: Pro only, status is the one subcommand, help reads nothing" {
+    run "$CLI" fleet join spfleet1_abc
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown fleet command: join (this release has: status)"* ]]
+    run "$CLI" fleet
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"fleet status [--json]"* ]]
+    chmod 000 "$SMOKING_PI_ENV_FILE"
+    run "$CLI" fleet --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"fleet status [--json]"* ]]
+    chmod 600 "$SMOKING_PI_ENV_FILE"
+    cp "$REPO/editions/basic/docker-compose.yml" "$STUB_HOME/editions/basic/"
+    SMOKING_PI_EDITION=basic run "$CLI" fleet status
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Fleet is part of the Pro edition"* ]]
+    if grep -q '^FLEET_NODE_ID=' "$SMOKING_PI_ENV_FILE"; then false; fi
+}
+
+@test "enable fleet creates the node id before the agent starts, and lists both services" {
+    run "$CLI" enable
+    [[ "$output" == *"fleet      off "* ]]
+    [[ "$output" == *"fleet-lead off "* ]]
+    run "$CLI" enable fleet
+    [ "$status" -eq 0 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,fleet' "$SMOKING_PI_ENV_FILE"
+    id="$(sed -n 's/^FLEET_NODE_ID=//p' "$SMOKING_PI_ENV_FILE")"
+    [[ "$id" =~ $FLEET_ID_RE ]]
+    [[ "$output" == *"smoking-pi fleet status"* ]]
+    compose_calls | grep -q 'up -d --remove-orphans'
+    run "$CLI" enable fleet-lead
+    [ "$status" -eq 0 ]
+    grep -qx "FLEET_NODE_ID=$id" "$SMOKING_PI_ENV_FILE"
+    run "$CLI" disable fleet fleet-lead
+    [ "$status" -eq 0 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    # Disabling keeps the identity: it belongs to the installation.
+    grep -qx "FLEET_NODE_ID=$id" "$SMOKING_PI_ENV_FILE"
+}
+
+@test "config set refuses FLEET_NODE_ID: it is created once, never set" {
+    cp "$REPO/editions/pro/.env.template" "$STUB_HOME/editions/pro/"
+    run "$CLI" config set FLEET_NODE_ID 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    [ "$status" -eq 2 ]
+    if grep -q '^FLEET_NODE_ID=' "$SMOKING_PI_ENV_FILE"; then false; fi
+    run "$CLI" config set FLEET_LEAD_MODE elected
+    [ "$status" -ne 0 ]
+    run "$CLI" config set FLEET_LEAD_MODE dedicated --no-apply
+    [ "$status" -eq 0 ]
+    grep -qx 'FLEET_LEAD_MODE=dedicated' "$SMOKING_PI_ENV_FILE"
 }

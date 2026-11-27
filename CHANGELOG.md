@@ -9,6 +9,40 @@ version gets a matching GitHub release and git tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Fleet, first piece: each installation's identity, and the protocol.**
+  A Smoking Pi could only ever be looked at on its own: nothing named an
+  installation, so several Pis in several places could not report to one
+  place, and building that later without a fixed contract would have let the
+  lead and the node agent (two pieces of work in parallel) drift apart on
+  message shapes, compatibility and where secrets live. This release adds
+  the foundation, and nothing that sends anything:
+  - every Pro installation gets a **node id** (a random UUID, created by the
+    first `smoking-pi fleet status` or `enable fleet`), kept in the env file
+    so upgrades keep it and `backup`/`restore` carry it; `config set`
+    refuses it. Node and site names are settings (`## Fleet`);
+  - **`smoking-pi fleet status`** (`--json`): node id, names, role, lead
+    URLs, and whether the agent is enrolled;
+  - a **`fleet` image** with two services, `fleet-agent` (profile `fleet`)
+    and `fleet-lead` (profile `fleet-lead`), both off by default, handled
+    by `enable`/`disable` like the other optional services. They only log
+    their state ("not enrolled", "no fleet initialized") and idle: no port,
+    no network call;
+  - the **versioned protocol** (`shared/modules/fleet/fleet/protocol.py`,
+    standard library only): the join string, enroll, heartbeat with
+    directives, renew, leave, the store descriptor, the lead list and the
+    error shape, with strict validation, per-request version negotiation,
+    defined handling of unknown fields, directives and error codes, and
+    secrets that never reach a `repr`, a log or a status. A second live copy
+    of a node (a backup restored onto another machine while the first runs)
+    is detected through a per-process instance id and refused by the lead.
+    docs/fleet.md's reference is generated from the code;
+  - the doctor's deployed-code check covers both services, and a test fails
+    when the image would miss a module its entrypoints import.
+  Creating a fleet, joining it, heartbeats and replication come next; the
+  docs say so plainly.
+
 ## [2.55.0] — 2026-11-26
 
 This release lets Target Detail say where on the path a destination's RTT

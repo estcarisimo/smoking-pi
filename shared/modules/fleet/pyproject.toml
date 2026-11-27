@@ -1,0 +1,34 @@
+[project]
+name = "smoking-pi-fleet"
+version = "1.0.0"
+description = "Fleet: a node agent and a lead, and the protocol between them"
+requires-python = ">=3.11"
+# None yet: the protocol and both entrypoints are the standard library only.
+# The Dockerfile installs nothing either: keep the two in step.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["fleet"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+pythonpath = ["."]

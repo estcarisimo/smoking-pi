@@ -17,6 +17,8 @@ mcp        MCP server: the assistant tools (docs/mcp-server.md)
 alerts     alerting engine (docs/alerting.md; 'smoking-pi alerts' chooses where they go)
 inference  EXPERIMENTAL congestion and degradation detectors (docs/inference.md)
 pathmeter  EXPERIMENTAL traceroute to every destination, hourly (docs/path.md)
+fleet      Fleet node agent: this host reports to a lead (docs/fleet.md)
+fleet-lead Fleet lead: other hosts report here (docs/fleet.md)
 dns        DNS observer on port 53 (docs/dns-observer.md; same as 'smoking-pi dns enable')
 PROFILES
 }
@@ -114,6 +116,11 @@ cmd_services() {
         echo "Nothing to change: $* already ${action}d."
         return 0
     fi
+    # Fleet's services read the installation's node id: it must exist
+    # before they start (cli/lib/fleet.sh).
+    if [ "$action" = enable ] && [[ " ${changed[*]} " == *" fleet"* ]]; then
+        fleet_ensure_node_id || return 1
+    fi
     env_set COMPOSE_PROFILES "$next"
     echo "COMPOSE_PROFILES=$next"
     config_apply COMPOSE_PROFILES
@@ -123,6 +130,7 @@ cmd_services() {
             alerts) [ -n "$(env_get NOTIFY_MODE)" ] || echo "Alerts are on but go nowhere yet: $(cli_name) alerts --telegram (or --openclaw, --webhook)." ;;
             mcp) echo "Next: $(cli_name) connect (an assistant) or $(cli_name) openclaw (OpenClaw on this machine)." ;;
             pathmeter) echo "The first paths arrive about two minutes after start; what they cost shows in '$(cli_name) budget' after the first cycle." ;;
+            fleet|fleet-lead) echo "Joining a fleet is not built yet: the service only reports its state. '$(cli_name) fleet status' shows it." ;;
         esac
     done
     # The OpenClaw automations' checks call the MCP server: without it, every
