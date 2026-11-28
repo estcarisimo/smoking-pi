@@ -255,3 +255,31 @@ def test_an_unexpected_error_keeps_nothing_and_prints_no_traceback(paths, monkey
     rc, result, err = run_join(join_string(lead.ca), paths, lead)
     assert rc == 1 and result["code"] == "internal" and "error id" in err
     assert TOKEN not in err and node_files(paths) == []
+
+
+@pytest.mark.parametrize("kind,words", [
+    ("hostname", "does not name that host"),
+    ("certificate", "does not lead to that root"),
+])
+def test_enrollment_tls_failures_say_which(paths, kind, words):
+    """The root fetch worked; the verified enrollment's handshake did not."""
+    from fleet.transport import TransportError
+    lead = FakeLead()
+    lead.serve_root()
+
+    def fail(body, tls):
+        raise TransportError(kind)
+    lead.routes[("POST", LEAD + "/fleet/enroll")] = fail
+    rc, result, err = run_join(join_string(lead.ca), paths, lead)
+    assert rc == 1 and result["code"] == f"tls_{kind}"
+    assert words in err and LEAD in err and node_files(paths) == []
+
+
+def test_rate_limited_at_enroll_says_when_to_retry(paths):
+    lead = FakeLead()
+    lead.serve_root()
+    status_code, body = error("rate_limited", retry_after=120)
+    lead.answer("POST", LEAD + "/fleet/enroll", status_code, body)
+    rc, result, err = run_join(join_string(lead.ca), paths, lead)
+    assert rc == 1 and result["code"] == "rate_limited"
+    assert "try the same join again in 120 s" in err and node_files(paths) == []

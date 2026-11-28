@@ -68,8 +68,9 @@ version gets a matching GitHub release and git tag.
   - a lead away for hours or days changes nothing on the node; the agent
     never exits on a bad state (`state_corrupt`, `identity_mismatch`,
     `revoked`, `cert_expired`, `stopped` are states `fleet status` shows),
-    and its healthcheck tells "not in a fleet" (healthy) from "in a fleet
-    and failing";
+    and `fleet status` tells "not in a fleet" from "in a fleet and its link
+    to the lead failing", while Docker's healthcheck says only whether the
+    agent process is alive (a lead away is not an unhealthy container);
   - **`smoking-pi fleet leave`** tells the lead, removes the key and
     certificate and turns the agent off; `--force` when no lead answers. It
     never touches the measurements;

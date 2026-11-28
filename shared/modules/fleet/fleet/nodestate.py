@@ -24,7 +24,6 @@ before both new files exist leaves the old pair, which is still valid.
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -117,12 +116,38 @@ def store_dict(store: protocol.StoreDescriptor, received_at: str) -> dict:
     return dict(data, applied=False, received_at=received_at)
 
 
+def _same(a: object, b: dict) -> bool:
+    if not isinstance(a, dict):
+        return False
+    drop = ("received_at", "id")  # the same request under a new directive id
+    return ({k: v for k, v in a.items() if k not in drop}
+            == {k: v for k, v in b.items() if k not in drop})
+
+
 def save_store(paths: NodePaths, enrollment: dict, store: protocol.StoreDescriptor,
                received_at: str) -> dict:
     """Keep a store descriptor for the data plane (a later release): the
-    token in its 0600 file, the rest in the enrollment."""
-    statefile.write_bytes(paths.store_token, store.write_token.reveal().encode(), 0o600)
-    return dict(enrollment, store=store_dict(store, received_at))
+    token in its 0600 file, the rest in the enrollment. Returns the
+    enrollment to write, or ``enrollment`` itself (the same object) when
+    nothing changed: a lead repeating its directive costs no SD-card write."""
+    data = store_dict(store, received_at)
+    token = store.write_token.reveal().encode()
+    try:
+        token_same = paths.store_token.read_bytes() == token
+    except OSError:
+        token_same = False
+    if not token_same:
+        statefile.write_bytes(paths.store_token, token, 0o600)
+    if _same(enrollment.get("store"), data) and token_same:
+        return enrollment
+    return dict(enrollment, store=data)
+
+
+def save_seed(enrollment: dict, seed: dict, received_at: str) -> dict:
+    """The same for a ``start_seed`` request (no secret in it)."""
+    if _same(enrollment.get("seed_requested"), seed):
+        return enrollment
+    return dict(enrollment, seed_requested=dict(seed, received_at=received_at))
 
 
 def write_enrollment(paths: NodePaths, enrollment: dict) -> None:
@@ -137,23 +162,41 @@ def store_renewal(paths: NodePaths, key_pem: bytes, chain_pem: str) -> None:
     """Write the new key and chain beside the old ones, then swap them."""
     statefile.write_bytes(_new(paths.key), key_pem, 0o600)
     statefile.write_bytes(_new(paths.chain), chain_pem.encode(), 0o644)
-    os.replace(_new(paths.key), paths.key)
-    os.replace(_new(paths.chain), paths.chain)
+    statefile.replace(_new(paths.key), paths.key)
+    statefile.replace(_new(paths.chain), paths.chain)
+
+
+def _key_fits_chain(key_path: Path, chain_path: Path) -> bool:
+    try:
+        key = nodekeys.load_key(key_path)
+        pems = split_pems(chain_path.read_text())
+        return bool(pems) and nodekeys.matches(chain.load(pems[0]), key)
+    except (OSError, UnicodeDecodeError, nodekeys.NodeKeyError, chain.ChainError):
+        return False
 
 
 def finish_renewal(paths: NodePaths) -> str | None:
     """After a crash in :func:`store_renewal`: ``completed`` (the new pair
     is now in place), ``discarded`` (the new key had no certificate yet; the
-    old pair stays), or None (nothing was pending)."""
+    old pair stays), or None (nothing was pending).
+
+    Every rename is followed by a directory fsync, so the renames reach the
+    disk in order; still, a file system that kept the chain's rename and
+    lost the key's would leave the new chain beside ``key.pem.new``: that
+    key is the chain's, and is swapped in, never thrown away."""
     key_new, chain_new = _new(paths.key), _new(paths.chain)
     if chain_new.exists():
         # The chain is written after the key: if it exists, the key is
         # either beside it or already swapped in.
         if key_new.exists():
-            os.replace(key_new, paths.key)
-        os.replace(chain_new, paths.chain)
+            statefile.replace(key_new, paths.key)
+        statefile.replace(chain_new, paths.chain)
         return "completed"
     if key_new.exists():
+        if _key_fits_chain(key_new, paths.chain) and not _key_fits_chain(paths.key,
+                                                                         paths.chain):
+            statefile.replace(key_new, paths.key)
+            return "completed"
         statefile.remove(key_new)
         return "discarded"
     return None

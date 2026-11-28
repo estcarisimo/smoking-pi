@@ -111,7 +111,7 @@ else:
                 else bool(agent.get("enrolled")))
 # The agent's own report of its link to the lead (fleet/status.py FIELDS):
 # read, never interpolated into a command.
-link = {k: agent.get(k) for k in ("health", "lead_in_use", "last_heartbeat",
+link = {k: agent.get(k) for k in ("lead_link", "lead_in_use", "last_heartbeat",
                                   "next_heartbeat", "failures", "last_error",
                                   "cert_not_after", "renew_after", "revoked_at",
                                   "detail", "site_id", "store_received")}
@@ -129,7 +129,9 @@ out = {
     "site_id": link["site_id"] if enrolled else None,
     # The list the agent holds (a lead may have replaced the one joined with).
     "agent_lead_urls": agent_urls if enrolled else None,
-    "health": link["health"],
+    # The link to the lead (ok, failing, idle); the container's own health
+    # is only whether the agent process is alive.
+    "lead_link": link["lead_link"],
     "lead_in_use": link["lead_in_use"],
     "last_heartbeat": link["last_heartbeat"],
     "next_heartbeat": link["next_heartbeat"],
@@ -184,7 +186,8 @@ print(f"  role:       {roles[role]}")
 print(f"  leads:      {', '.join(urls) if urls else 'none set'}")
 print(f"  enrolled:   {enrolled_text}")
 if agent_state not in ("off", "not_running"):
-    print(f"  agent:      {agent_state}" + (f" ({link['health']})" if link["health"] else ""))
+    print(f"  agent:      {agent_state}"
+          + (f" (link to the lead: {link['lead_link']})" if link["lead_link"] else ""))
 if enrolled:
     if agent_urls and agent_urls != urls:
         print(f"  lead list:  {', '.join(agent_urls)} (the lead's latest; the agent uses it)")

@@ -56,7 +56,7 @@ STOP_RETRY_SECONDS = 6 * 3600
 #: third of its life, 30 days, when renewal starts).
 RENEW_RETRY_SECONDS = 900
 #: Enrolled and no lead has answered for this long (or three heartbeat
-#: intervals, if longer): health is ``failing``.
+#: intervals, if longer): ``lead_link`` is ``failing``.
 FAILING_AFTER_SECONDS = 600
 #: Directive results waiting for the next successful heartbeat.
 MAX_PENDING_RESULTS = 64
@@ -198,7 +198,7 @@ def _report(cfg: settings.Settings, local: Local, **runtime: Any) -> dict:
         renew_after=iso(local.creds.renew_after()) if local.creds else None,
         revoked_at=revoked.get("at") if revoked else None,
         store_received=bool(store),
-        health=("idle" if local.state in ("no_identity", "not_enrolled")
+        lead_link=("idle" if local.state in ("no_identity", "not_enrolled")
                 else "ok" if local.state == "enrolled" else "failing"),
     )
     values.update(runtime)
@@ -334,7 +334,7 @@ class Agent:
                         3 * (self.interval or protocol.HEARTBEAT_DEFAULT))
             healthy = self.stopped_until is None and now - ref <= grace
             runtime = dict(
-                health="ok" if healthy else "failing",
+                lead_link="ok" if healthy else "failing",
                 lead_in_use=self.in_use,
                 last_heartbeat=iso(self.last_ok) if self.last_ok is not None else None,
                 next_heartbeat=(iso(self.stopped_until or self.next_attempt)
@@ -554,22 +554,36 @@ class Agent:
                          d.id, d.lead_endpoints.epoch)
             self._result(d.id, "done" if taken else "ignored")
         elif isinstance(d, protocol.RenewNow):
+            now = self.clock()
+            if now < self.renew_retry_at:
+                # A renewal failed less than RENEW_RETRY_SECONDS ago: the
+                # lead asking again does not make a new key and a new
+                # request on every heartbeat.
+                self._say("renew-gated", "directive %s: a renewal failed recently; the next "
+                          "attempt is at %s", d.id, iso(self.renew_retry_at),
+                          level=logging.INFO)
+                self._result(d.id, "failed")
+                return
             log.info("directive %s: renewing the certificate now", d.id)
-            ok, error_id = self._renew(local, self.clock())
+            ok, error_id = self._renew(local, now)
             self._result(d.id, "done" if ok else "failed", error_id)
         elif isinstance(d, protocol.RepointStore):
             # The data plane is a later release: keep what was sent, say
             # it was not applied ("ignored": the lead decides).
-            local.enrollment = nodestate.save_store(self.paths, local.enrollment, d.store,
-                                                    iso(self.clock()))
-            nodestate.write_enrollment(self.paths, local.enrollment)
+            kept = nodestate.save_store(self.paths, local.enrollment, d.store,
+                                        iso(self.clock()))
+            if kept is not local.enrollment:
+                local.enrollment = kept
+                nodestate.write_enrollment(self.paths, kept)
             log.info("directive %s: store %s kept, not applied (this release does not "
                      "replicate)", d.id, d.store.store_id)
             self._result(d.id, "ignored")
         elif isinstance(d, protocol.StartSeed):
-            local.enrollment = dict(local.enrollment, seed_requested=dict(
-                protocol.encode(d), received_at=iso(self.clock())))
-            nodestate.write_enrollment(self.paths, local.enrollment)
+            kept = nodestate.save_seed(local.enrollment, protocol.encode(d),
+                                       iso(self.clock()))
+            if kept is not local.enrollment:
+                local.enrollment = kept
+                nodestate.write_enrollment(self.paths, kept)
             log.info("directive %s: history seed kept, not applied (this release does not "
                      "replicate)", d.id)
             self._result(d.id, "ignored")

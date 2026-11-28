@@ -15,6 +15,7 @@ can make a join fail, never succeed.
 from __future__ import annotations
 
 import http.client
+import socket
 import ssl
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,13 +34,37 @@ class Tls:
     key: Path | None = None
 
 
+#: Why no HTTP answer came, as a literal kind (:func:`failure_kind`).
+FAILURE_KINDS = ("hostname", "certificate", "tls", "timeout", "refused", "dns",
+                 "local_credentials", "network")
+
+#: OpenSSL's X509_V_ERR_HOSTNAME_MISMATCH and X509_V_ERR_IP_ADDRESS_MISMATCH.
+_NAME_MISMATCH = (62, 64)
+
+
 class TransportError(Exception):
-    """No HTTP answer: refused, timed out, TLS failed. ``reason`` is literal
-    (the exception's class name), never the exception's text."""
+    """No HTTP answer: refused, timed out, TLS failed. ``reason`` is one of
+    FAILURE_KINDS, chosen from the exception's class (and, for a failed
+    certificate check, its numeric code), never its text."""
 
     def __init__(self, reason: str):
         self.reason = reason
         super().__init__(reason)
+
+
+def failure_kind(err: BaseException) -> str:
+    """A literal from FAILURE_KINDS for a connection failure."""
+    if isinstance(err, ssl.SSLCertVerificationError):
+        return "hostname" if getattr(err, "verify_code", None) in _NAME_MISMATCH else "certificate"
+    if isinstance(err, ssl.SSLError):
+        return "tls"
+    if isinstance(err, (TimeoutError, socket.timeout)):
+        return "timeout"
+    if isinstance(err, ConnectionRefusedError):
+        return "refused"
+    if isinstance(err, socket.gaierror):
+        return "dns"
+    return "network"
 
 
 class Transport(Protocol):
@@ -49,6 +74,10 @@ class Transport(Protocol):
 
 
 def context(tls: Tls) -> ssl.SSLContext:
+    """The TLS client context. With a root: CERT_REQUIRED, hostname checked,
+    that root the only CA (a missing or unreadable root file raises; there
+    is no fallback to any other store). ``root=None`` (the join's root fetch
+    alone) is the one way to an unverified context."""
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)  # CERT_REQUIRED + hostname check
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     if tls.root is None:
@@ -74,8 +103,8 @@ class HttpsTransport:
             ctx = context(tls)
             conn = http.client.HTTPSConnection(parts.hostname, parts.port or 443,
                                                context=ctx, timeout=self.timeout)
-        except (OSError, ValueError, ssl.SSLError) as err:
-            raise TransportError(type(err).__name__) from None
+        except (OSError, ValueError, ssl.SSLError):
+            raise TransportError("local_credentials") from None
         headers = {"User-Agent": "smoking-pi-fleet-agent", "Accept": "application/json"}
         if body is not None:
             headers["Content-Type"] = "application/json"
@@ -84,7 +113,7 @@ class HttpsTransport:
             resp = conn.getresponse()
             return resp.status, resp.read(protocol.MAX_BODY_BYTES + 1)
         except (OSError, ssl.SSLError, http.client.HTTPException) as err:
-            raise TransportError(type(err).__name__) from None
+            raise TransportError(failure_kind(err)) from None
         finally:
             conn.close()
 

@@ -1,8 +1,10 @@
 """The entrypoints' status file, and what the healthcheck and `fleet status` read.
 
 ``python -m fleet.status`` prints it as JSON; ``--check`` exits 1 when the
-loop that rewrites it stopped, or when the agent says it is enrolled and
-failing (what the Docker healthcheck runs). Not being in a fleet is healthy.
+loop that rewrites it stopped (what the Docker healthcheck runs). The
+container's health is the process's: a node that is revoked, whose
+certificate expired, or whose lead is away is measuring fine, and its
+agent is alive; that is ``lead_link``'s to say, in `fleet status`.
 The file holds only the fields :func:`snapshot` builds: never a secret.
 """
 
@@ -23,16 +25,17 @@ TICK_SECONDS = 60
 FIELDS = ("role", "state", "detail", "node_id", "node_name", "site_name", "lead_mode",
           "lead_urls", "enrolled", "fleet_id", "problems", "started", "at", "protocol",
           # The agent's, once enrolled (fleet/agent.py):
-          "health", "site_id", "lead_in_use", "last_heartbeat", "next_heartbeat",
+          "lead_link", "site_id", "lead_in_use", "last_heartbeat", "next_heartbeat",
           "failures", "last_error", "cert_not_after", "renew_after", "revoked_at",
           "store_received")
 
-#: ``health``: ``idle`` (not in a fleet: nothing to do), ``ok`` (enrolled,
-#: and a lead answered recently or the agent just started), ``failing``
-#: (enrolled, and either no lead answered for a while or a state waits for
-#: a person: revoked, certificate expired, corrupt, another node's id).
-#: The healthcheck fails on ``failing``; nothing else on the node reads it.
-HEALTH = ("idle", "ok", "failing")
+#: ``lead_link``, the node's link to its lead: ``idle`` (not in a fleet),
+#: ``ok`` (enrolled, and a lead answered recently or the agent just
+#: started), ``failing`` (enrolled, and either no lead answered for a while
+#: or a state waits for a person: revoked, certificate expired, stopped,
+#: corrupt, another node's id). Shown by `fleet status`; the healthcheck
+#: does not read it.
+LEAD_LINK = ("idle", "ok", "failing")
 
 
 def path(root: Path | None = None) -> Path:
@@ -64,8 +67,7 @@ def read(root: Path | None = None) -> dict:
 def healthy(report: dict, now: float | None = None) -> bool:
     now = time.time() if now is None else now
     at = report.get("at")
-    alive = isinstance(at, (int, float)) and now - at <= 3 * TICK_SECONDS
-    return alive and report.get("health") != "failing"
+    return isinstance(at, (int, float)) and now - at <= 3 * TICK_SECONDS
 
 
 def main(argv: list[str]) -> int:

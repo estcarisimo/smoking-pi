@@ -36,7 +36,7 @@ def test_agent_enrolled(tmp_path):
     enrolled(paths)
     report, line = agent.describe(cfg(), paths)
     assert report["state"] == "enrolled" and report["fleet_id"] == FLEET
-    assert FLEET in line and report["health"] == "ok" and report["cert_not_after"]
+    assert FLEET in line and report["lead_link"] == "ok" and report["cert_not_after"]
 
 
 def test_an_enrollment_without_its_credentials_is_corrupt(tmp_path):
@@ -46,7 +46,7 @@ def test_an_enrollment_without_its_credentials_is_corrupt(tmp_path):
     write(paths.enrollment, json.dumps({"node_id": NODE, "fleet_id": FLEET}))
     report, line = agent.describe(cfg(), paths)
     assert report["state"] == "state_corrupt" and report["enrolled"] is False
-    assert report["health"] == "failing" and "fleet leave --force" in line
+    assert report["lead_link"] == "failing" and "fleet leave --force" in line
 
 
 @pytest.mark.parametrize("text", ["{broken", "[]", "null", "42", '"x"', "{}",
@@ -155,10 +155,10 @@ def test_main_runs_until_stopped(monkeypatch):
 
 def test_health():
     assert not status.healthy({})
-    # Enrolled and failing is unhealthy; not in a fleet is not.
-    assert status.healthy({"at": 1000.0, "health": "idle"}, now=1000.0)
-    assert status.healthy({"at": 1000.0, "health": "ok"}, now=1000.0)
-    assert not status.healthy({"at": 1000.0, "health": "failing"}, now=1000.0)
+    # The container's health is the process's: a failing link to the lead
+    # (revoked, expired, lead away) is not an unhealthy agent.
+    for link in ("idle", "ok", "failing"):
+        assert status.healthy({"at": 1000.0, "lead_link": link}, now=1000.0)
     assert status.healthy({"at": 1000.0}, now=1000.0 + 3 * status.TICK_SECONDS)
     assert not status.healthy({"at": 1000.0}, now=1001.0 + 3 * status.TICK_SECONDS)
     assert status.main(["--check"]) == 1

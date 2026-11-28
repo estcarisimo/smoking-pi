@@ -70,7 +70,7 @@ def test_a_heartbeat_goes_over_mtls_and_says_what_the_node_is(paths):
         assert absent not in body
     protocol.decode(protocol.HeartbeatRequest, body)
     report = a.report()
-    assert report["state"] == "enrolled" and report["health"] == "ok"
+    assert report["state"] == "enrolled" and report["lead_link"] == "ok"
     assert report["lead_in_use"] == LEAD and report["last_heartbeat"]
     assert report["fleet_id"] == FLEET and report["failures"] == 0
     assert a.next_attempt == pytest.approx(clock() + 60)
@@ -98,7 +98,7 @@ def test_the_first_heartbeat_waits_for_the_enrollments_interval(paths):
     clock = Clock(0)
     a = make(paths, lead, clock)
     a.step()  # enrolled just now, heartbeat_interval 60
-    assert lead.to("/fleet/heartbeat") == [] and a.report()["health"] == "ok"
+    assert lead.to("/fleet/heartbeat") == [] and a.report()["lead_link"] == "ok"
     clock.advance(61)
     a.step()
     assert len(lead.to("/fleet/heartbeat")) == 1
@@ -151,14 +151,15 @@ def test_no_lead_backs_off_doubling_with_jitter_and_logs_once(paths, caplog):
     assert len(lead.calls) == 18
     # Grace passed: health is failing, and the healthcheck says so.
     report = a.report()
-    assert report["health"] == "failing"
-    assert not status.healthy(dict(report, at=clock()), now=clock())
+    assert report["lead_link"] == "failing"
+    # ...and the agent process is still healthy: Docker says so.
+    assert status.healthy(dict(report, at=clock()), now=clock())
     # The lead comes back: the next attempt resets everything.
     lead.down.clear()
     clock.advance(a.next_attempt - clock() + 0.1)
     with caplog.at_level(logging.INFO, logger="fleet"):
         a.step()
-    assert a.failures == 0 and a.backoff == 0 and a.report()["health"] == "ok"
+    assert a.failures == 0 and a.backoff == 0 and a.report()["lead_link"] == "ok"
     assert "answered again, after 9 failed attempt(s)" in caplog.text
 
 
@@ -197,7 +198,7 @@ def test_a_stop_answer_stops_sending_and_shows_in_status(paths, code):
     a = make(paths, lead, clock)
     a.step()
     report = a.report()
-    assert report["state"] == "stopped" and report["health"] == "failing"
+    assert report["state"] == "stopped" and report["lead_link"] == "failing"
     assert code in report["detail"] and report["enrolled"] is True
     for _ in range(10):
         clock.advance(1800)
@@ -264,6 +265,39 @@ def test_directives_are_applied_in_order_and_reported_next_time(paths, caplog):
     assert "WRITEtoken" not in caplog.text
 
 
+def test_a_repeated_store_or_seed_directive_writes_nothing(paths, monkeypatch):
+    lead = enrolled(paths)
+    store = {"store_id": "11111111-2222-4333-8444-555555555555",
+             "url": "https://store.example", "org_id": "0" * 16, "bucket_id": "1" * 16,
+             "bucket_name": f"node-{NODE}", "write_token": "WRITEtokenWRITEtoken",
+             "ca_pem": lead.ca.root_pem}
+    seed = {"type": "start_seed", "since": "2026-01-01T00:00:00Z",
+            "until": "2026-02-01T00:00:00Z", "max_bytes_per_second": 4096}
+    for i in range(3):
+        lead.directives.append([{"id": f"s{i}", "type": "repoint_store", "store": store},
+                                dict(seed, id=f"t{i}")])
+    writes = []
+    real = statefile.write_bytes
+    monkeypatch.setattr(statefile, "write_bytes",
+                        lambda p, *a, **k: (writes.append(p.name), real(p, *a, **k)))
+    clock = Clock()
+    a = make(paths, lead, clock)
+    a.step()
+    assert sorted(writes) == ["enrollment.json", "enrollment.json", "store-token"]
+    writes.clear()
+    for _ in range(2):
+        clock.advance(61)
+        a.step()
+    assert writes == []
+    # A different token is a change: written.
+    lead.directives.append([{"id": "s9", "type": "repoint_store",
+                             "store": dict(store, write_token="OTHERtokenOTHERtoken")}])
+    clock.advance(61)
+    a.step()
+    assert sorted(writes) == ["enrollment.json", "store-token"]
+    assert paths.store_token.read_text() == "OTHERtokenOTHERtoken"
+
+
 def test_results_wait_for_a_heartbeat_that_gets_through(paths):
     lead = enrolled(paths)
     lead.directives.append([{"id": "x", "type": "teleport"}])
@@ -290,7 +324,7 @@ def test_revoked_overrides_the_rest_and_is_for_good(paths, caplog):
     assert lead.to("/fleet/renew") == []
     report = a.report()
     assert report["state"] == "revoked" and report["revoked_at"]
-    assert report["health"] == "failing" and "fleet leave" in report["detail"]
+    assert report["lead_link"] == "failing" and "fleet leave" in report["detail"]
     assert enrollment(paths)["revoked"]["reason"] == "operator"
     assert "revoked this node" in caplog.text
     # Nothing is sent again, not by this process, not by the next one.
@@ -370,6 +404,33 @@ def test_a_failed_renewal_keeps_the_old_pair(paths, how):
     assert len(lead.to("/fleet/renew")) == 2
 
 
+def test_renew_now_obeys_the_retry_gate_after_a_failure(paths):
+    """A lead that keeps asking while renewal keeps failing gets an answer,
+    not a new key and a POST on every heartbeat."""
+    lead = enrolled(paths)
+    lead.routes.pop(("POST", LEAD + "/fleet/renew"))
+    clock = Clock()
+    a = make(paths, lead, clock)
+    for i in range(4):
+        lead.directives.append([{"id": f"r{i}", "type": "renew_now"}])
+    a.step()
+    assert len(lead.to("/fleet/renew")) == 1
+    for _ in range(3):
+        clock.advance(61)
+        a.step()
+    assert len(lead.to("/fleet/renew")) == 1
+    assert _results(lead.to("/fleet/heartbeat")[-1]) == {"r2": "failed"}
+    # Once the gate has passed, the next request is tried.
+    lead.serve_renew()
+    lead.directives.append([{"id": "r9", "type": "renew_now"}])
+    clock.advance(agent.RENEW_RETRY_SECONDS)
+    a.step()
+    assert len(lead.to("/fleet/renew")) == 2
+    clock.advance(61)
+    a.step()
+    assert _results(lead.to("/fleet/heartbeat")[-1]) == {"r9": "done"}
+
+
 def test_a_renewal_interrupted_between_the_two_swaps_is_finished(paths):
     lead = enrolled(paths)
     a = make(paths, lead)
@@ -388,6 +449,39 @@ def test_a_renewal_interrupted_between_the_two_swaps_is_finished(paths):
     assert make(paths, lead).report()["state"] == "enrolled"
 
 
+def test_a_power_cut_that_kept_the_chain_rename_but_not_the_keys(paths):
+    """New chain in place, its key still in key.pem.new, the old key in
+    key.pem: the new key is the chain's, so the swap is finished, not the
+    key thrown away (which would leave state_corrupt until a re-join)."""
+    lead = enrolled(paths)
+    a = make(paths, lead)
+    a.step()
+    old_key = paths.key.read_bytes()
+    a._renew(a.local, a.clock())
+    new_key = paths.key.read_bytes()
+    paths.key.with_name("key.pem.new").write_bytes(new_key)
+    paths.key.write_bytes(old_key)
+    assert make(paths, lead).local is None  # nothing read yet
+    assert nodestate.finish_renewal(paths) == "completed"
+    assert paths.key.read_bytes() == new_key
+    assert not paths.key.with_name("key.pem.new").exists()
+    assert make(paths, lead).report()["state"] == "enrolled"
+
+
+def test_every_write_and_swap_syncs_its_directory(paths, monkeypatch):
+    synced = []
+    real = statefile.fsync_dir
+    monkeypatch.setattr(statefile, "fsync_dir", lambda d: (synced.append(d), real(d)))
+    lead = enrolled(paths)
+    assert synced  # the join's writes
+    synced.clear()
+    a = make(paths, lead)
+    a.step()
+    a._renew(a.local, a.clock())
+    # key.new, chain.new, two renames, enrollment.json: five, all in node/.
+    assert len(synced) >= 5 and set(synced) == {paths.key.parent}
+
+
 # -- states that wait for a person ----------------------------------------------
 
 
@@ -398,7 +492,7 @@ def test_a_certificate_that_expired_while_the_lead_was_away(paths):
     a = make(paths, lead, clock)
     a.step()
     report = a.report()
-    assert report["state"] == "cert_expired" and report["health"] == "failing"
+    assert report["state"] == "cert_expired" and report["lead_link"] == "failing"
     assert "fleet leave --force" in report["detail"] and "fleet join" in report["detail"]
     assert lead.calls == []
 
@@ -429,7 +523,7 @@ def test_not_enrolled_is_idle_and_healthy(paths):
     lead = FakeLead()
     a = make(paths, lead)
     report, delay = a.tick()
-    assert report["state"] == "not_enrolled" and report["health"] == "idle"
+    assert report["state"] == "not_enrolled" and report["lead_link"] == "idle"
     assert status.healthy(dict(report, at=1.0), now=1.0) and lead.calls == []
     assert delay == status.TICK_SECONDS
 
@@ -469,7 +563,7 @@ def test_status_and_logs_never_show_the_key(paths, caplog):
 
 
 def test_transport_errors_carry_no_text():
-    assert str(TransportError("SSLError")) == "SSLError"
+    assert str(TransportError("tls")) == "tls"
 
 
 def test_describe_still_reads_only_files(paths):

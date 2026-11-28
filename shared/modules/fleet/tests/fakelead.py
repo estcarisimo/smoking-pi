@@ -87,6 +87,32 @@ class CA:
         return (chain.pem(leaf), chain.pem(self.inter))
 
 
+    def issue_server(self, dns: tuple[str, ...] = (), ips: tuple[str, ...] = ()):
+        """A lead's TLS server certificate: (chain PEM leaf+intermediate,
+        key PEM)."""
+        import ipaddress
+
+        from cryptography.hazmat.primitives import serialization
+        key = ec.generate_private_key(ec.SECP256R1())
+        names = [x509.DNSName(d) for d in dns] + [
+            x509.IPAddress(ipaddress.ip_address(i)) for i in ips]
+        t = now()
+        leaf = (x509.CertificateBuilder().subject_name(_name("lead"))
+                .issuer_name(self.inter.subject).public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(t - timedelta(minutes=5))
+                .not_valid_after(t + timedelta(days=30))
+                .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+                .add_extension(x509.SubjectAlternativeName(names), critical=False)
+                .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+                               critical=False)
+                .sign(self.inter_key, hashes.SHA256()))
+        key_pem = key.private_bytes(serialization.Encoding.PEM,
+                                    serialization.PrivateFormat.PKCS8,
+                                    serialization.NoEncryption())
+        return chain.pem(leaf) + chain.pem(self.inter), key_pem
+
+
 def endpoints(*urls: str, epoch: int = 1, current: str | None = None):
     urls = urls or (LEAD,)
     return protocol.LeadEndpoints(epoch=epoch, current=current or urls[0], urls=tuple(urls),
@@ -127,10 +153,10 @@ class FakeLead:
     def request(self, method: str, url: str, body: bytes | None, tls: Tls):
         self.calls.append(Call(method, url, json.loads(body) if body else None, tls))
         if any(url.startswith(base + "/") for base in self.down):
-            raise TransportError("ConnectionRefusedError")
+            raise TransportError("refused")
         handler = self.routes.get((method, url))
         if handler is None:
-            raise TransportError("ConnectionRefusedError")
+            raise TransportError("refused")
         status_code, payload = handler(self.calls[-1].body, tls)
         if isinstance(payload, bytes):
             return status_code, payload

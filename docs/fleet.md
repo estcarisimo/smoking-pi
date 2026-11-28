@@ -206,8 +206,8 @@ privilege, and leaves the rest absent rather than guessing:
 | --- | --- |
 | `revoked` | stops for good (below). Overrides the rest of the response. |
 | `lead_endpoints` | replaces the lead list, kept in the agent's volume, if its epoch is higher; reported `done`, or `ignored` when not higher. |
-| `renew_now` | renews the certificate at once: `done` or `failed`. |
-| `repoint_store`, `start_seed` | keeps what it received (the store's token in its own 0600 file) and reports `ignored`: the data plane is a later release, and the lead decides. |
+| `renew_now` | renews the certificate at once: `done` or `failed`. Within 15 minutes of a failed renewal it answers `failed` without asking the lead again, so a lead that keeps asking cannot make the node generate a key on every heartbeat. |
+| `repoint_store`, `start_seed` | keeps what it received (the store's token in its own 0600 file; nothing is rewritten when the lead repeats the same one) and reports `ignored`: the data plane is a later release, and the lead decides. |
 | a type it does not know | `ignored`; one whose arguments fail validation, `invalid`; one without an id is dropped and logged. |
 
 ### Certificates
@@ -216,7 +216,9 @@ The node's certificate lives 90 days. From two thirds of its life on
 (60 days) the agent renews it: a **new key**, made on the node, a request
 over mTLS with the current certificate, and the answer checked like the
 first one. The new key and certificate replace the old pair only once both
-are written; until then the old pair stays in use, and a renewal that fails
+are written, each write and rename synced to the SD card with its directory
+(a power cut mid-swap is finished at the next start, whichever rename the
+card kept); until then the old pair stays in use, and a renewal that fails
 is retried every 15 minutes, which leaves a month of margin.
 
 ### When the lead is away
@@ -229,9 +231,12 @@ every lead moved), and when none answers it waits 30 s, doubling with
 logs a failure once (and once an hour while it lasts), not every attempt.
 
 After 10 minutes (or three heartbeat intervals) without an answer, the
-agent's health is `failing`: `fleet status` shows the failures, and its
-container shows as unhealthy. Nothing else reads that health, and the node
-keeps measuring as a standalone one.
+node's **link to the lead** is `failing` (`lead_link` in
+`fleet status --json`): `fleet status` shows the failures, and the node
+keeps measuring as a standalone one. The container's Docker health says
+only whether the agent process is alive: a node whose lead is away, whose
+certificate expired or that was revoked is measuring fine, and its
+container stays `healthy` in `docker ps`.
 
 **A certificate that expired while the lead was away** cannot be renewed
 (renewal is authenticated with it). The agent stops sending and says so; the
@@ -241,12 +246,12 @@ remove the node first, for the same node id to join again).
 
 ### States that wait for a person
 
-`smoking-pi fleet status` shows the agent's state; none of these makes the
+`smoking-pi fleet status` shows the agent's state; none of these makes the container unhealthy or the
 agent exit or restart in a loop:
 
 | State | Means | What to do |
 | --- | --- | --- |
-| `not_enrolled` | not in a fleet (healthy, idle) | `fleet join` |
+| `not_enrolled` | not in a fleet (idle) | `fleet join` |
 | `enrolled` | heartbeats going (or retrying while the lead is away) | nothing |
 | `stopped` | the lead answered something the protocol says to stop on (`unauthenticated`, `duplicate_node`, `bad_request`…); the agent tries again after 6 hours or when it restarts | look at the lead |
 | `revoked` | the lead revoked the node; nothing is sent again, not even after a restart | `fleet leave` |

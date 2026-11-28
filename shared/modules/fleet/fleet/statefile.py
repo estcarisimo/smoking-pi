@@ -43,12 +43,35 @@ def write_bytes(path: Path, data: bytes, mode: int = 0o644) -> None:
             os.fsync(f.fileno())
         os.chmod(tmp, mode)  # whatever the umask said
         os.replace(tmp, path)
+        fsync_dir(path.parent)
     except BaseException:
         try:
             tmp.unlink()
         except OSError:
             pass
         raise
+
+
+def fsync_dir(directory: Path) -> None:
+    """Make a rename in ``directory`` survive a power cut (the file's own
+    fsync does not cover its directory entry). Best effort where a
+    directory cannot be opened."""
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def replace(src: Path, dst: Path) -> None:
+    """os.replace, durable (fsync of the directory after it)."""
+    os.replace(src, dst)
+    fsync_dir(dst.parent)
 
 
 def write_object(path: Path, data: dict) -> None:

@@ -5183,11 +5183,11 @@ assert d["fleet_id"] == "0b1e2f3a-0000-4000-8000-000000000001", d
 
 @test "fleet status: once enrolled, the lead in use, heartbeats, the certificate, and revoked" {
     printf 'COMPOSE_PROFILES=influxdb,fleet\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\nFLEET_LEAD_URLS=https://a.example\n' > "$SMOKING_PI_ENV_FILE"
-    export STUB_FLEET_AGENT='{"state": "enrolled", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "health": "ok", "lead_in_use": "https://b.example", "lead_urls": ["https://b.example", "https://a.example"], "last_heartbeat": "2026-11-27T12:00:00Z", "next_heartbeat": "2026-11-27T12:01:00Z", "failures": 0, "cert_not_after": "2027-02-25T12:00:00Z", "renew_after": "2027-01-26T12:00:00Z"}'
+    export STUB_FLEET_AGENT='{"state": "enrolled", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "lead_link": "ok", "lead_in_use": "https://b.example", "lead_urls": ["https://b.example", "https://a.example"], "last_heartbeat": "2026-11-27T12:00:00Z", "next_heartbeat": "2026-11-27T12:01:00Z", "failures": 0, "cert_not_after": "2027-02-25T12:00:00Z", "renew_after": "2027-01-26T12:00:00Z"}'
     run "$CLI" fleet status
     [ "$status" -eq 0 ]
     [[ "$output" == *"enrolled:   yes, fleet 0b1e2f3a-0000-4000-8000-000000000001"* ]]
-    [[ "$output" == *"agent:      enrolled (ok)"* ]]
+    [[ "$output" == *"agent:      enrolled (link to the lead: ok)"* ]]
     [[ "$output" == *"lead now:   https://b.example"* ]]
     [[ "$output" == *"lead list:  https://b.example, https://a.example"* ]]
     [[ "$output" == *"heartbeat:  last 2026-11-27T12:00:00Z, next 2026-11-27T12:01:00Z"* ]]
@@ -5197,15 +5197,15 @@ assert d["fleet_id"] == "0b1e2f3a-0000-4000-8000-000000000001", d
     echo "$output" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-assert d["lead_in_use"] == "https://b.example" and d["health"] == "ok", d
+assert d["lead_in_use"] == "https://b.example" and d["lead_link"] == "ok", d
 assert d["cert_not_after"] == "2027-02-25T12:00:00Z" and d["revoked_at"] is None, d
 assert d["agent_lead_urls"] == ["https://b.example", "https://a.example"], d
 '
-    export STUB_FLEET_AGENT='{"state": "revoked", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "health": "failing", "revoked_at": "2026-11-27T13:00:00Z"}'
+    export STUB_FLEET_AGENT='{"state": "revoked", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "lead_link": "failing", "revoked_at": "2026-11-27T13:00:00Z"}'
     run "$CLI" fleet status
     [[ "$output" == *"enrolled:   revoked from fleet 0b1e2f3a-0000-4000-8000-000000000001 at 2026-11-27T13:00:00Z"* ]]
     [[ "$output" == *"smoking-pi fleet leave"* ]]
-    export STUB_FLEET_AGENT='{"state": "cert_expired", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "health": "failing", "cert_not_after": "2026-11-01T00:00:00Z"}'
+    export STUB_FLEET_AGENT='{"state": "cert_expired", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "lead_link": "failing", "cert_not_after": "2026-11-01T00:00:00Z"}'
     run "$CLI" fleet status
     [[ "$output" == *"certificate expired (2026-11-01T00:00:00Z)"* ]]
     [[ "$output" == *"fleet leave --force"* ]]

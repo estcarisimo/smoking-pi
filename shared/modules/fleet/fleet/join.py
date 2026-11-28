@@ -164,15 +164,35 @@ def enroll(js: protocol.JoinString, cfg: settings.Settings, paths: NodePaths,
             nodestate.remove_all(paths)
 
 
+#: Why the enrollment's TLS failed, after the root fetch worked: one
+#: sentence per transport failure kind (fleet/transport.py), chosen by the
+#: kind, never derived from the exception.
+_ENROLL_TLS = {
+    "hostname": ("{url} served the fleet root, but the lead's TLS certificate does not "
+                 "name that host. Join with a URL whose host name or address the lead's "
+                 "certificate carries (the lead's own FLEET_LEAD_URLS), or have the lead's "
+                 "certificate issued for this one."),
+    "certificate": ("{url} served the fleet root, but the TLS certificate it presents does "
+                    "not lead to that root. The address may reach something other than the "
+                    "lead (a proxy, another service on the port), or the lead's certificate "
+                    "is not from this fleet."),
+    "tls": ("{url} served the fleet root, but the TLS handshake for the enrollment failed "
+            "(protocol or cipher mismatch). Check the lead's version."),
+}
+
+
 def _post_enroll(js, first, request, paths, transport, cfg):
     order = [first] + [u for u in js.lead_urls if u != first]
     busy: list[str] = []
+    tls_failure: tuple[str, str] | None = None
     for url in order:
         try:
             resp = lead_call(transport, url, "POST", "/fleet/enroll", request,
                              protocol.EnrollResponse, Tls(root=paths.root_cert))
             return resp, url
-        except TransportError:
+        except TransportError as err:
+            if err.reason in _ENROLL_TLS and tls_failure is None:
+                tls_failure = (err.reason, url)
             continue
         except BadAnswer:
             raise JoinFailed("bad_answer",
@@ -183,11 +203,23 @@ def _post_enroll(js, first, request, paths, transport, cfg):
             if err.code in _ENROLL_REFUSALS:
                 raise JoinFailed(err.code,
                                  _ENROLL_REFUSALS[err.code].format(node=cfg.node_id)) from None
+            if err.code == "rate_limited":
+                after = err.body.retry_after if err.body is not None else None
+                wait = f"in {after} s" if after else "in a few minutes"
+                raise JoinFailed("rate_limited",
+                                 f"The lead at {url} is limiting join attempts. Nothing was "
+                                 f"changed; try the same join again {wait}. If it is refused "
+                                 "again, the token may be wrong or used: ask for a new join "
+                                 "string.") from None
             busy.append(f"{url}: {err.code}")
     if busy:
         raise JoinFailed("lead_unavailable",
                          "The lead could not enroll this node now (" + "; ".join(busy) + "). "
                          "Nothing was changed; try the same join again in a minute.")
+    if tls_failure is not None:
+        kind, url = tls_failure
+        raise JoinFailed(f"tls_{kind}", _ENROLL_TLS[kind].format(url=url) +
+                         " Nothing was sent and nothing was changed.")
     raise JoinFailed("unreachable",
                      "The lead served its root but did not answer the enrollment. Nothing "
                      "was changed; run the same join again.")
